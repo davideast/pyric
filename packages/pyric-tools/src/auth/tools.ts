@@ -1,7 +1,7 @@
 /**
  * `createAuthAdminTools({ scope })` — Identity Toolkit-driven auth
  * tooling as `ToolHandler[]`, consumable by `@inbrowser/agent`'s
- * registry. Mirrors `@pyric/rtdb`'s `createRtdbAdminTools` shape: a
+ * registry. Mirrors `pyric/database`'s `createRtdbAdminTools` shape: a
  * scope in, JSON-Schema-typed `ToolHandler`s out.
  *
  * Three tools:

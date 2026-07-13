@@ -14,7 +14,7 @@
  * backend). The backend itself is identity-agnostic; the caller passes
  * `AuthState` per op.
  *
- * Rule-evaluation oracle: the `@pyric/rtdb` simulator handler. The
+ * Rule-evaluation oracle: the `pyric/database` simulator handler. The
  * backend never reimplements rule semantics — it just packages the
  * input shape the simulator expects.
  */

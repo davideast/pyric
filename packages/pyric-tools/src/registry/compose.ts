@@ -97,7 +97,7 @@ export interface ComposeOptions {
   adminDeps?: AdminAppDeps;
   /**
    * RTDB host — when supplied, RTDB admin tools register. Construct
-   * via `initializeDatabaseApp(...)` from `@pyric/rtdb`. Passed
+   * via `initializeDatabaseApp(...)` from `pyric/database`. Passed
    * separately from `adminDeps` so RTDB and Firestore admin surfaces
    * opt in independently. Skipped in `browser-parity` profile.
    */

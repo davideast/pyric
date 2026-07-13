@@ -152,8 +152,8 @@ Version `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 | `pyric/auth` | Sandbox-only modular Auth mirror, identity, providers, and popup/redirect resolver. It has no `firebase/auth` runtime dependency; production imports stay on `firebase/auth`. |
 | `pyric/firestore` | Sandbox-only modular Firestore mirror plus Firestore data/inspect tools. It has no `firebase/firestore` runtime dependency; production imports stay on `firebase/firestore`. |
 | `pyric/firestore-values` | Firestore value helpers/wrappers. |
-| `pyric/database` | Realtime Database surface and RTDB tooling. |
-| `pyric/database/modular` | Tree-shakable RTDB modular SDK shim. |
+| `pyric/database` | Realtime Database surface and RTDB tooling. Data tools depend on the transport-neutral `RtdbDataTransport` host port; production Firebase SDK adapters live in `pyric-tools`. |
+| `pyric/database/modular` | Tree-shakable RTDB modular SDK shim. Its in-process sandbox is complete enough for current conformance; its remaining legacy production arm is isolated by the compiled-binding ratchet pending removal. |
 | `pyric/storage` | Modular Storage mirror and storage admin-style tools. |
 | `pyric/storage/internal` | Storage engine seam. |
 | `pyric/ai` | Sandbox-only Firebase AI Logic mirror (`getAI`, `getGenerativeModel`, generateContent, streaming, chat, function calling, countTokens). It has no `firebase/ai` runtime dependency; production imports stay on `firebase/ai`. |
@@ -307,6 +307,10 @@ Backend selection belongs to package resolution, not app initialization.
   `pyric/firestore`, `pyric/storage`, and `pyric/ai` enforce this invariant.
   Remaining client service mirrors with legacy production arms are removed one
   service at a time behind the compiled-binding ratchet.
+- Production-facing RTDB agent tools are a separate composition path:
+  `pyric/database` owns tool semantics through `RtdbDataTransport`, while
+  `pyric-tools` adapts that port to `firebase-admin/database` for admin calls
+  and `firebase/database` for user-authenticated calls.
 
 ```ts
 import { initializeApp } from 'pyric/app';
@@ -562,9 +566,6 @@ Repo-local skills: `.agents/skills/playground-prompts`,
 
 - `.agents/skills/playground-prompts/SKILL.md` still references
   `examples/playground-next`; the tracked playground is `packages/playground`.
-- The RTDB compat registry prose still uses dissolved old names such as
-  `@pyric/rtdb`. The real export paths are `pyric/database`,
-  `pyric/database/modular`, and the rules API at `pyric/rules`.
 - `scripts/build.sh` comments still list four packages even though the build
   also builds/embeds Studio, Playground, and the docs site.
 - **The rules-language reports have no freshness gate.** `COMPAT.md` and the

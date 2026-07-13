@@ -1,5 +1,5 @@
 ---
-title: "@pyric/rtdb compatibility matrix"
+title: "pyric/database compatibility matrix"
 navLabel: "Realtime Database"
 group: "Compatibility"
 section: ""
@@ -7,9 +7,9 @@ order: 8004
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
-# `@pyric/rtdb` compatibility matrix
+# `pyric/database` compatibility matrix
 
-> ⚠ **EXPERIMENTAL — not v1-supported.** `@pyric/rtdb` is functional but
+> ⚠ **EXPERIMENTAL — not v1-supported.** `pyric/database` is functional but
 > work-in-progress. The v1-supported, conformance-held surface is **auth +
 > firestore + rules**. The modular `firebase/database` shim rows below are
 > verified **sandbox-side** by unit probes — they are NOT wrong — but most are
@@ -20,7 +20,7 @@ order: 8004
 The single readable contract for "what this package guarantees vs the
 production Firebase Realtime Database surface."
 
-`@pyric/rtdb` covers **two surfaces** that share the package:
+`pyric/database` covers **two surfaces** that share the package:
 
 1. **Agent-tool surface (shipped today).** The factory +
    rule-authoring DSL — the 11 agent tools returned by
@@ -44,23 +44,13 @@ production Firebase Realtime Database surface."
    still pending implementation (—). Oracle probes capture prod
    behavior so the sandbox is correct by construction.
 
-The package wraps two real services:
+Production-facing access is composed across package boundaries:
 
-- The **RTDB REST API** for admin-mode data ops and rules deploy
-  (`fetchDatabase` → `${databaseUrl}<path>.json?…`).
-- The **`firebase/database` modular SDK** for user-mode data ops
-  (via `host.getClientForUser(auth)`).
-- The **`firebase-admin/database` SDK** for admin-mode data ops in
-  the data handler.
+- The **RTDB REST API** is used by `pyric/database` for rule fetch/deploy and structure crawl (`fetchDatabase`).
+- The `RtdbDataTransport` host port owns the five data operations. `pyric-tools` supplies the production adapter: `firebase-admin/database` when no user identity is present and `firebase/database` when `auth` is present.
+- The modular SDK mirror has an in-process sandbox backend and still carries its legacy `firebase/database` production delegate. That delegate is outside this transport-ownership repair and remains pinned by the client-binding fixture.
 
-The conformance oracle for this package therefore observes a
-mixture: REST-shape claims (status codes, response bodies) and
-`firebase/database` SDK-shape claims (ref/get/set/onValue/push
-semantics). The sandbox-vs-prod axis is much smaller here than in
-`pyric/auth` or `pyric/firestore` because there is no in-process
-RTDB sandbox — the package goes directly to the real service. The
-relevant divergence axis is **simulator-vs-prod-rules-engine** for
-the rule-evaluation surface.
+The conformance oracle therefore observes REST shapes, SDK shapes, and sandbox behavior. The relevant rules-engine divergence axis remains **simulator-vs-prod-rules-engine**.
 
 See the design rationale for the methodology
 (vocabulary of conformance / oracle / matrix; how to add rows;
@@ -81,11 +71,8 @@ Probe references: `unit:<file>` means a Bun test in
 under `packages/conformance/observations/<obs>.json`.
 
 Targets:
-- **admin** — operations run via `firebase-admin/database` or the
-  REST `access_token=…` path. Rules bypassed.
-- **user** — operations run via `host.getClientForUser(auth)`
-  (`firebase/database` modular SDK) or REST `auth=…`. Rules
-  enforced.
+- **admin** — data operations call `host.data` without user identity; the production adapter uses `firebase-admin/database`. REST paths use an admin token. Rules bypassed.
+- **user** — data operations call `host.data` with `auth`; the production adapter uses `firebase/database`. REST paths use a user token. Rules enforced.
 - **simulator** — the in-process rule evaluator
   (`SimulateHandler` + the Ohm-based RTDB expression grammar).
   Acts as the oracle for "would prod allow this?" questions
@@ -143,24 +130,24 @@ Targets:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">10</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode returns <code>{ success: true, data: &lt;value or null&gt; }</code>; uses <code>firebase-admin/database</code> <code>ref(path).get().val()</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code>; oracle: <code>packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json</code> — admin-SDK <code>ref(path).get().val()</code> returned the exact seeded payload, wrapped as <code>{ success: true, data: &lt;value&gt; }</code>.</div></div>
+<summary class="compat-line"><span class="compat-num">10</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode returns <code>{ success: true, data: &lt;value or null&gt; }</code>; calls <code>host.data.get(path)</code> without user identity. The production adapter in <code>pyric-tools</code> implements that port with <code>firebase-admin/database</code> <code>ref(path).get().val()</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code>; adapter: <code>packages/pyric-tools/test/registry/rtdb-data-transport.test.ts</code>; oracle: <code>packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json</code> — admin-SDK <code>ref(path).get().val()</code> returned the exact seeded payload, wrapped as <code>{ success: true, data: &lt;value&gt; }</code>.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">11</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode returns <code>{ success: true, data: &lt;value or null&gt; }</code>; uses <code>firebase/database</code> modular <code>get(ref(db, path)).val()</code> via <code>host.getClientForUser(auth)</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code>; oracle: <code>packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json</code> — <code>shapesAgree: true</code> between admin and modular paths against blockingfun (same <code>data</code> value, same <code>success: true</code> shape).</div></div>
+<summary class="compat-line"><span class="compat-num">11</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode returns <code>{ success: true, data: &lt;value or null&gt; }</code>; calls <code>host.data.get(path, auth)</code>. The production adapter in <code>pyric-tools</code> implements that port with <code>firebase/database</code> modular <code>get(ref(db, path)).val()</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code>; adapter: <code>packages/pyric-tools/test/registry/rtdb-data-transport.test.ts</code>; oracle: <code>packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json</code> — <code>shapesAgree: true</code> between admin and modular paths against blockingfun (same <code>data</code> value, same <code>success: true</code> shape).</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">12</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>null</code> at the path (empty / missing) round-trips as <code>data: null</code> (NOT a not-found error) — matches <code>DataSnapshot.val()</code> returning <code>null</code> for absent paths</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code> ("admin GET returns null for empty path")</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code> ("readData preserves null for a missing path")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">13</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Any thrown error in admin mode is wrapped as <code>{ success: false, error: { code: 'READ_FAILED', recoverable: false } }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">14</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied user-mode <code>get</code>/<code>set</code>/<code>update</code>/<code>push</code>/<code>remove</code> surface as <code>{ success: false, error: { code: 'PERMISSION_DENIED', recoverable: false } }</code> — the handler inspects the caught error before the generic <code>READ_FAILED</code> / <code>WRITE_FAILED</code> wrap and preserves the <code>PERMISSION_DENIED</code> signal. The inspection matches both <code>(err.code === 'PERMISSION_DENIED')</code> and <code>(err.message.toLowerCase().includes('permission_denied'))</code> so it covers the uppercase <code>set/get/remove</code> shape AND the lowercase <code>runTransaction</code> shape from oracle row #15 / M37e. Non-rules errors (network, token mint, etc.) still surface as <code>READ_FAILED</code> / <code>WRITE_FAILED</code>.</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code> ("rules-denied GET/SET/REMOVE surfaces as PERMISSION_DENIED", "non-rules error for GET/SET still surfaces as READ_FAILED/WRITE_FAILED", "transaction-shaped rules-denied (lowercase message, no .code) surfaces as PERMISSION_DENIED"); oracles cited: <code>packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json</code> + <code>packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code> ("every data method preserves uppercase PERMISSION_DENIED transport errors", "readData normalizes transport failures as READ_FAILED", "write methods normalize transport failures as WRITE_FAILED", "lowercase permission_denied transport errors preserve PERMISSION_DENIED"); oracles cited: <code>packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json</code> + <code>packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">15</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied read against the real RTDB throws on the modular SDK side with <code>code: 'PERMISSION_DENIED'</code> and message <code>PERMISSION_DENIED: Permission denied</code>. The thrown value is a <strong>plain <code>Error</code></strong> (not a <code>FirebaseError</code>) — <code>.name === 'Error'</code>, <code>.constructor.name === 'Error'</code> — diverging from Firestore/Auth which throw <code>FirebaseError</code>.</span></summary>
@@ -173,11 +160,11 @@ Targets:
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">16</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode replaces the value at the path entirely; resolves <code>{ success: true, data: null }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">17</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode replaces via the modular SDK's <code>set(ref, data)</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">17</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode replaces through <code>host.data.set(path, data, auth)</code>; the <code>pyric-tools</code> production adapter delegates to the modular SDK's <code>set(ref, data)</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">18</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Setting <code>null</code> at a path is equivalent to removing it (matches RTDB's documented behavior)</span></summary>
@@ -185,7 +172,7 @@ Targets:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">19</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Errors on either path wrap as <code>{ success: false, error: { code: 'WRITE_FAILED', recoverable: false } }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">20</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied write against the real RTDB throws with <code>code: 'PERMISSION_DENIED'</code> (uppercase, snake-case — distinct from Firestore's lowercase-kebab <code>'permission-denied'</code>) and message <code>PERMISSION_DENIED: Permission denied</code>. The thrown value is a <strong>plain <code>Error</code></strong>, not a <code>FirebaseError</code>.</span></summary>
@@ -198,11 +185,11 @@ Targets:
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">21</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode merges top-level keys at the path; resolves <code>{ success: true, data: null }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">22</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode merges via the modular SDK's <code>update(ref, data)</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">22</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode merges through <code>host.data.update(path, data, auth)</code>; the <code>pyric-tools</code> production adapter delegates to the modular SDK's <code>update(ref, data)</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">23</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">When <code>path === '/'</code> and <code>data</code> keys are root-relative paths (e.g. <code>{ '/users/alice/name': 'A', '/posts/p1/author': 'alice' }</code>), the underlying SDK performs an atomic fan-out write at every listed path</span></summary>
@@ -219,11 +206,11 @@ Targets:
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">25</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode returns <code>{ success: true, data: { key: &lt;auto-id&gt; } }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">26</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode returns <code>{ success: true, data: { key: &lt;auto-id&gt; } }</code> via <code>push(ref, data).key</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">26</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode returns <code>{ success: true, data: { key: &lt;auto-id&gt; } }</code> from <code>host.data.push(path, data, auth)</code>; the <code>pyric-tools</code> production adapter delegates to <code>push(ref, data).key</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">27</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Auto-id format is RTDB's "push ID": 20 characters, starts with <code>-</code>, lexicographically sortable, timestamp-prefixed (encodes the millisecond timestamp at the time of generation)</span></summary>
@@ -240,11 +227,11 @@ Targets:
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">29</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode removes the value and all children; resolves <code>{ success: true, data: null }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">30</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode removes via the modular SDK's <code>remove(ref)</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">30</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode removes through <code>host.data.remove(path, auth)</code>; the <code>pyric-tools</code> production adapter delegates to the modular SDK's <code>remove(ref)</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">31</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>remove(ref)</code> and <code>set(ref, null)</code> produce the same end state (no path remains, <code>get</code> returns <code>null</code>)</span></summary>
@@ -552,7 +539,7 @@ to `getDatabase`:
 
 - **Sandbox** — `getDatabase(ctx: SandboxContext)`. Frozen identity
   baked into the handle at construction; ops route to `RtdbBackend`
-  (in-memory JSON tree + the `@pyric/rtdb` rule simulator).
+  (in-memory JSON tree + the `pyric/database` rule simulator).
 - **Sandbox-live** — `getDatabase(sandbox: Sandbox)`. Identity read
   per-op from `sandbox.currentUser`; `pyric/auth` sign-ins flip the
   next op's `request.auth` without re-binding the handle.
@@ -767,7 +754,7 @@ remains unchanged.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">M37e</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied transaction rejects with a plain <code>Error</code> whose <code>message === 'permission_denied'</code> (lowercase) and NO <code>.code</code> field — DIFFERENT from <code>set</code>/<code>get</code>'s <code>'PERMISSION_DENIED: Permission denied'</code> shape with uppercase <code>.code</code>. <strong>Note: the divergence between the two shapes is real at the SDK boundary, but the <code>DataHandler</code> layer normalizes both to <code>error.code === 'PERMISSION_DENIED'</code> (row #14) so consumer code only needs to branch on one value.</strong></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/transaction.test.ts</code> ("rejects with a plain Error whose message is \"permission_denied\""); matches oracle observation <code>packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json</code> (against blockingfun: <code>message: 'permission_denied', code: null, constructorName: 'Error'</code>). Handler-level unification locked by <code>unit:data/handler.test.ts</code> ("transaction-shaped rules-denied (lowercase message, no .code) surfaces as PERMISSION_DENIED").</div></div>
+<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/transaction.test.ts</code> ("rejects with a plain Error whose message is \"permission_denied\""); matches oracle observation <code>packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json</code> (against blockingfun: <code>message: 'permission_denied', code: null, constructorName: 'Error'</code>). Data-tool unification locked by <code>unit:resolver.test.ts</code> ("lowercase permission_denied transport errors preserve PERMISSION_DENIED").</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">M37f</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied transaction does NOT write — pre-transaction value at the path is preserved through the rejection</span></summary>
@@ -932,7 +919,7 @@ remains unchanged.
 - **Playground integration (`firebase/database` virtual-imports
   re-export).** Tier 5 — **shipped**. App code that imports
   `firebase/database` inside the playground preview iframe is
-  aliased to `@pyric/rtdb`'s modular surface. Three-file scope
+  aliased to `pyric/database`'s modular surface. Three-file scope
   expansion:
   - `packages/playground/src/lib/preview/virtual-imports-plugin.ts`
     adds a `firebase/database` entry to the `ALIASES` map listing the
@@ -941,7 +928,7 @@ remains unchanged.
     a `'firebase/database'` slot to `PreviewModuleId` and the
     `PreviewScope` interface, constrained via `Pick<typeof PyricRtdbModular, ...>`.
   - `packages/playground/src/components/AppPreview.tsx` installs
-    the slot at runtime: imports the modular surface from `@pyric/rtdb`,
+    the slot at runtime: imports the modular surface from `pyric/database`,
     wraps `getDatabase` so a bare-arg call defaults to the runner's
     sandbox (mirrors the `getAuth` / `getFirestore` wrap), and supplies
     the rest of the read/write family unchanged.
@@ -952,7 +939,7 @@ remains unchanged.
   `packages/playground/src/lib/deploy/bundleApp.ts` already lists
   `firebase/database` as `external` and resolves it to esm.sh's
   upstream module; the metafile gate (`assertNoPyricLeak`) still trips
-  on any direct `@pyric/rtdb` import in deployed app code, so the
+  on any direct `pyric/database` import in deployed app code, so the
   preview-only alias is not a deploy-time leak vector.
 
 ## Agent-tool surface — deny-list (intentionally NOT shimmed)
@@ -971,7 +958,7 @@ the deny-list here is scoped to the agent-tool surface only.
 | `serverTimestamp()` / `increment(n)` sentinels in the data tools | Not yet wired through; would require sentinel-aware serialization on the REST + admin paths. |
 | `goOnline` / `goOffline` / `Database.useEmulator` | No persistent client state for the data tools (admin REST + on-demand user clients); not modeled. |
 | `connectDatabaseEmulator` | Out of scope; the package targets real RTDB. |
-| `Database.app` / `getDatabase()` | Lifecycle is owned by the host (`host.getClientForUser`); package consumers don't construct `Database` directly. |
+| `Database.app` / `getDatabase()` | Lifecycle is owned by the host (`host.data`); package consumers don't construct `Database` directly. |
 
 ---
 
@@ -1012,7 +999,7 @@ the oracle locks it.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">97</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getDatabase()</code> (no argument) — wrapped in the playground preview to default to the sandbox; raw call delegates to prod</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Phase 3 Tier 5: virtualized in the playground preview scope. Wired at <code>packages/playground/src/components/AppPreview.tsx</code> (slot install with bare-call wrap), <code>packages/playground/src/lib/preview/virtual-imports-plugin.ts</code> (alias map), and <code>packages/playground/src/lib/preview/preview-scope.ts</code> (type-level slot). Mirrors the <code>getAuth</code> / <code>getFirestore</code> wrap pattern. Demo fixture: <code>packages/playground/scripts/fixtures/rtdb-set-get-roundtrip.tsx</code> (bare <code>getDatabase()</code> + <code>set</code>/<code>get</code>/<code>remove</code> round-trip with anon sign-in) — passes end-to-end through the <code>bun run debug:fixtures</code> Playwright suite (revived in the playground rtdb-fixture follow-up; the suite previously couldn't load <code>@pyric/rtdb</code> in the client because its top-level re-export of <code>DataHandler</code> pulled <code>firebase-admin</code>, now stubbed via <code>packages/playground/src/lib/node-shims/firebase-admin.ts</code>).</div>
+<div class="compat-evidence"><div class="compat-probe">Phase 3 Tier 5: virtualized in the playground preview scope. Wired at <code>packages/playground/src/components/AppPreview.tsx</code> (slot install with bare-call wrap), <code>packages/playground/src/lib/preview/virtual-imports-plugin.ts</code> (alias map), and <code>packages/playground/src/lib/preview/preview-scope.ts</code> (type-level slot). Mirrors the <code>getAuth</code> / <code>getFirestore</code> wrap pattern. Demo fixture: <code>packages/playground/scripts/fixtures/rtdb-set-get-roundtrip.tsx</code> (bare <code>getDatabase()</code> + <code>set</code>/<code>get</code>/<code>remove</code> round-trip with anon sign-in) — passes end-to-end through the <code>bun run debug:fixtures</code> Playwright suite (revived in the playground rtdb-fixture follow-up; the suite previously couldn't load <code>pyric/database</code> in the client because its top-level re-export of <code>DataHandler</code> pulled <code>firebase-admin</code>, now stubbed via <code>packages/playground/src/lib/node-shims/firebase-admin.ts</code>).</div>
 <div class="compat-note">(wrap, fixture passing)</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
@@ -1519,7 +1506,6 @@ Once `ensureOracleRtdbRules` deployed the namespace + index, the 4 originally-bl
 
 (by aligning the package to the wrapped service or by formally documenting the divergence in `feature-matrix.md`):
 
-- #14 user-mode `READ_FAILED` swallowing the upstream `PERMISSION_DENIED` code.
 - #66 simulator cross-path lookup using empty `mockData` instead of reading the live database. (The advisory-only behavior for user-mode writes already documents this; a fix would teach the simulator to fetch cross-path values from the host on demand.)
 
 ### Agent-tool rows currently marked **—** that we might want to fill (rough priority)
@@ -1536,7 +1522,7 @@ The sandbox implementation has landed (`packages/pyric/src/database/modular.ts` 
 ## Probe coverage summary
 
 - **Unit (`packages/pyric/test/database/`):** ~30 test files. Strong coverage
-  on handlers (`data/handler.test.ts`, `crawl/handler.test.ts`,
+  on data-tool semantics (`resolver.test.ts`) and handlers (`crawl/handler.test.ts`,
   `write/handler.test.ts`, `ir/handler.test.ts`,
   `simulation/handler.test.ts`, `data/validated.test.ts`), the host
   contract (`host.test.ts`), the mapper round-trip

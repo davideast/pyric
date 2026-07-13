@@ -1,8 +1,8 @@
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
-# `@pyric/rtdb` compatibility matrix
+# `pyric/database` compatibility matrix
 
-> ⚠ **EXPERIMENTAL — not v1-supported.** `@pyric/rtdb` is functional but
+> ⚠ **EXPERIMENTAL — not v1-supported.** `pyric/database` is functional but
 > work-in-progress. The v1-supported, conformance-held surface is **auth +
 > firestore + rules**. The modular `firebase/database` shim rows below are
 > verified **sandbox-side** by unit probes — they are NOT wrong — but most are
@@ -13,7 +13,7 @@
 The single readable contract for "what this package guarantees vs the
 production Firebase Realtime Database surface."
 
-`@pyric/rtdb` covers **two surfaces** that share the package:
+`pyric/database` covers **two surfaces** that share the package:
 
 1. **Agent-tool surface (shipped today).** The factory +
    rule-authoring DSL — the 11 agent tools returned by
@@ -37,23 +37,13 @@ production Firebase Realtime Database surface."
    still pending implementation (—). Oracle probes capture prod
    behavior so the sandbox is correct by construction.
 
-The package wraps two real services:
+Production-facing access is composed across package boundaries:
 
-- The **RTDB REST API** for admin-mode data ops and rules deploy
-  (`fetchDatabase` → `${databaseUrl}<path>.json?…`).
-- The **`firebase/database` modular SDK** for user-mode data ops
-  (via `host.getClientForUser(auth)`).
-- The **`firebase-admin/database` SDK** for admin-mode data ops in
-  the data handler.
+- The **RTDB REST API** is used by `pyric/database` for rule fetch/deploy and structure crawl (`fetchDatabase`).
+- The `RtdbDataTransport` host port owns the five data operations. `pyric-tools` supplies the production adapter: `firebase-admin/database` when no user identity is present and `firebase/database` when `auth` is present.
+- The modular SDK mirror has an in-process sandbox backend and still carries its legacy `firebase/database` production delegate. That delegate is outside this transport-ownership repair and remains pinned by the client-binding fixture.
 
-The conformance oracle for this package therefore observes a
-mixture: REST-shape claims (status codes, response bodies) and
-`firebase/database` SDK-shape claims (ref/get/set/onValue/push
-semantics). The sandbox-vs-prod axis is much smaller here than in
-`pyric/auth` or `pyric/firestore` because there is no in-process
-RTDB sandbox — the package goes directly to the real service. The
-relevant divergence axis is **simulator-vs-prod-rules-engine** for
-the rule-evaluation surface.
+The conformance oracle therefore observes REST shapes, SDK shapes, and sandbox behavior. The relevant rules-engine divergence axis remains **simulator-vs-prod-rules-engine**.
 
 See the design rationale for the methodology
 (vocabulary of conformance / oracle / matrix; how to add rows;
@@ -74,11 +64,8 @@ Probe references: `unit:<file>` means a Bun test in
 under `packages/conformance/observations/<obs>.json`.
 
 Targets:
-- **admin** — operations run via `firebase-admin/database` or the
-  REST `access_token=…` path. Rules bypassed.
-- **user** — operations run via `host.getClientForUser(auth)`
-  (`firebase/database` modular SDK) or REST `auth=…`. Rules
-  enforced.
+- **admin** — data operations call `host.data` without user identity; the production adapter uses `firebase-admin/database`. REST paths use an admin token. Rules bypassed.
+- **user** — data operations call `host.data` with `auth`; the production adapter uses `firebase/database`. REST paths use a user token. Rules enforced.
 - **simulator** — the in-process rule evaluator
   (`SimulateHandler` + the Ohm-based RTDB expression grammar).
   Acts as the oracle for "would prod allow this?" questions
@@ -109,29 +96,29 @@ Targets:
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 10 | Admin mode returns `{ success: true, data: <value or null> }`; uses `firebase-admin/database` `ref(path).get().val()` | ✓ | `unit:data/handler.test.ts`; oracle: `packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json` — admin-SDK `ref(path).get().val()` returned the exact seeded payload, wrapped as `{ success: true, data: <value> }`. |
-| 11 | User mode returns `{ success: true, data: <value or null> }`; uses `firebase/database` modular `get(ref(db, path)).val()` via `host.getClientForUser(auth)` | ✓ | `unit:data/handler.test.ts`; oracle: `packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json` — `shapesAgree: true` between admin and modular paths against blockingfun (same `data` value, same `success: true` shape). |
-| 12 | `null` at the path (empty / missing) round-trips as `data: null` (NOT a not-found error) — matches `DataSnapshot.val()` returning `null` for absent paths | ✓ | `unit:data/handler.test.ts` ("admin GET returns null for empty path") |
-| 13 | Any thrown error in admin mode is wrapped as `{ success: false, error: { code: 'READ_FAILED', recoverable: false } }` | ✓ | `unit:data/handler.test.ts` |
-| 14 | Rules-denied user-mode `get`/`set`/`update`/`push`/`remove` surface as `{ success: false, error: { code: 'PERMISSION_DENIED', recoverable: false } }` — the handler inspects the caught error before the generic `READ_FAILED` / `WRITE_FAILED` wrap and preserves the `PERMISSION_DENIED` signal. The inspection matches both `(err.code === 'PERMISSION_DENIED')` and `(err.message.toLowerCase().includes('permission_denied'))` so it covers the uppercase `set/get/remove` shape AND the lowercase `runTransaction` shape from oracle row #15 / M37e. Non-rules errors (network, token mint, etc.) still surface as `READ_FAILED` / `WRITE_FAILED`. | ✓ | `unit:data/handler.test.ts` ("rules-denied GET/SET/REMOVE surfaces as PERMISSION_DENIED", "non-rules error for GET/SET still surfaces as READ_FAILED/WRITE_FAILED", "transaction-shaped rules-denied (lowercase message, no .code) surfaces as PERMISSION_DENIED"); oracles cited: `packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json` + `packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json` |
+| 10 | Admin mode returns `{ success: true, data: <value or null> }`; calls `host.data.get(path)` without user identity. The production adapter in `pyric-tools` implements that port with `firebase-admin/database` `ref(path).get().val()`. | ✓ | `unit:resolver.test.ts`; adapter: `packages/pyric-tools/test/registry/rtdb-data-transport.test.ts`; oracle: `packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json` — admin-SDK `ref(path).get().val()` returned the exact seeded payload, wrapped as `{ success: true, data: <value> }`. |
+| 11 | User mode returns `{ success: true, data: <value or null> }`; calls `host.data.get(path, auth)`. The production adapter in `pyric-tools` implements that port with `firebase/database` modular `get(ref(db, path)).val()`. | ✓ | `unit:resolver.test.ts`; adapter: `packages/pyric-tools/test/registry/rtdb-data-transport.test.ts`; oracle: `packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json` — `shapesAgree: true` between admin and modular paths against blockingfun (same `data` value, same `success: true` shape). |
+| 12 | `null` at the path (empty / missing) round-trips as `data: null` (NOT a not-found error) — matches `DataSnapshot.val()` returning `null` for absent paths | ✓ | `unit:resolver.test.ts` ("readData preserves null for a missing path") |
+| 13 | Any thrown error in admin mode is wrapped as `{ success: false, error: { code: 'READ_FAILED', recoverable: false } }` | ✓ | `unit:resolver.test.ts` |
+| 14 | Rules-denied user-mode `get`/`set`/`update`/`push`/`remove` surface as `{ success: false, error: { code: 'PERMISSION_DENIED', recoverable: false } }` — the handler inspects the caught error before the generic `READ_FAILED` / `WRITE_FAILED` wrap and preserves the `PERMISSION_DENIED` signal. The inspection matches both `(err.code === 'PERMISSION_DENIED')` and `(err.message.toLowerCase().includes('permission_denied'))` so it covers the uppercase `set/get/remove` shape AND the lowercase `runTransaction` shape from oracle row #15 / M37e. Non-rules errors (network, token mint, etc.) still surface as `READ_FAILED` / `WRITE_FAILED`. | ✓ | `unit:resolver.test.ts` ("every data method preserves uppercase PERMISSION_DENIED transport errors", "readData normalizes transport failures as READ_FAILED", "write methods normalize transport failures as WRITE_FAILED", "lowercase permission_denied transport errors preserve PERMISSION_DENIED"); oracles cited: `packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json` + `packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json` |
 | 15 | Rules-denied read against the real RTDB throws on the modular SDK side with `code: 'PERMISSION_DENIED'` and message `PERMISSION_DENIED: Permission denied`. The thrown value is a **plain `Error`** (not a `FirebaseError`) — `.name === 'Error'`, `.constructor.name === 'Error'` — diverging from Firestore/Auth which throw `FirebaseError`. | ✓ | oracle: `packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json` (`code: 'PERMISSION_DENIED'`, `errorName: 'Error'`, `constructorName: 'Error'`, `isErrorInstance: true` against blockingfun, fb-js-sdk 12.13.0; observed on the `set` path — the `get`/`set` paths share the same error-emit code in firebase/database) |
 
 ## `rtdb_set` / `setData(path, data)` — full overwrite
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 16 | Admin mode replaces the value at the path entirely; resolves `{ success: true, data: null }` | ✓ | `unit:data/handler.test.ts` |
-| 17 | User mode replaces via the modular SDK's `set(ref, data)` | ✓ | `unit:data/handler.test.ts` |
+| 16 | Admin mode replaces the value at the path entirely; resolves `{ success: true, data: null }` | ✓ | `unit:resolver.test.ts` |
+| 17 | User mode replaces through `host.data.set(path, data, auth)`; the `pyric-tools` production adapter delegates to the modular SDK's `set(ref, data)`. | ✓ | `unit:resolver.test.ts` |
 | 18 | Setting `null` at a path is equivalent to removing it (matches RTDB's documented behavior) | ✓ | oracle: `packages/conformance/observations/rtdb/rtdb-remove-vs-set-null.json` — observed `afterRemove: null === afterSetNull: null` against blockingfun, fb-js-sdk 12.13.0; sandbox-aligned: `unit:modular/sandbox-target.test.ts` ("remove and set(null) produce identical end-state") |
-| 19 | Errors on either path wrap as `{ success: false, error: { code: 'WRITE_FAILED', recoverable: false } }` | ✓ | `unit:data/handler.test.ts` |
+| 19 | Errors on either path wrap as `{ success: false, error: { code: 'WRITE_FAILED', recoverable: false } }` | ✓ | `unit:resolver.test.ts` |
 | 20 | Rules-denied write against the real RTDB throws with `code: 'PERMISSION_DENIED'` (uppercase, snake-case — distinct from Firestore's lowercase-kebab `'permission-denied'`) and message `PERMISSION_DENIED: Permission denied`. The thrown value is a **plain `Error`**, not a `FirebaseError`. | ✓ | oracle: `packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json` (against blockingfun, fb-js-sdk 12.13.0) |
 
 ## `rtdb_update` / `updateData(path, data)` — partial / multi-location update
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 21 | Admin mode merges top-level keys at the path; resolves `{ success: true, data: null }` | ✓ | `unit:data/handler.test.ts` |
-| 22 | User mode merges via the modular SDK's `update(ref, data)` | ✓ | `unit:data/handler.test.ts` |
+| 21 | Admin mode merges top-level keys at the path; resolves `{ success: true, data: null }` | ✓ | `unit:resolver.test.ts` |
+| 22 | User mode merges through `host.data.update(path, data, auth)`; the `pyric-tools` production adapter delegates to the modular SDK's `update(ref, data)`. | ✓ | `unit:resolver.test.ts` |
 | 23 | When `path === '/'` and `data` keys are root-relative paths (e.g. `{ '/users/alice/name': 'A', '/posts/p1/author': 'alice' }`), the underlying SDK performs an atomic fan-out write at every listed path | ✓ | oracle: `packages/conformance/observations/rtdb-modular/rtdb-modular-update-multipath-atomic.json` — `update(parentRef, { 'a/x': 1, 'b/y': 2 })` landed both writes; see also `rtdb-modular-update-multipath-rules-denial.json` for the atomic rollback when one path is denied. Sandbox-aligned: `unit:modular/sandbox-target.test.ts` ("writes every listed path atomically" + "rejects the entire update if rules deny any one path") |
 | 24 | Update operations are validated for syntax (overlapping paths, invalid characters) by the underlying SDK; surface as `WRITE_FAILED` | ✓ | Sandbox aligned: locked by unit test `packages/pyric/test/database/modular/sandbox-target.test.ts` ("rejects overlapping paths") — descendant-path overlap throws before any path is written |
 
@@ -139,8 +126,8 @@ Targets:
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 25 | Admin mode returns `{ success: true, data: { key: <auto-id> } }` | ✓ | `unit:data/handler.test.ts` |
-| 26 | User mode returns `{ success: true, data: { key: <auto-id> } }` via `push(ref, data).key` | ✓ | `unit:data/handler.test.ts` |
+| 25 | Admin mode returns `{ success: true, data: { key: <auto-id> } }` | ✓ | `unit:resolver.test.ts` |
+| 26 | User mode returns `{ success: true, data: { key: <auto-id> } }` from `host.data.push(path, data, auth)`; the `pyric-tools` production adapter delegates to `push(ref, data).key`. | ✓ | `unit:resolver.test.ts` |
 | 27 | Auto-id format is RTDB's "push ID": 20 characters, starts with `-`, lexicographically sortable, timestamp-prefixed (encodes the millisecond timestamp at the time of generation) | ✓ | oracle: `packages/conformance/observations/rtdb/rtdb-push-autoid-format.json` (against blockingfun, fb-js-sdk 12.13.0: 3 sequential `push()` calls returned 20-char keys (`-OsshG1AxGukSGUYn_De`, `-OsshG1GZ2pAt7bveAWv`, `-OsshG1NmrNFxZuwufff`), all starting with `-`. The `push.key` is minted client-side from the millisecond timestamp + randomness — it's available immediately even when the subsequent server write is denied by rules.) |
 | 28 | Two `push` calls in quick succession produce monotonically sortable keys (the timestamp prefix guarantees order) | ✓ | oracle: `packages/conformance/observations/rtdb/rtdb-push-autoid-format.json` (`monotonicallySorted: true` across 3 keys generated ~5ms apart) |
 
@@ -148,8 +135,8 @@ Targets:
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 29 | Admin mode removes the value and all children; resolves `{ success: true, data: null }` | ✓ | `unit:data/handler.test.ts` |
-| 30 | User mode removes via the modular SDK's `remove(ref)` | ✓ | `unit:data/handler.test.ts` |
+| 29 | Admin mode removes the value and all children; resolves `{ success: true, data: null }` | ✓ | `unit:resolver.test.ts` |
+| 30 | User mode removes through `host.data.remove(path, auth)`; the `pyric-tools` production adapter delegates to the modular SDK's `remove(ref)`. | ✓ | `unit:resolver.test.ts` |
 | 31 | `remove(ref)` and `set(ref, null)` produce the same end state (no path remains, `get` returns `null`) | ✓ | oracle: `packages/conformance/observations/rtdb/rtdb-remove-vs-set-null.json` — observed `bothNull: true, equivalent: true` against blockingfun; sandbox-aligned: `unit:modular/sandbox-target.test.ts` ("remove and set(null) produce identical end-state") |
 | 32 | Removing a non-existent path is a no-op that resolves successfully (matches RTDB's idempotent delete semantics) | ✓ | oracle: `packages/conformance/observations/rtdb-modular/rtdb-modular-remove-idempotent.json` — `remove` on a never-written path observed `threw: false, afterExists: false`; sandbox-aligned: `unit:modular/sandbox-target.test.ts` ("removing a non-existent path is a no-op") |
 
@@ -266,7 +253,7 @@ to `getDatabase`:
 
 - **Sandbox** — `getDatabase(ctx: SandboxContext)`. Frozen identity
   baked into the handle at construction; ops route to `RtdbBackend`
-  (in-memory JSON tree + the `@pyric/rtdb` rule simulator).
+  (in-memory JSON tree + the `pyric/database` rule simulator).
 - **Sandbox-live** — `getDatabase(sandbox: Sandbox)`. Identity read
   per-op from `sandbox.currentUser`; `pyric/auth` sign-ins flip the
   next op's `request.auth` without re-binding the handle.
@@ -333,7 +320,7 @@ remains unchanged.
 | M37b | The update fn receives the CURRENT value at the ref's path; for an absent path the argument is `null` (NOT `undefined`) | ✓ | Sandbox aligned: `unit:modular/transaction.test.ts` ("update fn receives null for an absent path" + "update fn receives the existing value for a seeded path"); matches oracle observation `packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-current-value-arg.json` (prod observation showed `missingArgs[0].isNull === true`) — note divergence: prod ALSO speculatively calls the fn with `null` for a seeded path before the server-snap arrives, the sandbox skips that speculative call (single invocation with the real current value) |
 | M37c | The update fn arg is a defensive deep clone — mutating it does NOT corrupt the stored tree (matters for code that does `current.count++; return undefined` and expects abort to preserve state) | ✓ | `unit:modular/transaction.test.ts` ("mutating the update-fn arg does NOT corrupt the stored tree") — no separate oracle row (defensive contract; prod behavior is identical because the SDK clones on the wire boundary) |
 | M37d | `options.applyLocally` controls whether the in-flight optimistic value fans out to `onValue` listeners — default `true` (apply locally before commit); `false` suppresses intermediate fires so listeners see only the committed value | ✓ | Sandbox aligned: `unit:modular/transaction.test.ts` ("applyLocally: true (default) — listener sees initial + committed value" + "applyLocally: false — listener sees only the committed value"); matches oracle observation `packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-options-applylocally.json` (single-client harness: both branches produce 2 fires (initial + commit) — divergence vs prod's documented multi-client suppression would surface under contention, which the sandbox doesn't model) |
-| M37e | Rules-denied transaction rejects with a plain `Error` whose `message === 'permission_denied'` (lowercase) and NO `.code` field — DIFFERENT from `set`/`get`'s `'PERMISSION_DENIED: Permission denied'` shape with uppercase `.code`. **Note: the divergence between the two shapes is real at the SDK boundary, but the `DataHandler` layer normalizes both to `error.code === 'PERMISSION_DENIED'` (row #14) so consumer code only needs to branch on one value.** | ✓ | Sandbox aligned: `unit:modular/transaction.test.ts` ("rejects with a plain Error whose message is \"permission_denied\""); matches oracle observation `packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json` (against blockingfun: `message: 'permission_denied', code: null, constructorName: 'Error'`). Handler-level unification locked by `unit:data/handler.test.ts` ("transaction-shaped rules-denied (lowercase message, no .code) surfaces as PERMISSION_DENIED"). |
+| M37e | Rules-denied transaction rejects with a plain `Error` whose `message === 'permission_denied'` (lowercase) and NO `.code` field — DIFFERENT from `set`/`get`'s `'PERMISSION_DENIED: Permission denied'` shape with uppercase `.code`. **Note: the divergence between the two shapes is real at the SDK boundary, but the `DataHandler` layer normalizes both to `error.code === 'PERMISSION_DENIED'` (row #14) so consumer code only needs to branch on one value.** | ✓ | Sandbox aligned: `unit:modular/transaction.test.ts` ("rejects with a plain Error whose message is \"permission_denied\""); matches oracle observation `packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json` (against blockingfun: `message: 'permission_denied', code: null, constructorName: 'Error'`). Data-tool unification locked by `unit:resolver.test.ts` ("lowercase permission_denied transport errors preserve PERMISSION_DENIED"). |
 | M37f | Rules-denied transaction does NOT write — pre-transaction value at the path is preserved through the rejection | ✓ | `unit:modular/transaction.test.ts` ("does not write to the path when rules deny") — locked alongside the M37e shape claim |
 | M37g | Committed transaction fans out to `onValue` listeners on the watched path with the new value (default applyLocally behavior) | ✓ | `unit:modular/transaction.test.ts` ("committed write fans out to onValue listeners") |
 | M37h | Concurrent contention / retry-on-conflict — single-client sandbox doesn't model real concurrency; the documented "up to 25 retries" contract is degenerate (the fn is invoked once) | — | matrix #161 documents the same gap on the spec side; oracle observation hard to obtain from a single client (oracle row stays `?`) |
@@ -394,7 +381,7 @@ remains unchanged.
 - **Playground integration (`firebase/database` virtual-imports
   re-export).** Tier 5 — **shipped**. App code that imports
   `firebase/database` inside the playground preview iframe is
-  aliased to `@pyric/rtdb`'s modular surface. Three-file scope
+  aliased to `pyric/database`'s modular surface. Three-file scope
   expansion:
   - `packages/playground/src/lib/preview/virtual-imports-plugin.ts`
     adds a `firebase/database` entry to the `ALIASES` map listing the
@@ -403,7 +390,7 @@ remains unchanged.
     a `'firebase/database'` slot to `PreviewModuleId` and the
     `PreviewScope` interface, constrained via `Pick<typeof PyricRtdbModular, ...>`.
   - `packages/playground/src/components/AppPreview.tsx` installs
-    the slot at runtime: imports the modular surface from `@pyric/rtdb`,
+    the slot at runtime: imports the modular surface from `pyric/database`,
     wraps `getDatabase` so a bare-arg call defaults to the runner's
     sandbox (mirrors the `getAuth` / `getFirestore` wrap), and supplies
     the rest of the read/write family unchanged.
@@ -414,7 +401,7 @@ remains unchanged.
   `packages/playground/src/lib/deploy/bundleApp.ts` already lists
   `firebase/database` as `external` and resolves it to esm.sh's
   upstream module; the metafile gate (`assertNoPyricLeak`) still trips
-  on any direct `@pyric/rtdb` import in deployed app code, so the
+  on any direct `pyric/database` import in deployed app code, so the
   preview-only alias is not a deploy-time leak vector.
 
 ## Agent-tool surface — deny-list (intentionally NOT shimmed)
@@ -433,7 +420,7 @@ the deny-list here is scoped to the agent-tool surface only.
 | `serverTimestamp()` / `increment(n)` sentinels in the data tools | Not yet wired through; would require sentinel-aware serialization on the REST + admin paths. |
 | `goOnline` / `goOffline` / `Database.useEmulator` | No persistent client state for the data tools (admin REST + on-demand user clients); not modeled. |
 | `connectDatabaseEmulator` | Out of scope; the package targets real RTDB. |
-| `Database.app` / `getDatabase()` | Lifecycle is owned by the host (`host.getClientForUser`); package consumers don't construct `Database` directly. |
+| `Database.app` / `getDatabase()` | Lifecycle is owned by the host (`host.data`); package consumers don't construct `Database` directly. |
 
 ---
 
@@ -464,7 +451,7 @@ the oracle locks it.
 | 94 | `getDatabase(ctx)` returns a tagged sandbox-target handle (frozen identity) | — | Phase 3 |
 | 95 | `getDatabase(sandbox)` returns a tagged sandbox-live handle (per-op identity) | — | Phase 3 |
 | 96 | `getDatabase(app)` returns a tagged prod target | ? | upstream `firebase/database` contract; not currently probed in isolation |
-| 97 | `getDatabase()` (no argument) — wrapped in the playground preview to default to the sandbox; raw call delegates to prod | ✓ (wrap, fixture passing) | Phase 3 Tier 5: virtualized in the playground preview scope. Wired at `packages/playground/src/components/AppPreview.tsx` (slot install with bare-call wrap), `packages/playground/src/lib/preview/virtual-imports-plugin.ts` (alias map), and `packages/playground/src/lib/preview/preview-scope.ts` (type-level slot). Mirrors the `getAuth` / `getFirestore` wrap pattern. Demo fixture: `packages/playground/scripts/fixtures/rtdb-set-get-roundtrip.tsx` (bare `getDatabase()` + `set`/`get`/`remove` round-trip with anon sign-in) — passes end-to-end through the `bun run debug:fixtures` Playwright suite (revived in the playground rtdb-fixture follow-up; the suite previously couldn't load `@pyric/rtdb` in the client because its top-level re-export of `DataHandler` pulled `firebase-admin`, now stubbed via `packages/playground/src/lib/node-shims/firebase-admin.ts`). |
+| 97 | `getDatabase()` (no argument) — wrapped in the playground preview to default to the sandbox; raw call delegates to prod | ✓ (wrap, fixture passing) | Phase 3 Tier 5: virtualized in the playground preview scope. Wired at `packages/playground/src/components/AppPreview.tsx` (slot install with bare-call wrap), `packages/playground/src/lib/preview/virtual-imports-plugin.ts` (alias map), and `packages/playground/src/lib/preview/preview-scope.ts` (type-level slot). Mirrors the `getAuth` / `getFirestore` wrap pattern. Demo fixture: `packages/playground/scripts/fixtures/rtdb-set-get-roundtrip.tsx` (bare `getDatabase()` + `set`/`get`/`remove` round-trip with anon sign-in) — passes end-to-end through the `bun run debug:fixtures` Playwright suite (revived in the playground rtdb-fixture follow-up; the suite previously couldn't load `pyric/database` in the client because its top-level re-export of `DataHandler` pulled `firebase-admin`, now stubbed via `packages/playground/src/lib/node-shims/firebase-admin.ts`). |
 | 98 | Two `getDatabase(sandbox)` calls share state (same underlying `LocalEnvironment`) | — | Phase 3 |
 | 99 | Handle dispatch by `TARGET_SYMBOL` brand — refs route to their owning target via a `refToTarget` WeakMap (mirror of firestore's pattern) | — | Phase 3 |
 
@@ -731,7 +718,6 @@ Once `ensureOracleRtdbRules` deployed the namespace + index, the 4 originally-bl
 
 (by aligning the package to the wrapped service or by formally documenting the divergence in `feature-matrix.md`):
 
-- #14 user-mode `READ_FAILED` swallowing the upstream `PERMISSION_DENIED` code.
 - #66 simulator cross-path lookup using empty `mockData` instead of reading the live database. (The advisory-only behavior for user-mode writes already documents this; a fix would teach the simulator to fetch cross-path values from the host on demand.)
 
 ### Agent-tool rows currently marked **—** that we might want to fill (rough priority)
@@ -748,7 +734,7 @@ The sandbox implementation has landed (`packages/pyric/src/database/modular.ts` 
 ## Probe coverage summary
 
 - **Unit (`packages/pyric/test/database/`):** ~30 test files. Strong coverage
-  on handlers (`data/handler.test.ts`, `crawl/handler.test.ts`,
+  on data-tool semantics (`resolver.test.ts`) and handlers (`crawl/handler.test.ts`,
   `write/handler.test.ts`, `ir/handler.test.ts`,
   `simulation/handler.test.ts`, `data/validated.test.ts`), the host
   contract (`host.test.ts`), the mapper round-trip

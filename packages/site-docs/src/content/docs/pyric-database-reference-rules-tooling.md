@@ -303,14 +303,15 @@ Backwards-compatible union of `createRtdbRulesTools({ host })` and
 interface RtdbHost {
   readonly projectId: string;
   readonly databaseUrl: string;
+  readonly data: RtdbDataTransport;
   resolveAdminToken(): Promise<string>;
   resolveUserToken(auth: UserAuth): Promise<string>;
-  getClientForUser(auth: UserAuth): Promise<Database>;
 }
 ```
 `resolveAdminToken` is used for rule fetch/deploy and admin REST paths.
-`resolveUserToken` and `getClientForUser` are used for rules-enforcing
-user-mode data operations.
+`resolveUserToken` is used for rules-enforcing REST operations. `data` is the
+transport-neutral port used by reads and writes; optional `UserAuth` is passed
+through so its adapter can select admin or rules-enforcing user behavior.
 
 ## Constraint helpers
 

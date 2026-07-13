@@ -1,5 +1,5 @@
 /**
- * `@pyric/rtdb` modular SDK surface — Phase 3 implementation.
+ * `pyric/database` modular SDK surface — Phase 3 implementation.
  *
  * Mirrors `firebase/database`'s tree-shakable free-function shape:
  * `getDatabase`, `ref`, `child`, `get`, `set`, `update`, `remove`,
@@ -8,7 +8,7 @@
  * Three backends picked by what's passed to `getDatabase`:
  *
  *   - **Sandbox target** — wraps `RtdbBackend` (in-memory JSON tree
- *     plus the existing `@pyric/rtdb` rule simulator). Identity is the
+ *     plus the existing `pyric/database` rule simulator). Identity is the
  *     `SandboxContext`'s frozen `auth`.
  *   - **Sandbox-live target** — same backend, but identity is read
  *     per-op from `sandbox.currentUser` so a `pyric/auth`-driven
@@ -1378,7 +1378,7 @@ export async function runTransaction<T>(
  *
  * Same shape across targets: the sandbox backend recognises the
  * marker; the prod backend's wire encoder does too. Agent code that
- * imports `serverTimestamp` from `@pyric/rtdb` works identically on
+ * imports `serverTimestamp` from `pyric/database` works identically on
  * either target.
  */
 export function serverTimestamp(): ServerTimestampSentinel {
@@ -1540,7 +1540,7 @@ export const sandbox = {
   /**
    * Replace deployed rules. Pass `null` to clear (sandbox returns to
    * default-allow). Rules are evaluated through the existing
-   * `@pyric/rtdb` simulator — same engine as `simulate()` /
+   * `pyric/database` simulator — same engine as `simulate()` /
    * `rtdb_simulate_access`.
    *
    * @example

@@ -286,12 +286,20 @@ This is the surface agents and MCP registries consume. Deep tool semantics (argu
 interface RtdbHost {
   readonly projectId: string;
   readonly databaseUrl: string;
+  readonly data: RtdbDataTransport;
   resolveAdminToken(): Promise<string>;
   resolveUserToken(auth: UserAuth): Promise<string>;
-  getClientForUser(auth: UserAuth): Promise<Database>; // firebase/database Database
+}
+
+interface RtdbDataTransport {
+  get(path: string, auth?: UserAuth): Promise<unknown>;
+  set(path: string, value: unknown, auth?: UserAuth): Promise<void>;
+  update(path: string, values: Record<string, unknown>, auth?: UserAuth): Promise<void>;
+  push(path: string, value: unknown, auth?: UserAuth): Promise<{ key: string | null }>;
+  remove(path: string, auth?: UserAuth): Promise<void>;
 }
 ```
-What the toolkit needs from its caller to talk to a real Realtime Database. `resolveAdminToken` backs the admin REST paths (IR fetch, rule deploy, crawl without `auth`). `resolveUserToken` mints a Firebase ID token for a `{ uid, claims }` so REST paths can run with rules enforced. `getClientForUser` returns a `firebase/database` instance authenticated as that user, used by the data tools when an `auth` argument is supplied.
+What the toolkit needs from its caller to talk to a Realtime Database. `resolveAdminToken` backs the admin REST paths (IR fetch, rule deploy, crawl without `auth`). `resolveUserToken` mints a Firebase ID token for a `{ uid, claims }` so REST paths can run with rules enforced. `data` is a transport-neutral port for the five data operations; Pyric owns tool result and error semantics without importing either Firebase database SDK. A production composition root can adapt admin calls to `firebase-admin/database` and authenticated calls to `firebase/database`.
 
 ### `fetchDatabase(host, path, params?, userToken?)`
 ```ts
@@ -310,7 +318,7 @@ interface AgentAppLike {
   readonly projectId: string;
   getRestToken(): Promise<string>;
   getUserToken(auth: UserAuth): Promise<string>;
-  getClientDatabase(auth: UserAuth, databaseUrl: string): Promise<Database>;
+  readonly data: RtdbDataTransport;
 }
 
 function initializeDatabaseApp(
@@ -337,7 +345,7 @@ interface RtdbTools {
   validatedWrite(input: ValidatedWriteInput): Promise<ValidatedWriteResult>;
 }
 ```
-The programmatic API for direct consumers. `generateIR()` fetches and parses the deployed rules and caches the IR; `simulate(input)` evaluates against that cached IR and fails with `IR_NOT_GENERATED` if you have not called `generateIR()` first. The data methods run as admin unless `options.auth` supplies a `UserAuth`, in which case the operation goes through `host.getClientForUser(auth)` with rules enforced. `DataResult` resolves to `{ success: true; data: unknown }` or `{ success: false; error: { code; message; recoverable } }`; the `DataResult` name itself is not exported from the barrel.
+The programmatic API for direct consumers. `generateIR()` fetches and parses the deployed rules and caches the IR; `simulate(input)` evaluates against that cached IR and fails with `IR_NOT_GENERATED` if you have not called `generateIR()` first. Every data method delegates to `host.data`; `options.auth` is forwarded when supplied so the host adapter can enforce user rules, while omission selects admin behavior. `DataResult` resolves to `{ success: true; data: unknown }` or `{ success: false; error: { code; message; recoverable } }`; the `DataResult` name itself is not exported from the barrel.
 
 ### `createRtdbRulesTools(deps)`
 ```ts
