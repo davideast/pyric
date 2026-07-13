@@ -4,8 +4,9 @@
 # Package managers resolve `exports`, scoped names, and local tarballs with
 # meaningfully different algorithms (npm's hoisting vs pnpm's strict symlinked
 # store vs bun's layout). A package that resolves cleanly under npm can fail under
-# pnpm/bun — so the publishable libs are installed from their REAL tarballs and
-# every advertised subpath is imported, under each manager in turn.
+# pnpm/bun — so the publishable libs are installed from their REAL tarballs,
+# every advertised subpath is imported, and the installed CLI is executed under
+# each manager in turn.
 #
 # This is the resolution-portability leg; the full runtime/serve/contract proof
 # lives in scripts/packaging-test.sh (npm). Peer deps (react/react-dom/firebase)
@@ -121,4 +122,10 @@ console.log(`  ✓ all ${total} advertised subpaths resolve under ${process.env.
 NODECHECK
 PM_LABEL="$PM" node __matrix-resolve.mjs
 
-echo "✓ install matrix PASS ($PM) — all four libraries install + every subpath resolves"
+# 5. Execute a small public-command proof through this package manager's bin
+# link. The helper owns only command behavior; this script remains the single
+# source of truth for packing and installing the consumer.
+node "$ROOT/scripts/packed-cli-smoke.mjs" \
+  "$CONSUMER/node_modules/.bin/pyric" "$WORK/cli-smoke"
+
+echo "✓ install matrix PASS ($PM) — libraries install, subpaths resolve, CLI executes"
