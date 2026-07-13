@@ -44,6 +44,15 @@ read, batch, transact, undo/redo, inspect the event log.
 `firestore_simulator_redo` · `firestore_simulator_events` ·
 `firestore_create_with_auto_id`
 
+## Realtime Database sandbox inspection — `@pyric/cli` bridge
+
+Local inspection of the RTDB state owned by the connected sandbox. Simulation
+reads the currently installed rules and data on every call; crawling returns a
+bounded structural view without leaf values. Neither tool contacts a production
+database or requires a rules-loading tool call first.
+
+`rtdb_simulate_access` · `rtdb_crawl_structure`
+
 ## Index extraction — `pyric/rules/indexes`
 
 `firestore_extract_indexes` — derive composite-index definitions from query
