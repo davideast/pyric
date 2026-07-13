@@ -1,5 +1,5 @@
 /**
- * `pyric database:rules:*` subcommands — local tooling for Realtime Database
+ * `pyric database rules *` subcommands — local tooling for Realtime Database
  * rules JSON.
  */
 
@@ -108,13 +108,13 @@ export async function runDatabaseRulesLint(
   const err = deps.stderr ?? process.stderr;
   const path = parsed.positional[0];
   if (!path) {
-    err.write('pyric database:rules:lint: missing rules-file path. Usage: pyric database:rules:lint <path>\n');
+    err.write('pyric database rules lint: missing rules-file path. Usage: pyric database rules lint <path>\n');
     return 1;
   }
 
   const file = await readRulesFile(path, deps);
   if (!file.ok) {
-    err.write(`pyric database:rules:lint: ${file.message}\n`);
+    err.write(`pyric database rules lint: ${file.message}\n`);
     return 1;
   }
 
@@ -137,13 +137,13 @@ export async function runDatabaseRulesValidate(
   const err = deps.stderr ?? process.stderr;
   const path = parsed.positional[0];
   if (!path) {
-    err.write('pyric database:rules:validate: missing rules-file path. Usage: pyric database:rules:validate <path>\n');
+    err.write('pyric database rules validate: missing rules-file path. Usage: pyric database rules validate <path>\n');
     return 1;
   }
 
   const file = await readRulesFile(path, deps);
   if (!file.ok) {
-    err.write(`pyric database:rules:validate: ${file.message}\n`);
+    err.write(`pyric database rules validate: ${file.message}\n`);
     return 1;
   }
 
@@ -209,11 +209,11 @@ export async function runDatabaseRulesSimulate(
     try {
       payload = JSON.parse(await readStdinFn()) as SimulatePayload;
     } catch (e) {
-      err.write(`pyric database:rules:simulate: failed to parse stdin JSON: ${e instanceof Error ? e.message : String(e)}\n`);
+      err.write(`pyric database rules simulate: failed to parse stdin JSON: ${e instanceof Error ? e.message : String(e)}\n`);
       return 1;
     }
     if (!payload.operation || !payload.path) {
-      err.write('pyric database:rules:simulate: stdin payload must include `operation` and `path`.\n');
+      err.write('pyric database rules simulate: stdin payload must include `operation` and `path`.\n');
       return 1;
     }
     databaseUrl = payload.databaseUrl ?? databaseUrl;
@@ -223,19 +223,19 @@ export async function runDatabaseRulesSimulate(
       try {
         rulesJson = JSON.parse(await readFileFn(resolvePath(deps.cwd ?? process.cwd(), payload.rulesPath), 'utf-8'));
       } catch (e) {
-        err.write(`pyric database:rules:simulate: ${e instanceof Error ? e.message : String(e)}\n`);
+        err.write(`pyric database rules simulate: ${e instanceof Error ? e.message : String(e)}\n`);
         return 1;
       }
     } else {
       const file = await readFirebaseRules(deps);
       if (!file.ok) {
-        err.write(`pyric database:rules:simulate: ${file.message}\n`);
+        err.write(`pyric database rules simulate: ${file.message}\n`);
         return 1;
       }
       try {
         rulesJson = JSON.parse(file.raw);
       } catch (e) {
-        err.write(`pyric database:rules:simulate: ${e instanceof Error ? e.message : String(e)}\n`);
+        err.write(`pyric database rules simulate: ${e instanceof Error ? e.message : String(e)}\n`);
         return 2;
       }
     }
@@ -249,13 +249,13 @@ export async function runDatabaseRulesSimulate(
   } else {
     const file = await readFirebaseRules(deps);
     if (!file.ok) {
-      err.write(`pyric database:rules:simulate: ${file.message}\n`);
+      err.write(`pyric database rules simulate: ${file.message}\n`);
       return 1;
     }
     try {
       rulesJson = JSON.parse(file.raw);
     } catch (e) {
-      err.write(`pyric database:rules:simulate: ${e instanceof Error ? e.message : String(e)}\n`);
+      err.write(`pyric database rules simulate: ${e instanceof Error ? e.message : String(e)}\n`);
       return 2;
     }
     input = {
@@ -272,13 +272,13 @@ export async function runDatabaseRulesSimulate(
     out.write(`${JSON.stringify(result, null, 2)}\n`);
     return result.success ? 0 : 2;
   } catch (e) {
-    err.write(`pyric database:rules:simulate: ${e instanceof Error ? e.message : String(e)}\n`);
+    err.write(`pyric database rules simulate: ${e instanceof Error ? e.message : String(e)}\n`);
     return 2;
   }
 }
 
 /**
- * `pyric database:rules:generate [--config <path>] [--out <path>]`
+ * `pyric database rules generate [--config <path>] [--out <path>]`
  *
  * Loads a user's RTDB constraints module (a file that calls
  * `defineRtdbRules(...)` from `pyric/rules`), compiles it via
@@ -306,7 +306,7 @@ export async function runDatabaseRulesGenerate(
 
   const loaded: LoadRtdbRulesDocumentResult = await loadRulesDocument(configPath, { cwd });
   if (!loaded.ok) {
-    err.write(`pyric database:rules:generate: ${loaded.message}\n`);
+    err.write(`pyric database rules generate: ${loaded.message}\n`);
     return 1;
   }
 
@@ -330,6 +330,6 @@ export async function runDatabaseRulesGenerate(
   await mkdirFn(dirname(resolvedOut), { recursive: true });
   await writeFileFn(resolvedOut, `${JSON.stringify(rulesJson, null, 2)}\n`, 'utf-8');
 
-  out.write(`pyric database:rules:generate: wrote ${resolvedOut}\n`);
+  out.write(`pyric database rules generate: wrote ${resolvedOut}\n`);
   return 0;
 }

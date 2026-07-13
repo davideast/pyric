@@ -1,10 +1,10 @@
 /**
- * `pyric rules:*` subcommands — thin wrappers over `pyric/rules`.
+ * `pyric firestore rules *` subcommands — thin wrappers over `pyric/rules`.
  *
- *   - `rules:lint <path>` runs the AST linter, prints findings JSON.
- *   - `rules:validate <path>` runs the structural validator, prints
+ *   - `firestore rules lint <path>` runs the AST linter, prints findings JSON.
+ *   - `firestore rules validate <path>` runs the structural validator, prints
  *     findings JSON.
- *   - `rules:simulate` runs the local simulator. With no flags it
+ *   - `firestore rules simulate` runs the local simulator. With no flags it
  *     reads `firebase.json` for the rules path and runs a single
  *     allow-anonymous sanity test. With `--stdin` it reads a JSON
  *     request `{ source?, testCases }` from stdin instead — the way
@@ -14,8 +14,8 @@
  * library failure (parse error etc.).
  */
 
-import { readFile } from 'node:fs/promises';
-import { resolve as resolvePath } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, resolve as resolvePath } from 'node:path';
 import {
   lintFirestoreRules,
   validateFirestoreRules,
@@ -26,6 +26,7 @@ import {
   type ValidationFinding,
   type TestFirestoreRulesResult,
 } from 'pyric/rules/internal';
+import { resolveModules } from 'pyric/rules/internal/node';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 
@@ -39,6 +40,16 @@ export interface RulesDeps {
   cwd?: string;
   /** Override stdin reader — used in tests. */
   readStdin?: () => Promise<string>;
+  stdout?: { write(s: string): void };
+  stderr?: { write(s: string): void };
+}
+
+export interface ResolveRulesDeps {
+  readFile?: typeof readFile;
+  writeFile?: typeof writeFile;
+  mkdir?: typeof mkdir;
+  resolveModules?: typeof resolveModules;
+  cwd?: string;
   stdout?: { write(s: string): void };
   stderr?: { write(s: string): void };
 }
@@ -64,20 +75,20 @@ export async function runRulesLint(parsed: ParsedArgs, deps: RulesDeps = {}): Pr
 
   const path = parsed.positional[0];
   if (!path) {
-    err.write('pyric rules:lint: missing rules-file path. Usage: pyric rules:lint <path>\n');
+    err.write('pyric firestore rules lint: missing rules-file path. Usage: pyric firestore rules lint <path>\n');
     return 1;
   }
   let source: string;
   try {
     source = await readFileFn(resolvePath(cwd, path), 'utf-8');
   } catch (e) {
-    err.write(`pyric rules:lint: ${e instanceof Error ? e.message : String(e)}\n`);
+    err.write(`pyric firestore rules lint: ${e instanceof Error ? e.message : String(e)}\n`);
     return 1;
   }
   const result: LintResult = lintFn(source);
   out.write(`${JSON.stringify(result, null, 2)}\n`);
   // Non-zero only when the linter signals a hard parse error. Warnings
-  // are informational — exit 0 keeps `pyric rules:lint` chainable in
+  // are informational — exit 0 keeps `pyric firestore rules lint` chainable in
   // build pipelines without `|| true`.
   return result.parseError ? 2 : 0;
 }
@@ -91,23 +102,74 @@ export async function runRulesValidate(parsed: ParsedArgs, deps: RulesDeps = {})
 
   const path = parsed.positional[0];
   if (!path) {
-    err.write('pyric rules:validate: missing rules-file path. Usage: pyric rules:validate <path>\n');
+    err.write('pyric firestore rules validate: missing rules-file path. Usage: pyric firestore rules validate <path>\n');
     return 1;
   }
   let source: string;
   try {
     source = await readFileFn(resolvePath(cwd, path), 'utf-8');
   } catch (e) {
-    err.write(`pyric rules:validate: ${e instanceof Error ? e.message : String(e)}\n`);
+    err.write(`pyric firestore rules validate: ${e instanceof Error ? e.message : String(e)}\n`);
     return 1;
   }
   const ast = parseToAST(source);
   if (!ast) {
-    err.write('pyric rules:validate: failed to parse rules source.\n');
+    err.write('pyric firestore rules validate: failed to parse rules source.\n');
     return 2;
   }
   const findings: ValidationFinding[] = validateFn(ast);
   out.write(`${JSON.stringify(findings, null, 2)}\n`);
+  return 0;
+}
+
+export async function runRulesResolve(
+  parsed: ParsedArgs,
+  deps: ResolveRulesDeps = {},
+): Promise<number> {
+  const out = deps.stdout ?? process.stdout;
+  const err = deps.stderr ?? process.stderr;
+  const cwd = deps.cwd ?? process.cwd();
+  const sourcePath = parsed.positional[0];
+  if (!sourcePath) {
+    err.write(
+      'pyric firestore rules resolve: missing rules-file path. Usage: pyric firestore rules resolve <path> [--out <path>]\n',
+    );
+    return 1;
+  }
+
+  const absoluteSourcePath = resolvePath(cwd, sourcePath);
+  let source: string;
+  try {
+    source = await (deps.readFile ?? readFile)(absoluteSourcePath, 'utf-8');
+  } catch (error) {
+    err.write(
+      `pyric firestore rules resolve: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    return 1;
+  }
+
+  const result = (deps.resolveModules ?? resolveModules)(source, {
+    basePath: dirname(absoluteSourcePath),
+  });
+  if (!result.success) {
+    err.write(`pyric firestore rules resolve: ${result.error.message}\n`);
+    return 2;
+  }
+
+  const outFlag = parsed.flags.get('out');
+  if (typeof outFlag !== 'string') {
+    out.write(result.data.resolved.endsWith('\n') ? result.data.resolved : `${result.data.resolved}\n`);
+    return 0;
+  }
+
+  const outputPath = resolvePath(cwd, outFlag);
+  await (deps.mkdir ?? mkdir)(dirname(outputPath), { recursive: true });
+  await (deps.writeFile ?? writeFile)(
+    outputPath,
+    result.data.resolved.endsWith('\n') ? result.data.resolved : `${result.data.resolved}\n`,
+    'utf-8',
+  );
+  out.write(`pyric firestore rules resolve: wrote ${outputPath}\n`);
   return 0;
 }
 
@@ -136,12 +198,12 @@ export async function runRulesSimulate(
       payload = JSON.parse(raw) as { source?: string; testCases?: TestCase[] };
     } catch (e) {
       err.write(
-        `pyric rules:simulate: failed to parse stdin JSON: ${e instanceof Error ? e.message : String(e)}\n`,
+        `pyric firestore rules simulate: failed to parse stdin JSON: ${e instanceof Error ? e.message : String(e)}\n`,
       );
       return 1;
     }
     if (!payload.testCases || !Array.isArray(payload.testCases)) {
-      err.write('pyric rules:simulate: stdin payload must include `testCases: TestCase[]`.\n');
+      err.write('pyric firestore rules simulate: stdin payload must include `testCases: TestCase[]`.\n');
       return 1;
     }
     testCases = payload.testCases;
@@ -152,7 +214,7 @@ export async function runRulesSimulate(
       const rulesPath = firebaseJson.firestore?.rules;
       if (!rulesPath) {
         err.write(
-          'pyric rules:simulate: stdin payload omitted `source` and firebase.json has no firestore.rules path.\n',
+          'pyric firestore rules simulate: stdin payload omitted `source` and firebase.json has no firestore.rules path.\n',
         );
         return 1;
       }
@@ -168,13 +230,13 @@ export async function runRulesSimulate(
     }
     const rulesPath = firebaseJson.firestore?.rules;
     if (!rulesPath) {
-      err.write('pyric rules:simulate: firebase.json has no `firestore.rules` path.\n');
+      err.write('pyric firestore rules simulate: firebase.json has no `firestore.rules` path.\n');
       return 1;
     }
     try {
       source = await readFileFn(resolvePath(cwd, rulesPath), 'utf-8');
     } catch (e) {
-      err.write(`pyric rules:simulate: ${e instanceof Error ? e.message : String(e)}\n`);
+      err.write(`pyric firestore rules simulate: ${e instanceof Error ? e.message : String(e)}\n`);
       return 1;
     }
     // Default sample test — anonymous read on /sample/x. Useful as a

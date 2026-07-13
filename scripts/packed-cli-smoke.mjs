@@ -91,6 +91,25 @@ const help = run(['--help']);
 expect(help.code === 0, 'pyric --help must exit 0', help);
 expect(!help.stdout.includes('pyric deploy'), 'pyric --help must not advertise production deployment', help);
 expect(!help.stdout.includes('hosting:channel:deploy'), 'pyric --help must not advertise Hosting deployment', help);
+for (const command of [
+  'firestore rules lint',
+  'firestore rules validate',
+  'firestore rules simulate',
+  'firestore rules resolve',
+  'firestore indexes generate',
+  'storage rules lint',
+  'storage rules simulate',
+  'database rules lint',
+  'database rules validate',
+  'database rules simulate',
+  'database rules generate',
+]) {
+  expect(
+    help.stdout.includes(`pyric ${command}`),
+    `pyric --help must advertise ${command}`,
+    help,
+  );
+}
 const removedDeploy = run(['deploy', 'rules']);
 expect(removedDeploy.code === 1, 'pyric deploy must be rejected as an unknown command', removedDeploy);
 expect(removedDeploy.stderr.includes("unknown command 'deploy'"), 'pyric deploy must fail without a compatibility path', removedDeploy);
@@ -100,6 +119,17 @@ expect(
   removedHostingDeploy.stderr.includes("unknown command 'hosting:channel:deploy'"),
   'pyric hosting:channel:deploy must fail without a compatibility path',
   removedHostingDeploy,
+);
+const removedColonCommand = run(['rules:lint']);
+expect(
+  removedColonCommand.code === 1,
+  'pyric rules:lint must be rejected as an unknown command',
+  removedColonCommand,
+);
+expect(
+  removedColonCommand.stderr.includes("unknown command 'rules:lint'"),
+  'pyric rules:lint must fail without a compatibility alias',
+  removedColonCommand,
 );
 process.stdout.write('  ✓ packed pyric exposes no production deployment commands\n');
 
@@ -116,6 +146,88 @@ service cloud.firestore {
   }
 }`;
 writeFileSync(resolve(workDir, 'firestore.rules'), `${allowAnonymous}\n`);
+
+// Slice 2: service-namespaced local tooling executes from the installed
+// artifact. These commands are credential-free by contract.
+const firestoreLint = run(['firestore', 'rules', 'lint', 'firestore.rules']);
+expect(firestoreLint.code === 0, 'pyric firestore rules lint must exit 0', firestoreLint);
+expect(
+  Array.isArray(parseJson(firestoreLint, 'pyric firestore rules lint').warnings),
+  'pyric firestore rules lint must return warnings JSON',
+  firestoreLint,
+);
+
+const storageRules = `service firebase.storage {
+  match /b/{bucket}/o {
+    match /{object=**} { allow read, write: if false; }
+  }
+}`;
+writeFileSync(resolve(workDir, 'storage.rules'), `${storageRules}\n`);
+const storageLint = run(['storage', 'rules', 'lint', 'storage.rules']);
+expect(storageLint.code === 0, 'pyric storage rules lint must exit 0', storageLint);
+expect(
+  Array.isArray(parseJson(storageLint, 'pyric storage rules lint').warnings),
+  'pyric storage rules lint must return warnings JSON',
+  storageLint,
+);
+
+writeFileSync(
+  resolve(workDir, 'database.rules.json'),
+  `${JSON.stringify({ rules: { '.read': true, '.write': false } }, null, 2)}\n`,
+);
+const databaseLint = run(['database', 'rules', 'lint', 'database.rules.json']);
+expect(databaseLint.code === 0, 'pyric database rules lint must exit 0', databaseLint);
+expect(
+  Array.isArray(parseJson(databaseLint, 'pyric database rules lint').warnings),
+  'pyric database rules lint must return warnings JSON',
+  databaseLint,
+);
+
+const moduleRules = `import { isAuthenticated } from 'auth';
+rules_version = '2+modules';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{noteId} { allow read: if isAuthenticated(); }
+  }
+}`;
+writeFileSync(resolve(workDir, 'firestore.modules.rules'), `${moduleRules}\n`);
+const resolvedRules = run(['firestore', 'rules', 'resolve', 'firestore.modules.rules']);
+expect(resolvedRules.code === 0, 'pyric firestore rules resolve must exit 0', resolvedRules);
+expect(
+  resolvedRules.stdout.includes("rules_version = '2';") &&
+    resolvedRules.stdout.includes('function isAuthenticated()'),
+  'pyric firestore rules resolve must inline the referenced module',
+  resolvedRules,
+);
+
+const querySource = `import { collection, orderBy, query, where } from 'firebase/firestore';
+export function openOrders(db) {
+  const q = query(
+    collection(db, 'orders'),
+    where('status', '==', 'open'),
+    orderBy('createdAt', 'desc'),
+  );
+  return q;
+}`;
+writeFileSync(resolve(workDir, 'queries.js'), `${querySource}\n`);
+const indexes = run([
+  'firestore',
+  'indexes',
+  'generate',
+  'queries.js',
+  '--out',
+  'firestore.indexes.json',
+]);
+expect(indexes.code === 0, 'pyric firestore indexes generate must exit 0', indexes);
+expect(
+  Array.isArray(
+    JSON.parse(readFileSync(resolve(workDir, 'firestore.indexes.json'), 'utf8')).indexes,
+  ),
+  'pyric firestore indexes generate must write an indexes artifact',
+  indexes,
+);
+process.stdout.write('  ✓ packed pyric executes local tooling across all three services\n');
+
 const fixture = {
   schema: 'pyric.verify.fixture.v1',
   description: 'anonymous note creation from a packed CLI smoke',
@@ -157,7 +269,7 @@ const fixture = {
 };
 writeFileSync(resolve(workDir, 'session.json'), `${JSON.stringify(fixture, null, 2)}\n`);
 
-// Slice 2: the stable nested command generates a local Rules Test API artifact
+// Slice 3: the stable nested command generates a local Rules Test API artifact
 // through the packed binary, proving argument routing and output-file handling.
 const cases = run([
   'verify',
@@ -181,7 +293,7 @@ expect(
 );
 process.stdout.write('  ✓ packed pyric verify cases writes the expected local artifact\n');
 
-// Slice 3: replay the anonymous write through the local assurance engine. No
+// Slice 4: replay the anonymous write through the local assurance engine. No
 // credential source is available in this process. Re-running against deny-all
 // rules proves the command preserves its regression exit code rather than
 // merely loading the fixture.
