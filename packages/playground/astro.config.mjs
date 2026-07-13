@@ -88,15 +88,6 @@ const shimAliases = [
   // terminal. Stub it so the production Rollup build resolves the
   // named export; calling it actually throws (see zlib.ts).
   { find: /^(node:)?zlib$/, replacement: `${shimDir}/zlib.ts` },
-  // `firebase-admin` + its subpaths are Node-only — pulled in
-  // transitively by `@pyric/rtdb`'s top-level re-export of
-  // `DataHandler` (which imports `firebase-admin/database`). The
-  // playground only consumes the modular surface at preview time, so
-  // the client shim returns empty values that satisfy module-load
-  // without actually executing admin code. Same client-only
-  // discipline as the node:* shims above (SSR builds keep the real
-  // `firebase-admin`). See node-shims/firebase-admin.ts for context.
-  { find: /^firebase-admin(\/.*)?$/, replacement: `${shimDir}/firebase-admin.ts` },
 ];
 
 /** Vite plugin — apply the `node:*` shim aliases on CLIENT code only,

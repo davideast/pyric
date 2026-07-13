@@ -10,8 +10,8 @@
  *   - `getAuthTools(scope)` — programmatic API returning `AuthTools`
  *     (`generateIR`, `configureProvider`, `manageDomains`).
  *   - `createAuthAdminTools({ scope })` — `ToolHandler[]` factory for
- *     `@inbrowser/agent` / MCP wiring. Mirrors the
- *     `createRtdbAdminTools` shape.
+ *     `@inbrowser/agent` / MCP wiring. Follows the shared domain
+ *     tool-factory shape.
  *   - Types: `AuthIR`, `AuthTools`, `AuthProviderId`,
  *     `AuthIRGenerationError`, the provider/domains input/result
  *     schemas.

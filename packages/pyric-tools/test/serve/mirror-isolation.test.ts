@@ -1,10 +1,9 @@
 /**
  * Ratchet for the client mirror's runtime production-SDK dependency graph.
  *
- * The Vite/import-map layer owns Firebase-versus-sandbox selection. Until the
- * transitional internal production toolkit is deleted, this fixture records
- * its exact package-wide Firebase bindings. New bindings fail; deleting a
- * binding also fails until the fixture shrinks in the same change. The public
+ * The Vite/import-map layer owns Firebase-versus-sandbox selection. This
+ * fixture records the package-wide Firebase bindings. Any production SDK
+ * dependency in the sandbox mirror package fails this ratchet. The public
  * mirror entry is checked independently in bundler.test.ts.
  */
 import { expect, test } from 'bun:test';

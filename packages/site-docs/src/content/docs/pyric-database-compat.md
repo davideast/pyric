@@ -13,7 +13,7 @@ order: 8004
 
 `pyric/database` is the sandbox-only modular mirror. Package resolution selects it during Pyric development; production code continues to import the unchanged `firebase/database` package. The mirror never dispatches to production at runtime.
 
-This registry temporarily also contains the older host, REST, handler, and stateful resolver rows. Those implementations are reachable only through the unstable `pyric/rules/internal/rtdb` seam while they are being retired. They are not exports of `pyric/database` and must not be read as part of its public Firebase-shaped contract.
+The pure RTDB rules engine remains on the unstable `pyric/rules/internal/rtdb` seam for simulator, replay, mapper, grammar, and constraints consumers. Production data access and deployment are intentionally absent.
 
 ## Status legend
 
@@ -29,293 +29,82 @@ Probe references: `unit:<file>` means a Bun test under `packages/pyric/test/data
 
 ---
 
-## `RtdbHost` contract + `fetchDatabase`
+## Archived production-toolkit observations
+
+These unsupported tombstones preserve immutable oracle `rowIds` for the removed host, REST, data, crawl, generation, and deployment toolkit. They are historical evidence, not current API claims.
 
 <div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">1</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>fetchDatabase(host, path)</code> (no userToken) calls the URL <code>&lt;databaseUrl&gt;&lt;path&gt;?access_token=&lt;adminToken&gt;</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:host.test.ts</code></div></div>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">5</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical <code>.json</code> REST transport contract for the removed production host.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">2</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>fetchDatabase(host, path, params, userToken)</code> uses <code>auth=&lt;userToken&gt;</code> (NOT <code>access_token</code>) and does NOT call <code>resolveAdminToken()</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:host.test.ts</code></div></div>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">10</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical admin read and set/get behavior for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observations; implementation removed.</div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Extra <code>params</code> are merged into the URL query string alongside the auth param</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:host.test.ts</code></div></div>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">11</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical user read return shape for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>host.databaseUrl</code> is concatenated as a prefix to the path</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:host.test.ts</code></div></div>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">14</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical rules-denial normalization for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observations; implementation removed.</div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">5</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">REST endpoints respond on <code>&lt;databaseUrl&gt;&lt;path&gt;.json</code> — <code>.json</code> suffix is the RTDB REST contract</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-rest-json-suffix-contract.json</code> — <code>&lt;path&gt;.json</code> returned <code>application/json; charset=utf-8</code> and round-tripped the seeded payload; the same URL WITHOUT the <code>.json</code> suffix returned <code>text/html; charset=utf-8</code> (the Google sign-in redirector page). Locks the <code>.json</code>-suffix contract every handler that calls <code>fetchDatabase</code> depends on.</div></div>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">15</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical rules-denied read behavior for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">16</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical set/get round trip for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">18</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical set-null removal behavior for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">20</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical rules-denied write behavior for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">23</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical multi-path update behavior for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">27</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical push key behavior for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">28</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical push auto-ID format for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">31</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical remove-versus-set-null behavior for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">32</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical idempotent removal behavior for the removed production data handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">39</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical deployed-rules JSON round trip for the removed production fetch handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">46</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical rules deployment propagation timing for the removed production deploy handler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">58</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Historical shallow REST response shape for the removed production crawler.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 </div>
 
-## `getRtdbTools(host)` — programmatic surface
+## `SimulateHandler.execute(ir, input)` — in-process rule evaluator
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">6</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns an object with the 11 methods listed in the <code>RtdbTools</code> interface (<code>generateIR</code>, <code>simulate</code>, <code>writeRules</code>, <code>crawlStructure</code>, <code>readData</code>, <code>setData</code>, <code>updateData</code>, <code>pushData</code>, <code>removeData</code>, <code>validatedWrite</code>)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">7</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>simulate()</code> returns <code>IR_NOT_GENERATED</code> until <code>generateIR()</code> has been called and cached the IR</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">8</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After a successful <code>generateIR()</code>, the resolver caches the IR for subsequent <code>simulate()</code> calls</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">9</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>crawlStructure({ auth })</code> resolves the user token via <code>host.resolveUserToken</code> before crawling; a token-resolution failure surfaces as <code>PERMISSION_DENIED</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:resolver.test.ts</code></div></div>
-</details>
-</div>
-
-## `rtdb_get` / `readData(path)` — single-path read
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">10</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode returns <code>{ success: true, data: &lt;value or null&gt; }</code>; uses <code>firebase-admin/database</code> <code>ref(path).get().val()</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code>; oracle: <code>packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json</code> — admin-SDK <code>ref(path).get().val()</code> returned the exact seeded payload, wrapped as <code>{ success: true, data: &lt;value&gt; }</code>.</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">11</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode returns <code>{ success: true, data: &lt;value or null&gt; }</code>; uses <code>firebase/database</code> modular <code>get(ref(db, path)).val()</code> via <code>host.getClientForUser(auth)</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code>; oracle: <code>packages/conformance/observations/rtdb/rtdb-handler-admin-vs-user-returnshape.json</code> — <code>shapesAgree: true</code> between admin and modular paths against blockingfun (same <code>data</code> value, same <code>success: true</code> shape).</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">12</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>null</code> at the path (empty / missing) round-trips as <code>data: null</code> (NOT a not-found error) — matches <code>DataSnapshot.val()</code> returning <code>null</code> for absent paths</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code> ("admin GET returns null for empty path")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">13</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Any thrown error in admin mode is wrapped as <code>{ success: false, error: { code: 'READ_FAILED', recoverable: false } }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">14</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied user-mode <code>get</code>/<code>set</code>/<code>update</code>/<code>push</code>/<code>remove</code> surface as <code>{ success: false, error: { code: 'PERMISSION_DENIED', recoverable: false } }</code> — the handler inspects the caught error before the generic <code>READ_FAILED</code> / <code>WRITE_FAILED</code> wrap and preserves the <code>PERMISSION_DENIED</code> signal. The inspection matches both <code>(err.code === 'PERMISSION_DENIED')</code> and <code>(err.message.toLowerCase().includes('permission_denied'))</code> so it covers the uppercase <code>set/get/remove</code> shape AND the lowercase <code>runTransaction</code> shape from oracle row #15 / M37e. Non-rules errors (network, token mint, etc.) still surface as <code>READ_FAILED</code> / <code>WRITE_FAILED</code>.</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code> ("rules-denied GET/SET/REMOVE surfaces as PERMISSION_DENIED", "non-rules error for GET/SET still surfaces as READ_FAILED/WRITE_FAILED", "transaction-shaped rules-denied (lowercase message, no .code) surfaces as PERMISSION_DENIED"); oracles cited: <code>packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json</code> + <code>packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">15</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied read against the real RTDB throws on the modular SDK side with <code>code: 'PERMISSION_DENIED'</code> and message <code>PERMISSION_DENIED: Permission denied</code>. The thrown value is a <strong>plain <code>Error</code></strong> (not a <code>FirebaseError</code>) — <code>.name === 'Error'</code>, <code>.constructor.name === 'Error'</code> — diverging from Firestore/Auth which throw <code>FirebaseError</code>.</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json</code> (<code>code: 'PERMISSION_DENIED'</code>, <code>errorName: 'Error'</code>, <code>constructorName: 'Error'</code>, <code>isErrorInstance: true</code> against blockingfun, fb-js-sdk 12.13.0; observed on the <code>set</code> path — the <code>get</code>/<code>set</code> paths share the same error-emit code in firebase/database)</div></div>
-</details>
-</div>
-
-## `rtdb_set` / `setData(path, data)` — full overwrite
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">16</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode replaces the value at the path entirely; resolves <code>{ success: true, data: null }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">17</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode replaces via the modular SDK's <code>set(ref, data)</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">18</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Setting <code>null</code> at a path is equivalent to removing it (matches RTDB's documented behavior)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-remove-vs-set-null.json</code> — observed <code>afterRemove: null === afterSetNull: null</code> against blockingfun, fb-js-sdk 12.13.0; sandbox-aligned: <code>unit:modular/sandbox-target.test.ts</code> ("remove and set(null) produce identical end-state")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">19</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Errors on either path wrap as <code>{ success: false, error: { code: 'WRITE_FAILED', recoverable: false } }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">20</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied write against the real RTDB throws with <code>code: 'PERMISSION_DENIED'</code> (uppercase, snake-case — distinct from Firestore's lowercase-kebab <code>'permission-denied'</code>) and message <code>PERMISSION_DENIED: Permission denied</code>. The thrown value is a <strong>plain <code>Error</code></strong>, not a <code>FirebaseError</code>.</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json</code> (against blockingfun, fb-js-sdk 12.13.0)</div></div>
-</details>
-</div>
-
-## `rtdb_update` / `updateData(path, data)` — partial / multi-location update
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">21</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode merges top-level keys at the path; resolves <code>{ success: true, data: null }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">22</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode merges via the modular SDK's <code>update(ref, data)</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">23</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">When <code>path === '/'</code> and <code>data</code> keys are root-relative paths (e.g. <code>{ '/users/alice/name': 'A', '/posts/p1/author': 'alice' }</code>), the underlying SDK performs an atomic fan-out write at every listed path</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb-modular/rtdb-modular-update-multipath-atomic.json</code> — <code>update(parentRef, { 'a/x': 1, 'b/y': 2 })</code> landed both writes; see also <code>rtdb-modular-update-multipath-rules-denial.json</code> for the atomic rollback when one path is denied. Sandbox-aligned: <code>unit:modular/sandbox-target.test.ts</code> ("writes every listed path atomically" + "rejects the entire update if rules deny any one path")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">24</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Update operations are validated for syntax (overlapping paths, invalid characters) by the underlying SDK; surface as <code>WRITE_FAILED</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: locked by unit test <code>packages/pyric/test/database/modular/sandbox-target.test.ts</code> ("rejects overlapping paths") — descendant-path overlap throws before any path is written</div></div>
-</details>
-</div>
-
-## `rtdb_push` / `pushData(path, data)` — auto-id append
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">25</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode returns <code>{ success: true, data: { key: &lt;auto-id&gt; } }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">26</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode returns <code>{ success: true, data: { key: &lt;auto-id&gt; } }</code> via <code>push(ref, data).key</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">27</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Auto-id format is RTDB's "push ID": 20 characters, starts with <code>-</code>, lexicographically sortable, timestamp-prefixed (encodes the millisecond timestamp at the time of generation)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-push-autoid-format.json</code> (against blockingfun, fb-js-sdk 12.13.0: 3 sequential <code>push()</code> calls returned 20-char keys (<code>-OsshG1AxGukSGUYn_De</code>, <code>-OsshG1GZ2pAt7bveAWv</code>, <code>-OsshG1NmrNFxZuwufff</code>), all starting with <code>-</code>. The <code>push.key</code> is minted client-side from the millisecond timestamp + randomness — it's available immediately even when the subsequent server write is denied by rules.)</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">28</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Two <code>push</code> calls in quick succession produce monotonically sortable keys (the timestamp prefix guarantees order)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-push-autoid-format.json</code> (<code>monotonicallySorted: true</code> across 3 keys generated ~5ms apart)</div></div>
-</details>
-</div>
-
-## `rtdb_delete` / `removeData(path)` — delete
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">29</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode removes the value and all children; resolves <code>{ success: true, data: null }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">30</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode removes via the modular SDK's <code>remove(ref)</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">31</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>remove(ref)</code> and <code>set(ref, null)</code> produce the same end state (no path remains, <code>get</code> returns <code>null</code>)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-remove-vs-set-null.json</code> — observed <code>bothNull: true, equivalent: true</code> against blockingfun; sandbox-aligned: <code>unit:modular/sandbox-target.test.ts</code> ("remove and set(null) produce identical end-state")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">32</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Removing a non-existent path is a no-op that resolves successfully (matches RTDB's idempotent delete semantics)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb-modular/rtdb-modular-remove-idempotent.json</code> — <code>remove</code> on a never-written path observed <code>threw: false, afterExists: false</code>; sandbox-aligned: <code>unit:modular/sandbox-target.test.ts</code> ("removing a non-existent path is a no-op")</div></div>
-</details>
-</div>
-
-## `rtdb_get_rules` / `generateIR()` — fetch + parse rules
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">33</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fetches <code>/.settings/rules.json</code> AND <code>/.json?shallow=true</code> in parallel, then maps to an <code>RtdbIR</code> tree</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:ir/handler.test.ts</code> ("hits both /.settings/rules.json and /.json")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">34</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>RULES_FETCH_FAILED</code> when <code>/.settings/rules.json</code> returns 403 (insufficient admin permissions)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:ir/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">35</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>RULES_PARSE_FAILED</code> when the rules response body is not valid JSON</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:ir/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">36</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns success even when <code>/.json?shallow=true</code> returns 404 (proceeds with <code>null</code> shallow data, <code>rules.exists === false</code>)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:ir/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">37</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The returned IR has <code>service === 'realtime-database'</code> and <code>databaseUrl === host.databaseUrl</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:ir/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">38</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The IR tree's root node carries <code>read</code>/<code>write</code>/<code>validate</code> expressions parsed via the Ohm grammar; expressions expose <code>parsed.valid</code> + error list</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:ir/handler.test.ts</code>, <code>unit:mapper.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">39</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Top-level rule structure (e.g. <code>rules</code> wrapper, <code>.read</code>/<code>.write</code>/<code>.validate</code> keys, path-variable segments <code>$userId</code>) is parsed identically to how the REST <code>rules.json</code> PUT endpoint accepts it</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-rules-json-roundtrip.json</code> — PUT a rules subtree containing <code>$userId</code> path-variable segments, <code>.indexOn: ['createdAt', 'name']</code>, plus <code>.read</code>/<code>.write</code>/<code>.validate</code> expressions; GET-back returned <code>exactRoundTrip: true</code> (byte-for-byte JSON equality). Confirms the deploy / fetch shape is identical to what <code>RtdbMapper.mapToRulesJSON</code> and <code>mapToIR</code> expect.</div></div>
-</details>
-</div>
-
-## `rtdb_deploy_rules` / `writeRules(ir)` — deploy rules
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">40</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Maps the IR to a rules-JSON payload via <code>RtdbMapper.mapToRulesJSON(ir)</code> and PUTs to <code>&lt;databaseUrl&gt;/.settings/rules.json?access_token=&lt;admin&gt;</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:write/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">41</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>{ success: true }</code> on HTTP 200</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:write/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">42</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>{ success: false, error: { code: 'PERMISSION_DENIED' } }</code> on HTTP 403</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:write/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">43</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>{ success: false, error: { code: 'INVALID_RULES_JSON', recoverable: true } }</code> on HTTP 400 (includes the response body in <code>message</code>)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:write/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">44</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>{ success: false, error: { code: 'WRITE_FAILED' } }</code> for any other non-OK status</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:write/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">45</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Any thrown exception during fetch is caught and wrapped as <code>WRITE_FAILED</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:write/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">46</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Live RTDB rules-PUT endpoint takes a few seconds to propagate before subsequent reads/writes are evaluated under the new rules</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-rules-deploy-propagation-timing.json</code> — deployed a permissive rule then polled writes at 200ms intervals; the FIRST write succeeded at <code>firstSuccessElapsedMs: 154</code> (observed once against blockingfun on fb-js-sdk 12.13.0). Both <code>within5s: true</code> and <code>within10s: true</code>; the harness's current 5s wait is comfortably above the observed bound. Note: a single observation isn't a guaranteed upper bound; propagation can vary with load.</div></div>
-</details>
-</div>
-
-## `rtdb_crawl_structure` / `crawlStructure(options)` — shape discovery
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">47</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Defaults to <code>path: '/'</code>, <code>maxDepth: 10</code>, <code>maxChildren: 100</code>, <code>maxConcurrency: 5</code> (from <code>CRAWL_DEFAULTS</code>)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">48</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Recursively fetches <code>&lt;path&gt;.json?shallow=true</code> at each level; uses <code>value === true</code> to identify object children and recurse</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code> ("schema excludes object children (value === true)")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">49</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Leaf primitive values (non-true, non-null) populate <code>node.schema[key]</code> with their <code>typeof</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code> ("schema infers types from leaf primitive values")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">50</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A leaf primitive at the crawled path itself sets <code>node.valueType</code> rather than recursing</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code> ("leaf primitive node has valueType set")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">51</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A child node that returns only true-marked keys (the RTDB shallow representation of a nested object) is recursed; the schema of that child is populated from grandchild leaves</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code> ("schema populated from children that are leaf primitives")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">52</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">403 at the root returns <code>{ success: false, error: { code: 'PERMISSION_DENIED' } }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">53</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">403 at a child returns an empty node (<code>childCount: 0</code>, <code>children: []</code>) rather than failing the whole crawl</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">54</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A network error mid-crawl at a child returns an empty node for that subtree; the rest of the crawl proceeds</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">55</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>maxDepth</code> truncates: deeper nodes are reported with <code>childCount</code> set but <code>children: []</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">56</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>maxChildren</code> exceeded → <code>truncated: true</code> on that node</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">57</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>maxConcurrency</code> is enforced via a semaphore — concurrent in-flight fetches never exceed the limit</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:crawl/handler.test.ts</code> ("concurrency is respected")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">58</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Live RTDB <code>shallow=true</code> REST response shape: object → object with keys mapped to <code>true</code>; leaf primitive → the primitive itself; missing path → <code>null</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-shallow-rest-response-shape.json</code> — seeded <code>{ obj: { a, b, c }, leaf: 'hello', leafNum: 42, leafBool: true }</code>, then GET with <code>?shallow=true</code> at each path: object node returned <code>{ a: true, b: true, c: true }</code> (all keys → <code>true</code>), string leaf returned the string <code>'hello'</code>, numeric leaf returned <code>42</code>, boolean leaf returned <code>true</code>, missing path returned <code>null</code>. Locks every assumption the <code>CrawlStructureHandler</code> depends on.</div></div>
-</details>
-</div>
-
-## `rtdb_simulate_access` / `simulate(input)` — in-process rule evaluator
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">59</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>{ success: false, error: { code: 'IR_NOT_GENERATED' } }</code> when called before <code>generateIR()</code></span></summary>
+<summary class="compat-line"><span class="compat-num">59</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>{ success: false, error: { code: 'IR_NOT_GENERATED' } }</code> when the supplied <code>ir</code> is <code>null</code></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -365,39 +154,6 @@ Probe references: `unit:<file>` means a Bun test under `packages/pyric/test/data
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">71</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Simulator's allow/deny decision matches the real RTDB rules engine for the same <code>{ rules, mockData, auth, operation, path, newData }</code> tuple, modulo the documented cross-path divergence on row #66</span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-simulator-vs-prod-agreement.json</code> — 8 test rules × 29 (rule, op) tuples; 28 agreements, 1 disagreement at capture time (<code>r4-validate-structure</code>: the simulator did not evaluate <code>.validate</code> on writes). The <code>.validate</code> walk is now implemented (<code>src/database/simulation/handler.ts</code>, reached from all backend write sites; grammar array-literals + <code>hasChildren(keys)</code> fixed alongside), closing the recorded disagreement — replayed as prod-conforming denial in <code>oracle-conformance.test.ts</code>. The frozen capture documents the historical divergence</div></div>
-</details>
-</div>
-
-## `rtdb_validated_write` / `validatedWrite(input)` — preflighted write
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">72</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Crawls the structure at <code>path</code> to infer schema; collects <code>SchemaWarning[]</code> for <code>type_mismatch</code> (existing key with different type) and <code>new_field</code> (key not seen before)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/validated.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">73</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Simulates the write against the IR's rules using <code>mockData: {}</code> and the supplied <code>auth</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/validated.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">74</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Admin mode (no <code>auth</code>): simulation denial returns <code>{ success: false, error: { code: 'SIMULATION_DENIED', recoverable: true } }</code> — blocks the live write</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/validated.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">75</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User mode (<code>auth</code> provided): simulation denial is advisory only — the live write still runs because real rules will enforce against the actual database, where cross-path lookups can succeed</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/validated.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">76</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After preflight, the actual write is dispatched through <code>DataHandler.execute</code> with the original <code>auth</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/validated.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">77</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Schema warnings are returned even on success — they're advisory, not blocking</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/validated.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">78</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A failed crawl is swallowed — the handler proceeds with no schema warnings and an unchecked write</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:data/validated.test.ts</code></div></div>
 </details>
 </div>
 
@@ -497,8 +253,8 @@ Two sandbox identity modes are selected by the value passed to
 
 The implementation lives in `packages/pyric/src/database/modular.ts`; the
 in-process backend lives in `packages/pyric/src/database/sandbox/`. Rows below
-are scoped to the modular mirror. The legacy toolkit rows above (#1–#93) are
-transitional internal coverage and are not exports of `pyric/database`.
+are scoped to the modular mirror. The pure rules-engine rows above are internal
+tooling coverage and are not exports of `pyric/database`.
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
@@ -698,8 +454,8 @@ transitional internal coverage and are not exports of `pyric/database`.
 <div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/transaction.test.ts</code> ("applyLocally: true (default) — listener sees initial + committed value" + "applyLocally: false — listener sees only the committed value"); matches oracle observation <code>packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-options-applylocally.json</code> (single-client harness: both branches produce 2 fires (initial + commit) — divergence vs prod's documented multi-client suppression would surface under contention, which the sandbox doesn't model)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">M37e</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied transaction rejects with a plain <code>Error</code> whose <code>message === 'permission_denied'</code> (lowercase) and NO <code>.code</code> field — DIFFERENT from <code>set</code>/<code>get</code>'s <code>'PERMISSION_DENIED: Permission denied'</code> shape with uppercase <code>.code</code>. <strong>Note: the divergence between the two shapes is real at the SDK boundary, but the <code>DataHandler</code> layer normalizes both to <code>error.code === 'PERMISSION_DENIED'</code> (row #14) so consumer code only needs to branch on one value.</strong></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/transaction.test.ts</code> ("rejects with a plain Error whose message is \"permission_denied\""); matches oracle observation <code>packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json</code> (against blockingfun: <code>message: 'permission_denied', code: null, constructorName: 'Error'</code>). Handler-level unification locked by <code>unit:data/handler.test.ts</code> ("transaction-shaped rules-denied (lowercase message, no .code) surfaces as PERMISSION_DENIED").</div></div>
+<summary class="compat-line"><span class="compat-num">M37e</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied transaction rejects with a plain <code>Error</code> whose <code>message === 'permission_denied'</code> (lowercase) and NO <code>.code</code> field — DIFFERENT from <code>set</code>/<code>get</code>'s <code>'PERMISSION_DENIED: Permission denied'</code> shape with uppercase <code>.code</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/transaction.test.ts</code> ("rejects with a plain Error whose message is \"permission_denied\""); matches oracle observation <code>packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json</code> (against blockingfun: <code>message: 'permission_denied', code: null, constructorName: 'Error'</code>).</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">M37f</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Rules-denied transaction does NOT write — pre-transaction value at the path is preserved through the rejection</span></summary>
@@ -833,9 +589,9 @@ transitional internal coverage and are not exports of `pyric/database`.
 <summary class="compat-line"><span class="compat-num">M75</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><strong>Divergence (DB-B12, honest doc):</strong> the onChild<em> callbacks do NOT receive the <code>previousChildName</code> second argument; <code>onValue</code>/<code>onChild</em></code> do NOT accept a <code>cancelCallback</code>; <code>onChildAdded</code>/<code>Changed</code>/<code>Removed</code>/<code>Moved</code> accept only plain refs (not <code>Query</code>); <code>child_moved</code> never fires (ordered-query move detection unmodeled). These listener-surface holes are out of scope for the current phase — consumers needing them use <code>firebase/database</code> directly.</span></summary>
 <div class="compat-evidence"><div class="compat-probe">divergence documented; partial coverage: <code>{ onlyOnce }</code> IS implemented (M74).</div></div>
 </details>
-<details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">M76</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><strong>Divergence (DB-B9, honest doc):</strong> <code>.validate</code> rules are NOT enforced on modular sandbox writes (<code>set</code>/<code>update</code>/<code>runTransaction</code>). The modular write path routes through the same <code>RulesEvaluator</code> → <code>SimulateHandler</code> as the simulator, which short-circuits on the first ancestor <code>.write</code> that grants access without also requiring every ancestor <code>.validate</code> to pass (same divergence as row #71). A write the live RTDB rejects via a deeper <code>.validate</code> still succeeds in the sandbox.</span></summary>
-<div class="compat-evidence"><div class="compat-probe">divergence documented (shared root with row #71); fix path noted under "Simulator-vs-prod divergences".</div></div>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">M76</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>.validate</code> rules are enforced on modular sandbox writes through <code>set</code>, atomic <code>update</code>, and <code>runTransaction</code>; a descendant validation failure rejects the operation without changing state.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/sandbox-target.test.ts</code> executes all three write paths against a required-child <code>.validate</code> rule and proves each rejects without committing state. The shared <code>SimulateHandler</code> behavior is production-locked by RTDB rules corpus rows #4 and #15.</div></div>
 </details>
 </div>
 
@@ -847,7 +603,7 @@ transitional internal coverage and are not exports of `pyric/database`.
 
 The playground and `pyric dev` map canonical `firebase/database` imports to `pyric/database` before the mirror loads. A bare preview `getDatabase()` call is wrapped to receive the active sandbox. Production bundling leaves `firebase/database` unchanged.
 
-The older agent-tool rows in this registry describe a transitional internal implementation, not the public mirror. New simulation and structure-crawling flows belong to sandbox/CLI tooling, and rules authoring/analysis belongs to `pyric/rules`.
+Simulation and structure crawling are sandbox/CLI operations; rules authoring and analysis remain on the internal RTDB rules-engine seam until their later package relocation.
 
 ---
 
@@ -1282,23 +1038,6 @@ The older agent-tool rows in this registry describe a transitional internal impl
 
 
 
-### Agent-tool surface — rows still marked **?** (need explicit probes / oracle observations)
-
-_All previously-unprobed rows in this section are now oracle-locked. The list below tracks what was locked in the last sweep, with the probe name + matrix row for each._
-
-- ~~#5 RTDB REST `.json`-suffix contract~~ — locked by `rtdb-rest-json-suffix-contract.json`.
-- ~~#39 rules-JSON round-trip vs the REST `/.settings/rules.json` accept format~~ — locked by `rtdb-rules-json-roundtrip.json` (`exactRoundTrip: true`).
-- ~~#46 rules-deploy propagation timing~~ — locked by `rtdb-rules-deploy-propagation-timing.json` (`firstSuccessElapsedMs: 154`).
-- ~~#58 RTDB shallow REST response shape~~ — locked by `rtdb-shallow-rest-response-shape.json`.
-- ~~#71 simulator-vs-live-RTDB allow/deny agreement~~ — observed by `rtdb-simulator-vs-prod-agreement.json` (28/29 agree; 1 divergence documented below). Status is **⚠** rather than **✓** because of the validate-rule divergence.
-
-Rows **flipped from ? to ✓ by Phase 3** (the modular sandbox locks the contract; oracle observations remain blocked on the live RTDB rules at the oracle project, but the sandbox aligned tests pin the same end-state the documented prod behavior requires):
-
-- #18, #31 `set(null) === remove` end-state equivalence — locked by `unit:modular/sandbox-target.test.ts`.
-- #23 atomic fan-out update at root path — locked by `unit:modular/sandbox-target.test.ts`.
-- #24 multi-path update overlap validation — locked by `unit:modular/sandbox-target.test.ts`.
-- #32 idempotent remove on non-existent path — locked by `unit:modular/sandbox-target.test.ts`.
-
 ### Modular SDK surface — rows still marked **?** (need explicit probes)
 
 Rows **locked by the empirical oracle harness** (committed observations under `packages/conformance/observations/`, captured against the `blockingfun` project):
@@ -1361,87 +1100,15 @@ Rows **locked by the empirical oracle harness** (committed observations under `p
 - #148/#149 `rtdb-modular-startafter-endbefore-exclusive.json` — `startAfter(2) + endBefore(5)` returned positions `[3,4]` (cursors `2` and `5` dropped — both bounds are EXCLUSIVE).
 - #152 `rtdb-modular-onvalue-with-query.json` — listener on `query(ref, orderByChild('pos'), limitToFirst(2))` fired 3 times: initial `[a,b]`, then on an INSIDE-window mutation (`a` value change), then when a new child `z` displaced `b`. The OUTSIDE-window write to `c/extra` did NOT fire the listener.
 
-### Agent-tool surface — rows now locked by the live-RTDB happy-path observations (newly unblocked)
-
-Once `ensureOracleRtdbRules` deployed the namespace + index, the 4 originally-blocked legacy probes captured happy-path observations:
-
-- #16 `setData` round-trip — confirmed via `rtdb-set-then-get-roundtrip.json`.
-- #18 `set(null)` removes — `rtdb-remove-vs-set-null.json` (`bothNull: true`).
-- #23 atomic fan-out update — locked by the new `rtdb-modular-update-multipath-atomic.json` and `rtdb-modular-update-multipath-rules-denial.json` observations (same upstream SDK either way).
-- #31 `remove` vs `set(null)` end state — `rtdb-remove-vs-set-null.json` (`equivalent: true`).
-- #32 idempotent remove on absent path — `rtdb-modular-remove-idempotent.json`.
-
-### Rows currently marked **⚠** that we might want to upgrade to **✓**
-
-(by aligning the package to the wrapped service or by formally documenting the divergence in `feature-matrix.md`):
-
-- #14 user-mode `READ_FAILED` swallowing the upstream `PERMISSION_DENIED` code.
-- #66 simulator cross-path lookup using empty `mockData` instead of reading the live database. (The advisory-only behavior for user-mode writes already documents this; a fix would teach the simulator to fetch cross-path values from the host on demand.)
-
-### Agent-tool rows currently marked **—** that we might want to fill (rough priority)
-
-1. `onValue` / `onChild*` listener tools — most-requested addition; would require tool-call-friendly stream semantics (poll? snapshot at time T?).
-2. `query`-with-constraints tool surface — `equalTo` / `orderByChild` / `limit*` parameter shapes.
-3. `serverTimestamp` / `increment` sentinel support in the data tools.
-4. `runTransaction` tool — atomic read-modify-write.
-
 ### Modular SDK surface — implementation status
 
 The sandbox implementation has landed (`packages/pyric/src/database/modular.ts` + `sandbox/`); rows locked by sandbox unit tests or oracle observations sit at `✓`, and rows still pending implementation sit at `—` (see the per-row tables above for the current status of each). The oracle observations are the spec the sandbox conforms to.
 
 ## Probe coverage summary
 
-- **Unit (`packages/pyric/test/database/`):** ~30 test files. Strong coverage
-  on handlers (`data/handler.test.ts`, `crawl/handler.test.ts`,
-  `write/handler.test.ts`, `ir/handler.test.ts`,
-  `simulation/handler.test.ts`, `data/validated.test.ts`), the host
-  contract (`host.test.ts`), the mapper round-trip
-  (`mapper.test.ts`), the resolver (`resolver.test.ts`), and the
-  tool factory shape (`tools.test.ts`). Constraint-authoring
-  surface (`constraints/`) and grammar (`grammar/`) each have a
-  dedicated test suite. The modular-SDK surface ships unit tests
-  under `test/database/modular/` (`sandbox-target.test.ts` covers Tier 1
-  foundation; `sandbox-child-events.test.ts` covers Tier 2 child events;
-  `queries.test.ts` covers Tier 3 query semantics; `transaction.test.ts`
-  covers Tier 4 `runTransaction`).
-- **Oracle (`packages/conformance/observations/`):** 50 RTDB probes
-  (`packages/conformance/observations/rtdb/rtdb-*.json`) — 14 legacy
-  (agent-tool surface) + 36 modular-SDK probes (20 Phase 1 + 4 Tier 4
-  transaction + 5 Tier 2 child-event + 7 Tier 3 query; see the "Modular
-  SDK surface — rows locked by the empirical oracle harness" section for
-  the full per-row list). A representative subset:
-  - Legacy:
-    - `rtdb-set-then-get-roundtrip` — **passing** — locks #16/#10 round-trip.
-    - `rtdb-onvalue-fires-on-set` — **passing** — locks listener-fire-on-set semantics.
-    - `rtdb-remove-vs-set-null` — **passing** — locks #18/#31.
-    - `rtdb-push-autoid-format` — **passing** — locks #27/#28 (client-side key minting).
-    - `rtdb-servertimestamp-resolves` — **passing** — locks sentinel resolution to a number.
-    - `rtdb-rules-denied-error-code` — **passing** — locks #15/#20 (plain `Error` + `PERMISSION_DENIED` uppercase code).
-  - Modular SDK Phase 1 (`rtdb-modular-*`):
-    - `rtdb-modular-get-snapshot-shape` — locks #106.
-    - `rtdb-modular-get-missing-path` — locks #107/#108.
-    - `rtdb-modular-set-null-equals-remove` — locks #112.
-    - `rtdb-modular-set-replaces-not-merges` — locks #113.
-    - `rtdb-modular-update-merges-keys` — locks #116.
-    - `rtdb-modular-update-multipath-atomic` — locks #117 + agent-tool #23.
-    - `rtdb-modular-update-multipath-rules-denial` — locks #118.
-    - `rtdb-modular-update-null-removes-key` — locks #119.
-    - `rtdb-modular-remove-idempotent` — locks #122 + agent-tool #32.
-    - `rtdb-modular-push-with-value` — locks #126/#127.
-    - `rtdb-modular-onvalue-initial-with-data` — locks #128.
-    - `rtdb-modular-onvalue-initial-no-data` — locks #129.
-    - `rtdb-modular-onvalue-unsubscribe` — locks #131.
-    - `rtdb-modular-onchildadded-initial-replay` — locks #133.
-    - `rtdb-modular-query-orderbychild-limit` — locks #142/#150.
-    - `rtdb-modular-query-equalto` — locks #145.
-    - `rtdb-modular-query-startat-inclusive` — locks #146.
-    - `rtdb-modular-increment-from-missing` — locks #155/#156.
-    - `rtdb-modular-runtransaction-success` — locks #158/#160/#162.
-    - `rtdb-modular-runtransaction-abort-undefined` — locks #159.
-    - `rtdb-modular-runtransaction-current-value-arg` — locks #160 (`null` for absent paths; documents the prod-vs-sandbox speculative-call divergence for seeded paths).
-    - `rtdb-modular-runtransaction-returns-committed-snapshot` — locks #162 (result shape: `{ committed, snapshot }`, snapshot responds to `.val()`/`.exists()`/`.key`).
-    - `rtdb-modular-runtransaction-options-applylocally` — locks the `options.applyLocally` branch contract; single-client harness shows both branches end at the same value with init+commit fires.
-    - `rtdb-modular-runtransaction-on-rules-denied-path` — locks the transaction-specific rules-denied error shape: plain `Error`, `message: 'permission_denied'` (lowercase), NO `.code` field — **distinct** from `set`/`get`'s uppercase `PERMISSION_DENIED:` shape.
+- **Pure rules engine:** simulator, mapper, grammar, and constraints tests under `packages/pyric/test/database/`.
+- **Modular mirror:** focused tests under `packages/pyric/test/database/modular/` plus frozen `rtdb-modular-*` production observations.
+- **Archived observations:** legacy `rtdb-*` captures remain immutable historical evidence but no longer contribute rows for the removed production toolkit.
 
 ### Harness extension: `ensureOracleRtdbRules`
 
@@ -1472,28 +1139,6 @@ keys) and a 5s propagation wait runs before the probes start. The
 `orderByChild`/`equalTo`/`startAt` probes run without per-probe
 rule modifications.
 
-## Simulator-vs-prod divergences (from row #71 audit)
+## Historical simulator-vs-production capture
 
-The simulator-vs-prod agreement audit (`packages/conformance/observations/rtdb/rtdb-simulator-vs-prod-agreement.json`) deployed 8 rule patterns and ran 29 `(rule, op)` tuples against both the live `blockingfun` RTDB and the in-process `SimulateHandler`. 28 of 29 agreed; the one divergence:
-
-### Divergence 1 — `.validate` rules not evaluated during writes
-
-**Rule:**```json
-{
-  ".read": "auth != null",
-  ".write": "auth != null",
-  "entry": {
-    ".validate": "newData.hasChildren(['title', 'body'])"
-  }
-}
-```**Op:** `write` at `/r4-validate-structure/entry` with `newData: { title: 't' }` (intentionally missing `body`), `auth.uid` present.
-
-**Live RTDB:** `PERMISSION_DENIED` — the `.validate` rule rejects the write because `newData.hasChildren(['title', 'body'])` is false.
-
-**Simulator (`SimulateHandler`):** `allowed: true, reason: "Rule expression evaluated to true"` — the simulator's walk from root finds the ancestor `.write: 'auth != null'` returns true and short-circuits there, never descending into the `entry` node to evaluate the `.validate` rule.
-
-**Root cause:** `packages/pyric/src/database/simulation/handler.ts` only reads `ancestor.node[operation]` (one of `'read'` | `'write'` | `'validate'`) per iteration. For an `operation: 'write'` simulation, it never queries the `.validate` rule on the same or descendant ancestors. RTDB's real rules engine evaluates `.validate` rules at every ancestor of the write path in addition to the `.write` rule — a single `.validate` failure rejects the entire write.
-
-**Implication for consumers of `validatedWrite`:** the simulator's `SIMULATION_DENIED` signal currently doesn't fire for `.validate` failures during writes. In admin mode this means a write that prod would reject via `.validate` will still be dispatched. In user mode the live rule still enforces, so the deny lands at the prod write — same end-state, but the advisory preflight signal is missing.
-
-**Fix path (out of scope for this PR):** the simulator's write-eval loop should also walk every ancestor's `.validate` rule and require ALL of them to evaluate `true` (or be absent) in addition to a `.write` rule granting access. Tracked as a follow-up engineering task — this PR's job is to document the divergence per the row #71 methodology, not fix the simulator.
+The frozen `rtdb-simulator-vs-prod-agreement.json` observation recorded 28 agreements and one historical `.validate` disagreement. The current `SimulateHandler` evaluates descendant validation rules on writes; row #71 and the simulator tests cover the repaired behavior without editing the frozen observation.

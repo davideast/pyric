@@ -1,7 +1,7 @@
 /**
  * Bootstraps the admin/prod inputs `composeMcpRegistry` needs from a service
- * account: an admin App + `scope`, a user-impersonation Firestore factory, and
- * an RTDB host. Standard SDK plumbing (createCustomToken -> signInWithCustomToken
+ * account: an admin App + `scope` and a user-impersonation Firestore factory.
+ * Standard SDK plumbing (createCustomToken -> signInWithCustomToken
  * -> FirebaseServerApp), cached per (uid, claims).
  *
  * Used by the project-audit skill and firestore-path discovery to reach a real
@@ -11,8 +11,6 @@ import admin from 'firebase-admin';
 import { initializeApp as initializeClientApp, initializeServerApp } from 'firebase/app';
 import { getAuth as getClientAuth, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore as getClientFirestore } from 'firebase/firestore';
-import { getDatabase as getClientDatabase } from 'firebase/database';
-import { initializeDatabaseApp, type RtdbHost } from 'pyric/rules/internal/rtdb';
 import type { ProjectScope } from '../credentials/core/types.js';
 import { projectScopeFromAdminApp } from '../credentials/node/admin-app-scope.js';
 import type { AdminAppDeps } from './compose.js';
@@ -20,7 +18,6 @@ import type { AdminAppDeps } from './compose.js';
 export interface AdminDepsResult {
   scope: ProjectScope;
   adminDeps: AdminAppDeps;
-  rtdbHost: RtdbHost;
 }
 
 interface ImpersonationAuth {
@@ -75,16 +72,5 @@ export function adminDepsFromServiceAccount(opts: {
       adminApp: app,
       getClientFirestore: async (auth) => getClientFirestore(await getOrCreateServerApp(auth)),
     },
-    rtdbHost: initializeDatabaseApp({
-      projectId: cert.project_id,
-      getRestToken: () => scope.resolveToken(),
-      getUserToken: async (auth: ImpersonationAuth) => {
-        const customToken = await admin.auth(app).createCustomToken(auth.uid, auth.claims);
-        const cred = await signInWithCustomToken(getClientAuth(clientApp), customToken);
-        return cred.user.getIdToken();
-      },
-      getClientDatabase: async (auth: ImpersonationAuth, databaseUrl: string) =>
-        getClientDatabase(await getOrCreateServerApp(auth), databaseUrl),
-    }),
   };
 }

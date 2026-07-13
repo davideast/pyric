@@ -14,6 +14,7 @@ import {
   get,
   set,
   update,
+  runTransaction,
   remove,
   push,
   pushKey,
@@ -29,6 +30,47 @@ function setup() {
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
   return { sandbox, db };
 }
+
+function setRequiredChildValidation(db: ReturnType<typeof getDatabase>): void {
+  rtdbSandbox.setRules(db, {
+    rules: {
+      '.write': true,
+      item: { '.validate': "newData.hasChildren(['required'])" },
+    },
+  });
+}
+
+describe('write-path .validate enforcement', () => {
+  it('set rejects a value that fails descendant validation', async () => {
+    const { db } = setup();
+    setRequiredChildValidation(db);
+
+    await expect(set(ref(db, '/item'), { optional: true })).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
+    expect(rtdbSandbox.snapshotState(db)).toEqual({});
+  });
+
+  it('update rejects an atomic patch that fails descendant validation', async () => {
+    const { db } = setup();
+    setRequiredChildValidation(db);
+
+    await expect(update(ref(db, '/'), { 'item/optional': true })).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
+    expect(rtdbSandbox.snapshotState(db)).toEqual({});
+  });
+
+  it('runTransaction rejects a value that fails descendant validation', async () => {
+    const { db } = setup();
+    setRequiredChildValidation(db);
+
+    await expect(
+      runTransaction(ref(db, '/item'), () => ({ optional: true })),
+    ).rejects.toThrow('permission_denied');
+    expect(rtdbSandbox.snapshotState(db)).toEqual({});
+  });
+});
 
 describe('getDatabase + path constructors', () => {
   it('getDatabase(ctx) returns a tagged Database handle', () => {

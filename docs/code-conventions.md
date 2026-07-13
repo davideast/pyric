@@ -330,8 +330,8 @@ Rule.
   relative path. A host that needs bypass or host-only seams uses the surface's
   `./internal` subpath (storage already exposes `pyric/storage/internal` for
   exactly this; the sandbox exposes `pyric/sandbox/internal`).
-- In-surface tool factories (`firestore/tools.ts`, `database/tools.ts`,
-  `rules/tools.ts`, `storage/admin/tools.ts`) stay in the surface. They are part
+- In-surface tool factories (`firestore/tools.ts`, `rules/tools.ts`,
+  `storage/admin/tools.ts`) stay in the surface. They are part
   of that surface's public contract. The MCP registry composition that wires
   them into a server lives in the tools/bridge layer, not in the surface.
 - Symmetric surfaces split symmetrically (section 6). The worker client family

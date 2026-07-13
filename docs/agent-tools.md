@@ -58,20 +58,12 @@ database or requires a rules-loading tool call first.
 `firestore_extract_indexes` — derive composite-index definitions from query
 shapes.
 
-## Realtime Database rules — `createRtdbRulesTools` (`pyric/rules/rtdb`)
+## Realtime Database rule artifacts — `@pyric/cli`
 
-Rules tooling for RTDB. `createRtdbAdminTools` (`pyric/database`) remains as a
-backwards-compatible union of the rules and data factories.
+Local compilation of a constraints module to `database.rules.json` data. It
+does not fetch or deploy production rules.
 
-`rtdb_get_rules` · `rtdb_deploy_rules` · `rtdb_simulate_access` ·
-`rtdb_build_expression`
-
-## Realtime Database data — `createRtdbDataTools` (`pyric/database`)
-
-Data plane tooling for RTDB.
-
-`rtdb_get` · `rtdb_set` · `rtdb_update` · `rtdb_push` · `rtdb_delete` ·
-`rtdb_validated_write` · `rtdb_crawl_structure`
+`rtdb_generate_rules`
 
 ## Storage control plane — `createStorageAdminTools` (`pyric/storage`)
 

@@ -35,7 +35,7 @@ describe('resolveDocsUiDir (embed fallback)', () => {
 });
 
 describe('firebase stub generation (drift-proof list)', () => {
-  it('collects only the remaining transitional production bindings', () => {
+  it('finds no production Firebase bindings in the sandbox mirror package', () => {
     const bindings = collectFirebaseBindings(join(pyricPackageRoot(), 'dist'));
     // These are sandbox-only mirrors: package resolution chooses Firebase or
     // Pyric before either module loads.
@@ -43,10 +43,7 @@ describe('firebase stub generation (drift-proof list)', () => {
     expect(bindings.has('firebase/auth')).toBe(false);
     expect(bindings.has('firebase/firestore')).toBe(false);
     expect(bindings.has('firebase/storage')).toBe(false);
-    // The legacy RTDB host/toolkit remains on an unstable internal seam until
-    // its dedicated retirement. This package-wide scan sees that code even
-    // though the public database mirror does not import it.
-    expect(bindings.get('firebase/database')?.has('ref')).toBe(true);
+    expect(bindings.has('firebase/database')).toBe(false);
   });
 
   it('bundles the public database mirror without a firebase/database runtime', async () => {

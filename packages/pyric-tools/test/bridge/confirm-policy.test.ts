@@ -20,7 +20,6 @@ describe('DEFAULT_PROD_POLICIES table', () => {
       'firestore_get_document',
       'firestore_list_documents',
       'firestore_get_rules',
-      'rtdb_get',
     ];
     for (const name of reads) {
       expect(DEFAULT_PROD_POLICIES.get(name)).toBe('never');
@@ -35,8 +34,6 @@ describe('DEFAULT_PROD_POLICIES table', () => {
       'firestore_create_document',
       'firestore_update_document',
       'firestore_delete_document',
-      'rtdb_set',
-      'rtdb_delete',
     ];
     for (const name of writes) {
       expect(DEFAULT_PROD_POLICIES.get(name)).toBe('always');
@@ -58,10 +55,22 @@ describe('DEFAULT_PROD_POLICIES table', () => {
     }
   });
 
+  test('legacy production RTDB tools are not part of the bridge policy', () => {
+    const legacyTools = [
+      'rtdb_get',
+      'rtdb_set',
+      'rtdb_delete',
+      'rtdb_validated_write',
+      'rtdb_build_expression',
+    ];
+    for (const name of legacyTools) {
+      expect(DEFAULT_PROD_POLICIES.has(name)).toBe(false);
+    }
+  });
+
   test('pure compute tools are never', () => {
     expect(DEFAULT_PROD_POLICIES.get('firestore_lint_rules')).toBe('never');
     expect(DEFAULT_PROD_POLICIES.get('firestore_simulate_rules')).toBe('never');
-    expect(DEFAULT_PROD_POLICIES.get('rtdb_build_expression')).toBe('never');
     expect(DEFAULT_PROD_POLICIES.get('rtdb_generate_rules')).toBe('never');
   });
 

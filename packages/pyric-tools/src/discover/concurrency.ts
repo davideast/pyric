@@ -10,8 +10,8 @@
  *   - `runWithLimit` — ergonomic wrapper that maps a list of async producers
  *     through the semaphore and resolves to the ordered results.
  *
- * Kept self-contained (no `database/crawl/semaphore.ts` reuse) so the
- * `firestore/discover` subsystem owns its own concurrency contract.
+ * Kept self-contained so the `firestore/discover` subsystem owns its own
+ * concurrency contract.
  */
 'use strict';
 
