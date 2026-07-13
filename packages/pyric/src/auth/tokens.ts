@@ -7,7 +7,6 @@
 import { makeAuthError } from './auth-errors.js';
 import { requireSandboxTarget } from './action-codes.js';
 import { targetOf } from './target.js';
-import { prodRevokeAccessToken, prodSignInWithCustomToken } from './prod-backend.js';
 import type { Auth, UserCredential } from './types.js';
 
 // ─── signInWithCustomToken ────────────────────────────────────────────
@@ -47,7 +46,6 @@ export async function signInWithCustomToken(
   customToken: string,
 ): Promise<UserCredential> {
   const t = targetOf(auth);
-  if (t.kind === 'prod') return prodSignInWithCustomToken(t.auth, customToken);
   const target = t;
   const payload = decodeCustomToken(customToken);
   if (!payload) {
@@ -152,8 +150,6 @@ function tryBase64Url(s: string): string | null {
  * state, because claiming otherwise would be a lie. `diverged-documented`.
  */
 export async function revokeAccessToken(auth: Auth, token: string): Promise<void> {
-  const t = targetOf(auth);
-  if (t.kind === 'prod') return prodRevokeAccessToken(t.auth, token);
   requireSandboxTarget(auth, 'revokeAccessToken');
   void token;
 }

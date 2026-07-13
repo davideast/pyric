@@ -5,39 +5,22 @@
  * Mirrors `firebase/auth`'s tree-shakable free-function surface
  * (`getAuth`, `signInAnonymously`, `signInWithEmailAndPassword`,
  * `onAuthStateChanged`, `signInWithPopup`, `GoogleAuthProvider`, …)
- * with two backends picked at init:
+ * as a sandbox-only mirror. Production selection happens before this module
+ * loads: canonical `firebase/auth` imports either remain Firebase or are
+ * swapped to this package by the Vite/import-map or Node register boundary.
  *
- *   - **Sandbox target** — in-memory user DB + listener registry,
- *     drives `sandbox.currentUser` so service factories (a future
- *     `getFirestore(sandbox)` overload, follow-up PR) see identity
- *     changes without re-binding.
- *   - **Prod target** — delegates straight to `firebase/auth`.
+ * The sandbox target owns the in-memory user DB + listener registry and
+ * drives `sandbox.currentUser` so every service sees identity changes without
+ * re-binding. There is no production target or runtime Firebase dispatch.
  *
- * Same call surface across both. Agent code that writes against the
- * sandbox during iteration runs unmodified against prod at deploy.
+ * The Pyric-specific sandbox test driver lives under {@link sandbox} and
+ * only accepts handles produced by this mirror.
  *
- * Dual-target dispatch follows the same pattern as `pyric/firestore`:
- *   - {@link TARGET_SYMBOL} brands every {@link Auth} handle.
- *   - {@link targetOf} (internal) reads it and switches on
- *     `target.kind`.
- *
- * The Pyric-specific sandbox test driver currently lives under
- * {@link sandbox}; each method throws `failed-precondition` if called
- * against a prod-backed handle.
- *
- * v0 scope is deliberately minimal. The deny-list is documented in
- * `docs/reference/feature-matrix.md`; agent `appSource` that imports
- * any of those will fail to bundle once the playground's
- * `firebase/auth` → `pyric/auth` alias swap lands.
+ * The deny-list is documented in `docs/reference/feature-matrix.md`.
  */
 
 import { SandboxError, type Sandbox } from 'pyric/sandbox';
-import type { FirebaseApp } from 'firebase/app';
-import * as fb from 'firebase/auth';
-
-// A PyricApp always wraps a sandbox. Direct FirebaseApp support remains a
-// temporary service-level production arm until the Auth package migration.
-import { APP_TARGET, type PyricApp } from 'pyric/app';
+import { APP_TARGET, getApp, type PyricApp } from 'pyric/app';
 
 import {
   SandboxBackend,
@@ -50,7 +33,7 @@ import {
   type SignInIdentitySpec,
   type UpdateUserRequest,
 } from './sandbox-backend.js';
-import { targetOf, type ProdTarget, type SandboxTarget, type Target } from './target.js';
+import { targetOf, type SandboxTarget, type Target } from './target.js';
 import {
   TARGET_SYMBOL,
   USER_INTERNAL,
@@ -69,21 +52,6 @@ import {
 import { AuthCredential, EmailAuthCredential } from './credentials.js';
 import { signInWithEmailLink } from './email-link.js';
 import type { AuthMailResolver, AuthActionCode, OutboundAuthMail } from './sandbox-auth-flow.js';
-import {
-  prodBeforeAuthStateChanged,
-  prodCreateUserWithEmailAndPassword,
-  prodCurrentUser,
-  prodGetRedirectResult,
-  prodOnAuthStateChanged,
-  prodOnIdTokenChanged,
-  prodSetPersistence,
-  prodSignInAnonymously,
-  prodSignInWithCredential,
-  prodSignInWithEmailAndPassword,
-  prodSignInWithPopup,
-  prodSignInWithRedirect,
-  prodSignOut,
-} from './prod-backend.js';
 import type { AuthProvider } from './providers.js';
 
 // ─── Re-exports: types ────────────────────────────────────────────────
@@ -208,13 +176,6 @@ export type { AuthMailResolver, OutboundAuthMail } from './sandbox-auth-flow.js'
 
 const sandboxBackends = new WeakMap<Sandbox, SandboxBackend>();
 const sandboxHandles = new WeakMap<Sandbox, Auth>();
-// Prod handles are memoized per underlying `fb.Auth`. `fb.getAuth(app)`
-// is itself idempotent (same `fb.Auth` per app), but our *wrapper*
-// handle was minted fresh on every `getAuth(app)` call — so
-// `getAuth(app) !== getAuth(app)`, contradicting the docstring + COMPAT.
-// Keying on the resolved `fb.Auth` makes the wrapper idempotent too,
-// matching the sandbox side (AUTH-B6).
-const prodHandles = new WeakMap<fb.Auth, Auth>();
 
 function backendFor(sandbox: Sandbox): SandboxBackend {
   let backend = sandboxBackends.get(sandbox);
@@ -284,13 +245,10 @@ function backendFor(sandbox: Sandbox): SandboxBackend {
 }
 
 /**
- * Construct an {@link Auth} handle. Two overloads:
- *   - `getAuth(sandbox)` — sandbox-backed.
- *   - `getAuth(app)` — prod-backed; delegates to
- *     `firebase/auth.getAuth(app)`.
- *
- * Idempotent on both targets — calling twice for the same input
- * returns the same handle.
+ * Construct a sandbox-backed {@link Auth} handle. `getAuth()` uses the
+ * default sandbox app initialized through the package-resolution adapter;
+ * `getAuth(app)` unwraps that app; and `getAuth(sandbox)` binds directly.
+ * Repeat calls for the same sandbox return the same handle.
  *
  * @example
  * ```ts
@@ -301,19 +259,21 @@ function backendFor(sandbox: Sandbox): SandboxBackend {
  * const auth = getAuth(sandbox);
  * await signInAnonymously(auth);
  *
- * // Prod.
+ * // Canonical imports are swapped to this mirror in a sandbox process.
  * import { initializeApp } from 'firebase/app';
- * import { getAuth } from 'pyric/auth';
- * const app = initializeApp(userProjectConfig);
+ * import { getAuth } from 'firebase/auth';
+ * const app = initializeApp({ projectId: 'demo-project' });
  * const auth = getAuth(app);
  * ```
  */
+export function getAuth(): Auth;
 export function getAuth(sandbox: Sandbox): Auth;
-export function getAuth(app: FirebaseApp): Auth;
 export function getAuth(app: PyricApp): Auth;
-export function getAuth(target: Sandbox | FirebaseApp | PyricApp): Auth {
-  // Package resolution already selected the sandbox mirror before this code
-  // loaded, so a PyricApp can only unwrap to its Sandbox.
+export function getAuth(target?: Sandbox | PyricApp): Auth;
+export function getAuth(target?: Sandbox | PyricApp): Auth {
+  if (target === undefined) {
+    return getAuth(getApp());
+  }
   if (isPyricApp(target)) {
     return getAuth(target.sandbox);
   }
@@ -326,13 +286,9 @@ export function getAuth(target: Sandbox | FirebaseApp | PyricApp): Auth {
     sandboxHandles.set(target, handle);
     return handle;
   }
-  const fbAuth = fb.getAuth(target);
-  let handle = prodHandles.get(fbAuth);
-  if (handle) return handle;
-  const t: ProdTarget = { kind: 'prod', auth: fbAuth };
-  handle = makeAuthHandle(t);
-  prodHandles.set(fbAuth, handle);
-  return handle;
+  throw new TypeError(
+    'pyric/auth is a sandbox-only mirror. Package resolution must leave firebase/auth unchanged for production; activate pyric dev or @pyric/cli/register before importing to select the sandbox.',
+  );
 }
 
 /**
@@ -349,7 +305,7 @@ export function getAuth(target: Sandbox | FirebaseApp | PyricApp): Auth {
  * returns the cached handle (same leniency as repeated `getAuth`).
  */
 export function initializeAuth(
-  app: Sandbox | FirebaseApp | PyricApp,
+  app: Sandbox | PyricApp,
   deps?: unknown,
 ): Auth {
   void deps;
@@ -357,10 +313,10 @@ export function initializeAuth(
 }
 
 /**
- * Brand-based test for the {@link PyricApp} overload. A direct Sandbox or
- * FirebaseApp never carries the app-wrapper symbol.
+ * Brand-based test for the {@link PyricApp} overload. A direct Sandbox never
+ * carries the app-wrapper symbol.
  */
-function isPyricApp(target: Sandbox | FirebaseApp | PyricApp): target is PyricApp {
+function isPyricApp(target: Sandbox | PyricApp): target is PyricApp {
   return (
     target !== null
     && typeof target === 'object'
@@ -370,11 +326,9 @@ function isPyricApp(target: Sandbox | FirebaseApp | PyricApp): target is PyricAp
 
 /**
  * Brand-based discriminator for `getAuth`. A {@link Sandbox} carries
- * the `onCurrentUserChanged` method (and `currentUser` accessor)
- * which a `FirebaseApp` will never have; structural sniff is cheap
- * and stable.
+ * the `onCurrentUserChanged` and `withAuth` methods.
  */
-function isSandbox(target: Sandbox | FirebaseApp): target is Sandbox {
+function isSandbox(target: Sandbox | PyricApp): target is Sandbox {
   return (
     typeof target === 'object'
     && target !== null
@@ -402,9 +356,7 @@ function makeAuthHandle(target: Target): Auth {
   return Object.defineProperty(handle, 'currentUser', {
     enumerable: true,
     get(): User | null {
-      return target.kind === 'sandbox'
-        ? target.backend.getCurrentUser()
-        : prodCurrentUser(target.auth);
+      return target.backend.getCurrentUser();
     },
   });
 }
@@ -412,32 +364,26 @@ function makeAuthHandle(target: Target): Auth {
 // ─── Emulator wiring ──────────────────────────────────────────────────
 
 /**
- * `connectAuthEmulator(auth, url, options?)` — on sandbox handles
- * this is a no-op (the sandbox IS the emulator); on prod it
- * delegates straight to `firebase/auth.connectAuthEmulator`.
+ * `connectAuthEmulator(auth, url, options?)` is a no-op because the mirror is
+ * already the sandbox.
  *
- * Same signature as upstream so consumer code that calls this at
- * init time works against both backends unchanged.
+ * Same signature as upstream so canonical consumer code keeps working
+ * when package resolution selects this mirror.
  */
 export function connectAuthEmulator(
   auth: Auth,
   url: string,
   options?: { disableWarnings?: boolean },
 ): void {
-  const target = targetOf(auth);
-  if (target.kind === 'sandbox') return;
-  // Upstream types require `disableWarnings: boolean` (not optional);
-  // normalize to false when callers omit it.
-  fb.connectAuthEmulator(target.auth, url, {
-    disableWarnings: options?.disableWarnings ?? false,
-  });
+  targetOf(auth);
+  void url;
+  void options;
 }
 
 // ─── Sign-in / out free functions ─────────────────────────────────────
 
 export async function signInAnonymously(auth: Auth): Promise<UserCredential> {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodSignInAnonymously(target.auth);
   target.backend.assertProviderEnabled('anonymous');
   // Match `firebase/auth` semantics: if there's already an anonymous
   // user signed in, reuse them rather than minting a fresh uid.
@@ -480,9 +426,6 @@ export async function signInWithEmailAndPassword(
   password: string,
 ): Promise<UserCredential> {
   const target = targetOf(auth);
-  if (target.kind === 'prod') {
-    return prodSignInWithEmailAndPassword(target.auth, email, password);
-  }
   target.backend.assertProviderEnabled('password');
   const stored = target.backend.validatePassword(email, password);
   const user = target.backend.buildUserFromStored(stored);
@@ -510,9 +453,6 @@ export async function createUserWithEmailAndPassword(
   password: string,
 ): Promise<UserCredential> {
   const target = targetOf(auth);
-  if (target.kind === 'prod') {
-    return prodCreateUserWithEmailAndPassword(target.auth, email, password);
-  }
   target.backend.assertProviderEnabled('password');
   const stored = target.backend.createEmailPasswordUser(email, password);
   const user = target.backend.buildUserFromStored(stored);
@@ -534,13 +474,11 @@ export async function createUserWithEmailAndPassword(
 
 export async function signOut(auth: Auth): Promise<void> {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodSignOut(target.auth);
   await target.backend.transitionCurrentUser(null);
 }
 
 export async function setPersistence(auth: Auth, persistence: Persistence): Promise<void> {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodSetPersistence(target.auth, persistence);
   // Sandbox: record the mode on the backend so the persistence controller
   // can pick the right web-storage slot (local / session / none) for the
   // current session. The backend's setPersistenceMode notifies session-
@@ -562,7 +500,13 @@ export async function setPersistence(auth: Auth, persistence: Persistence): Prom
     // consumer code once the session is restored either way.
     COOKIE: 'LOCAL',
   };
-  const mode = modeMap[persistence.type] ?? 'LOCAL';
+  const mode = modeMap[persistence.type];
+  if (mode === undefined) {
+    throw makeAuthError(
+      'auth/argument-error',
+      `setPersistence: unrecognized persistence type ${String(persistence.type)}`,
+    );
+  }
   target.backend.setPersistenceMode(mode);
 }
 
@@ -598,9 +542,9 @@ async function resolveFlow(
 }
 
 /**
- * The `resolver` argument is sandbox-only: on a prod-backed handle the
- * call delegates to `firebase/auth`, which uses its own platform default
- * (browser) resolver, and this argument is ignored.
+ * The optional `resolver` argument is a sandbox-only injection seam.
+ * Production imports remain on `firebase/auth`, which owns its platform
+ * resolver independently.
  */
 export async function signInWithPopup(
   auth: Auth,
@@ -608,7 +552,6 @@ export async function signInWithPopup(
   resolver?: AuthFlowResolver,
 ): Promise<UserCredential> {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodSignInWithPopup(target.auth, provider);
   const cred = await resolveFlow(target.backend, provider, 'signIn', resolver, 'popup');
   const providerId = cred.providerId ?? provider.providerId;
   target.backend.assertSignInAllowed(cred.user.uid);
@@ -626,7 +569,6 @@ export async function signInWithRedirect(
   resolver?: AuthFlowResolver,
 ): Promise<void> {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodSignInWithRedirect(target.auth, provider);
   // Sandbox has no navigation, so the resolver resolves inline; stash the
   // credential + sign in so getRedirectResult returns it once (matches the
   // observable prod outcome: after the redirect completes the user is
@@ -648,7 +590,6 @@ export async function getRedirectResult(
   _resolver?: AuthFlowResolver,
 ): Promise<UserCredential | null> {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodGetRedirectResult(target.auth);
   return target.backend.takeRedirectResult();
 }
 
@@ -657,7 +598,6 @@ export async function signInWithCredential(
   credential: AuthCredential,
 ): Promise<UserCredential> {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodSignInWithCredential(target.auth, credential);
   const providerId = credential.providerId;
   // Gate BEFORE consuming the mock — see the `resolveFlow` gating note above
   // for why `operation-not-allowed` must fire ahead of the mock-registry check.
@@ -708,13 +648,11 @@ export async function signInWithCredential(
 
 export function onAuthStateChanged(auth: Auth, observer: AuthObserver): Unsubscribe {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodOnAuthStateChanged(target.auth, observer);
   return target.backend.subscribe('auth-state', observer);
 }
 
 export function onIdTokenChanged(auth: Auth, observer: AuthObserver): Unsubscribe {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodOnIdTokenChanged(target.auth, observer);
   // Sandbox: fires on identity transitions AND on
   // `getIdToken(true)` forced refreshes — matches prod.
   // Oracle: packages/conformance/observations/auth/auth-onidtokenchanged-force-refresh.json
@@ -748,7 +686,6 @@ export function beforeAuthStateChanged(
   onAbort?: () => void,
 ): Unsubscribe {
   const target = targetOf(auth);
-  if (target.kind === 'prod') return prodBeforeAuthStateChanged(target.auth, callback, onAbort);
   return target.backend.beforeAuthStateChanged(callback, onAbort);
 }
 
@@ -756,7 +693,7 @@ export function beforeAuthStateChanged(
 
 /**
  * Top-level mirror of `firebase/auth`'s `getIdToken(user)`. Delegates
- * to the method on the user handle, so it works on both backends.
+ * to the method on the sandbox user handle.
  *
  * Parity provenance: W1.5 grid (2026-06-10) — generated apps import
  * the modular free function, and its absence failed every render of
@@ -780,9 +717,9 @@ export async function getIdTokenResult(
  * clear a field, omit it to leave it untouched. Mutates the user object in
  * place (held references, including `auth.currentUser`, reflect the change).
  *
- * Dispatches through the hidden {@link USER_INTERNAL} hook the backend stamps
- * on every `User`, so it routes correctly WITHOUT an `auth` handle — matching
- * upstream's user-only signature. Works on both sandbox and prod targets.
+ * Dispatches through the hidden {@link USER_INTERNAL} hook the sandbox
+ * backend stamps on every `User`, so it works WITHOUT an `auth` handle —
+ * matching upstream's user-only signature.
  *
  * Per `firebase/auth`, this does NOT fire `onAuthStateChanged` /
  * `onIdTokenChanged`.
@@ -810,7 +747,7 @@ export async function updateProfile(
  * throws `auth/user-not-found`.
  *
  * Routes through the hidden {@link USER_INTERNAL} hook (user-only
- * signature, no `auth` handle), so it works on sandbox + prod targets.
+ * signature, no `auth` handle) to the owning sandbox.
  */
 export async function deleteUser(user: User): Promise<void> {
   return userInternal(user, 'deleteUser').delete();
@@ -861,14 +798,7 @@ export async function reload(user: User): Promise<void> {
  */
 export async function updateCurrentUser(auth: Auth, user: User | null): Promise<void> {
   const target = targetOf(auth);
-  if (target.kind === 'sandbox') {
-    target.backend.setCurrentUser(user);
-    return;
-  }
-  // Prod: hand the UNDERLYING upstream user to `firebase/auth`, recovered
-  // from the adapter's USER_INTERNAL hook.
-  const raw = user ? (userInternal(user, 'updateCurrentUser').raw as fb.User) : null;
-  return fb.updateCurrentUser(target.auth, raw);
+  target.backend.setCurrentUser(user);
 }
 
 /**
@@ -881,7 +811,7 @@ export function useDeviceLanguage(auth: Auth): void {
 }
 
 /**
- * Recover the backend-dispatch hook stamped on every `User`. Throws
+ * Recover the sandbox operation hook stamped on every `User`. Throws
  * `auth/invalid-user-token` for a user not produced by a `pyric/auth`
  * sign-in — same guard {@link updateProfile} uses.
  */
@@ -899,9 +829,8 @@ function userInternal(user: User, name: string): UserInternal {
 // ─── Sandbox-only test driver ─────────────────────────────────────────
 
 /**
- * Sandbox-only lifecycle / test-driver surface. Throws
- * `failed-precondition` on prod-backed handles — mirrors the
- * `pyric/firestore` `sandbox.*` pattern.
+ * Sandbox-only lifecycle / test-driver surface. Every operation requires
+ * an Auth handle produced by this mirror.
  *
  * **Naming note:** the `sandbox` export name collides with the
  * common `const sandbox = initializeSandbox()` local. Alias on
@@ -1235,12 +1164,6 @@ export const sandbox = {
 };
 
 function requireSandbox(auth: Auth, name: string): SandboxTarget {
-  const target = targetOf(auth);
-  if (target.kind !== 'sandbox') {
-    throw new SandboxError(
-      'failed-precondition',
-      `${name} is sandbox-only; this Auth handle is prod-backed.`,
-    );
-  }
-  return target;
+  void name;
+  return targetOf(auth);
 }

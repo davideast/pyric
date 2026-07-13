@@ -41,7 +41,6 @@
  * which is the entire reason these APIs are mockable at all.
  */
 
-import { SandboxError } from 'pyric/sandbox';
 import { makeAuthError } from './auth-errors.js';
 import { ActionCodeOperation } from './enums.js';
 import { targetOf } from './target.js';
@@ -49,15 +48,6 @@ import type { SandboxTarget } from './target.js';
 import type { Auth, User } from './types.js';
 import { USER_INTERNAL, type UserInternal } from './types.js';
 import type { AuthActionCode } from './sandbox-auth-flow.js';
-import {
-  prodApplyActionCode,
-  prodCheckActionCode,
-  prodConfirmPasswordReset,
-  prodSendEmailVerification,
-  prodSendPasswordResetEmail,
-  prodVerifyBeforeUpdateEmail,
-  prodVerifyPasswordResetCode,
-} from './prod-backend.js';
 
 /**
  * `ActionCodeSettings` — mirror of `firebase/auth`. The continue-URL
@@ -185,7 +175,6 @@ export async function sendPasswordResetEmail(
   settings?: ActionCodeSettings,
 ): Promise<void> {
   const t = targetOf(auth);
-  if (t.kind === 'prod') return prodSendPasswordResetEmail(t.auth, email, settings);
   const target = t;
   if (settings) validateActionCodeSettings(settings, 'sendPasswordResetEmail');
   assertEmailFormat(email, 'sendPasswordResetEmail');
@@ -220,7 +209,6 @@ export async function sendEmailVerification(
   settings?: ActionCodeSettings,
 ): Promise<void> {
   const t = userInternal(user, 'sendEmailVerification').target;
-  if (t.kind === 'prod') return prodSendEmailVerification(user, settings);
   const target = t;
   if (settings) validateActionCodeSettings(settings, 'sendEmailVerification');
   if (!user.email) {
@@ -250,7 +238,6 @@ export async function verifyBeforeUpdateEmail(
   settings?: ActionCodeSettings,
 ): Promise<void> {
   const t = userInternal(user, 'verifyBeforeUpdateEmail').target;
-  if (t.kind === 'prod') return prodVerifyBeforeUpdateEmail(user, newEmail, settings);
   const target = t;
   if (settings) validateActionCodeSettings(settings, 'verifyBeforeUpdateEmail');
   assertEmailFormat(newEmail, 'verifyBeforeUpdateEmail');
@@ -283,7 +270,6 @@ export async function verifyBeforeUpdateEmail(
  */
 export async function applyActionCode(auth: Auth, code: string): Promise<void> {
   const t = targetOf(auth);
-  if (t.kind === 'prod') return prodApplyActionCode(t.auth, code);
   const target = t;
   const spec = redeem(target, code, 'applyActionCode');
   switch (spec.operation) {
@@ -324,7 +310,6 @@ export async function applyActionCode(auth: Auth, code: string): Promise<void> {
  */
 export async function checkActionCode(auth: Auth, code: string): Promise<ActionCodeInfo> {
   const t = targetOf(auth);
-  if (t.kind === 'prod') return (await prodCheckActionCode(t.auth, code)) as ActionCodeInfo;
   const target = t;
   const spec = peek(target, code, 'checkActionCode');
   // For a change-email code, `email` is where the code was mailed (the
@@ -348,7 +333,6 @@ export async function checkActionCode(auth: Auth, code: string): Promise<ActionC
  */
 export async function verifyPasswordResetCode(auth: Auth, code: string): Promise<string> {
   const t = targetOf(auth);
-  if (t.kind === 'prod') return prodVerifyPasswordResetCode(t.auth, code);
   const target = t;
   const spec = peek(target, code, 'verifyPasswordResetCode');
   if (spec.operation !== ActionCodeOperation.PASSWORD_RESET) {
@@ -377,7 +361,6 @@ export async function confirmPasswordReset(
   newPassword: string,
 ): Promise<void> {
   const t = targetOf(auth);
-  if (t.kind === 'prod') return prodConfirmPasswordReset(t.auth, code, newPassword);
   const target = t;
   // Peek first: a weak-password rejection must NOT burn the code, or the
   // user's one reset link would be destroyed by a typo.
@@ -456,32 +439,17 @@ function assertEmailFormat(email: string, api: string): void {
   }
 }
 
-/** The sandbox target behind an `Auth` handle, or a clear throw. The
- *  email family is sandbox-only: prod delegation would mean really
- *  mailing a human. */
+/** The sandbox target behind an `Auth` handle. */
 export function requireSandboxTarget(auth: Auth, api: string): SandboxTarget {
-  const target = targetOf(auth);
-  if (target.kind !== 'sandbox') {
-    throw new SandboxError(
-      'failed-precondition',
-      `${api} is sandbox-only; this Auth handle is prod-backed. Call it against a sandbox-backed handle, or use firebase/auth directly against prod.`,
-    );
-  }
-  return target;
+  void api;
+  return targetOf(auth);
 }
 
 /** The sandbox target behind a `User`, recovered from the user alone —
  *  the whole reason {@link UserInternal.target} exists (these APIs are
  *  handed a `User` and no `Auth`). */
 export function requireSandboxUser(user: User, api: string): SandboxTarget {
-  const target = userInternal(user, api).target;
-  if (target.kind !== 'sandbox') {
-    throw new SandboxError(
-      'failed-precondition',
-      `${api} is sandbox-only; this User came from a prod-backed handle.`,
-    );
-  }
-  return target;
+  return userInternal(user, api).target;
 }
 
 /** Recover the backend hook stamped on every `User`. */

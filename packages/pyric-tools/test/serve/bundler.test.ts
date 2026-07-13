@@ -43,12 +43,13 @@ describe('firebase stub generation (drift-proof list)', () => {
     for (const n of ['Bytes', 'GeoPoint', 'documentId', 'FieldPath']) {
       expect(fs!.has(n)).toBe(true);
     }
-    // App and Storage are sandbox-only mirrors: package resolution chooses
+    // App, Auth, and Storage are sandbox-only mirrors: package resolution chooses
     // Firebase or Pyric before either module loads.
     expect(bindings.has('firebase/app')).toBe(false);
+    expect(bindings.has('firebase/auth')).toBe(false);
     // `import { get, set, … } from 'firebase/database'`
     expect(bindings.get('firebase/database')?.has('ref')).toBe(true);
-    // Storage is the first sandbox-only mirror: package resolution chooses
+    // Storage is a sandbox-only mirror: package resolution chooses
     // Firebase or Pyric before the module loads, so its built implementation
     // has no production bindings for the stub generator to collect.
     expect(bindings.has('firebase/storage')).toBe(false);

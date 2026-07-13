@@ -41,12 +41,6 @@
 
 import { makeAuthError } from './auth-errors.js';
 import { requireSandboxUser, userInternal } from './action-codes.js';
-import {
-  prodLinkWithCredential,
-  prodLinkWithPopup,
-  prodLinkWithRedirect,
-  prodUnlink,
-} from './prod-backend.js';
 import { AuthCredential, EmailAuthCredential } from './credentials.js';
 import type { AuthProvider } from './providers.js';
 import type { SandboxTarget } from './target.js';
@@ -74,7 +68,6 @@ export async function linkWithCredential(
   credential: AuthCredential,
 ): Promise<UserCredential> {
   const t = userInternal(user, 'linkWithCredential').target;
-  if (t.kind === 'prod') return prodLinkWithCredential(user, credential);
   const target = t;
   target.backend.assertProviderEnabled(credential.providerId);
 
@@ -111,8 +104,7 @@ export async function linkWithPopup(
   provider: AuthProvider,
   resolver?: AuthFlowResolver,
 ): Promise<UserCredential> {
-  const t = userInternal(user, 'linkWithPopup').target;
-  if (t.kind === 'prod') return prodLinkWithPopup(user, provider);
+  userInternal(user, 'linkWithPopup');
   return linkViaFlow(user, provider, resolver, 'popup', 'linkWithPopup');
 }
 
@@ -128,13 +120,7 @@ export async function linkWithRedirect(
   provider: AuthProvider,
   resolver?: AuthFlowResolver,
 ): Promise<UserCredential> {
-  const t = userInternal(user, 'linkWithRedirect').target;
-  if (t.kind === 'prod') {
-    // Prod navigates away; nothing to return. The sandbox has no
-    // navigation, so its arm resolves inline to the credential.
-    await prodLinkWithRedirect(user, provider);
-    return { user, providerId: provider.providerId, operationType: 'link' };
-  }
+  userInternal(user, 'linkWithRedirect');
   return linkViaFlow(user, provider, resolver, 'redirect', 'linkWithRedirect');
 }
 
@@ -153,7 +139,6 @@ export async function linkWithRedirect(
  */
 export async function unlink(user: User, providerId: string): Promise<User> {
   const t = userInternal(user, 'unlink').target;
-  if (t.kind === 'prod') return prodUnlink(user, providerId);
   const target = t;
   const stored = target.backend.unlinkProvider(user.uid, providerId);
   const updated = target.backend.buildUserFromStored(stored);

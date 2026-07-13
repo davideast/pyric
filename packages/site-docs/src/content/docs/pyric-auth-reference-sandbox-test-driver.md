@@ -93,18 +93,9 @@ Email lookup is case-insensitive. Re-seeding the same uid overwrites.
 
 ## Errors
 
-All three methods throw `SandboxError` with `code: 'failed-precondition'` if called against a prod-backed handle:
-```ts
-import { SandboxError } from 'pyric/sandbox';
+These helpers require an `Auth` handle produced by `pyric/auth`. Production
+code remains on `firebase/auth` and does not load the sandbox driver.
 
-try {
-  authSandbox.setUser(prodAuth, null);
-} catch (e) {
-  if (e instanceof SandboxError && e.code === 'failed-precondition') {
-    // expected — guard against accidental prod test-driver use
-  }
-}
-```
 `sandbox.mockSignInResult` additionally throws `'invalid-argument'` if `result.providerId` is missing. The mock registry is keyed on `providerId`, so an unkeyed mock can't be matched.
 
 ---

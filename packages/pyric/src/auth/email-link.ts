@@ -52,11 +52,6 @@ import {
   type ActionCodeSettings,
 } from './action-codes.js';
 import { targetOf } from './target.js';
-import {
-  prodIsSignInWithEmailLink,
-  prodSendSignInLinkToEmail,
-  prodSignInWithEmailLink,
-} from './prod-backend.js';
 import type { Auth, UserCredential } from './types.js';
 
 /**
@@ -75,7 +70,6 @@ export async function sendSignInLinkToEmail(
   settings: ActionCodeSettings,
 ): Promise<void> {
   const t = targetOf(auth);
-  if (t.kind === 'prod') return prodSendSignInLinkToEmail(t.auth, email, settings);
   const target = t;
   validateActionCodeSettings(settings, 'sendSignInLinkToEmail');
   // Oracle: `handleCodeInAppFalse: 'auth/argument-error'`. Upstream
@@ -113,8 +107,7 @@ export async function sendSignInLinkToEmail(
  * signature so consumer code is identical across the two SDKs.
  */
 export function isSignInWithEmailLink(auth: Auth, link: string): boolean {
-  const t = targetOf(auth);
-  if (t.kind === 'prod') return prodIsSignInWithEmailLink(t.auth, link);
+  targetOf(auth);
   const parsed = ActionCodeURL.parseLink(link);
   return parsed !== null && parsed.operation === ActionCodeOperation.EMAIL_SIGNIN;
 }
@@ -141,7 +134,6 @@ export async function signInWithEmailLink(
   link: string,
 ): Promise<UserCredential> {
   const t = targetOf(auth);
-  if (t.kind === 'prod') return prodSignInWithEmailLink(t.auth, email, link);
   const target = t;
   target.backend.assertProviderEnabled('password');
   const parsed = ActionCodeURL.parseLink(link);

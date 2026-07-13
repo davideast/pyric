@@ -1,14 +1,12 @@
 /**
- * Public types for `pyric/auth`. Backend-opaque shapes that mirror
- * `firebase/auth`'s modular surface at the type level. Sandbox and
- * prod targets both satisfy these interfaces — consumer code stays
- * agnostic.
+ * Public types for `pyric/auth`. Sandbox-owned shapes that mirror
+ * `firebase/auth`'s modular surface at the type level, so canonical
+ * consumer imports keep the same source shape when package resolution
+ * selects the sandbox.
  *
- * Where the upstream SDK exposes deeper fields than the dual-target
- * surface can guarantee (provider data internals, multi-factor
- * extensions, etc.), the pyric type is a *subset* — fields the
- * sandbox can synthesize and the prod backend already provides. Code
- * that touches only the subset works across both.
+ * Where the upstream SDK exposes deeper fields than the sandbox can
+ * guarantee (provider data internals, multi-factor extensions, etc.),
+ * the pyric type is a *subset* of the Firebase type.
  */
 
 import type { Target } from './target.js';
@@ -30,8 +28,7 @@ export const TARGET_SYMBOL: unique symbol = Symbol('pyric/auth/target');
  * set far in the future since the sandbox has no refresh story.
  */
 export interface IdTokenResult {
-  /** Opaque token string. Sandbox: `sandbox-id-token-<uid>-<hash>`.
-   *  Prod: a real Firebase ID token (JWT). */
+  /** Opaque sandbox token string: `sandbox-id-token-<uid>-<hash>`. */
   token: string;
   /** Custom + standard claims. Same map seen by the rules engine as
    *  `request.auth.token.*`. */
@@ -46,9 +43,8 @@ export interface IdTokenResult {
   /**
    * Provider of the current sign-in session — `'password'`,
    * `'anonymous'`, `'google.com'`, etc., or `null` when unknown.
-   * Mirrors `firebase/auth`'s `IdTokenResult.signInProvider` (prod
-   * derives it from the JWT's `firebase.sign_in_provider` claim; the
-   * sandbox synthesizes the same claim).
+   * Mirrors `firebase/auth`'s `IdTokenResult.signInProvider`; the
+   * sandbox synthesizes the same `firebase.sign_in_provider` claim.
    *
    * Optional (`?`) for now: external `User` implementations built
    * before this field existed (the playground's helper-minted users,
@@ -79,9 +75,8 @@ export interface UserInfo {
 }
 
 /**
- * The signed-in user. Subset of `firebase/auth`'s `User` interface —
- * fields the sandbox can synthesize and that the prod backend
- * already provides on a real `User`.
+ * The signed-in user. Subset of `firebase/auth`'s `User` interface
+ * containing the fields the sandbox can synthesize faithfully.
  *
  * The heavier `User` surface the sandbox does NOT model (`metadata`,
  * `refreshToken`, `tenantId`, `reload()`, `delete()`, `toJSON()`) is
@@ -98,26 +93,26 @@ export interface User {
   /** Whether the email has been verified. Sandbox: `false` unless the
    *  seeded/mock user set it (no verification flow). Optional on the
    *  type so host helpers that synthesize a partial `User` aren't forced
-   *  to specify it; the sandbox + prod backends always populate it. */
+   *  to specify it; the sandbox backend always populates it. */
   readonly emailVerified?: boolean;
   /** Display name, or `null` if none. */
   readonly displayName: string | null;
   /** Profile photo URL, or `null`. Optional on the type (see
-   *  {@link emailVerified}); always populated by the backends. */
+   *  {@link emailVerified}); always populated by the sandbox backend. */
   readonly photoURL?: string | null;
   /** E.164 phone number, or `null`. Optional on the type; always
-   *  populated by the backends. */
+   *  populated by the sandbox backend. */
   readonly phoneNumber?: string | null;
   /** True iff this user signed in via `signInAnonymously`. */
   readonly isAnonymous: boolean;
   /** The aggregate provider id (`'firebase'` for a real `User`;
    *  per-provider ids live in {@link providerData}). Optional on the
-   *  type; always populated by the backends. */
+   *  type; always populated by the sandbox backend. */
   readonly providerId?: string;
   /** One {@link UserInfo} per linked provider. Sandbox synthesizes a
    *  single entry from the user's own fields for non-anonymous users;
    *  empty for anonymous. Optional on the type; always populated by the
-   *  backends. */
+   *  sandbox backend. */
   readonly providerData?: UserInfo[];
 
   /**
@@ -128,7 +123,6 @@ export interface User {
    * `onIdTokenChanged` listeners (matches prod — oracle:
    * `packages/conformance/observations/auth/auth-getidtoken-force-refresh.json`
    * and `…/auth-onidtokenchanged-force-refresh.json`).
-   * Prod: delegates to `firebase/auth`'s `User.getIdToken(forceRefresh)`.
    */
   getIdToken(forceRefresh?: boolean): Promise<string>;
   /** Get the full ID token + claims. See {@link IdTokenResult}. */
@@ -226,19 +220,18 @@ export type AuthObserver =
 export type Unsubscribe = () => void;
 
 /**
- * Hidden brand stamped non-enumerably on every {@link User} object so the
- * top-level `updateProfile(user, …)` free function can dispatch to the
- * right backend WITHOUT an `auth` handle in scope (matching
+ * Hidden brand stamped non-enumerably on every sandbox {@link User} object
+ * so the top-level `updateProfile(user, …)` free function can reach the
+ * owning sandbox WITHOUT an `auth` handle in scope (matching
  * `firebase/auth`'s `updateProfile(user, profile)` signature, which takes
  * only the user). Consumers never read it.
  */
 export const USER_INTERNAL: unique symbol = Symbol('pyric.user.internal');
 
 /**
- * Backend dispatch contract carried on a {@link User} via {@link USER_INTERNAL}.
- * The sandbox backend stamps an implementation that mutates the stored record
- * + the in-memory user in place; the prod backend stamps one that delegates
- * to the real `firebase/auth.updateProfile`.
+ * Sandbox operation contract carried on a {@link User} via
+ * {@link USER_INTERNAL}. The owning backend stamps an implementation that
+ * mutates the stored record and the in-memory user in place.
  */
 export interface UserInternal {
   updateProfile(profile: {
@@ -257,42 +250,35 @@ export interface UserInternal {
   /** Backend for the top-level `reload(user)` — re-reads the stored record
    *  into this user object in place. */
   reload(): Promise<void>;
-  /** The underlying backend user object: the sandbox {@link User} itself,
-   *  or the upstream `firebase/auth` `User` in prod. Used by
-   *  `updateCurrentUser(auth, user)` to hand the correct object to the
-   *  right backend. */
-  raw: unknown;
   /**
-   * The dispatch target this user came from — the same brand
+   * The sandbox target this user came from — the same brand
    * {@link Auth} carries, recovered from the USER alone.
    *
    * Needed because a whole family of `firebase/auth` APIs takes a `User`
    * and NO `Auth` handle (`sendEmailVerification(user)`,
    * `linkWithCredential(user, cred)`, `unlink(user, id)`,
    * `reauthenticateWithCredential(user, cred)`, …). Those functions still
-   * have to reach the backend that owns the user, and the user object is
-   * the only thing they are given. Same trick {@link raw} plays, one level
-   * up: the routing information rides on the user.
+   * have to reach the sandbox that owns the user, and the user object is
+   * the only thing they are given. The routing information therefore rides
+   * on the user.
    */
   target: Target;
 }
 
 /**
- * Opaque marker for `setPersistence`. Sandbox treats these as
- * no-ops; prod hands them to `firebase/auth.setPersistence` which
- * looks at the `type` field at runtime.
+ * Opaque marker for `setPersistence`. The sandbox records the selected
+ * session storage mode from the `type` field.
  *
  * `'COOKIE'` is upstream's fourth type (`browserCookiePersistence`, for
- * SSR) — the union matches `firebase/auth`'s `Persistence.type` exactly,
- * so a consumer switching on it is exhaustive against both backends.
+ * SSR) — the union matches `firebase/auth`'s `Persistence.type` exactly.
  */
 export interface Persistence {
   readonly type: 'SESSION' | 'LOCAL' | 'NONE' | 'COOKIE';
 }
 
 /**
- * Hidden brand on every {@link Auth} handle. Carries the dispatch
- * target (sandbox vs prod). Consumers don't read it.
+ * Hidden brand on every {@link Auth} handle. Carries its owning sandbox
+ * target. Consumers don't read it.
  */
 export interface Auth {
   /** Currently signed-in user, or `null`. Snapshot value — read
@@ -302,6 +288,6 @@ export interface Auth {
    *  function — `firebase/auth`'s `Auth` exposes both, so consumer code
    *  written as `auth.signOut()` works unchanged (AUTH-GAP). */
   signOut(): Promise<void>;
-  /** Internal — discriminates sandbox vs prod backend. */
+  /** Internal — identifies the owning sandbox backend. */
   readonly [TARGET_SYMBOL]: Target;
 }

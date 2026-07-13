@@ -1,8 +1,8 @@
 /**
  * Auth error factory — the shared primitive every sandbox auth module
  * throws through. Extracted from `sandbox-backend.ts` so the backend
- * core, the credential validators, and `prod-backend.ts` all depend on
- * one definition rather than a re-export chain.
+ * core and credential validators share one definition without a
+ * re-export chain.
  */
 
 import { FirebaseError } from '../app/firebase-error.js';
@@ -13,7 +13,7 @@ import { FirebaseError } from '../app/firebase-error.js';
  * (`clones/.../util/src/errors.ts:121` — `${serviceName}: ${message}
  * (${fullCode}).`, serviceName `Firebase`). So consumer code that does
  * `err instanceof FirebaseError` or matches on the wrapped message sees
- * the same shape sandbox vs prod (AUTH-GAP). `.code` is preserved.
+ * the same error shape as Firebase (AUTH-GAP). `.code` is preserved.
  *
  * Oracle-pinned shapes this reproduces:
  *   - `Firebase: Error (auth/invalid-email).`

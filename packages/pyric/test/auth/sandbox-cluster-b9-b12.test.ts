@@ -6,18 +6,17 @@
  *   `getIdToken(true)` (live claims, not frozen-at-mint).
  * - B11: empty password → `auth/missing-password` (not wrong-password /
  *   user-not-found). Upstream `core/errors.ts:92,282,563`.
- * - B12: `prodSetPersistence` with an unrecognized marker throws
+ * - B12: an unrecognized persistence marker throws
  *   `auth/argument-error` instead of silently coercing to LOCAL.
  */
 import { describe, expect, it } from 'bun:test';
-import * as fb from 'firebase/auth';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getAuth,
   sandbox as authSandbox,
+  setPersistence,
   signInWithEmailAndPassword,
 } from '../../src/auth/index.js';
-import { prodSetPersistence } from '../../src/auth/prod-backend.js';
 
 describe('AUTH-B9: re-seed with new email drops the stale email', () => {
   it('the old email no longer signs in after a uid re-seed', async () => {
@@ -78,16 +77,11 @@ describe('AUTH-B11: empty password → auth/missing-password', () => {
   });
 });
 
-describe('AUTH-B12: prodSetPersistence rejects unknown markers', () => {
+describe('AUTH-B12: setPersistence rejects unknown markers', () => {
   it('an unrecognized persistence type throws auth/argument-error', async () => {
-    let called = false;
-    const auth = {
-      // If the switch fell through to LOCAL it would reach this; it must not.
-      setPersistence: () => { called = true; },
-    } as unknown as fb.Auth;
+    const auth = getAuth(initializeSandbox());
     await expect(
-      prodSetPersistence(auth, { type: 'BOGUS' }),
+      setPersistence(auth, { type: 'BOGUS' } as never),
     ).rejects.toMatchObject({ code: 'auth/argument-error' });
-    expect(called).toBe(false);
   });
 });

@@ -9,7 +9,7 @@
  * `subscribeUsers` firing on every user-DB mutation.
  */
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox, SandboxError } from 'pyric/sandbox';
+import { initializeSandbox } from 'pyric/sandbox';
 import {
   createUserWithEmailAndPassword,
   getAuth,
@@ -21,7 +21,6 @@ import {
   type Auth,
   type User,
 } from '../../src/auth/index.js';
-import { TARGET_SYMBOL } from '../../src/auth/types.js';
 
 function freshAuth(): Auth {
   return getAuth(initializeSandbox());
@@ -263,20 +262,6 @@ describe('sandbox.createSignInCredential (A2)', () => {
     const result = await signInWithPopup(auth, new GoogleAuthProvider());
     expect(result.user.uid).toBe('google.com:flow@x.com');
     expect(auth.currentUser?.uid).toBe('google.com:flow@x.com');
-  });
-
-  it('throws failed-precondition on prod handles', () => {
-    const auth = {
-      currentUser: null,
-      [TARGET_SYMBOL]: { kind: 'prod', auth: {} as never },
-    } as Auth;
-    try {
-      authSandbox.createSignInCredential(auth, { providerId: 'google.com', uid: 'x' });
-      throw new Error('expected throw');
-    } catch (e) {
-      expect(e).toBeInstanceOf(SandboxError);
-      expect((e as SandboxError).code).toBe('failed-precondition');
-    }
   });
 });
 
@@ -615,18 +600,5 @@ describe('sandbox.subscribeUsers (A3)', () => {
     authSandbox.createUser(auth, { uid: 'u2' });
     expect(a).toBe(2);
     expect(b).toBe(1);
-  });
-
-  it('throws failed-precondition on prod handles', () => {
-    const auth = {
-      currentUser: null,
-      [TARGET_SYMBOL]: { kind: 'prod', auth: {} as never },
-    } as Auth;
-    try {
-      authSandbox.listUsers(auth);
-      throw new Error('expected throw');
-    } catch (e) {
-      expect((e as SandboxError).code).toBe('failed-precondition');
-    }
   });
 });

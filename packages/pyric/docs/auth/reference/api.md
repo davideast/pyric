@@ -32,7 +32,9 @@ function connectAuthEmulator(
 ): void;
 ```
 
-Sandbox: no-op (the sandbox IS the emulator). Prod: delegates to `firebase/auth.connectAuthEmulator`.
+No-op: the `pyric/auth` mirror is already the sandbox. Production code keeps
+the unswapped `firebase/auth` package, whose `connectAuthEmulator` behavior is
+owned by Firebase rather than this mirror.
 
 ---
 
@@ -76,7 +78,9 @@ Sandbox: appends to the in-memory DB and signs in. Throws `auth/email-already-in
 function signOut(auth: Auth): Promise<void>;
 ```
 
-Sets `currentUser` to `null` and fires listeners. Sandbox no-op if already signed out. `Auth` also exposes this as a method, `auth.signOut()`, delegating to the same free function (`firebase/auth`'s `Auth` exposes both forms).
+Sets `currentUser` to `null` and fires listeners. It is a no-op if already
+signed out. `Auth` also exposes this as a method, `auth.signOut()`, delegating
+to the same mirror implementation.
 
 ### `signInWithPopup(auth, provider, resolver?)`
 
@@ -88,7 +92,7 @@ function signInWithPopup(
 ): Promise<UserCredential>;
 ```
 
-Sandbox: resolves through a precedence chain: a per-call `resolver` argument, then one injected via `sandbox.setAuthFlowResolver`, then a one-shot mock staged with `sandbox.mockSignInResult`. With nothing configured it throws `auth/argument-error`, naming the API that was called (matches upstream's no-resolver default). Throws `auth/operation-not-allowed` first if the provider is disabled, and `auth/user-disabled` if the resolved identity is a disabled account. The `resolver` argument is sandbox-only; on a prod-backed handle it is ignored and `firebase/auth` uses its own platform default (browser popup) resolver.
+Sandbox: resolves through a precedence chain: a per-call `resolver` argument, then one injected via `sandbox.setAuthFlowResolver`, then a one-shot mock staged with `sandbox.mockSignInResult`. With nothing configured it throws `auth/argument-error`, naming the API that was called (matches upstream's no-resolver default). Throws `auth/operation-not-allowed` first if the provider is disabled, and `auth/user-disabled` if the resolved identity is a disabled account. The `resolver` argument is sandbox-only; production package resolution leaves the canonical import on `firebase/auth`, which uses its own platform resolver.
 
 ### `signInWithRedirect(auth, provider, resolver?)`
 
@@ -100,7 +104,7 @@ function signInWithRedirect(
 ): Promise<void>;
 ```
 
-Sandbox: there's no navigation to redirect through, so this resolves the same resolver precedence as `signInWithPopup` inline, signs the user in immediately, and stashes the resulting credential for the next `getRedirectResult` call. Same error conditions as `signInWithPopup`. Prod: delegates to `firebase/auth` (real navigation away and back).
+Sandbox: there's no navigation to redirect through, so this resolves the same resolver precedence as `signInWithPopup` inline, signs the user in immediately, and stashes the resulting credential for the next `getRedirectResult` call. Same error conditions as `signInWithPopup`. Production remains on `firebase/auth` (real navigation away and back).
 
 ### `getRedirectResult(auth)`
 
@@ -108,7 +112,7 @@ Sandbox: there's no navigation to redirect through, so this resolves the same re
 function getRedirectResult(auth: Auth): Promise<UserCredential | null>;
 ```
 
-Sandbox: returns and clears the credential stashed by `signInWithRedirect` (one-shot); `null` if no redirect is pending. Prod: delegates to `firebase/auth`.
+Sandbox: returns and clears the credential stashed by `signInWithRedirect` (one-shot); `null` if no redirect is pending. Production remains on `firebase/auth`.
 
 ### `signInWithCredential(auth, credential)`
 
@@ -252,7 +256,7 @@ The federated (OAuth) provider ids the sandbox treats as first-class: the dedica
 - `AuthProvider`: union of the provider classes (`GoogleAuthProvider | FacebookAuthProvider | GithubAuthProvider | OAuthProvider | { readonly providerId: string }`).
 - `AuthFlowRequest`: what a popup/redirect resolver receives, `providerId`, `authType: 'signIn' | 'reauth' | 'link'`, `scopes?: string[]`, `customParameters?: Record<string, unknown>`.
 - `AuthFlowResolver`: the pluggable popup/redirect handler, `{ openPopup(req: AuthFlowRequest): Promise<UserCredential>, openRedirect(req: AuthFlowRequest): Promise<UserCredential> }`. Implementations reject with `auth/popup-closed-by-user` when the user dismisses the flow.
-- `TARGET_SYMBOL`: a unique symbol brand stamped on every `Auth` handle so the package's own dispatch code can recover sandbox-vs-prod routing. Consumers don't read it.
+- `TARGET_SYMBOL`: a unique symbol brand stamped on every `Auth` handle so the package can recover the owning sandbox backend. Consumers don't read it.
 
 ### Sandbox-driver types
 
@@ -271,7 +275,7 @@ These back the `sandbox.*` methods below; see [sandbox-test-driver.md](./sandbox
 
 ## Sandbox-only test driver
 
-`import { sandbox as authSandbox } from 'pyric/auth'`. The name collides with the common `const sandbox = initializeSandbox()` local, so alias on import. Every method below throws `SandboxError` with `code: 'failed-precondition'` if called against a prod-backed `Auth` handle. Signatures only here; see [sandbox-test-driver.md](./sandbox-test-driver.md) for worked examples and the error-handling pattern.
+`import { sandbox as authSandbox } from 'pyric/auth'`. The name collides with the common `const sandbox = initializeSandbox()` local, so alias on import. Every method requires an `Auth` handle produced by this mirror. Signatures only here; see [sandbox-test-driver.md](./sandbox-test-driver.md) for worked examples.
 
 ### Session and identity
 
@@ -348,7 +352,7 @@ Mirrors the Authentication → Sign-in method toggles. `password` and `anonymous
 
 ## Boundaries
 
-**Sandbox driver calls fail closed on prod.** Every `sandbox.*` method throws `SandboxError('failed-precondition', …)` when called with a prod-backed `Auth` handle. There is no silent no-op path: code that mixes `sandbox.*` calls into code meant to run against both backends fails loudly at the call site, not later.
+**Sandbox driver calls are mirror-only.** Every `sandbox.*` method requires a mirror-produced `Auth` handle and routes only to its owning sandbox. Production code never loads this namespace because its canonical imports remain on `firebase/auth`.
 
 **v0 deny list.** The exports below are deliberately absent. Full detail, including the exact reasoning per symbol, lives in [feature-matrix.md](./feature-matrix.md); the shape:
 

@@ -1,19 +1,16 @@
 # `pyric/auth`
 
-Modular Web SDK Auth adapter for the Pyric sandbox. Mirrors `firebase/auth`'s tree-shakable shape (`getAuth`, `signInAnonymously`, `signInWithEmailAndPassword`, `onAuthStateChanged`, `signInWithPopup`, `GoogleAuthProvider`) with two backends picked at init time:
+Sandbox-only modular Web SDK Auth mirror. It implements `firebase/auth`'s tree-shakable shape (`getAuth`, `signInAnonymously`, `signInWithEmailAndPassword`, `onAuthStateChanged`, `signInWithPopup`, `GoogleAuthProvider`) in process, with no network.
 
-- **Sandbox** (`pyric/sandbox`): in-process, browser-safe, no network. Drives `sandbox.currentUser` so downstream service handles can read identity per-call.
-- **Prod** (`firebase/auth`): the real Firebase Auth.
-
-Same call sites, two different backends. Swap by changing what you pass to `getAuth`.
+Application code keeps canonical `firebase/auth` imports. Pyric's Vite/import-map or Node register boundary swaps those imports to this mirror in sandbox mode; production installs no swap and continues loading Firebase itself. Direct `pyric/auth` imports always select sandbox behavior.
 
 ## Install
 
 ```bash
-bun add pyric/auth pyric/sandbox firebase
+bun add pyric firebase
 ```
 
-`firebase` is required because the prod backend dispatches to it. Bundlers tree-shake away the prod path when only the sandbox backend is reached.
+`firebase` supplies the canonical production package. It is not a runtime dependency of the `pyric/auth` mirror.
 
 ## A 30-second example
 
@@ -38,11 +35,11 @@ await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 console.log(auth.currentUser?.uid); // 'alice'
 ```
 
-Prod backend, the same code with a different `getAuth` argument:
+Production uses the canonical package without a Pyric swap:
 
 ```ts
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword } from 'pyric/auth';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 
 const app = initializeApp({ /* your Firebase config */ });
 const auth = getAuth(app);
@@ -54,8 +51,8 @@ await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 
 The deliberately-minimal surface covers everything an `appSource` likely needs:
 
-- `getAuth(target)`: `(sandbox)` and `(app)` overloads
-- `connectAuthEmulator(auth, url, options?)`: no-op on sandbox; delegates on prod
+- `getAuth(target)`: default sandbox app, `Sandbox`, and sandbox-backed `PyricApp` overloads
+- `connectAuthEmulator(auth, url, options?)`: accepted no-op because the mirror is already a sandbox
 - `signInAnonymously` / `signInWithEmailAndPassword` / `createUserWithEmailAndPassword` / `signOut`
 - `signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential)`: sandbox returns pre-staged mock results
 - `setPersistence` + `inMemoryPersistence` / `browserSessionPersistence` / `browserLocalPersistence`
@@ -67,7 +64,7 @@ See [`docs/reference/feature-matrix.md`](./docs/reference/feature-matrix.md) for
 
 ## What's out (v0)
 
-Multi-factor, phone auth, redirect flows, link/unlink, profile mutation, password reset / email verification, custom-token sign-in, tenant manager. Code that imports these symbols will fail to bundle once the playground's `firebase/auth` → `pyric/auth` alias swap lands. Full list in the feature matrix.
+Unsupported symbols fail to resolve only in sandbox builds where package resolution selects this mirror. Production remains on the complete `firebase/auth` package. The current list is maintained in the feature matrix.
 
 ## State model: sandbox-wide `currentUser`
 
@@ -78,7 +75,6 @@ Today, `pyric/auth` writes to the field; reading from other service handles is t
 ## What's next (deferred follow-ups)
 
 - **`getFirestore(sandbox)` per-call identity read.** Add a `(sandbox)` overload on `pyric/firestore`'s `getFirestore` that reads `sandbox.currentUser` for each op. Lets agent code call `getFirestore(sandbox)` once and have Firestore see auth changes from `pyric/auth`'s sign-in flows automatically.
-- **Playground alias swap.** Add `firebase/auth` → `pyric/auth` to the playground preview build's esbuild aliases.
 - **Agent system-prompt update.** Drop the "no `firebase/auth` in `appSource`" rule and document the v0 deny-list as the new boundary.
 
 ## Position in the Pyric stack

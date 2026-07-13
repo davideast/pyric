@@ -2,8 +2,8 @@
  * Frozen export-surface characterization for `auth/sandbox-backend`.
  *
  * The sandbox auth engine (`SandboxBackend`) is consumed through a
- * tight seam — `auth/index.ts`, `auth/target.ts`, `auth/prod-backend.ts`
- * — via `target.backend.<method>(…)` and the module's three runtime
+ * tight seam — `auth/index.ts` and `auth/target.ts` — via
+ * `target.backend.<method>(…)` and the module's three runtime
  * exports. This test freezes BOTH surfaces so a mechanical refactor
  * (splitting the God-file into concept modules behind the
  * `sandbox-backend.js` barrel) cannot silently drop, rename, or add a

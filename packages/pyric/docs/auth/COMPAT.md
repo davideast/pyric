@@ -29,10 +29,10 @@ means a Bun test in `packages/auth/test/<file>`.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 1 | Returns a stable `Auth` handle for repeat calls with the same target — idempotent on BOTH the sandbox target (per-sandbox WeakMap) and the prod target (per-resolved-`fb.Auth` WeakMap; previously the prod wrapper was minted fresh per call) | ✓ | `unit:sandbox-anonymous.test.ts` (sandbox) + `unit:prod-getauth-memo.test.ts` (prod, locks AUTH-B6) |
+| 1 | Returns a stable `Auth` handle for repeat calls with the same sandbox or sandbox-backed `PyricApp` — one backend and handle per sandbox | ✓ | `unit:sandbox-anonymous.test.ts` + canonical Node register child (`register-child.test.ts`) |
 | 2 | `getAuth(sandbox)` dispatches to the sandbox backend | ✓ | `unit:sandbox-anonymous.test.ts` |
-| 3 | `getAuth(app)` dispatches to the production backend | ? | (no prod test harness yet) |
-| 4 | `getAuth(undefined)` — wrapped in the playground preview to default to the sandbox; raw call delegates to prod which throws `app/no-app` | ✓ (wrap) | `playground:firestore-bare-getfirestore` (mirrors the `getFirestore` wrap from #397) + oracle: `packages/conformance/observations/auth/auth-bare-getauth-no-default-app.json` (`code: 'app/no-app'` against blockingfun, fb-js-sdk 12.13.0 — confirms prod throw shape) |
+| 3 | Without sandbox package swapping, canonical `firebase/auth` imports remain Firebase and never enter this mirror | ? | Direct mirror rejection is locked by `unit:package-resolution.test.ts`; an unswapped production-resolution observation is still needed |
+| 4 | After package swapping, bare `getAuth()` resolves the registered default sandbox app; without swapping, Firebase retains its `app/no-app` behavior when no default app exists | ✓ (wrap) | canonical Node register child (`register-child.test.ts`) + oracle: `packages/conformance/observations/auth/auth-bare-getauth-no-default-app.json` (`code: 'app/no-app'` against blockingfun, fb-js-sdk 12.13.0 — confirms unswapped Firebase behavior) |
 | 5 | `auth.currentUser` is a live getter, not a snapshot — reads through to the backend on every access | ✓ | implicit in `unit:sandbox-anonymous.test.ts` |
 
 ## `signInAnonymously(auth)` — anonymous
@@ -112,7 +112,7 @@ means a Bun test in `packages/auth/test/<file>`.
 | 41 | Accepts `inMemoryPersistence` / `browserSessionPersistence` / `browserLocalPersistence` markers without throwing | ✓ | `unit:types.test.ts` |
 | 42 | Returns `Promise<void>` | ✓ | `unit:types.test.ts` |
 | 43 | Actually changes where the auth state is persisted | ⚠ | divergence: sandbox is a no-op. Prod respects the marker. |
-| 43a | An unrecognized persistence marker (not one of the three) is rejected with `auth/argument-error` on the prod backend, rather than silently coerced to LOCAL | ✓ | `unit:sandbox-cluster-b9-b12.test.ts` (locks AUTH-B12) |
+| 43a | An unrecognized persistence marker is rejected with `auth/argument-error` rather than silently coerced to LOCAL | ✓ | `unit:sandbox-cluster-b9-b12.test.ts` (locks AUTH-B12) |
 
 ## `signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential)`
 
@@ -177,7 +177,7 @@ means a Bun test in `packages/auth/test/<file>`.
 | 63a | Re-seeding an existing uid OVERWRITES it: a new email drops the stale email→record mapping (the old email no longer signs in), and re-seeded `customClaims` are LIVE — a held `User`'s `getIdToken(true)` reflects the new claims rather than the claims frozen at mint time | ✓ | `unit:sandbox-cluster-b9-b12.test.ts` (locks AUTH-B9 + AUTH-B10) |
 | 64 | `sandbox.setUser(auth, user)` / `sandbox.setUser(auth, null)` directly switches identity. Bypasses the `disabled` check and does NOT bump `lastLoginAt` (not a real sign-in) | ✓ | `unit:sandbox-test-driver.test.ts` |
 | 65 | `sandbox.mockSignInResult(auth, {providerId, user, …})` pre-stages a popup/credential result | ✓ | `unit:sandbox-providers.test.ts` |
-| 66 | All `sandbox.*` methods throw `failed-precondition` on prod-backed handles | ✓ | `unit:sandbox-test-driver.test.ts`, `unit:sandbox-user-admin.test.ts` |
+| 66 | All `sandbox.*` methods operate only on the sandbox backend attached to a mirror-produced `Auth` handle; there is no production target or production branch | ✓ | `unit:sandbox-test-driver.test.ts`, `unit:sandbox-user-admin.test.ts` + compiled client-binding isolation |
 | 67 | `sandbox.reset()` (host-side, via `Sandbox.reset()`) clears auth state and fires sign-out | ✓ | `unit:sandbox-listeners.test.ts` |
 | 71 | `sandbox.listIdentities(auth)` returns the REAL provider per identity — `providerId` primary label (`'anonymous'` for anonymous users) + emulator-shaped `providerUserInfo` array; anonymous users included | ✓ | `unit:sandbox-user-admin.test.ts` ("provider tracking") — fixes the pre-epic mislabeling (`'password'`/`'anonymous'` only) |
 | 72 | `sandbox.createSignInCredential(auth, {providerId, uid \| spec})` mints backend-owned credentials for host-driven flows: `{uid}` picks an existing identity (`auth/user-not-found` for unknown uids); `{spec}` upserts (same-email reuse; default uid `'<providerId>:<email>'`; no password). Tokens route through the backend token cache | ✓ | `unit:sandbox-user-admin.test.ts` ("sandbox.createSignInCredential") |
@@ -203,7 +203,7 @@ means a Bun test in `packages/auth/test/<file>`.
 | 84 | Changes the stored email (via the same path as `sandbox.updateUser`, rejecting `auth/email-already-in-use` / `auth/invalid-email`) and mutates the held `user` in place, so the next sign-in resolves against the new email. Leniency vs prod: the sandbox does NOT enforce `auth/requires-recent-login` and is not routed through `verifyBeforeUpdateEmail` (which the real SDK requires when email-enumeration protection is on) | ⚠ email really changes; no requires-recent-login / verifyBeforeUpdateEmail enforcement | `unit:fruit-aliases.test.ts` — stored email changes; re-sign-in works with the new email, fails with the old |
 | 85 | Sets the stored password (validated for strength). The sandbox DOES store and verify passwords, so this is a real mutation: a subsequent `signInWithEmailAndPassword` with the new password succeeds and the old one throws `auth/wrong-password`. Leniency vs prod: no `auth/requires-recent-login` enforcement | ⚠ password really changes + is verified; no requires-recent-login enforcement | `unit:fruit-aliases.test.ts` — new password signs in, old password throws `auth/wrong-password` |
 | 86 | Re-reads the stored record into the `user` object in place, so a change made out of band (e.g. `sandbox.updateUser`) is reflected on the held reference — matching prod's server refresh. Users not tracked in the DB (anonymous / popup) have nothing to refresh (safe no-op) | ✓ | `unit:fruit-aliases.test.ts` — an out-of-band `sandbox.updateUser` displayName change is visible on the held user after `reload` |
-| 87 | Sets the sandbox's current user (pass `null` to sign out), firing `onAuthStateChanged` — `auth.currentUser` reflects the passed user afterward. Real behavior. On prod targets, hands the underlying upstream user to `firebase/auth.updateCurrentUser` | ✓ | `unit:fruit-aliases.test.ts` — `auth.currentUser` becomes the passed user; `null` signs out |
+| 87 | Sets the sandbox's current user (pass `null` to sign out), firing `onAuthStateChanged` — `auth.currentUser` reflects the passed user afterward | ✓ | `unit:fruit-aliases.test.ts` — `auth.currentUser` becomes the passed user; `null` signs out |
 | 88 | Accepted no-op — the sandbox has no device locale to read, so there is no language to set; accepted so init code that calls it compiles + runs | ⚠ no device locale in the sandbox | `unit:fruit-aliases.test.ts` — resolves/returns without error |
 
 ## `ActionCodeURL` / email-link / action-code — the out-of-band family
@@ -274,7 +274,7 @@ the product, and needing an inbox is not the same as being unmodelable.
 | `setLanguageCode` (Auth method) | i18n surface. (`useDeviceLanguage` is mirrored as an accepted no-op.) |
 | `User.toJSON()` | Serialization the sandbox doesn't model (AUTH-GAP). (`User.reload()` / `User.delete()` are mirrored via the top-level `reload(user)` / `deleteUser(user)`.) |
 | `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox; documented per AUTH-GAP. |
-| Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. The prod backend forwards all three. |
+| Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. Production listener behavior remains owned by the unchanged `firebase/auth` import. |
 
 ---
 
@@ -318,7 +318,7 @@ the `ActionCodeURL` parse contract, the `isSignInWithEmailLink` predicate, and t
 
 Rows currently marked **?** (need explicit probes):
 
-- #3 `getAuth(app)` prod-backend dispatch — landing once the
+- #3 canonical production package resolution — landing once the
   empirical oracle harness (`packages/conformance/src/run.ts`) captures the
   observation against a real Firebase project. Harness is in
   place; needs the `PYRIC_ORACLE_FIREBASE_CONFIG` env var pointed
