@@ -3,7 +3,7 @@
 // rows go via the Firestore REST API; Storage artifacts via the Firebase
 // Storage REST endpoint (firebasestorage.googleapis.com/v0), both authorized by
 // the cloud-platform Bearer token (admin, rules-bypassed). This is why any
-// credential source works (pyric login / ADC / GIS) — no token-audience /
+// credential source works (ADC / GIS) — no token-audience /
 // Firebase-Auth-sign-in dependency.
 import type { ChatMessage } from '~/lib/store/chat';
 import type { TurnTrace } from '~/lib/store/trace';

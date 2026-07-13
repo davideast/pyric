@@ -280,8 +280,7 @@ describe('runVerify', () => {
       {
         resolveScope: async ({ projectId }) => ({
           scope: { projectId: projectId ?? 'demo-project', resolveToken: async () => 'mock-token' },
-          source: 'login',
-          grantedScopes: 'all',
+          source: 'adc',
         }),
       },
     );
@@ -303,8 +302,7 @@ describe('runVerify', () => {
       {
         resolveScope: async ({ projectId }) => ({
           scope: { projectId: projectId ?? 'demo-project', resolveToken: async () => 'mock-token' },
-          source: 'login',
-          grantedScopes: 'all',
+          source: 'adc',
         }),
       },
     );
@@ -324,8 +322,7 @@ describe('runVerify', () => {
       {
         resolveScope: async ({ projectId }) => ({
           scope: { projectId: projectId ?? 'demo-project', resolveToken: async () => 'mock-token' },
-          source: 'login',
-          grantedScopes: 'all',
+          source: 'adc',
         }),
       },
     );
