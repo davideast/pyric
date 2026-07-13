@@ -98,7 +98,7 @@ export interface FirestoreDataToolDeps {
 }
 
 export interface FirestoreInspectToolDeps {
-  /** Resolve the sandbox whose cross-service state should be inspected. */
+  /** Resolve the sandbox whose Firestore state should be inspected. */
   resolveSandbox(): Promise<Sandbox> | Sandbox;
 }
 
