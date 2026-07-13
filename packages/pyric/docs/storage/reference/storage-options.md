@@ -20,7 +20,7 @@ When real multi-bucket support lands, this option will partition data. For the v
 
 ## `dbName`
 
-The IndexedDB database name. Production callers use the default (`pyric-storage`). Tests pass a per-case unique name so state doesn't leak between runs:
+The IndexedDB database name. Tests pass a per-case unique name so state doesn't leak between runs:
 
 ```ts
 const storage = getStorageSandbox(sandbox.withAuth(null), {
@@ -59,15 +59,3 @@ See [Storage rules subset](./rules-subset.md) for the supported grammar.
 - **Per-call auth overrides**. The handle's auth comes from the `SandboxContext` passed to `getStorageSandbox`. To act as a different user, derive a new context.
 - **Per-call bucket overrides**. The bucket is fixed at handle construction. If you need to test multi-bucket scenarios, build multiple handles.
 - **Persistence settings**. The sandbox uses IndexedDB; the choice is internal.
-
-## Prod variant
-
-`getStorageProd` takes a much smaller options bag:
-
-```ts
-interface ProdStorageOptions {
-  bucket?: string;
-}
-```
-
-`dbName` doesn't apply (no IndexedDB on prod). `rules` doesn't apply (rules are deployed via `firebase deploy --only storage:rules`, not configured per-handle).

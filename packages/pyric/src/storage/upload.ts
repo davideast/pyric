@@ -23,7 +23,6 @@
  *     payload's intrinsic type (`Blob.type`, data-url prefix) →
  *     `application/octet-stream`. Matches the JS SDK.
  */
-import * as fb from 'firebase/storage';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, targetOf } from './service.js';
@@ -32,7 +31,7 @@ import { resourceFromStored, requestResourceFor } from './rules.js';
 import { toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
 import { invalidRootOperation, invalidFormat } from './errors.js';
 import type { StoredMetadata } from './persistence.js';
-import { fbRefOf, type StorageReference } from './reference.js';
+import type { StorageReference } from './reference.js';
 
 const OCTET = 'application/octet-stream';
 
@@ -66,14 +65,6 @@ export async function uploadBytes(
 ): Promise<UploadResult> {
   guardNonRoot(ref, 'uploadBytes');
   const target = targetOf(ref.storage);
-  if (target.kind === 'prod') {
-    const result = await fb.uploadBytes(fbRefOf(ref), data, metadata);
-    // `fb.UploadResult.metadata` shape matches our `FullMetadata`
-    // structurally; the `ref` field is the prod fb ref, replace it
-    // with ours so the public type stays stable.
-    return { ref, metadata: result.metadata as unknown as UploadResult['metadata'] };
-  }
-  // Sandbox path.
   const blob = toBlob(data, metadata?.contentType);
   const stored = buildStoredMetadata({ ref, blob, settable: metadata });
   const service = await getStorageService(ref.storage);

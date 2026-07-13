@@ -1,14 +1,9 @@
 /**
- * Service module — handles, factories, and target-discriminated
- * routing. Mirrors `pyric/firestore`'s dual-target shape so the same
- * playground (or any consumer) can switch from a `pyric/sandbox`-
- * backed IDB store to a real Firebase Storage bucket by swapping the
- * factory call.
+ * Service module — sandbox handles and factories.
  *
  * The public `FirebaseStorage` handle is opaque — it carries a
- * `TARGET_SYMBOL` field pointing to an internal `Target` discriminator
- * that every operation reads to decide between the sandbox path
- * (IDB + rules-eval) and the prod path (delegate to `firebase/storage`).
+ * `TARGET_SYMBOL` field pointing to the sandbox state every operation
+ * needs (IDB service, rules, identity, bucket, and admin lens).
  *
  * Caching:
  *
@@ -18,20 +13,13 @@
  * - **Per `SandboxContext`** — the sandbox `FirebaseStorage` handle
  *   is identity-stable. `getStorageSandbox(ctx)` twice returns the
  *   same object.
- * - **Prod** — each `getStorageProd(app)` returns a fresh handle.
- *   `firebase/storage` itself caches per-app under the hood, so this
- *   is cheap; we don't add a layer.
- *
  * Internal access:
  *
  * `getStorageService(storage)` returns the backing
- * `Promise<StorageService>` for sandbox handles. Throws on prod
- * handles — prod ops never need it.
+ * `Promise<StorageService>` for sandbox handles.
  */
 import { SandboxContextImpl } from 'pyric/sandbox';
 import type { Sandbox, SandboxContext } from 'pyric/sandbox';
-import type { FirebaseApp } from 'firebase/app';
-import * as fb from 'firebase/storage';
 import { openStorageBackend, type StorageBackend } from './persistence.js';
 import { parseStorageRules, type StorageRules } from './rules.js';
 
@@ -44,8 +32,7 @@ const DEFAULT_BUCKET = 'pyric-default';
 
 /**
  * Hidden property on every {@link FirebaseStorage} handle. Carries
- * the target discriminator so free functions can route between
- * sandbox + prod backends without consumer-visible API differences.
+ * the sandbox state free functions share without exposing it publicly.
  */
 export const TARGET_SYMBOL: unique symbol = Symbol('pyric/storage/target');
 
@@ -72,19 +59,7 @@ export interface SandboxTarget {
   readonly admin?: boolean;
 }
 
-/**
- * Prod target — delegates to `firebase/storage`. The user's Firebase
- * Auth identity flows naturally through the underlying SDK; we don't
- * touch rules (they're enforced server-side).
- */
-export interface ProdTarget {
-  readonly kind: 'prod';
-  readonly app: FirebaseApp;
-  readonly fbStorage: fb.FirebaseStorage;
-  readonly bucket: string;
-}
-
-export type Target = SandboxTarget | ProdTarget;
+export type Target = SandboxTarget;
 
 /**
  * Public opaque handle. Carries a {@link Target} via
@@ -117,9 +92,8 @@ export interface StorageOptions {
    */
   bucket?: string;
   /**
-   * Override the IndexedDB database name. Production callers do
-   * NOT pass this; they inherit the default `pyric-storage`. Tests
-   * pass per-case unique names so state doesn't leak between runs.
+   * Override the IndexedDB database name. Tests pass per-case unique
+   * names so state doesn't leak between runs.
    * Only takes effect on the FIRST call per `Sandbox`.
    */
   dbName?: string;
@@ -131,18 +105,7 @@ export interface StorageOptions {
   rules?: string;
 }
 
-/** Options for {@link getStorageProd}. */
-export interface ProdStorageOptions {
-  /**
-   * Override the gs:// bucket the handle binds to. Defaults to the
-   * project's primary bucket (whatever `app.options.storageBucket`
-   * names). Pass a custom bucket name (`gs://my-extra-bucket`) to
-   * target a non-default bucket.
-   */
-  bucket?: string;
-}
-
-// ─── Caches (sandbox-only — prod relies on firebase/storage's caching) ─
+// ─── Caches ─────────────────────────────────────────────────────────
 
 /** One `StorageService` per `Sandbox`. */
 const SERVICES = new WeakMap<Sandbox, Promise<StorageService>>();
@@ -305,35 +268,6 @@ export function getAdminStorageSandbox(
 }
 
 /**
- * Construct a `FirebaseStorage` handle backed by a real Firebase
- * project. The user's Firebase Auth identity flows naturally into
- * rule evaluation via the SDK's standard auth-state subscription —
- * Pyric doesn't manage the auth handshake, mirroring how
- * `firebase/storage`'s own `getStorage(app)` works.
- */
-export function getStorageProd(
-  app: FirebaseApp,
-  options: ProdStorageOptions = {},
-): FirebaseStorage {
-  const fbStorage = options.bucket ? fb.getStorage(app, options.bucket) : fb.getStorage(app);
-  // The bucket field is sourced from the SDK's resolved bucket, not
-  // the option, so `gs://` prefixes / overrides round-trip correctly
-  // in metadata.
-  const bucket = fbRefBucket(fbStorage);
-  const prodTarget: ProdTarget = { kind: 'prod', app, fbStorage, bucket };
-  return Object.freeze({ [TARGET_SYMBOL]: prodTarget });
-}
-
-/**
- * The bucket name from a `firebase/storage` handle, read off the
- * root reference. `fb.ref(storage)` returns the root ref whose
- * `bucket` field is the canonical bucket name.
- */
-function fbRefBucket(fbStorage: fb.FirebaseStorage): string {
-  return fb.ref(fbStorage).bucket;
-}
-
-/**
  * Internal — extract the {@link Target} from a handle. Throws on
  * objects that weren't produced by a factory in this module.
  */
@@ -341,21 +275,15 @@ export function targetOf(storage: FirebaseStorage): Target {
   const t = (storage as { [TARGET_SYMBOL]?: Target })[TARGET_SYMBOL];
   if (!t) {
     throw new TypeError(
-      'pyric/storage: not a FirebaseStorage handle — was it produced by getStorageSandbox or getStorageProd?',
+      'pyric/storage: not a FirebaseStorage handle — was it produced by getStorageSandbox?',
     );
   }
   return t;
 }
 
 /**
- * Internal — fetch the backing `StorageService` promise for a
- * sandbox handle. Throws when called on a prod handle (prod ops
- * never need a service; this helper is sandbox-only).
+ * Internal — fetch the backing `StorageService` promise for a sandbox handle.
  */
 export function getStorageService(storage: FirebaseStorage): Promise<StorageService> {
-  const target = targetOf(storage);
-  if (target.kind !== 'sandbox') {
-    throw new Error('getStorageService called on a prod-target handle — sandbox-only API');
-  }
-  return target.servicePromise;
+  return targetOf(storage).servicePromise;
 }

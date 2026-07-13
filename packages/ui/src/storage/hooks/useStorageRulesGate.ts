@@ -57,16 +57,12 @@ export interface UseStorageRulesGateOptions {
    * Explicit rules source — raw rules text (parsed here; a malformed
    * string surfaces as `status: 'error'`) or a pre-parsed
    * `StorageRules` handle. Overrides the sandbox's deployed ruleset
-   * when both exist. REQUIRED for meaningful verdicts on prod
-   * handles: production rules live server-side and are not readable
-   * through the client SDK, so the gate cannot discover them.
+   * when both exist.
    */
   rules?: string | StorageRules;
   /**
    * Identity override. `null` is anonymous; OMIT the field to use
-   * the handle's own identity (the sandbox context's `auth`). Prod
-   * handles carry no client-readable identity claims here, so prod
-   * callers pass the signed-in user's `{ uid, token }` explicitly.
+   * the handle's own identity (the sandbox context's `auth`).
    */
   identity?: StorageAuth | null;
   /**
@@ -86,13 +82,7 @@ export interface UseStorageRulesGateResult {
   status: StorageRulesGateStatus;
   /** Where the active ruleset came from. */
   source: StorageRulesSource;
-  /**
-   * True for prod handles: client-side evaluation is ADVISORY there
-   * — the server's evaluator is authoritative, and this gate only
-   * sees whatever the `rules` option mirrors (which can drift from
-   * what is deployed). Sandbox verdicts come from the same evaluator
-   * the sandbox enforces with, so they are truthful.
-   */
+  /** Always false: `pyric/storage` handles are sandbox mirrors. */
   advisory: boolean;
   /** The identity the verdicts evaluate under. */
   identity: StorageAuth | null;
@@ -141,10 +131,8 @@ interface RulesState {
  * (`getStorageSandbox(ctx, { rules })` parses it into the handle's
  * `StorageService`) — the hook reads it through the handle's target,
  * so sandbox callers pass nothing. Identity likewise defaults to the
- * handle's `SandboxContext.auth`. Prod handles expose neither
- * (rules + claims live server-side), so prod callers pass `rules` +
- * `identity` explicitly and treat verdicts as advisory (`advisory:
- * true` — the server is authoritative).
+ * handle's `SandboxContext.auth`. An explicit `rules` or `identity`
+ * option overrides the handle when evaluating a what-if scenario.
  *
  * Evaluation contract (mirrors `pyric/storage`'s own enforcement):
  * `resource` (the existing object) is bound as `null` — the gate
@@ -173,7 +161,7 @@ export function useStorageRulesGate(
       setState({ status: 'idle', rules: null, source: 'none', error: undefined });
       return;
     }
-    // Explicit option wins — and is the only channel for prod.
+    // Explicit option wins for what-if evaluation.
     if (rulesOption != null) {
       try {
         const parsed =
@@ -189,45 +177,36 @@ export function useStorageRulesGate(
       }
       return;
     }
-    if (target.kind === 'sandbox') {
-      let cancelled = false;
-      setState({ status: 'loading', rules: null, source: 'none', error: undefined });
-      target.servicePromise
-        .then((service) => {
-          if (cancelled) return;
-          setState({
-            status: 'ready',
-            rules: service.rules,
-            source: service.rules ? 'sandbox' : 'none',
-            error: undefined,
-          });
-        })
-        .catch((e) => {
-          if (cancelled) return;
-          setState({
-            status: 'error',
-            rules: null,
-            source: 'none',
-            error: e instanceof Error ? e : new Error(String(e)),
-          });
+    let cancelled = false;
+    setState({ status: 'loading', rules: null, source: 'none', error: undefined });
+    target.servicePromise
+      .then((service) => {
+        if (cancelled) return;
+        setState({
+          status: 'ready',
+          rules: service.rules,
+          source: service.rules ? 'sandbox' : 'none',
+          error: undefined,
         });
-      return () => {
-        cancelled = true;
-      };
-    }
-    // Prod handle without an explicit ruleset: nothing to evaluate —
-    // open verdicts, advisory.
-    setState({ status: 'ready', rules: null, source: 'none', error: undefined });
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setState({
+          status: 'error',
+          rules: null,
+          source: 'none',
+          error: e instanceof Error ? e : new Error(String(e)),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [target, rulesOption]);
 
   // `undefined` means "derive from the handle"; an explicit `null`
   // means anonymous.
   const identity: StorageAuth | null =
-    identityOption !== undefined
-      ? identityOption
-      : target?.kind === 'sandbox'
-        ? target.context.auth
-        : null;
+    identityOption !== undefined ? identityOption : (target?.context.auth ?? null);
 
   const { rules, status } = state;
   const writeSize = writeResource?.size;
@@ -279,7 +258,7 @@ export function useStorageRulesGate(
   return {
     status,
     source: state.source,
-    advisory: target?.kind === 'prod',
+    advisory: false,
     identity,
     verdicts,
     verdictFor,

@@ -1,6 +1,6 @@
 /**
  * Worker-backed FirebaseStorage mirror (Pyric Studio data browse) — client-side
- * ref path math plus `listAll`/`getMetadata`/`getBlob` reads and the base64
+ * ref path math plus `listAll`/`getMetadata`/`getBlob`/`getDownloadURL` reads and the base64
  * byte ops (`uploadBytes`/`getBytes`/`deleteObject`) over the worker port.
  */
 
@@ -12,7 +12,7 @@ import type { ClientDb } from './handles.js';
 
 // ─── Storage (Pyric Studio data browse) ───────────────────────────────────
 // A worker-backed `FirebaseStorage` mirror: `ref` is client-side (path math),
-// `listAll`/`getMetadata`/`getBlob` RPC to the host (which enforces rules).
+// `listAll`/`getMetadata`/`getBlob`/`getDownloadURL` RPC to the host (which enforces rules).
 // Mutations are a follow-up.
 
 /** Worker-backed Storage handle (carries the shared `MessagePort`). */
@@ -104,6 +104,11 @@ export async function getBlob(reference: ClientStorageReference): Promise<Blob> 
   return (await rpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.getBlob', path: reference.fullPath,
   })) as Blob;
+}
+
+/** Return a page-owned URL for an object read through the SharedWorker. */
+export async function getDownloadURL(reference: ClientStorageReference): Promise<string> {
+  return URL.createObjectURL(await getBlob(reference));
 }
 
 // ─── Storage mutations + JSON-safe reads (worker-mode byte ops) ───────────

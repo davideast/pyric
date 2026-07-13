@@ -14,6 +14,6 @@ export const surface: SurfaceDescriptorRecord = {
   observationPrefixes: ['storage-'],
   coverage: true,
   scopeNote:
-    'out of scope: internal plumbing only. Deferred: uploadBytesResumable, getStream, list, getDownloadURL.',
+    'out of scope: internal plumbing only. Deferred: uploadBytesResumable, getStream, list.',
   captureRigs: ['oracle-run'],
 };

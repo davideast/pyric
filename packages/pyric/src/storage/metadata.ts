@@ -12,10 +12,9 @@
  *
  * - `ref` is omitted from `FullMetadata`. The JS SDK populates it
  *   lazily; we don't need that machinery for the v1 scope.
- * - `downloadTokens` is omitted. `getDownloadURL` is deferred (no
- *   browser-renderable URLs in the v1 scope).
+ * - `downloadTokens` is omitted. Sandbox `getDownloadURL` returns a page-local
+ *   object URL, so it has no Firebase download token to expose.
  */
-import * as fb from 'firebase/storage';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, targetOf } from './service.js';
@@ -23,7 +22,7 @@ import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './rules.js';
 import { objectNotFound, invalidRootOperation } from './errors.js';
 import type { StoredMetadata } from './persistence.js';
-import { fbRefOf, type StorageReference } from './reference.js';
+import type { StorageReference } from './reference.js';
 
 /**
  * Client-settable fields. Passed to `uploadBytes` /
@@ -128,10 +127,6 @@ export function bump(value: string): string {
 export async function getMetadata(ref: StorageReference): Promise<FullMetadata> {
   guardNonRoot(ref, 'getMetadata');
   const target = targetOf(ref.storage);
-  if (target.kind === 'prod') {
-    const result = await fb.getMetadata(fbRefOf(ref));
-    return result as unknown as FullMetadata;
-  }
   const service = await getStorageService(ref.storage);
   const stored = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
@@ -171,10 +166,6 @@ export async function updateMetadata(
 ): Promise<FullMetadata> {
   guardNonRoot(ref, 'updateMetadata');
   const target = targetOf(ref.storage);
-  if (target.kind === 'prod') {
-    const result = await fb.updateMetadata(fbRefOf(ref), patch);
-    return result as unknown as FullMetadata;
-  }
   const service = await getStorageService(ref.storage);
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
@@ -204,24 +195,22 @@ export async function updateMetadata(
   }
   const next = applyMetadataPatch(existing, patch);
   await service.backend.putMetadata(ref.fullPath, next);
-  if (target.kind === 'sandbox') {
-    try {
-      emitSandboxEvent(
-        target.sandbox,
-        makeServiceMutationEvent({
-          service: 'storage',
-          op: 'metadata_update',
-          path: ref.fullPath,
-          auth: target.context.auth,
-          before: existing,
-          after: next,
-          detail: { bucket: ref.bucket },
-        }),
-        { ...provenance, service: 'storage' },
-      );
-    } catch {
-      // Observational — never let event emission break a metadata update.
-    }
+  try {
+    emitSandboxEvent(
+      target.sandbox,
+      makeServiceMutationEvent({
+        service: 'storage',
+        op: 'metadata_update',
+        path: ref.fullPath,
+        auth: target.context.auth,
+        before: existing,
+        after: next,
+        detail: { bucket: ref.bucket },
+      }),
+      { ...provenance, service: 'storage' },
+    );
+  } catch {
+    // Observational — never let event emission break a metadata update.
   }
   return toFullMetadata(next);
 }

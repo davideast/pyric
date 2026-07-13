@@ -25,24 +25,21 @@ Firebase Storage's `write` governs create, overwrite, and delete. When the
 granular verbs (get/list/create/update/delete) land in the parser, the
 verdict shape already has the fields.
 
-## Advisory on prod — the caveat
+## Sandbox-only contract
 
-- **Sandbox: truthful.** The gate reads the ruleset deployed on the handle
-  (`getStorageSandbox(ctx, { rules })`) and the context's identity, and
-  runs the SAME evaluator that throws `storage/unauthorized`. A denied
-  verdict *is* what enforcement will do.
-- **Prod: advisory.** Production rules and token claims live server-side;
-  you supply a rules mirror + identity to the gate, and both can drift
-  from reality. **The server is authoritative** — use prod verdicts to
-  improve affordances, never as a security boundary. The gate flags this:
-  `advisory: true` on prod handles.
+The gate reads the ruleset deployed on the handle
+(`getStorageSandbox(ctx, { rules })`) and the context's identity, and
+runs the same evaluator that throws `storage/unauthorized`. A denied
+verdict is what sandbox enforcement will do. Production applications
+select `firebase/storage` through package resolution and do not receive
+this Pyric-only hook.
 
 ## Fails open, by design
 
 While the gate is loading (sandbox rules resolve async), after a rules
 parse error, or when no rules source is reachable, every verdict allows.
 A rules-aware affordance must never *grant* anything — enforcement stays
-with the sandbox throw / the server — so the safe failure mode is "no
+with the sandbox throw — so the safe failure mode is "no
 warning", not "everything disabled".
 
 ## What's NOT here (yet)

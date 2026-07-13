@@ -32,8 +32,7 @@ export interface ObjectBrowserProps {
    * `data-pyric-denied-reason`). A denied folder row would throw
    * `storage/unauthorized` on `listAll`; the stamp warns BEFORE the
    * click. Rows stay clickable — the affordance is advisory and the
-   * enforcement layer remains authoritative (on prod the verdicts
-   * themselves are advisory; see the gate's `advisory` flag).
+   * sandbox enforcement layer remains authoritative.
    */
   gate?: Pick<UseStorageRulesGateResult, 'verdictFor'>;
   /**

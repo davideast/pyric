@@ -8,9 +8,8 @@
  *  a) write a zero-byte `<path>/` placeholder object (the emulator-UI
  *     convention — `useObjectUpload.createFolder` does this): the
  *     folder survives reloads, but every created folder deposits a
- *     phantom object in the sandbox store, and the trailing-slash ref
- *     is sandbox-only (prod `ref()` rejects it, and the Studio worker
- *     `StorageApi` path has no channel for it at all);
+ *     phantom object in the sandbox store, and the Studio worker
+ *     `StorageApi` path has no channel for the trailing-slash ref;
  *
  *  b) hold the created prefix as CLIENT-SIDE PENDING STATE and let the
  *     first upload into it materialize it for real. The store stays

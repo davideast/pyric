@@ -29,8 +29,6 @@ export interface DeleteSelectionWithConfirmProps {
    * `deniedReason`). For folder entries the verdict evaluates the
    * folder path itself — an approximation of the recursive walk
    * (descendants matched by `{allPaths=**}` rules share the verdict).
-   * On prod handles verdicts are advisory; the server stays
-   * authoritative either way.
    */
   gate?: Pick<UseStorageRulesGateResult, 'verdictFor'>;
   /** Confirm-dialog title. Default derives from the entry count. */

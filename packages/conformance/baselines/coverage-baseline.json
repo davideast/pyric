@@ -36,8 +36,8 @@
     },
     "storage": {
       "surfaceCoveragePct": {
-        "total": 44.4,
-        "intended": 66.7
+        "total": 48.1,
+        "intended": 72.2
       }
     },
     "messaging": {
@@ -691,8 +691,8 @@
     "storage#8": "conforms",
     "storage#9": "conforms",
     "storage#10": "conforms",
-    "storage#11": "conforms",
-    "storage#12": "unsupported",
+    "storage#11": "diverged-documented",
+    "storage#12": "conforms",
     "storage#13": "conforms",
     "storage#14": "conforms",
     "storage#15": "conforms",
@@ -731,8 +731,8 @@
     "storage#48": "unsupported",
     "storage#49": "unsupported",
     "storage#50": "unsupported",
-    "storage#51": "unsupported",
-    "storage#52": "unsupported",
+    "storage#51": "diverged-documented",
+    "storage#52": "conforms",
     "storage#53": "conforms",
     "storage#54": "conforms",
     "storage#55": "diverged-documented",

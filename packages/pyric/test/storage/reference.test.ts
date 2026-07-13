@@ -9,7 +9,7 @@
  *   - `uploadBytes` accepts Blob / Uint8Array / ArrayBuffer; emits
  *     `UploadResult` with populated metadata
  *   - `uploadString` for raw / base64 / data_url formats
- *   - `getBytes` / `getBlob` round-trips, maxDownloadSizeBytes cap,
+ *   - `getBytes` / `getBlob` / `getDownloadURL` round-trips, maxDownloadSizeBytes cap,
  *     object-not-found, invalid-root-operation
  *   - `deleteObject` removes both stores
  */
@@ -23,6 +23,7 @@ import {
   uploadString,
   getBytes,
   getBlob,
+  getDownloadURL,
   deleteObject,
 } from '../../src/storage/index.js';
 
@@ -68,6 +69,13 @@ describe('StorageReference', () => {
     const sessions = ref(storage, 'sessions');
     const r = ref(sessions, 's1.json');
     expect(r.fullPath).toBe('sessions/s1.json');
+  });
+
+  it('ref(parent, child) rejects a structural parent with an unbranded storage handle', () => {
+    const fakeParent = { fullPath: 'sessions', storage: {} };
+    expect(() => ref(fakeParent as never, 's1.json')).toThrow(
+      /not a FirebaseStorage handle/,
+    );
   });
 
   it('parent traversal walks back to root', () => {
@@ -237,6 +245,22 @@ describe('getBytes / getBlob', () => {
     const storage = freshStorage('root-read');
     const root = ref(storage);
     await expect(getBytes(root)).rejects.toThrow(/invalid-root-operation/);
+    await expect(getDownloadURL(root)).rejects.toThrow(/invalid-root-operation/);
+  });
+});
+
+describe('getDownloadURL', () => {
+  it('returns a URL that fetches the uploaded bytes', async () => {
+    const storage = freshStorage('download-url');
+    const r = ref(storage, 'avatars/ada.txt');
+    await uploadBytes(r, new Blob(['avatar-bytes'], { type: 'text/plain' }));
+
+    const url = await getDownloadURL(r);
+    try {
+      expect(await (await fetch(url)).text()).toBe('avatar-bytes');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   });
 });
 

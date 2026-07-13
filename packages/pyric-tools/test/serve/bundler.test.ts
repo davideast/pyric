@@ -48,8 +48,10 @@ describe('firebase stub generation (drift-proof list)', () => {
     expect(bindings.get('firebase/app')?.has('initializeApp')).toBe(true);
     // `import { get, set, … } from 'firebase/database'`
     expect(bindings.get('firebase/database')?.has('ref')).toBe(true);
-    // `import * as fb from 'firebase/storage'`
-    expect(bindings.get('firebase/storage')?.has('getStorage')).toBe(true);
+    // Storage is the first sandbox-only mirror: package resolution chooses
+    // Firebase or Pyric before the module loads, so its built implementation
+    // has no production bindings for the stub generator to collect.
+    expect(bindings.has('firebase/storage')).toBe(false);
     // NAMESPACE-accessed members (`import * as fb`; `fb.where(...)`): pyric
     // builds the prod filter eagerly even on the sandbox path, so these MUST be
     // collected or `fb.where` is undefined at runtime ("(void 0) is not a
@@ -289,7 +291,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const storage = exportedNames(result.files.find((f) => f.endsWith('/storage.js'))!);
     for (const name of [
       'getStorage', 'ref', 'listAll', 'getMetadata', 'connectStorageEmulator',
-      'uploadBytes', 'uploadString', 'getBytes', 'getBlob', 'deleteObject',
+      'uploadBytes', 'uploadString', 'getBytes', 'getBlob', 'getDownloadURL', 'deleteObject',
       'updateMetadata', 'StorageError',
     ]) {
       expect(storage.has(name)).toBe(true);

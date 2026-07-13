@@ -5,10 +5,7 @@
  * `bucket`, `name`, `parent`, `root`, `storage`, plus `toString()`
  * returning `gs://<bucket>/<fullPath>`.
  *
- * Two ref impls — sandbox (carries path + storage, computes the
- * other fields) and prod (proxies to an underlying
- * `firebase/storage` ref via a WeakMap). Both implement the same
- * `StorageReference` shape so consumer code is target-blind.
+ * References carry a sandbox handle and path, then compute the other fields.
  *
  * Identity model: references are value objects. Two refs with the
  * same `(storage, fullPath)` compare equal via `toString()` /
@@ -20,7 +17,6 @@
  * stripped, trailing slashes stripped, repeated internal slashes
  * collapsed. Empty path is legal — it's the root reference.
  */
-import * as fb from 'firebase/storage';
 import { TARGET_SYMBOL, targetOf, type FirebaseStorage } from './service.js';
 
 /**
@@ -39,25 +35,6 @@ export interface StorageReference {
 }
 
 /**
- * Internal — map from prod-target StorageReferences to their backing
- * `firebase/storage` references. Ops use this to delegate. WeakMap
- * keys let entries GC alongside the refs that produced them.
- */
-const PROD_FB_REF = new WeakMap<StorageReference, fb.StorageReference>();
-
-/** Internal — extract the underlying `fb.StorageReference` for a prod ref. */
-export function fbRefOf(ref: StorageReference): fb.StorageReference {
-  const r = PROD_FB_REF.get(ref);
-  if (!r) {
-    throw new Error(
-      'pyric/storage: expected a prod-target reference but the WeakMap had no entry. ' +
-      'Mixing sandbox + prod refs in the same call?',
-    );
-  }
-  return r;
-}
-
-/**
  * Construct a reference. Two overloads matching Firebase:
  *
  *   `ref(storage, path?)`   — `path` is bucket-rooted. Omit for root.
@@ -71,19 +48,11 @@ export function ref(
 ): StorageReference {
   if (isStorageReference(target)) {
     // Relative-to-parent overload.
-    const parentTarget = targetOf(target.storage);
-    if (parentTarget.kind === 'prod') {
-      const newFbRef = fb.ref(fbRefOf(target), path ?? '');
-      return wrapProdRef(target.storage, newFbRef);
-    }
+    targetOf(target.storage);
     return new SandboxStorageReference(target.storage, joinPaths(target.fullPath, path ?? ''));
   }
   // Storage-rooted overload.
-  const t = targetOf(target);
-  if (t.kind === 'prod') {
-    const fbR = path === undefined ? fb.ref(t.fbStorage) : fb.ref(t.fbStorage, path);
-    return wrapProdRef(target, fbR);
-  }
+  targetOf(target);
   return new SandboxStorageReference(target, normalizePath(path ?? ''));
 }
 
@@ -123,32 +92,6 @@ class SandboxStorageReference implements StorageReference {
   toString(): string {
     return `gs://${this.bucket}/${this.fullPath}`;
   }
-}
-
-// ─── Prod impl ─────────────────────────────────────────────────────
-
-/**
- * Wrap a `firebase/storage` ref in our `StorageReference` shape.
- * Tags it in `PROD_FB_REF` so ops can recover the underlying ref.
- * `parent` / `root` recursively wrap to keep the target consistent.
- */
-function wrapProdRef(storage: FirebaseStorage, fbR: fb.StorageReference): StorageReference {
-  const wrapper: StorageReference = {
-    storage,
-    get bucket(): string { return fbR.bucket; },
-    get fullPath(): string { return fbR.fullPath; },
-    get name(): string { return fbR.name; },
-    get parent(): StorageReference | null {
-      const p = fbR.parent;
-      return p ? wrapProdRef(storage, p) : null;
-    },
-    get root(): StorageReference {
-      return wrapProdRef(storage, fbR.root);
-    },
-    toString(): string { return fbR.toString(); },
-  };
-  PROD_FB_REF.set(wrapper, fbR);
-  return wrapper;
 }
 
 // ─── Path utilities ────────────────────────────────────────────────

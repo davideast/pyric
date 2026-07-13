@@ -8,6 +8,7 @@
  * createUser → onSnapshot(query) → addDoc. This is where the gate bug lives
  * (the host alone works; the integration does not).
  */
+import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   handleMessage,
@@ -202,5 +203,20 @@ describe('client↔host event stream + runtime policy (Studio data plane)', () =
     const snap = await client.rtdbGet(pushed);
     expect(snap.exists()).toBe(true);
     expect(snap.val()).toEqual({ value: 7 });
+  });
+
+  it('Storage getDownloadURL returns a URL owned by the calling page', async () => {
+    const { db } = await connectClient();
+    const storage = client.getStorage(db);
+    const r = client.ref(storage, 'download-url/ada.txt');
+    await client.uploadBytes(r, new Blob(['worker-avatar'], { type: 'text/plain' }));
+
+    const url = await client.getDownloadURL(r);
+    try {
+      expect(await (await fetch(url)).text()).toBe('worker-avatar');
+    } finally {
+      URL.revokeObjectURL(url);
+      await client.deleteObject(r);
+    }
   });
 });

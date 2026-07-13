@@ -77,7 +77,7 @@ This separation is deliberate but occasionally surprising. The README and the [`
 
 The IndexedDB path runs in browsers and in test runners that emulate IndexedDB (Bun has reasonable polyfills; Vitest with `happy-dom` or `jsdom` works). It does not run in plain Node.
 
-If you need the sandbox to work in plain Node, the prod path (`getStorageProd(app)`) is the answer, but that uses real Cloud Storage, not an in-memory alternative. A pure-Node sandbox backend is not in scope today.
+The IndexedDB sandbox does not run in plain Node. Production Node code imports Firebase directly; that is not a sandbox substitute. A pure-Node Storage sandbox backend is not in scope today.
 
 ## Where this leaves us
 
