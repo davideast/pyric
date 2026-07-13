@@ -14,11 +14,10 @@ import { dirname, join, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolvePlaygroundUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
 import {
   isStandalone,
   materializeDocsUi,
-  materializePlaygroundUi,
   materializeServeAssets,
   materializeStudioUi,
   embeddedWorkerVersion,
@@ -374,12 +373,10 @@ export async function startServe(opts: {
   // resolved by file path (never imported), so a missing build is a clear
   // warning rather than a crash; the data routes still mount.
   let studioUiDir: string | undefined;
-  let playgroundUiDir: string | undefined;
   let docsUiDir: string | undefined;
   if (opts.ui) {
     // Standalone: the Studio app was embedded at compile time; materialize it.
     const dir = isStandalone() ? await materializeStudioUi() : resolveStudioUiDir();
-    const playgroundDir = isStandalone() ? await materializePlaygroundUi() : resolvePlaygroundUiDir();
     const docsDir = isStandalone() ? await materializeDocsUi() : resolveDocsUiDir();
     if (dir) {
       studioUiDir = dir;
@@ -387,14 +384,6 @@ export async function startServe(opts: {
       logger.note(
         '  ⚠ --ui: built Studio app not found (run the full build first). ' +
           'The data routes are mounted, but /__pyric/ui/ will 404.',
-      );
-    }
-    if (playgroundDir) {
-      playgroundUiDir = playgroundDir;
-    } else {
-      logger.note(
-        '  ⚠ --ui: built Playground app not found (run the full build first). ' +
-          'The Studio data routes are mounted, but /__pyric/playground/ will 404.',
       );
     }
     if (docsDir) {
@@ -414,7 +403,6 @@ export async function startServe(opts: {
     capture: capture ?? undefined,
     studio,
     studioUiDir,
-    playgroundUiDir,
     docsUiDir,
   });
   const handle = await startStaticServer({

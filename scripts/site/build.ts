@@ -11,8 +11,6 @@
  *                                  bundleSdk/bundleWorker calls — no `pyric
  *                                  dev` server involved)
  *     __pyric/init.json            the curated demo seed (rules/authUsers/docs)
- *     playground/…                 the playground's STATIC client only (no
- *                                  Cloud Function build, no inference-endpoint.json)
  *     docs/…                       the site-docs SSG output (packages/site-docs,
  *                                  directory-format pages + flat .md agent twins
  *                                  + /docs/index.json), built with DOCS_BASE=/
@@ -21,7 +19,7 @@
  *
  * Every piece here is already output:'static'/pure-esbuild; this script's only
  * job is to run each build with the right base path and copy bytes into one
- * tree. It does NOT start a server and does NOT touch Studio/playground UI.
+ * tree. It does NOT start a server.
  */
 import { existsSync, mkdirSync, rmSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -42,7 +40,6 @@ async function main(): Promise<void> {
 
   await buildStudio();
   await bundleSdkAndWorker();
-  await buildPlayground();
   writeInitJson();
   await buildDocs();
 
@@ -59,11 +56,6 @@ async function buildStudio(): Promise<void> {
     ...process.env,
     STUDIO_BASE: '/',
     STUDIO_STATIC: '1',
-    // The composed site ships the playground at /playground/ (buildPlayground
-    // below), NOT the `pyric dev --ui` default /__pyric/playground/. Vite
-    // exposes VITE_-prefixed process env, so PlaygroundSurface's
-    // `import.meta.env.VITE_PYRIC_PLAYGROUND_URL` embed src resolves there.
-    VITE_PYRIC_PLAYGROUND_URL: '/playground/',
   });
   const appDir = join(studioDir, 'dist', 'app');
   if (!existsSync(appDir)) {
@@ -117,49 +109,6 @@ async function bundleSdkAndWorker(): Promise<void> {
   await bundleWorker({ outDir: sdkOutDir, noCache: true });
 
   log(`SDK + worker bundled → ${sdkOutDir}`);
-}
-
-// ─── Playground (static client only) ──────────────────────────────────
-
-async function buildPlayground(): Promise<void> {
-  log('Building packages/playground static client (base /playground/, no Cloud Function)');
-  const pgDir = join(ROOT, 'packages', 'playground');
-  rmSync(join(pgDir, 'dist'), { recursive: true, force: true });
-  // Deliberately skip `scripts/build-fn.ts` (the Cloud Function build) and
-  // run `astro build` directly — the static site ships the page-direct
-  // client only, never `/api/inference/*` or `/inference-endpoint.json`.
-  await $`bun --env-file=../../.env --env-file=.env astro build`.cwd(pgDir).env({
-    ...process.env,
-    PLAYGROUND_BASE: '/playground/',
-    // No server relay / inference Cloud Function behind the static site:
-    // force page-direct BYOK inference and hide the server-stream toggle
-    // (see packages/playground/src/lib/build-env.ts).
-    PUBLIC_PLAYGROUND_STATIC: '1',
-  });
-  const clientDir = join(pgDir, 'dist', 'client');
-  if (!existsSync(clientDir)) {
-    throw new Error(`build-site: playground build did not produce ${clientDir}`);
-  }
-  const target = join(DIST, 'playground');
-  mkdirSync(target, { recursive: true });
-  // Copy the WHOLE astro client under /playground/, preserving the app's own
-  // base structure (PLAYGROUND_BASE=/playground/):
-  //   client/index.html            → /playground/            (HomePage: the
-  //                                   session list — where the Studio Prototype
-  //                                   embed src and a direct visit both land)
-  //   client/playground/index.html → /playground/playground/ (the workspace,
-  //                                   opened with ?session=<id>)
-  //   client/_astro/, favicon.svg  → shared assets
-  //
-  // The playground's OWN root page (HomePage) MUST ship at /playground/. A
-  // sessionless workspace page redirects to `playgroundHomeHref()` =
-  // `/playground/`; if HomePage isn't there, that redirect resolves back to the
-  // workspace and loops forever ("Loading session…" flicker — the exact bug an
-  // earlier version of this compose shipped by copying only client/playground/
-  // and dropping client/index.html). Studio still owns the SITE root /
-  // (dist/site/index.html); this only fills /playground/*.
-  cpSync(clientDir, target, { recursive: true });
-  log(`Playground static client → ${target}`);
 }
 
 // ─── Demo seed (__pyric/init.json) ────────────────────────────────────
@@ -227,9 +176,8 @@ async function buildDocs(): Promise<void> {
   // flat .md agent twins (<slug>.md), and /docs/index.json. Directory format
   // means a dumb static host serves /docs/<slug>/ with no rewrite rules.
   cpSync(builtDocs, join(DIST, 'docs'), { recursive: true });
-  // The docs pages' one shared stylesheet lives at /_astro/ (base=/). Studio's
-  // own bundle uses assets/, the playground's uses playground/_astro, so this
-  // never collides at the site root.
+  // The docs pages' one shared stylesheet lives at /_astro/ (base=/), while
+  // Studio's own bundle uses assets/, so the two never collide at the site root.
   const docsAstro = join(docsDist, '_astro');
   if (existsSync(docsAstro)) {
     cpSync(docsAstro, join(DIST, '_astro'), { recursive: true });

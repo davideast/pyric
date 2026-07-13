@@ -4,8 +4,8 @@
  * The chip used to mirror Studio's OWN bridge-peer connection
  * (`env.bridge`, fed by `connectStudioBridgePeer`'s `onStateChange`) — which
  * is the wrong truth: the bridge holds ONE peer slot (last-connection-wins),
- * so the moment another tab (the served app, a second Studio tab, the
- * playground embed) takes the slot, Studio's own registration goes standby
+ * so the moment another tab (the served app or a second Studio tab) takes the
+ * slot, Studio's own registration goes standby
  * and the chip vanished even though MCP was fully available through that
  * other tab.
  *

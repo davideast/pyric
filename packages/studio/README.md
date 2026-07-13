@@ -7,9 +7,9 @@ Studio is **cross-service** (Firestore / Auth / Storage / RTDB over one event
 stream) and **agentic-dev-focused**: an Action Center digest of what changed,
 cross-service viewer/editor with clickable references, traffic monitoring,
 rules-failure debugging (re-run as the attempting user / against an edited
-ruleset), a permission dial, and the Pyric Agent plan→dry-run→accept flow. The
-playground's app-building experience folds in as the **App Builder** tab on the
-same project.
+ruleset), and a permission dial. Assurance remains available during local
+Studio development while it is being tested, but is disabled in published
+builds. The standalone agent Playground is developed separately.
 
 ## Layout
 
@@ -28,8 +28,8 @@ same project.
 - **`browser`** — browser-persisted state over the same ports. Future.
 - **`hosted`** — a remote API behind the same ports. Future.
 
-The ports are shaped from the union of disk + playground so the playground is a
-valid future `browser` implementation, not a rewrite.
+The ports are shaped so a future browser-persisted implementation can satisfy
+the same interface without changing Studio surfaces.
 
 ## Scripts
 

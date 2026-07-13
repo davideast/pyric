@@ -59,9 +59,9 @@ export default defineConfig({
   base: process.env.STUDIO_BASE ?? '/',
   plugins: [
     // `bun run dev` serves Studio directly, outside `pyric dev`. Mount the
-    // runtime namespace here so the SharedWorker and embedded Playground URLs
-    // cannot fall through to Vite's Studio index.html response. Review
-    // sessions should still avoid writing capture files.
+    // runtime namespace here so the SharedWorker URL cannot fall through to
+    // Vite's Studio index.html response. Review sessions should still avoid
+    // writing capture files.
     pyricSandbox(studioSandboxOptions),
     nodeBuiltinShims(),
     react(),

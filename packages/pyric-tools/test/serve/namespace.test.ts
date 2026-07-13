@@ -144,22 +144,17 @@ describe('namespace over the real server', () => {
     expect(html).toContain('/__pyric/sdk/init.js');
   });
 
-  it('serves embedded Studio and Playground apps with SPA fallback', async () => {
+  it('serves the embedded Studio app with SPA fallback', async () => {
     const { site, sdk } = fixture();
     const appRoot = join(site, 'apps');
     const studioRoot = join(appRoot, 'studio');
-    const playgroundRoot = join(appRoot, 'playground');
     mkdirSync(join(studioRoot, 'assets'), { recursive: true });
-    mkdirSync(join(playgroundRoot, '_astro'), { recursive: true });
     writeFileSync(join(studioRoot, 'index.html'), '<!doctype html>studio');
     writeFileSync(join(studioRoot, 'assets', 'app.js'), '// studio');
-    writeFileSync(join(playgroundRoot, 'index.html'), '<!doctype html>playground');
-    writeFileSync(join(playgroundRoot, '_astro', 'app.js'), '// playground');
     const ns = createPyricNamespace({
       sdkDir: sdk,
       initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
       studioUiDir: studioRoot,
-      playgroundUiDir: playgroundRoot,
     });
     const h = await startStaticServer({
       publicDir: site,
@@ -179,10 +174,6 @@ describe('namespace over the real server', () => {
     // …but the content-hashed asset dir keeps hard 404s for real misses.
     expect((await fetch(h.url + '/__pyric/ui/assets/app.js')).status).toBe(200);
     expect((await fetch(h.url + '/__pyric/ui/assets/missing.js')).status).toBe(404);
-    expect((await fetch(h.url + '/__pyric/playground', { redirect: 'manual' })).status).toBe(301);
-    expect(await (await fetch(h.url + '/__pyric/playground/?embed=studio')).text()).toContain('playground');
-    expect(await (await fetch(h.url + '/__pyric/playground/playground?embed=studio')).text()).toContain('playground');
-    expect((await fetch(h.url + '/__pyric/playground/_astro/app.js')).status).toBe(200);
   });
 
 it('serves the embedded docs site (dir index, .md twin, index.json, assets) and 404s misses — never Studio shell', async () => {

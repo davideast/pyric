@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Composed static Pyric Studio site build. See scripts/site/build.ts for the
-# actual driver (Studio + SDK/worker bundles + playground static client +
-# demo seed + docs/llms.txt placeholders → dist/site/).
+# actual driver (Studio + SDK/worker bundles + demo seed + docs/llms.txt
+# placeholders → dist/site/).
 #
 # Prereq: `bun run build` (root) must have already built @pyric/cli's dist/ —
 # the SDK/worker bundler is imported directly from

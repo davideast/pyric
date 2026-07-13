@@ -277,8 +277,7 @@ a.studio__nav-tab {
    the browser's own panes scroll internally instead of the whole page. */
 .studio__content[data-surface='firestore'],
 .studio__content[data-surface='auth'],
-.studio__content[data-surface='storage'],
-.studio__content[data-surface='prototype'] {
+.studio__content[data-surface='storage'] {
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -287,32 +286,6 @@ a.studio__nav-tab {
 .studio__surface-slot {
   min-width: 0;
 }
-.studio__surface-slot--playground {
-  min-height: 0;
-}
-.studio__content[data-surface='prototype'] > .studio__surface-slot--playground {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
-.studio__surface-slot--playground[data-active='false'] {
-  position: absolute;
-  inset: 0;
-  display: flex !important;
-  width: 100% !important;
-  max-width: none !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  min-height: 0;
-  visibility: hidden;
-  pointer-events: none;
-  opacity: 0;
-  overflow: hidden;
-}
-.studio__surface-slot--playground > .studio-playground {
-  flex: 1;
-}
-
 .studio__content[data-surface='firestore'] > *,
 .studio__content[data-surface='auth'] > *,
 .studio__content[data-surface='storage'] > * {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { ROUTES, ROUTE_IDS, findRoute, type RouteId } from './routes.js';
+import {
+  ROUTES,
+  ROUTE_IDS,
+  createStudioRoutes,
+  findRoute,
+  type RouteId,
+} from './routes.js';
 
 /** The tab set + order per specs/shell.md (Rules omitted: no approved
  *  surface exists yet — left out rather than shipping a placeholder). */
@@ -10,8 +16,6 @@ const SHELL_ROUTES: readonly RouteId[] = [
   'rtdb',
   'storage',
   'traffic',
-  'assurance',
-  'prototype',
   'settings',
 ];
 
@@ -25,13 +29,26 @@ describe('Studio route registry', () => {
       'RTDB',
       'Storage',
       'Traffic',
-      'Assurance',
-      'Prototype',
       'Settings',
     ]);
   });
 
-  it('renamed playground → prototype (no stale id survives)', () => {
+  it('keeps Assurance available to local development without publishing it', () => {
+    expect(ROUTE_IDS).not.toContain('assurance');
+    expect(createStudioRoutes({ assuranceEnabled: true }).map((route) => route.id)).toEqual([
+      'home',
+      'firestore',
+      'auth',
+      'rtdb',
+      'storage',
+      'traffic',
+      'assurance',
+      'settings',
+    ]);
+  });
+
+  it('does not expose the standalone Playground as a Studio route', () => {
+    expect(ROUTE_IDS).not.toContain('prototype' as RouteId);
     expect(ROUTE_IDS).not.toContain('playground' as RouteId);
   });
 
@@ -48,5 +65,10 @@ describe('Studio route registry', () => {
 
   it('falls back unknown routes to Home', () => {
     expect(findRoute('not-real').id).toBe('home');
+  });
+
+  it('falls back deferred published routes to Home', () => {
+    expect(findRoute('assurance').id).toBe('home');
+    expect(findRoute('prototype').id).toBe('home');
   });
 });

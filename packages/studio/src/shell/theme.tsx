@@ -1,9 +1,9 @@
 /**
  * Studio theme runtime.
  *
- * Studio is dark-only for V1 while the embedded playground remains the visual
- * source of truth. The context shape stays in place so existing components do
- * not need a broad rewrite, but old persisted light/system choices are ignored.
+ * Studio is dark-only for V1. The context shape stays in place so existing
+ * components do not need a broad rewrite, but old persisted light/system
+ * choices are ignored.
  */
 
 import {
