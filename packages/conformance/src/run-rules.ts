@@ -80,6 +80,23 @@ function observationPath(scenario: Scenario): string {
   return join(OBS_DIR, `${observationName(scenario)}.json`);
 }
 
+export function selectFirestoreScenarios(args: string[]): Scenario[] {
+  if (args.filter((arg) => arg === '--scenario').length > 1) {
+    throw new Error('only one --scenario selector is allowed');
+  }
+  const selectorIndex = args.indexOf('--scenario');
+  if (selectorIndex === -1) return ALL_RULES_FIRESTORE_SCENARIOS;
+  const id = args[selectorIndex + 1];
+  if (!id) throw new Error('--scenario requires an id');
+  const selected = ALL_RULES_FIRESTORE_SCENARIOS.filter(
+    (scenario) => scenario.id === id,
+  );
+  if (selected.length === 0) {
+    throw new Error(`unknown Firestore scenario: ${id}`);
+  }
+  return selected;
+}
+
 /** Build the verdict table (case description → prod decision) for a scenario. */
 function verdictTable(
   scenario: Scenario,
@@ -98,28 +115,28 @@ function verdictTable(
   return table;
 }
 
-function printInertPlan(): void {
+function printInertPlan(scenarios: Scenario[]): void {
   console.log('[oracle:rules] PARITY_SA_BASE64 not set — INERT preview, no network calls.\n');
   console.log(`  Credential env var expected: PARITY_SA_BASE64`);
   console.log(`    (base64-encoded service-account JSON with firebaserules.rulesets.test)\n`);
   console.log(`  Observation output directory: ${OBS_DIR}`);
   console.log(`  Observation filename prefix:  ${RULES_FIRESTORE_OBSERVATION_PREFIX}\n`);
-  console.log(`  Would capture ${ALL_RULES_FIRESTORE_SCENARIOS.length} scenario(s):`);
+  console.log(`  Would capture ${scenarios.length} scenario(s):`);
   let totalCases = 0;
-  for (const scenario of ALL_RULES_FIRESTORE_SCENARIOS) {
+  for (const scenario of scenarios) {
     totalCases += scenario.cases.length;
     console.log(
       `    - ${scenario.id.padEnd(42)} [${scenario.fm.padEnd(9)}] ` +
         `${String(scenario.cases.length).padStart(2)} cases → ${observationName(scenario)}.json`,
     );
   }
-  console.log(`\n  Total: ${ALL_RULES_FIRESTORE_SCENARIOS.length} scenarios, ${totalCases} cases.`);
+  console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases} cases.`);
   console.log('\n  To capture for real:');
   console.log('    PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \\');
   console.log('      bun run packages/conformance/src/run-rules.ts');
 }
 
-async function capture(): Promise<void> {
+async function capture(scenarios: Scenario[]): Promise<void> {
   // Heavy imports (parser/evaluator + firebase-admin) are deferred to the
   // credentialed path so the inert preview stays dependency-light and always
   // runnable. `parityScope`/`hasParitySecret` come from the parity harness so
@@ -135,10 +152,10 @@ async function capture(): Promise<void> {
   const handler = new TestFirestoreRulesHandler();
   mkdirSync(OBS_DIR, { recursive: true });
 
-  console.log(`[oracle:rules] capturing ${ALL_RULES_FIRESTORE_SCENARIOS.length} scenario(s) against project "${scope.projectId}"`);
+  console.log(`[oracle:rules] capturing ${scenarios.length} scenario(s) against project "${scope.projectId}"`);
   console.log(`[oracle:rules] firebase ${fbSdkVersion}\n`);
 
-  for (const scenario of ALL_RULES_FIRESTORE_SCENARIOS) {
+  for (const scenario of scenarios) {
     const res = await handler.execute(scope, scenario.rules, scenario.cases);
     const behavior = verdictTable(scenario, res);
     const obs: Observation = {
@@ -167,11 +184,12 @@ async function capture(): Promise<void> {
 }
 
 if (import.meta.main) {
+  const scenarios = selectFirestoreScenarios(process.argv.slice(2));
   // Same env-var contract as the parity harness (harness.ts hasParitySecret).
   // Checked inline so the inert path imports none of the heavy machinery.
   if (!process.env.PARITY_SA_BASE64) {
-    printInertPlan();
+    printInertPlan(scenarios);
     process.exit(0);
   }
-  await capture();
+  await capture(scenarios);
 }

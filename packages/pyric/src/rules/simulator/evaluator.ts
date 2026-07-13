@@ -577,7 +577,9 @@ function resolveIdentifier(name: string, ctx: SimulationContext, scope: Record<s
   // Built-in globals
   switch (name) {
     case 'request': return ctx.request;
-    case 'resource': return ctx.resource;
+    case 'resource':
+      if (ctx.resource === null) throw new EvalError('Null value error.');
+      return ctx.resource;
     case 'true': return true;
     case 'false': return false;
     case 'null': return null;

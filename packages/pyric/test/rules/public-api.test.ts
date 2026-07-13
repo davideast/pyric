@@ -39,6 +39,18 @@ service cloud.firestore {
   }
 }`;
 
+const MISSING_RESOURCE_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /documents/{id} {
+      allow get, update, delete: if resource != null;
+    }
+    match /nullGuard/{id} {
+      allow get: if resource == null;
+    }
+  }
+}`;
+
 // The owner's canonical two-case scenario for the note `notes/n1`.
 const N1_OWNER: FirestoreCase = {
   description: 'owner reads their own note',
@@ -81,6 +93,57 @@ describe('firestoreRules constructor', () => {
     const summary = ruleset.simulate([wrong]);
     expect(summary.failed).toBe(1);
     expect(summary.cases[0].passed).toBe(false);
+    expect(summary.cases[0].decision).toBe('DENY');
+  });
+
+  test('a missing document never satisfies a resource existence guard', () => {
+    const summary = firestoreRules(MISSING_RESOURCE_RULES).simulate([
+      {
+        description: 'missing document get',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'documents/missing-get',
+      },
+      {
+        description: 'missing document update',
+        expectation: 'DENY',
+        method: 'update',
+        path: 'documents/missing-update',
+        data: { value: 'after' },
+      },
+      {
+        description: 'missing document delete',
+        expectation: 'DENY',
+        method: 'delete',
+        path: 'documents/missing-delete',
+      },
+      {
+        description: 'existing document get',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'documents/existing',
+        resource: { value: 'before' },
+      },
+    ]);
+
+    expect(summary.cases.map((result) => result.decision)).toEqual([
+      'DENY',
+      'DENY',
+      'DENY',
+      'ALLOW',
+    ]);
+  });
+
+  test('a missing document does not make resource comparable to null', () => {
+    const summary = firestoreRules(MISSING_RESOURCE_RULES).simulate([
+      {
+        description: 'missing document null comparison',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'nullGuard/missing',
+      },
+    ]);
+
     expect(summary.cases[0].decision).toBe('DENY');
   });
 

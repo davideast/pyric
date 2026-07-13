@@ -474,10 +474,6 @@ const REQUEST_GLOBALS: StdlibModule = {
       ],
     },
     {
-      signature: 'request.resource.id: string',
-      description: 'Document id being written. Same as the last `{wildcard}` segment of the match path.',
-    },
-    {
       signature: 'request.time: timestamp',
       description: 'Server time of the request. Compare against document timestamps for windowed gates.',
     },
@@ -501,24 +497,16 @@ const RESOURCE_GLOBALS: StdlibModule = {
   key: 'resource',
   kind: 'globals',
   description:
-    'Root namespace for the existing document — resource.data, resource.id, resource.__name__. Use to compare against what is already there.',
+    'Root namespace for the existing document — use resource.data to compare against what is already there.',
   purpose:
-    'The `resource` identifier is the document state BEFORE the request — what is currently stored. On a create, `resource` is null. On an update/delete, it contains the pre-write doc. Use it to compare incoming changes against existing values.',
+    'The `resource` identifier is the document state BEFORE the request — what is currently stored. When the target does not exist, evaluating `resource` raises a null-value error; it is not a comparable null. On an update/delete of an existing document, it contains the pre-write data. Use it to compare incoming changes against existing values.',
   whenToUse:
     'Whenever a rule needs the pre-write state — e.g. "the existing owner is the one updating", "the field already had this value before the write".',
   entries: [
     {
       signature: 'resource.data: map',
-      description: 'The currently stored document data. On a create, the whole `resource` is `null`.',
+      description: 'The currently stored document data. When the target does not exist, evaluating `resource` raises a null-value error.',
       examples: [`allow update: if resource.data.ownerId == request.auth.uid;`],
-    },
-    {
-      signature: 'resource.id: string',
-      description: 'Existing document\'s id. Same as `request.resource.id` for non-create ops.',
-    },
-    {
-      signature: 'resource.__name__: path',
-      description: 'Fully-qualified path of the existing document.',
     },
   ],
   relatedKeys: ['request'],
