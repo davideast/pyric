@@ -12,6 +12,7 @@ import {
 } from 'pyric/sandbox/admin-firestore';
 import { SandboxContextImpl } from 'pyric/sandbox';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
+import { bindOperationContext } from 'pyric/sandbox/internal';
 import { APP_TARGET, type PyricApp } from 'pyric/app';
 
 import {
@@ -152,10 +153,16 @@ export function getAdminFirestore(ctx: SandboxContext): Firestore;
 export function getAdminFirestore(app: PyricApp): Firestore;
 export function getAdminFirestore(target: Sandbox | SandboxContext | PyricApp): Firestore {
   if (isPyricApp(target)) {
-    return getAdminFirestore(target.sandbox);
+    return getAdminFirestore(bindOperationContext(target.sandbox.withAuth(null), {
+      source: { kind: 'app' },
+      authLens: { mode: 'admin' },
+    }));
   }
-  const sandbox: Sandbox = isSandboxContext(target) ? target.sandbox : (target as Sandbox);
-  const chainable = getChainableAdminFirestore(sandbox);
+  const context = isSandboxContext(target)
+    ? target
+    : (target as Sandbox).withAuth(null);
+  const sandbox = context.sandbox;
+  const chainable = getChainableAdminFirestore(context);
   const t: SandboxTarget = { kind: 'sandbox', db: chainable, sandbox };
   return { [TARGET_SYMBOL]: t };
 }
@@ -225,7 +232,10 @@ function isSandbox(target: SandboxContext | Sandbox | PyricApp): target is Sandb
  */
 function makeGetDb(sandbox: Sandbox): () => SandboxFirestore {
   return () => {
-    const ctx = sandbox.withAuth(sandbox.currentUser);
+    const ctx = bindOperationContext(sandbox.withAuth(sandbox.currentUser), {
+      source: { kind: 'app' },
+      authLens: { mode: 'app-session' },
+    });
     return getChainableFirestore(ctx);
   };
 }

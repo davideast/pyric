@@ -42,7 +42,11 @@
  */
 import { emitSandboxEvent, makeSandboxOperationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
-import type { StorageService, Target } from './service.js';
+import {
+  storageOperationProvenance,
+  type StorageService,
+  type Target,
+} from './service.js';
 import { evaluateStorageRules, type EvaluationInput, type FirestoreLookup } from './rules.js';
 import { unauthorized } from './errors.js';
 
@@ -52,30 +56,33 @@ export function enforceRules(
   target?: Target,
   provenance?: EventProvenance,
 ): void {
+  const boundProvenance = target?.kind === 'sandbox'
+    ? storageOperationProvenance(target, provenance)
+    : provenance;
   // Admin plane (internal `getAdminStorageSandbox` handles): rules are
   // bypassed entirely — firebase-admin semantics. See `SandboxTarget.admin`.
   // Rules never ran; the event still lands so Studio can show the op, with
   // `result: 'not-applicable'` + `origin: 'admin'` — the same shape RTDB's
-  // admin plane (`adminSet`/`adminGet`/...) emits, which Studio's
-  // `verdict.ts` classifies as `'admin'` regardless of `result`.
+  // admin plane (`adminSet`/`adminGet`/...) emits, with an explicit
+  // bypass disposition independent of source or auth-lens presentation.
   if (target?.kind === 'sandbox' && target.admin === true) {
-    emitOperation(target, input, 'not-applicable', undefined, 'admin', false, provenance);
+    emitOperation(target, input, 'not-applicable', undefined, 'admin', false, boundProvenance);
     return;
   }
   if (!service.rules) {
     // Open-by-default: no rules configured, no evaluation happened.
     // Still emit `allow` for parity — an unrestricted op is legitimately
     // "allowed", just never evaluated.
-    emitOperation(target, input, 'allow', undefined, 'user', false, provenance);
+    emitOperation(target, input, 'allow', undefined, 'user', false, boundProvenance);
     return;
   }
   const result = evaluateStorageRules(service.rules, input, undefined, firestoreLookupFor(target));
   if (!result.allowed) {
-    emitOperation(target, input, 'deny', result.reasons, 'user', true, provenance);
+    emitOperation(target, input, 'deny', result.reasons, 'user', true, boundProvenance);
     const detail = result.reasons.length > 0 ? ` — ${result.reasons.join('; ')}` : '';
     throw unauthorized(input.request.method, input.request.path, detail);
   }
-  emitOperation(target, input, 'allow', result.reasons, 'user', true, provenance);
+  emitOperation(target, input, 'allow', result.reasons, 'user', true, boundProvenance);
 }
 
 /**
@@ -104,6 +111,11 @@ function emitOperation(
         result,
         origin,
         reasons,
+        rulesDisposition: origin === 'admin'
+          ? { kind: 'bypassed', reason: 'admin' }
+          : evaluated
+            ? { kind: 'evaluated', verdict: result === 'deny' ? 'deny' : 'allow' }
+            : { kind: 'not-evaluated', reason: 'no-rules' },
         rules: evaluated
           ? {
               engine: 'storage',

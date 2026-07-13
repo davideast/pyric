@@ -44,6 +44,7 @@ import type {
   TransactionOptions,
   TransactionResult,
 } from './transaction-types.js';
+import type { EventProvenance } from '../types/events.js';
 import type {
   DocumentSnapshot,
   ListenerAuth,
@@ -218,6 +219,7 @@ interface EmitRequestInput {
   groupId?: string;
   triggeredBy?: { method: string; path: string };
   detail?: { admin?: boolean } & Record<string, unknown>;
+  provenance?: EventProvenance;
 }
 
 let _requestEventSeq = 0;
@@ -297,6 +299,7 @@ function buildRequestEvent(input: EmitRequestInput): import('../types/events.js'
   }
   if (input.triggeredBy !== undefined) out.triggeredBy = input.triggeredBy;
   if (input.detail !== undefined) out.detail = input.detail;
+  if (input.provenance !== undefined) Object.assign(out, input.provenance);
   return out;
 }
 
@@ -704,6 +707,7 @@ export class LocalEnvironment {
      *  when re-resolving serverTimestamp() sentinels. */
     requestTime: Timestamp;
     detail?: { admin?: boolean } & Record<string, unknown>;
+    provenance?: EventProvenance;
   }): void {
     if (this.writeListeners.size === 0) return;
     const event: import('../types/events.js').WriteSandboxEvent = {
@@ -724,6 +728,7 @@ export class LocalEnvironment {
       ...(input.autoId !== undefined ? { autoId: input.autoId } : {}),
       requestTime: { seconds: input.requestTime.seconds, nanoseconds: input.requestTime.nanos },
       ...(input.detail !== undefined ? { detail: input.detail } : {}),
+      ...(input.provenance ?? {}),
     };
     for (const cb of this.writeListeners) {
       try {
@@ -3089,6 +3094,7 @@ export class LocalEnvironment {
           resourceBefore: { data: priorDoc, exists: priorDoc !== null },
           origin: 'transaction', groupId: txId,
           ...(detail ? { detail } : {}),
+          provenance: options.provenance,
         });
         return {
           allowed: false,
@@ -3173,6 +3179,7 @@ export class LocalEnvironment {
           resourceBefore: { data: priorDoc, exists: priorDoc !== null },
           origin: 'transaction', groupId: txId,
           ...(detail ? { detail } : {}),
+          provenance: options.provenance,
         });
         allAllowed = false;
         continue;
@@ -3189,6 +3196,7 @@ export class LocalEnvironment {
           resourceBefore: { data: priorDoc, exists: priorDoc !== null },
           origin: 'transaction', groupId: txId,
           ...(detail ? { detail } : {}),
+          provenance: options.provenance,
         });
         throw new SimulatorUnsupportedError(
           unsupportedMessage(ruleMethod, op.path, renderLegacyDebugMessages(r)),
@@ -3216,6 +3224,7 @@ export class LocalEnvironment {
         resourceBefore: { data: priorDoc, exists: priorDoc !== null },
         origin: 'transaction', groupId: txId,
         ...(detail ? { detail } : {}),
+        provenance: options.provenance,
       });
       if (!isAllowed) {
         // Per-op `request`/`resource` captured against pre-tx snapshot
@@ -3327,6 +3336,7 @@ export class LocalEnvironment {
           ...(sentinels && sentinels.length > 0 ? { sentinels } : {}),
           requestTime: serverTime,
           ...(detail ? { detail } : {}),
+          provenance: options.provenance,
         });
       }
     }

@@ -4,6 +4,7 @@
  */
 
 import { isRemoteSandbox, type Sandbox, type SandboxContext } from 'pyric/sandbox';
+import { bindOperationContext } from 'pyric/sandbox/internal';
 import { wrapWithErrorTranslation } from './error-translation.js';
 import { buildFirestoreHandle } from './local-handle.js';
 import { createRemoteFirestore } from './remote/remote-firestore.js';
@@ -60,18 +61,30 @@ export function getAdminFirestore(target: SandboxContext | Sandbox): SandboxFire
   // `Sandbox` is accepted as well as a `SandboxContext`. A bare sandbox is
   // normalised to an anonymous ctx — the captured auth is irrelevant since
   // no rule reads `request.auth` on the bypass path.
-  const ctx: SandboxContext = isSandboxContext(target)
+  const baseContext: SandboxContext = isSandboxContext(target)
     ? target
     : target.withAuth(null);
-  const cached = adminHandleCache.get(ctx);
+  const cached = adminHandleCache.get(baseContext);
   if (cached) return cached;
+  const ctx: SandboxContext = baseContext.operationContext.authLens.mode === 'admin'
+    ? baseContext
+    : bindOperationContext(baseContext, {
+        source: baseContext.operationContext.source,
+        authLens: { mode: 'admin' },
+        ...(baseContext.operationContext.planId === undefined
+          ? {}
+          : { planId: baseContext.operationContext.planId }),
+      });
   // REMOTE ARM: rules bypass rides the worker's `{ mode: 'admin' }` lens
   // (the same lens Studio's admin surface uses) — identity-agnostic, so
   // the normalised ctx's auth is irrelevant, exactly like the local path.
   const fresh = isRemoteSandbox(ctx.sandbox)
     ? createRemoteFirestore(ctx.sandbox, { mode: 'admin' })
     : wrapWithErrorTranslation(buildFirestoreHandle(ctx, true), ctx, true);
-  adminHandleCache.set(ctx, fresh);
+  // Cache against the caller-owned context. `bindOperationContext` creates a
+  // derived context to pin the admin lens, and keying by that fresh object
+  // would silently defeat the public per-context idempotency contract.
+  adminHandleCache.set(baseContext, fresh);
   return fresh;
 }
 

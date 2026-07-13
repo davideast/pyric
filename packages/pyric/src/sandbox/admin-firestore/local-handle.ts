@@ -20,6 +20,7 @@ import type {
 import type { LintResult } from 'pyric/rules/internal';
 import { isRemoteSandbox, type SandboxContext } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
+import { provenanceForOperationContext } from 'pyric/sandbox/internal';
 import type { SandboxFirestore } from './types.js';
 
 /**
@@ -49,7 +50,11 @@ export function buildFirestoreHandle(
     );
   }
   const delegate = (): Firestore =>
-    createCompatFirestore(getInternalEnv(ctx.sandbox), { auth: ctx.auth, bypassRules });
+    createCompatFirestore(getInternalEnv(ctx.sandbox), {
+      auth: ctx.auth,
+      bypassRules,
+      provenance: provenanceForOperationContext(ctx.operationContext),
+    });
 
   return {
     // ── Production-shaped surface ────────────────────────────────────

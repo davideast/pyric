@@ -26,11 +26,7 @@ export { SandboxError } from './errors.js';
 export type { PersistableService, SandboxSnapshot } from './persistence.js';
 
 export type {
-  AuthLens,
   DenialEvent,
-  EventActor,
-  EventProvenance,
-  EventService,
   ListenerLifecycleEvent,
   RequestEvent,
   SandboxCommitEvent,
@@ -45,6 +41,14 @@ export type {
   SnapshotSuppressedEvent,
   WriteSandboxEvent,
 } from './events.js';
+export type {
+  AuthLens,
+  EventActor,
+  EventProvenance,
+  EventService,
+  OperationContext,
+  RulesDisposition,
+} from './operation.js';
 
 export type {
   LocalSandbox,

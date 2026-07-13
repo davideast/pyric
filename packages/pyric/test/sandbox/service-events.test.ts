@@ -75,10 +75,13 @@ function listeners(events: SandboxEvent[]): SandboxListenerEvent[] {
   return events.filter((e): e is SandboxListenerEvent & typeof e => e.kind === 'listener');
 }
 
-function provenanceOK(e: ServiceMutationEvent): void {
+function provenanceOK(
+  e: ServiceMutationEvent,
+  authLens: NonNullable<ServiceMutationEvent['authLens']> = { mode: 'app-session' },
+): void {
   // Every emit funnels through stampProvenance, so the defaults are present.
-  expect(e.actor).toEqual({ kind: 'app' });
-  expect(e.authLens).toEqual({ mode: 'app-session' });
+  expect(e.actor).toEqual({ kind: 'unattributed' });
+  expect(e.authLens).toEqual(authLens);
 }
 
 describe('Studio T1 — Auth emits service_mutation events', () => {
@@ -177,7 +180,7 @@ describe('Studio T1 — Storage emits service_mutation events', () => {
     expect((put!.auth as { uid: string }).uid).toBe('alice');
     expect(put!.detail?.contentType).toBe('image/png');
     expect(put!.detail?.overwrite).toBe(false);
-    provenanceOK(put!);
+    provenanceOK(put!, { mode: 'as', uid: 'alice' });
   });
 
   it('deleteObject and updateMetadata emit object_delete / metadata_update', async () => {

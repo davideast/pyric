@@ -1,13 +1,15 @@
 /**
- * The identity-bearing handle on a sandbox — a `(sandbox, auth)` pair.
+ * The identity- and provenance-bearing handle on a sandbox.
  */
 
 import type { AuthState } from './auth-state.js';
+import type { OperationContext } from './events.js';
 import type { Sandbox } from './service.js';
 
 /**
- * Identity-bearing handle on a {@link Sandbox}. A `(sandbox, auth)`
- * pair — cheap to create, immutable, freely shareable. Service
+ * Identity-bearing handle on a {@link Sandbox}. A
+ * `(sandbox, auth, operationContext)`
+ * tuple — cheap to create, immutable, freely shareable. Service
  * factories require a `SandboxContext`; bare `Sandbox` is a type
  * error so every call site states identity explicitly.
  *
@@ -21,10 +23,12 @@ export interface SandboxContext {
   readonly sandbox: Sandbox;
   /** The identity rules evaluate under for operations through this context. */
   readonly auth: AuthState;
+  /** Immutable provenance bound to every operation issued through this handle. */
+  readonly operationContext: OperationContext;
   /**
    * Derive a sibling context on the same sandbox with different auth.
-   * Replaces, doesn't merge — the new context carries only the new
-   * auth, regardless of any prior context's auth.
+   * Replaces auth and its lens while preserving the operation source and
+   * optional plan identity.
    */
   withAuth(auth: AuthState): SandboxContext;
 }

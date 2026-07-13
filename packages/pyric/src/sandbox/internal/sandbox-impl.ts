@@ -44,47 +44,21 @@ import {
 import type { SandboxPersistenceOptions } from '../persistence/types.js';
 import { attachTabSync } from '../tab-sync/index.js';
 import type { TabSyncOptions } from '../tab-sync/index.js';
+import {
+  mergeAmbientProvenance,
+  mergeProvenance,
+  stampProvenance,
+} from './provenance.js';
+
+// Kept for internal import compatibility; the implementation lives in the
+// focused provenance module so this class remains an orchestration shell.
+export { stampProvenance } from './provenance.js';
 
 let nextSandboxEventId = 1;
 function makeSandboxEventId(): string {
   const seq = (nextSandboxEventId++).toString(36);
   const rnd = Math.random().toString(36).slice(2, 7);
   return `sbe-${seq}-${rnd}`;
-}
-
-/**
- * Stamp {@link EventProvenance} onto a `SandboxEvent` in ONE place — the
- * single choke-point every emitter routes through (see {@link
- * SandboxImpl.emitEvent}). This is the Pyric Studio "event unification"
- * keystone: today only Firestore emits, but every service's emit path is
- * meant to funnel here so the unified `onEvent`/`history()` stream carries
- * who/what/which-service for each event.
- *
- * Semantics — **additive, override-aware, no clobber**:
- *   - `service`   defaults to `'firestore'` (the only emitter today). An
- *                 Auth/Storage/RTDB emit site passes its own service via
- *                 `overrides.service`; a value already on the event is kept.
- *   - `actor`     defaults to `{ kind: 'app' }` (the served app). Studio /
- *                 agent / app-builder emitters override.
- *   - `authLens`  defaults to `{ mode: 'app-session' }` (the app's own
- *                 signed-in user). Admin / impersonation paths override.
- *   - `planId`    only set when an override supplies it (agent-plan ops).
- *
- * A field the event ALREADY carries always wins over the default — so an
- * upstream emitter that pre-stamped provenance is never downgraded. The
- * returned object is a shallow copy; the input is not mutated.
- */
-export function stampProvenance<E extends SandboxEvent>(
-  event: E,
-  overrides?: EventProvenance,
-): E {
-  const out = { ...event } as E & EventProvenance;
-  out.service = event.service ?? overrides?.service ?? 'firestore';
-  out.actor = event.actor ?? overrides?.actor ?? { kind: 'app' };
-  out.authLens = event.authLens ?? overrides?.authLens ?? { mode: 'app-session' };
-  const planId = event.planId ?? overrides?.planId;
-  if (planId !== undefined) out.planId = planId;
-  return out;
 }
 
 /**
@@ -262,18 +236,14 @@ export class SandboxImpl implements LocalSandbox {
    *
    * `provenance` lets a non-default emitter (a future Auth/Storage/RTDB
    * emit site, or a Studio admin/agent/impersonation path) declare its
-   * `service`/`actor`/`authLens`/`planId`. Omitted ⇒ Firestore / app /
-   * app-session defaults, which is exactly today's Firestore behaviour —
-   * so routing the existing Firestore emitters through here is a no-op on
-   * what consumers observe beyond the additive provenance fields.
+   * `service`/`actor`/`authLens`/`planId`. Omitted source is recorded as
+   * `unattributed`; service handles bind known app/Studio sources explicitly.
    */
   emitEvent(event: SandboxEvent, provenance?: EventProvenance): void {
     // Ambient window values ({@link runWithProvenance}) fill in for fields
     // the explicit per-emit override doesn't name; fields the event itself
     // carries still win inside stampProvenance.
-    const merged = this.ambientProvenance
-      ? { ...this.ambientProvenance, ...provenance }
-      : provenance;
+    const merged = mergeProvenance(this.ambientProvenance, provenance);
     this.dispatch(stampProvenance(event, merged));
   }
 
@@ -284,7 +254,7 @@ export class SandboxImpl implements LocalSandbox {
    */
   runWithProvenance<T>(provenance: EventProvenance, fn: () => T): T {
     const prev = this.ambientProvenance;
-    this.ambientProvenance = prev ? { ...prev, ...provenance } : provenance;
+    this.ambientProvenance = mergeAmbientProvenance(prev, provenance);
     try {
       return fn();
     } finally {

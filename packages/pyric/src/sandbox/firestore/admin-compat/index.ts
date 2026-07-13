@@ -15,6 +15,7 @@
  */
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
+import type { EventProvenance } from '../../types/events.js';
 import { FirestoreImpl } from './firestore.js';
 import {
   type AuthContext,
@@ -71,6 +72,9 @@ export interface CreateCompatFirestoreOptions {
    * `pyric/firestore`).
    */
   bypassRules?: boolean;
+  /** Adapter-bound operation identity. Internal constructor concern; never a
+   * Firebase operation option. */
+  provenance?: EventProvenance;
 }
 
 /**
@@ -83,5 +87,10 @@ export function createCompatFirestore(
   env: LocalEnvironment,
   opts?: CreateCompatFirestoreOptions,
 ): Firestore {
-  return new FirestoreImpl(env, opts?.auth ?? null, opts?.bypassRules ?? false);
+  return new FirestoreImpl(
+    env,
+    opts?.auth ?? null,
+    opts?.bypassRules ?? false,
+    opts?.provenance,
+  );
 }

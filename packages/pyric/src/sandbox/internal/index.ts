@@ -15,6 +15,12 @@
  * scope summary".
  */
 export { getInternalEnv } from './sandbox-impl.js';
+export { stampProvenance } from './provenance.js';
+export { bindOperationContext } from '../sandbox-context.js';
+export {
+  provenanceForOperationContext,
+  resolveOperationContext,
+} from '../operation-record.js';
 
 // Pyric Studio event-unification seam: the provenance-stamping emit
 // choke-point non-Firestore services (auth/storage/rtdb) call to land
@@ -27,7 +33,6 @@ export { getInternalEnv } from './sandbox-impl.js';
 export {
   emitSandboxEvent,
   primeEventHistory,
-  stampProvenance,
   makeSandboxCommitEvent,
   makeSandboxListenerEvent,
   makeSandboxOperationEvent,

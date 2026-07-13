@@ -320,11 +320,9 @@ export function ensureRtdb(ctx: HostCtx): Database {
 // ─── Op provenance ─────────────────────────────────────────────────────────
 
 /**
- * Op provenance from an inbound message, bound at ISSUE time. The single
- * source of truth for both the SYNCHRONOUS ambient-provenance window
- * (firestore/rtdb/auth emit inside it) and the EXPLICIT thread that storage
- * ops need (their emits run after async awaits, outside any window — see
- * `handleOp`'s storage cases and `uploadBytes`'s provenance note).
+ * Op provenance from an inbound message, bound at ISSUE time. This is the
+ * source of truth for both the synchronous ambient window used by immediate
+ * emitters and the operation-scoped Storage handle used across awaits.
  *
  *   - `actor`: a client that DECLARED itself the issuer (`issuer: 'studio'`,
  *     stamped by Studio's worker client — `setOpIssuer` in client.ts) gets
@@ -336,10 +334,8 @@ export function ensureRtdb(ctx: HostCtx): Database {
  *     (an agent tool relay's admin op must classify as a rules BYPASS in
  *     Traffic, not a rules allow).
  *
- * Returns `undefined` for a plain served-app op (no issuer, no lens) so the
- * event keeps the app-session default — a served-app op stays untagged.
- * Events an emitter already stamped win over these defaults (stampProvenance
- * semantics: the event's own field beats the ambient/threaded default).
+ * Returns `undefined` for a plain served-app op (no issuer, no lens); its
+ * app source and app-session lens come from the service handle itself.
  */
 export function opProvenance(msg: InboundMessage): EventProvenance | undefined {
   const issuer = (msg as { issuer?: 'studio' }).issuer;

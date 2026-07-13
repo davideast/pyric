@@ -30,9 +30,11 @@ import {
   type Firestore,
 } from 'pyric/firestore';
 import { getAuth, sandbox as authSandbox, type Auth } from 'pyric/auth';
-import { getStorage, ref, uploadBytes, type FirebaseStorage } from 'pyric/storage';
+import { ref, uploadBytes, type FirebaseStorage } from 'pyric/storage';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
+import { studioAdminContext } from '../shell/studio-operation-context.js';
 
 /** The resolved handles a seeded Studio sandbox exposes to surfaces. */
 export interface SeededHandles {
@@ -273,10 +275,11 @@ export async function createSeededSandbox(): Promise<SeededHandles> {
   // name throws app/duplicate-app), so each seeded sandbox gets its own.
   const app = initializeApp({ sandbox }, `pyric-seed-${seedAppSeq++}`);
 
-  const adminFirestore = getAdminFirestore(sandbox);
+  const studioContext = studioAdminContext(sandbox);
+  const adminFirestore = getAdminFirestore(studioContext);
   const firestore = getFirestore(sandbox);
   const auth = getAuth(sandbox);
-  const storage = getStorage(app);
+  const storage = getAdminStorageSandbox(studioContext);
 
   // Seed through the admin (rules-bypass) handle: this is fixture data.
   await applySeed({ adminFirestore, auth, storage });

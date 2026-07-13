@@ -2,17 +2,12 @@
  * Traffic tab strip, views 2 + 3: "Billable metrics" and "Subscriptions &
  * Rules" (Firebase Console "Usage" reference). Both metric charts reuse the
  * `@pyric/ui/traffic` bucketing hooks unchanged — this module is rendering
- * + the Studio-specific admin classifier only.
+ * + the Studio-specific Rules-bypass classifier only.
  *
- * ── Admin classification ──
- * `useBillableMetrics` / `useRulesMetrics` default to `origin === 'admin'`,
- * the one signal the base `TrafficEvent` type declares. Firestore's
- * admin-lens ops don't currently set that (RTDB's do — see the hook's
- * module doc in `@pyric/ui/traffic`); the richer signal is `authLens`,
- * which only `StudioTrafficEvent` carries. So Studio passes `verdictFor`
- * (the same admin check `verdict.ts` already uses for the row pill) as the
- * `isAdmin` override, closing that gap for every surface that reads
- * through this adapter.
+ * ── Rules-bypass classification ──
+ * The shared metric hooks retain their legacy `isAdmin` callback name, but
+ * Studio supplies the canonical Rules disposition. The metrics therefore do
+ * not infer rule behavior from the operation's source or auth lens.
  *
  * ── Subscriptions gap (documented, not faked) ──
  * The Console reference charts two subscription metrics: peak snapshot
@@ -41,11 +36,10 @@ import {
 } from '@pyric/ui/traffic';
 import { verdictFor, type StudioTrafficEvent } from './verdict.js';
 
-/** Shared admin classifier: reuse the row-pill logic so a Firestore
- *  admin-lens op (authLens-only, no `origin: 'admin'`) is still excluded
- *  from rules metrics and still counted as a billable op. */
-function isAdminOp(event: { origin?: string }): boolean {
-  return verdictFor(event as unknown as StudioTrafficEvent) === 'admin';
+/** Shared bypass classifier: rules metrics exclude operations whose canonical
+ * disposition says Rules were bypassed. */
+function isBypassedOp(event: { origin?: string }): boolean {
+  return verdictFor(event as unknown as StudioTrafficEvent) === 'bypassed';
 }
 
 function allZero(series: readonly MetricSeries[]): boolean {
@@ -108,7 +102,7 @@ export function BillableMetricsView({
   events: StudioTrafficEvent[];
   window: TimeWindow;
 }) {
-  const metrics = useBillableMetrics({ events, window, isAdmin: isAdminOp });
+  const metrics = useBillableMetrics({ events, window, isAdmin: isBypassedOp });
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-billable-view">
       <MetricPanel
@@ -134,7 +128,7 @@ export function SubscriptionsRulesView({
   events: StudioTrafficEvent[];
   window: TimeWindow;
 }) {
-  const rules = useRulesMetrics({ events, window, isAdmin: isAdminOp });
+  const rules = useRulesMetrics({ events, window, isAdmin: isBypassedOp });
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-subscriptions-rules-view">
       <section className="traffic__metric-panel" data-pyric-ui="traffic-subscriptions-gap">

@@ -35,7 +35,7 @@ function makeSandbox() {
 }
 
 describe('event provenance (Studio T1 keystone)', () => {
-  it('stamps firestore/app/app-session defaults on every Firestore event', () => {
+  it('stamps firestore/unattributed/app-session defaults on every Firestore event', () => {
     const { sandbox, env } = makeSandbox();
     const events: SandboxEvent[] = [];
     sandbox.onEvent((e) => events.push(e));
@@ -46,7 +46,7 @@ describe('event provenance (Studio T1 keystone)', () => {
     expect(events.length).toBeGreaterThan(0);
     for (const e of events) {
       expect(e.service).toBe('firestore');
-      expect(e.actor).toEqual({ kind: 'app' });
+      expect(e.actor).toEqual({ kind: 'unattributed' });
       expect(e.authLens).toEqual({ mode: 'app-session' });
       expect(e.planId).toBeUndefined();
     }
@@ -60,7 +60,7 @@ describe('event provenance (Studio T1 keystone)', () => {
     expect(history.length).toBeGreaterThan(0);
     for (const e of history) {
       expect(e.service).toBe('firestore');
-      expect(e.actor).toEqual({ kind: 'app' });
+      expect(e.actor).toEqual({ kind: 'unattributed' });
       expect(e.authLens).toEqual({ mode: 'app-session' });
     }
   });
@@ -75,7 +75,7 @@ describe('event provenance (Studio T1 keystone)', () => {
     const boundary = events.find((e) => e.kind === 'session_boundary');
     expect(boundary).toBeDefined();
     expect(boundary!.service).toBe('firestore');
-    expect(boundary!.actor).toEqual({ kind: 'app' });
+    expect(boundary!.actor).toEqual({ kind: 'unattributed' });
     expect(boundary!.authLens).toEqual({ mode: 'app-session' });
   });
 

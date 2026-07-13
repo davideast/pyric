@@ -31,6 +31,7 @@
  */
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
+import type { EventProvenance } from '../../types/events.js';
 import { makeError } from 'pyric/sandbox/internal';
 import { ReadAfterWriteError } from 'pyric/sandbox/internal';
 import { isCollectionPath, isDocumentPath } from './paths.js';
@@ -59,6 +60,7 @@ export class FirestoreImpl implements Firestore {
     // the LocalEnvironment skips rule evaluation. Threaded down to each
     // child impl alongside `auth`. Default false → rules enforced.
     private readonly bypassRules: boolean = false,
+    private readonly provenance?: EventProvenance,
   ) {}
 
   collection(path: string): CollectionReference {
@@ -120,6 +122,7 @@ export class FirestoreImpl implements Firestore {
         {
           auth: opts?.auth !== undefined ? opts.auth : this.auth,
           bypassRules: this.bypassRules,
+          provenance: this.provenance,
         },
       );
     } catch (e) {

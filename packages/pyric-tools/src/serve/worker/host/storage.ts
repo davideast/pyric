@@ -28,7 +28,10 @@ import {
 } from 'pyric/storage';
 // Host-only rules-bypass admin plane — the storage mirror of
 // `getAdminFirestore`/`getAdminDatabase`, resolved for `actAs: { mode: 'admin' }`.
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import {
+  bindStorageOperationContext,
+  getAdminStorageSandbox,
+} from 'pyric/storage/internal';
 import { initializeApp } from 'pyric/app';
 import type { AuthLens } from 'pyric/sandbox';
 
@@ -165,7 +168,10 @@ export async function handleStorageOp(
       // Object browse. `listAll` enforces `read` rules on the scanned prefix
       // under the op's lens (admin lens bypasses — see lensStorage).
       try {
-        const storage = lensStorage(ctx, msg.actAs);
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs),
+          opProvenance(msg),
+        );
         const result = await storageListAll(storageRef(storage, msg.path));
         ok(port, msg.id, {
           items: result.items.map((r) => ({ fullPath: r.fullPath, name: r.name })),
@@ -177,9 +183,16 @@ export async function handleStorageOp(
 
     case 'storage.getMetadata': {
       try {
-        const storage = lensStorage(ctx, msg.actAs);
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs),
+          opProvenance(msg),
+        );
         // FullMetadata is plain JSON (bucket/fullPath/name/size/contentType/...).
-        ok(port, msg.id, await storageGetMetadata(storageRef(storage, msg.path)));
+        ok(
+          port,
+          msg.id,
+          await storageGetMetadata(storageRef(storage, msg.path)),
+        );
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -190,8 +203,15 @@ export async function handleStorageOp(
       // bridge client rejects relaying it (binary-payload guard). Remote
       // callers use `storage.getBytes` (base64) instead.
       try {
-        const storage = lensStorage(ctx, msg.actAs);
-        ok(port, msg.id, await storageGetBlob(storageRef(storage, msg.path)));
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs),
+          opProvenance(msg),
+        );
+        ok(
+          port,
+          msg.id,
+          await storageGetBlob(storageRef(storage, msg.path)),
+        );
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -215,12 +235,14 @@ export async function handleStorageOp(
         if (bytes.byteLength > MAX_STORAGE_OP_BYTES) {
           throw storagePayloadTooLarge(bytes.byteLength, `storage.putBytes payload for '${msg.path}'`);
         }
-        const storage = lensStorage(ctx, msg.actAs);
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs),
+          opProvenance(msg),
+        );
         const result = await storageUploadBytes(
           storageRef(storage, msg.path),
           bytes,
           toSettableMetadata(msg),
-          opProvenance(msg),
         );
         // FullMetadata — plain JSON, relay-safe.
         ok(port, msg.id, result.metadata);
@@ -235,7 +257,10 @@ export async function handleStorageOp(
       // run under the same lens; rule-eval order keeps `unauthorized`
       // superseding `not-found`, matching pyric/storage).
       try {
-        const storage = lensStorage(ctx, msg.actAs);
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs),
+          opProvenance(msg),
+        );
         const r = storageRef(storage, msg.path);
         const meta = await storageGetMetadata(r);
         if (meta.size > MAX_STORAGE_OP_BYTES) {
@@ -261,8 +286,11 @@ export async function handleStorageOp(
       // Async dispatch escapes the ambient window — thread provenance
       // explicitly (issue #84 item 3).
       try {
-        const storage = lensStorage(ctx, msg.actAs);
-        await storageDeleteObject(storageRef(storage, msg.path), opProvenance(msg));
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs),
+          opProvenance(msg),
+        );
+        await storageDeleteObject(storageRef(storage, msg.path));
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;

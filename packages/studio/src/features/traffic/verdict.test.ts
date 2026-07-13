@@ -1,5 +1,6 @@
 /** Traffic verdict derivation (specs/traffic.md MVP) — pure mapping tests. */
 import { describe, expect, it } from 'bun:test';
+import type { OperationContext } from 'pyric/sandbox';
 import {
   actingIdentity,
   denialReasons,
@@ -13,36 +14,32 @@ import {
 
 describe('verdictFor', () => {
   it('maps rule-evaluated results', () => {
-    expect(verdictFor({ result: 'allow', origin: 'user' })).toBe('allow');
-    expect(verdictFor({ result: 'deny', origin: 'user' })).toBe('deny');
+    expect(verdictFor({ rulesDisposition: { kind: 'evaluated', verdict: 'allow' } })).toBe('allow');
+    expect(verdictFor({ rulesDisposition: { kind: 'evaluated', verdict: 'deny' } })).toBe('deny');
   });
 
-  it('marks rules-bypassed ops as admin (lens or origin), beating allow', () => {
-    expect(
-      verdictFor({ result: 'allow', origin: 'user', authLens: { mode: 'admin' } }),
-    ).toBe('admin');
-    expect(verdictFor({ result: 'allow', origin: 'admin' })).toBe('admin');
+  it('labels a rules bypass without conflating it with the admin lens', () => {
+    expect(verdictFor({ rulesDisposition: { kind: 'bypassed', reason: 'admin' } })).toBe(
+      'bypassed',
+    );
   });
 
   it('is blank for non-rule ops', () => {
-    expect(verdictFor({ result: 'not-applicable', origin: 'user' })).toBeNull();
-    expect(verdictFor({ result: 'unsupported', origin: 'user' })).toBeNull();
-    expect(verdictFor({ result: 'error', origin: 'user' })).toBeNull();
+    expect(verdictFor({ rulesDisposition: { kind: 'not-evaluated', reason: 'no-rules' } })).toBeNull();
+    expect(verdictFor({ rulesDisposition: { kind: 'not-evaluated', reason: 'unsupported' } })).toBeNull();
   });
 
-  it('does not treat an impersonation lens as admin', () => {
-    expect(
-      verdictFor({ result: 'deny', origin: 'user', authLens: { mode: 'as', uid: 'alice' } }),
-    ).toBe('deny');
+  it('does not derive a rules verdict from the auth lens', () => {
+    expect(verdictFor({ rulesDisposition: { kind: 'evaluated', verdict: 'deny' } })).toBe('deny');
   });
 });
 
 describe('filterByVerdict', () => {
   const events = [
-    { id: 'a', result: 'allow', origin: 'user' },
-    { id: 'b', result: 'deny', origin: 'user' },
-    { id: 'c', result: 'allow', origin: 'admin' },
-    { id: 'd', result: 'not-applicable', origin: 'system' },
+    { id: 'a', rulesDisposition: { kind: 'evaluated', verdict: 'allow' } },
+    { id: 'b', rulesDisposition: { kind: 'evaluated', verdict: 'deny' } },
+    { id: 'c', rulesDisposition: { kind: 'bypassed', reason: 'admin' } },
+    { id: 'd', rulesDisposition: { kind: 'not-evaluated', reason: 'no-rules' } },
   ] as const;
 
   it('passes everything through on all (including blank-verdict ops)', () => {
@@ -52,29 +49,27 @@ describe('filterByVerdict', () => {
   it('filters to one verdict', () => {
     expect(filterByVerdict(events, 'allow').map((e) => e.id)).toEqual(['a']);
     expect(filterByVerdict(events, 'deny').map((e) => e.id)).toEqual(['b']);
-    expect(filterByVerdict(events, 'admin').map((e) => e.id)).toEqual(['c']);
+    expect(filterByVerdict(events, 'bypassed').map((e) => e.id)).toEqual(['c']);
   });
 });
 
 describe('actingIdentity', () => {
   it('prefers the pinned lens', () => {
-    expect(actingIdentity({ auth: { uid: 'tab-user' }, authLens: { mode: 'admin' } })).toBe(
+    expect(actingIdentity({ auth: { uid: 'tab-user' }, operationContext: { source: { kind: 'studio' }, authLens: { mode: 'admin' } } })).toBe(
       'admin (rules bypassed)',
     );
     expect(
-      actingIdentity({ auth: null, authLens: { mode: 'as', uid: 'alice' } }),
+      actingIdentity({ auth: null, operationContext: { source: { kind: 'studio' }, authLens: { mode: 'as', uid: 'alice' } } }),
     ).toBe('as alice');
-    expect(actingIdentity({ auth: { uid: 'tab-user' }, authLens: { mode: 'anon' } })).toBe(
+    expect(actingIdentity({ auth: { uid: 'tab-user' }, operationContext: { source: { kind: 'studio' }, authLens: { mode: 'anon' } } })).toBe(
       'anonymous',
     );
   });
 
-  it('falls back to the op auth state (app-session / absent lens)', () => {
+  it('falls back to the op auth state for an app-session lens', () => {
     expect(
-      actingIdentity({ auth: { uid: 'bob' }, authLens: { mode: 'app-session' } }),
+      actingIdentity({ auth: { uid: 'bob' }, operationContext: { source: { kind: 'app' }, authLens: { mode: 'app-session' } } }),
     ).toBe('bob');
-    expect(actingIdentity({ auth: { uid: 'bob' } })).toBe('bob');
-    expect(actingIdentity({ auth: null })).toBe('anonymous');
   });
 });
 
@@ -115,20 +110,16 @@ describe('subjectTarget', () => {
 
 describe('opensRulesInspector (row-click semantics)', () => {
   it('rules-evaluated rows open the inspector: allow AND deny', () => {
-    expect(opensRulesInspector({ result: 'allow', origin: 'user' })).toBe(true);
-    expect(opensRulesInspector({ result: 'deny', origin: 'user' })).toBe(true);
+    expect(opensRulesInspector({ rulesDisposition: { kind: 'evaluated', verdict: 'allow' } })).toBe(true);
+    expect(opensRulesInspector({ rulesDisposition: { kind: 'evaluated', verdict: 'deny' } })).toBe(true);
   });
 
   it('admin-bypass rows keep subject navigation (rules never ran)', () => {
-    expect(
-      opensRulesInspector({ result: 'allow', origin: 'user', authLens: { mode: 'admin' } }),
-    ).toBe(false);
-    expect(opensRulesInspector({ result: 'allow', origin: 'admin' })).toBe(false);
+    expect(opensRulesInspector({ rulesDisposition: { kind: 'bypassed', reason: 'admin' } })).toBe(false);
   });
 
   it('blank-verdict rows keep subject navigation (no rules decision)', () => {
-    expect(opensRulesInspector({ result: 'not-applicable' as never, origin: 'user' })).toBe(false);
-    expect(opensRulesInspector({ result: 'error' as never, origin: 'user' })).toBe(false);
+    expect(opensRulesInspector({ rulesDisposition: { kind: 'not-evaluated', reason: 'no-rules' } })).toBe(false);
   });
 });
 
@@ -142,25 +133,19 @@ describe('denialReasons', () => {
 });
 
 describe('filterStudioTraffic', () => {
-  type Ev = { id: string; actor?: { kind?: string; name?: string } };
-  const studio: Ev = { id: 's1', actor: { kind: 'studio' } };
-  const app: Ev = { id: 'a1' }; // absent actor = served app / pre-provenance
-  const appExplicit: Ev = { id: 'a2', actor: { kind: 'app' } };
-  const agent: Ev = { id: 'g1', actor: { kind: 'agent', name: 'claude' } };
+  type Ev = { id: string; operationContext: OperationContext };
+  const studio: Ev = { id: 's1', operationContext: { source: { kind: 'studio' }, authLens: { mode: 'admin' } } };
+  const studioAsUser: Ev = { id: 's2', operationContext: { source: { kind: 'studio' }, authLens: { mode: 'as', uid: 'alice' } } };
+  const app: Ev = { id: 'a1', operationContext: { source: { kind: 'app' }, authLens: { mode: 'app-session' } } };
+  const appAdmin: Ev = { id: 'a2', operationContext: { source: { kind: 'app' }, authLens: { mode: 'admin' } } };
+  const agent: Ev = { id: 'g1', operationContext: { source: { kind: 'agent', name: 'claude' }, authLens: { mode: 'admin' } } };
 
   it('drops only studio-issued events when hiding', () => {
-    expect(filterStudioTraffic([studio, app, appExplicit, agent], true)).toEqual([
+    expect(filterStudioTraffic([studio, studioAsUser, app, appAdmin, agent], true)).toEqual([
       app,
-      appExplicit,
+      appAdmin,
       agent,
     ]);
-  });
-
-  it('never hides untagged (pre-provenance / bridge-relayed) events', () => {
-    // Provenance is declared at the issuing call site; an absent actor must
-    // pass through — remote admin-SDK traffic is untagged by design.
-    expect(filterStudioTraffic([app], true)).toEqual([app]);
-    expect(isStudioTraffic(app)).toBe(false);
   });
 
   it('is a pass-through copy when not hiding', () => {
@@ -170,8 +155,8 @@ describe('filterStudioTraffic', () => {
     expect(out).not.toBe(input);
   });
 
-  it('classifies via actor.kind only, not the auth lens', () => {
-    expect(isStudioTraffic({ actor: { kind: 'studio' } })).toBe(true);
-    expect(isStudioTraffic({ actor: { kind: 'agent' } })).toBe(false);
+  it('classifies via source only, not the auth lens', () => {
+    expect(isStudioTraffic(studioAsUser)).toBe(true);
+    expect(isStudioTraffic(appAdmin)).toBe(false);
   });
 });

@@ -5,6 +5,20 @@
  */
 
 import type { AuthState } from './auth-state.js';
+import type {
+  EventProvenance,
+  EventService,
+  OperationContext,
+  RulesDisposition,
+} from './operation.js';
+export type {
+  AuthLens,
+  EventActor,
+  EventProvenance,
+  EventService,
+  OperationContext,
+  RulesDisposition,
+} from './operation.js';
 
 /**
  * Eval-time payload emitted to {@link Sandbox.onDenial} subscribers.
@@ -158,6 +172,9 @@ export interface RequestEvent {
    *  setup/admin operation so fixture tooling can exclude it from protected
    *  behavior while still preserving it as replay context. */
   detail?: { admin?: boolean } & Record<string, unknown>;
+  /** Canonical statement of whether Security Rules evaluated this request.
+   * Added by the sandbox event recorder when an older emitter omits it. */
+  rulesDisposition?: RulesDisposition;
 }
 
 /**
@@ -443,6 +460,10 @@ export interface SandboxOperationEvent {
   groupKind?: 'batch' | 'transaction';
   triggeredBy?: { method: string; path?: string };
   detail?: Record<string, unknown>;
+  /** Canonical statement of whether Security Rules evaluated this operation.
+   * Service emitters may provide it directly; the recorder normalizes legacy
+   * operation shapes at the unified stream seam. */
+  rulesDisposition?: RulesDisposition;
 }
 
 /**
@@ -516,54 +537,6 @@ export interface SandboxRuntimeErrorEvent {
     message: string;
   };
   detail?: Record<string, unknown>;
-}
-
-/**
- * Which sandbox service emitted an event. Today only Firestore emits (events
- * omit `service`, read as `'firestore'`); Pyric Studio's keystone track makes
- * Auth/Storage/RTDB emit into this same stream. See the design rationale.
- */
-export type EventService = 'firestore' | 'auth' | 'storage' | 'rtdb' | 'messaging' | 'ai';
-
-/** Who initiated the operation behind an event (Studio attributes activity to
- *  the human, the app, or a specific agent). Absent ⇒ the served app. */
-export type EventActor =
-  | { kind: 'app' }
-  | { kind: 'studio' }
-  | { kind: 'agent'; name: string }
-  | { kind: 'app-builder' };
-
-/**
- * The auth lens an operation ran under: `admin` bypasses rules, `as` evaluates
- * rules as a specific uid (impersonation — the rules-debugging primitive),
- * `app-session` is the app's own signed-in user, and `anon` is a genuinely
- * UNAUTHENTICATED context (`withAuth(null)` — `request.auth == null` in rules).
- * Mirrors the worker's per-op `actAs`. Absent ⇒ `app-session`.
- *
- * `anon` vs absent matters for RELAYED ops (the remote sandbox): an op with no
- * lens resolves to the browser tab's port session — whoever happens to be
- * signed in in the tab. Remote code that means "no auth" must pin
- * `{ mode: 'anon' }` explicitly, or it silently runs as the tab's user.
- */
-export type AuthLens =
-  | { mode: 'admin' }
-  | { mode: 'as'; uid: string; token?: Record<string, unknown> }
-  | { mode: 'app-session' }
-  | { mode: 'anon' };
-
-/**
- * Provenance carried by every {@link SandboxEvent}. All fields are OPTIONAL and
- * additive: pre-provenance emitters omit them (treated as
- * firestore / app / app-session), so nothing breaks. The Pyric Studio event
- * unification track stamps them at emit across all services, which is what
- * turns the log into "who did what" (Action Center, audit, agent attribution).
- */
-export interface EventProvenance {
-  service?: EventService;
-  actor?: EventActor;
-  authLens?: AuthLens;
-  /** Set when the op is part of an agent plan (Pyric Agent dry-run / accept). */
-  planId?: string;
 }
 
 /**

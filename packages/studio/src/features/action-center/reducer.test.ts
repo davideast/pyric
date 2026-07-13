@@ -157,9 +157,9 @@ describe('multi-service folding', () => {
 // ─── Actor attribution + auth-lens ──────────────────────────────────────────
 
 describe('actor attribution', () => {
-  test('absent actor defaults to app (no attribution suffix)', () => {
+  test('absent actor remains unattributed', () => {
     const digest = digestFromEvents([write('users/a', 'create')]);
-    expect(digest[0].actor).toEqual({ kind: 'app' });
+    expect(digest[0].actor).toEqual({ kind: 'unattributed' });
     expect(attribution(digest[0])).toBe('');
   });
 

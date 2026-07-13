@@ -15,4 +15,7 @@
  * the sandbox's host-only seams.
  */
 
-export { getAdminStorageSandbox } from './service.js';
+export {
+  bindStorageOperationContext,
+  getAdminStorageSandbox,
+} from './service.js';

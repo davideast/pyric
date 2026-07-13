@@ -21,15 +21,14 @@
  * cross-contaminate.
  *
  * FIX UNDER TEST: `handleMessage`/`handleOp` capture the op's provenance
- * (issuer → actor, actAs → authLens) at issue time and pass it EXPLICITLY into
- * the storage op, which forwards it to its emit — independent of the ambient
- * window. Provenance is bound at the moment the op is issued, immutable
- * thereafter.
+ * (issuer → actor, actAs → authLens) at issue time and bind it to an
+ * operation-scoped Storage handle before the first await. The service reads
+ * that immutable binding when it emits, independent of the ambient window.
  */
 
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
-import { initializeSandbox, type SandboxEvent } from 'pyric/sandbox';
+import { initializeSandbox, toOperationRecord, type SandboxEvent } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
 
@@ -90,6 +89,31 @@ function putsFor(events: SandboxEvent[], path: string): SandboxEvent[] {
 }
 
 describe('worker host: storage op provenance survives async dispatch', () => {
+  it('records a Studio/admin list with source and bypass disposition intact', async () => {
+    const { ctx, events } = makeCtx();
+    const res = await op(ctx, {
+      method: 'storage.listAll',
+      path: 'notes',
+      issuer: 'studio',
+      actAs: { mode: 'admin' },
+    });
+    expect(res.ok).toBe(true);
+
+    const event = events.find(
+      (candidate) =>
+        candidate.kind === 'operation'
+        && candidate.service === 'storage'
+        && candidate.method === 'list',
+    );
+    expect(event).toBeDefined();
+    const record = toOperationRecord(event!);
+    expect(record?.context).toEqual({
+      source: { kind: 'studio' },
+      authLens: { mode: 'admin' },
+    });
+    expect(record?.rules).toEqual({ kind: 'bypassed', reason: 'admin' });
+  });
+
   it('stamps actor:{kind:"studio"} on a Studio-issued upload event', async () => {
     const { ctx, events } = makeCtx();
     const res = await op(ctx, {
@@ -107,7 +131,7 @@ describe('worker host: storage op provenance survives async dispatch', () => {
     }
   });
 
-  it('a served-app upload (no issuer) stays untagged — no studio actor', async () => {
+  it('records a served-app upload (no issuer) as app traffic', async () => {
     const { ctx, events } = makeCtx();
     const res = await op(ctx, {
       method: 'storage.putBytes',
@@ -119,9 +143,8 @@ describe('worker host: storage op provenance survives async dispatch', () => {
     const puts = putsFor(events, 'app/blob.bin');
     expect(puts.length).toBeGreaterThan(0);
     for (const e of puts) {
-      // Untagged: no studio actor. (Absent, or an explicit app default —
-      // never studio.)
-      expect(e.actor?.kind).not.toBe('studio');
+      expect(e.actor).toEqual({ kind: 'app' });
+      expect(e.operationContext?.source).toEqual({ kind: 'app' });
     }
   });
 
@@ -143,7 +166,10 @@ describe('worker host: storage op provenance survives async dispatch', () => {
     expect(studioPuts.length).toBeGreaterThan(0);
     expect(appPuts.length).toBeGreaterThan(0);
     for (const e of studioPuts) expect(e.actor).toEqual({ kind: 'studio' });
-    for (const e of appPuts) expect(e.actor?.kind).not.toBe('studio');
+    for (const e of appPuts) {
+      expect(e.actor).toEqual({ kind: 'app' });
+      expect(e.operationContext?.source).toEqual({ kind: 'app' });
+    }
   });
 
   it('an admin-lens delete carries authLens:{mode:"admin"} on its event (bypass classification)', async () => {

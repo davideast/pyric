@@ -21,6 +21,7 @@
 import type { DocumentData } from './local-state.js';
 import type { AgentEvent } from './event-log.js';
 import type { FirestoreSimError } from './errors.js';
+import type { EventProvenance } from '../types/events.js';
 
 /**
  * Snapshot shape returned by `tx.get` / `tx.getAll`. Matches the Admin
@@ -109,6 +110,8 @@ export interface TransactionOptions {
    * affects the write commit. Default (absent/false) enforces rules.
    */
   bypassRules?: boolean;
+  /** Immutable adapter context captured before an async callback yields. */
+  provenance?: EventProvenance;
 }
 
 /**

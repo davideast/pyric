@@ -16,7 +16,7 @@
  */
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
-import { getStorageService, targetOf } from './service.js';
+import { getStorageService, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored } from './rules.js';
 import { objectNotFound, quotaExceeded, invalidRootOperation } from './errors.js';
@@ -83,6 +83,7 @@ export async function deleteObject(
 ): Promise<void> {
   guardNonRoot(ref, 'deleteObject');
   const target = targetOf(ref.storage);
+  const operationProvenance = storageOperationProvenance(target, provenance);
   const service = await getStorageService(ref.storage);
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
@@ -92,7 +93,7 @@ export async function deleteObject(
       path: ref.fullPath,
     },
     resource: resourceFromStored(existing),
-  }, target, provenance);
+  }, target, operationProvenance);
   await service.backend.delete(ref.fullPath);
   try {
     emitSandboxEvent(
@@ -105,7 +106,7 @@ export async function deleteObject(
         before: existing ?? undefined,
         detail: { bucket: ref.bucket },
       }),
-      { ...provenance, service: 'storage' },
+      operationProvenance,
     );
   } catch {
     // Observational — never let event emission break a storage delete.
@@ -119,6 +120,7 @@ async function fetchBlob(
   maxDownloadSizeBytes: number | undefined,
 ): Promise<Blob> {
   const target = targetOf(ref.storage);
+  const operationProvenance = storageOperationProvenance(target);
   const service = await getStorageService(ref.storage);
   // Rule check uses the existing object's metadata (when present)
   // as `resource`. `unauthorized` supersedes `not-found`: the rule
@@ -134,7 +136,7 @@ async function fetchBlob(
       path: ref.fullPath,
     },
     resource: resourceFromStored(existing),
-  }, target);
+  }, target, operationProvenance);
   const blob = await service.backend.getBlob(ref.fullPath);
   if (!blob) {
     throw objectNotFound(ref.fullPath);

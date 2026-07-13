@@ -64,7 +64,8 @@ export type DigestActor =
   | { kind: 'app' }
   | { kind: 'studio' }
   | { kind: 'agent'; name: string }
-  | { kind: 'app-builder' };
+  | { kind: 'app-builder' }
+  | { kind: 'unattributed' };
 
 /** A single aggregated activity line. */
 export interface DigestItem {
@@ -213,9 +214,9 @@ function bucketFor(service: string, path: string | undefined): string {
   return `/${segs.join('/')}`;
 }
 
-/** Provenance actor → digest actor (absent ⇒ the served app). */
+/** Provenance actor → digest actor (absent stays honestly unattributed). */
 function normaliseActor(actor: EventActor | undefined): DigestActor {
-  if (!actor) return { kind: 'app' };
+  if (!actor) return { kind: 'unattributed' };
   return actor;
 }
 
@@ -260,8 +261,8 @@ interface Mutation {
 
 /** Project a raw event onto a mutation, or `null` to skip it. */
 export function toMutation(event: SandboxEvent): Mutation | null {
-  const actor = normaliseActor(event.actor);
-  const lens = lensInfo(event.authLens);
+  const actor = normaliseActor(event.operationContext?.source ?? event.actor);
+  const lens = lensInfo(event.operationContext?.authLens ?? event.authLens);
 
   if (event.kind === 'write') {
     // Committed Firestore write: the real change (denied ops never reach here).

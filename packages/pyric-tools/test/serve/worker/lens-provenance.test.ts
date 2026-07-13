@@ -136,4 +136,23 @@ describe('worker host: authLens provenance stamped at dispatch', () => {
     const admin = events.find((e) => e.authLens?.mode === 'admin');
     expect(admin).toBeUndefined();
   });
+
+  it('keeps the Studio issuer when an app-session handle executes the op', async () => {
+    const { ctx, events } = await makeCtx();
+    const port = fakePort();
+
+    await send(ctx, port, {
+      t: 'op', id: id(), method: 'getDoc', path: 'conversations/alice-bob',
+      issuer: 'studio',
+    } as InboundMessage);
+
+    const requests = events.filter((event) => event.kind === 'request');
+    expect(requests.length).toBeGreaterThan(0);
+    for (const event of requests) {
+      expect(event.operationContext).toEqual({
+        source: { kind: 'studio' },
+        authLens: { mode: 'app-session' },
+      });
+    }
+  });
 });
