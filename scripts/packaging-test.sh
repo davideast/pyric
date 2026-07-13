@@ -344,6 +344,20 @@ try {
   }
 }
 
+// Pyric does not own a browser OAuth flow or persisted Google login. Hosted
+// Rules Test API verification resolves its non-interactive credentials inside
+// the CLI instead of publishing the former credential toolkit.
+try {
+  await import('@pyric/cli/credentials');
+  bad('@pyric/cli/credentials still resolves');
+} catch (error) {
+  if (error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+    ok('@pyric/cli/credentials is not exported');
+  } else {
+    bad('@pyric/cli/credentials failed for an unexpected reason: ' + String(error));
+  }
+}
+
 if (failed) process.exit(1);
 SHAPEJS
 (cd "$WORK/consumer" && node __export-shape.mjs)

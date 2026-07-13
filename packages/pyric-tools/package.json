@@ -18,10 +18,6 @@
       "types": "./dist/registry/index.d.ts",
       "import": "./dist/registry/index.js"
     },
-    "./credentials": {
-      "types": "./dist/credentials/index.d.ts",
-      "import": "./dist/credentials/index.js"
-    },
     "./credentials/node": {
       "types": "./dist/credentials/node/index.d.ts",
       "import": "./dist/credentials/node/index.js"

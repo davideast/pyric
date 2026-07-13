@@ -4,13 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { resolveScope } from '../../src/cli/scope.js';
-import { oauthClient } from '../../src/credentials/core/client.js';
 import { fromAdc } from '../../src/credentials/node/from-adc.js';
-import type {
-  CredentialStore,
-  ProjectScope,
-  StoredCredential,
-} from '../../src/credentials/core/types.js';
+import type { ProjectScope } from '../../src/credentials/core/types.js';
 
 const realFetch = globalThis.fetch;
 
@@ -30,20 +25,6 @@ function env(values: Record<string, string> = {}): NodeJS.ProcessEnv {
 
 function temporaryAdcPath(): string {
   return join(tmpdir(), `pyric-adc-${Math.random().toString(36).slice(2)}.json`);
-}
-
-function memoryStore(initial: StoredCredential | null = null) {
-  const store = {
-    credential: initial,
-    read: async () => store.credential,
-    write: async (credential: StoredCredential) => {
-      store.credential = credential;
-    },
-    clear: async () => {
-      store.credential = null;
-    },
-  };
-  return store satisfies CredentialStore & { credential: StoredCredential | null };
 }
 
 describe('fromAdc', () => {
@@ -106,15 +87,6 @@ describe('fromAdc', () => {
 });
 
 describe('resolveScope', () => {
-  const client = oauthClient({ clientId: 'client-id' });
-  const storedCredential: StoredCredential = {
-    version: 1,
-    refreshToken: 'stored-token',
-    scopes: ['firebase', 'datastore'],
-    clientId: 'client-id',
-    obtainedAt: 0,
-  };
-
   it('prefers a service-account environment credential', async () => {
     const serviceAccount = Buffer.from(
       JSON.stringify({
@@ -126,59 +98,10 @@ describe('resolveScope', () => {
 
     const resolved = await resolveScope({
       env: env({ FIREBASE_SA_BASE64: serviceAccount }),
-      store: memoryStore(storedCredential),
     });
 
     expect(resolved.source).toBe('FIREBASE_SA_BASE64');
-    expect(resolved.grantedScopes).toBe('all');
     expect(resolved.scope.projectId).toBe('service-account-project');
-  });
-
-  it('resolves a CI refresh token against the selected project', async () => {
-    const resolved = await resolveScope({
-      env: env({ PYRIC_REFRESH_TOKEN: 'ci-token' }),
-      projectId: 'project',
-      oauthClient: client,
-      store: memoryStore(),
-    });
-
-    expect(resolved.source).toBe('PYRIC_REFRESH_TOKEN');
-    expect(resolved.grantedScopes).toBe('all');
-    expect(resolved.scope.projectId).toBe('project');
-  });
-
-  it('requires a project for a user refresh token', async () => {
-    await expect(
-      resolveScope({
-        env: env({ PYRIC_REFRESH_TOKEN: 'ci-token' }),
-        oauthClient: client,
-        store: memoryStore(),
-      }),
-    ).rejects.toThrow('project');
-  });
-
-  it('prefers a CI refresh token over a stored user credential', async () => {
-    const resolved = await resolveScope({
-      env: env({ PYRIC_REFRESH_TOKEN: 'ci-token' }),
-      projectId: 'project',
-      oauthClient: client,
-      store: memoryStore(storedCredential),
-    });
-
-    expect(resolved.source).toBe('PYRIC_REFRESH_TOKEN');
-  });
-
-  it('carries the granted scopes from a stored user credential', async () => {
-    const resolved = await resolveScope({
-      env: env(),
-      projectId: 'project',
-      oauthClient: client,
-      store: memoryStore(storedCredential),
-    });
-
-    expect(resolved.source).toBe('login');
-    expect(resolved.grantedScopes).toEqual(['firebase', 'datastore']);
-    expect(resolved.scope.projectId).toBe('project');
   });
 
   it('uses ADC as the final credential source', async () => {
@@ -189,12 +112,10 @@ describe('resolveScope', () => {
     const resolved = await resolveScope({
       env: env(),
       projectId: 'project',
-      store: memoryStore(),
       adc: async () => adcScope,
     });
 
     expect(resolved.source).toBe('adc');
-    expect(resolved.grantedScopes).toBe('all');
     expect(resolved.scope).toBe(adcScope);
   });
 
@@ -203,7 +124,16 @@ describe('resolveScope', () => {
       resolveScope({
         env: env(),
         projectId: 'project',
-        store: memoryStore(),
+        adc: async () => null,
+      }),
+    ).rejects.toThrow('Rules Test API verification requires');
+  });
+
+  it('does not accept a Pyric refresh token as a Rules Test API credential', async () => {
+    await expect(
+      resolveScope({
+        env: env({ PYRIC_REFRESH_TOKEN: 'removed-token-source' }),
+        projectId: 'project',
         adc: async () => null,
       }),
     ).rejects.toThrow('Rules Test API verification requires');

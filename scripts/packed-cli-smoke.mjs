@@ -33,7 +33,6 @@ const childEnv = { ...process.env, CI: '1', HOME: workDir, USERPROFILE: workDir 
 for (const name of [
   'FIREBASE_SA_BASE64',
   'GOOGLE_APPLICATION_CREDENTIALS',
-  'PYRIC_REFRESH_TOKEN',
   'PYRIC_SA_PATH',
 ]) {
   delete childEnv[name];

@@ -11,10 +11,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { ProjectScope } from '../core/types.js';
-import { oauthClient } from '../core/client.js';
-import { exchangeRefreshToken } from '../core/exchange.js';
 import { memoizeTtl } from '../core/memoize-ttl.js';
 import { fromServiceAccount } from './from-service-account.js';
+
+const GOOGLE_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 
 /** The well-known ADC file path (honours CLOUDSDK_CONFIG; %APPDATA% on Windows). */
 export function adcWellKnownPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -48,10 +48,15 @@ export async function fromAdc(
   }
 
   if (parsed.type === 'authorized_user' && parsed.client_id && parsed.client_secret && parsed.refresh_token) {
-    const client = oauthClient({ clientId: parsed.client_id, clientSecret: parsed.client_secret });
+    const clientId = parsed.client_id;
+    const clientSecret = parsed.client_secret;
     const refreshToken = parsed.refresh_token;
     const resolveToken = memoizeTtl(async () => {
-      const { access_token, expires_in } = await exchangeRefreshToken(client, refreshToken);
+      const { access_token, expires_in } = await exchangeAdcRefreshToken(
+        clientId,
+        clientSecret,
+        refreshToken,
+      );
       return { token: access_token, expiresIn: expires_in };
     });
     return Object.freeze({ projectId, resolveToken });
@@ -65,4 +70,27 @@ export async function fromAdc(
   }
 
   return null; // unknown ADC type (e.g. external_account) — not supported here
+}
+
+async function exchangeAdcRefreshToken(
+  clientId: string,
+  clientSecret: string,
+  refreshToken: string,
+): Promise<{ access_token: string; expires_in: number }> {
+  const response = await fetch(GOOGLE_TOKEN_URI, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `pyric: Application Default Credentials token exchange failed (${response.status}): ${await response.text()}`,
+    );
+  }
+  return (await response.json()) as { access_token: string; expires_in: number };
 }

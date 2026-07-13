@@ -7,10 +7,8 @@
  * No `firebase-admin` dependency — uses only Node's built-in
  * `crypto` for RS256 signing and `fetch` for the token exchange.
  *
- * **Node-only credential adapter**: the function itself
- * requires `node:fs/promises` + `node:crypto`. Those modules are
- * imported via dynamic `import()` inside the function body so the
- * `@pyric/cli/credentials` entry stays browser-bundle safe.
+ * **Node-only credential adapter**: the function itself requires
+ * `node:fs/promises` + `node:crypto`.
  */
 
 import { memoizeTtl } from '../core/memoize-ttl.js';
