@@ -31,12 +31,12 @@ import {
 } from 'pyric/firestore';
 import { getAuth, sandbox as authSandbox, type Auth } from 'pyric/auth';
 import { getStorage, ref, uploadBytes, type FirebaseStorage } from 'pyric/storage';
-import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
+import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 
 /** The resolved handles a seeded Studio sandbox exposes to surfaces. */
 export interface SeededHandles {
-  sandbox: Sandbox;
+  sandbox: LocalSandbox;
   app: PyricApp;
   /** Rules-respecting handle (what the running app sees). */
   firestore: Firestore;
@@ -218,7 +218,7 @@ service cloud.firestore {
  * Rules surface debugs. Denied ops throw `permission-denied`; we swallow it (the
  * denial is the point, recorded on the event stream).
  */
-async function seedTraffic(sandbox: Sandbox): Promise<void> {
+async function seedTraffic(sandbox: LocalSandbox): Promise<void> {
   setRules(sandbox, RULES);
 
   const asAlice = getFirestore(sandbox.withAuth({ uid: 'alice' }));

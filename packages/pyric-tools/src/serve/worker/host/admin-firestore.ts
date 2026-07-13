@@ -12,6 +12,7 @@
  */
 
 import type { OpMessage } from '../protocol.js';
+import { snapshotDocuments } from 'pyric/sandbox/firestore';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 
 /** The admin-lens op methods routed to {@link handleAdminFirestoreOp}. */
@@ -67,7 +68,7 @@ export async function handleAdminFirestoreOp(
 
     case 'admin.readState': {
       try {
-        const snap = ctx.sandbox.snapshot().firestore;
+        const snap = snapshotDocuments(ctx.sandbox);
         const out: Record<string, unknown> = {};
         const prefix = msg.path ?? '';
         for (const [path, data] of Object.entries(snap)) {

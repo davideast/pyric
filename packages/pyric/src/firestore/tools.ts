@@ -13,7 +13,7 @@
  */
 
 import type { ToolHandler } from '@inbrowser/agent';
-import type { Sandbox } from 'pyric/sandbox';
+import type { LocalSandbox } from 'pyric/sandbox';
 import { inspect } from './sandbox-controls.js';
 import type { Firestore } from './index.js';
 import {
@@ -99,7 +99,7 @@ export interface FirestoreDataToolDeps {
 
 export interface FirestoreInspectToolDeps {
   /** Resolve the sandbox whose Firestore state should be inspected. */
-  resolveSandbox(): Promise<Sandbox> | Sandbox;
+  resolveSandbox(): Promise<LocalSandbox> | LocalSandbox;
 }
 
 /**

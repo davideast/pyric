@@ -3,14 +3,13 @@ import { describe, expect, it } from 'bun:test';
 import { doc, getDoc, getFirestore, onSnapshot } from 'pyric/firestore';
 import {
   initializeSandbox,
-  REMOTE_SANDBOX,
-  type RemoteSandbox,
 } from 'pyric/sandbox';
 import * as sandboxApi from 'pyric/sandbox';
 import {
   inspect,
   seedDocuments,
   setRules,
+  snapshotDocuments,
 } from 'pyric/sandbox/firestore';
 
 const READ_ALL = `rules_version = '2';
@@ -30,17 +29,6 @@ service cloud.firestore {
     }
   }
 }`;
-
-function remoteSandbox(): RemoteSandbox {
-  return Object.assign(initializeSandbox(), {
-    [REMOTE_SANDBOX]: true as const,
-    serveUrl: 'http://127.0.0.1:3473',
-    channel: {
-      op: async () => undefined,
-      subscribe: () => () => {},
-    },
-  });
-}
 
 const tick = (): Promise<void> =>
   new Promise((resolve) => queueMicrotask(() => resolve()));
@@ -67,10 +55,36 @@ describe('pyric/sandbox/firestore', () => {
     expect((await getDoc(doc(db, 'users/alice'))).data()).toEqual({
       name: 'Alice',
     });
-    expect(sandbox.snapshot().firestore).toEqual({
+    expect(snapshotDocuments(sandbox)).toEqual({
       'users/alice': { name: 'Alice' },
       'users/bob': { name: 'Bob' },
     });
+  });
+
+  it('snapshots Firestore without snapshotting other sandbox services', () => {
+    const sandbox = initializeSandbox();
+    let otherServiceSnapshots = 0;
+    sandbox.registerPersistableService('other', {
+      snapshot() {
+        otherServiceSnapshots++;
+        return { value: 'unrelated' };
+      },
+      restore() {},
+      subscribe() {
+        return () => {};
+      },
+    });
+    seedDocuments(sandbox, { 'users/alice': { name: 'Alice' } });
+
+    expect(snapshotDocuments(sandbox)).toEqual({
+      'users/alice': { name: 'Alice' },
+    });
+    expect(otherServiceSnapshots).toBe(0);
+
+    expect(sandbox.snapshot().services).toEqual({
+      other: { value: 'unrelated' },
+    });
+    expect(otherServiceSnapshots).toBe(1);
   });
 
   it('inspects rules, documents, and recent requests from the Sandbox', async () => {
@@ -166,23 +180,6 @@ describe('pyric/sandbox/firestore', () => {
     ).toEqual({ owner: 'second' });
   });
 
-  it('reports synchronous rules and seed controls as unimplemented remotely', () => {
-    const remote = remoteSandbox();
-
-    expect(() => setRules(remote, READ_ALL)).toThrowError(
-      expect.objectContaining({
-        code: 'unimplemented',
-        message: expect.stringContaining('setFirestoreRules'),
-      }),
-    );
-    expect(() => seedDocuments(remote, { 'users/alice': { name: 'Alice' } })).toThrowError(
-      expect.objectContaining({
-        code: 'unimplemented',
-        message: expect.stringContaining('admin.setDocument'),
-      }),
-    );
-  });
-
   it('preserves bulk seed replacement without synthesizing events or listener callbacks', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox);
@@ -203,7 +200,7 @@ describe('pyric/sandbox/firestore', () => {
     seedDocuments(sandbox, { 'users/bob': { name: 'Bob' } });
     await tick();
 
-    expect(sandbox.snapshot().firestore).toEqual({
+    expect(snapshotDocuments(sandbox)).toEqual({
       'users/bob': { name: 'Bob' },
     });
     expect(snapshots).toEqual([{ name: 'Alice' }]);

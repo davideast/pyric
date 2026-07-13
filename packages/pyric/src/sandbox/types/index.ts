@@ -46,6 +46,11 @@ export type {
   WriteSandboxEvent,
 } from './events.js';
 
-export type { Sandbox, SandboxAdmin, SandboxConfig } from './service.js';
+export type {
+  LocalSandbox,
+  Sandbox,
+  SandboxAdmin,
+  SandboxConfig,
+} from './service.js';
 
 export type { SandboxContext } from './context.js';

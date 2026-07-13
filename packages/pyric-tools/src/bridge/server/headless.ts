@@ -24,7 +24,7 @@ import {
   bundleRecords,
   parseBundle,
   deserializeFromBuckets,
-  type Sandbox,
+  type LocalSandbox,
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
@@ -42,7 +42,7 @@ export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
  * the served bridge's construction (forwarded data-plane + in-process rules
  * tools), with `dispatch` bound to the local sandbox instead of a ws peer.
  */
-export function buildHeadlessMcpServer(sandbox: Sandbox, opts?: LocalBridgeOptions) {
+export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: LocalBridgeOptions) {
   const bridge = createLocalBridge(sandbox, opts);
   return buildMcpServer(bridge, {
     forwarded: getSandboxToolMetadata(),
@@ -55,7 +55,7 @@ export function buildHeadlessMcpServer(sandbox: Sandbox, opts?: LocalBridgeOptio
  * it loaded, or null if there was no rules file. Without rules, rules-enforcing
  * (`as:{uid}`) ops fall back to the sandbox's default; admin ops are unaffected.
  */
-export function loadProjectRules(sandbox: Sandbox, cwd: string): string | null {
+export function loadProjectRules(sandbox: LocalSandbox, cwd: string): string | null {
   const rulesPath = join(cwd, 'firestore.rules');
   if (!existsSync(rulesPath)) return null;
   setRules(sandbox, readFileSync(rulesPath, 'utf8'));
@@ -67,7 +67,7 @@ export function loadProjectRules(sandbox: Sandbox, cwd: string): string | null {
  * codec (the same `serializeToBuckets` + `bundleRecords` the worker uses). Atomic
  * tmp+rename so a crash mid-write never truncates the live file.
  */
-export function saveSandboxSnapshot(sandbox: Sandbox, cwd: string): void {
+export function saveSandboxSnapshot(sandbox: LocalSandbox, cwd: string): void {
   const snap = sandbox.snapshot();
   const bundle = bundleRecords(serializeToBuckets(snap.firestore, snap.services, 0));
   const path = join(cwd, HEADLESS_STATE_RELATIVE);
@@ -81,7 +81,7 @@ export function saveSandboxSnapshot(sandbox: Sandbox, cwd: string): void {
  * Restore the sandbox from the headless snapshot file if present (a clobber via
  * `loadSnapshot`). Returns the restored doc count, or null when there is no file.
  */
-export function loadSandboxSnapshot(sandbox: Sandbox, cwd: string): number | null {
+export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number | null {
   const path = join(cwd, HEADLESS_STATE_RELATIVE);
   if (!existsSync(path)) return null;
   const snap = deserializeFromBuckets(parseBundle(readFileSync(path, 'utf8')));

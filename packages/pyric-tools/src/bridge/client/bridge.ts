@@ -24,7 +24,7 @@
  * work.
  */
 
-import type { Sandbox } from 'pyric/sandbox';
+import type { LocalSandbox } from 'pyric/sandbox';
 import type {
   BridgeMessage,
   HelloFromClient,
@@ -130,7 +130,7 @@ export interface SandboxToolDispatcher {
    * (the bridge advertises only what this dispatcher reports it
    * can handle, so unknowns indicate wire-level drift).
    */
-  (sandbox: Sandbox, name: string, args: Record<string, unknown>): Promise<{
+  (sandbox: LocalSandbox, name: string, args: Record<string, unknown>): Promise<{
     ok: boolean;
     summary: string;
     data?: unknown;
@@ -156,7 +156,7 @@ const STANDBY_POLL_JITTER_RATIO = 0.5;
 const STANDBY_MAX_POLL_FAILURES = 3;
 
 export function connectBridge(
-  sandbox: Sandbox,
+  sandbox: LocalSandbox,
   opts: ConnectBridgeOptions = {},
 ): ConnectedBridge {
   const url = resolveBridgeUrl(opts.url);

@@ -20,7 +20,7 @@ import {
   bundleRecords,
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
+import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
 import { getAuth, onAuthStateChanged, signOut, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
@@ -433,7 +433,7 @@ if (!useWorker) try {
     // guard (serve/worker/serve-init.ts): by this point any --persist restore
     // above has already run, so an existing document means lived/restored
     // data, not a blank slate. Never stomp it with a fixture.
-    const existing = Object.keys(sandbox.snapshot().firestore).length > 0;
+    const existing = Object.keys(snapshotDocuments(sandbox)).length > 0;
     if (existing) {
       diagnostics.seedSkipped = true;
       console.info(

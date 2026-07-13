@@ -20,7 +20,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { setRules } from 'pyric/sandbox/firestore';
+import { setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
@@ -98,7 +98,7 @@ describe('per-op identity reads', () => {
     const { sandbox, db } = setup();
     sandbox.currentUser = { uid: 'alice' };
     await setDoc(doc(db, 'users/alice'), { name: 'Alice' });
-    const state = sandbox.snapshot().firestore;
+    const state = snapshotDocuments(sandbox);
     expect(state['users/alice']).toEqual({ name: 'Alice' });
   });
 
@@ -110,7 +110,7 @@ describe('per-op identity reads', () => {
     sandbox.currentUser = { uid: 'bob' };
     await setDoc(doc(db, 'users/bob'), { name: 'Bob' });
 
-    const state = sandbox.snapshot().firestore;
+    const state = snapshotDocuments(sandbox);
     expect(state['users/alice']).toEqual({ name: 'Alice' });
     expect(state['users/bob']).toEqual({ name: 'Bob' });
   });
@@ -163,7 +163,7 @@ describe('per-op identity reads', () => {
     sandbox.currentUser = { uid: 'bob' };
     // Same ref, different user. Now bob can write to bob's doc.
     await setDoc(ref, { name: 'Bob' });
-    const state = sandbox.snapshot().firestore;
+    const state = snapshotDocuments(sandbox);
     expect(state['users/bob']).toEqual({ name: 'Bob' });
   });
 

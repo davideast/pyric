@@ -352,9 +352,9 @@ cross-listener sync signal.
 |---|---|---|---|
 | 122 | `setRules(sandbox, rules)` loads rules into the owning sandbox's Firestore environment; returns `LintResult` | ✓ | `unit:firestore/sandbox-controls.test.ts`, `playground:rules-data-validation`, `playground:rules-cross-doc-get` |
 | 123 | `seedDocuments(sandbox, {path: data, ...})` replaces the owning sandbox's Firestore documents, bypassing rules without synthesizing listener callbacks or events | ✓ | `unit:firestore/sandbox-controls.test.ts` |
-| 124 | `sandbox.snapshot().firestore` returns every Firestore document the sandbox has stored | ✓ | `unit:firestore/sandbox-controls.test.ts` |
-| 125 | `pyric/firestore` does not export sandbox controls; local `pyric/sandbox/firestore` controls require an owning `Sandbox`, while synchronous controls on a remote sandbox throw `unimplemented` with relay guidance | ✓ | `unit:firestore/entry-surface.test.ts`, `unit:firestore/sandbox-controls.test.ts`, `packaging:runtime-smoke` |
-| 126 | Firestore controls affect only the `Sandbox` passed to the operation; independent sandboxes remain isolated | ✓ | `unit:firestore/sandbox-controls.test.ts` ("applies controls only to the Sandbox passed to the operation") |
+| 124 | `snapshotDocuments(sandbox)` returns only Firestore documents without snapshotting other registered sandbox services | ✓ | `unit:firestore/sandbox-controls.test.ts` |
+| 125 | `pyric/firestore` does not export sandbox controls; synchronous `pyric/sandbox/firestore` controls accept `LocalSandbox`, and `RemoteSandbox` is not assignable | ✓ | `unit:firestore/entry-surface.test.ts`, `typecheck:firestore/sandbox-controls.ts`, `packaging:runtime-smoke` |
+| 126 | Firestore controls affect only the `LocalSandbox` passed to the operation; independent sandboxes remain isolated | ✓ | `unit:firestore/sandbox-controls.test.ts` ("applies controls only to the Sandbox passed to the operation") |
 
 ## Rules engine (via `setRules` from `pyric/sandbox/firestore`)
 

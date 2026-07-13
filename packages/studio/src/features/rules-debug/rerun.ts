@@ -28,6 +28,7 @@ import {
   discard,
   type AuthState,
   type Divergence,
+  type LocalSandbox,
   type Sandbox,
   type SandboxSnapshot,
 } from 'pyric/sandbox';
@@ -137,7 +138,7 @@ export async function rerunAgainstRules(
   snapshot: SandboxSnapshot,
   denial: Denial,
   editedRules: string,
-  live: Sandbox | SandboxSnapshot,
+  live: LocalSandbox | SandboxSnapshot,
 ): Promise<EditedRulesetRerun> {
   // Lint first (firestore_lint_rules). A parse failure is the only hard blocker
   // — an unparseable ruleset can't be forked/simulated — so short-circuit and

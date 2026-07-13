@@ -39,7 +39,7 @@ import {
   type Query,
   type QueryConstraint,
 } from "pyric/firestore";
-import { seedDocuments, setRules } from "pyric/sandbox/firestore";
+import { seedDocuments, setRules, snapshotDocuments } from "pyric/sandbox/firestore";
 import {
   deleteObject,
   getBlob,
@@ -55,7 +55,7 @@ import { getAdminStorageSandbox } from "pyric/storage/internal";
 import {
   initializeSandbox,
   type AuthState,
-  type Sandbox,
+  type LocalSandbox,
   type SandboxEvent,
 } from "pyric/sandbox";
 import { qualifyProbe } from "./capabilities.js";
@@ -92,7 +92,7 @@ interface ActorRuntime {
 }
 
 interface ServiceRuntime {
-  sandbox: Sandbox;
+  sandbox: LocalSandbox;
   actor: ActorRuntime;
   firestore?: Firestore;
   rtdb?: Database;
@@ -200,7 +200,7 @@ function authUsers(target: LocalFirebaseTarget): SeedUser[] {
 }
 
 function seedAuth(
-  sandbox: Sandbox,
+  sandbox: LocalSandbox,
   target: LocalFirebaseTarget,
 ): ReturnType<typeof getAuth> {
   const auth = getAuth(sandbox);
@@ -219,7 +219,7 @@ function seedAuth(
 }
 
 function acquireActor(
-  sandbox: Sandbox,
+  sandbox: LocalSandbox,
   target: LocalFirebaseTarget,
   actor: AssuranceActor,
 ): ActorRuntime {
@@ -612,7 +612,7 @@ async function readState(
   runtime: ServiceRuntime,
 ): Promise<unknown> {
   if (operation.service === "firestore") {
-    const state = runtime.sandbox.snapshot().firestore;
+    const state = snapshotDocuments(runtime.sandbox);
     if (operation.method === "list") {
       const prefix = `${operation.path.replace(/\/$/, "")}/`;
       return Object.fromEntries(

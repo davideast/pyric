@@ -4,6 +4,7 @@
  */
 
 import type { SandboxPersistenceOptions } from '../persistence/types.js';
+import type { LOCAL_SANDBOX } from '../internal/local-brand.js';
 import type { TabSyncOptions } from '../tab-sync/index.js';
 import type { AuthState } from './auth-state.js';
 import type { SandboxContext } from './context.js';
@@ -360,4 +361,15 @@ export interface Sandbox {
    * not need to call this directly.
    */
   registerPersistableService(name: string, hooks: PersistableService): () => void;
+}
+
+/**
+ * An in-process sandbox created by {@link initializeSandbox}.
+ *
+ * Service controls whose implementation requires synchronous access to local
+ * state accept this type. Remote worker handles remain {@link Sandbox}s, but
+ * are deliberately not assignable to this local-only interface.
+ */
+export interface LocalSandbox extends Sandbox {
+  readonly [LOCAL_SANDBOX]: true;
 }

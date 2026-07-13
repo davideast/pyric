@@ -6,11 +6,7 @@
  * export is nested below `pyric/sandbox`: central sandbox owns cross-service
  * lifecycle, while each Firebase surface owns its own backend controls.
  */
-import {
-  isRemoteSandbox,
-  SandboxError,
-  type Sandbox,
-} from 'pyric/sandbox';
+import type { LocalSandbox, RemoteSandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { lintFirestoreRules } from 'pyric/rules/internal';
 
@@ -55,55 +51,32 @@ export interface FirestoreInspectReport {
   };
 }
 
-function syncOnlyRemotely(operation: string, remediation: string): never {
-  throw new SandboxError({
-    code: 'unimplemented',
-    message:
-      `${operation} is not available on a remote sandbox because its return `
-      + 'value is synchronous and the data lives in the browser worker.',
-    remediation,
-  });
-}
-
 /** Load Firestore Rules into one sandbox and notify its live listeners. */
-export function setRules(sandbox: Sandbox, source: string): LintResult {
-  if (isRemoteSandbox(sandbox)) {
-    return syncOnlyRemotely(
-      'setRules',
-      "Deploy rules asynchronously through the relay instead: `await sandbox.channel.op({ method: 'setFirestoreRules', source })`.",
-    );
-  }
+export function setRules(sandbox: LocalSandbox, source: string): LintResult {
   return getInternalEnv(sandbox).deployRules(source);
 }
 
 /** Replace Firestore documents in bulk, preserving rules and bypassing evaluation. */
 export function seedDocuments(
-  sandbox: Sandbox,
+  sandbox: LocalSandbox,
   documents: Record<string, DocumentData>,
 ): LintResult {
-  if (isRemoteSandbox(sandbox)) {
-    return syncOnlyRemotely(
-      'seedDocuments',
-      'The relay has no atomic seed operation. Write seed documents through '
-        + "`sandbox.channel.op({ method: 'admin.setDocument', path, data })` per document.",
-    );
-  }
   const env = getInternalEnv(sandbox);
   return env.seed({ rules: env.getRules(), documents });
 }
 
+/** Snapshot only Firestore documents without traversing other sandbox services. */
+export function snapshotDocuments(
+  sandbox: LocalSandbox,
+): Record<string, DocumentData> {
+  return getInternalEnv(sandbox).snapshot();
+}
+
 /** Inspect Firestore rules, documents, and recent requests in one sandbox. */
 export function inspect(
-  sandbox: Sandbox,
+  sandbox: LocalSandbox,
   options: FirestoreInspectOptions = {},
 ): FirestoreInspectReport {
-  if (isRemoteSandbox(sandbox)) {
-    return syncOnlyRemotely(
-      'inspect',
-      "Read worker state asynchronously through `await sandbox.channel.op({ method: 'admin.readState' })`; use the relay rules and event tools for the remaining diagnostic fields.",
-    );
-  }
-
   const recentLimit = options.recentEventLimit ?? 10;
   const env = getInternalEnv(sandbox);
   const rulesSource = env.getRules();
@@ -163,3 +136,8 @@ export function inspect(
     },
   };
 }
+
+type Assert<T extends true> = T;
+type RemoteSandboxIsRejectedByControls = Assert<
+  RemoteSandbox extends Parameters<typeof setRules>[0] ? false : true
+>;

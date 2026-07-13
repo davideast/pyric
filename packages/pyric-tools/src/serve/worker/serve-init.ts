@@ -28,7 +28,7 @@
  */
 
 import { getFirestore } from 'pyric/firestore';
-import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
+import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
@@ -124,7 +124,7 @@ export interface ServeInitResult {
  * restored.
  */
 function sandboxHasExistingData(ctx: HostCtx): boolean {
-  const docs = ctx.sandbox.snapshot().firestore;
+  const docs = snapshotDocuments(ctx.sandbox);
   if (Object.keys(docs).length > 0) return true;
   const auth = ensureAuth(ctx);
   return authOps.exportUsers(auth).length > 0;

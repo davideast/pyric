@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
+import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import {
   // Construction
@@ -217,7 +217,7 @@ describe('writes', () => {
     // Verify via the owning sandbox snapshot — getDoc on the
     // deleted doc would fail rule eval (resource.data is null and
     // the read rule references resource.data.assigneeId).
-    const state = sandbox.snapshot().firestore;
+    const state = snapshotDocuments(sandbox);
     expect(state['tickets/T-2']).toBeUndefined();
   });
 
@@ -239,7 +239,7 @@ describe('writes', () => {
     await setDoc(doc(db, 'tickets/T-2'), {
       title: 'Reset', reporterId: 'alice', assigneeId: 'alice', status: 'open', priority: 9,
     });
-    const state = sandbox.snapshot().firestore;
+    const state = snapshotDocuments(sandbox);
     expect(state['tickets/T-2']).toEqual({
       title: 'Reset', reporterId: 'alice', assigneeId: 'alice', status: 'open', priority: 9,
     });
@@ -248,7 +248,7 @@ describe('writes', () => {
   it('setDoc with { merge: true } preserves fields not in data', async () => {
     const { sandbox, db } = setup();
     await setDoc(doc(db, 'tickets/T-2'), { priority: 99 }, { merge: true });
-    const state = sandbox.snapshot().firestore;
+    const state = snapshotDocuments(sandbox);
     expect(state['tickets/T-2']).toEqual({
       title: 'Fix login', reporterId: 'alice', assigneeId: 'alice', status: 'open', priority: 99,
     });
@@ -261,7 +261,7 @@ describe('writes', () => {
       { priority: 42, status: 'closed', ignored: 'no' },
       { mergeFields: ['priority'] },
     );
-    const state = sandbox.snapshot().firestore;
+    const state = snapshotDocuments(sandbox);
     expect(state['tickets/T-2']).toEqual({
       title: 'Fix login', reporterId: 'alice', assigneeId: 'alice',
       status: 'open',     // unchanged — not in mergeFields
@@ -442,15 +442,6 @@ describe('sentinels', () => {
     await updateDoc(doc(db, 'counters/views'), { tags: arrayRemove('b') });
     const snap = await getDoc(doc(db, 'counters/views'));
     expect(snap.data()?.tags).toEqual(['a']);
-  });
-});
-
-describe('Sandbox.snapshot()', () => {
-  it('returns the path-keyed view of stored docs', () => {
-    const { sandbox } = setup();
-    const state = sandbox.snapshot().firestore;
-    expect(state['tickets/T-1']).toBeDefined();
-    expect(state['tickets/T-2']).toBeDefined();
   });
 });
 
@@ -1008,7 +999,7 @@ service cloud.firestore {
     const when = new Date('2026-05-01T12:00:00.000Z');
     await setDoc(typedRef, { name: 'Alice', createdAt: when });
     // Underlying storage uses the DB shape — typed data() reconstructs Date.
-    const stored = sandbox.snapshot().firestore;
+    const stored = snapshotDocuments(sandbox);
     expect(stored['users/u1']).toEqual({ name: 'Alice', createdAtIso: when.toISOString() });
     const snap = await getDoc(typedRef);
     const out = snap.data();

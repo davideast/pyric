@@ -27,6 +27,7 @@ import {
   type SandboxSnapshot,
 } from 'pyric/sandbox';
 import { getAdminFirestore, type Firestore } from 'pyric/firestore';
+import { snapshotDocuments } from 'pyric/sandbox/firestore';
 import {
   useStudioSnapshot,
   useStudioSeed,
@@ -237,7 +238,7 @@ async function applyProposal(
   const authRes = p.authOps.length
     ? await applySeedAuth(p.authOps)
     : { created: 0, errors: [] };
-  const branchDocs = p.branch.sandbox.snapshot().firestore;
+  const branchDocs = snapshotDocuments(p.branch.sandbox);
   const ops: SeedOp[] = touched
     .filter((path) => branchDocs[path] !== undefined)
     .map((path) => ({ path, data: branchDocs[path] }));

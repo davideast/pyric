@@ -14,7 +14,7 @@
  *
  * See design rationale (headless mode).
  */
-import type { Sandbox } from 'pyric/sandbox';
+import type { LocalSandbox } from 'pyric/sandbox';
 import { buildSandboxDispatcher, SANDBOX_TOOL_NAMES } from '../client/dispatch.js';
 import { createBridge, type Bridge } from './bridge.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
@@ -33,7 +33,7 @@ export interface LocalBridgeOptions {
  * A {@link Bridge} backed by an in-process {@link Sandbox}. `dispatch` runs tools
  * locally; the peer-management members are no-ops (there is no remote peer).
  */
-export function createLocalBridge(sandbox: Sandbox, opts: LocalBridgeOptions = {}): Bridge {
+export function createLocalBridge(sandbox: LocalSandbox, opts: LocalBridgeOptions = {}): Bridge {
   const dispatcher = buildSandboxDispatcher(sandbox);
   // Reuse the real bridge for the boilerplate the contract needs (startedAt,
   // instanceId, health, recordToolEvent, the peer machinery), then override the

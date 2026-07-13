@@ -23,7 +23,7 @@
 import {
   initializeSandbox,
   SandboxError,
-  type Sandbox,
+  type LocalSandbox,
   type SandboxPersistenceOptions,
   type WebStorageLike,
 } from 'pyric/sandbox';
@@ -31,7 +31,7 @@ import {
   getFirestore,
   type Firestore,
 } from 'pyric/firestore';
-import { setRules } from 'pyric/sandbox/firestore';
+import { setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import {
   getAuth,
   onAuthStateChanged,
@@ -103,7 +103,7 @@ function namespacedStorage(real: Storage, ns: string): WebStorageLike {
 const ADMIN_FLUSH_DEBOUNCE_MS = 250;
 
 export class SandboxRunner {
-  private sandbox: Sandbox;
+  private sandbox: LocalSandbox;
   private db: Firestore;
   /**
    * Resolves once persistence (when configured) has restored any prior
@@ -181,7 +181,7 @@ export class SandboxRunner {
           this.persistenceActive = true;
           // The one-line restore status (console is the playground's
           // status surface for sandbox lifecycle, cf. `[sessions]`).
-          const docs = Object.keys(this.sandbox.snapshot().firestore).length;
+          const docs = Object.keys(snapshotDocuments(this.sandbox)).length;
           console.info(
             `[sandbox] workspace persistence on '${persistence.key}' — restored ${docs} doc(s)`,
           );
@@ -241,7 +241,7 @@ export class SandboxRunner {
   }
 
   /** Root sandbox. Exposed so the App preview can derive identity. */
-  getSandbox(): Sandbox {
+  getSandbox(): LocalSandbox {
     return this.sandbox;
   }
 
@@ -260,7 +260,7 @@ export class SandboxRunner {
    * than `getSandbox().admin` — it delegates 1:1 and schedules a
    * debounced flush after each mutation. Reads pass straight through.
    */
-  get admin(): Sandbox['admin'] {
+  get admin(): LocalSandbox['admin'] {
     const inner = this.sandbox.admin;
     return {
       getDocument: (path) => inner.getDocument(path),
@@ -384,7 +384,7 @@ export class SandboxRunner {
    * `opts.path` when provided.
    */
   readState(opts: { path?: string; maxDepth?: number } = {}): Record<string, unknown> {
-    const snap = this.sandbox.snapshot().firestore;
+    const snap = snapshotDocuments(this.sandbox);
     const out: Record<string, unknown> = {};
     const prefix = opts.path ?? '';
     for (const [path, data] of Object.entries(snap)) {

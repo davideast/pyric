@@ -45,7 +45,7 @@
 import {
   initializeSandbox,
   type Divergence,
-  type Sandbox,
+  type LocalSandbox,
   type SandboxEvent,
   type SandboxSnapshot,
   type WriteSandboxEvent,
@@ -58,7 +58,7 @@ type DocData = Record<string, unknown>;
 /**
  * An isolated, in-memory experiment seeded from a {@link SandboxSnapshot}.
  *
- * A branch owns its own {@link Sandbox} (fully isolated from the source —
+ * A branch owns its own {@link LocalSandbox} (fully isolated from the source —
  * separate `LocalEnvironment`, separate event history) plus the
  * accumulated {@link SandboxEvent}s applied to it via {@link apply}. The
  * applied events are what {@link promote} replays onto the target.
@@ -66,7 +66,7 @@ type DocData = Record<string, unknown>;
 export interface Branch {
   /** The branch's own sandbox. Inspect it directly (`branch.sandbox.snapshot()`)
    *  or read docs via `branch.sandbox.admin.getDocument(path)`. */
-  readonly sandbox: Sandbox;
+  readonly sandbox: LocalSandbox;
   /** Rules the branch was forked with — carried so {@link promote} can
    *  re-seed a replay target identically. */
   readonly rules: string;
@@ -82,7 +82,7 @@ export interface Branch {
 }
 
 /** A reference to diff a branch against: a live sandbox or a bare snapshot. */
-export type DiffTarget = Sandbox | SandboxSnapshot;
+export type DiffTarget = LocalSandbox | SandboxSnapshot;
 
 /**
  * Fork a new branch from a snapshot.
@@ -199,8 +199,8 @@ function preResolutionDataFor(
  */
 export function diff(branch: Branch, target: DiffTarget): Divergence[] {
   assertLive(branch);
-  const branchDocs = branch.sandbox.snapshot().firestore;
-  const targetDocs = snapshotOf(target).firestore;
+  const branchDocs = getInternalEnv(branch.sandbox).snapshot();
+  const targetDocs = firestoreSnapshotOf(target);
   return diffDocSets(targetDocs, branchDocs);
 }
 
@@ -223,10 +223,10 @@ export function diff(branch: Branch, target: DiffTarget): Divergence[] {
  * @param branch The experiment to land.
  * @param target The live sandbox to land it on.
  */
-export function promote(branch: Branch, target: Sandbox): void {
+export function promote(branch: Branch, target: LocalSandbox): void {
   assertLive(branch);
   const baseDocs = branch.base.firestore;
-  const finalDocs = branch.sandbox.snapshot().firestore;
+  const finalDocs = getInternalEnv(branch.sandbox).snapshot();
 
   const paths = new Set([...Object.keys(baseDocs), ...Object.keys(finalDocs)]);
   for (const path of paths) {
@@ -268,14 +268,16 @@ function assertLive(branch: Branch): void {
   }
 }
 
-/** Resolve either a sandbox or a bare snapshot to a SandboxSnapshot. */
-function snapshotOf(target: DiffTarget): SandboxSnapshot {
-  if (isSandbox(target)) return target.snapshot();
-  return target;
+/** Resolve only Firestore documents without traversing registered services. */
+function firestoreSnapshotOf(
+  target: DiffTarget,
+): SandboxSnapshot['firestore'] {
+  if (isSandbox(target)) return getInternalEnv(target).snapshot();
+  return target.firestore;
 }
 
-function isSandbox(target: DiffTarget): target is Sandbox {
-  return typeof (target as Sandbox).snapshot === 'function';
+function isSandbox(target: DiffTarget): target is LocalSandbox {
+  return typeof (target as LocalSandbox).snapshot === 'function';
 }
 
 /**

@@ -16,7 +16,7 @@
  */
 
 import { SandboxImpl } from './internal/sandbox-impl.js';
-import type { Sandbox, SandboxConfig } from './types/service.js';
+import type { LocalSandbox, SandboxConfig } from './types/service.js';
 
 export type {
   AuthLens,
@@ -27,6 +27,7 @@ export type {
   EventProvenance,
   EventService,
   ListenerLifecycleEvent,
+  LocalSandbox,
   PersistableService,
   RequestEvent,
   Sandbox,
@@ -122,7 +123,7 @@ export { attachTabSync } from './tab-sync/index.js';
  * const dbAnon  = getFirestore(sandbox.withAuth(null));
  * ```
  */
-export function initializeSandbox(_config: SandboxConfig = {}): Sandbox {
+export function initializeSandbox(_config: SandboxConfig = {}): LocalSandbox {
   // `_config` is reserved for future service-agnostic options
   // (rules/documents bundled at init when the multi-service
   // architecture lands). Empty for now.

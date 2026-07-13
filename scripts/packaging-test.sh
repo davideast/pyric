@@ -434,7 +434,7 @@ try {
   const { initializeSandbox } = await import('pyric/sandbox');
   const firestore = await import('pyric/firestore');
   const { getFirestore } = firestore;
-  const { inspect, seedDocuments, setRules } = await import('pyric/sandbox/firestore');
+  const { inspect, seedDocuments, setRules, snapshotDocuments } = await import('pyric/sandbox/firestore');
   const { firestoreRules, lint } = await import('pyric/rules');
   // firestoreRules() compiles the source — throws if the grammar asset is
   // missing, so a successful construct proves the .ohm asset shipped.
@@ -450,8 +450,8 @@ try {
   setRules(sandbox, GOOD_RULES);
   seedDocuments(sandbox, { 'users/alice': { role: 'owner' } });
   const inspected = inspect(sandbox);
-  if (sandbox.snapshot().firestore['users/alice']?.role !== 'owner') {
-    throw new Error('packed sandbox/firestore seed did not reach Sandbox.snapshot()');
+  if (snapshotDocuments(sandbox)['users/alice']?.role !== 'owner') {
+    throw new Error('packed sandbox/firestore seed did not reach snapshotDocuments()');
   }
   if (inspected.documents.totalCount !== 1) {
     throw new Error('packed sandbox/firestore inspect did not observe the seeded document');
