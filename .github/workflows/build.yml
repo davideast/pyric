@@ -181,8 +181,9 @@ jobs:
     if: contains(github.event.pull_request.labels.*.name, 'ci-packaging')
     # Package managers resolve exports / scoped names / local tarballs differently;
     # a lib that installs under npm can fail under pnpm or bun. Each leg installs
-    # the REAL tarballs and imports every advertised subpath. fail-fast off so one
-    # manager's failure doesn't hide the others'.
+    # the REAL tarballs, imports every advertised subpath, and executes a small
+    # no-network CLI smoke. fail-fast off so one manager's failure doesn't hide
+    # the others'.
     strategy:
       fail-fast: false
       matrix:

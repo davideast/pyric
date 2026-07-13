@@ -337,7 +337,7 @@ SHAPEJS
 
 # ─── Phase 5: bin checks ───────────────────────────────────────────────
 echo ""
-echo "━━━ Phase 5: bins ━━━"
+echo "━━━ Phase 5: packed CLI smoke ━━━"
 
 check_bin_executable() {
   local bin="$1"
@@ -349,52 +349,9 @@ check_bin_executable() {
   echo "  ✓ $bin executable"
 }
 
-check_bin_help() {
-  local bin="$1"
-  local path="$WORK/consumer/node_modules/.bin/$bin"
-  # Bin should print SOMETHING for --help and exit 0
-  local out
-  set +e
-  out=$("$path" --help 2>&1)
-  local exit=$?
-  set -e
-  if [ "$exit" -ne 0 ]; then
-    echo "  ✗ $bin --help exited $exit"
-    echo "    output: $out"
-    exit 1
-  fi
-  if [ -z "$out" ]; then
-    echo "  ✗ $bin --help printed nothing"
-    exit 1
-  fi
-  echo "  ✓ $bin --help works"
-}
-
-check_bin_runtime_failure() {
-  # Run bin with no args / no env; expect a controlled non-zero exit
-  # with a clear remediation message, NOT an import error.
-  local bin="$1"
-  local expected_substring="$2"
-  local path="$WORK/consumer/node_modules/.bin/$bin"
-  set +e
-  local out
-  out=$("$path" 2>&1)
-  local exit=$?
-  set -e
-  if [ "$exit" -eq 0 ]; then
-    echo "  ✗ $bin (no args) — unexpectedly exited 0"
-    exit 1
-  fi
-  if ! echo "$out" | grep -q "$expected_substring"; then
-    echo "  ✗ $bin (no args) — output did not contain expected '$expected_substring'"
-    echo "    output: $out"
-    exit 1
-  fi
-  echo "  ✓ $bin (no args) — controlled failure with expected message"
-}
-
 check_bin_executable "pyric"
-check_bin_help "pyric"
+PYRIC_BIN="$WORK/consumer/node_modules/.bin/pyric"
+node "$ROOT/scripts/packed-cli-smoke.mjs" "$PYRIC_BIN" "$WORK/cli-smoke"
 
 # ─── Phase 5.5: serve smoke (init + serve from the packed bin) ─────────
 # The subpath + bin checks above prove imports resolve, but they never boot
@@ -413,7 +370,6 @@ check_bin_help "pyric"
 # smoke exercises. (The Vite-plugin path is covered by @pyric/cli' own tests.)
 echo ""
 echo "━━━ Phase 5.5: serve smoke ━━━"
-PYRIC_BIN="$WORK/consumer/node_modules/.bin/pyric"
 SMOKE="$WORK/serve-smoke"
 mkdir -p "$SMOKE"
 ( cd "$SMOKE" && "$PYRIC_BIN" init --template static --json >/dev/null )
@@ -453,22 +409,6 @@ echo "  ✓ pyric dev booted ($SERVE_URL) and /__pyric/init.json resolved"
 kill "$SERVE_PID" 2>/dev/null
 wait "$SERVE_PID" 2>/dev/null || true
 SERVE_PID=""
-
-# `pyric rules:lint` from the installed bin — exercises the rules grammar asset
-# (FirestoreRules.ohm) through the published @pyric/cli CLI, not just serve.
-cat > "$SMOKE/firestore.rules" <<'RULES'
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{db}/documents {
-    match /users/{uid} { allow read, write: if request.auth != null && request.auth.uid == uid; }
-  }
-}
-RULES
-if ( cd "$SMOKE" && "$PYRIC_BIN" rules:lint firestore.rules >/dev/null 2>&1 ); then
-  echo "  ✓ pyric rules:lint parsed a ruleset (grammar asset via the published CLI)"
-else
-  echo "  ✗ pyric rules:lint failed from the installed bin"; exit 1
-fi
 
 # ─── Phase 5.6: runtime smoke (RUN the installed packages, don't just import) ──
 # Phases 4/5 prove imports + the bin resolve; this RUNS the asset-dependent code
