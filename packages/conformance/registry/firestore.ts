@@ -2262,13 +2262,13 @@ export const firestoreRegistry = {
           "api": "Scalar types",
           "behavior": "The sandbox mirror owns compatible scalar constructors — `Bytes.fromUint8Array(...)`, `new GeoPoint(lat, lng)`, `new FieldPath(...)`, and `documentId()` — without importing `firebase/firestore`",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts` (constructibility + round trips), `compiled-isolation:mirror-isolation.test.ts`",
+          "evidence": "`unit:sandbox-target.test.ts` (constructibility + round trips), `package-edge:package-dependencies.test.ts`",
           "risk": ["specific-value"],
           "riskScore": 2,
           "riskReasons": ["asserts 1 specific value(s)"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/cli/test/serve/mirror-isolation.test.ts"],
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/cli/test/package-dependencies.test.ts"],
           "exceptionReason": "structural / type shape — verified without a prod observation"
         },
         {
@@ -2530,13 +2530,13 @@ export const firestoreRegistry = {
           "api": "connectFirestoreEmulator",
           "behavior": "Production does not enter the mirror: inactive package resolution leaves Firebase's `connectFirestoreEmulator` implementation unchanged",
           "status": "conforms",
-          "evidence": "`node-register:register-child.test.ts` (inactive canonical Firestore is not rewritten), `compiled-isolation:mirror-isolation.test.ts`",
+          "evidence": "`node-register:register-child.test.ts` (inactive canonical Firestore is not rewritten)",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/cli/test/register/register-child.test.ts", "packages/cli/test/serve/mirror-isolation.test.ts"]
+          "conformanceTests": ["packages/cli/test/register/register-child.test.ts"]
         },
         {
           "id": "firestore#121",

@@ -601,7 +601,7 @@ canonical Firebase imports resolve to this sandbox-only package.
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">106</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The sandbox mirror owns compatible scalar constructors — <code>Bytes.fromUint8Array(...)</code>, <code>new GeoPoint(lat, lng)</code>, <code>new FieldPath(...)</code>, and <code>documentId()</code> — without importing <code>firebase/firestore</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code> (constructibility + round trips), <code>compiled-isolation:mirror-isolation.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code> (constructibility + round trips), <code>package-edge:package-dependencies.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">107</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>documentId()</code> works in <code>where(documentId(), 'in', [...])</code> against the sandbox</span></summary>
@@ -667,7 +667,7 @@ canonical Firebase imports resolve to this sandbox-only package.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">120</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Production does not enter the mirror: inactive package resolution leaves Firebase's <code>connectFirestoreEmulator</code> implementation unchanged</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>node-register:register-child.test.ts</code> (inactive canonical Firestore is not rewritten), <code>compiled-isolation:mirror-isolation.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>node-register:register-child.test.ts</code> (inactive canonical Firestore is not rewritten)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">121</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The sandbox mirror accepts Firebase's <code>mockUserToken</code> option shape as an inert compatibility argument; production uses Firebase's untouched implementation</span></summary>

@@ -240,7 +240,7 @@ canonical Firebase imports resolve to this sandbox-only package.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 106 | The sandbox mirror owns compatible scalar constructors — `Bytes.fromUint8Array(...)`, `new GeoPoint(lat, lng)`, `new FieldPath(...)`, and `documentId()` — without importing `firebase/firestore` | ✓ | `unit:sandbox-target.test.ts` (constructibility + round trips), `compiled-isolation:mirror-isolation.test.ts` |
+| 106 | The sandbox mirror owns compatible scalar constructors — `Bytes.fromUint8Array(...)`, `new GeoPoint(lat, lng)`, `new FieldPath(...)`, and `documentId()` — without importing `firebase/firestore` | ✓ | `unit:sandbox-target.test.ts` (constructibility + round trips), `package-edge:package-dependencies.test.ts` |
 | 107 | `documentId()` works in `where(documentId(), 'in', [...])` against the sandbox | ✓ | (chainable adapter recognizes the FieldPath sentinel) |
 | 108 | `FieldPath` (nested) works in queries against sandbox | ✓ | `unit:sandbox-target.test.ts` |
 | 109 | `Bytes` round-trip through the sandbox wire encoder — `Bytes` written via `setDoc` reads back as a `Bytes` instance with the same base64 representation | ✓ | `unit:packages/pyric/test/sandbox/firestore/wire-encoder-bytes-geopoint.test.ts` + `unit:packages/pyric/test/firestore/sandbox-target.test.ts` ("Bytes + GeoPoint round-trip"), oracle: `packages/conformance/observations/firestore/firestore-row-109-bytes-roundtrip.json` — `setDoc({payload: Bytes.fromUint8Array([1,2,3,4])})` then `getDoc` yields `payload instanceof Bytes === true`, `payload.constructor.name === 'Bytes'`, `payload.toBase64() === 'AQIDBA=='`, and `payload.toUint8Array()` returns `[1,2,3,4]` against blockingfun. The sandbox converter stores the rules `Bytes` wrapper; `pyric/firestore` finalizes reads into its locally owned `Bytes` class with the same observed methods and values. |
@@ -264,7 +264,7 @@ canonical Firebase imports resolve to this sandbox-only package.
 | # | Behavior | Status | Probe |
 |---|---|---|---|
 | 119 | No-op on sandbox-target handles (the sandbox already IS a local emulator) | ✓ | `unit:sandbox-target.test.ts` |
-| 120 | Production does not enter the mirror: inactive package resolution leaves Firebase's `connectFirestoreEmulator` implementation unchanged | ✓ | `node-register:register-child.test.ts` (inactive canonical Firestore is not rewritten), `compiled-isolation:mirror-isolation.test.ts` |
+| 120 | Production does not enter the mirror: inactive package resolution leaves Firebase's `connectFirestoreEmulator` implementation unchanged | ✓ | `node-register:register-child.test.ts` (inactive canonical Firestore is not rewritten) |
 | 121 | The sandbox mirror accepts Firebase's `mockUserToken` option shape as an inert compatibility argument; production uses Firebase's untouched implementation | ✓ | type-only smoke |
 
 ## Offline / persistence / network family
