@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added: local Realtime Database inspection
+
+- `rtdbRules({ rules: ... }).simulate(cases)` now evaluates compiled RTDB
+  rules JSON directly. It does not fetch rules or depend on a prior tool call.
+- `pyric/sandbox/database` exposes owner controls for installing RTDB rules,
+  seeding data, and reading detached snapshots from a `LocalSandbox`. These
+  controls share the same backend used by the `pyric/database` mirror.
+
 ### Breaking: `pyric/rules` public API replaced
 
 `pyric/rules` shipped an accidental public surface of roughly 135 exports

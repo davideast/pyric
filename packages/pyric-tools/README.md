@@ -82,18 +82,22 @@ rulesHash}`.
 
 ## MCP tool surface (`pyric bridge`)
 
-The bridge registers two toolsets, sourced directly from `pyric`'s own tool
-registries (`pyric/firestore` + `pyric/rules`) so the surface can't drift from
-the library — the canonical, always-current list is the
+The bridge composes its toolsets from the same factories used by its browser
+dispatcher so advertised and executable tools cannot drift. The canonical,
+always-current list is the
 [agent tool inventory](../../docs/agent-tools.md).
 
 **Sandbox-routed** — dispatched against the connected browser sandbox
 (`createFirestoreDataTools` + `createFirestoreSimulatorTools` +
-`createFirestoreInspectTools`):
+`createFirestoreInspectTools` + local RTDB inspection):
 
 - data: `firestore_get_document` / `_list_documents` / `_create_document` / `_update_document` / `_delete_document` / `_query_where` / `firestore_create_with_auto_id`
 - stateful simulator session: `firestore_simulator_create` / `_execute` / `_read` / `_batch` / `_undo` / `_redo` / `_events` / `_transaction`
 - diagnostics: `sandbox_inspect` — single-call sandbox state/rules snapshot
+- RTDB authorization: `rtdb_simulate_access` — evaluates one operation against
+  the rules and data currently installed in the connected sandbox
+- RTDB structure: `rtdb_crawl_structure` — returns a bounded structural view of
+  current sandbox data without leaf values
 
 **In-process** — run on the bridge process itself (`createFirestoreRulesTools`):
 
