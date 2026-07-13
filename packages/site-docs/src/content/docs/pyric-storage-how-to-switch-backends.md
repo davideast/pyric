@@ -3,7 +3,7 @@ title: "How Storage switches between sandbox and production"
 navLabel: "Switch backends"
 group: "pyric / storage"
 section: "How-to"
-order: 15004
+order: 14004
 ---
 # How Storage switches between sandbox and production
 

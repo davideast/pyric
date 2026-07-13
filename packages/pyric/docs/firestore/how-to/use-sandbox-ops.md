@@ -82,11 +82,11 @@ This separation is intentional. Sandbox controls own service lifecycle and
 diagnostics; `getDoc`, `setDoc`, and the rest retain the
 `firebase/firestore`-compatible shape.
 
-For production rule deployment, use `pyric-tools/deploy`. Populate production
+For production rule deployment, use `firebase-tools` / Console. Populate production
 data through the Firebase SDK; sandbox bulk seeding and whole-service snapshots
 have no production equivalents.
 
 ## Where to look next
 
 - For all four signatures and report fields, see [Sandbox-only operations](../reference/sandbox-ops.md).
-- For production rule deployments, see [`pyric-tools/deploy`'s Firestore namespace](../../../../cli/docs/deploy/reference/firestore-namespace.md).
+- For shipping rules to a real project, see the Firebase CLI docs (`firebase deploy --only firestore:rules`).

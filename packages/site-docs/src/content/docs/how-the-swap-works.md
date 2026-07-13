@@ -38,7 +38,7 @@ This is also why an agent and Studio see what you see. The MCP bridge and the St
 A plain `vite build` ships the real `firebase` package, using the same config you passed to `initializeApp` all along. Nothing in your app source changes. Not for dev, not for prod, not ever.
 
 - There is no graduation step and no environment flag in your source.
-- A sandbox-flavored build carries a marker that `pyric deploy hosting` refuses, so a dev artifact cannot reach production by accident.
+- A sandbox-flavored build carries a marker in `index.html`; production hosting deploys should use an unmarked production build so a sandbox-wired dist never reaches production by accident.
 - The swap lives in the toolchain on purpose. Remove Pyric from the project and you have a stock Firebase app again.
 
 ## Where to go next

@@ -3,7 +3,7 @@ title: "How to test rules against the Firebase Rules Test API"
 navLabel: "Test rules against Firebase"
 group: "pyric / rules"
 section: "How-to"
-order: 13009
+order: 12009
 ---
 # How to test rules against the Firebase Rules Test API
 
@@ -15,17 +15,15 @@ The Rules Test API does not deploy the rules. It evaluates them against your tes
 
 ## You need a `ProjectScope`
 
-`TestFirestoreRulesHandler.execute` takes a `ProjectScope` from `pyric-tools/deploy`, a `{ projectId, resolveToken }` pair. Build it from a service-account file:
+`TestFirestoreRulesHandler.execute` takes a `ProjectScope` — a `{ projectId, resolveToken }` pair. Build it from a service-account file via `@pyric/cli/credentials/node`:
 ```ts
-import { fromServiceAccount } from 'pyric-tools/deploy';
+import { fromServiceAccount } from '@pyric/cli/credentials/node';
 
 const scope = await fromServiceAccount('./service-account.json');
 ```
 Or build one by hand from any OAuth source, for example the current Firebase Auth user in a browser host:
 ```ts
-import type { ProjectScope } from 'pyric-tools/deploy';
-
-const scope: ProjectScope = {
+const scope = {
   projectId: 'your-project-id',
   resolveToken: () => firebaseAuth.currentUser!.getIdToken(),
 };
@@ -95,5 +93,5 @@ Each `execute` call is one HTTP round-trip plus rule evaluation on Google's serv
 ## Where to look next
 
 - For the tradeoffs between local and live evaluation, see [Simulator vs Rules Test API](../pyric-rules-explanation-simulator-vs-rules-test-api/).
-- For the `ProjectScope` contract and `fromServiceAccount`, see the [`pyric-tools/deploy` package](../pyric-tools-deploy/).
+- For the `ProjectScope` contract and `fromServiceAccount`, see `@pyric/cli/credentials/node`.
 - For all error codes the handler can return, see [Errors](../pyric-rules-reference-errors/).

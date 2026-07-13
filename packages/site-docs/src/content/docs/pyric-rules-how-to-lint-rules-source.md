@@ -3,7 +3,7 @@ title: "How to lint a rules source"
 navLabel: "Lint a rules source"
 group: "pyric / rules"
 section: "How-to"
-order: 13004
+order: 12004
 ---
 # How to lint a rules source
 
@@ -35,7 +35,7 @@ Pre-parse syntax hints (JS-isms like `===`, `?.`, `??`, backtick strings) fire e
 
 ## Block deploys on errors only
 
-`issues` mixes severities. The deploy path in `pyric-tools/deploy` refuses to swap a ruleset when any issue has `severity: 'error'`. Mirror that behaviour:
+`issues` mixes severities. Gate CI (and refuse to `firebase deploy`) when any issue has `severity: 'error'`. Mirror that behaviour:
 ```ts
 const errors = issues.filter((i) => i.severity === 'error');
 if (errors.length > 0) {

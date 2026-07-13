@@ -3,7 +3,7 @@ title: "SandboxSnapshot and admin reads"
 navLabel: "Snapshot and admin reads"
 group: "pyric / sandbox"
 section: "Reference"
-order: 14017
+order: 13017
 ---
 # `SandboxSnapshot` and admin reads
 

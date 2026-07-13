@@ -95,7 +95,7 @@ The hosted Rules Test API evaluates your cases on Google's servers, in the same 
 
 ```ts
 import { TestFirestoreRulesHandler } from 'pyric/rules';
-import { fromServiceAccount } from 'pyric-tools/deploy';
+import { fromServiceAccount } from '@pyric/cli/credentials/node';
 
 const scope = await fromServiceAccount('./service-account.json');
 const remote = await new TestFirestoreRulesHandler()

@@ -3,7 +3,7 @@ title: "How to observe sandbox events"
 navLabel: "Observe sandbox events"
 group: "pyric / sandbox"
 section: "How-to"
-order: 14004
+order: 13004
 ---
 # How to observe sandbox events
 

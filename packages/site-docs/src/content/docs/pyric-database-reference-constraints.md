@@ -3,7 +3,7 @@ title: "API reference: RTDB rules constraints"
 navLabel: "API reference"
 group: "pyric / database"
 section: "Reference"
-order: 17004
+order: 16004
 ---
 # API reference: RTDB rules constraints
 
@@ -100,7 +100,6 @@ Supported Zod types: `string`, `number`, `boolean`, `enum`, `literal` (string, n
 ### `defineRtdbRules(definition)`
 ```ts
 function defineRtdbRules(definition: {
-  databaseUrl?: string;
   paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
 }): RtdbRulesDocument;
 ```
@@ -117,19 +116,20 @@ exposes no methods. Pass it to `rtdbRules()` for everything analytical:
 
 Case conveniences: `auth: 'alice'` normalizes to `{ uid: 'alice', token: {} }`.
 
-URL precedence when compiling: `definition.databaseUrl`, then
-`https://local-rtdb.firebaseio.com`. The method-bearing document interface
-(with `toIR`/`check`/`simulate` on the document itself) is internal, on
+There is no `databaseUrl` on the definition — compilation is
+environment-independent. The method-bearing document interface (with
+`compile`/`check`/`simulate` on the document itself) is internal, on
 `pyric/rules/internal/rtdb`.
 
-### `ruleset(databaseUrl, input)`
+### `ruleset(input)`
 ```ts
 function ruleset(
-  databaseUrl: string,
   input: Record<string, PathDef> | ((ctx: RulesetContext) => void),
-): RtdbIR;
+): CompiledRtdbRules;
 ```
-The raw IR builder underneath `defineRtdbRules`. Same inputs, no document wrapper.
+The raw compiled-tree builder underneath `defineRtdbRules`. Same path inputs,
+no document wrapper. Returns `CompiledRtdbRules` (the `RtdbNode` root), not a
+project-scoped IR.
 
 ### `PathDef`
 ```ts
@@ -149,17 +149,16 @@ Placement semantics worth knowing:
 - `children` keys are path suffixes (`'/comments/$commentId'`) concatenated onto the parent path.
 - An explicit `validate` wins over the schema-derived parent validate; the schema's per-field validates still apply.
 - `indexOn` on a path that ends in a `$wildcard` is hoisted to the parent container node (`'/posts/$postId'` places `.indexOn` on `posts`). On a non-wildcard path it is silently dropped, so put it on the wildcard path.
-- Every expression is parsed, validated, and linted at build time; findings attach to the IR and surface through `rtdbRules(doc).lint()`.
+- Every expression is parsed, validated, and linted at build time; findings attach to the compiled tree and surface through `rtdbRules(doc).lint()`.
 
 ## Deployment boundary
 
-Constraint helpers compile locally and never contact production. Deploy the
-result explicitly through `pyric deploy database` or
-`createRtdbDeployTools({ scope })` from `pyric-tools/deploy`.
+Constraint helpers compile locally and never contact production. Ship the
+result with `firebase-tools` / Console (`firebase deploy --only database`).
 
 ## Exported types
 
-`Expr`, `Segment`, `PathDef`, `RulesetContext`, `SchemaRulesResult`, `RtdbRulesDocument`, `RtdbRulesDefinition`, `RtdbRulesCheckResult`, `RtdbRulesFinding`, `RtdbRulesFindingRule` (`'.read' | '.write' | '.validate' | 'ruleset'`), `RtdbRulesJson`, `RtdbRulesSimulationAuth`, `RtdbRulesSimulationInput`.
+`Expr`, `Segment`, `PathDef`, `RulesetContext`, `SchemaRulesResult`, `RtdbRulesDocument`, `RtdbRulesDefinition`, `RtdbRulesCheckResult`, `RtdbRulesFinding`, `RtdbRulesFindingRule` (`'.read' | '.write' | '.validate' | 'ruleset'`), `RtdbRulesJson`, `RtdbRulesSimulationAuth`, `RtdbRulesSimulationInput`, `CompiledRtdbRules`.
 
 ## Boundaries
 

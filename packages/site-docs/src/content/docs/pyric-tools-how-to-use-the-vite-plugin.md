@@ -3,7 +3,7 @@ title: "Use the Vite plugin (pyric-tools/vite)"
 navLabel: "Use the Vite plugin"
 group: "pyric-tools"
 section: "How-to"
-order: 9009
+order: 9007
 ---
 # Use the Vite plugin (`pyric-tools/vite`)
 
@@ -219,8 +219,9 @@ The output carries a **sandbox-build marker** in `index.html`
 
 - `pyric dev` **trusts** a marked dist and serves it (it skips the inlined-SDK
   scan; a swapped bundle has no real SDK to find).
-- `pyric deploy hosting` **refuses** a marked dist: a sandbox build must never
-  reach production.
+- Production hosting deploys should use an **unmarked** production build
+  (`vite build` / production mode) and `firebase-tools` — a sandbox-marked dist
+  must never reach production.
 
 To force the build behavior regardless of mode, pass `swapInBuild` to the
 plugin: `pyricSandbox({ swapInBuild: true })` always produces a sandbox build,

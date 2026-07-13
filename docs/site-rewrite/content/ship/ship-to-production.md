@@ -11,28 +11,28 @@ There is no graduation step. The `firebase/*` imports that resolved to the sandb
 
 ```bash
 vite build            # ships the real firebase package, your config, your code
-pyric deploy hosting
+firebase deploy --only hosting
 ```
 
-One guard stands between the two worlds. A sandbox build (from `vite build --mode development`) carries a marker in its `index.html`, and `pyric deploy hosting` refuses a marked dist. A build wired to the sandbox never reaches production by accident.
+One guard stands between the two worlds. A sandbox build (from `vite build --mode development`) carries a marker in its `index.html`. Production hosting deploys should use an unmarked build (`vite build` / production mode) so a sandbox-wired dist never reaches production by accident. Prefer `firebase-tools` (or the Console) for the deploy itself.
 
 ## Deploy your rules
 
 ```bash
-pyric deploy rules
+firebase deploy --only firestore:rules
 ```
 
-This pushes the `firestore.rules` named in `firebase.json` to your project over REST. By the time you run it, those rules have already been exercised: every operation your app performed in development was evaluated against them, verdict by verdict. You are not deploying a guess.
+This pushes the `firestore.rules` named in `firebase.json` to your project. By the time you run it, those rules have already been exercised: every operation your app performed in development was evaluated against them, verdict by verdict. You are not deploying a guess.
 
 ## Deploy indexes from your query shapes
 
-Composite indexes usually live in a hand-kept file that drifts from the queries. Pyric derives them instead: index extraction reads your `query(collection, where, orderBy)` call sites in source and produces the `firestore.indexes.json` those shapes require. Then:
+Composite indexes usually live in a hand-kept file that drifts from the queries. Pyric derives them instead: index extraction reads your `query(collection, where, orderBy)` call sites in source and produces the `firestore.indexes.json` those shapes require (`pyric firestore:indexes:generate`). Then:
 
 ```bash
-pyric deploy indexes
+firebase deploy --only firestore:indexes
 ```
 
-Index builds are long-running on Firebase's side; the deploy starts them, reports per-index status, and tells you which already existed.
+Index builds are long-running on Firebase's side; the Firebase CLI starts them and reports status.
 
 ## Learn what flips before production does
 
@@ -61,26 +61,25 @@ By default verification runs on the local sandbox engine. For Firestore you can 
 pyric verify --service firestore --engine both --project my-app --rules firestore=firestore.rules
 ```
 
-`both` cross-checks the two engines against each other and flags any disagreement. That checks your rules and, at the same time, checks Pyric's own engine against production's answer for your exact traffic.
+`both` cross-checks the two engines against each other and flags any disagreement. That checks your rules and, at the same time, checks Pyric's own engine against production's answer for your exact traffic. Hosted verification needs a project id plus `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS` (or ADC); build a `ProjectScope` programmatically with `@pyric/cli/credentials/node` (`fromServiceAccount` / `fromAdc`).
 
 ## Deploy hosting and functions
 
 ```bash
-pyric deploy hosting                      # or --channel <id> for a preview URL
-pyric deploy functions
+firebase deploy --only hosting                      # preview channels via firebase hosting:channel:deploy
+firebase deploy --only functions
 ```
 
-Both run over REST against the live APIs, each step idempotent with a typed outcome. Preview channels give you a shareable URL with an expiry before anything touches the live site.
+Use `firebase-tools` (or the Console) for production shipping. Preview channels give you a shareable URL with an expiry before anything touches the live site.
 
-## Sign in for deploys
+## Credentials for verify (and CI)
 
-Deploy commands resolve whichever credential is present, service account first:
+`pyric verify` with the default `sandbox` engine needs no cloud credentials. For `--engine rules-test-api` or `both`:
 
-- **Local**: `pyric login`, a loopback OAuth flow that stores a refresh token at `~/.pyric/credentials.json`.
-- **CI**: a service account via `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`.
+- **CI / local**: a service account via `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`.
 - **Fallback**: ambient application-default credentials.
 
-The full precedence and flag list is in the [CLI reference](../../../../packages/cli/docs/reference/cli.md).
+The full flag list is in the [CLI reference](../../../../packages/cli/docs/reference/cli.md).
 
 ## Where to go next
 

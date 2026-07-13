@@ -28,7 +28,7 @@ These are pure-local: no network, no credentials, safe to expose anywhere.
 Pass a `ProjectScope` and a fourth handler appears: `firestore_test_rules`, which calls Google's Rules Test API.
 
 ```ts
-import { fromServiceAccount } from 'pyric-tools/deploy';
+import { fromServiceAccount } from '@pyric/cli/credentials/node';
 
 const scope = await fromServiceAccount('./service-account.json');
 

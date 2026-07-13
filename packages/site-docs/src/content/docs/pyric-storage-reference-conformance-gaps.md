@@ -3,7 +3,7 @@ title: "Storage rules gaps: where pyric and Firebase disagree"
 navLabel: "Storage rules gaps"
 group: "pyric / storage"
 section: "Reference"
-order: 15007
+order: 14007
 ---
 # Storage rules gaps: where pyric and Firebase disagree
 

@@ -3,7 +3,7 @@ title: "How to reset between tests"
 navLabel: "Reset between tests"
 group: "pyric / sandbox"
 section: "How-to"
-order: 14007
+order: 13007
 ---
 # How to reset between tests
 
@@ -77,7 +77,7 @@ Resubscribing on every reset works too, but isn't required.
 
 Where parallel tests *do* need care:
 
-- **Shared resources** (a single Firebase project, a single set of credentials). Sandboxes don't talk to Firebase, so this is rare. Only relevant if your tests also exercise `pyric-tools/deploy` or other live-cloud surfaces.
+- **Shared resources** (a single Firebase project, a single set of credentials). Sandboxes don't talk to Firebase, so this is rare. Only relevant if your tests also exercise live Rules Test API verification (`@pyric/cli/credentials/node`) or other live-cloud surfaces.
 - **Shared output streams**. Log noise from one test can confuse another's assertions if both subscribe to the same console. Subscribers are per-sandbox, so this doesn't happen automatically; only worry about it if you wire global logging.
 
 ## What `reset` does *not* do

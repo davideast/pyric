@@ -3,7 +3,7 @@ title: "Feature matrix: pyric/firestore"
 navLabel: "Feature matrix"
 group: "pyric / firestore"
 section: "Reference"
-order: 12010
+order: 11010
 ---
 # Feature matrix: `pyric/firestore`
 

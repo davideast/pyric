@@ -73,11 +73,11 @@ A denial in your running app tells you the rule, the path, and the data that pro
 
 ## Deploy
 
-When the answers hold, ship the same file to production:
+When the answers hold, ship the same file to production with `firebase-tools`:
 ```bash
-pyric deploy rules --project my-app
+firebase deploy --only firestore:rules
 ```
-The deploy refuses a ruleset with error-severity lint findings, so the mistakes that produce opaque production failures get stopped at the door.
+Gate on error-severity lint findings in CI first (`lintFirestoreRules` / `pyric rules:lint`), so the mistakes that produce opaque production failures get stopped at the door.
 
 ## Where the wing goes deeper
 

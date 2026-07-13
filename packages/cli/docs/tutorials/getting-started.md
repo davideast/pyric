@@ -117,13 +117,13 @@ pyric snapshot            # dump sandbox state to a file
 A local Firebase-shaped dev loop where the backend lives in your browser
 tab, rules are enforced for real, and an agent can safely operate on all
 of it — and the same app code deploys unchanged against real Firebase
-(`pyric deploy <rules|indexes|database|hosting|functions>`).
+(`firebase deploy` via `firebase-tools` / Console).
 
 ## Where next
 
 - **Every command + flag:** the [CLI reference](../reference/cli.md), and the
-  full [docs index](../README.md) (guides for verify, snapshot, discover, auth
-  config, persistence/multi-tab).
+  full [docs index](../README.md) (guides for verify, snapshot,
+  persistence/multi-tab, Vite plugin).
 - **Existing Firebase app instead of a scaffold?** `pyric dev` works in
   any directory with a `firebase.json` — start at Step 2 in your app.
 - **Manual MCP wiring (no plugin), or connecting a sandbox embedded in

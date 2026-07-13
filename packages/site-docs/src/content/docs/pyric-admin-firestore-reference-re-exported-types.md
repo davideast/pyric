@@ -2,7 +2,7 @@
 title: "Re-exported types"
 group: "pyric-admin / firestore"
 section: "Reference"
-order: 20010
+order: 19010
 ---
 # Re-exported types
 
@@ -96,6 +96,6 @@ Mostly one import. Reaching for `pyric/sandbox` separately to get
 re-exports here exist to remove that friction.
 
 When the consumer genuinely needs something not in this surface (the raw
-`LocalEnvironment`, a deploy primitive, the rules linter), the import path tells
-them where to look: `pyric/sandbox/internal`, `pyric-tools/deploy`, or
+`LocalEnvironment`, credentials for Rules Test API, the rules linter), the import path tells
+them where to look: `pyric/sandbox/internal`, `@pyric/cli/credentials/node`, or
 `pyric/rules`.

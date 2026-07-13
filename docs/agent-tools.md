@@ -4,11 +4,12 @@ Every agent-callable tool in this repo, **sourced**. Tools are plain
 `ToolHandler` objects produced by per-package factories — you compose them
 into whatever runtime you use. They reach an agent two ways:
 
-1. **`pyric dev --bridge`** (or `pyric bridge`) — exposes the registry over
-   MCP; the [Claude Code plugin](../pyric-plugin/README.md) auto-wires it.
+1. **`pyric dev --bridge`** (or `pyric bridge`) — exposes the **default sandbox
+   registry** over MCP; the [Claude Code plugin](../pyric-plugin/README.md)
+   auto-wires it. Forwarded + in-process names are pinned in
+   `packages/cli/src/bridge/server/mcp-contract.ts` (**36** tools today).
 2. **Programmatic** — import a factory and register the handlers with any agent
-   framework (the playground does this with `@inbrowser/agent`), or compose the
-   prod registry via `composeMcpRegistry` (`pyric-tools/registry`).
+   framework (the playground does this with `@inbrowser/agent`).
 
 Counts and names below are generated from the factory sources (grep
 `name: '…'` under each file). If this table disagrees with the code, the code
@@ -16,22 +17,29 @@ wins — update this file.
 
 ## Firestore data — `createFirestoreDataTools` / `createFirestoreInspectTools` (`pyric/firestore`)
 
-CRUD + queries against the sandbox or prod backend (whichever the handle
-carries), plus sandbox inspection.
+CRUD + queries against the sandbox (or whichever backend the handle carries),
+plus sandbox inspection.
 
 `firestore_get_document` · `firestore_list_documents` ·
-`firestore_create_document` · `firestore_update_document` ·
-`firestore_delete_document` · `firestore_query_where` ·
+`firestore_create_document` · `firestore_add_document` ·
+`firestore_update_document` · `firestore_delete_document` ·
+`firestore_batch_write` · `firestore_query_where` ·
 `sandbox_inspect`
 
 ## Firestore rules — `createFirestoreRulesTools` / `createFirestoreRulesStdlibTools` (`pyric/rules`, Node-only pieces under `pyric/rules/node`)
 
-The differentiator surface: lint, simulate, and test rules **locally, as a
-library** — no emulator, no deploy.
+The differentiator surface: lint, simulate, and (optionally) test rules
+**locally, as a library** — no emulator.
 
-`firestore_lint_rules` · `firestore_simulate_rules` · `firestore_test_rules`
-(live Rules Test API) · `firestore_resolve_modules` (`2+modules` →
-plain v2) · `firestore_rules_stdlib_list` · `firestore_rules_stdlib_get`
+`firestore_lint_rules` · `firestore_simulate_rules` ·
+`firestore_resolve_modules` (`2+modules` → plain v2) ·
+`firestore_rules_stdlib_list` · `firestore_rules_stdlib_get` ·
+`firestore_test_rules` (live Rules Test API — only when a `ProjectScope` is
+supplied; build one with `@pyric/cli/credentials/node`)
+
+The default MCP bridge registers the local rules tools **without**
+`firestore_test_rules` (no scope). Prefer `pyric verify --engine
+rules-test-api|both` for hosted verification.
 
 ## Firestore simulator session — `createFirestoreSimulatorTools` (`pyric/rules`)
 
@@ -56,47 +64,48 @@ database or requires a rules-loading tool call first.
 ## Index extraction — `pyric/rules/indexes`
 
 `firestore_extract_indexes` — derive composite-index definitions from query
-shapes.
+shapes. Available as a library and via `pyric firestore:indexes:generate`;
+**not** registered on the default MCP bridge.
 
 ## Realtime Database rule artifacts — `@pyric/cli`
 
 Local compilation of a constraints module to `database.rules.json` data. It
 does not fetch or deploy production rules.
 
-`rtdb_generate_rules`
+`rtdb_generate_rules` — library / CLI (`pyric database:rules:generate`);
+**not** on the default MCP bridge.
 
 ## Storage control plane — `createStorageAdminTools` (`pyric/storage`)
 
 `storage_get_status` · `storage_provision`
 
-## Deploy — `createFirestoreDeployTools` / `createRtdbDeployTools` / `createHostingDeployTools` / `createFunctionsDeployTools` (`pyric-tools/deploy`)
+Library surface for provisioning / status. **Not** on the default MCP bridge.
+Ship Storage rules and buckets with `firebase-tools` / Console for production.
 
-The Firebase control plane over REST — no `firebase-tools` CLI required.
-Docs: [`packages/cli/docs/deploy/`](../packages/cli/docs/deploy/README.md).
+## Discovery — `createFirestoreDiscoverTools` (`@pyric/cli/discover`)
 
-`firestore_get_rules` · `firestore_deploy_rules` · `firestore_ensure_rules` ·
-`firestore_provision_database` · `firestore_deploy_indexes` ·
-`firestore_create_index` · `firestore_get_index_status` ·
-`rtdb_get_rules` · `rtdb_deploy_rules` ·
-`hosting_deploy` · `hosting_ensure_site` ·
-`functions_deploy`
-
-## Discovery — `createFirestoreDiscoverTools` (`pyric-tools/discover`)
+Sandbox / Rest crawl helpers for agents that compose their own registry:
 
 `firestore_discover_paths` · `firestore_find_collection_group`
 
-## Auth configuration — `createAuthAdminTools` (`pyric-tools/auth`)
+These exist in `@pyric/cli/discover` but are **not** registered on the default
+`pyric bridge` / `pyric dev --bridge` surface.
 
-Identity Toolkit project configuration.
+## Assurance — `createAssuranceTools` (`@pyric/cli/assurance`)
 
-`auth_get_config` · `auth_configure_provider` · `auth_manage_domains`
+Registered on the default MCP bridge:
+
+`firebase_assurance_attach` · `firebase_assurance_start` ·
+`firebase_assurance_map` · `firebase_assurance_define` ·
+`firebase_assurance_propose` · `firebase_assurance_run` ·
+`firebase_assurance_inspect` · `firebase_assurance_minimize` ·
+`firebase_assurance_verify` · `firebase_assurance_export`
 
 ---
 
-**Total: 51 unique tool names.** There are 53 factory entries when counting the
-scope-based `createRtdbDeployTools` `rtdb_get_rules` / `rtdb_deploy_rules`
-handlers separately from the host-backed RTDB rules factory. Removed since the
-legacy project-level SDK:
-`firebase_get_project`, `firebase_get_client_config` (died with that
-package; project overview is now `sandbox_inspect` +
-`firestore_discover_paths` + `auth_get_config` composed).
+**Default MCP bridge: 36 unique tool names** (see `DEFAULT_MCP_TOOL_NAMES` in
+`mcp-contract.ts`). Production shipping (rules, indexes, hosting, functions) is
+`firebase-tools` / Console — not a pyric control-plane toolset. Removed since the
+legacy control-plane surface: deploy factories, Identity Toolkit auth-config
+tools, prod MCP registry composition, and
+`firebase_get_project` / `firebase_get_client_config`.

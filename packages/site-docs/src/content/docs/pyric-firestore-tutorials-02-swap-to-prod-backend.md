@@ -3,7 +3,7 @@ title: "Run the same demo against production"
 navLabel: "Swap to prod backend"
 group: "pyric / firestore"
 section: "Tutorials"
-order: 12003
+order: 11003
 ---
 # Run the same demo against production
 

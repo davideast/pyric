@@ -1,34 +1,40 @@
-# pyric-tools
+# `@pyric/cli`
 
-The Pyric CLI + programmatic helpers for `firebase-tools`-shaped work
-(deploy, bridge, discover, identity-toolkit configuration).
+The Pyric CLI and programmatic helpers for local sandbox development,
+verification, artifact generation, and agent bridges.
 
-> **Alpha.** This package is an early alpha. The `firebase-tools`-mirrored
-> surfaces (deploy, discover, auth configuration) are best-effort mirror
-> contracts; non-mirrored exports (e.g. `pyric-tools/serve/worker`,
-> `pyric-tools/verify`, `pyric-tools/credentials`) are experimental
-> public-alpha surfaces that may change without notice. The MCP tool surface
-> (tool names and shapes) will consolidate during early alpha — do not treat
-> tool names as stable.
+> **Alpha.** This package is an early alpha. Non-mirrored exports (e.g.
+> `@pyric/cli/serve/worker`, `@pyric/cli/verify`, `@pyric/cli/credentials/node`)
+> are experimental public-alpha surfaces that may change without notice. The
+> MCP tool surface (tool names and shapes) will consolidate during early
+> alpha — do not treat tool names as stable.
+
+Production project administration (deploy, Identity Toolkit configuration,
+hosted discovery) is **not** part of this package. Use
+[`firebase-tools`](https://firebase.google.com/docs/cli) or the Firebase
+Console to ship rules, indexes, hosting, and functions to a real project.
+
+The npm package may still appear as `pyric-tools` in some install instructions;
+prefer `@pyric/cli` for import paths.
 
 ## CLI subcommands
 
 | Command | What it does |
 |---|---|
 | `pyric init [dir]` | Scaffold a pyric project — never prompts, idempotent, safe to rerun. `--template web` (default): a servable app with **canonical `firebase/*` imports** (owner-based rules, `seed.json`, `dev`/`dev:agent` scripts, real `firebase` dep) — `pyric dev` runs it on the sandbox; any standard bundler runs the same code on real Firebase. The swap is environmental, never a code edit. `--template node`: script-style scaffold whose backend is picked by `PYRIC_TARGET=sandbox\|firebase`. Also `--name`, `--force` (overwrite scaffold-owned files), `--json` (machine result on stdout: `{template, dir, created, merged, skipped, conflicts, nextSteps}`) |
-| `pyric bridge` | Stand up an HTTP+WebSocket bridge an MCP client (Claude Code, Cursor) connects to |
+| `pyric bridge` | Stand up an HTTP+WebSocket bridge an MCP client (Claude Code, Cursor) connects to (sandbox mode only) |
 | `pyric dev` | Local dev server with the pyric sandbox standing in for Firebase: serves `hosting.public`, resolves unmodified `firebase/*` imports to a pyric sandbox via a served import map, deploys + hot-reloads `firestore.rules` (SSE), opens an emulator-style sign-in helper for `signInWithPopup`/`signInWithRedirect`. The sandbox runs in a **SharedWorker by default** — one backend shared by every tab of the origin (live cross-tab sync), kept in the browser's IndexedDB so **your sandbox data — Firestore docs, auth users, RTDB, storage objects, and the traffic history — survives a refresh/restart by default** (see the persistence guide's coverage matrix for the exact tiers); a per-tab in-page sandbox is the fallback when SharedWorker is unavailable. Flags + exit codes: [CLI reference](docs/reference/cli.md#pyric-dev); persistence, ephemeral runs, clearing data, and SharedWorker tips: [persistence & multi-tab](docs/how-to/serve-persistence-and-multi-tab.md) |
 | `pyric snapshot` | Promote lived sandbox state (live `dev --persist`, else `.pyric/state/state.json`) to a committable fixture; `pyric dev --seed <fixture>` re-serves it (docs + users). `--out`, `--port`, `--force`, `--json` |
-| `pyric deploy <target>` | Deploy `rules` / `indexes` / `database` / `hosting` / `functions` to a real Firebase project |
+| `pyric verify` | Replay a captured sandbox session against candidate rules (`--engine sandbox\|rules-test-api\|both`). Hosted Rules Test API needs SA/ADC via `FIREBASE_SA_BASE64` / `GOOGLE_APPLICATION_CREDENTIALS` |
 | `pyric rules:lint <path>` | Lint a Firestore rules file |
 | `pyric rules:validate <path>` | Validate Firestore rules structure |
 | `pyric rules:simulate` | Local rules simulator |
 | `pyric database:rules:lint <path>` | Lint a Realtime Database rules JSON file |
 | `pyric database:rules:validate <path>` | Validate Realtime Database rules expressions |
 | `pyric database:rules:simulate` | Local Realtime Database rules simulator |
-| `pyric auth:configure-provider <id> <enabled>` | Identity Toolkit: enable/disable an auth provider |
-| `pyric auth:manage-domains <add\|remove\|list> [domain]` | Identity Toolkit: authorized domains |
-| `pyric firestore:discover [collection]` | Crawl a Firestore to infer schema |
+| `pyric database:rules:generate` | Compile a constraints module to local `database.rules.json` (no production contact) |
+| `pyric firestore:indexes:generate` | Derive composite-index definitions from query shapes |
+| `pyric storage:rules:lint` / `simulate` | Local Storage rules lint and simulation |
 
 Every command's full flags, defaults, exit codes, and environment variables are
 in the **[CLI reference](docs/reference/cli.md)**. Task guides and the rest of
@@ -74,11 +80,15 @@ rulesHash}`.
 
 | Subpath | Surface |
 |---|---|
-| `pyric-tools/deploy` | `fromServiceAccount`, `getDeploy`, `createFirestoreDeployTools`, `createRtdbDeployTools`, `createHostingDeployTools`, `createFunctionsDeployTools` |
-| `pyric-tools/bridge` | `createBridge`, `startServer` (Node) / `connectBridge` (browser via conditional export). Vite integration is `pyricSandbox({ bridge })` in `pyric-tools/vite`. |
-| `pyric-tools/vite` | `pyricSandbox(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/`, parity with `dev --ui`). |
-| `pyric-tools/discover` | `crawl`, `findCollectionGroup`, `createRestCrawlerFirestore`, `createFirestoreDiscoverTools` |
-| `pyric-tools/auth` | `getAuthTools` (Identity Toolkit-driven provider + domain configuration) |
+| `@pyric/cli/credentials/node` | `fromServiceAccount`, `fromAdc` — build a `ProjectScope` for the Rules Test API (`pyric verify --engine rules-test-api\|both`) |
+| `@pyric/cli/verify` | Captured-session replay for Firestore and RTDB rules |
+| `@pyric/cli/bridge` | `createBridge`, `startServer` (Node) / `connectBridge` (browser via conditional export). Vite integration is `pyricSandbox({ bridge })` in `@pyric/cli/vite`. |
+| `@pyric/cli/vite` | `pyricSandbox(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/`, parity with `dev --ui`). |
+| `@pyric/cli/discover` | Library crawl helpers for sandbox / Rest discovery (`crawl`, `findCollectionGroup`, `createRestCrawlerFirestore`, `createFirestoreDiscoverTools`). Not registered on the default MCP bridge. |
+| `@pyric/cli/serve/worker` | SharedWorker serve runtime |
+| `@pyric/cli/assurance` | Assurance campaign tools (also registered on the default bridge) |
+| `@pyric/cli/remote` | Remote / headless helpers |
+| `@pyric/cli/register` | Registration helpers |
 
 ## MCP tool surface (`pyric bridge`)
 
@@ -89,17 +99,19 @@ always-current list is the
 
 **Sandbox-routed** — dispatched against the connected browser sandbox
 (`createFirestoreDataTools` + `createFirestoreSimulatorTools` +
-`createFirestoreInspectTools` + local RTDB inspection):
+`createFirestoreInspectTools` + local RTDB inspection + assurance):
 
-- data: `firestore_get_document` / `_list_documents` / `_create_document` / `_update_document` / `_delete_document` / `_query_where` / `firestore_create_with_auto_id`
+- data: `firestore_get_document` / `_list_documents` / `_create_document` / `_add_document` / `_update_document` / `_delete_document` / `_batch_write` / `_query_where` / `firestore_create_with_auto_id`
 - stateful simulator session: `firestore_simulator_create` / `_execute` / `_read` / `_batch` / `_undo` / `_redo` / `_events` / `_transaction`
 - diagnostics: `sandbox_inspect` — single-call sandbox state/rules snapshot
 - RTDB authorization: `rtdb_simulate_access` — evaluates one operation against
   the rules and data currently installed in the connected sandbox
 - RTDB structure: `rtdb_crawl_structure` — returns a bounded structural view of
   current sandbox data without leaf values
+- assurance: `firebase_assurance_*` campaign tools
 
-**In-process** — run on the bridge process itself (`createFirestoreRulesTools`):
+**In-process** — run on the bridge process itself (`createFirestoreRulesTools`
+without a live `ProjectScope`, so no Rules Test API tool):
 
 - `firestore_simulate_rules`
 - `firestore_rules_stdlib_list` / `_get`

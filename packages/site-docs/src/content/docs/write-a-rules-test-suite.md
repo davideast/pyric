@@ -90,7 +90,7 @@ Sub-millisecond per case once the rules are parsed. There is no reason not to ru
 The hosted Rules Test API evaluates your cases on Google's servers, in the same engine production uses, without deploying anything. It takes the same `TestCase` objects and returns the same result shape. It needs a real project and credentials:
 ```ts
 import { TestFirestoreRulesHandler } from 'pyric/rules';
-import { fromServiceAccount } from 'pyric-tools/deploy';
+import { fromServiceAccount } from '@pyric/cli/credentials/node';
 
 const scope = await fromServiceAccount('./service-account.json');
 const remote = await new TestFirestoreRulesHandler()

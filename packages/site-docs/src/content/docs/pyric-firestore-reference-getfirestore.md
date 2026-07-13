@@ -2,7 +2,7 @@
 title: "getFirestore"
 group: "pyric / firestore"
 section: "Reference"
-order: 12011
+order: 11011
 ---
 # `getFirestore`
 

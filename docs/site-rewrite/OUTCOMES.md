@@ -110,9 +110,9 @@ That arc is the candidate spine for the hierarchy. It is verbs the whole way dow
 
 **The old friction.** The leap from "works in dev" to "live" is a leap of faith. Rules were tested somewhere else, if at all. Indexes were hand-maintained. Nothing told you what would break until it broke.
 
-**The Pyric path.** The same code that ran against the sandbox ships to real Firebase, no rewrite. Rules leave the sandbox already exercised against the app's real behavior, and `pyric deploy rules` pushes them. Composite indexes come out of your actual query shapes instead of a hand-kept file. And `pyric verify` replays a captured session against a candidate ruleset and tells you which operations flip verdict, before prod does.
+**The Pyric path.** The same code that ran against the sandbox ships to real Firebase, no rewrite. Rules leave the sandbox already exercised against the app's real behavior; ship them with `firebase-tools` / Console. Composite indexes come out of your actual query shapes instead of a hand-kept file. And `pyric verify` replays a captured session against a candidate ruleset and tells you which operations flip verdict, before prod does.
 
-**The parts behind it.** The deploy control plane over REST (rules, indexes, hosting, functions, and more), the credential model. `firestore_extract_indexes`. `pyric verify` with its sandbox and Rules Test API engines. The production build that keeps the real `firebase` package.
+**The parts behind it.** `firestore_extract_indexes` / `pyric firestore:indexes:generate`. `pyric verify` with its sandbox and Rules Test API engines (`@pyric/cli/credentials/node` for SA/ADC). Production shipping via `firebase-tools` / Console. The production build that keeps the real `firebase` package.
 
 **Maturity.** Core, and it is the proof that this is a development tool and not a toy. It literally deployed its own website.
 

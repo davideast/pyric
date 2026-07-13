@@ -84,9 +84,9 @@ Each of these emits a warning that names the mistake:
 
 The syntax-level catches (`===`, `?.`, `??`, arrow functions, backtick strings) fire even when the file fails to parse, because the parse error alone would point you at a stray parenthesis instead of the actual cause.
 
-## Let the errors block the deploy
+## Let the errors block the ship
 
-Warnings carry a severity. `pyric deploy rules` refuses to ship a ruleset with any `error`-severity finding, and you can mirror that gate in CI:
+Warnings carry a severity. Gate CI (and refuse to `firebase deploy`) when any finding has `severity: 'error'`:
 
 ```ts
 const errors = lintFirestoreRules(source).warnings

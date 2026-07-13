@@ -62,7 +62,7 @@ Documentation is organised under [`docs/`](./docs/) following the [Diataxis](htt
 
 ## Position in the Pyric stack
 
-`pyric/sandbox` is the **runtime substrate**. It does not depend on `pyric-admin`, `pyric/firestore`, or any other adapter. They depend on it. Rules tooling lives in `pyric/rules` (imported by the sandbox for the engine-internal `SimulateFirestoreRulesHandler`, on `pyric/rules/internal`). Control-plane operations live in `pyric-tools/deploy`. See [Why this package exists](./docs/explanation/why-this-package-exists.md).
+`pyric/sandbox` is the **runtime substrate**. It does not depend on `pyric-admin`, `pyric/firestore`, or any other adapter. They depend on it. Rules tooling lives in `pyric/rules` (imported by the sandbox for the engine-internal `SimulateFirestoreRulesHandler`, on `pyric/rules/internal`). Production shipping stays with `firebase-tools` / Console. See [Why this package exists](./docs/explanation/why-this-package-exists.md).
 
 ## Licence
 
