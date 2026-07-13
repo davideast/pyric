@@ -12,10 +12,12 @@ import type { AI, AIOptions, SandboxTarget } from './types.js';
 
 const handlesByOwner = new WeakMap<Sandbox | SandboxApp, Map<string, AI>>();
 
-function backendKey(backend: Backend): string {
-  return backend.backendType === BackendType.VERTEX_AI
-    ? `vertexai/${(backend as VertexAIBackend).location}`
-    : 'googleai';
+function describeBackend(backend: Backend): { key: string; location: string } {
+  if (backend.backendType === BackendType.VERTEX_AI) {
+    const location = (backend as VertexAIBackend).location;
+    return { key: `vertexai/${location}`, location };
+  }
+  return { key: 'googleai', location: '' };
 }
 
 function cachedHandles(owner: Sandbox | SandboxApp): Map<string, AI> {
@@ -55,7 +57,7 @@ export function getAI(target?: Sandbox | SandboxApp, options?: AIOptions): AI {
 
 function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: SandboxApp): AI {
   const backend = options?.backend ?? new GoogleAIBackend();
-  const key = backendKey(backend);
+  const { key, location } = describeBackend(backend);
   const handles = cachedHandles(app ?? sandbox);
   const existing = handles.get(key);
   if (existing) return existing;
@@ -64,7 +66,7 @@ function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: SandboxApp): AI 
   const handle: AI = {
     ...(app !== undefined ? { app } : {}),
     backend,
-    location: backend instanceof VertexAIBackend ? backend.location : '',
+    location,
     ...(options !== undefined ? { options } : {}),
   };
   const target: SandboxTarget = { sandbox, broker };
