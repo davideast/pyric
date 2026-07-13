@@ -322,7 +322,7 @@ describe('Premortem fixes — A2 (session leak)', () => {
 });
 
 describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
-  test('SANDBOX_TOOL_NAMES covers the simulator + data-plane + inspect factories (no advertise/execute drift)', () => {
+  test('SANDBOX_TOOL_NAMES covers every sandbox tool factory (no advertise/execute drift)', () => {
     expect(SANDBOX_TOOL_NAMES).toEqual([
       // simulator family
       'firestore_simulator_create',
@@ -345,6 +345,9 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       'firestore_query_where',
       // inspect
       'sandbox_inspect',
+      // local RTDB inspection
+      'rtdb_simulate_access',
+      'rtdb_crawl_structure',
       // local-only authorization assurance
       ...ASSURANCE_TOOL_NAMES,
     ]);

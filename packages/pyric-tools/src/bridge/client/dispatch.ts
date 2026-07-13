@@ -10,7 +10,7 @@
  * therefore LISTED `firestore_create_document` / `sandbox_inspect`
  * etc., but a `callTool` failed at dispatch with "tool 'X' is not
  * registered with the connected sandbox peer" — succeed-at-list,
- * fail-at-dispatch. Registering all three families here (and deriving
+ * fail-at-dispatch. Registering every family here (and deriving
  * `SANDBOX_TOOL_NAMES` from the same set) closes the gap. The parity is
  * pinned by `test/bridge/tool-parity.test.ts`.
  */
@@ -98,7 +98,7 @@ function buildSandboxHandlers(sandbox: LocalSandbox) {
 
 /**
  * Build a dispatcher for the supplied `Sandbox`. The returned function
- * looks up tools by name across all three factories and invokes the
+ * looks up tools by name across every factory and invokes the
  * canonical handler. Throws `UnknownToolError` on unknown names.
  */
 export function buildSandboxDispatcher(
