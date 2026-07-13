@@ -81,9 +81,9 @@ export function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiB
   const wire = ctx.aiEngine ?? opEngine;
   const ai = getAI(ctx.sandbox, wire ? { engine: resolveEngineConfig(wire) } : undefined);
   const target = (ai as unknown as {
-    [TARGET_SYMBOL]?: { kind: string; broker: AiBrokerLike };
+    [TARGET_SYMBOL]?: { broker: AiBrokerLike };
   })[TARGET_SYMBOL];
-  if (!target || target.kind !== 'sandbox') {
+  if (!target?.broker) {
     // Unreachable for a real Sandbox ctx; guards a mis-wired embedding host.
     throw new Error('pyric worker: getAI(sandbox) did not produce a sandbox-target AI handle');
   }
