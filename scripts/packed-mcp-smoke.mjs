@@ -6,7 +6,7 @@
  * borrow the server's MCP SDK dependency as its client implementation.
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -180,17 +180,17 @@ export async function runPackedMcpSmoke({
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  const [bin, workDir, contractModule] = process.argv.slice(2);
-  if (!bin || !workDir || !contractModule) {
+  const [bin, workDir, contractPath] = process.argv.slice(2);
+  if (!bin || !workDir || !contractPath) {
     process.stderr.write(
-      'usage: node scripts/packed-mcp-smoke.mjs <pyric-bin> <work-dir> <mcp-contract-module>\n',
+      'usage: node scripts/packed-mcp-smoke.mjs <pyric-bin> <work-dir> <release-contract.json>\n',
     );
     process.exit(2);
   }
-  const contract = await import(pathToFileURL(resolve(contractModule)).href);
+  const contract = JSON.parse(readFileSync(resolve(contractPath), 'utf8'));
   await runPackedMcpSmoke({
     bin,
     workDir,
-    expectedToolNames: [...contract.DEFAULT_MCP_TOOL_NAMES],
+    expectedToolNames: contract.mcpTools,
   });
 }
