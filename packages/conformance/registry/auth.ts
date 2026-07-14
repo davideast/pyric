@@ -1532,17 +1532,19 @@ export const authRegistry = {
           "rowRef": "62",
           "rowNumber": 62,
           "section": "`User` methods",
-          "api": "User` methods",
-          "behavior": "`updateProfile(user, {displayName, photoURL})`",
-          "status": "unsupported",
-          "evidence": "not implemented",
-          "risk": [],
-          "riskScore": 0,
-          "riskReasons": [],
-          "automation": "unsupported",
+          "api": "updateProfile(user, {displayName, photoURL})",
+          "behavior": "`updateProfile(user, {displayName, photoURL})` mutates the held user + stored record in place (null clears a field; omitted fields untouched) without an extra `onAuthStateChanged` fire. Profile survives `signOut` → `signInWithEmailAndPassword`.",
+          "status": "conforms",
+          "evidence": "`unit:sandbox-update-profile.test.ts` (in-place mutation, listUsers persist, null clear, no extra listener); re-sign-in persistence: `unit:upstream-auth-probes.test.ts`",
+          "risk": ["specific-field", "listener"],
+          "riskScore": 3,
+          "riskReasons": ["asserts a specific field/property value", "asserts listener semantics"],
+          "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": [],
-          "exceptionReason": "unsupported / intentionally out of scope"
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-update-profile.test.ts",
+            "packages/pyric/test/auth/upstream-auth-probes.test.ts"
+          ]
         },
       ],
     },
@@ -1558,15 +1560,18 @@ export const authRegistry = {
           "rowNumber": 76,
           "section": "`beforeAuthStateChanged(auth, callback, onAbort?)`",
           "api": "beforeAuthStateChanged(auth, callback, onAbort?)",
-          "behavior": "Registers a BLOCKING gate that runs before a real sign-in/sign-out transition commits. Callbacks run in registration order; a callback that throws (or returns a rejected promise) aborts the transition entirely: the pending `signInWith…`/`signOut` call rejects with `auth/login-blocked`, `currentUser` is unchanged, and `onAuthStateChanged`/`onIdTokenChanged` do NOT fire. Covers every sign-in path that exists in `pyric/auth`: `signInAnonymously`, `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `signInWithPopup`, `signInWithRedirect`, `signInWithCredential`, and `signOut` (pyric has no `signInWithCustomToken` yet). Modeled after the real `@firebase/auth` `AuthMiddlewareQueue.runMiddleware` (`auth_impl.ts`), read directly from the installed SDK source, not just its `.d.ts`.",
+          "behavior": "Registers a BLOCKING gate that runs before a real sign-in/sign-out transition commits. Callbacks run in registration order; a callback that throws (or returns a rejected promise) aborts the transition entirely: the pending `signInWith…`/`signOut` call rejects with `auth/login-blocked`, `currentUser` is unchanged, and `onAuthStateChanged`/`onIdTokenChanged` do NOT fire. Covers every sign-in path that exists in `pyric/auth`: `signInAnonymously`, `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `signInWithPopup`, `signInWithRedirect`, `signInWithCredential`, `signInWithCustomToken`, and `signOut`. Modeled after the real `@firebase/auth` `AuthMiddlewareQueue.runMiddleware` (`auth_impl.ts`), read directly from the installed SDK source, not just its `.d.ts`.",
           "status": "conforms",
-          "evidence": "`unit:sandbox-before-auth-state-changed.test.ts` — implementation cross-checked against `@firebase/auth`'s `AuthMiddlewareQueue` source (registration-order queue, per-callback try/await, `auth/login-blocked` wrap). No live-oracle capture (no observable client-visible signal to probe beyond the documented+sourced contract already read).",
+          "evidence": "`unit:sandbox-before-auth-state-changed.test.ts` — implementation cross-checked against `@firebase/auth`'s `AuthMiddlewareQueue` source (registration-order queue, per-callback try/await, `auth/login-blocked` wrap). Custom-token allow/block: `unit:upstream-auth-probes.test.ts`. No live-oracle capture (no observable client-visible signal to probe beyond the documented+sourced contract already read).",
           "risk": ["error-code", "listener", "specific-value"],
           "riskScore": 6,
           "riskReasons": ["asserts Firebase error code(s): `auth/login-blocked`", "asserts listener semantics", "asserts a specific value"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/auth/sandbox-before-auth-state-changed.test.ts"]
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-before-auth-state-changed.test.ts",
+            "packages/pyric/test/auth/upstream-auth-probes.test.ts"
+          ]
         },
         {
           "id": "auth#76a",
@@ -1676,15 +1681,18 @@ export const authRegistry = {
           "rowNumber": 83,
           "section": "User-management and session exports",
           "api": "deleteUser(user)",
-          "behavior": "Deletes the account from the user store AND signs the user out if they are current (fires `onAuthStateChanged(null)`), matching prod where deleting the signed-in user clears `auth.currentUser`. Real behavior: a subsequent `signInWithEmailAndPassword` for that identity throws `auth/user-not-found`",
+          "behavior": "Deletes the account from the user store AND signs the user out if they are current (fires `onAuthStateChanged(null)`), matching prod where deleting the signed-in user clears `auth.currentUser`. Real behavior: a subsequent `signInWithEmailAndPassword` for that identity throws `auth/user-not-found`; `reload(user)` after delete rejects with `auth/user-token-expired`",
           "status": "conforms",
-          "evidence": "`unit:fruit-aliases.test.ts` — user removed from the store, sign-out fired, re-sign-in throws `auth/user-not-found`",
+          "evidence": "`unit:fruit-aliases.test.ts` — user removed from the store, sign-out fired, re-sign-in throws `auth/user-not-found`; post-delete `reload` → `auth/user-token-expired`: `unit:upstream-auth-probes.test.ts`",
           "risk": ["error-code"],
-          "riskScore": 2,
-          "riskReasons": ["asserts Firebase error code(s): `auth/user-not-found`"],
+          "riskScore": 4,
+          "riskReasons": ["asserts Firebase error code(s): `auth/user-not-found`, `auth/user-token-expired`"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/auth/fruit-aliases.test.ts"]
+          "conformanceTests": [
+            "packages/pyric/test/auth/fruit-aliases.test.ts",
+            "packages/pyric/test/auth/upstream-auth-probes.test.ts"
+          ]
         },
         {
           "id": "auth#84",
@@ -2255,7 +2263,7 @@ export const authRegistry = {
           "api": "getAdditionalUserInfo(userCredential)",
           "behavior": "Returns `{ isNewUser, profile, providerId }`. For a fresh anonymous sign-in prod reports `{ isNewUser: true, providerId: null, profile: {} }` — `providerId` is NULL, not `'anonymous'`, because anonymous is not a federated provider. `isNewUser` is `true` for `createUserWithEmailAndPassword`, a first-time email-link sign-in, and a custom-token sign-in that minted the account; `false` for a returning `signInWithEmailAndPassword` and for every `link` / `reauthenticate`.",
           "status": "conforms",
-          "evidence": "ORACLE-BACKED on the anonymous shape: `auth-additional-user-info-shape` captured `{isNewUser: true, providerId: null, profile: {}}` against prod. Replayed in `unit:oracle-conformance.test.ts`. The email/password arms of the probe were blocked by the oracle project's disabled password provider and are unit-backed instead.",
+          "evidence": "ORACLE-BACKED on the anonymous shape: `auth-additional-user-info-shape` captured `{isNewUser: true, providerId: null, profile: {}}` against prod. Replayed in `unit:oracle-conformance.test.ts`. Email create/sign-in + custom-token mint/return isNewUser matrix (providerId null per AUTH-B2): `unit:upstream-auth-probes.test.ts`. Email-link + link/reauth arms: `unit:sandbox-email-link.test.ts`, `unit:sandbox-linking-reauth.test.ts`.",
           "risk": [
             "specific-field",
             "specific-value"
@@ -2272,7 +2280,8 @@ export const authRegistry = {
           "conformanceTests": [
             "packages/pyric/test/auth/oracle-conformance.test.ts",
             "packages/pyric/test/auth/sandbox-email-link.test.ts",
-            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts",
+            "packages/pyric/test/auth/upstream-auth-probes.test.ts"
           ]
         },
         {

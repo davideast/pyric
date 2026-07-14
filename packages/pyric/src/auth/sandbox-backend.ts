@@ -2141,12 +2141,19 @@ export class SandboxBackend {
    * into the passed `user` (and `this.cachedUser`) in place so a change
    * made out of band (e.g. `sandbox.updateUser`) is reflected — matching
    * `firebase/auth.reload`, which refreshes the user from the server.
-   * Users not tracked in the DB (anonymous / popup) have nothing to
-   * refresh; the call is a safe no-op for them.
+   *
+   * If the identity is gone from the store (e.g. after `deleteUser`),
+   * throws `auth/user-token-expired` — matching upstream integration
+   * flows (`email.test.ts` / `custom.local.test.ts`: delete then reload).
    */
   reloadFor(user: User): void {
     const stored = this.usersByUid.get(user.uid);
-    if (!stored) return;
+    if (!stored) {
+      throw makeAuthError(
+        'auth/user-token-expired',
+        "The user's credential is no longer valid. The user must sign in again.",
+      );
+    }
     this.applyStoredToUser(user, stored);
     if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
       this.applyStoredToUser(this.cachedUser, stored);

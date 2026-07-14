@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T05:38:26.170Z",
+  "generatedAt": "2026-07-14T11:37:05.647Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -237,7 +237,7 @@
     "auth#68": "conforms",
     "auth#75": "conforms",
     "auth#61": "unsupported",
-    "auth#62": "unsupported",
+    "auth#62": "conforms",
     "auth#76": "conforms",
     "auth#76a": "conforms",
     "auth#76b": "conforms",
