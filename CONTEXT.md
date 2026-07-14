@@ -148,7 +148,7 @@ Version `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 
 | Subpath | Purpose |
 |---|---|
-| `pyric/app` | Sandbox-only `initializeApp({ sandbox })` plus the mirrored client app registry: `getApp`, `getApps`, `deleteApp`, local `FirebaseError`, pinned `SDK_VERSION`, `onLog`, `setLogLevel`, `registerVersion`. It has no `firebase/app` runtime dependency; production imports stay on `firebase/app`. |
+| `pyric/app` | Firebase-shaped client app registry: `initializeApp(options, settings?)`, `getApp`, `getApps`, `deleteApp`, local `FirebaseError`, pinned `SDK_VERSION`, `onLog`, `setLogLevel`, `registerVersion`. Default and named equal-config app containers share one managed sandbox backend; a second Firebase configuration in the same runtime is intentionally rejected. It has no `firebase/app` runtime dependency; production imports stay on `firebase/app`. |
 | `pyric/auth` | Sandbox-only modular Auth mirror, identity, providers, and popup/redirect resolver. It has no `firebase/auth` runtime dependency; production imports stay on `firebase/auth`. |
 | `pyric/firestore` | Sandbox-only modular Firestore mirror plus Firestore data/inspect tools. It has no `firebase/firestore` runtime dependency; production imports stay on `firebase/firestore`. |
 | `pyric/firestore-values` | Firestore value helpers/wrappers. |
@@ -313,10 +313,9 @@ Backend selection belongs to package resolution, not app initialization.
 
 ```ts
 import { initializeApp } from 'pyric/app';
-import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore, collection, getDocs } from 'pyric/firestore';
 
-const app = initializeApp({ sandbox: initializeSandbox() });
+const app = initializeApp({ projectId: 'demo', apiKey: 'demo' });
 const db = getFirestore(app);
 const snap = await getDocs(collection(db, 'posts'));
 ```

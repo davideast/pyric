@@ -4,7 +4,7 @@
 
 > **Surface coverage:** 64.8% of Firebase's public exports · 79.5% of what pyric intends to mirror
 >
-> **Fidelity:** 77% (154 of 200 tracked claims match production)
+> **Fidelity:** 76.6% (154 of 201 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
 
@@ -309,6 +309,7 @@ Simulation and structure crawling are sandbox/CLI operations; rules authoring an
 | 139 | `off(ref, 'value')` removes only `value` listeners at that ref | ✓ | Sandbox aligned (M48); oracle: `packages/conformance/observations/rtdb/rtdb-off-eventtype-precision.json` — registered TWO `value` listeners + one `child_added` at the same ref; after `off(ref, 'value')` (no callback), `valueListenersStopped: true` (neither value cb fired on subsequent writes) AND `childListenerStillFiringAfterOffValue: true` (the child listener kept firing). `offValueClearsAllValueListeners: true` confirms the no-callback variant removes ALL value listeners at the ref. |
 | 140 | `off(ref, 'value', cb)` removes only the specific callback | ✓ | Sandbox aligned (M48); adjacent to #141 — the upstream `off` with the cb argument removes only the matching callback. Same probe (`rtdb-onvalue-unsub-equivalence.json` Case 2) confirms `off(ref, 'value', cb)` stops only that callback. |
 | 141 | The returned unsubscribe function from `onValue(ref, cb)` is equivalent to `off(ref, 'value', cb)` | ✓ | Sandbox aligned (M48); oracle: `packages/conformance/observations/rtdb/rtdb-onvalue-unsub-equivalence.json` — `unsubReturnType: 'function'`, `unsubReturnedFnStopsListener: true` (the captured return value halted fires on write), `offRefValueCbStopsListener: true` (the same effect via `off(ref, 'value', cb)`), `bothFormsEquivalent: true`. |
+| 183 | When the same callback is registered more than once, each `off(ref, eventType, callback)` removes one registration without orphaning the others | ? | Pyric behavior is locked by `packages/pyric/test/app/multi-app-listener-auth.test.ts`; a production duplicate-registration oracle capture is still needed |
 
 ### `query(ref, ...constraints)` + ordering / bounds / limits
 

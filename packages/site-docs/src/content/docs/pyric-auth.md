@@ -52,7 +52,7 @@ await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 
 The deliberately-minimal surface covers everything an `appSource` likely needs:
 
-- `getAuth(target)`: default sandbox app, `Sandbox`, and sandbox-backed `PyricApp` overloads
+- `getAuth(target)`: default `FirebaseApp`, explicit `FirebaseApp`, and direct `Sandbox` overloads
 - `connectAuthEmulator(auth, url, options?)`: accepted no-op because the mirror is already a sandbox
 - `signInAnonymously` / `signInWithEmailAndPassword` / `createUserWithEmailAndPassword` / `signOut`
 - `signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential)`: sandbox returns pre-staged mock results

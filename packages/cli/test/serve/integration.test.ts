@@ -3,7 +3,7 @@
  *  (The in-browser 6/6 behavioral check is the scripted manual gate — see
  *  the step doc; no playwright dep in @pyric/cli.) */
 import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extractHosting, serveJsonLine, startServe, wantsSpaRewrite, type ServeRuntime } from '../../src/cli/serve.js';
@@ -79,7 +79,16 @@ describe('pyric dev end-to-end (HTTP)', () => {
     expect(html).toContain('/__pyric/sdk/init.js');
 
     // 2. the mapped SDK files are served, browser-standalone
-    for (const mod of ['app', 'auth', 'firestore', 'database', 'storage', 'init']) {
+    for (const mod of [
+      'app',
+      'auth',
+      'firestore',
+      'database',
+      'messaging',
+      'messaging-sw',
+      'storage',
+      'init',
+    ]) {
       const res = await fetch(`${base}/__pyric/sdk/${mod}.js`);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('javascript');
@@ -90,12 +99,13 @@ describe('pyric dev end-to-end (HTTP)', () => {
 
     // 3. init.json carries the RESOLVED rules (2+modules → plain v2)
     const payload = (await (await fetch(base + '/__pyric/init.json')).json()) as {
-      rules: string; rulesHash: string; bridgeUrl: null;
+      rules: string; rulesHash: string; bridgeUrl: null; messaging: boolean;
     };
     expect(payload.rules).toContain("rules_version = '2'");
     expect(payload.rules).not.toContain('2+modules');
     expect(payload.rulesHash).toMatch(/^[0-9a-f]{12}$/);
     expect(payload.bridgeUrl).toBeNull();
+    expect(payload.messaging).toBe(true);
 
     // 4. SPA rewrite from firebase.json
     expect(await (await fetch(base + '/some/route')).text()).toContain('importmap');
@@ -111,6 +121,23 @@ describe('pyric dev end-to-end (HTTP)', () => {
     await runtime.handle.stop();
     stops.pop();
     await expect(fetch(base + '/')).rejects.toThrow();
+  }, 30_000);
+
+  it('removes an immutable --no-cache SDK generation on clean server shutdown', async () => {
+    const cwd = fixtureProject();
+    const cacheRoot = join(cwd, '.cache');
+    const runtime = await startServe({
+      cwd,
+      port: 0,
+      cacheRoot,
+      noCache: true,
+      logger: silentServeLogger(),
+    });
+    expect(readdirSync(cacheRoot).filter((name) => name.startsWith('.no-cache-'))).toHaveLength(1);
+
+    await runtime.handle.stop();
+
+    expect(readdirSync(cacheRoot).filter((name) => name.startsWith('.no-cache-'))).toEqual([]);
   }, 30_000);
 
   it('fails fast on broken rules; serves without firebase.json', async () => {

@@ -1,23 +1,22 @@
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 > **Climb status: this surface is climbing under CDD.**
-> 56 of 56 rows conforming.
+> Client + service-worker mirror: 17 of 17 rows conforming.
+> Separately tracked Admin send plane: 39 of 39 rows conforming.
 > A `?` row below is a target with a derived failing test, not a guarantee.
 
 # `pyric` messaging compatibility matrix
 
 > **Surface coverage:** 100% of Firebase's public exports · 100% of what pyric intends to mirror
 >
-> **Fidelity:** 100% (56 of 56 tracked claims match production)
+> **Fidelity:** 100% (17 of 17 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
 
-> **Conformance-held; not yet in published packages.** Every row below is
-> replayed by conformance suites that run in blocking CI, so the statuses are
-> live guarantees against this repository. The messaging entry points are not
-> yet included in the published npm packages: the mirror is complete here, and
-> it ships in a release after graduation. Until then, installing `pyric` from
-> npm does not provide `pyric/messaging`.
+> **Published and conformance-held.** The client, service-worker, and admin
+> messaging entry points ship in the published `pyric` and `pyric-admin`
+> packages. Every row below is replayed by conformance suites that run in
+> blocking CI, so the statuses are live guarantees against this repository.
 
 The single readable contract for "what `pyric` will guarantee vs the production
 Firebase Cloud Messaging surface" — the client (`firebase/messaging`) and
@@ -46,7 +45,7 @@ on the conformance suite replaying it.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 1 | Returns the FCM `Messaging` instance associated with the given (or default) `FirebaseApp`. Bound to the client component registered under the name `messaging`. | ✓ | Upstream typings/JSDoc (firebase 12.13.0, `@firebase/messaging` 0.12.26); no observation yet. |
+| 1 | Returns the FCM `Messaging` instance associated with the given (or default) `FirebaseApp`. Bound to the client component registered under the name `messaging`. | ✓ | Upstream typings/JSDoc (firebase 12.13.0, `@firebase/messaging` 0.12.26); in-process mirror suite plus canonical-import SharedWorker replay `messaging-app-boundary.pw.ts`. |
 | 2 | Subscribes the instance to push and resolves with an FCM registration token; requests notification permission if not already granted and rejects if denied. Production tokens are colon-separated, URL-safe, ~142 chars, with the suffix after the colon beginning `APA91b`, and are stable across repeated `getToken` calls on the same service-worker registration (no per-call rotation). | ✓ | oracle: `messaging-web-token-shape.json` (minted, length 142, colon-separated, suffix starts `APA91b`, URL-safe) + `messaging-web-token-stability.json` (second `getToken` on the same registration returns the same token). Replayed by the conformance suite. |
 | 3 | Deletes the registration token and unsubscribes the instance from its push subscription; resolves truthy. After deletion no message reaches the client on either route, and a server send to the now-dead token eventually surfaces the UNREGISTERED / 404-class error on the send plane (propagation is asynchronous — the first send after delete may still be accepted while delivery has already stopped). | ✓ | oracle: `messaging-web-deletetoken-unregistered.json` (deleteToken resolved truthy; no delivery to client; send plane eventually UNREGISTERED). Replayed by the conformance suite. |
 | 4 | Dispatched with the push payload when a message arrives while a window client is visible; the returned function stops listening. Routing keys on page VISIBILITY, not focus: a `visibilityState: "visible"` page receives `onMessage` even when unfocused, and when no window client is visible the message routes to the service-worker `onBackgroundMessage` instead. | ✓ | oracle: `messaging-web-onmessage-foreground.json` (focused page → onMessage) + `messaging-web-visibility-routing.json` (visible → onMessage, no visible client → onBackgroundMessage). Replayed by the conformance suite. |
@@ -63,11 +62,11 @@ on the conformance suite replaying it.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 13 | Returns the FCM instance within a service-worker context (bound to `getMessagingInSw`); registers under the component name `messaging-sw`. | ✓ | Upstream typings (`@firebase/messaging` 0.12.26 `sw/index-public`); no observation yet. |
-| 14 | Called when a message arrives while the app has no visible window client. Production routes background deliveries here rather than to `onMessage`; the delivered payload carries `data` / `from` / `messageId` and, for notification messages, a `notification` block. A DATA-ONLY message still fires `onBackgroundMessage` with no `notification` key, and a registered handler suppresses the SDK auto-display. | ✓ | oracle: `messaging-web-onbackgroundmessage.json` (no visible client → onBackgroundMessage) + `messaging-web-visibility-routing.json` + `messaging-web-data-only-background.json` (data-only fires, no notification key). Replayed by the conformance suite. |
+| 13 | Returns the FCM instance within a service-worker context (bound to `getMessagingInSw`); registers under the component name `messaging-sw`. | ✓ | Upstream typings (`@firebase/messaging` 0.12.26 `sw/index-public`) plus real module-ServiceWorker served-entry replay `messaging-app-boundary.pw.ts`. |
+| 14 | Called when a message arrives while the app has no visible window client. Production routes background deliveries here rather than to `onMessage`; the delivered payload carries `data` / `from` / `messageId` and, for notification messages, a `notification` block. A DATA-ONLY message still fires `onBackgroundMessage` with no `notification` key, and a registered handler suppresses the SDK auto-display. | ✓ | oracle: `messaging-web-onbackgroundmessage.json` (no visible client → onBackgroundMessage) + `messaging-web-visibility-routing.json` + `messaging-web-data-only-background.json` (data-only fires, no notification key). Replayed by the conformance suite and by a real module Service Worker connected to the canonical SharedWorker broker in `messaging-app-boundary.pw.ts`. |
 | 15 | Enables or disables delivery-metrics export to BigQuery at runtime; default off. | ✓ | Upstream typings (`@firebase/messaging` 0.12.26 `sw/index-public`); no observation yet. |
 | 16 | Resolves whether every API required by FCM exists within the service-worker context (bound to `isSwSupported`). | ✓ | Upstream typings (`@firebase/messaging` 0.12.26 `sw/index-public`); no observation yet. |
-| 17 | The sw entry exports `onBackgroundMessage`, `getMessaging`, `experimentalSetDeliveryMetricsExportedToBigQueryEnabled`, and `isSupported`, but NOT `getToken` / `deleteToken` / `onMessage`; the client entry exports the latter but NOT `onBackgroundMessage` / the metrics toggle. The two modules register under different component names (`messaging` vs `messaging-sw`) and re-export identical `Messaging` / `GetTokenOptions` / `MessagePayload` / `NotificationPayload` / `FcmOptions` type declarations. | ✓ | Upstream typings (`@firebase/messaging` 0.12.26 `index.d.ts` / `index.sw.d.ts`); no observation yet. |
+| 17 | The sw entry exports `onBackgroundMessage`, `getMessaging`, `experimentalSetDeliveryMetricsExportedToBigQueryEnabled`, and `isSupported`, but NOT `getToken` / `deleteToken` / `onMessage`; the client entry exports the latter but NOT `onBackgroundMessage` / the metrics toggle. The two modules register under different component names (`messaging` vs `messaging-sw`) and re-export identical `Messaging` / `GetTokenOptions` / `MessagePayload` / `NotificationPayload` / `FcmOptions` type declarations. | ✓ | Upstream typings (`@firebase/messaging` 0.12.26 `index.d.ts` / `index.sw.d.ts`) plus Window and real module-ServiceWorker boundary replay `messaging-app-boundary.pw.ts`. |
 
 ## `firebase-admin/messaging` — entry + `Messaging` class
 

@@ -28,7 +28,7 @@
     "pyric": "workspace:*",
     "@pyric/cli": "workspace:*",
     "@pyric/ui": "workspace:*",
-    "@inbrowser/agent": "0.4.1",
+    "@inbrowser/agent": "0.4.2",
     "@inbrowser/relay": "0.4.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

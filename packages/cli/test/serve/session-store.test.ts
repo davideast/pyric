@@ -39,6 +39,24 @@ describe('SessionStore', () => {
     expect(store.load()?.uid).toBe('u1'); // carried over, like the real SDK
   });
 
+  it('restores the persisted SESSION mode before an Auth observer resaves it', () => {
+    const local = fakeStorage();
+    const session = fakeStorage();
+    const stores = { local, session };
+    const firstPage = new SessionStore(stores);
+    firstPage.setMode('SESSION');
+    firstPage.save('u1');
+
+    const reloadedPage = new SessionStore(stores);
+    expect(reloadedPage.load()?.uid).toBe('u1');
+    // wireAppPersistence's initial onAuthStateChanged callback resaves the
+    // restored user. It must preserve where the record was restored from.
+    reloadedPage.save('u1');
+
+    expect(local.dump()).toEqual({});
+    expect(session.dump()).not.toEqual({});
+  });
+
   it('NONE stores nothing and drops the current session; signOut clears', () => {
     const { store, local, session } = wire();
     store.save('u1');
@@ -61,5 +79,22 @@ describe('SessionStore', () => {
     const store = new SessionStore({ local, session });
     expect(store.load()).toBeNull();
     expect(local.dump()).toEqual({}); // cleaned up
+  });
+
+  it('keeps named app sessions in independent keys over the same storages', () => {
+    const local = fakeStorage();
+    const session = fakeStorage();
+    const stores = { local, session };
+    const defaultStore = new SessionStore(stores);
+    const secondaryStore = new SessionStore(stores, 'secondary');
+
+    defaultStore.save('default-user');
+    secondaryStore.save('secondary-user');
+
+    expect(defaultStore.load()?.uid).toBe('default-user');
+    expect(secondaryStore.load()?.uid).toBe('secondary-user');
+    expect(Object.keys(local.dump())).toHaveLength(2);
+    secondaryStore.clear();
+    expect(defaultStore.load()?.uid).toBe('default-user');
   });
 });

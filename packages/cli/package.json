@@ -91,6 +91,7 @@
   "scripts": {
     "build": "tsc && bun run scripts/postbuild.ts",
     "test": "bun test",
+    "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts --config test/e2e/playwright.config.ts",
     "test:soak": "playwright test --config test/e2e/soak/playwright.config.ts",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit",
     "compile": "bun scripts/compile.ts",
@@ -99,7 +100,7 @@
     "smoke:vendor": "bun scripts/standalone-vendor-smoke.ts"
   },
   "dependencies": {
-    "@inbrowser/agent": "0.4.1",
+    "@inbrowser/agent": "0.4.2",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "esbuild": "^0.28.0",
     "fake-indexeddb": "^6.0.0",

@@ -14,7 +14,7 @@ backend, plus Pyric's rules tooling and sandbox runtime.
 
 | Subpath | Surface |
 |---|---|
-| `pyric/app` | `initializeApp`, `PyricApp`, sandbox/prod app tags |
+| `pyric/app` | Firebase-shaped `initializeApp`, `getApp`, `getApps`, and `deleteApp` |
 | `pyric/firestore` | Firestore modular SDK mirror plus data/inspect tool factories |
 | `pyric/auth` | Auth modular SDK mirror plus sandbox auth helpers |
 | `pyric/database` | Realtime Database modular SDK mirror plus admin tools |
@@ -32,18 +32,17 @@ backend, plus Pyric's rules tooling and sandbox runtime.
 
 ```ts
 import { initializeApp } from 'pyric/app';
-import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore, collection, getDocs } from 'pyric/firestore';
 
-const app = initializeApp({ sandbox: initializeSandbox() });
+const app = initializeApp({ projectId: 'demo-project' });
 const db = getFirestore(app);
 
 const snap = await getDocs(collection(db, 'posts'));
 ```
 
-To target production Firebase instead, pass normal Firebase app options to
-`initializeApp`. Downstream Firestore/Auth/Database/Storage calls keep the same
-shape.
+The same options and downstream call shapes work with `firebase/*`. Pyric
+currently accepts one Firebase configuration per runtime; named apps with
+equal options are distinct service containers connected to the same sandbox.
 
 ## Docs
 

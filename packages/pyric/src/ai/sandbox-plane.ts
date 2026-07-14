@@ -33,7 +33,7 @@ import {
   createEnhancedContentResponse,
   type EnhancedResponse,
 } from './response-helpers.js';
-import type { SandboxTarget } from './types.js';
+import type { AITarget } from './types.js';
 
 export interface SingleRequestOptions {
   timeout?: number;
@@ -105,16 +105,18 @@ function normalizeRequest<T>(request: T): T {
 }
 
 export async function planeGenerateContent(
-  target: SandboxTarget,
+  target: AITarget,
   modelResource: string,
   request: Record<string, unknown>,
   singleRequestOptions?: SingleRequestOptions,
 ): Promise<GenerateContentResult> {
+  target.assertAlive?.();
   checkSignal(singleRequestOptions);
   try {
     validateModel(modelResource);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
-    const response = await target.broker.generateContent(normalized, modelResource);
+    const response = await (target.kind === 'transport' ? target.transport : target.broker)
+      .generateContent(normalized, modelResource);
     return { response: createEnhancedContentResponse(response) };
   } catch (err) {
     throw toAIError(err, modelResource, 'generateContent');
@@ -122,11 +124,12 @@ export async function planeGenerateContent(
 }
 
 export async function planeGenerateContentStream(
-  target: SandboxTarget,
+  target: AITarget,
   modelResource: string,
   request: Record<string, unknown>,
   singleRequestOptions?: SingleRequestOptions,
 ): Promise<GenerateContentStreamResult> {
+  target.assertAlive?.();
   checkSignal(singleRequestOptions);
   let inner: AsyncIterable<WireResponse>;
   try {
@@ -134,7 +137,8 @@ export async function planeGenerateContentStream(
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
     // Broker validation runs eagerly here — a bad request throws before
     // iteration, the way production answers HTTP errors instead of a stream.
-    inner = target.broker.streamGenerateContent(normalized, modelResource);
+    inner = (target.kind === 'transport' ? target.transport : target.broker)
+      .streamGenerateContent(normalized, modelResource);
   } catch (err) {
     throw toAIError(err, modelResource, 'streamGenerateContent');
   }
@@ -195,18 +199,20 @@ export async function planeGenerateContentStream(
 }
 
 export async function planeCountTokens(
-  target: SandboxTarget,
+  target: AITarget,
   modelResource: string,
   request: Record<string, unknown>,
   singleRequestOptions?: SingleRequestOptions,
 ): Promise<CountTokensResponse> {
+  target.assertAlive?.();
   checkSignal(singleRequestOptions);
   try {
     validateModel(modelResource);
+    const dispatch = target.kind === 'transport' ? target.transport : target.broker;
     const normalized = normalizeRequest(request) as unknown as Parameters<
-      SandboxTarget['broker']['countTokens']
+      typeof dispatch.countTokens
     >[0];
-    return await target.broker.countTokens(normalized, modelResource);
+    return await dispatch.countTokens(normalized, modelResource);
   } catch (err) {
     throw toAIError(err, modelResource, 'countTokens');
   }

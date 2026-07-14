@@ -25,6 +25,12 @@ import { dirname, join } from 'node:path';
 export interface EmbeddedAssets {
   /** The `pyric` version the embedded bundles were built from. */
   version: string;
+  /**
+   * Content hash of the embedded SDK, worker, Studio, and docs trees.
+   * New standalone builds use it to isolate same-version rebuilds in the
+   * materialization cache. Optional so older compiled binaries still boot.
+   */
+  assetVersion?: string;
   /** Worker source hash stamped into the page (`<meta name="pyric-worker-v">`). */
   workerVersion: string;
   /** Lazy: flat map of SDK filename -> base64 bytes (app.js, worker.js, chunks). */
@@ -124,6 +130,11 @@ function materialize(root: string, files: Record<string, string>, version: strin
   writeFileSync(marker, version);
 }
 
+function materializationRoot(e: EmbeddedAssets): string {
+  const identity = e.assetVersion ? `${e.version}-${e.assetVersion}` : e.version;
+  return join(tmpdir(), `pyric-serve-${identity}`);
+}
+
 let sdkDirOnce: string | null = null;
 
 /**
@@ -134,7 +145,7 @@ let sdkDirOnce: string | null = null;
 export async function materializeServeAssets(): Promise<{ outDir: string; cached: boolean }> {
   if (sdkDirOnce) return { outDir: sdkDirOnce, cached: true };
   const e = embedded();
-  const outDir = join(tmpdir(), `pyric-serve-${e.version}`, 'sdk');
+  const outDir = join(materializationRoot(e), 'sdk');
   const cached = existsSync(join(outDir, '.complete'));
   materialize(outDir, await e.sdk(), e.version);
   sdkDirOnce = outDir;
@@ -147,7 +158,7 @@ let studioDirOnce: string | null = null;
 export async function materializeStudioUi(): Promise<string> {
   if (studioDirOnce) return studioDirOnce;
   const e = embedded();
-  const dir = join(tmpdir(), `pyric-serve-${e.version}`, 'studio-ui');
+  const dir = join(materializationRoot(e), 'studio-ui');
   materialize(dir, await e.studio(), e.version);
   studioDirOnce = dir;
   return dir;
@@ -160,7 +171,7 @@ export async function materializeDocsUi(): Promise<string | null> {
   if (docsDirOnce) return docsDirOnce;
   const e = embedded();
   if (!e.docs) return null;
-  const dir = join(tmpdir(), `pyric-serve-${e.version}`, 'docs-ui');
+  const dir = join(materializationRoot(e), 'docs-ui');
   materialize(dir, await e.docs(), e.version);
   docsDirOnce = dir;
   return dir;

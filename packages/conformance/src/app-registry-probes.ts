@@ -30,6 +30,7 @@
  * Usage:
  *   bun run packages/conformance/src/app-registry-probes.ts            # verify
  *   bun run packages/conformance/src/app-registry-probes.ts --write     # recapture
+ *   bun run packages/conformance/src/app-registry-probes.ts --write --only=<probe-id>
  */
 import { deleteApp, getApps } from 'firebase/app';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -210,7 +211,12 @@ async function write(probes: LoadedProbe[], installedVersion: string): Promise<v
 
 async function main(): Promise<void> {
   const wantsWrite = process.argv.includes('--write');
-  const probes = await loadProbes();
+  const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice('--only='.length);
+  const loaded = await loadProbes();
+  const probes = only ? loaded.filter(({ id }) => id === only) : loaded;
+  if (only && probes.length === 0) {
+    throw new Error(`unknown app-registry probe: ${only}`);
+  }
   const installedVersion = resolvedFirebaseVersion();
 
   if (wantsWrite) {

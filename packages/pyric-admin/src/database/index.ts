@@ -110,6 +110,7 @@ import {
   getApp,
   type PyricAdminApp,
 } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 
 // Re-export the firebase-admin/database types so consumers can spell
 // every type with a `pyric-admin/database` import path. The sandbox
@@ -164,6 +165,7 @@ export function getDatabase(
     // '[DEFAULT]' app from the registry (throws app/no-app on a miss).
     app = getApp();
   }
+  assertAdminAppActive(app);
   if (app[ADMIN_APP_TARGET] === 'prod') {
     return url === undefined
       ? adminGetDatabase(app.adminApp)

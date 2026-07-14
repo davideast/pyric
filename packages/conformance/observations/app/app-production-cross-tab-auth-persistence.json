@@ -1,0 +1,20 @@
+{
+  "name": "app-production-cross-tab-auth-persistence",
+  "matrixRow": "auth #184",
+  "rowIds": [
+    "auth#184"
+  ],
+  "description": "Real-browser production capture for LOCAL Auth persistence synchronization between same-named app instances in sibling tabs, observed for a bounded quiet window after the sibling receives the persistence event.",
+  "observedAt": "2026-07-14T09:41:27.700Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "methodology": {
+    "startsAfterSiblingPersistenceSignal": true,
+    "persistenceSignalMatchesDefaultAppKeyAndSourceUid": true,
+    "quietWindowMs": 5000
+  },
+  "behavior": {
+    "localSignInPropagatesToSameNamedAppInSiblingTab": false,
+    "propagatedUidMatchesSource": false
+  }
+}

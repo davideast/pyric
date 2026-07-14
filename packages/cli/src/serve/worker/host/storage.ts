@@ -14,7 +14,6 @@
  */
 
 import {
-  getStorage,
   getStorageSandbox,
   ref as storageRef,
   listAll as storageListAll,
@@ -32,8 +31,8 @@ import {
   bindStorageOperationContext,
   getAdminStorageSandbox,
 } from 'pyric/storage/internal';
-import { initializeApp } from 'pyric/app';
 import type { AuthLens } from 'pyric/sandbox';
+import { bindOperationContext } from 'pyric/sandbox/internal';
 
 import type { OpMessage } from '../protocol.js';
 import {
@@ -44,27 +43,26 @@ import {
   MAX_STORAGE_OP_B64_LENGTH,
 } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
-import { authStateForLens, lensCacheKey, opProvenance } from './core.js';
-
-/** Monotonic app-name source so each host ctx registers a uniquely-named
- *  pyric/app app (the client registry rejects duplicate names). */
-let hostAppSeq = 0;
+import { authStateForLens, lensCacheKey, opProvenance, sessionCacheKey } from './core.js';
+import { portSession } from '../host-auth.js';
 
 /** The shared Storage handle, lazily created (Pyric Studio data browse): one per
- *  worker, over an app bound to the shared sandbox. The high-level
+ *  worker, directly over the shared sandbox. The high-level
  *  `pyric/storage` ops enforce rules, so the host reads through them. */
 function ensureStorage(ctx: HostCtx): FirebaseStorage {
-  // A unique app name per host ctx: pyric/app now mirrors firebase's registry,
-  // where a default-name re-init across ctxs would collide (app/duplicate-app).
-  return (ctx.storage ??= getStorage(initializeApp({ sandbox: ctx.sandbox }, `pyric-host-${hostAppSeq++}`)));
+  return (ctx.storage ??= getStorageSandbox(bindOperationContext(ctx.sandbox.withAuth(null), {
+    source: { kind: 'app' },
+    authLens: { mode: 'app-session' },
+  })));
 }
 
 /**
  * Resolve the Storage handle a storage op runs against, given its `actAs`
  * lens — the storage mirror of {@link lensRtdb}:
  *
- *   - absent / `app-session` → the shared anonymous page handle
- *     ({@link ensureStorage}). Storage rules apply only when the HOST
+ *   - absent / `app-session` → a handle carrying the initiating port's Auth
+ *     session, or the shared anonymous handle when that port is signed out.
+ *     Storage rules apply only when the HOST
  *     configured them on this sandbox's storage service (first call per
  *     sandbox wins) — the SERVED worker configures them via
  *     `applyServeInit` (`serve-init.ts`), which opens the storage service
@@ -73,8 +71,6 @@ function ensureStorage(ctx: HostCtx): FirebaseStorage {
  *     project's storage.rules (or runs open when the project has none,
  *     matching Firestore/RTDB's no-rules posture). The lens split still
  *     matters for embedding/test hosts that open the service directly.
- *     (Storage also has no per-port session plumbing — reads always ran
- *     anonymous; writes keep that.)
  *   - `{ mode: 'admin' }` → the rules-BYPASS handle from
  *     `pyric/storage/internal`'s admin plane — same per-sandbox store +
  *     ruleset, rule evaluation skipped (firebase-admin semantics for the
@@ -83,9 +79,22 @@ function ensureStorage(ctx: HostCtx): FirebaseStorage {
  *     sandbox.withAuth({ uid, token? }))` handle; rules evaluate AS that
  *     user. Cached per uid/token key on `ctx.lensStorages`.
  */
-function lensStorage(ctx: HostCtx, actAs?: AuthLens): FirebaseStorage {
+function sessionStorage(ctx: HostCtx, port: PortLike): FirebaseStorage {
+  const session = portSession(ctx, port);
+  if (!session) return ensureStorage(ctx);
+  const key = sessionCacheKey(session);
+  const handles = (ctx.sessionStorages ??= new Map());
+  let handle = handles.get(key);
+  if (!handle) {
+    handle = getStorageSandbox(ctx.sandbox.withAuth(session.state));
+    handles.set(key, handle);
+  }
+  return handle;
+}
+
+function lensStorage(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike): FirebaseStorage {
   if (!actAs || actAs.mode === 'app-session') {
-    return ensureStorage(ctx);
+    return sessionStorage(ctx, port);
   }
   if (actAs.mode === 'admin') {
     return (ctx.adminStorage ??= getAdminStorageSandbox(ctx.sandbox));
@@ -169,7 +178,7 @@ export async function handleStorageOp(
       // under the op's lens (admin lens bypasses — see lensStorage).
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs),
+          lensStorage(ctx, msg.actAs, port),
           opProvenance(msg),
         );
         const result = await storageListAll(storageRef(storage, msg.path));
@@ -184,7 +193,7 @@ export async function handleStorageOp(
     case 'storage.getMetadata': {
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs),
+          lensStorage(ctx, msg.actAs, port),
           opProvenance(msg),
         );
         // FullMetadata is plain JSON (bucket/fullPath/name/size/contentType/...).
@@ -204,7 +213,7 @@ export async function handleStorageOp(
       // callers use `storage.getBytes` (base64) instead.
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs),
+          lensStorage(ctx, msg.actAs, port),
           opProvenance(msg),
         );
         ok(
@@ -236,7 +245,7 @@ export async function handleStorageOp(
           throw storagePayloadTooLarge(bytes.byteLength, `storage.putBytes payload for '${msg.path}'`);
         }
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs),
+          lensStorage(ctx, msg.actAs, port),
           opProvenance(msg),
         );
         const result = await storageUploadBytes(
@@ -258,7 +267,7 @@ export async function handleStorageOp(
       // superseding `not-found`, matching pyric/storage).
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs),
+          lensStorage(ctx, msg.actAs, port),
           opProvenance(msg),
         );
         const r = storageRef(storage, msg.path);
@@ -287,7 +296,7 @@ export async function handleStorageOp(
       // explicitly (issue #84 item 3).
       try {
         const storage = bindStorageOperationContext(
-          lensStorage(ctx, msg.actAs),
+          lensStorage(ctx, msg.actAs, port),
           opProvenance(msg),
         );
         await storageDeleteObject(storageRef(storage, msg.path));

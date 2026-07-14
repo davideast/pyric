@@ -40,9 +40,9 @@ describe('parseImportedSymbols', () => {
 });
 
 describe('computeCriticalSymbols (real entry-path corpus)', () => {
-  test('every tracked program contributes pyric/app + pyric/sandbox critical symbols', () => {
+  test('tracks Firebase-shaped app initialization without requiring the Pyric sandbox API', () => {
     const report = computeCriticalSymbols();
     expect(report.packages['pyric/app']?.symbols).toContain('initializeApp');
-    expect(report.packages['pyric/sandbox']?.symbols).toContain('initializeSandbox');
+    expect(report.packages['pyric/sandbox']).toBeUndefined();
   });
 });

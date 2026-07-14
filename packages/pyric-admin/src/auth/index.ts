@@ -101,6 +101,7 @@ import {
   type ProdAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 
 /**
  * The handle returned by {@link getAuth}. On the prod path this is
@@ -888,6 +889,7 @@ export function getAuth(app?: PyricAdminApp): Auth {
         '`initializeApp({ credential })` (prod) or `initializeApp({ sandbox })` (sandbox).',
     );
   }
+  assertAdminAppActive(app);
   if (isSandboxAdminApp(app)) {
     // Remote-branded sandboxes dispatch BEFORE the local arm: the local
     // in-memory store would be a private server-side user table the

@@ -6,7 +6,8 @@ import type { RigManifestRecord } from './types.ts';
  * — initializeApp default/named/duplicate semantics, getApp/getApps/deleteApp,
  * the `app/no-app` / `app/duplicate-app` / `app/app-deleted` error shapes,
  * `SDK_VERSION`, the `FirebaseError` class, and the observable
- * onLog/setLogLevel/registerVersion logging seam. No credentials, no project,
+ * onLog/setLogLevel/registerVersion logging seam, and default/named service
+ * container association. No credentials, no project,
  * no network: every fact it measures lives inside the installed `firebase`
  * package itself. Captures `app-registry-` observations.
  *
@@ -15,7 +16,7 @@ import type { RigManifestRecord } from './types.ts';
  */
 export const rig: RigManifestRecord = {
   description:
-    'Pure in-process probes of the installed firebase/app client app registry (initializeApp default/named/duplicate, getApp/getApps/deleteApp, app/no-app + app/duplicate-app + app/app-deleted error shapes, SDK_VERSION, FirebaseError, onLog/setLogLevel/registerVersion logging seam); no credentials or network. Captures app-registry- observations.',
+    'Pure in-process probes of the installed firebase/app client app registry (initializeApp default/named/duplicate, getApp/getApps/deleteApp, default/named service containers, app/no-app + app/duplicate-app + app/app-deleted error shapes, SDK_VERSION, FirebaseError, onLog/setLogLevel/registerVersion logging seam); no credentials or network. Captures app-registry- observations.',
   script: 'packages/conformance/src/app-registry-probes.ts',
   observationPrefixes: ['app-registry-'],
   automation: 'unattended',
@@ -24,7 +25,7 @@ export const rig: RigManifestRecord = {
     env: [],
     projectFeatures: [],
     local: [
-      'Installed firebase package in node_modules (already a workspace dependency) — no Firebase config, project, or credential of any kind is needed. initializeApp is fed placeholder FirebaseOptions; nothing reaches a real project because no service is opened.',
+      'Installed firebase package in node_modules (already a workspace dependency) — no Firebase project or credential is needed. initializeApp is fed placeholder FirebaseOptions; service handles are constructed for container-identity probes, but no service operation or network request is issued.',
     ],
   },
   safety: {

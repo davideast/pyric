@@ -41,6 +41,10 @@ import {
 } from './error-translation.js';
 import { getRemoteSnapshotRegistrar, registerRemoteOnSnapshotImpl } from './remote/listeners.js';
 import type { SnapshotObserver, Unsubscribe } from './types.js';
+import {
+  AUTH_SESSION_SCOPE,
+  FOLLOWS_CURRENT_USER,
+} from 'pyric/firestore/internal';
 
 /**
  * Mirrors `firebase/firestore`'s `SnapshotListenOptions`. The
@@ -64,8 +68,6 @@ export type SnapshotListenOptions = SnapshotListenerOptions;
  * Symbol-keyed (not a named field) so it never collides with a real
  * `SnapshotListenOptions` field and never leaks to consumer code.
  */
-export const FOLLOWS_CURRENT_USER: unique symbol = Symbol('pyric/firestore/followsCurrentUser');
-
 /**
  * Extract a `{ collectionPath }` for query-shaped refs. The compat
  * `QueryImpl` keeps its `collectionPath` as a `protected` field, but
@@ -310,10 +312,15 @@ export function onSnapshot(
   // (the safe default for any direct chainable-adapter caller).
   const followsCurrentUser =
     (options as { [FOLLOWS_CURRENT_USER]?: boolean })[FOLLOWS_CURRENT_USER] === true;
+  const authScope = (options as { [AUTH_SESSION_SCOPE]?: object })[AUTH_SESSION_SCOPE];
   const bypassRules =
     (reference as { [BYPASS_RULES_SYMBOL]?: boolean })[BYPASS_RULES_SYMBOL] === true;
   if (FOLLOWS_CURRENT_USER in options) {
     const { [FOLLOWS_CURRENT_USER]: _omit, ...rest } = options as Record<PropertyKey, unknown>;
+    options = rest as SnapshotListenOptions;
+  }
+  if (AUTH_SESSION_SCOPE in options) {
+    const { [AUTH_SESSION_SCOPE]: _omit, ...rest } = options as Record<PropertyKey, unknown>;
     options = rest as SnapshotListenOptions;
   }
 
@@ -328,6 +335,7 @@ export function onSnapshot(
     onError,
     followsCurrentUser,
     bypassRules,
+    authScope,
   );
 }
 

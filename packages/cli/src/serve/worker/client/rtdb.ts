@@ -5,15 +5,33 @@
  */
 
 import type { InboundMessage } from '../protocol.js';
-import { nextId, nextSubId, rpc, dataRpc, _snapSubs, _defaultLens, stampIssuer } from './core.js';
-import type { ClientDb, ClientRtdb, RtdbRefHandle, RtdbDataSnapshot, Unsubscribe } from './handles.js';
+import {
+  isDisconnectedPort,
+  closeSubscription,
+  openSnapshotSubscription,
+  nextId,
+  nextSubId,
+  rpc,
+  dataRpc,
+  _snapSubs,
+  _defaultLens,
+  stampIssuer,
+} from './core.js';
+import type {
+  ClientDb,
+  ClientPort,
+  ClientRtdb,
+  RtdbRefHandle,
+  RtdbDataSnapshot,
+  Unsubscribe,
+} from './handles.js';
 import { getFirestore } from './connection.js';
 
 // ─── RTDB shared-worker modular subset ────────────────────────────────────
 
 export function rtdbGetDatabase(source?: ClientDb | string | URL, name?: string): ClientRtdb {
   if (source && typeof source === 'object' && 'port' in source) {
-    return { __kind: 'client-rtdb', port: source.port as MessagePort };
+    return { __kind: 'client-rtdb', port: (source as ClientDb).port };
   }
   const firestore = getFirestore(source ?? '/__pyric/sdk/worker.js', name);
   return { __kind: 'client-rtdb', port: firestore.port };
@@ -65,7 +83,7 @@ function generateRtdbPushId(now: number = Date.now()): string {
   return id;
 }
 
-function makeRtdbRef(port: MessagePort, path: string): RtdbRefHandle {
+function makeRtdbRef(port: ClientPort, path: string): RtdbRefHandle {
   const normalized = normalizeRtdbPath(path);
   const parts = normalized.split('/').filter(Boolean);
   const parentPath = parts.length > 0 ? `/${parts.slice(0, -1).join('/')}` : '/';
@@ -88,6 +106,9 @@ function makeRtdbRef(port: MessagePort, path: string): RtdbRefHandle {
 }
 
 export function rtdbRef(db: ClientRtdb, path?: string): RtdbRefHandle {
+  if (isDisconnectedPort(db.port)) {
+    throw new Error('FIREBASE FATAL ERROR: Cannot call ref on a deleted database. ');
+  }
   return makeRtdbRef(db.port, path ?? '/');
 }
 
@@ -208,11 +229,14 @@ export function adminSubscribeRtdbValue(
   error?: (err: unknown) => void,
 ): Unsubscribe {
   const subId = nextSubId();
-  _snapSubs.set(subId, {
-    next: (wire) => next((wire as { value?: unknown } | null)?.value ?? null),
-    error,
-  });
-  db.port.postMessage(
+  const opened = openSnapshotSubscription(
+    db.port,
+    subId,
+    {
+      port: db.port,
+      next: (wire) => next((wire as { value?: unknown } | null)?.value ?? null),
+      error,
+    },
     stampIssuer({
       t: 'sub',
       subId,
@@ -220,9 +244,11 @@ export function adminSubscribeRtdbValue(
       actAs: { mode: 'admin' },
     } satisfies InboundMessage),
   );
+  if (!opened && error) {
+    queueMicrotask(() => error(new Error('FIREBASE FATAL ERROR: Database has been deleted.')));
+  }
   return () => {
-    _snapSubs.delete(subId);
-    db.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+    closeSubscription(db.port, subId);
   };
 }
 
@@ -256,17 +282,17 @@ export function rtdbOnValue(
   error?: (err: unknown) => void,
 ): Unsubscribe {
   const subId = nextSubId();
-  _snapSubs.set(subId, {
-    next: (wire) => next(hydrateRtdbSnapshot(r, wire)),
-    error,
-  });
   const msg: InboundMessage = _defaultLens
     ? { t: 'sub', subId, target: { service: 'rtdb', path: r.path }, actAs: _defaultLens }
     : { t: 'sub', subId, target: { service: 'rtdb', path: r.path } };
-  r.port.postMessage(stampIssuer(msg));
+  const opened = openSnapshotSubscription(r.port, subId, {
+    port: r.port,
+    next: (wire) => next(hydrateRtdbSnapshot(r, wire)),
+    error,
+  }, stampIssuer(msg));
+  if (!opened && error) queueMicrotask(() => error(new Error('FIREBASE FATAL ERROR: Database has been deleted.')));
   return () => {
-    _snapSubs.delete(subId);
-    r.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+    closeSubscription(r.port, subId);
   };
 }
 

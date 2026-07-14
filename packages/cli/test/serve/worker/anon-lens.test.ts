@@ -315,11 +315,9 @@ describe('anon lens — Storage (lensStorage)', () => {
     expectDenied(await sendOp(ctx, port, put('notes/a.bin', { mode: 'anon' })), 'storage/unauthorized');
     okValue(await sendOp(ctx, port, put('anonOnly/a.bin', { mode: 'anon' })));
 
-    // Absent lens: storage has NO per-port session plumbing — the shared page
-    // handle is anonymous, so it matches the anon lens (documented on
-    // lensStorage). Pinning `anon` keeps remote semantics explicit anyway.
-    expectDenied(await sendOp(ctx, port, put('notes/b.bin')), 'storage/unauthorized');
-    okValue(await sendOp(ctx, port, put('anonOnly/b.bin')));
+    // Absent lens uses this port's app session, just like Firestore and RTDB.
+    okValue(await sendOp(ctx, port, put('notes/b.bin')));
+    expectDenied(await sendOp(ctx, port, put('anonOnly/b.bin')), 'storage/unauthorized');
 
     // as-uid → auth-gated zone allowed, anon-only zone denied.
     okValue(await sendOp(ctx, port, put('notes/c.bin', { mode: 'as', uid: aliceUid })));

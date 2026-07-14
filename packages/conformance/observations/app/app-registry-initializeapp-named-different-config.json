@@ -1,0 +1,20 @@
+{
+  "name": "app-registry-initializeapp-named-different-config",
+  "matrixRow": "app #19",
+  "rowIds": [
+    "app#19"
+  ],
+  "description": "firebase/app permits a differently configured app under a different name and retains each app's independent backend-selecting options.",
+  "observedAt": "2026-07-13T22:47:49.328Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "threw": false,
+    "distinctApps": true,
+    "getAppsLength": 2,
+    "namedLookupSame": true,
+    "projectIds": [
+      "demo-app-registry",
+      "other-app-registry"
+    ]
+  }
+}

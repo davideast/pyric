@@ -9,7 +9,6 @@
 import * as ip from 'pyric/storage';
 import {
   getStorage as pyricGetStorage,
-  getStorageSandbox,
   type FirebaseStorage,
 } from 'pyric/storage';
 import {
@@ -23,11 +22,21 @@ import {
   uploadBytes as workerUploadBytes,
   deleteObject as workerDeleteObject,
 } from '../worker/client.js';
-import { sandbox, useWorker, workerDb } from './runtime.js';
+import { useWorker } from './worker-runtime.js';
+import { getApp, type FirebaseApp } from 'pyric/app';
+import { workerClientForApp } from './app-client.js';
 
-export function getStorage(app?: unknown, _bucketUrl?: string): FirebaseStorage {
-  if (useWorker) return workerGetStorage(workerDb!) as unknown as FirebaseStorage;
-  return app ? pyricGetStorage(app as never) : getStorageSandbox(sandbox);
+const workerStorageByApp = new WeakMap<FirebaseApp, FirebaseStorage>();
+
+export function getStorage(app?: FirebaseApp, _bucketUrl?: string): FirebaseStorage {
+  const resolved = app ?? getApp();
+  if (!useWorker) return pyricGetStorage(resolved, _bucketUrl);
+  const existing = workerStorageByApp.get(resolved);
+  if (existing) return existing;
+  const client = workerClientForApp(resolved);
+  const handle = Object.assign(workerGetStorage(client), { app: resolved }) as unknown as FirebaseStorage;
+  workerStorageByApp.set(resolved, handle);
+  return handle;
 }
 
 export const ref = (useWorker ? workerRef : ip.ref) as typeof ip.ref;
@@ -70,15 +79,11 @@ function workerOrInPage<T extends (...args: any[]) => unknown>(name: string, fn:
   return (useWorker ? (() => unsupportedWorkerApi(name)) : fn) as T;
 }
 
-// Byte ops now have a worker protocol (base64 `storage.putBytes` /
-// `storage.getBytes` / `storage.deleteObject`), so worker mode routes them to
-// the shared object store instead of throwing. No lens is attached (these
-// calls run as the shared anonymous page handle — `actAs` absent), but the
-// served worker's `applyServeInit` configures the sandbox's storage.rules at
-// boot (before any op can run), so that shared handle enforces them like
-// every other lens (see `lensStorage` in host.ts). The admin lens matters for
-// embedding/test hosts that pre-open the service with rules. Payloads are
-// capped at 8 MiB per op.
+// Byte ops use the worker protocol (base64 `storage.putBytes` /
+// `storage.getBytes` / `storage.deleteObject`) and the initiating app port's
+// authenticated session. All app ports reach the same object store and
+// ruleset; only their active Auth sessions differ. Payloads are capped at
+// 8 MiB per op.
 export const uploadBytes = (useWorker ? workerUploadBytes : ip.uploadBytes) as typeof ip.uploadBytes;
 export const getBytes = (useWorker ? workerGetBytes : ip.getBytes) as typeof ip.getBytes;
 export const deleteObject = (useWorker ? workerDeleteObject : ip.deleteObject) as typeof ip.deleteObject;

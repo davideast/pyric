@@ -56,6 +56,11 @@ import {
 } from './host.js';
 import { buildWorkerCtx, type EventSourceLike } from './serve-init.js';
 import type { InboundMessage } from './protocol.js';
+import {
+  SERVICE_WORKER_CHANNEL,
+  type ServiceWorkerChannelMessage,
+} from './service-worker-channel.js';
+import { createServiceWorkerRelay } from './service-worker-relay.js';
 
 // ─── Singleton context ────────────────────────────────────────────────────
 
@@ -120,20 +125,20 @@ async function buildCtx(): Promise<HostCtx> {
   const port = e.ports[0];
   port.start();
 
-  port.onmessage = async (ev: MessageEvent<InboundMessage>) => {
-    // Lazily initialize on first message from any tab. All subsequent
-    // calls return the cached singleton.
-    try {
-      const ctx = await getCtx();
-      await handleMessage(ctx, port as unknown as PortLike, ev.data);
-    } catch (e) {
-      // A throw here would otherwise be an invisible unhandled rejection in the
-      // worker — surface it in the SharedWorker console (chrome://inspect →
-      // Shared workers). Op handlers already reply with fail(); this catches
-      // anything outside that (init, sub registration).
-      // eslint-disable-next-line no-console
-      console.error('[pyric worker] message handler error:', (e as Error)?.stack ?? e, 'msg:', ev.data);
-    }
+  let messageQueue = Promise.resolve();
+  port.onmessage = (ev: MessageEvent<InboundMessage>) => {
+    // Serialize each port's frames. A disconnect acknowledgement therefore
+    // cannot overtake an already-posted mutation, and later frames see the
+    // disconnected-port tombstone instead of touching the shared backend.
+    messageQueue = messageQueue.then(async () => {
+      try {
+        const ctx = await getCtx();
+        await handleMessage(ctx, port as unknown as PortLike, ev.data);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[pyric worker] message handler error:', (e as Error)?.stack ?? e, 'msg:', ev.data);
+      }
+    });
   };
 
   // Best-effort port cleanup on tab close/navigation.
@@ -143,3 +148,28 @@ async function buildCtx(): Promise<HostCtx> {
     if (_ctx) cleanupPort(_ctx, port as unknown as PortLike);
   });
 };
+
+// ServiceWorkerGlobalScope cannot construct a SharedWorker, but both worker
+// kinds share BroadcastChannel. Adapt each SW app connection to the host's
+// existing PortLike seam so it reaches this exact context/broker instead of
+// constructing a second in-Service-Worker sandbox.
+if (typeof BroadcastChannel !== 'undefined') {
+  const channel = new BroadcastChannel(SERVICE_WORKER_CHANNEL);
+  const relay = createServiceWorkerRelay({
+    getCtx,
+    send(message) { channel.postMessage(message); },
+    onError(error, envelope) {
+      console.error(
+        '[pyric worker] service-worker relay error:',
+        (error as Error)?.stack ?? error,
+        'msg:',
+        envelope,
+      );
+    },
+  });
+  channel.onmessage = (event: MessageEvent<ServiceWorkerChannelMessage>) => {
+    const envelope = event.data;
+    if (envelope.direction !== 'host') return;
+    void relay.handle(envelope);
+  };
+}

@@ -35,7 +35,11 @@
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import { SandboxContextImpl } from 'pyric/sandbox';
 
-import { APP_TARGET, type PyricApp } from 'pyric/app';
+import type { FirebaseApp } from 'firebase/app';
+import {
+  defaultClientApp,
+  resolveClientApp,
+} from '../sandbox/internal/client-app.js';
 
 import { RtdbBackend } from './sandbox/backend.js';
 import { getOrCreateBackend } from './sandbox/backend-for.js';
@@ -55,6 +59,7 @@ import {
   type QueryRow,
   type QuerySpec,
 } from './sandbox/query.js';
+import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
 
 // ─── Brand + routing ─────────────────────────────────────────────────
 
@@ -71,6 +76,10 @@ type SandboxLiveTarget = {
   kind: 'sandbox-live';
   backend: RtdbBackend;
   sandbox: Sandbox;
+  currentUser?: () => AuthState;
+  onCurrentUserChanged?: (callback: (user: AuthState) => void) => Unsubscribe;
+  own?: (cleanup: () => void) => () => void;
+  assertUsable?: () => void;
   admin?: boolean;
 };
 type Target = SandboxTarget | SandboxLiveTarget;
@@ -78,7 +87,7 @@ type Target = SandboxTarget | SandboxLiveTarget;
 /** Resolve the active identity for a sandbox-flavored target. */
 function authFor(t: SandboxTarget | SandboxLiveTarget): AuthState {
   if (t.admin) return null;
-  return t.kind === 'sandbox' ? t.auth : t.sandbox.currentUser;
+  return t.kind === 'sandbox' ? t.auth : (t.currentUser?.() ?? t.sandbox.currentUser);
 }
 
 const refToTarget = new WeakMap<object, Target>();
@@ -89,16 +98,19 @@ function tag<T extends object>(obj: T, target: Target): T {
 }
 
 function targetOf(refOrDb: object): Target {
+  let target: Target | undefined;
   if (TARGET_SYMBOL in refOrDb) {
-    return (refOrDb as { [TARGET_SYMBOL]: Target })[TARGET_SYMBOL];
+    target = (refOrDb as { [TARGET_SYMBOL]: Target })[TARGET_SYMBOL];
+  } else {
+    target = refToTarget.get(refOrDb);
   }
-  const t = refToTarget.get(refOrDb);
-  if (!t) {
+  if (!target) {
     throw new TypeError(
       'pyric/database: unrecognized reference — was it produced by a factory in this package?',
     );
   }
-  return t;
+  if (target.kind === 'sandbox-live') target.assertUsable?.();
+  return target;
 }
 
 // ─── Public types ────────────────────────────────────────────────────
@@ -106,7 +118,11 @@ function targetOf(refOrDb: object): Target {
 /** Opaque RTDB handle. Routes via {@link TARGET_SYMBOL}. */
 export interface Database {
   readonly [TARGET_SYMBOL]: Target;
+  readonly app?: FirebaseApp;
 }
+
+/** Database handle returned by Firebase-shaped app overloads. */
+export type AppDatabase = Database & { readonly app: FirebaseApp };
 
 /**
  * RTDB-shaped reference. Backend-opaque to consumers; mirrors
@@ -284,14 +300,36 @@ function isQuery(v: object): v is Query {
  */
 export function getDatabase(ctx: SandboxContext): Database;
 export function getDatabase(sandbox: Sandbox): Database;
-export function getDatabase(app: PyricApp): Database;
+export function getDatabase(app: FirebaseApp): AppDatabase;
+export function getDatabase(): AppDatabase;
 export function getDatabase(
-  target: SandboxContext | Sandbox | PyricApp,
+  target?: SandboxContext | Sandbox | FirebaseApp,
 ): Database {
-  // Package resolution already selected the sandbox mirror before this code
-  // loaded, so a PyricApp can only unwrap to its Sandbox.
-  if (isPyricApp(target)) {
-    return getDatabase(target.sandbox);
+  if (target === undefined) return getDatabase(defaultClientApp() as FirebaseApp);
+  // Package resolution already selected the sandbox mirror; the neutral app
+  // adapter resolves an associated FirebaseApp to its app-owned runtime.
+  const appRuntime = resolveClientApp(target);
+  if (appRuntime) {
+    return appRuntime.service('database/default', () => {
+      const { sandbox, session } = appRuntime;
+      let deleted = false;
+      appRuntime.onDelete(() => { deleted = true; });
+      const backend = getOrCreateBackend(sandbox);
+      const t: SandboxLiveTarget = {
+        kind: 'sandbox-live',
+        backend,
+        sandbox,
+        currentUser: () => session.currentUser,
+        onCurrentUserChanged: (callback) => session.onCurrentUserChanged(callback),
+        own: (cleanup) => appRuntime.onDelete(cleanup),
+        assertUsable: () => {
+          if (deleted) {
+            throw new Error('FIREBASE FATAL ERROR: Cannot call ref on a deleted database. ');
+          }
+        },
+      };
+      return { [TARGET_SYMBOL]: t, app: target as FirebaseApp };
+    });
   }
   if (isSandboxContext(target)) {
     const backend = getOrCreateBackend(target.sandbox);
@@ -300,7 +338,12 @@ export function getDatabase(
   }
   if (isSandbox(target)) {
     const backend = getOrCreateBackend(target);
-    const t: SandboxLiveTarget = { kind: 'sandbox-live', backend, sandbox: target };
+    const t: SandboxLiveTarget = {
+      kind: 'sandbox-live',
+      backend,
+      sandbox: target,
+      onCurrentUserChanged: (callback) => target.onCurrentUserChanged(callback),
+    };
     return { [TARGET_SYMBOL]: t };
   }
   throw packageResolutionError();
@@ -313,10 +356,12 @@ export function getDatabase(
  */
 export function getAdminDatabase(sandbox: Sandbox): Database;
 export function getAdminDatabase(ctx: SandboxContext): Database;
-export function getAdminDatabase(app: PyricApp): Database;
-export function getAdminDatabase(target: Sandbox | SandboxContext | PyricApp): Database {
-  if (isPyricApp(target)) {
-    return getAdminDatabase(target.sandbox);
+export function getAdminDatabase(app: FirebaseApp): Database;
+export function getAdminDatabase(target: Sandbox | SandboxContext | FirebaseApp): Database {
+  const appRuntime = resolveClientApp(target);
+  if (appRuntime) {
+    appRuntime.assertAlive();
+    return getAdminDatabase(appRuntime.sandbox);
   }
   const sandbox = isSandboxContext(target)
     ? target.sandbox
@@ -335,28 +380,14 @@ function packageResolutionError(): TypeError {
   );
 }
 
-/**
- * Brand-based test for the {@link PyricApp} overload. Direct Sandbox and
- * SandboxContext handles never carry the app-wrapper symbol.
- */
-function isPyricApp(
-  target: SandboxContext | Sandbox | PyricApp,
-): target is PyricApp {
-  return (
-    target !== null
-    && typeof target === 'object'
-    && APP_TARGET in target
-  );
-}
-
 function isSandboxContext(
-  target: SandboxContext | Sandbox | PyricApp,
+  target: SandboxContext | Sandbox | FirebaseApp,
 ): target is SandboxContext {
   return target instanceof SandboxContextImpl;
 }
 
 function isSandbox(
-  target: SandboxContext | Sandbox | PyricApp,
+  target: SandboxContext | Sandbox | FirebaseApp,
 ): target is Sandbox {
   if (target === null || typeof target !== 'object') return false;
   const o = target as unknown as Record<string, unknown>;
@@ -577,6 +608,45 @@ export function pushKey(): string {
 // ─── Listeners (Tier 2) ──────────────────────────────────────────────
 
 /**
+ * RTDB evaluates a listener with the Auth instance attached to its app. When
+ * that app's session changes, replace the backend registration with one made
+ * under the new identity. Registrations belonging to other app sessions are
+ * untouched even though all equal-config apps share one data backend.
+ */
+function subscribeWithLiveAuth(
+  target: Target,
+  subscribe: (auth: AuthState) => Unsubscribe,
+): Unsubscribe {
+  let stopped = false;
+  let backendUnsubscribe = subscribe(authFor(target));
+  const sessionUnsubscribe = target.kind === 'sandbox-live'
+    ? target.onCurrentUserChanged?.(() => {
+      backendUnsubscribe();
+      try {
+        backendUnsubscribe = subscribe(authFor(target));
+      } catch {
+        // The public subset currently has no cancel callback overload. A
+        // denied identity therefore suspends delivery until this app's next
+        // Auth transition instead of leaking events under the old identity.
+        backendUnsubscribe = () => {};
+      }
+    })
+    : undefined;
+
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    sessionUnsubscribe?.();
+    backendUnsubscribe();
+  };
+  const release = target.kind === 'sandbox-live' ? target.own?.(stop) : undefined;
+  return () => {
+    release?.();
+    stop();
+  };
+}
+
+/**
  * `onValue(ref, cb)` — subscribe to value changes at the ref's path.
  *
  * Fires immediately on subscribe with the current value (or
@@ -626,8 +696,8 @@ export function onValue(
   if (isQuery(r as object)) {
     const q = r as Query;
     const target = targetOf(q.ref as unknown as object);
-    return target.backend.onValue(
-      authFor(target),
+    return subscribeWithLiveAuth(target, (auth) => target.backend.onValue(
+      auth,
       q.ref._path,
       (raw) => {
         const snap = buildSandboxSnapFromRaw(target, q.ref, raw.val);
@@ -638,7 +708,7 @@ export function onValue(
         }
       },
       q._spec,
-    );
+    ));
   }
   const ref0 = r as DatabaseReference;
   const target = targetOf(ref0 as unknown as object);
@@ -651,16 +721,14 @@ export function onValue(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  rememberWrapper(
-    target.backend,
-    ref0._path,
-    'value',
-    cb,
-    wrapper as unknown as (snap: { val: JsonValue; key: string }) => void,
+  const unsub = subscribeWithLiveAuth(
+    target,
+    (auth) => target.backend.onValue(auth, ref0._path, wrapper),
   );
-  const unsub = target.backend.onValue(authFor(target), ref0._path, wrapper);
+  const registration: ListenerRegistration = { unsubscribe: unsub };
+  listenerRegistry.add(target, ref0._path, 'value', cb, registration);
   return () => {
-    forgetWrapper(target.backend, ref0._path, 'value', cb);
+    listenerRegistry.removeExact(target, ref0._path, 'value', cb, registration);
     unsub();
   };
 }
@@ -759,71 +827,16 @@ export function onChildMoved(
 
 type ChildEvent = 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
 
-/**
- * Map from a user-supplied callback to the wrapper the backend actually
- * stored. Used by `off(ref, eventType, userCb)` to find the wrapper to
- * remove — otherwise the user's callback identity wouldn't match the
- * backend's registered listener.
- *
- * Keyed by `(backend, path, event, userCb)` — same user-cb can subscribe
- * to multiple paths/events under different wrappers. The `WeakMap` outer
- * layer is on the backend so removing a sandbox releases the inner refs.
- */
-const wrapperRegistry = new WeakMap<
-  RtdbBackend,
-  Map<string, (snap: { val: JsonValue; key: string }) => void>
->();
+const listenerRegistry = new ListenerRegistry();
 
-function registryKey(path: string, event: 'value' | ChildEvent, userCb: unknown): string {
-  // Identity by cb-object — JS `Map` keys can be objects but we need a
-  // string-shaped composite. Use a Symbol-keyed identity weakRefId. The
-  // simplest approach: assign each unique user-cb a numeric id once.
-  const id = idForCb(userCb as object);
-  return `${path} ${event} ${id}`;
-}
-
-let nextCbId = 1;
-const cbIds = new WeakMap<object, number>();
-function idForCb(cb: object): number {
-  let id = cbIds.get(cb);
-  if (id === undefined) {
-    id = nextCbId++;
-    cbIds.set(cb, id);
-  }
-  return id;
-}
-
-function rememberWrapper(
-  backend: RtdbBackend,
+function cancelSubscriptions(
+  target: Target,
   path: string,
-  event: 'value' | ChildEvent,
-  userCb: unknown,
-  wrapper: (snap: { val: JsonValue; key: string }) => void,
+  event?: 'value' | ChildEvent,
 ): void {
-  let map = wrapperRegistry.get(backend);
-  if (!map) {
-    map = new Map();
-    wrapperRegistry.set(backend, map);
+  for (const registration of listenerRegistry.takeMatching(target, path, event)) {
+    registration.unsubscribe();
   }
-  map.set(registryKey(path, event, userCb), wrapper);
-}
-
-function lookupWrapper(
-  backend: RtdbBackend,
-  path: string,
-  event: 'value' | ChildEvent,
-  userCb: unknown,
-): ((snap: { val: JsonValue; key: string }) => void) | undefined {
-  return wrapperRegistry.get(backend)?.get(registryKey(path, event, userCb));
-}
-
-function forgetWrapper(
-  backend: RtdbBackend,
-  path: string,
-  event: 'value' | ChildEvent,
-  userCb: unknown,
-): void {
-  wrapperRegistry.get(backend)?.delete(registryKey(path, event, userCb));
 }
 
 /**
@@ -861,10 +874,14 @@ function onChildEvent(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  rememberWrapper(target.backend, baseRef._path, event, cb, wrapper);
-  const unsub = target.backend.onChild(authFor(target), event, baseRef._path, wrapper, spec);
+  const unsub = subscribeWithLiveAuth(
+    target,
+    (auth) => target.backend.onChild(auth, event, baseRef._path, wrapper, spec),
+  );
+  const registration: ListenerRegistration = { unsubscribe: unsub };
+  listenerRegistry.add(target, baseRef._path, event, cb, registration);
   return () => {
-    forgetWrapper(target.backend, baseRef._path, event, cb);
+    listenerRegistry.removeExact(target, baseRef._path, event, cb, registration);
     unsub();
   };
 }
@@ -893,18 +910,10 @@ export function off(
 ): void {
   const target = targetOf(r as unknown as object);
   if (callback !== undefined && eventType !== undefined) {
-    // Translate the user-supplied callback to the wrapper actually
-    // registered with the backend.
-    const wrapper = lookupWrapper(target.backend, r._path, eventType, callback);
-    if (wrapper !== undefined) {
-      target.backend.off(r._path, eventType, wrapper);
-      forgetWrapper(target.backend, r._path, eventType, callback);
-    }
-    // If no wrapper was found, the user-cb wasn't registered against
-    // this ref + eventType — no-throw, matches upstream behavior.
+    listenerRegistry.takeFirst(target, r._path, eventType, callback)?.unsubscribe();
     return;
   }
-  target.backend.off(r._path, eventType, undefined);
+  cancelSubscriptions(target, r._path, eventType);
 }
 
 // ─── Queries (Tier 3) ────────────────────────────────────────────────

@@ -55,7 +55,7 @@ export interface HostCtx {
    *  via `getVersion` so the UI can identify which sandbox instance this is. */
   instanceId: string;
   /** The shared Storage handle (Pyric Studio data browse). Lazily created on
-   *  the first storage op via `getStorage(initializeApp({ sandbox }))`. */
+   *  the first storage op via `getStorageSandbox(sandbox)`. */
   storage?: FirebaseStorage;
   /** Shared RTDB handle. Lazily created for the playground shared-runtime path. */
   rtdb?: Database;
@@ -68,6 +68,9 @@ export interface HostCtx {
   /** Per-uid/token Storage handles for the impersonation lens (rules evaluate
    *  as that user). Mirrors {@link HostCtx.lensRtdbs}. */
   lensStorages?: Map<string, FirebaseStorage>;
+  /** Per-session Storage handles so app-session rules see the initiating
+   * port's authenticated identity. */
+  sessionStorages?: Map<string, FirebaseStorage>;
   /** Cached genuinely-UNAUTHENTICATED Firestore handle for the
    *  `{ mode: 'anon' }` lens — `getFirestore(sandbox.withAuth(null))`, so
    *  rules evaluate with `request.auth == null`. The remote arm's
@@ -88,6 +91,13 @@ export interface HostCtx {
   };
   /** Per-port subscription registry. Map<port, Map<subId, unsub>>. */
   subs: Map<PortLike, Map<string, () => void>>;
+  /** Ports whose app containers completed explicit deletion. */
+  disconnectedPorts?: WeakSet<PortLike>;
+  /** Firebase options accepted by the first app-owned port. All named apps
+   * and tabs share this one backend, so later app ports must match it. */
+  appOptions?: Record<string, unknown>;
+  /** App ports that attempted to attach a different Firebase configuration. */
+  rejectedConfigPorts?: WeakSet<PortLike>;
   /**
    * The ONE shared auth handle for the worker — the USER POOL (who exists)
    * and the admin surface. Lazily created on first auth op or auth
@@ -115,10 +125,11 @@ export interface HostCtx {
    */
   resubscribePortSubs?: (port: PortLike) => void;
   /**
-   * Per-uid Firestore handles carrying a PORT SESSION's identity —
+   * Per-session-token Firestore handles carrying a PORT SESSION's identity —
    * `getFirestore(sandbox.withAuth(session.state))`, so rules see the
    * session's uid AND its custom claims on `request.auth.token`. Keyed by
-   * uid (two ports as the same user share one handle). Distinct from
+   * uid + token so distinct claim snapshots never share a handle; forced
+   * refresh also clears the cache. Distinct from
    * {@link HostCtx.lensHandles}, which is the Studio debugging lens
    * (uid-only, caller-gated writes).
    */
@@ -177,12 +188,9 @@ export interface HostCtx {
     args: Record<string, unknown>,
   ) => Promise<{ ok: boolean; summary: string; data?: unknown }>;
   /**
-   * THE messaging climb gate (CDD isolation decision): the flag-gated
-   * `messaging.*` ops and `messaging.*` subs exist on this host only when
-   * this is `true`. `pyric dev` sets it via the init payload's `messaging`
-   * field, which the serve producers emit only under `PYRIC_CLIMB=1` — the
-   * same flag that gates the in-process mirrors' default app. Absent/false
-   * ⇒ every messaging op answers `messaging/disabled` with remediation.
+   * Messaging host capability. Normal serve producers enable it because
+   * Messaging is in the canonical SDK swap. Absent/false answers
+   * `messaging/disabled` for standalone host construction and focused tests.
    */
   messagingEnabled?: boolean;
   /**

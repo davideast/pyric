@@ -24,6 +24,7 @@ import {
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore as ipGetFirestore } from 'pyric/firestore';
+import type { FirebaseApp } from 'pyric/app';
 
 const PERMISSIVE_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -38,11 +39,12 @@ interface FakePort {
   postMessage(msg: unknown): void;
   onmessage: ((ev: { data: unknown }) => void) | null;
   start(): void;
+  close(): void;
   addEventListener(type: string, fn: () => void): void;
 }
 function portPair(): { a: FakePort; b: FakePort } {
-  const a: FakePort = { onmessage: null, postMessage() {}, start() {}, addEventListener() {} };
-  const b: FakePort = { onmessage: null, postMessage() {}, start() {}, addEventListener() {} };
+  const a: FakePort = { onmessage: null, postMessage() {}, start() {}, close() {}, addEventListener() {} };
+  const b: FakePort = { onmessage: null, postMessage() {}, start() {}, close() {}, addEventListener() {} };
   a.postMessage = (msg) => setTimeout(() => b.onmessage?.({ data: msg }), 0);
   b.postMessage = (msg) => setTimeout(() => a.onmessage?.({ data: msg }), 0);
   return { a, b };
@@ -59,9 +61,12 @@ async function makeHostCtx(): Promise<HostCtx> {
 // are installed (runtime.ts picks the worker path at module-load and can't be
 // re-picked, so the whole file exercises the worker path).
 type FirestoreEntry = typeof import('../../../src/serve/entries/firestore.js');
+type AppEntry = typeof import('pyric/app');
 let fs: FirestoreEntry;
 let db: ReturnType<FirestoreEntry['getFirestore']>;
 let restore: () => void;
+let appEntry: AppEntry;
+let fixtureApp: FirebaseApp;
 
 beforeAll(async () => {
   const ctx = await makeHostCtx();
@@ -89,8 +94,17 @@ beforeAll(async () => {
     g.fetch = prevFetch;
   };
 
+  // The served app entry is a re-export of this registry after binding it to
+  // the page runtime. Vite SSR smoke tests can bind that process-global module
+  // first, so reuse its one allowed config while giving this fixture its own
+  // disposable app/service container.
+  appEntry = await import('pyric/app');
+  const priorFixture = appEntry.getApps().find((app) => app.name === 'composite-served-entry-worker-test');
+  if (priorFixture) await appEntry.deleteApp(priorFixture);
+  const options = appEntry.getApps()[0]?.options ?? { projectId: 'composite-served-entry' };
+  fixtureApp = appEntry.initializeApp(options, 'composite-served-entry-worker-test');
   fs = await import('../../../src/serve/entries/firestore.js');
-  db = fs.getFirestore();
+  db = fs.getFirestore(fixtureApp);
   await sleep();
 
   // Seed through the SERVED entry so the whole write path is the worker one too.
@@ -106,7 +120,10 @@ beforeAll(async () => {
   await sleep();
 });
 
-afterAll(() => restore?.());
+afterAll(async () => {
+  if (fixtureApp) await appEntry.deleteApp(fixtureApp);
+  restore?.();
+});
 
 async function ids(...constraints: unknown[]): Promise<string[]> {
   const snap = await fs.getDocs(

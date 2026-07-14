@@ -19,7 +19,7 @@ import {
   PRESENCE_HEARTBEAT_INTERVAL_MS,
   PRESENCE_STALE_MS,
 } from '../presence-timing.js';
-import { nextId, nextSubId, rpc, _snapSubs } from './core.js';
+import { closeSubscription, nextId, nextSubId, openSnapshotSubscription, rpc } from './core.js';
 import type { ClientDb, Unsubscribe } from './handles.js';
 
 export type { PresenceClientKind, PresenceSnapshot, PresenceVisibility };
@@ -162,14 +162,13 @@ export function subscribePresence(
   callback: (snapshot: PresenceSnapshot) => void,
 ): Unsubscribe {
   const subId = nextSubId();
-  _snapSubs.set(subId, {
+  openSnapshotSubscription(db.port, subId, {
+    port: db.port,
     next: (value) => {
       callback(value as PresenceSnapshot);
     },
-  });
-  db.port.postMessage({ t: 'sub', subId, target: 'presence' } satisfies InboundMessage);
+  }, { t: 'sub', subId, target: 'presence' } satisfies InboundMessage);
   return () => {
-    _snapSubs.delete(subId);
-    db.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+    closeSubscription(db.port, subId);
   };
 }

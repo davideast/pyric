@@ -8,23 +8,22 @@ order: 8008
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 > **Climb status: this surface is climbing under CDD.**
-> 56 of 56 rows conforming.
+> Client + service-worker mirror: 17 of 17 rows conforming.
+> Separately tracked Admin send plane: 39 of 39 rows conforming.
 > A `?` row below is a target with a derived failing test, not a guarantee.
 
 # `pyric` messaging compatibility matrix
 
 > **Surface coverage:** 100% of Firebase's public exports · 100% of what pyric intends to mirror
 >
-> **Fidelity:** 100% (56 of 56 tracked claims match production)
+> **Fidelity:** 100% (17 of 17 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
-> **Conformance-held; not yet in published packages.** Every row below is
-> replayed by conformance suites that run in blocking CI, so the statuses are
-> live guarantees against this repository. The messaging entry points are not
-> yet included in the published npm packages: the mirror is complete here, and
-> it ships in a release after graduation. Until then, installing `pyric` from
-> npm does not provide `pyric/messaging`.
+> **Published and conformance-held.** The client, service-worker, and admin
+> messaging entry points ship in the published `pyric` and `pyric-admin`
+> packages. Every row below is replayed by conformance suites that run in
+> blocking CI, so the statuses are live guarantees against this repository.
 
 The single readable contract for "what `pyric` will guarantee vs the production
 Firebase Cloud Messaging surface" — the client (`firebase/messaging`) and
@@ -54,7 +53,7 @@ on the conformance suite replaying it.
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">1</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns the FCM <code>Messaging</code> instance associated with the given (or default) <code>FirebaseApp</code>. Bound to the client component registered under the name <code>messaging</code>.</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Upstream typings/JSDoc (firebase 12.13.0, <code>@firebase/messaging</code> 0.12.26); no observation yet.</div></div>
+<div class="compat-evidence"><div class="compat-probe">Upstream typings/JSDoc (firebase 12.13.0, <code>@firebase/messaging</code> 0.12.26); in-process mirror suite plus canonical-import SharedWorker replay <code>messaging-app-boundary.pw.ts</code>.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">2</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Subscribes the instance to push and resolves with an FCM registration token; requests notification permission if not already granted and rejects if denied. Production tokens are colon-separated, URL-safe, ~142 chars, with the suffix after the colon beginning <code>APA91b</code>, and are stable across repeated <code>getToken</code> calls on the same service-worker registration (no per-call rotation).</span></summary>
@@ -107,11 +106,11 @@ on the conformance suite replaying it.
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">13</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns the FCM instance within a service-worker context (bound to <code>getMessagingInSw</code>); registers under the component name <code>messaging-sw</code>.</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Upstream typings (<code>@firebase/messaging</code> 0.12.26 <code>sw/index-public</code>); no observation yet.</div></div>
+<div class="compat-evidence"><div class="compat-probe">Upstream typings (<code>@firebase/messaging</code> 0.12.26 <code>sw/index-public</code>) plus real module-ServiceWorker served-entry replay <code>messaging-app-boundary.pw.ts</code>.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">14</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Called when a message arrives while the app has no visible window client. Production routes background deliveries here rather than to <code>onMessage</code>; the delivered payload carries <code>data</code> / <code>from</code> / <code>messageId</code> and, for notification messages, a <code>notification</code> block. A DATA-ONLY message still fires <code>onBackgroundMessage</code> with no <code>notification</code> key, and a registered handler suppresses the SDK auto-display.</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>messaging-web-onbackgroundmessage.json</code> (no visible client → onBackgroundMessage) + <code>messaging-web-visibility-routing.json</code> + <code>messaging-web-data-only-background.json</code> (data-only fires, no notification key). Replayed by the conformance suite.</div></div>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>messaging-web-onbackgroundmessage.json</code> (no visible client → onBackgroundMessage) + <code>messaging-web-visibility-routing.json</code> + <code>messaging-web-data-only-background.json</code> (data-only fires, no notification key). Replayed by the conformance suite and by a real module Service Worker connected to the canonical SharedWorker broker in <code>messaging-app-boundary.pw.ts</code>.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">15</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Enables or disables delivery-metrics export to BigQuery at runtime; default off.</span></summary>
@@ -123,7 +122,7 @@ on the conformance suite replaying it.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">17</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The sw entry exports <code>onBackgroundMessage</code>, <code>getMessaging</code>, <code>experimentalSetDeliveryMetricsExportedToBigQueryEnabled</code>, and <code>isSupported</code>, but NOT <code>getToken</code> / <code>deleteToken</code> / <code>onMessage</code>; the client entry exports the latter but NOT <code>onBackgroundMessage</code> / the metrics toggle. The two modules register under different component names (<code>messaging</code> vs <code>messaging-sw</code>) and re-export identical <code>Messaging</code> / <code>GetTokenOptions</code> / <code>MessagePayload</code> / <code>NotificationPayload</code> / <code>FcmOptions</code> type declarations.</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Upstream typings (<code>@firebase/messaging</code> 0.12.26 <code>index.d.ts</code> / <code>index.sw.d.ts</code>); no observation yet.</div></div>
+<div class="compat-evidence"><div class="compat-probe">Upstream typings (<code>@firebase/messaging</code> 0.12.26 <code>index.d.ts</code> / <code>index.sw.d.ts</code>) plus Window and real module-ServiceWorker boundary replay <code>messaging-app-boundary.pw.ts</code>.</div></div>
 </details>
 </div>
 

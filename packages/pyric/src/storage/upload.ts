@@ -25,7 +25,7 @@
  */
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
-import { getStorageService, storageOperationProvenance, targetOf } from './service.js';
+import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './rules.js';
 import { toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
@@ -68,7 +68,7 @@ export async function uploadBytes(
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
     request: {
-      auth: target.context.auth,
+      auth: storageAuth(target),
       // A write to a nonexistent object is a `create`; a write over an
       // existing one is an `update`. The resource-exists fact (`existing`)
       // makes the distinction the granular verbs need.
@@ -92,7 +92,7 @@ export async function uploadBytes(
         service: 'storage',
         op: 'object_put',
         path: ref.fullPath,
-        auth: target.context.auth,
+        auth: storageAuth(target),
         before: existing ?? undefined,
         after: stored,
         detail: {

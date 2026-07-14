@@ -1,0 +1,20 @@
+{
+  "name": "app-registry-initializeapp-named-equal-config",
+  "matrixRow": "app #17",
+  "rowIds": [
+    "app#17"
+  ],
+  "description": "firebase/app permits default and named apps with deep-equal FirebaseOptions: the app containers are distinct, retain equal option values, and remain independently addressable by name.",
+  "observedAt": "2026-07-13T22:47:49.328Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "distinctApps": true,
+    "equalOptions": true,
+    "defaultLookupSame": true,
+    "namedLookupSame": true,
+    "appNames": [
+      "[DEFAULT]",
+      "secondary"
+    ]
+  }
+}

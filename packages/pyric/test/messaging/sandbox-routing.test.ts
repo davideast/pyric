@@ -11,7 +11,7 @@
  * the one shared broker.
  */
 import { describe, expect, it } from 'bun:test';
-import { initializeApp } from '../../src/app/index.js';
+import { createAppForSandbox } from '../../src/app/internal.js';
 import { initializeSandbox } from '../../src/sandbox/index.js';
 import { getMessaging, onMessage, sandbox as messagingSandbox } from '../../src/messaging/index.js';
 import {
@@ -25,7 +25,7 @@ function sandboxApp() {
   // would collide (app/duplicate-app), exactly as firebase/app does. The
   // random suffix stays unique across the messaging test files (one process,
   // one shared app registry).
-  return initializeApp({ sandbox: initializeSandbox() }, `msg-${Math.random().toString(36).slice(2)}`);
+  return createAppForSandbox(initializeSandbox(), { projectId: 'messaging-test' }, `msg-${Math.random().toString(36).slice(2)}`);
 }
 
 /** Register a foreground + background counter over one shared-broker app. */

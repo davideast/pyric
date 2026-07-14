@@ -14,7 +14,6 @@
  * constraint, design rationale section 9).
  */
 import {
-  initializeSandbox,
   recordBackendOverBlob,
   serializeToBuckets,
   bundleRecords,
@@ -24,22 +23,16 @@ import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firest
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, onAuthStateChanged, signOut, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
-  getFirestore as workerGetFirestore,
-  getWorkerVersion,
   callTool as workerCallTool,
   relayWorkerOp,
   relayWorkerSub,
-  getAuth as workerGetAuth,
-  onAuthStateChanged as workerOnAuthStateChanged,
-  restorePortSession as workerRestorePortSession,
-  startPresence,
-  subscribePresence,
-  type ClientDb,
 } from '../worker/client.js';
-import { SessionStore } from './session-store.js';
+import { useWorker, workerDb } from './worker-runtime.js';
 import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
+export { sandbox } from './app-backend.js';
+import { sandbox } from './app-backend.js';
 
 /**
  * The DEFAULT-ON worker path (Phase 3c): when SharedWorker is available the
@@ -56,109 +49,12 @@ import { buildVerifyFixture } from '../../verify/fixture.js';
  * a worker that 404s. `pyric dev` always serves the worker and never sets it;
  * the `@pyric/cli/vite` plugin sets it until it serves the worker (M2).
  */
-export const useWorker =
-  typeof SharedWorker !== 'undefined' &&
-  !(globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__;
-
-/** Served URL of the bundled SharedWorker host (bundler `worker.js`). */
-export const WORKER_URL = '/__pyric/sdk/worker.js';
-
-/**
- * STABLE SharedWorker name — every tab of the origin shares ONE worker (the
- * whole point: one backend, live multi-tab sync). We deliberately do NOT
- * version the name: a versioned name would make tabs opened across a pyric
- * rebuild connect to DIFFERENT workers, silently splitting the backend so a
- * write in one tab wouldn't reach another.
- *
- * The cost: a SharedWorker can't hot-update its code — it runs whatever version
- * started it until ALL tabs of the origin close. So if pyric itself is rebuilt
- * while tabs are open, they keep the OLD worker. We DETECT that (see the
- * staleness check below) and warn, rather than trading away multi-tab sharing.
- * (End users of `pyric dev` edit their OWN app, not pyric's worker bundle, so
- * this only affects pyric development.)
- */
-const WORKER_NAME = 'pyric-shared-worker';
-
 /**
  * The in-page sandbox. On the worker path it is NOT the data backend — it
- * stays mounted as the FALLBACK primitive and as the provider-sign-in
- * resolution surface (the in-page `AuthFlowResolver` + `ServeAuthHelper`
- * resolve popup/redirect identities, which the entry then bridges to the
- * worker via `auth.acceptIdentity`).
+ * stays mounted as the FALLBACK primitive. Worker-mode provider UI reads the
+ * worker user directory directly and never constructs a page-local Auth
+ * backend.
  */
-export const sandbox = initializeSandbox();
-
-/**
- * The shared worker-backed Firestore handle (one SharedWorker connection for
- * the whole page — the auth entry reuses its port too). Null when SharedWorker
- * is unavailable. Opening it here connects the SharedWorker eagerly so the
- * worker's first-connect init (rules/seed/persist) is underway before app code
- * issues its first op.
- */
-export const workerDb: ClientDb | null = useWorker ? workerGetFirestore(WORKER_URL, WORKER_NAME) : null;
-
-/** This page's presence session (#227) — registers as `app` with the shared worker. */
-export const presenceSession =
-  useWorker && workerDb ? startPresence({ db: workerDb, kind: 'app' }) : null;
-
-// Staleness guard: warn (don't split) if the running worker is older than what
-// serve is now serving. serve stamps the served bundle hash into
-// `<meta name="pyric-worker-v">`; the worker reports its OWN baked hash. A
-// mismatch means a still-running worker from before a pyric rebuild — close all
-// tabs of the origin to load the new worker.
-if (useWorker && typeof document !== 'undefined') {
-  const servedV = document
-    .querySelector('meta[name="pyric-worker-v"]')
-    ?.getAttribute('content');
-  void getWorkerVersion(workerDb!)
-    .then(async (runningV) => {
-      if (servedV && runningV && runningV !== 'dev' && servedV !== runningV) {
-        const otherPages = await new Promise<number>((resolve) => {
-          const unsub = subscribePresence(workerDb!, (snap) => {
-            unsub();
-            const others = snap.clients.filter(
-              (c) => c.clientId !== presenceSession?.clientId,
-            ).length;
-            resolve(others);
-          });
-          // Don't hang the warn forever if the sub never fires.
-          setTimeout(() => {
-            unsub();
-            resolve(-1);
-          }, 2_000);
-        });
-        const othersHint =
-          otherPages > 0
-            ? ` ${otherPages} other page${otherPages === 1 ? '' : 's'} must disconnect before the worker can restart.`
-            : otherPages === 0
-              ? ' This is the only connected page — reload it to pick up the new worker.'
-              : '';
-        console.warn(
-          `[pyric dev] the SharedWorker is running OLDER code (build ${runningV}) than what is now ` +
-            `served (build ${servedV}). A SharedWorker can't hot-update — CLOSE ALL TABS of this origin ` +
-            'and reopen to load the new worker. (All tabs share one worker, so a partial reload leaves ' +
-            `the old code running for everyone.)${othersHint}`,
-        );
-      }
-    })
-    .catch(() => {});
-}
-
-/** Page-wide auth session store — `entries/auth.ts`'s `setPersistence` wrap
- *  switches its mode. Memory-backed fallback keeps non-browser imports inert. */
-const memoryStorage = (): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> => {
-  const m = new Map<string, string>();
-  return {
-    getItem: (k) => m.get(k) ?? null,
-    setItem: (k, v) => void m.set(k, v),
-    removeItem: (k) => void m.delete(k),
-  };
-};
-export const sessionStore = new SessionStore(
-  typeof localStorage !== 'undefined' && typeof sessionStorage !== 'undefined'
-    ? { local: localStorage, session: sessionStorage }
-    : { local: memoryStorage(), session: memoryStorage() },
-);
 
 /** Shape served by `/__pyric/init.json`. */
 interface InitPayload {
@@ -187,9 +83,7 @@ interface InitPayload {
    *  `pyric verify` can replay the session without extra args. Default-on;
    *  suppressed by --no-capture. */
   capture?: boolean;
-  /** Messaging climb gate (PYRIC_CLIMB=1) — consumed by the WORKER's
-   *  serve-init, not this page runtime. Declared for lockstep with
-   *  `namespace.ts`. */
+  /** Enables the worker Messaging broker; consumed by worker serve-init. */
   messaging?: boolean;
 }
 
@@ -479,45 +373,6 @@ if (!useWorker) try {
     '[pyric dev] init failed — the sandbox is running WITHOUT your project rules:',
     diagnostics.initError,
   );
-}
-
-// ── auth session persistence (flow doc section 3c — client-fidelity item): real
-// Firebase keeps you signed in across reloads by default. Restore BEFORE
-// subscribing so the initial signed-out emission can't clear the stored
-// session; a session only resolves while its uid still exists in the user
-// DB (ephemeral reloads drop helper-created sessions, consistently).
-// WORKER PATH (#754): sessions are PER-PORT in the worker, so this page
-// re-establishes ITS OWN session (`auth.restorePortSession`) from the same
-// web-storage record, then keeps the record in sync. The top-level await
-// below is load-bearing: it keeps a restored session ordered BEFORE the
-// app's first auth op on this port (worker messages are FIFO). ──
-if (useWorker && workerDb) {
-  const auth = workerGetAuth(workerDb);
-  const stored = sessionStore.load();
-  if (stored) {
-    const user = await workerRestorePortSession(auth, stored.uid);
-    if (user) console.info(`[pyric dev] auth session restored (${user.uid})`);
-    else sessionStore.clear(); // user gone or disabled — signed out, like a stale token
-  }
-  workerOnAuthStateChanged(auth, (user) => {
-    if (user) sessionStore.save(user.uid);
-    else sessionStore.clear();
-  });
-} else if (!useWorker) {
-  const auth = getAuth(sandbox);
-  const stored = sessionStore.load();
-  if (stored) {
-    try {
-      authOps.restoreSession(auth, stored.uid);
-      console.info(`[pyric dev] auth session restored (${stored.uid})`);
-    } catch {
-      sessionStore.clear(); // user gone or disabled — signed out, like a stale token
-    }
-  }
-  onAuthStateChanged(auth, (user) => {
-    if (user) sessionStore.save(user.uid);
-    else sessionStore.clear();
-  });
 }
 
 // ── provenance (flow doc section 3a): make the shim's presence unmistakable.

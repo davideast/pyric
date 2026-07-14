@@ -16,7 +16,7 @@
  */
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
-import { getStorageService, storageOperationProvenance, targetOf } from './service.js';
+import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored } from './rules.js';
 import { objectNotFound, quotaExceeded, invalidRootOperation } from './errors.js';
@@ -88,7 +88,7 @@ export async function deleteObject(
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
     request: {
-      auth: target.context.auth,
+      auth: storageAuth(target),
       method: 'delete',
       path: ref.fullPath,
     },
@@ -102,7 +102,7 @@ export async function deleteObject(
         service: 'storage',
         op: 'object_delete',
         path: ref.fullPath,
-        auth: target.context.auth,
+        auth: storageAuth(target),
         before: existing ?? undefined,
         detail: { bucket: ref.bucket },
       }),
@@ -131,7 +131,7 @@ async function fetchBlob(
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
     request: {
-      auth: target.context.auth,
+      auth: storageAuth(target),
       method: 'get',
       path: ref.fullPath,
     },

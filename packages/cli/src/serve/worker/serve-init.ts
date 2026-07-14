@@ -97,8 +97,7 @@ export interface ServeInitResult {
   seededDocs: number;
   seededUsers: number;
   captureEnabled: boolean;
-  /** The messaging climb gate as applied to the ctx (payload `messaging`,
-   *  emitted by the producers only under PYRIC_CLIMB=1). */
+  /** Whether the init payload enabled the Messaging host capability. */
   messagingEnabled: boolean;
   /** Parse error from a malformed ruleset (defensive — the server lints first);
    *  the sandbox keeps its default rules rather than bricking. */
@@ -155,10 +154,8 @@ export function applyServeInit(
     dispose: () => {},
   };
 
-  // 0. Messaging climb gate (CDD isolation decision): the flag-gated
-  //    `messaging.*` ops exist on this host only when the serve producer
-  //    explicitly enabled them (PYRIC_CLIMB=1 → payload.messaging). A worker
-  //    outside `pyric dev` (no init payload) never reaches here — disabled.
+  // 0. Messaging host capability. Serve producers enable it as part of the
+  //    canonical SDK swap; a worker without an init payload stays disabled.
   if (payload.messaging === true) {
     ctx.messagingEnabled = true;
     result.messagingEnabled = true;

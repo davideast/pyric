@@ -60,16 +60,6 @@ Behavior notes verified against source:
 - Refs minted by a remote handle register through the worker subscription with the handle's lens pinned; error callbacks receive `SandboxError`s with `denialContext` when the worker carried one.
 - The chainable form (`db.collection('x').where(...).onSnapshot(cb)`) works at runtime on both arms but is no longer typed; the free function is the typed surface.
 
-### `FOLLOWS_CURRENT_USER`
-
-```ts
-const FOLLOWS_CURRENT_USER: unique symbol;
-```
-
-Internal wiring, exported for one consumer: the modular `pyric/firestore` layer stamps this symbol onto the options object it forwards to mark a listener as live (identity follows `sandbox.currentUser`) rather than frozen. `onSnapshot` here reads and strips it. Direct callers never need it; absent means frozen, the safe default. On a remote sandbox, a live-marked listener throws (`SandboxError` code `unimplemented`): remote listeners are frozen to the identity of the context that created the ref.
-
----
-
 ## The chainable surface
 
 `SandboxFirestore` extends the production-shaped `Firestore`, so admin-style code chains the way it does against `firebase-admin/firestore`:

@@ -3,8 +3,7 @@
  *
  * `packages/conformance/entry-path/<service>.ts` is the corpus: one canonical
  * initialization program per service, adapted from Firebase's official web
- * quickstart shape and adjusted only as pyric requires
- * (`initializeApp({ sandbox: initializeSandbox() })`). Each program is a plain
+ * quickstart shape with Firebase-shaped initialization unchanged. Each program is a plain
  * runnable module exporting an async `run()` — see `load.ts` for how the
  * directory becomes the index, `../src/entry-path-gate.ts` for the CLIFF gate
  * that runs every program in-process, and `../src/entry-path-symbols.ts` for

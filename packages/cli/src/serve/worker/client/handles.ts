@@ -4,22 +4,36 @@
  * rtdb, storage), so they live in one leaf module with no runtime dependencies
  * beyond the wire-protocol descriptor types.
  */
-import type { DocRef, CollRef, QueryDescriptor } from '../protocol.js';
+import type {
+  DocRef,
+  CollRef,
+  QueryDescriptor,
+  InboundMessage,
+  OutboundMessage,
+} from '../protocol.js';
+
+/** The exact transport contract shared by native MessagePort and SW relay ports. */
+export interface ClientPort {
+  onmessage: ((event: MessageEvent<OutboundMessage>) => void) | null;
+  postMessage(message: InboundMessage): void;
+  start(): void;
+  close(): void;
+}
 
 /** Opaque client-side Firestore handle. Holds the MessagePort to the worker. */
 export interface ClientDb {
   readonly __kind: 'client-db';
-  readonly port: MessagePort;
+  readonly port: ClientPort;
 }
 
 export interface ClientRtdb {
   readonly __kind: 'client-rtdb';
-  readonly port: MessagePort;
+  readonly port: ClientPort;
 }
 
 export interface RtdbRefHandle {
   readonly __kind: 'rtdb-ref';
-  readonly port: MessagePort;
+  readonly port: ClientPort;
   readonly path: string;
   readonly key: string | null;
   readonly parent: RtdbRefHandle | null;
@@ -45,7 +59,7 @@ export interface RtdbDataSnapshot {
 export interface DocRefHandle {
   readonly __kind: 'doc-ref';
   readonly descriptor: DocRef;
-  readonly port: MessagePort;
+  readonly port: ClientPort;
   readonly id: string;
   readonly path: string;
 }
@@ -54,7 +68,7 @@ export interface DocRefHandle {
 export interface CollRefHandle {
   readonly __kind: 'coll-ref';
   readonly descriptor: CollRef;
-  readonly port: MessagePort;
+  readonly port: ClientPort;
   readonly id: string;
   readonly path: string;
 }
@@ -63,7 +77,7 @@ export interface CollRefHandle {
 export interface QueryHandle {
   readonly __kind: 'query';
   readonly descriptor: QueryDescriptor;
-  readonly port: MessagePort;
+  readonly port: ClientPort;
 }
 
 /** Union of all client handles. */

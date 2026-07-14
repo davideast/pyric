@@ -38,7 +38,7 @@ import {
   type SingleRequestOptions,
 } from './sandbox-plane.js';
 import { targetOf } from './target.js';
-import type { AI, SandboxTarget } from './types.js';
+import type { AI, AITarget } from './types.js';
 import type { CountTokensResponse } from './broker/index.js';
 
 export interface RequestOptions {
@@ -110,9 +110,9 @@ export class GenerativeModel extends AIModel {
   readonly systemInstruction?: ContentShape;
   readonly requestOptions: RequestOptions;
 
-  private readonly target: SandboxTarget;
+  private readonly target: AITarget;
 
-  constructor(target: SandboxTarget, modelParams: ModelParams, requestOptions?: RequestOptions) {
+  constructor(target: AITarget, modelParams: ModelParams, requestOptions?: RequestOptions) {
     super(modelParams.model);
     this.target = target;
     this.generationConfig = modelParams.generationConfig ?? {};
@@ -224,10 +224,10 @@ export class ChatSession extends ChatSessionBase {
   readonly params: StartChatParams | undefined;
   readonly requestOptions: RequestOptions | undefined;
 
-  private readonly target: SandboxTarget;
+  private readonly target: AITarget;
 
   constructor(
-    target: SandboxTarget,
+    target: AITarget,
     model: string,
     params?: StartChatParams,
     requestOptions?: RequestOptions,

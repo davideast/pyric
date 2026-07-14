@@ -5,7 +5,7 @@
  */
 
 import type { Sandbox } from '../sandbox/types/service.js';
-import type { AI, SandboxTarget } from './types.js';
+import type { AI, AITarget } from './types.js';
 
 export const TARGET_SYMBOL: unique symbol = Symbol('pyric/ai/target');
 
@@ -13,8 +13,8 @@ export const TARGET_SYMBOL: unique symbol = Symbol('pyric/ai/target');
  * Recover the dispatch target for an {@link AI} handle. Throws if the handle
  * wasn't produced by this package — the brand is the only way in.
  */
-export function targetOf(ai: AI): SandboxTarget {
-  const target = (ai as { [TARGET_SYMBOL]?: SandboxTarget })[TARGET_SYMBOL];
+export function targetOf(ai: AI): AITarget {
+  const target = (ai as { [TARGET_SYMBOL]?: AITarget })[TARGET_SYMBOL];
   if (!target) {
     throw new TypeError('pyric/ai: unrecognized AI handle — was it produced by getAI(...)?');
   }
@@ -23,7 +23,7 @@ export function targetOf(ai: AI): SandboxTarget {
 
 /**
  * Brand-based discriminator for `getAI`: a {@link Sandbox} carries
- * `onCurrentUserChanged` and `withAuth`, which a {@link PyricApp} wrapper
+ * `onCurrentUserChanged` and `withAuth`, which a Firebase-shaped app container
  * never has.
  */
 export function isSandbox(target: unknown): target is Sandbox {

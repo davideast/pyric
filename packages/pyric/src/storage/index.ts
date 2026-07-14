@@ -23,25 +23,9 @@
  * triggers.
  */
 
-import { getStorageSandbox } from './service.js';
-import type { FirebaseStorage } from './service.js';
-import { bindOperationContext } from 'pyric/sandbox/internal';
-
-import type { PyricApp } from 'pyric/app';
-
 export { getStorageSandbox, TARGET_SYMBOL } from './service.js';
 export type { FirebaseStorage, StorageOptions, Target, SandboxTarget } from './service.js';
-
-// ─── Firebase-shaped getStorage(PyricApp) entry ─────────────────────
-//
-// Package resolution chooses Firebase or Pyric before this module loads.
-// Therefore a Pyric Storage entry accepts only a sandbox-backed PyricApp.
-export function getStorage(app: PyricApp, _bucketUrl?: string): FirebaseStorage {
-  return getStorageSandbox(bindOperationContext(app.sandbox.withAuth(app.sandbox.currentUser), {
-    source: { kind: 'app' },
-    authLens: { mode: 'app-session' },
-  }));
-}
+export { getStorage, connectStorageEmulator } from './instances.js';
 
 export { StorageError } from './errors.js';
 export type { StorageErrorCode } from './errors.js';
@@ -59,19 +43,6 @@ export type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js
 
 export { listAll } from './list.js';
 export type { ListResult } from './list.js';
-
-// ─── Emulator (accepted no-op) ────────────────────────────────────────
-//
-// The sandbox already is the local Storage implementation. Accept the
-// Firebase-shaped wiring call so unchanged application code keeps running.
-export function connectStorageEmulator(
-  _storage: FirebaseStorage,
-  _host: string,
-  _port: number,
-  _options?: { mockUserToken?: string | Record<string, unknown> },
-): void {
-  // accepted no-op
-}
 
 export { parseStorageRules, evaluateStorageRules } from './rules.js';
 export type {

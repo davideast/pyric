@@ -1,0 +1,37 @@
+{
+  "name": "app-production-multi-app-topology",
+  "matrixRow": "app #23, app #25, app #26, auth #183",
+  "rowIds": [
+    "app#23",
+    "app#25",
+    "app#26",
+    "auth#183"
+  ],
+  "description": "Real-browser production capture for equal-config app backend sharing, independent Auth sessions, retained-Auth deletion behavior, and deleted-app Firestore/RTDB listener isolation.",
+  "observedAt": "2026-07-14T09:41:20.915Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "equalConfigAppsAreDistinct": true,
+    "authServicesAreDistinct": true,
+    "signInOnOneLeavesSiblingSignedOut": true,
+    "sessionsUseDistinctUsers": true,
+    "signOutOnOneLeavesSiblingSignedIn": true,
+    "retainedAuthSignInAfterDelete": {
+      "threw": true,
+      "code": "app/app-deleted"
+    },
+    "firestoreServicesAreDistinct": true,
+    "firestoreDataIsShared": true,
+    "rtdbServicesAreDistinct": true,
+    "rtdbDataIsShared": true,
+    "deletedAppFirestoreListenerStopped": false,
+    "deletedAppFirestoreListenerOutcome": "errored-after-delete",
+    "deletedAppFirestoreListenerErrorCodes": [
+      "aborted"
+    ],
+    "deletedAppRtdbListenerStopped": true,
+    "siblingFirestoreListenerSurvived": true,
+    "siblingRtdbListenerSurvived": true
+  }
+}

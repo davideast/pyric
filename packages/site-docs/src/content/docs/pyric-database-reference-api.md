@@ -26,19 +26,21 @@ Firebase-shaped package.
 
 ## Initialization
 
-### `getDatabase(target)`
+### `getDatabase(target?)`
 ```ts
+function getDatabase(): Database;
 function getDatabase(ctx: SandboxContext): Database;
 function getDatabase(sandbox: Sandbox): Database;
-function getDatabase(app: PyricApp): Database;
+function getDatabase(app: FirebaseApp): Database;
 ```
 Build a sandbox `Database` handle. Three overloads select its identity mode:
 
 - `SandboxContext` (from `sandbox.withAuth(...)`): sandbox-backed with a frozen identity.
 - `Sandbox`: sandbox-backed with a live identity. Each operation reads `sandbox.currentUser` at call time, so a `pyric/auth` sign-in flips the next operation's `request.auth` without re-binding.
-- `PyricApp`: unwraps its sandbox target.
+- `FirebaseApp`: resolves the app's private sandbox association and app-local Auth session.
+- no argument: resolves the registered default app, matching `firebase/database`.
 
-A real `FirebaseApp`, a missing argument, or any foreign value throws a
+A real production `FirebaseApp` or any foreign value throws a
 `TypeError` explaining that package resolution owns production selection.
 
 One backend per `Sandbox`: repeat calls for the same sandbox return handles that share data, matching `firebase/database`'s singleton-per-app behavior. The sandbox tree also registers as a persistable service, so `enablePersistence` includes RTDB data in the serialized blob and restores it on reload.
@@ -47,7 +49,7 @@ One backend per `Sandbox`: repeat calls for the same sandbox return handles that
 ```ts
 function getAdminDatabase(sandbox: Sandbox): Database;
 function getAdminDatabase(ctx: SandboxContext): Database;
-function getAdminDatabase(app: PyricApp): Database;
+function getAdminDatabase(app: FirebaseApp): Database;
 ```
 Rules-bypass handle for sandbox setup and inspection, the RTDB counterpart of
 `getAdminFirestore`. Reads and writes through it skip rule evaluation. Foreign

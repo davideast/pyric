@@ -88,6 +88,12 @@ function normalizeEntry(entry: ScriptingEntry): ScriptEntry {
  */
 export function script(ai: AI, entries: ScriptingEntry[]): void {
   const target = targetOf(ai);
+  if (target.kind !== 'sandbox') {
+    throw new AIError(
+      AIErrorCode.UNSUPPORTED,
+      'script(ai, entries) is unavailable for a transport-backed AI handle.',
+    );
+  }
   const engine = target.broker.engine;
   if (!(engine instanceof ScriptedEngine)) {
     throw new AIError(

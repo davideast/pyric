@@ -46,6 +46,7 @@ import {
   type Database,
 } from 'pyric/database';
 import type { AuthLens, EventProvenance } from 'pyric/sandbox';
+import type { MintedSession } from 'pyric/auth';
 
 import type {
   InboundMessage,
@@ -231,6 +232,13 @@ export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
     : `${actAs.uid}:${JSON.stringify(actAs.token)}`;
 }
 
+/** Cache key for a real port session; claims are part of authorization identity. */
+export function sessionCacheKey(session: MintedSession): string {
+  return session.state.token === undefined
+    ? session.user.uid
+    : `${session.user.uid}:${JSON.stringify(session.state.token)}`;
+}
+
 /**
  * Normalise a per-op `actAs` lens to the {@link AuthLens} provenance shape that
  * the unified sandbox event stream stamps on each event's `authLens` field.
@@ -251,7 +259,7 @@ export function lensProvenance(actAs?: AuthLens): AuthLens {
 
 /**
  * Resolve the data handle for an op/sub carrying NO explicit lens: the
- * PORT'S SESSION (#754). A signed-in port gets a per-uid cached
+ * PORT'S SESSION (#754). A signed-in port gets a per-session-token cached
  * `getFirestore(sandbox.withAuth(session.state))` handle — rules evaluate
  * under its uid + custom claims, exactly like a globally signed-in user. A
  * signed-out port falls back to `ctx.db` (sandbox-live; `currentUser` is
@@ -262,19 +270,19 @@ export function lensProvenance(actAs?: AuthLens): AuthLens {
  * legitimately run as that user — the write-impersonation gate on the
  * Studio `as` lens does not apply to a port's own session.
  *
- * Known staleness (same class as `lensHandles`): a claims change via
- * `auth.adminUpdateUser` is not reflected in an existing session's handle
- * until that user session is re-established (real Firebase behaves the same
- * until token refresh).
+ * Claim changes become visible when the client forces an ID-token refresh;
+ * host-auth updates the port session, clears all session-bound service
+ * caches, and re-establishes that port's listeners under the new token.
  */
 export function sessionDb(ctx: HostCtx, port: PortLike): Firestore {
   const session = portSession(ctx, port);
   if (!session) return ctx.db;
   const cache = (ctx.sessionDbs ??= new Map());
-  let handle = cache.get(session.user.uid);
+  const key = sessionCacheKey(session);
+  let handle = cache.get(key);
   if (!handle) {
     handle = pyricGetFirestore(ctx.sandbox.withAuth(session.state));
-    cache.set(session.user.uid, handle);
+    cache.set(key, handle);
   }
   return handle;
 }
@@ -283,10 +291,11 @@ function sessionRtdb(ctx: HostCtx, port: PortLike): Database {
   const session = portSession(ctx, port);
   if (!session) return ensureRtdb(ctx);
   const cache = (ctx.sessionRtdbs ??= new Map());
-  let handle = cache.get(session.user.uid);
+  const key = sessionCacheKey(session);
+  let handle = cache.get(key);
   if (!handle) {
     handle = pyricGetDatabase(ctx.sandbox.withAuth(session.state));
-    cache.set(session.user.uid, handle);
+    cache.set(key, handle);
   }
   return handle;
 }

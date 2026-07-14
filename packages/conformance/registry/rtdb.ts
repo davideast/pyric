@@ -2922,6 +2922,24 @@ export const rtdbRegistry = {
           "oracleObservations": ["rtdb-onvalue-unsub-equivalence"],
           "conformanceTests": []
         },
+        {
+          "id": "rtdb-modular#183",
+          "surface": "rtdb-modular",
+          "aliases": ["rtdb#183"],
+          "rowRef": "183",
+          "rowNumber": 183,
+          "section": "Modular SDK surface",
+          "api": "off(ref, eventType, callback)",
+          "behavior": "When the same callback is registered more than once, each `off(ref, eventType, callback)` removes one registration without orphaning the others",
+          "status": "unverified",
+          "evidence": "Pyric behavior is locked by `packages/pyric/test/app/multi-app-listener-auth.test.ts`; a production duplicate-registration oracle capture is still needed",
+          "risk": ["listener", "stateful"],
+          "riskScore": 4,
+          "riskReasons": ["asserts registration identity and repeated unsubscribe ordering"],
+          "automation": "unverified",
+          "oracleObservations": [],
+          "conformanceTests": []
+        },
       ],
     },
     {

@@ -81,6 +81,7 @@ import {
   type App as AdminApp,
   type AppOptions,
 } from 'firebase-admin/app';
+import { assertAdminAppActive, markAdminAppDeleted } from './lifecycle.js';
 
 /**
  * Brand on every PyricAdminApp. Matches the symbol used in
@@ -286,9 +287,11 @@ export function deleteApp(app: PyricAdminApp): Promise<void> {
   if (typeof app !== 'object' || app === null || !(ADMIN_APP_TARGET in app)) {
     throw new AdminAppError('invalid-argument', 'Invalid app argument.');
   }
+  assertAdminAppActive(app);
   // Make sure the given app is actually registered (throws app/no-app).
   const existing = getApp(app.name);
   appRegistry.delete(existing.name);
+  markAdminAppDeleted(existing);
   if (existing[ADMIN_APP_TARGET] === 'prod') {
     return deleteFirebaseAdminApp(existing.adminApp);
   }

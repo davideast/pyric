@@ -17,3 +17,7 @@ export class FirebaseError extends Error {
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
+
+// Served SDK bundles are minified. Firebase exposes a stable constructor name,
+// and production lifecycle observations assert it independently of `error.name`.
+Object.defineProperty(FirebaseError, 'name', { value: 'FirebaseError' });

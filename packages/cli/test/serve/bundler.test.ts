@@ -1,7 +1,7 @@
 /** `pyric dev` SDK bundler (plan step 1.1) — the stub-list generator, cache
  *  key, and a real esbuild smoke against the workspace pyric dist. */
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -12,8 +12,10 @@ import {
   pyricPackageRoot,
   pyricVersion,
   resolveDocsUiDir,
+  sourceTreeHash,
   stubModuleSource,
   workerEntryPath,
+  workerSourceHash,
 } from '../../src/serve/bundler.js';
 
 describe('pyric dist discovery', () => {
@@ -120,9 +122,188 @@ describe('cache key', () => {
     expect(cacheKey({ entries: a }, '1.2.3')).not.toBe(k1);
     expect(cacheKey({ entries: a }, '9.9.9')).not.toBe(k1); // version-sensitive
   });
+
+  it('changes when an imported worker client outside the entries directory changes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-serve-key-graph-'));
+    const entries = join(root, 'serve', 'entries');
+    const workerClient = join(root, 'serve', 'worker', 'client');
+    mkdirSync(entries, { recursive: true });
+    mkdirSync(workerClient, { recursive: true });
+    const appEntry = join(entries, 'app.ts');
+    const authClient = join(workerClient, 'auth.ts');
+    writeFileSync(appEntry, "export { authClient } from '../worker/client/auth.js';");
+    writeFileSync(authClient, 'export const authClient = 1;');
+    const options = { entries: { app: appEntry } };
+    const first = cacheKey(options, '1.2.3', root);
+
+    writeFileSync(authClient, 'export const authClient = 2;');
+
+    expect(cacheKey(options, '1.2.3', root)).not.toBe(first);
+  });
+
+  it('changes when the installed pyric implementation changes without a version bump', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-serve-key-pyric-'));
+    const cliRoot = join(root, 'cli');
+    const pyricRoot = join(root, 'pyric');
+    mkdirSync(cliRoot, { recursive: true });
+    mkdirSync(join(pyricRoot, 'dist'), { recursive: true });
+    writeFileSync(join(cliRoot, 'entry.ts'), 'export const entry = true;');
+    writeFileSync(join(pyricRoot, 'dist', 'app.js'), 'export const generation = 1;');
+    const options = { entries: { app: join(cliRoot, 'entry.ts') } };
+    const first = cacheKey(options, '1.2.3', cliRoot, pyricRoot);
+
+    writeFileSync(join(pyricRoot, 'dist', 'app.js'), 'export const generation = 2;');
+
+    expect(cacheKey(options, '1.2.3', cliRoot, pyricRoot)).not.toBe(first);
+  });
+
+  it('changes when dependency resolution metadata changes without a CLI version bump', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-serve-key-dependencies-'));
+    const cliRoot = join(root, 'cli');
+    const pyricRoot = join(root, 'pyric');
+    mkdirSync(cliRoot, { recursive: true });
+    mkdirSync(join(pyricRoot, 'dist'), { recursive: true });
+    const entry = join(cliRoot, 'entry.ts');
+    writeFileSync(entry, 'export const entry = true;');
+    writeFileSync(join(cliRoot, 'package.json'), JSON.stringify({
+      name: '@pyric/cli',
+      dependencies: { zod: '3.23.0' },
+    }));
+    writeFileSync(join(pyricRoot, 'package.json'), JSON.stringify({
+      name: 'pyric',
+      version: '1.2.3',
+    }));
+    writeFileSync(join(pyricRoot, 'dist', 'app.js'), 'export const app = true;');
+    const options = { entries: { app: entry } };
+    const first = cacheKey(options, '1.2.3', cliRoot, pyricRoot);
+
+    writeFileSync(join(cliRoot, 'package.json'), JSON.stringify({
+      name: '@pyric/cli',
+      dependencies: { zod: '3.25.0' },
+    }));
+
+    expect(cacheKey(options, '1.2.3', cliRoot, pyricRoot)).not.toBe(first);
+  });
+});
+
+describe('worker source hashing', () => {
+  it('changes when a nested worker source changes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-worker-source-hash-'));
+    const nested = join(dir, 'client');
+    const { mkdirSync } = require('node:fs') as typeof import('node:fs');
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(dir, 'entry.ts'), 'export const entry = true;');
+    writeFileSync(join(nested, 'auth.ts'), 'export const generation = 1;');
+    const first = sourceTreeHash(dir);
+
+    writeFileSync(join(nested, 'auth.ts'), 'export const generation = 2;');
+
+    expect(sourceTreeHash(dir)).not.toBe(first);
+  });
+
+  it('changes when the installed pyric implementation changes without a version bump', () => {
+    const pyricRoot = mkdtempSync(join(tmpdir(), 'pyric-worker-hash-pyric-'));
+    mkdirSync(join(pyricRoot, 'dist'), { recursive: true });
+    writeFileSync(join(pyricRoot, 'package.json'), JSON.stringify({ version: '1.2.3' }));
+    writeFileSync(join(pyricRoot, 'dist', 'app.js'), 'export const generation = 1;');
+    const first = workerSourceHash(pyricRoot);
+
+    writeFileSync(join(pyricRoot, 'dist', 'app.js'), 'export const generation = 2;');
+
+    expect(workerSourceHash(pyricRoot)).not.toBe(first);
+  });
+
+  it('changes when an executable worker dependency outside serve/worker changes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-worker-hash-cli-'));
+    const cliRoot = join(root, 'cli');
+    const pyricRoot = join(root, 'pyric');
+    mkdirSync(join(cliRoot, 'bridge', 'client'), { recursive: true });
+    mkdirSync(join(pyricRoot, 'dist'), { recursive: true });
+    writeFileSync(join(pyricRoot, 'package.json'), JSON.stringify({ version: '1.2.3' }));
+    writeFileSync(join(pyricRoot, 'dist', 'app.js'), 'export const app = true;');
+    const dependency = join(cliRoot, 'bridge', 'client', 'dispatch.ts');
+    writeFileSync(dependency, 'export const generation = 1;');
+    const first = workerSourceHash(pyricRoot, cliRoot);
+
+    writeFileSync(dependency, 'export const generation = 2;');
+
+    expect(workerSourceHash(pyricRoot, cliRoot)).not.toBe(first);
+  });
+
+  it('changes when worker dependency resolution changes without a CLI version bump', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-worker-hash-dependencies-'));
+    const cliRoot = join(root, 'cli');
+    const pyricRoot = join(root, 'pyric');
+    mkdirSync(cliRoot, { recursive: true });
+    mkdirSync(join(pyricRoot, 'dist'), { recursive: true });
+    writeFileSync(join(cliRoot, 'worker.ts'), 'export const worker = true;');
+    writeFileSync(join(cliRoot, 'package.json'), JSON.stringify({
+      name: '@pyric/cli',
+      dependencies: { zod: '3.23.0' },
+    }));
+    writeFileSync(join(pyricRoot, 'package.json'), JSON.stringify({
+      name: 'pyric',
+      version: '1.2.3',
+    }));
+    writeFileSync(join(pyricRoot, 'dist', 'app.js'), 'export const app = true;');
+    const first = workerSourceHash(pyricRoot, cliRoot);
+
+    writeFileSync(join(cliRoot, 'package.json'), JSON.stringify({
+      name: '@pyric/cli',
+      dependencies: { zod: '3.25.0' },
+    }));
+
+    expect(workerSourceHash(pyricRoot, cliRoot)).not.toBe(first);
+  });
 });
 
 describe('bundleSdk smoke (real esbuild, real pyric dist)', () => {
+  it('keeps concurrent no-cache generations in distinct immutable directories', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-no-cache-'));
+    const entry = join(dir, 'entry.ts');
+    writeFileSync(entry, 'export const generation = true;');
+    const options = {
+      entries: { app: entry },
+      cacheRoot: join(dir, 'cache'),
+      noCache: true,
+      minify: false,
+    };
+
+    const [first, second] = await Promise.all([
+      bundleSdk(options),
+      bundleSdk(options),
+    ]);
+
+    expect(first.cached).toBe(false);
+    expect(second.cached).toBe(false);
+    expect(first.outDir).not.toBe(second.outDir);
+    expect(readFileSync(join(first.outDir, 'app.js'), 'utf8')).toContain('generation');
+    expect(readFileSync(join(second.outDir, 'app.js'), 'utf8')).toContain('generation');
+
+    const firstGeneration = join(first.outDir, '..');
+    const secondGeneration = join(second.outDir, '..');
+    first.dispose();
+    second.dispose();
+    expect(existsSync(firstGeneration)).toBe(false);
+    expect(existsSync(secondGeneration)).toBe(false);
+  }, 30_000);
+
+  it('removes a no-cache generation when bundling fails before a server starts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-no-cache-failure-'));
+    const cacheRoot = join(dir, 'cache');
+    const brokenEntry = join(dir, 'broken.ts');
+    writeFileSync(brokenEntry, 'export const = ;');
+
+    await expect(bundleSdk({
+      entries: { app: brokenEntry },
+      cacheRoot,
+      noCache: true,
+      minify: false,
+    })).rejects.toThrow();
+
+    expect(readdirSync(cacheRoot).filter((name) => name.startsWith('.no-cache-'))).toEqual([]);
+  }, 30_000);
+
   it('bundles a browser-standalone entry importing pyric/firestore; cache round-trips', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-bundle-'));
     const entry = join(dir, 'smoke.ts');
@@ -149,9 +330,19 @@ export const db = getFirestore(initializeSandbox());`,
 });
 
 describe('the real wrapper entries (plan step 1.2)', () => {
-  it('defaultSdkEntries locates ai + app + auth + firestore + database + storage entries', () => {
+  it('defaultSdkEntries locates every served Firebase entry including both Messaging planes', () => {
     const entries = (require('../../src/serve/bundler.js') as typeof import('../../src/serve/bundler.js')).defaultSdkEntries();
-    expect(Object.keys(entries).sort()).toEqual(['ai', 'app', 'auth', 'database', 'firestore', 'init', 'storage']);
+    expect(Object.keys(entries).sort()).toEqual([
+      'ai',
+      'app',
+      'auth',
+      'database',
+      'firestore',
+      'init',
+      'messaging',
+      'messaging-sw',
+      'storage',
+    ]);
   });
 
   it('bundles browser-standalone with a SINGLE shared runtime chunk', async () => {
@@ -165,6 +356,8 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     expect(names).toContain('auth.js');
     expect(names).toContain('database.js');
     expect(names).toContain('firestore.js');
+    expect(names).toContain('messaging.js');
+    expect(names).toContain('messaging-sw.js');
     expect(names).toContain('storage.js');
     expect(names).toContain('init.js');
     // splitting produced shared chunk(s); the runtime/sandbox must NOT be

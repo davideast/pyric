@@ -7,21 +7,17 @@
  *   - https://firebase.google.com/docs/storage/web/upload-files
  *     (`ref` + `uploadBytes`)
  *
- * The only adjustments pyric requires:
- *   - `initializeApp({ sandbox: initializeSandbox() })` in place of
- *     `initializeApp(firebaseConfig)`.
- *   - The upload doc's `file` "comes from the Blob or File API" — neither
+ * The upload doc's `file` "comes from the Blob or File API" — neither
  *     exists in this headless, in-process run, so this program uses a
  *     `Uint8Array` instead, one of `uploadBytes`'s own documented accepted
  *     input types (`Blob | Uint8Array | ArrayBuffer`), not a pyric-specific
  *     shape.
  */
 import { initializeApp } from 'pyric/app';
-import { initializeSandbox } from 'pyric/sandbox';
 import { getStorage, ref, uploadBytes } from 'pyric/storage';
 
 export async function run(): Promise<void> {
-  const app = initializeApp({ sandbox: initializeSandbox() });
+  const app = initializeApp({ projectId: 'entry-path-project' });
   const storage = getStorage(app);
   const storageRef = ref(storage, 'entry-path/quickstart.txt');
 

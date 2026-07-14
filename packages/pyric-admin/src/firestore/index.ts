@@ -28,6 +28,7 @@ import {
   isSandboxAdminApp,
   type PyricAdminApp,
 } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 
 /** Narrow a `PyricAdminApp` to the anonymous {@link SandboxContext} the
  *  admin firestore backend runs against. Sandbox apps expose their
@@ -62,7 +63,9 @@ export function getFirestore(
     return baseGetFirestore(adminAppToContext(getApp()));
   }
   if (typeof target === 'object' && target !== null && ADMIN_APP_TARGET in target) {
-    return baseGetFirestore(adminAppToContext(target as PyricAdminApp));
+    const app = target as PyricAdminApp;
+    assertAdminAppActive(app);
+    return baseGetFirestore(adminAppToContext(app));
   }
   return baseGetFirestore(target as SandboxContext);
 }

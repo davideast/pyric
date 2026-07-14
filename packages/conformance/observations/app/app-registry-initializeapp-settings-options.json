@@ -1,0 +1,18 @@
+{
+  "name": "app-registry-initializeapp-settings-options",
+  "matrixRow": "app #16",
+  "rowIds": [
+    "app#16"
+  ],
+  "description": "firebase/app snapshots FirebaseOptions, accepts FirebaseAppSettings, initializes automaticDataCollectionEnabled from settings, and leaves that app property mutable.",
+  "observedAt": "2026-07-13T22:47:49.329Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "name": "settings-app",
+    "optionsSameReference": false,
+    "optionsFrozen": false,
+    "projectIdAfterInputMutation": "demo-app-registry",
+    "initialAutomaticDataCollectionEnabled": false,
+    "automaticDataCollectionEnabledAfterMutation": true
+  }
+}

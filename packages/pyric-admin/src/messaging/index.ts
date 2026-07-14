@@ -65,6 +65,7 @@ import {
   type PyricAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 
 // ── Upstream error surface, re-exported verbatim ────────────────────────────
 
@@ -313,6 +314,7 @@ function resolveApp(app?: PyricAdminApp): PyricAdminApp {
  */
 export function getMessaging(app?: PyricAdminApp): Messaging {
   const resolved = resolveApp(app);
+  assertAdminAppActive(resolved);
   if (isProdAdminApp(resolved)) {
     return getProdMessaging(resolved.adminApp) as unknown as Messaging;
   }

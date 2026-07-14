@@ -11,7 +11,7 @@ order: 8005
 
 > **Surface coverage:** 64.8% of Firebase's public exports · 79.5% of what pyric intends to mirror
 >
-> **Fidelity:** 77% (154 of 200 tracked claims match production)
+> **Fidelity:** 76.6% (154 of 201 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
@@ -828,6 +828,10 @@ Simulation and structure crawling are sandbox/CLI operations; rules authoring an
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">141</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The returned unsubscribe function from <code>onValue(ref, cb)</code> is equivalent to <code>off(ref, 'value', cb)</code></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Sandbox aligned (M48); oracle: <code>packages/conformance/observations/rtdb/rtdb-onvalue-unsub-equivalence.json</code> — <code>unsubReturnType: 'function'</code>, <code>unsubReturnedFnStopsListener: true</code> (the captured return value halted fires on write), <code>offRefValueCbStopsListener: true</code> (the same effect via <code>off(ref, 'value', cb)</code>), <code>bothFormsEquivalent: true</code>.</div></div>
+</details>
+<details class="compat-row" data-status="unverified">
+<summary class="compat-line"><span class="compat-num">183</span><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-behavior">When the same callback is registered more than once, each <code>off(ref, eventType, callback)</code> removes one registration without orphaning the others</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Pyric behavior is locked by <code>packages/pyric/test/app/multi-app-listener-auth.test.ts</code>; a production duplicate-registration oracle capture is still needed</div></div>
 </details>
 </div>
 

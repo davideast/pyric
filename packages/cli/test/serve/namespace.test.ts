@@ -84,6 +84,8 @@ describe('injectServeTags', () => {
       'firebase/auth',
       'firebase/database',
       'firebase/firestore',
+      'firebase/messaging',
+      'firebase/messaging/sw',
       'firebase/storage',
     ]);
   });

@@ -23,7 +23,7 @@
 
 export type SessionMode = 'LOCAL' | 'SESSION' | 'NONE';
 
-const KEY = 'pyric:serve:auth-session';
+const DEFAULT_KEY = 'pyric:serve:auth-session';
 
 export interface SessionStores {
   local: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -36,8 +36,16 @@ export interface StoredSession {
 
 export class SessionStore {
   private mode: SessionMode = 'LOCAL'; // firebase's default persistence
+  private readonly key: string;
 
-  constructor(private readonly stores: SessionStores) {}
+  constructor(
+    private readonly stores: SessionStores,
+    appName = '[DEFAULT]',
+  ) {
+    this.key = appName === '[DEFAULT]'
+      ? DEFAULT_KEY
+      : `${DEFAULT_KEY}:${encodeURIComponent(appName)}`;
+  }
 
   /** `setPersistence` parity: switch the backing store and MIGRATE any
    *  current session into it (the real SDK carries the session over). */
@@ -51,28 +59,36 @@ export class SessionStore {
   save(uid: string): void {
     this.clear(); // a session lives in exactly one store
     if (this.mode === 'NONE') return;
-    this.backing().setItem(KEY, JSON.stringify({ uid } satisfies StoredSession));
+    this.backing().setItem(this.key, JSON.stringify({ uid } satisfies StoredSession));
   }
 
   /** Reads BOTH storages (localStorage first — matches lookup order when a
-   *  prior page used a different mode). */
+   *  prior page used a different mode). Restoring also restores the mode:
+   *  the initial Auth observer resaves the user, and must not migrate a
+   *  SESSION record into the default LOCAL slot. */
   load(): StoredSession | null {
-    for (const store of [this.stores.local, this.stores.session]) {
-      const raw = store.getItem(KEY);
+    for (const [mode, store] of [
+      ['LOCAL', this.stores.local],
+      ['SESSION', this.stores.session],
+    ] as const) {
+      const raw = store.getItem(this.key);
       if (!raw) continue;
       try {
         const parsed = JSON.parse(raw) as StoredSession;
-        if (parsed && typeof parsed.uid === 'string') return parsed;
+        if (parsed && typeof parsed.uid === 'string') {
+          this.mode = mode;
+          return parsed;
+        }
       } catch {
-        store.removeItem(KEY); // corrupt → drop, never throw at page init
+        store.removeItem(this.key); // corrupt → drop, never throw at page init
       }
     }
     return null;
   }
 
   clear(): void {
-    this.stores.local.removeItem(KEY);
-    this.stores.session.removeItem(KEY);
+    this.stores.local.removeItem(this.key);
+    this.stores.session.removeItem(this.key);
   }
 
   private backing(): SessionStores['local'] {

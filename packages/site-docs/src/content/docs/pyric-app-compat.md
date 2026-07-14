@@ -11,7 +11,7 @@ order: 8002
 
 > **Surface coverage:** 39.1% of Firebase's public exports · 90% of what pyric intends to mirror
 >
-> **Fidelity:** 93.3% (14 of 15 tracked claims match production)
+> **Fidelity:** 85.2% (23 of 27 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
@@ -55,7 +55,7 @@ no network) and replayed verdict-for-verdict by
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-initializeapp-duplicate-name</code> (firebase 12.13.0) + replay: <code>oracle-conformance.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A same-name re-initialization with EQUAL config is idempotent — no throw, returns the existing instance, <code>getApps()</code> stays length 1 (reference identity is the deep-equal-options analog for a <code>{ sandbox }</code> config)</span></summary>
+<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A same-name re-initialization with EQUAL config is idempotent — no throw, returns the existing instance, and <code>getApps()</code> stays length 1</span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-initializeapp-duplicate-config</code> (firebase 12.13.0) + replay: <code>oracle-conformance.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -101,5 +101,53 @@ no network) and replayed verdict-for-verdict by
 <details class="compat-row" data-status="unsupported">
 <summary class="compat-line"><span class="compat-num">15</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet</span></summary>
 <div class="compat-evidence"><div class="compat-probe">deferred — see census deny-list (tier <code>deferred</code>) for the surface-coverage debt entry</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">16</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>initializeApp</code> snapshots options, accepts a settings object, initializes <code>automaticDataCollectionEnabled</code>, and leaves that app property mutable</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-initializeapp-settings-options</code> (firebase 12.13.0) + replay: <code>oracle-conformance.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">17</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Equal-config named apps are distinct app containers with equal option values and independent name-keyed registry identity</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-initializeapp-named-equal-config</code> (firebase 12.13.0) + replay: <code>oracle-conformance.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">18</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Equal-config named apps own distinct app-associated service handles while resolving the same configured RTDB and Storage backend locators</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-multi-app-service-containers</code> (firebase 12.13.0) + replay: <code>oracle-conformance.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">19</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Production permits a differently configured named app; Pyric rejects it because one runtime currently owns exactly one sandbox backend</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-initializeapp-named-different-config</code> (firebase 12.13.0) + replay pins <code>app/multiple-configs-not-supported</code>; <code>packages/cli/test/e2e/app-multi-app.pw.ts</code> proves the same lock is enforced by the authoritative SharedWorker across same-origin tabs, not only by one page registry</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">20</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Production permits a different configuration after deletion; Pyric retains the runtime backend lock and rejects the reinitialization</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-delete-reinitialize-different-config</code> (firebase 12.13.0) + replay pins <code>app/multiple-configs-not-supported</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">21</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Without Hosting-provided defaults, omitting options throws FirebaseError code <code>app/no-options</code> with the production message</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-initializeapp-no-options</code> (firebase 12.13.0) + replay: <code>oracle-conformance.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">22</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">With a registered default app, each no-argument service factory resolves a service associated with that exact default app</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-default-service-factories</code> (firebase 12.13.0) + replay: <code>oracle-conformance.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">23</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Equal-config app instances connect to one logical backend: data written through one app is readable through another, while their active Auth sessions remain independent</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-production-multi-app-topology</code> (firebase 12.13.0, real Chromium against production) + twin replay: <code>production-multi-app-oracle.test.ts</code>; served SharedWorker replay: <code>app-multi-app.pw.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">24</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After deletion resolves, every public FirebaseApp property accessor throws <code>FirebaseError</code> code <code>app/app-deleted</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-registry-deleted-property-access</code> (firebase 12.13.0) + replay: <code>oracle-conformance.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">25</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After deletion, fresh Auth/Firestore/RTDB/Storage factories reject; cached factories return retained handles; retained Auth sign-out resolves but a new anonymous sign-in rejects <code>app/app-deleted</code>; Firestore reads report termination, RTDB refuses new refs, Storage refs remain constructible, and <code>getAI(deletedApp)</code> returns an app-associated handle</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracles: <code>app-registry-deleted-service-factories</code> and real-Chromium <code>app-production-multi-app-topology</code> (firebase 12.13.0) + replays: <code>oracle-conformance.test.ts</code>, <code>deleted-service-lifecycle.test.ts</code>, and <code>production-multi-app-oracle.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">26</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Deleting one app terminates its Firestore listener through the error callback with code <code>aborted</code>, silently stops its RTDB listener, and leaves equal-config sibling listeners and the shared backend usable</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-production-multi-app-topology</code> (firebase 12.13.0, real Chromium against production) + twin replay: <code>production-multi-app-oracle.test.ts</code>; focused family tests: <code>multi-app-listener-auth.test.ts</code> and served <code>app-multi-app.pw.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="unverified">
+<summary class="compat-line"><span class="compat-num">27</span><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-behavior">Served worker mode rejects page-local custom AnswerEngine objects; a model retained from a deleted app rejects, while an equal-config sibling model remains usable through its own app-scoped worker port</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>packages/cli/test/e2e/app-deletion.pw.ts</code> observes AI code <code>unsupported</code> for a custom engine, then exercises retained and sibling models through canonical served imports after deleting one app; <code>packages/pyric/src/ai/sandbox-plane.ts</code> guards every model operation. A credentialed production AI lifecycle capture is still needed</div></div>
 </details>
 </div>

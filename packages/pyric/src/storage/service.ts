@@ -19,7 +19,8 @@
  * `Promise<StorageService>` for sandbox handles.
  */
 import { SandboxContextImpl } from 'pyric/sandbox';
-import type { EventProvenance, Sandbox, SandboxContext } from 'pyric/sandbox';
+import type { AuthState, EventProvenance, Sandbox, SandboxContext } from 'pyric/sandbox';
+import type { FirebaseApp } from 'firebase/app';
 import {
   bindOperationContext,
   provenanceForOperationContext,
@@ -49,6 +50,8 @@ export interface SandboxTarget {
   readonly kind: 'sandbox';
   readonly sandbox: Sandbox;
   readonly context: SandboxContext;
+  /** App handles resolve auth at operation time; explicit contexts stay frozen. */
+  readonly currentAuth?: () => AuthState;
   readonly bucket: string;
   readonly servicePromise: Promise<StorageService>;
   /**
@@ -66,6 +69,10 @@ export interface SandboxTarget {
 
 export type Target = SandboxTarget;
 
+export function storageAuth(target: SandboxTarget): AuthState {
+  return target.currentAuth?.() ?? target.context.auth;
+}
+
 /**
  * Public opaque handle. Carries a {@link Target} via
  * {@link TARGET_SYMBOL}; never inspected by consumer code, which
@@ -74,7 +81,11 @@ export type Target = SandboxTarget;
  */
 export interface FirebaseStorage {
   readonly [TARGET_SYMBOL]: Target;
+  readonly app?: FirebaseApp;
 }
+
+/** Storage handle returned by Firebase-shaped app overloads. */
+export type AppFirebaseStorage = FirebaseStorage & { readonly app: FirebaseApp };
 
 /**
  * Internal sandbox service — owns the IDB connection + parsed rules.

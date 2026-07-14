@@ -8,7 +8,8 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { deleteApp, initializeApp } from '../../src/app/index.js';
+import { deleteApp } from '../../src/app/index.js';
+import { createAppForSandbox } from '../../src/app/internal.js';
 
 import {
   AIError,
@@ -58,6 +59,23 @@ describe('getAI instance identity', () => {
     const modelB = getGenerativeModel(aiB, { model: MODEL });
     const result = await modelB.generateContent('hello');
     expect(result.response.text()).not.toBe('only A');
+  });
+
+  it('distinct app handles over one sandbox share one AI broker', async () => {
+    const sandbox = initializeSandbox();
+    const appA = createAppForSandbox(sandbox, { projectId: 'shared-ai' }, 'ai-a');
+    const appB = createAppForSandbox(sandbox, { projectId: 'shared-ai' }, 'ai-b');
+    try {
+      const aiA = getAI(appA);
+      const aiB = getAI(appB);
+      expect(aiA).not.toBe(aiB);
+      script(aiA, [{ respond: { text: 'shared backend response' } }]);
+      const result = await getGenerativeModel(aiB, { model: MODEL }).generateContent('hello');
+      expect(result.response.text()).toBe('shared backend response');
+    } finally {
+      await deleteApp(appA);
+      await deleteApp(appB);
+    }
   });
 
   it('distinct backends on one sandbox yield distinct handles', () => {
@@ -294,8 +312,9 @@ describe('sandbox error translation', () => {
 
 describe('sandbox app target', () => {
   it('getAI(app) carries the app and is idempotent', async () => {
-    const app = initializeApp(
-      { sandbox: initializeSandbox() },
+    const app = createAppForSandbox(
+      initializeSandbox(),
+      { projectId: 'ai-test' },
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
     try {
@@ -308,8 +327,9 @@ describe('sandbox app target', () => {
   });
 
   it('models minted from an app handle answer through its sandbox without network I/O', async () => {
-    const app = initializeApp(
-      { sandbox: initializeSandbox() },
+    const app = createAppForSandbox(
+      initializeSandbox(),
+      { projectId: 'ai-test' },
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
     const ai = getAI(app);
@@ -348,8 +368,9 @@ describe('sandbox app target', () => {
 
 describe('pyric/ai/scripting', () => {
   it('script() accepts a sandbox app handle', async () => {
-    const app = initializeApp(
-      { sandbox: initializeSandbox() },
+    const app = createAppForSandbox(
+      initializeSandbox(),
+      { projectId: 'ai-test' },
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
     try {

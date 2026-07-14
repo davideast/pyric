@@ -7,36 +7,22 @@
  * in-page sandbox — the unchanged fallback. Branch picked ONCE at load
  * (`useWorker`).
  *
- * PROVIDER SIGN-IN (the no-regression seam): `signInWithPopup`/
- * `signInWithRedirect` can't cross the worker port — the `AuthFlowResolver`
- * (and its `ServeAuthHelper` picker) live in-page. So on the worker path we
- * RESOLVE the identity in-page (the helper, installed by `init.ts` on the
- * in-page auth), then hand it to the worker via `acceptProviderCredential`
- * (the `auth.acceptIdentity` op). Email/password + anonymous go straight to
- * the worker. The COMPLETE surface is exported on both paths (import-time
- * parity). Browser-bundled by `../bundler.ts`; never imported by node-side.
+ * PROVIDER SIGN-IN: the picker UI lives in-page, but its controller is
+ * backend-free. In worker mode it lists identities from the worker and returns
+ * a plain credential to `auth.acceptIdentity`; no page-local Auth handle signs
+ * in or seeds a user. Email/password + anonymous also go straight to the
+ * worker. The COMPLETE surface is exported on both paths (import-time parity).
  */
 import * as ipAuth from 'pyric/auth';
 import { getAuth as pyricGetAuth, setPersistence as pyricSetPersistence } from 'pyric/auth';
 import * as wcRaw from '../worker/client.js';
-import { acceptProviderCredential } from '../worker/client.js';
-import { sandbox, workerDb, useWorker, sessionStore } from './runtime.js';
+import { acceptProviderCredential, restorePortSession } from '../worker/client.js';
+import { useWorker } from './worker-runtime.js';
+import { sessionStoreForApp } from './app-session-store.js';
+import { resolveServeAuthFlow } from './auth-helper-runtime.js';
 import type { SessionMode } from './session-store.js';
-
-// PROVIDER ENFORCEMENT SEAM: in worker mode the page-local sandbox is only
-// the UI vehicle for popup/redirect resolution — the WORKER's provider config
-// (what Studio's toggles write) is the authority, enforced by its
-// `auth.acceptIdentity` gate. Delegate the page-local gate so the picker
-// opens for providers the worker may have enabled (the page's defaults —
-// password/anonymous only — would otherwise veto them sight unseen).
-//
-// NON-WORKER (in-page fallback) mode keeps LOCAL gating against the page
-// sandbox's own config. There is no worker to consult in that mode, so the
-// documented sandbox defaults (password/anonymous on, OAuth off until
-// `sandbox.setAuthProviderConfig`) apply honestly — a deliberate, simple leg.
-if (useWorker) {
-  ipAuth.sandbox.delegateProviderEnforcement(pyricGetAuth(sandbox), true);
-}
+import { getApp, type FirebaseApp } from 'pyric/app';
+import { workerClientForApp } from './app-client.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -78,11 +64,53 @@ export const browserSessionPersistence = ipAuth.browserSessionPersistence;
 export const inMemoryPersistence = ipAuth.inMemoryPersistence;
 
 // ── getAuth — worker-backed auth (reusing the shared worker port) or in-page.
-export const getAuth = (
-  useWorker
-    ? (_app?: unknown) => wc.getAuth(workerDb as never)
-    : (target?: Parameters<typeof pyricGetAuth>[0]) => pyricGetAuth((target ?? sandbox) as never)
-) as typeof pyricGetAuth;
+const workerAuthByApp = new WeakMap<FirebaseApp, ReturnType<typeof pyricGetAuth>>();
+const persistenceWired = new WeakSet<FirebaseApp>();
+
+function wireAppPersistence(
+  app: FirebaseApp,
+  auth: ReturnType<typeof pyricGetAuth>,
+): void {
+  if (persistenceWired.has(app)) return;
+  persistenceWired.add(app);
+  const store = sessionStoreForApp(app);
+  const stored = store.load();
+  if (useWorker && stored) {
+    // Posting restore before listener registration preserves FIFO ordering on
+    // this app's MessagePort, so the initial listener value is the restore.
+    void restorePortSession(auth as never, stored.uid).then((user) => {
+      if (!user) store.clear();
+    });
+  } else if (!useWorker && stored) {
+    try {
+      ipAuth.sandbox.restoreSession(auth, stored.uid);
+    } catch {
+      store.clear();
+    }
+  }
+  A.onAuthStateChanged(auth, (user) => {
+    if (user) store.save(user.uid);
+    else store.clear();
+  });
+}
+
+export const getAuth = ((app?: FirebaseApp) => {
+  const resolved = app ?? getApp();
+  if (!useWorker) {
+    const handle = pyricGetAuth(resolved);
+    wireAppPersistence(resolved, handle);
+    return handle;
+  }
+  const existing = workerAuthByApp.get(resolved);
+  if (existing) return existing;
+  const client = workerClientForApp(resolved);
+  const handle = Object.assign(wc.getAuth(client as never), {
+    app: resolved,
+  }) as unknown as ReturnType<typeof pyricGetAuth>;
+  workerAuthByApp.set(resolved, handle);
+  wireAppPersistence(resolved, handle);
+  return handle;
+}) as typeof pyricGetAuth;
 
 /**
  * Narrow a `Persistence.type` to the three web-storage slots the session store
@@ -109,14 +137,14 @@ export const setPersistence = (
         auth: Parameters<typeof pyricSetPersistence>[0],
         persistence: Parameters<typeof pyricSetPersistence>[1],
       ) => {
-        sessionStore.setMode(toSessionMode(persistence.type));
+        sessionStoreForApp(auth.app ?? getApp()).setMode(toSessionMode(persistence.type));
         return (wc.setPersistence as typeof pyricSetPersistence)(auth, persistence);
       })
     : async (
         auth: Parameters<typeof pyricSetPersistence>[0],
         persistence: Parameters<typeof pyricSetPersistence>[1],
       ) => {
-        sessionStore.setMode(toSessionMode(persistence.type));
+        sessionStoreForApp(auth.app ?? getApp()).setMode(toSessionMode(persistence.type));
         return pyricSetPersistence(auth, persistence);
       }
 ) as typeof pyricSetPersistence;
@@ -124,26 +152,29 @@ export const setPersistence = (
 // ── Provider sign-in (popup/redirect) — the in-page→worker bridge ─────────
 
 /**
- * Resolve a provider identity IN-PAGE (the ServeAuthHelper picker, via the
- * in-page auth's installed AuthFlowResolver), then hand it to the worker. The
+ * Resolve a provider identity through the backend-free ServeAuthHelper, then
+ * hand it to the worker. The
  * helper seeds `{ sub, ...claims }` into the resolved credential's token, so we
  * strip `sub` to recover the original custom claims for the worker seed.
  *
  * Enforcement lives at the hand-off: `auth.acceptIdentity` gates against the
  * WORKER's provider config and rejects `auth/operation-not-allowed` for a
  * disabled provider (matching prod, where the popup opens and the error
- * surfaces after the interaction). The page-local gate is delegated above.
+ * surfaces after the interaction).
  */
 async function bridgeProviderSignIn(
+  auth: Parameters<typeof ipAuth.signInWithPopup>[0],
   provider: Parameters<typeof ipAuth.signInWithPopup>[1],
+  kind: 'popup' | 'redirect',
 ): Promise<unknown> {
-  const inPageAuth = pyricGetAuth(sandbox);
-  const cred = await ipAuth.signInWithPopup(inPageAuth, provider);
+  const providerId = (provider as { providerId?: string }).providerId ?? 'oidc';
+  const cred = await resolveServeAuthFlow(
+    { providerId, authType: 'signIn' },
+    kind,
+  );
   const tokenResult = await cred.user.getIdTokenResult();
   const { sub: _sub, ...customClaims } = (tokenResult.claims ?? {}) as Record<string, unknown>;
-  const providerId =
-    cred.providerId ?? (provider as { providerId?: string }).providerId ?? 'oidc';
-  return acceptProviderCredential(wc.getAuth(workerDb as never) as never, {
+  return acceptProviderCredential(auth as never, {
     uid: cred.user.uid,
     email: cred.user.email,
     displayName: cred.user.displayName,
@@ -154,8 +185,8 @@ async function bridgeProviderSignIn(
 
 export const signInWithPopup = (
   useWorker
-    ? (_auth: unknown, provider: Parameters<typeof ipAuth.signInWithPopup>[1]) =>
-        bridgeProviderSignIn(provider)
+    ? (auth: Parameters<typeof ipAuth.signInWithPopup>[0], provider: Parameters<typeof ipAuth.signInWithPopup>[1]) =>
+        bridgeProviderSignIn(auth, provider, 'popup')
     : ipAuth.signInWithPopup
 ) as typeof ipAuth.signInWithPopup;
 
@@ -168,8 +199,8 @@ export const signInWithPopup = (
  */
 export const signInWithRedirect = (
   useWorker
-    ? (_auth: unknown, provider: Parameters<typeof ipAuth.signInWithRedirect>[1]) =>
-        bridgeProviderSignIn(provider)
+    ? (auth: Parameters<typeof ipAuth.signInWithRedirect>[0], provider: Parameters<typeof ipAuth.signInWithRedirect>[1]) =>
+        bridgeProviderSignIn(auth, provider, 'redirect')
     : ipAuth.signInWithRedirect
 ) as typeof ipAuth.signInWithRedirect;
 

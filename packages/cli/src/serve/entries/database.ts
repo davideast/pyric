@@ -21,14 +21,22 @@ import {
   rtdbSet,
   rtdbUpdate,
 } from '../worker/client.js';
-import { sandbox, workerDb, useWorker } from './runtime.js';
+import { useWorker } from './worker-runtime.js';
+import { getApp, type FirebaseApp } from 'pyric/app';
+import { workerClientForApp } from './app-client.js';
 
-export const getDatabase = (
-  useWorker
-    ? (_app?: unknown) => rtdbGetDatabase(workerDb!)
-    : (target?: Parameters<typeof pyricGetDatabase>[0]) =>
-        pyricGetDatabase((target ?? sandbox) as never)
-) as typeof pyricGetDatabase;
+const workerDatabaseByApp = new WeakMap<FirebaseApp, ReturnType<typeof pyricGetDatabase>>();
+
+export const getDatabase = ((app?: FirebaseApp) => {
+  const resolved = app ?? getApp();
+  if (!useWorker) return pyricGetDatabase(resolved);
+  const existing = workerDatabaseByApp.get(resolved);
+  if (existing) return existing;
+  const client = workerClientForApp(resolved);
+  const handle = Object.assign(rtdbGetDatabase(client), { app: resolved }) as unknown as ReturnType<typeof pyricGetDatabase>;
+  workerDatabaseByApp.set(resolved, handle);
+  return handle;
+}) as typeof pyricGetDatabase;
 
 export const ref = (useWorker ? rtdbRef : ip.ref) as typeof ip.ref;
 export const child = (useWorker ? rtdbChild : ip.child) as typeof ip.child;

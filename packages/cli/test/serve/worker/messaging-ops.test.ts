@@ -2,7 +2,7 @@
  * SharedWorker host — messaging ops/subs (the broker's worker-host seam).
  *
  * Same harness style as host.test.ts: REAL sandbox + fake ports, no browser.
- * Covers: the climb gate (`messaging/disabled`), token lifecycle over the
+ * Covers: the host capability gate (`messaging/disabled`), token lifecycle over the
  * wire, send-plane accepts + captured rejection envelopes (verbatim, never
  * re-derived), topic management, the deliver driver, and THE captured
  * routing rule crossing the transport — per-port visibility mapped to
@@ -97,15 +97,15 @@ async function mintToken(ctx: HostCtx, port: FakePort, registrationId = 'swreg-a
   return value.token;
 }
 
-// ─── The climb gate ─────────────────────────────────────────────────────────
+// ─── The host capability gate ───────────────────────────────────────────────
 
-describe('climb gate', () => {
+describe('host capability gate', () => {
   it('ops answer messaging/disabled when the ctx flag is off', async () => {
     const ctx = makeCtx(false);
     const port = fakePort();
     const err = await opFail(ctx, port, { method: 'messaging.getToken' });
     expect(err.code).toBe('messaging/disabled');
-    expect(err.message).toContain('PYRIC_CLIMB=1');
+    expect(err.message).toContain('messagingEnabled: true');
   });
 
   it('subs deliver the gate as a snap __error', async () => {

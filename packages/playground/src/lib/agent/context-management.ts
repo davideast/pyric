@@ -3,7 +3,7 @@
  * DELETE this file and import from '@inbrowser/agent/usage' once that
  * public entrypoint re-exports the runtime functions.
  *
- * @inbrowser/agent@0.4.1 ships the compiled module under
+ * @inbrowser/agent@0.4.2 ships the compiled module under
  * `dist/usage/context-management.js`, but does not expose that subpath
  * through package.json `exports`, and `@inbrowser/agent/usage` does not
  * re-export the runtime functions. Keep this local copy until the

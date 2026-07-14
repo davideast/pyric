@@ -839,6 +839,8 @@ export class LocalEnvironment {
     followsCurrentUser = false,
     /** Preserve the admin lens for the listener's full lifetime. */
     bypassRules = false,
+    /** Named app session identity; undefined means the ambient session. */
+    authScope?: object,
   ): () => void {
     const id = String(this.nextListenerId++);
     const record: ListenerRecord = {
@@ -848,6 +850,7 @@ export class LocalEnvironment {
       auth,
       bypassRules,
       followsCurrentUser,
+      ...(authScope ? { authScope } : {}),
       options,
       currentSnapshot: undefined,
       errored: false,
@@ -1759,11 +1762,12 @@ export class LocalEnvironment {
    * snapshot-then-skip-orphans pattern as {@link notifyListenersForPaths}
    * — a callback may add or remove listeners during dispatch.
    */
-  reevaluateLiveListeners(newAuth: ListenerAuth): void {
+  reevaluateLiveListeners(newAuth: ListenerAuth, authScope?: object): void {
     if (this.snapshotListeners.size === 0) return;
     const records = Array.from(this.snapshotListeners.values());
     for (const record of records) {
       if (!record.followsCurrentUser) continue;
+      if (record.authScope !== authScope) continue;
       if (!this.snapshotListeners.has(record.id)) continue;
       // Re-capture the session's new auth, then re-read under it. This is
       // the live-listener counterpart to prod re-establishing the stream

@@ -6,7 +6,15 @@
 
 import type { InboundMessage } from '../protocol.js';
 import type { WorkerOpPayload, WorkerSubPayload } from '../../../bridge/protocol.js';
-import { nextId, nextSubId, wirePort, rpc, rawRpc, _snapSubs } from './core.js';
+import {
+  nextId,
+  nextSubId,
+  wirePort,
+  rpc,
+  rawRpc,
+  openSnapshotSubscription,
+  closeSubscription,
+} from './core.js';
 import type { ClientDb } from './handles.js';
 
 // ─── Public API ────────────────────────────────────────────────────────────
@@ -160,7 +168,8 @@ export function relayWorkerSub(
     );
   }
   const subId = nextSubId();
-  _snapSubs.set(subId, {
+  const opened = openSnapshotSubscription(db.port, subId, {
+    port: db.port,
     next: onValue,
     error: (err) =>
       onValue({
@@ -169,10 +178,13 @@ export function relayWorkerSub(
           message: err instanceof Error ? err.message : String(err),
         },
       }),
-  });
-  db.port.postMessage({ ...sub, t: 'sub', subId } as InboundMessage);
+  }, { ...sub, t: 'sub', subId } as InboundMessage);
+  if (!opened) {
+    queueMicrotask(() => onValue({
+      __error: { code: 'app/app-deleted', message: 'Firebase App was deleted' },
+    }));
+  }
   return () => {
-    _snapSubs.delete(subId);
-    db.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+    closeSubscription(db.port, subId);
   };
 }

@@ -1,28 +1,19 @@
 /**
- * Sign-in helper core for `pyric dev` — the framework-free controller
- * behind the account-picker dialog (the emulator's sign-in widget analog,
- * and the second consumer of `pyric/auth`'s `AuthFlowResolver` seam after
- * the playground; same settle/seed semantics, zero DOM).
+ * Framework-free provider account picker controller for `pyric dev`.
  *
- * `resolver()` parks the SDK's popup/redirect promise; `pick`/`add`/`cancel`
- * settle it. `add()` seeds the identity into the sandbox user DB first so
- * `request.auth.token.*` claims resolve in rules AND the identity shows in
- * the picker next time (the uid-join-key lesson from the auth audit).
- *
- * Bun-testable without a browser — the `<dialog>` shell in
- * `./auth-helper-dom.ts` is a thin view over `subscribe`/`snapshot` and the
- * three actions.
+ * The controller is intentionally backend-agnostic. It receives an identity
+ * directory and returns a Firebase-shaped credential; it never constructs an
+ * Auth handle or mutates a Sandbox. In SharedWorker mode the directory reads
+ * the worker's user pool and the picked credential is committed by
+ * `auth.acceptIdentity`. The in-page fallback supplies a small adapter over its
+ * local auth user store.
  */
-import {
-  getAuth,
-  sandbox as authSandbox,
-  type Auth,
-  type AuthFlowRequest,
-  type AuthFlowResolver,
-  type User,
-  type UserCredential,
+import type {
+  AuthFlowRequest,
+  AuthFlowResolver,
+  User,
+  UserCredential,
 } from 'pyric/auth';
-import type { Sandbox } from 'pyric/sandbox';
 
 export interface NewIdentitySpec {
   email: string;
@@ -31,14 +22,24 @@ export interface NewIdentitySpec {
   customClaims?: Record<string, unknown>;
 }
 
+export interface HelperIdentity {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  customClaims: Record<string, unknown>;
+}
+
+export interface HelperIdentityDirectory {
+  list(): HelperIdentity[] | Promise<HelperIdentity[]>;
+  /** Optional on the worker path: `auth.acceptIdentity` performs the write. */
+  add?(identity: HelperIdentity): void | Promise<void>;
+}
+
 export interface HelperSnapshot {
   /** The in-flight request, or null when no popup/redirect is pending. */
   request: AuthFlowRequest | null;
-  identities: ReturnType<typeof authSandbox.listIdentities>;
+  identities: readonly HelperIdentity[];
 }
-
-/** Seeds need a password field; popup identities never sign in with one. */
-const SYNTHETIC_PASSWORD = '__pyric_popup_no_password__';
 
 type Pending = {
   req: AuthFlowRequest;
@@ -50,28 +51,23 @@ export class ServeAuthHelper {
   private pending: Pending | null = null;
   private readonly listeners = new Set<() => void>();
   private cached: HelperSnapshot | null = null;
-  private readonly auth: Auth;
+  private identities: HelperIdentity[] = [];
 
-  constructor(sandbox: Sandbox) {
-    this.auth = getAuth(sandbox);
-  }
-
-  /** Wire this helper into the page's auth. Call once at init. */
-  install(): void {
-    authSandbox.setAuthFlowResolver(this.auth, this.resolver());
+  constructor(private readonly directory: HelperIdentityDirectory) {
+    this.refreshIdentities();
   }
 
   resolver(): AuthFlowResolver {
     const open = (req: AuthFlowRequest): Promise<UserCredential> =>
       new Promise<UserCredential>((resolve, reject) => {
-        if (this.pending) this.cancel(); // one dialog at a time
+        if (this.pending) this.cancel();
         this.pending = { req, resolve, reject };
         this.emit();
+        this.refreshIdentities();
       });
     return { openPopup: open, openRedirect: open };
   }
 
-  // ─── view glue ──────────────────────────────────────────────────────
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
@@ -80,50 +76,70 @@ export class ServeAuthHelper {
   snapshot(): HelperSnapshot {
     this.cached ??= {
       request: this.pending?.req ?? null,
-      identities: authSandbox.listIdentities(this.auth),
+      identities: this.identities,
     };
     return this.cached;
   }
 
   private emit(): void {
     this.cached = null;
-    for (const l of this.listeners) l();
+    for (const listener of this.listeners) listener();
   }
 
-  // ─── actions ────────────────────────────────────────────────────────
+  private refreshIdentities(): void {
+    try {
+      const listed = this.directory.list();
+      if (listed instanceof Promise) {
+        void listed.then(
+          (identities) => {
+            this.identities = identities;
+            this.emit();
+          },
+          (error) => {
+            const pending = this.take();
+            pending?.reject(error);
+          },
+        );
+      } else {
+        this.identities = listed;
+        this.emit();
+      }
+    } catch (error) {
+      const pending = this.take();
+      pending?.reject(error);
+    }
+  }
+
   pick(uid: string): void {
-    const p = this.take();
-    if (!p) return;
-    const id = authSandbox.listIdentities(this.auth).find((i) => i.uid === uid);
-    if (!id) {
-      p.reject(authError('auth/internal-error', `unknown identity ${uid}`));
+    const pending = this.take();
+    if (!pending) return;
+    const identity = this.identities.find((candidate) => candidate.uid === uid);
+    if (!identity) {
+      pending.reject(authError('auth/internal-error', `unknown identity ${uid}`));
       return;
     }
-    p.resolve(this.credential(id.uid, id.email, id.displayName, id.customClaims, p.req.providerId));
+    pending.resolve(this.credential(identity, pending.req.providerId));
   }
 
   add(spec: NewIdentitySpec): void {
-    const p = this.take();
-    if (!p) return;
-    const uid = `${p.req.providerId}:${spec.email}`;
-    authSandbox.seedUsers(this.auth, [
-      {
-        uid,
-        email: spec.email,
-        password: SYNTHETIC_PASSWORD,
-        displayName: spec.displayName,
-        customClaims: spec.customClaims ?? {},
-      },
-    ]);
-    p.resolve(
-      this.credential(uid, spec.email, spec.displayName ?? null, spec.customClaims ?? {}, p.req.providerId),
+    const pending = this.take();
+    if (!pending) return;
+    const identity: HelperIdentity = {
+      uid: `${pending.req.providerId}:${spec.email}`,
+      email: spec.email,
+      displayName: spec.displayName ?? null,
+      customClaims: spec.customClaims ?? {},
+    };
+    void Promise.resolve(this.directory.add?.(identity)).then(
+      () => pending.resolve(this.credential(identity, pending.req.providerId)),
+      pending.reject,
     );
   }
 
   cancel(): void {
-    const p = this.take();
-    if (!p) return;
-    p.reject(
+    const pending = this.take();
+    if (!pending) return;
+    pending.reject(
       authError(
         'auth/popup-closed-by-user',
         'The popup has been closed by the user before finalizing the operation.',
@@ -132,28 +148,22 @@ export class ServeAuthHelper {
   }
 
   private take(): Pending | null {
-    const p = this.pending;
+    const pending = this.pending;
     this.pending = null;
     this.emit();
-    return p;
+    return pending;
   }
 
-  private credential(
-    uid: string,
-    email: string | null,
-    displayName: string | null,
-    claims: Record<string, unknown>,
-    providerId: string,
-  ): UserCredential {
+  private credential(identity: HelperIdentity, providerId: string): UserCredential {
     const user: User = {
-      uid,
-      email,
-      displayName,
+      uid: identity.uid,
+      email: identity.email,
+      displayName: identity.displayName,
       isAnonymous: false,
-      getIdToken: async () => `pyric-serve-${uid}`,
+      getIdToken: async () => `pyric-serve-${identity.uid}`,
       getIdTokenResult: async () => ({
-        token: `pyric-serve-${uid}`,
-        claims: { sub: uid, ...claims },
+        token: `pyric-serve-${identity.uid}`,
+        claims: { sub: identity.uid, ...identity.customClaims },
         expirationTime: new Date(Date.now() + 3600_000).toISOString(),
         issuedAtTime: new Date().toISOString(),
         authTime: new Date().toISOString(),
@@ -164,8 +174,8 @@ export class ServeAuthHelper {
 }
 
 function authError(code: string, message: string): Error & { code: string } {
-  const e = new Error(message) as Error & { code: string };
-  e.name = 'FirebaseError';
-  e.code = code;
-  return e;
+  const error = new Error(message) as Error & { code: string };
+  error.name = 'FirebaseError';
+  error.code = code;
+  return error;
 }

@@ -11,9 +11,9 @@
  * runs against the in-page sandbox via a runtime import map. For pre-built /
  * retrofit apps, or anyone who wants zero build step.
  *
- * `node` is the script-style scaffold (backend fixtures, agent loops) carried
- * over from init v1, with the `PYRIC_TARGET` env swap: the same script runs on
- * the sandbox (default) or the real project.
+ * `node` is the script-style scaffold (backend fixtures, agent loops). Its
+ * canonical imports are swapped by the dev command and remain Firebase under
+ * the production command.
  */
 
 export interface ScaffoldTemplate {
@@ -231,41 +231,21 @@ const FIRESTORE_INDEXES = `{
 
 // ─── node template (init v1 scaffold, carried over) ───────────────────
 
-const NODE_APP_TS = `/**
- * Pyric quickstart — \`PYRIC_TARGET\` picks the backend (graduation is an
- * env change, not a code edit):
- *   (unset) / sandbox  → in-process sandbox; no Firebase project needed
- *   firebase           → your real Firebase project (config from .env)
- */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { initializeApp } from 'pyric/app';
-import { initializeSandbox } from 'pyric/sandbox';
-import { getFirestore, collection, getDocs } from 'pyric/firestore';
-import { setRules } from 'pyric/sandbox/firestore';
-import { seed } from './seed.js';
+const NODE_APP_TS = `// Canonical Firebase imports stay unchanged between sandbox and production.
+// \`bun run dev\` activates @pyric/cli/register; \`bun start\` loads Firebase.
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, getDocs } from 'firebase/firestore';
+import { seed } from './seed.ts';
 
-const target = process.env.PYRIC_TARGET ?? 'sandbox';
-const sandbox = target === 'firebase' ? null : initializeSandbox();
-
-const app =
-  target === 'firebase'
-    ? initializeApp({
-        apiKey: process.env.FIREBASE_API_KEY,
-        authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        appId: process.env.FIREBASE_APP_ID,
-      })
-    : initializeApp({ sandbox: sandbox! });
+const app = initializeApp({
+  apiKey: process.env.FIREBASE_API_KEY ?? 'pyric-local',
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.FIREBASE_PROJECT_ID ?? 'pyric-local',
+  appId: process.env.FIREBASE_APP_ID ?? 'pyric-local',
+});
 const db = getFirestore(app);
 
-if (sandbox) {
-  // Sandbox mode: deploy this project's rules into the sandbox so they
-  // actually take effect during development. \`setRules\` throws if the
-  // rules fail lint — surfacing problems at setup time is the point.
-  const rulesPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'firestore.rules');
-  setRules(sandbox, readFileSync(rulesPath, 'utf8'));
+if (process.env.PYRIC_SANDBOX) {
   await seed(db);
 }
 
@@ -273,14 +253,10 @@ const snap = await getDocs(collection(db, 'posts'));
 console.log(\`\${snap.size} posts:\`);
 snap.forEach((doc) => console.log(\`  \${doc.id}:\`, doc.data()));
 
-// Graduation: fill .env from the Firebase console, tighten firestore.rules,
-// \`npx firebase-tools deploy --only firestore:rules\`, then run the SAME
-// code against the real backend:
-//   PYRIC_TARGET=firebase bun start
-// (rules deploys and seeding never run in firebase mode.)
+// Production: fill .env, deploy firestore.rules, then \`bun start\`.
 `;
 
-const NODE_SEED_TS = `import { collection, addDoc, type Firestore } from 'pyric/firestore';
+const NODE_SEED_TS = `import { collection, addDoc, type Firestore } from 'firebase/firestore';
 
 export async function seed(db: Firestore): Promise<void> {
   await addDoc(collection(db, 'posts'), {
@@ -296,9 +272,8 @@ export async function seed(db: Firestore): Promise<void> {
 }
 `;
 
-const NODE_ENV_EXAMPLE = `# PYRIC_TARGET=sandbox (default) | firebase
-# For firebase mode, fill from the Firebase console (project settings):
-PYRIC_TARGET=
+const NODE_ENV_EXAMPLE = `# Production Firebase config (Firebase console -> project settings).
+# Sandbox development uses the fallback values in src/app.ts.
 FIREBASE_API_KEY=
 FIREBASE_AUTH_DOMAIN=
 FIREBASE_PROJECT_ID=
@@ -335,14 +310,15 @@ const NODE_FIREBASE_JSON = `{
 
 const nodeReadme = (name: string): string => `# ${name}
 
-A Firebase-shaped app, running locally on Pyric's in-process sandbox.
-No Firebase project, no emulator suite, no credentials needed to start.
+A Firebase app whose canonical imports run against Pyric in development and
+real Firebase in production. No application-code switch is required.
 
 ## Quick start
 
 \`\`\`bash
 bun install
-bun start          # runs src/app.ts against the local sandbox
+bun run dev        # Pyric sandbox through the Node package swap
+bun start          # production: real Firebase
 \`\`\`
 
 ## Use with an MCP-connected agent (Claude Code)
@@ -360,7 +336,7 @@ and the agent's pyric tools attach automatically.
 
 ## Graduating to a real Firebase project
 
-Graduation is an env change, not a code edit:
+Graduation is a command change, not a code edit:
 
 1. Create a project at https://console.firebase.google.com and fill \`.env\`
    (see \`.env.example\`).
@@ -369,8 +345,7 @@ Graduation is an env change, not a code edit:
 3. Deploy them with the Firebase CLI: add a \`.firebaserc\`
    (\`{ "projects": { "default": "your-project-id" } }\`), then run
    \`npx firebase-tools deploy --only firestore:rules\`.
-4. Run the same code against the real backend:
-   \`PYRIC_TARGET=firebase bun start\`
+4. Run the same canonical-import code against the real backend: \`bun start\`.
 `;
 
 // ─── web template (Vite + @pyric/cli/vite) ───────────────────────────
@@ -634,12 +609,12 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
   },
   node: {
     scripts: {
-      start: 'bun src/app.ts',
-      dev: 'bun --watch src/app.ts',
+      start: 'node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
+      dev: 'pyric dev --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
      bridge: 'pyric bridge',
     },
-    dependencies: { pyric: '*', '@pyric/cli': '*' },
-    devDependencies: { '@types/bun': 'latest', typescript: '^5.7.0' },
+    dependencies: { firebase: '^12.12.0' },
+    devDependencies: { '@pyric/cli': '*', '@types/node': '^22.0.0', typescript: '^5.7.0' },
     dirs: ['src'],
     files: (name) => [
       { name: 'src/app.ts', content: NODE_APP_TS },
@@ -651,7 +626,7 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
       { name: 'README.md', content: nodeReadme(name) },
       { name: '.gitignore', content: GITIGNORE },
     ],
-    nextSteps: ['bun install', 'bun start', 'pyric bridge  # agents: the pyric Claude Code plugin auto-connects'],
+    nextSteps: ['bun install', 'bun run dev', 'bun start  # production: real Firebase'],
   },
   // static — the serve-era, no-bundler scaffold: a static app `pyric dev`
   // runs against the in-page sandbox via a runtime import map. For pre-built /

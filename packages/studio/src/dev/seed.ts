@@ -16,7 +16,8 @@
  * (`DevSeedProvider`) so it is tree-shaken out of production builds.
  */
 
-import { initializeApp, type PyricApp } from 'pyric/app';
+import type { FirebaseApp } from 'pyric/app';
+import { createAppForSandbox } from 'pyric/app/internal';
 import {
   GeoPoint,
   Timestamp,
@@ -45,7 +46,7 @@ import { studioAdminContext } from '../shell/studio-operation-context.js';
 /** The resolved handles a seeded Studio sandbox exposes to surfaces. */
 export interface SeededHandles {
   sandbox: LocalSandbox;
-  app: PyricApp;
+  app: FirebaseApp;
   /** Rules-respecting handle (what the running app sees). */
   firestore: Firestore;
   /** Rules-bypass handle ("edit anything" / admin lens). */
@@ -280,7 +281,7 @@ export async function createSeededSandbox(): Promise<SeededHandles> {
   const sandbox = initializeSandbox();
   // Unique app name: pyric/app mirrors firebase's registry (a repeated default
   // name throws app/duplicate-app), so each seeded sandbox gets its own.
-  const app = initializeApp({ sandbox }, `pyric-seed-${seedAppSeq++}`);
+  const app = createAppForSandbox(sandbox, { projectId: 'pyric-studio' }, `pyric-seed-${seedAppSeq++}`);
 
   const studioContext = studioAdminContext(sandbox);
   const adminFirestore = getAdminFirestore(studioContext);

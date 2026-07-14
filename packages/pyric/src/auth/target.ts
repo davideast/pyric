@@ -20,6 +20,8 @@ export interface SandboxTarget {
   kind: 'sandbox';
   sandbox: Sandbox;
   backend: SandboxBackend;
+  own?: (cleanup: () => void) => () => void;
+  assertAlive?: () => void;
 }
 
 export type Target = SandboxTarget;
@@ -29,12 +31,13 @@ export type Target = SandboxTarget;
  * the handle wasn't produced by this package — the brand is the
  * only way in.
  */
-export function targetOf(auth: Auth): Target {
+export function targetOf(auth: Auth, includeDeleted = false): Target {
   const t = (auth as { [TARGET_SYMBOL]?: Target })[TARGET_SYMBOL];
   if (!t) {
     throw new TypeError(
       'pyric/auth: unrecognized Auth handle — was it produced by getAuth(...)?',
     );
   }
+  if (!includeDeleted) t.assertAlive?.();
   return t;
 }

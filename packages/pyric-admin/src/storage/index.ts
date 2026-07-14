@@ -61,6 +61,7 @@ import {
   type ProdAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 
 // ─── Public surface ─────────────────────────────────────────────────────
 
@@ -206,6 +207,7 @@ export function getStorage(app?: StorageApp): Storage {
   // No-arg call resolves the default app; nothing initialized → captured
   // `app/no-app` FirebaseAppError (see pyric-admin/app getApp).
   const resolved: PyricAdminApp = app === undefined ? getApp() : (app as PyricAdminApp);
+  assertAdminAppActive(resolved);
   if (resolved[ADMIN_APP_TARGET] === 'sandbox') {
     // Remote brand checked BEFORE the local arm (same dispatch order as
     // auth/database): the local arm's WeakMap state + `onEvent` reset hook

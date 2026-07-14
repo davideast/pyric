@@ -7,15 +7,11 @@
  * against the same sandbox observe the same delivery stream, routed
  * exclusively by client visibility (the captured rule).
  *
- * ── Default instance (the in-process degenerate case) ──────────────────────
- * `getMessaging()` with no app mirrors `firebase/messaging`'s default-app
- * form. The mirror creates its climb-only default app lazily so importing the
- * messaging package does not silently mint sandbox state. Outside
- * `PYRIC_CLIMB=1`, the bare call throws with remediation; package resolution
- * has already selected sandbox versus production before this module loads.
+ * `getMessaging()` with no app mirrors `firebase/messaging` by resolving the
+ * default app registered through `pyric/app`.
  */
-import { initializeApp, type PyricApp } from '../app/index.js';
-import { initializeSandbox } from '../sandbox/index.js';
+import type { FirebaseApp } from 'firebase/app';
+import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-app.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import { DEFAULT_CLIENT_ID, getMessagingBroker, MessagingBroker } from './broker/index.js';
 import type { DeliveredPayload, DeliveryResult } from './broker/index.js';
@@ -25,7 +21,7 @@ import type { DeliveredPayload, DeliveryResult } from './broker/index.js';
  * (upstream `@firebase/messaging` public-types parity).
  */
 export interface Messaging {
-  readonly app: PyricApp;
+  readonly app: FirebaseApp;
 }
 
 export type MessagingPlane = 'window' | 'sw';
@@ -36,11 +32,12 @@ interface InstanceState {
   plane: MessagingPlane;
   /** The registration the last `getToken` bound to (deleteToken's target). */
   activeRegistrationId: string;
+  own: (cleanup: () => void) => () => void;
 }
 
 const instanceState = new WeakMap<Messaging, InstanceState>();
-/** One instance per (sandbox, plane) so repeated `getMessaging()` calls share state. */
-const instancesBySandbox = new WeakMap<Sandbox, Partial<Record<MessagingPlane, Messaging>>>();
+/** One instance per (app, plane); brokers remain shared by sandbox. */
+const instancesByApp = new WeakMap<FirebaseApp, Partial<Record<MessagingPlane, Messaging>>>();
 
 // ── Simulated service-worker registrations ──────────────────────────────────
 
@@ -76,47 +73,56 @@ export function defaultRegistration(): SimulatedServiceWorkerRegistration {
   return DEFAULT_REGISTRATION;
 }
 
-// ── Default app (climb-gated) ────────────────────────────────────────────────
+// ── Default app ─────────────────────────────────────────────────────────────
 
-let defaultApp: PyricApp | null = null;
-
-function resolveDefaultApp(): PyricApp {
-  if (defaultApp !== null) return defaultApp;
-  // `typeof` guard: this entry also loads in browser contexts, where
-  // `process` does not exist — the bare call must throw the remediation
-  // error below, not a ReferenceError.
-  const climb = typeof process !== 'undefined' && process.env.PYRIC_CLIMB === '1';
-  if (!climb) {
-    throw new Error(
-      'pyric/messaging: getMessaging() was called without an app and no default ' +
-        'exists. Pass initializeApp({ sandbox: initializeSandbox() }) from ' +
-        "'pyric/app', or set PYRIC_CLIMB=1 to enable the conformance-climb " +
-        'default sandbox (WIP surface).',
-    );
-  }
-  defaultApp = initializeApp({ sandbox: initializeSandbox() });
-  return defaultApp;
+function resolveDefaultApp(): FirebaseApp {
+  return defaultClientApp() as FirebaseApp;
 }
 
 // ── Instance resolution ──────────────────────────────────────────────────────
 
-export function resolveMessaging(plane: MessagingPlane, app?: PyricApp): Messaging {
+export function resolveMessaging(plane: MessagingPlane, app?: FirebaseApp): Messaging {
   const resolved = app ?? resolveDefaultApp();
-  const bySandbox = instancesBySandbox.get(resolved.sandbox) ?? {};
-  instancesBySandbox.set(resolved.sandbox, bySandbox);
-  const existing = bySandbox[plane];
+  const runtime = resolveClientApp(resolved);
+  if (!runtime) throw new TypeError('pyric/messaging: unrecognized FirebaseApp handle');
+  const sandbox = runtime.sandbox;
+  const byApp = instancesByApp.get(resolved) ?? {};
+  instancesByApp.set(resolved, byApp);
+  const existing = byApp[plane];
   if (existing !== undefined) return existing;
+  runtime.assertAlive();
 
-  const broker = getMessagingBroker(resolved.sandbox);
+  const broker = getMessagingBroker(sandbox);
   const instance: Messaging = { app: resolved };
   instanceState.set(instance, {
     broker,
-    sandbox: resolved.sandbox,
+    sandbox,
     plane,
     activeRegistrationId: registrationIdOf(DEFAULT_REGISTRATION),
+    own: (cleanup) => runtime.onDelete(cleanup),
   });
-  bySandbox[plane] = instance;
+  byApp[plane] = instance;
   return instance;
+}
+
+/** Bind a broker subscription to its FirebaseApp container lifetime. */
+export function ownMessagingSubscription(
+  messaging: Messaging,
+  subscribe: (state: InstanceState) => () => void,
+): () => void {
+  const state = stateOf(messaging);
+  let stopped = false;
+  const backendUnsubscribe = subscribe(state);
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    backendUnsubscribe();
+  };
+  const release = state.own(stop);
+  return () => {
+    release();
+    stop();
+  };
 }
 
 export function stateOf(messaging: Messaging): InstanceState {

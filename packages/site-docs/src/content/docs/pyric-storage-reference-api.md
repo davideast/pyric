@@ -12,11 +12,17 @@ Every symbol exported from `pyric/storage`.
 
 ## Entry points
 
-### `getStorage(app, bucketUrl?): FirebaseStorage`
+### `getStorage(app?, bucketUrl?): FirebaseStorage`
 ```ts
-function getStorage(app: PyricApp, bucketUrl?: string): FirebaseStorage
+function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStorage
 ```
-Firebase-shaped sandbox entry point. Package resolution selects this mirror before it loads, so it accepts only a sandbox-backed `PyricApp`. `bucketUrl` is accepted for call-site compatibility but ignored by the single-bucket sandbox. Direct tests that need `bucket`, `dbName`, or `rules` use `getStorageSandbox`.
+Firebase-shaped sandbox entry point. Package resolution selects this mirror
+before it loads, and the app's private association resolves the shared sandbox
+plus its app-local Auth session. `bucketUrl` is accepted for call-site
+compatibility but ignored by the single-bucket sandbox. Direct tests that need
+`bucket`, `dbName`, or `rules` use `getStorageSandbox`.
+With no app, the registered default app is resolved, matching
+`firebase/storage`.
 
 ### `getStorageSandbox(target, options?): FirebaseStorage`
 

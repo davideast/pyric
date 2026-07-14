@@ -1,0 +1,22 @@
+{
+  "name": "app-registry-multi-app-service-containers",
+  "matrixRow": "app #18",
+  "rowIds": [
+    "app#18"
+  ],
+  "description": "Equal-config named Firebase apps own distinct Auth, Firestore, RTDB, and Storage service containers associated with their initiating app while resolving equal RTDB and Storage backend locators.",
+  "observedAt": "2026-07-13T22:47:49.338Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "authDistinct": true,
+    "authAppsCorrect": true,
+    "firestoreDistinct": true,
+    "firestoreAppsCorrect": true,
+    "databaseDistinct": true,
+    "databaseAppsCorrect": true,
+    "databaseLocatorsEqual": true,
+    "storageDistinct": true,
+    "storageAppsCorrect": true,
+    "storageLocatorsEqual": true
+  }
+}

@@ -21,6 +21,7 @@ import {
   type Transaction as ChainTransaction,
 } from 'pyric/sandbox/admin-firestore';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
+import type { FirebaseApp } from 'firebase/app';
 import { TARGET_SYMBOL, type Target } from './state.js';
 
 /**
@@ -49,7 +50,11 @@ export interface FirestoreDataConverter<
  */
 export interface Firestore {
   readonly [TARGET_SYMBOL]: Target;
+  readonly app?: FirebaseApp;
 }
+
+/** Firestore handle returned by Firebase-shaped app overloads. */
+export type AppFirestore = Firestore & { readonly app: FirebaseApp };
 
 // ─── Reference / query types ──────────────────────────────────────────
 //

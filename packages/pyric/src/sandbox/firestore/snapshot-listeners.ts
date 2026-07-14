@@ -133,6 +133,9 @@ export interface ListenerRecord {
    * identity chosen at handle-construction time (admin/testing path).
    */
   followsCurrentUser: boolean;
+  /** Identity of the app session this live listener follows. Undefined is
+   * the sandbox's ambient/default session. */
+  authScope?: object;
   options: SnapshotListenerOptions;
   /**
    * Last snapshot delivered to the callback. Slice 2 populates this on

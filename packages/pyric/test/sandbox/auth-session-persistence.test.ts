@@ -223,6 +223,38 @@ describe('session persistence — SESSION mode', () => {
     const restoredUser = await waitForUser(auth2);
     expect(restoredUser.email).toBe('dave@example.com');
   });
+
+  it('early-registered Auth restores SESSION mode without migrating into LOCAL', async () => {
+    const backend = createMemoryBackend();
+    const local = makeStorage();
+    const session = makeStorage();
+
+    const sandbox1 = initializeSandbox();
+    await sandbox1.enablePersistence({
+      key: 'sess:session-early-restore',
+      injectedBackend: backend,
+      sessionStorage: { local, session },
+    });
+    const auth1 = getAuth(sandbox1);
+    await setPersistence(auth1, browserSessionPersistence);
+    await createUserWithEmailAndPassword(auth1, 'early@example.com', 'password1');
+    await signInWithEmailAndPassword(auth1, 'early@example.com', 'password1');
+    await sandbox1.flush();
+    expect(session.getItem(SESSION_KEY)).not.toBeNull();
+    expect(local.getItem(SESSION_KEY)).toBeNull();
+
+    const sandbox2 = initializeSandbox();
+    const auth2 = getAuth(sandbox2); // register before persistence attaches
+    await sandbox2.enablePersistence({
+      key: 'sess:session-early-restore',
+      injectedBackend: backend,
+      sessionStorage: { local, session },
+    });
+
+    expect((await waitForUser(auth2)).email).toBe('early@example.com');
+    expect(session.getItem(SESSION_KEY)).not.toBeNull();
+    expect(local.getItem(SESSION_KEY)).toBeNull();
+  });
 });
 
 // ─── Test 3: NONE mode ─────────────────────────────────────────────────

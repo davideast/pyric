@@ -11,11 +11,12 @@
  * per-sandbox broker (production's one-service-worker-per-origin model), so
  * routing between the two planes is a single visibility decision.
  */
-import type { PyricApp } from '../app/index.js';
+import type { FirebaseApp } from 'firebase/app';
 import {
   defaultRegistration,
   deliverToMessaging,
   resolveMessaging,
+  ownMessagingSubscription,
   stateOf,
   type DeliverSpec,
   type Messaging,
@@ -30,7 +31,7 @@ import type {
   NotificationPayload,
   Observer,
   Unsubscribe,
-} from './index.js';
+} from './client.js';
 
 // Shared type parity with the client entry (row messaging#17).
 export type {
@@ -49,7 +50,7 @@ export type {
  * service-worker plane (upstream: `getMessagingInSw`, component name
  * `messaging-sw`).
  */
-export function getMessaging(app?: PyricApp): Messaging {
+export function getMessaging(app?: FirebaseApp): Messaging {
   return resolveMessaging('sw', app);
 }
 
@@ -65,11 +66,11 @@ export function onBackgroundMessage(
   messaging: Messaging,
   nextOrObserver: NextFn<MessagePayload> | Observer<MessagePayload>,
 ): Unsubscribe {
-  const state = stateOf(messaging);
   const next = typeof nextOrObserver === 'function' ? nextOrObserver : nextOrObserver.next;
-  return state.broker.onBackgroundMessage((payload: DeliveredPayload) => {
-    next(payload as unknown as MessagePayload);
-  });
+  return ownMessagingSubscription(messaging, (state) =>
+    state.broker.onBackgroundMessage((payload: DeliveredPayload) => {
+      next(payload as unknown as MessagePayload);
+    }));
 }
 
 const bigQueryExport = new WeakMap<Messaging, boolean>();

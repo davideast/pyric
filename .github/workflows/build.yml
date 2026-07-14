@@ -66,6 +66,17 @@ jobs:
         # CI and local can't drift.
         run: bash scripts/build.sh
 
+      - name: Install Chromium for served app conformance
+        # The app-registry claims include real browser/SharedWorker behavior;
+        # unit tests cannot prove cross-tab sessions or worker-port teardown.
+        run: bun x playwright install --with-deps chromium
+
+      - name: Served app + SharedWorker conformance
+        # Runs the canonical firebase/* swap through pyric dev, including named
+        # apps, cross-tab Auth isolation, config locking, deletion teardown,
+        # and the worker-owned AI boundary. These are blocking oracle claims.
+        run: bun run --cwd packages/cli test:app-conformance
+
       - name: Oracle conformance gate (observations × probes)
         # Loads every observations/*.json (structural floor), asserts each
         # registry entry's captured prod values are intact (so the prod record

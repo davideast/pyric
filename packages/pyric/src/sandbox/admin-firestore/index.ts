@@ -92,5 +92,5 @@ export { getAdminFirestore } from './get-admin-firestore.js';
 // `onSnapshot` — the free modular-shaped function, its options type, and
 // the live-vs-frozen marker the modular `pyric/firestore` layer stamps
 // onto listener options (see `listeners.ts`).
-export { onSnapshot, FOLLOWS_CURRENT_USER } from './listeners.js';
+export { onSnapshot } from './listeners.js';
 export type { SnapshotListenOptions } from './listeners.js';

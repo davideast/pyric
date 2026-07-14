@@ -9,7 +9,7 @@
 Two overloads:
 
 - `getFirestore(ctx: SandboxContext)`: sandbox backend via `pyric-admin`.
-- `getFirestore(app: PyricApp)`: sandbox owned by the package-selected Pyric app.
+- `getFirestore(app: FirebaseApp)`: sandbox privately associated with the package-selected app.
 
 Direct `pyric/firestore` imports do not accept real Firebase apps. Without
 sandbox activation, canonical `firebase/firestore` imports remain Firebase and

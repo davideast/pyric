@@ -35,6 +35,12 @@ const DEFAULT_FLUSH_INTERVAL_MS = 250;
  */
 const SESSION_STORAGE_KEY = 'pyric:sandbox:auth-session';
 
+function sessionStorageKey(serviceName: string): string {
+  return serviceName === 'auth' || serviceName === 'auth-session:[DEFAULT]'
+    ? SESSION_STORAGE_KEY
+    : `${SESSION_STORAGE_KEY}:${encodeURIComponent(serviceName)}`;
+}
+
 /**
  * Stable 32-bit FNV-1a content hash of a bucket record, for detecting which
  * buckets changed between flushes. A genuinely changed record almost never
@@ -211,236 +217,130 @@ export async function attachPersistence(
   };
 
   // ─── Session persistence setup ─────────────────────────────────────
-  //
-  // Session persistence is ONLY active when `options.sessionStorage` is
-  // provided. When omitted, the user DB still persists (Phase 1) but the
-  // CURRENT SESSION is not restored — no fake durability (Decision 2).
-  //
-  // The session controller reads/writes a single uid JSON blob to the
-  // appropriate web-storage slot based on the auth mode. It discovers
-  // the auth service's session hooks by scanning the service registry
-  // (and via the late-registration hook for services registered after
-  // enablePersistence). Only one session provider is supported today
-  // (auth); a second service would need to add its own hooks.
-
-  /** Unsubscribers for session-change hooks; cleared in dispose(). */
+  // Each registered session provider owns a distinct web-storage key. This
+  // keeps named Firebase app sessions independent while their service state
+  // remains in one shared sandbox persistence blob.
   const sessionUnsubs = new Map<string, () => void>();
+  const pendingSessions = new Map<string, { uid: string; mode: 'LOCAL' | 'SESSION' }>();
 
-  /**
-   * Save the current session uid to the appropriate web-storage slot,
-   * or clear both slots on sign-out or NONE mode.
-   *
-   * Called on every session-change event (sign-in, sign-out, mode change).
-   * Reads the CURRENT mode and uid at call time so stale closures can't
-   * cause incorrect slot choices (important for mode-migration: a mode
-   * change fires a session-change event, and we read the already-updated
-   * mode here).
-   */
-  const saveSession = (sessionHooks: NonNullable<PersistableService['session']>): void => {
+  const saveSession = (
+    name: string,
+    sessionHooks: NonNullable<PersistableService['session']>,
+  ): void => {
     if (!options.sessionStorage) return;
     const { local, session } = options.sessionStorage;
+    const key = sessionStorageKey(name);
     const uid = sessionHooks.currentUid();
     const mode = sessionHooks.mode();
-
     if (uid === null || mode === 'NONE') {
-      // Signed out, or mode is NONE — clear both stores so no uid lingers
-      // across a sign-out or a mode downgrade to NONE.
-      local.removeItem(SESSION_STORAGE_KEY);
-      session.removeItem(SESSION_STORAGE_KEY);
+      local.removeItem(key);
+      session.removeItem(key);
       return;
     }
-
-    // A session lives in EXACTLY ONE store at any time — clear the other
-    // first, then write to the target. This prevents a stale entry in the
-    // other store from being picked up on a future reload with a different
-    // mode (which would look like the earlier mode's session resuming).
     const payload = JSON.stringify({ uid });
     if (mode === 'LOCAL') {
-      session.removeItem(SESSION_STORAGE_KEY); // clear the other slot
-      local.setItem(SESSION_STORAGE_KEY, payload);
+      session.removeItem(key);
+      local.setItem(key, payload);
     } else {
-      // SESSION
-      local.removeItem(SESSION_STORAGE_KEY); // clear the other slot
-      session.setItem(SESSION_STORAGE_KEY, payload);
+      local.removeItem(key);
+      session.setItem(key, payload);
     }
   };
 
-  /**
-   * Read back the stored uid from EITHER web-storage slot.
-   * Mode-agnostic: reads local then session (same order as serve's
-   * `SessionStore.load`). Returns null when nothing is stored or the
-   * blob is unparseable (corrupt bytes → silently drop).
-   */
-  const loadStoredUid = (): string | null => {
+  const loadStoredSession = (
+    name: string,
+  ): { uid: string; mode: 'LOCAL' | 'SESSION' } | null => {
     if (!options.sessionStorage) return null;
-    const { local, session } = options.sessionStorage;
-    for (const store of [local, session]) {
-      const raw = store.getItem(SESSION_STORAGE_KEY);
+    const key = sessionStorageKey(name);
+    for (const [mode, store] of [
+      ['LOCAL', options.sessionStorage.local],
+      ['SESSION', options.sessionStorage.session],
+    ] as const) {
+      const raw = store.getItem(key);
       if (!raw) continue;
       try {
         const parsed = JSON.parse(raw) as { uid?: unknown };
-        if (parsed && typeof parsed.uid === 'string') return parsed.uid;
+        if (typeof parsed?.uid === 'string') return { uid: parsed.uid, mode };
       } catch {
-        // Corrupt value — remove it so it doesn't confuse a future load.
-        store.removeItem(SESSION_STORAGE_KEY);
+        store.removeItem(key);
       }
     }
     return null;
   };
 
-  /**
-   * Clear the stored session from BOTH web-storage slots. Used when a
-   * restore fails (user deleted / disabled between sessions) so the
-   * stale entry doesn't re-surface on the next reload.
-   */
-  const clearStoredSession = (): void => {
+  const clearStoredSession = (name: string): void => {
     if (!options.sessionStorage) return;
-    options.sessionStorage.local.removeItem(SESSION_STORAGE_KEY);
-    options.sessionStorage.session.removeItem(SESSION_STORAGE_KEY);
+    const key = sessionStorageKey(name);
+    options.sessionStorage.local.removeItem(key);
+    options.sessionStorage.session.removeItem(key);
   };
 
-  /**
-   * Wire up the session-change subscription for a service that provides
-   * session hooks. On each fire, re-saves the session uid to the
-   * appropriate web-storage slot (handling mode changes transparently —
-   * mode changes emit a session-change event, so the controller picks up
-   * the new mode without a dedicated migration path).
-   *
-   * Guarded by `sessionUnsubs.has(name)` so it's idempotent; only the
-   * first registration per service name installs the subscription.
-   */
+  const tryRestoreSession = (
+    name: string,
+    stored: { uid: string; mode: 'LOCAL' | 'SESSION' },
+    hooks: PersistableService,
+  ): void => {
+    if (!hooks.session) return;
+    try {
+      hooks.session.restore(stored.uid, stored.mode);
+      pendingSessions.delete(name);
+    } catch (error) {
+      console.warn(
+        `[sandbox/persistence] session restore for uid '${stored.uid}' failed — clearing stored session:`,
+        error,
+      );
+      clearStoredSession(name);
+      pendingSessions.delete(name);
+    }
+  };
+
   const attachSessionSubscription = (name: string, hooks: PersistableService): void => {
-    if (!options.sessionStorage) return;
-    if (!hooks.session || sessionUnsubs.has(name)) return;
+    if (!options.sessionStorage || !hooks.session || sessionUnsubs.has(name)) return;
     const sessionHooks = hooks.session;
-    const unsub = sessionHooks.subscribe(() => {
-      saveSession(sessionHooks);
-    });
-    sessionUnsubs.set(name, unsub);
+    sessionUnsubs.set(name, sessionHooks.subscribe(() => saveSession(name, sessionHooks)));
   };
 
-  // Wire up any services already in the registry at attach time
-  // (the case where the user called getAuth before enablePersistence).
+  const restoreSessionForService = (name: string, hooks: PersistableService): void => {
+    if (!hooks.session) return;
+    const stored = pendingSessions.get(name) ?? loadStoredSession(name);
+    if (stored) tryRestoreSession(name, stored, hooks);
+  };
+
   if (sandbox instanceof SandboxImpl) {
     for (const [name, hooks] of sandbox.getServiceRegistry()) {
       attachServiceSubscription(name, hooks);
+      restoreSessionForService(name, hooks);
+      // Restore before subscribing: restore(mode, uid) can emit session
+      // changes, and a fresh Auth backend defaults to LOCAL. Subscribing first
+      // would rewrite a stored SESSION uid into localStorage mid-restore.
       attachSessionSubscription(name, hooks);
     }
-    // Install the late-registration hook so services that register
-    // AFTER this point (user calls enablePersistence then getAuth) are
-    // also subscribed and their changes flush promptly.
-    //
-    // Crucially: if there's a saved blob entry for this service name, we
-    // apply it now (late restore). Without this, a user who calls
-    // `enablePersistence` then `getAuth` would lose their saved users
-    // because `restore()` ran before auth was in the registry.
     sandbox.setServiceRegistrationHook((name, hooks) => {
-      // Late restore: if the blob had data for this service and it
-      // wasn't applied during the initial restore pass (because the
-      // service wasn't registered then), apply it now. The user DB
-      // must be restored BEFORE the session restore below, so it
-      // resolves the uid to an existing record.
       if (restoredServices !== null && name in restoredServices) {
         try {
           hooks.restore(restoredServices[name]);
-        } catch (e) {
-          console.warn(
-            `[sandbox/persistence] late-restore for service '${name}' failed:`,
-            e,
-          );
+        } catch (error) {
+          console.warn(`[sandbox/persistence] late-restore for service '${name}' failed:`, error);
         }
       }
-      // Late session restore: if a stored uid was found during attach
-      // but no service with session hooks was registered at that time
-      // (the common "reload" pattern where getAuth is called after
-      // enablePersistence), restore the session now that the service
-      // is available. The user DB restore above ran first, so the uid
-      // will resolve correctly.
-      if (pendingSessionUid !== null && hooks.session) {
-        tryRestoreSession(pendingSessionUid, hooks);
-      }
+      const stored = loadStoredSession(name);
+      if (stored) pendingSessions.set(name, stored);
+      restoreSessionForService(name, hooks);
       attachServiceSubscription(name, hooks);
       attachSessionSubscription(name, hooks);
-      // Schedule a flush so the newly registered service's initial state
-      // is captured in the next blob — important for the early-registration
-      // case where the service had existing data before enablePersistence.
       scheduleFlush();
     });
-  }
-
-  // ─── Session restore ──────────────────────────────────────────────
-  //
-  // Restore the signed-in session AFTER the user DB / services have been
-  // restored (so the uid resolves to an existing record). We do this by
-  // reading the stored uid from web-storage and calling `session.restore`
-  // on each registered service that provides session hooks.
-  //
-  // The restore runs in TWO possible paths:
-  //   1. Early-registration (getAuth called BEFORE enablePersistence):
-  //      the auth service is already in the registry when attachPersistence
-  //      runs, so we can restore here synchronously.
-  //   2. Late-registration (getAuth called AFTER enablePersistence, the
-  //      common "reload" pattern): the registry is empty here, so we store
-  //      the pending uid in `pendingSessionUid` and restore when the auth
-  //      service registers via the late-registration hook below.
-  //
-  // Both paths call `tryRestoreSession` which handles the
-  // user-not-found/user-disabled throw + session clear idiom.
-  //
-  // The session restore must happen AFTER the user DB is restored (so
-  // `restoreSession(uid)` can look up the uid), which is why path 2 hangs
-  // off the late-registration hook (that hook already applies the user DB
-  // restore first — `hooks.restore(restoredServices[name])` runs before
-  // we attempt the session).
-
-  /** Uid read from web-storage that still needs a session restore.
-   *  Non-null only while a service with session hooks hasn't registered yet. */
-  let pendingSessionUid: string | null = null;
-
-  /** Attempt to restore the session for `uid` via `hooks.session`. On
-   *  success, the session fires `onAuthStateChanged`. On
-   *  user-not-found/user-disabled, clears the stored session and logs. */
-  const tryRestoreSession = (uid: string, hooks: PersistableService): void => {
-    if (!hooks.session) return;
-    try {
-      hooks.session.restore(uid);
-      // Session restored — clear the pending marker so we don't retry.
-      pendingSessionUid = null;
-    } catch (e) {
-      // `restoreSession` throws `auth/user-not-found` or `auth/user-disabled`
-      // when the uid no longer exists or the account was disabled between
-      // sessions. Clear the stored session so this stale uid doesn't
-      // re-surface on the next reload. Log at warn level so developers
-      // see it in the console (matching serve's behavior for the same case).
-      console.warn(
-        `[sandbox/persistence] session restore for uid '${uid}' failed — ` +
-        `clearing stored session:`,
-        e,
-      );
-      clearStoredSession();
-      pendingSessionUid = null;
-    }
-  };
-
-  if (options.sessionStorage) {
-    const storedUid = loadStoredUid();
-    if (storedUid !== null) {
-      if (sandbox instanceof SandboxImpl) {
-        const registry = sandbox.getServiceRegistry();
-        let restored = false;
-        for (const [, hooks] of registry) {
-          if (!hooks.session) continue;
-          tryRestoreSession(storedUid, hooks);
-          restored = true;
-          break; // only one session provider (auth) expected
-        }
-        if (!restored) {
-          // No service with session hooks in the registry yet — stash the uid
-          // so the late-registration hook can pick it up when auth registers.
-          pendingSessionUid = storedUid;
-        }
-      }
-    }
+    sandbox.setServiceUnregistrationHook((name) => {
+      serviceUnsubs.get(name)?.();
+      serviceUnsubs.delete(name);
+      sessionUnsubs.get(name)?.();
+      sessionUnsubs.delete(name);
+      pendingSessions.delete(name);
+      // Keep the web-storage uid: deleting and recreating a FirebaseApp does
+      // not mean signing that app name out. A replacement registration may
+      // restore it through the normal late-registration path.
+      scheduleFlush();
+    });
   }
 
   const unsubscribe = sandbox.onEvent((event) => {
@@ -494,6 +394,7 @@ export async function attachPersistence(
       // Detach the late-registration hook.
       if (sandbox instanceof SandboxImpl) {
         sandbox.setServiceRegistrationHook(null);
+        sandbox.setServiceUnregistrationHook(null);
       }
       if (typeof window !== 'undefined') {
         window.removeEventListener('beforeunload', beforeUnload);

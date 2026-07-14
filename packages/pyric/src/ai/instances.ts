@@ -1,16 +1,17 @@
 /** AI handle initialization and per-owner identity. */
 import {
-  getDefaultSandboxApp,
-  isSandboxApp,
-  type SandboxApp,
-} from '../sandbox/internal/app-handle.js';
+  defaultClientApp,
+  resolveClientAppIncludingDeleted,
+} from '../sandbox/internal/client-app.js';
+import type { FirebaseApp } from 'firebase/app';
 import type { Sandbox } from '../sandbox/types/service.js';
 import { Backend, BackendType, GoogleAIBackend, VertexAIBackend } from './backend.js';
 import { AiBroker } from './broker/broker.js';
 import { TARGET_SYMBOL, isSandbox } from './target.js';
 import type { AI, AIOptions, SandboxTarget } from './types.js';
 
-const handlesByOwner = new WeakMap<Sandbox | SandboxApp, Map<string, AI>>();
+const handlesByOwner = new WeakMap<Sandbox | FirebaseApp, Map<string, AI>>();
+const brokersBySandbox = new WeakMap<Sandbox, AiBroker>();
 
 function describeBackend(backend: Backend): { key: string; location: string } {
   if (backend.backendType === BackendType.VERTEX_AI) {
@@ -20,7 +21,7 @@ function describeBackend(backend: Backend): { key: string; location: string } {
   return { key: 'googleai', location: '' };
 }
 
-function cachedHandles(owner: Sandbox | SandboxApp): Map<string, AI> {
+function cachedHandles(owner: Sandbox | FirebaseApp): Map<string, AI> {
   let handles = handlesByOwner.get(owner);
   if (!handles) {
     handles = new Map();
@@ -39,13 +40,14 @@ function cachedHandles(owner: Sandbox | SandboxApp): Map<string, AI> {
  * first call's options win.
  */
 export function getAI(sandbox: Sandbox, options?: AIOptions): AI;
-export function getAI(app?: SandboxApp, options?: AIOptions): AI;
-export function getAI(target?: Sandbox | SandboxApp, options?: AIOptions): AI {
+export function getAI(app?: FirebaseApp, options?: AIOptions): import('./types.js').AppAI;
+export function getAI(target?: Sandbox | FirebaseApp, options?: AIOptions): AI {
   if (target === undefined) {
-    return getAI(getDefaultSandboxApp(), options);
+    return getAI(defaultClientApp() as FirebaseApp, options);
   }
-  if (isSandboxApp(target)) {
-    return sandboxAI(target.sandbox, options, target);
+  const appRuntime = resolveClientAppIncludingDeleted(target);
+  if (appRuntime) {
+    return sandboxAI(appRuntime.sandbox, options, target as FirebaseApp);
   }
   if (isSandbox(target)) {
     return sandboxAI(target, options);
@@ -55,21 +57,35 @@ export function getAI(target?: Sandbox | SandboxApp, options?: AIOptions): AI {
   );
 }
 
-function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: SandboxApp): AI {
+function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: FirebaseApp): AI {
   const backend = options?.backend ?? new GoogleAIBackend();
   const { key, location } = describeBackend(backend);
   const handles = cachedHandles(app ?? sandbox);
   const existing = handles.get(key);
   if (existing) return existing;
 
-  const broker = new AiBroker({ engine: options?.engine, sandbox });
+  let broker = brokersBySandbox.get(sandbox);
+  if (!broker) {
+    broker = new AiBroker({ engine: options?.engine, sandbox });
+    brokersBySandbox.set(sandbox, broker);
+  }
   const handle: AI = {
     ...(app !== undefined ? { app } : {}),
     backend,
     location,
     ...(options !== undefined ? { options } : {}),
   };
-  const target: SandboxTarget = { sandbox, broker };
+  const appRuntime = app === undefined
+    ? undefined
+    : resolveClientAppIncludingDeleted(app);
+  const target: SandboxTarget = {
+    kind: 'sandbox',
+    sandbox,
+    broker,
+    ...(appRuntime !== undefined
+      ? { assertAlive: () => appRuntime.assertAlive() }
+      : {}),
+  };
   Object.defineProperty(handle, TARGET_SYMBOL, { value: target, enumerable: false });
   handles.set(key, handle);
   return handle;

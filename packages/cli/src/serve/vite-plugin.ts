@@ -84,9 +84,10 @@ function swapsInBuild(env: ConfigEnv, swapInBuild: boolean | undefined): boolean
 }
 
 /** Any `firebase/<sub>` specifier. */
-const FB_ANY = /^firebase\/([a-z-]+)$/;
+const FB_ANY = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 /** The firebase subpaths with swap entries. */
 const SERVED = new Set(SDK_MODULES.map((specifier) => specifier.slice('firebase/'.length)));
+const entryKey = (subpath: string): string => subpath.replaceAll('/', '-');
 const STUB_PREFIX = '\0pyric:fb-stub:';
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
 
@@ -211,7 +212,7 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       build.onResolve({ filter: FB_ANY }, (args) => {
         const sub = FB_ANY.exec(args.path)![1]!;
         if (isPyricImporter(args.importer)) return { path: args.path, namespace: 'pyric-fb-stub' };
-        if (SERVED.has(sub)) return { path: entries[sub]! };
+        if (SERVED.has(sub)) return { path: entries[entryKey(sub)]! };
         return null; // non-served firebase from a lib → real firebase
       });
       build.onLoad({ filter: /.*/, namespace: 'pyric-fb-stub' }, (args) => ({
@@ -332,7 +333,7 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       if (fb) {
         const sub = fb[1]!;
         if (isPyricImporter(importer)) return STUB_PREFIX + source; // stub ANY firebase/* from pyric
-        if (SERVED.has(sub)) return entries[sub]!; // swap served set for user/lib
+        if (SERVED.has(sub)) return entries[entryKey(sub)]!; // swap served set for user/lib
         return null; // non-served firebase from user → real firebase
       }
       const node = NODE_BUILTIN_RE.exec(source);
@@ -491,9 +492,8 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         authUsers: state
           ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
           : seedUsers,
-        // Messaging climb gate (CDD isolation decision): explicit opt-in via
-        // PYRIC_CLIMB=1, mirroring `pyric dev` — never default-on.
-        messaging: process.env.PYRIC_CLIMB === '1',
+        // Messaging is part of the canonical firebase/* sandbox swap.
+        messaging: true,
       });
       // Pyric Studio: mount the disk-backed workspace/project routes that
       // Studio's `local` mode talks to + serve the built Studio app at

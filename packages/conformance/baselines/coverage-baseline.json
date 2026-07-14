@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T19:05:15.987Z",
+  "generatedAt": "2026-07-14T08:47:05.093Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -78,6 +78,18 @@
     "app#13": "conforms",
     "app#14": "conforms",
     "app#15": "unsupported",
+    "app#16": "conforms",
+    "app#17": "conforms",
+    "app#18": "conforms",
+    "app#19": "diverged-documented",
+    "app#20": "diverged-documented",
+    "app#21": "conforms",
+    "app#22": "conforms",
+    "app#23": "conforms",
+    "app#24": "conforms",
+    "app#25": "conforms",
+    "app#26": "conforms",
+    "app#27": "unverified",
     "ai#getai-sandbox-dispatch": "conforms",
     "ai#getai-app-dispatch": "conforms",
     "ai#getai-default-backend": "conforms",
@@ -161,6 +173,8 @@
     "auth#3": "unverified",
     "auth#4": "conforms",
     "auth#5": "conforms",
+    "auth#183": "conforms",
+    "auth#184": "conforms",
     "auth#6": "conforms",
     "auth#7": "diverged-documented",
     "auth#8": "conforms",
@@ -607,6 +621,7 @@
     "rtdb-modular#139": "conforms",
     "rtdb-modular#140": "conforms",
     "rtdb-modular#141": "conforms",
+    "rtdb-modular#183": "unverified",
     "rtdb-modular#142": "conforms",
     "rtdb-modular#143": "conforms",
     "rtdb-modular#144": "conforms",

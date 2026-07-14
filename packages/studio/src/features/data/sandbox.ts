@@ -31,7 +31,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { initializeApp, type PyricApp } from 'pyric/app';
+import type { FirebaseApp } from 'pyric/app';
+import { createAppForSandbox } from 'pyric/app/internal';
 import { getAdminFirestore, getFirestore, type Firestore } from 'pyric/firestore';
 import { getAuth, type Auth } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
@@ -57,7 +58,7 @@ export interface ListedDocument {
 /** The resolved data handles for one Studio sandbox, plus collection listing. */
 export interface StudioDataHandles {
   sandbox: Sandbox;
-  app: PyricApp;
+  app: FirebaseApp;
   /** Rules-respecting handle (`app-session` lens). */
   firestore: Firestore;
   /** Rules-bypass handle (`admin` lens, "edit anything"). */
@@ -131,7 +132,7 @@ let studioAppSeq = 0;
 
 /** Build the handle bundle for a freshly-created sandbox. */
 function makeHandles(sandbox: Sandbox): StudioDataHandles {
-  const app = initializeApp({ sandbox }, `pyric-studio-${studioAppSeq++}`);
+  const app = createAppForSandbox(sandbox, { projectId: 'pyric-studio' }, `pyric-studio-${studioAppSeq++}`);
   const env = getInternalEnv(sandbox);
   const studioContext = studioAdminContext(sandbox);
   return {
