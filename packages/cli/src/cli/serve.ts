@@ -741,11 +741,40 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     void openBrowser(runtime.uiUrl ?? runtime.handle.url);
   }
 
+  let devChild: DevChildHandle | null = null;
   let functionsChild: FunctionsRtdbChildHandle | null = null;
+  let resolveSignal!: (signal: NodeJS.Signals) => void;
+  const signal = new Promise<NodeJS.Signals>((resolve) => {
+    resolveSignal = resolve;
+  });
+  const onSigint = (): void => resolveSignal('SIGINT');
+  const onSigterm = (): void => resolveSignal('SIGTERM');
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
+  const removeSignalHandlers = (): void => {
+    process.off('SIGINT', onSigint);
+    process.off('SIGTERM', onSigterm);
+  };
+  const waitOrSignal = async <T>(pending: Promise<T>): Promise<{ value: T } | { signal: NodeJS.Signals }> =>
+    Promise.race([
+      pending.then((value) => ({ value })),
+      signal.then((received) => ({ signal: received })),
+    ]);
+  const stopAfterSignal = async (): Promise<number> => {
+    (json ? process.stderr : process.stdout).write('\nShutting down...\n');
+    if (devChild && devChild.child.exitCode === null) devChild.signal(await signal);
+    await functionsChild?.stop().catch(() => undefined);
+    await runtime.handle.stop().catch(() => undefined);
+    removeSignalHandlers();
+    return 0;
+  };
+
   if (functionsProject && functionsProjectId) {
     const info = json ? process.stderr : process.stdout;
     info.write('• functions waiting for the browser tab to connect the sandbox…\n');
-    const connected = await waitForSandboxPeer(runtime.handle.url);
+    const connectedOutcome = await waitOrSignal(waitForSandboxPeer(runtime.handle.url));
+    if ('signal' in connectedOutcome) return stopAfterSignal();
+    const connected = connectedOutcome.value;
     if (!connected) {
       process.stderr.write(
         `  ⚠ functions not started — no browser tab connected after 30s. ` +
@@ -764,11 +793,15 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
         location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
         onEvent(event) {
           if (event.type === 'execution') {
+            const params = Object.entries(event.params)
+              .map(([name, value]) => `${name}=${value}`)
+              .join(', ');
+            const paramsSuffix = params ? ` (${params})` : '';
             if (event.status === 'fulfilled') {
-              info.write(`✔ function  ${event.exportName} ← /${event.ref}\n`);
+              info.write(`✔ function  ${event.exportName} ← /${event.ref}${paramsSuffix}\n`);
             } else {
               process.stderr.write(
-                `✖ function  ${event.exportName} ← /${event.ref}: ${event.error.message}\n`,
+                `✖ function  ${event.exportName} ← /${event.ref}${paramsSuffix}: ${event.error.message}\n`,
               );
             }
           } else {
@@ -790,7 +823,9 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       functionsChild.child.stderr?.once('end', () => stderr.flush());
 
       try {
-        const ready = await functionsChild.ready;
+        const readyOutcome = await waitOrSignal(functionsChild.ready);
+        if ('signal' in readyOutcome) return stopAfterSignal();
+        const ready = readyOutcome.value;
         info.write(
           `✔ functions ${ready.triggerCount} onValueCreated trigger${ready.triggerCount === 1 ? '' : 's'} ` +
             `from ${relative(cwd, functionsProject.entry)}\n`,
@@ -805,6 +840,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         await functionsChild.stop();
         await runtime.handle.stop();
+        removeSignalHandlers();
         return 2;
       }
     }
@@ -815,7 +851,6 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // wins; else the package.json dev script; else host-only. --no-run forces
   // host-only; --json defaults to host-only (explicit `--` still wins).
   // (`plan` was resolved above so it could imply the bridge mount.)
-  let devChild: DevChildHandle | null = null;
   if (plan) {
     const info = json ? process.stderr : process.stdout;
     // First-run race guard: we just opened the tab ourselves, so wait
@@ -825,7 +860,9 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     // stalling would only delay the honest failure.
     if (opened) {
       info.write('• run      waiting for the browser tab to connect the sandbox…\n');
-      const connected = await waitForSandboxPeer(runtime.handle.url);
+      const connectedOutcome = await waitOrSignal(waitForSandboxPeer(runtime.handle.url));
+      if ('signal' in connectedOutcome) return stopAfterSignal();
+      const connected = connectedOutcome.value;
       if (!connected) {
         info.write(
           `  ⚠ no browser tab connected after 30s — starting your command anyway; sandbox ops will fail until ${runtime.handle.url} is open.\n`,
@@ -854,6 +891,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       void (async () => {
         await functionsChild?.stop().catch(() => undefined);
         await runtime.handle.stop().catch(() => undefined);
+        removeSignalHandlers();
         resolveExit(code);
       })();
     };
@@ -881,8 +919,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
         }
       });
     }
-    process.once('SIGINT', () => shutdown('SIGINT'));
-    process.once('SIGTERM', () => shutdown('SIGTERM'));
+    void signal.then(shutdown);
   });
 }
 

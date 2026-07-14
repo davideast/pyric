@@ -237,12 +237,14 @@ describe('isolated Functions RTDB child', () => {
       type: 'execution',
       exportName: 'makeUppercase',
       ref: 'messages/id/original',
+      params: { pushId: 'id' },
       status: 'fulfilled',
     });
     expect(events).toContainEqual({
       type: 'execution',
       exportName: 'markProcessed',
       ref: 'messages/id/uppercase',
+      params: { pushId: 'id' },
       status: 'fulfilled',
     });
     expect(await child.stop()).toBe(0);

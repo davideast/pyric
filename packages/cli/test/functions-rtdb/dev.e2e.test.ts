@@ -208,4 +208,82 @@ exports.makeUppercase = onValueCreated(
     expect(stdout).toContain('Shutting down...');
     expect(stderr).not.toContain('Functions child exited unexpectedly');
   }, 20_000);
+
+  test('SIGTERM during Functions module evaluation stops the isolated child', async () => {
+    if (!existsSync(cliEntry)) throw new Error(`build the CLI first: ${cliEntry}`);
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-functions-startup-stop-'));
+    mkdirSync(join(cwd, 'public'));
+    mkdirSync(join(cwd, 'functions'));
+    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
+    writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
+    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({
+      hosting: { public: 'public' },
+      functions: { source: 'functions' },
+    }));
+    writeFileSync(join(cwd, 'functions/package.json'), JSON.stringify({
+      name: 'blocked-functions',
+      private: true,
+      type: 'commonjs',
+      main: 'index.cjs',
+    }));
+    writeFileSync(join(cwd, 'functions/index.cjs'), `
+require('node:fs').writeFileSync(${JSON.stringify(join(cwd, 'functions-child.pid'))}, String(process.pid));
+require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)']);
+`);
+
+    let stdout = '';
+    const blockedCommand = spawn('node', [
+      cliEntry,
+      'dev',
+      '--port=0',
+      '--host=127.0.0.1',
+      '--no-open',
+      '--no-capture',
+    ], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    blockedCommand.stdout?.setEncoding('utf8');
+    blockedCommand.stdout?.on('data', (chunk: string) => { stdout += chunk; });
+    let blockedPeer: { close(): Promise<void> } | undefined;
+    let childPid: number | undefined;
+
+    try {
+      const pointer = await waitFor(() => {
+        const path = join(cwd, '.pyric/serve.json');
+        return existsSync(path)
+          ? JSON.parse(readFileSync(path, 'utf8')) as { url: string }
+          : null;
+      });
+      blockedPeer = await connectWorkerPeer(`${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`);
+      childPid = await waitFor(() => {
+        const path = join(cwd, 'functions-child.pid');
+        return existsSync(path) ? Number(readFileSync(path, 'utf8')) : null;
+      });
+
+      blockedCommand.kill('SIGTERM');
+      const code = await Promise.race([
+        new Promise<number>((resolveExit) =>
+          blockedCommand.once('exit', (exit) => resolveExit(exit ?? 1))),
+        Bun.sleep(5_000).then(() => -1),
+      ]);
+      expect(code).toBe(0);
+      expect(stdout).toContain('Shutting down...');
+      await waitFor(() => {
+        try {
+          process.kill(childPid!, 0);
+          return null;
+        } catch {
+          return true;
+        }
+      }, 5_000);
+    } finally {
+      await blockedPeer?.close().catch(() => {});
+      if (blockedCommand.exitCode === null) blockedCommand.kill('SIGKILL');
+      if (childPid !== undefined) {
+        try {
+          process.kill(childPid, 'SIGKILL');
+        } catch {
+          // Already stopped by the coordinated shutdown path.
+        }
+      }
+    }
+  }, 20_000);
 });

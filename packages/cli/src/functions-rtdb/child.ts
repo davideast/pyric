@@ -22,12 +22,14 @@ export type FunctionsRtdbChildEvent =
       type: 'execution';
       exportName: string;
       ref: string;
+      params: Record<string, string>;
       status: 'fulfilled';
     }
   | {
       type: 'execution';
       exportName: string;
       ref: string;
+      params: Record<string, string>;
       status: 'rejected';
       error: SerializedFunctionsRtdbError;
     }
@@ -262,7 +264,7 @@ async function runFunctionsRtdbChild(): Promise<void> {
         databaseHost,
       }),
       onExecution(result, trigger, projection) {
-        sendExecution(result, trigger.exportName, projection.ref);
+        sendExecution(result, trigger.exportName, projection.ref, projection.params);
       },
       onDeliveryError(error, trigger) {
         send({
@@ -320,14 +322,16 @@ function sendExecution(
   result: CreatedExecutionResult,
   exportName: string,
   ref: string,
+  params: Record<string, string>,
 ): void {
   if (result.status === 'fulfilled') {
-    send({ type: 'execution', exportName, ref, status: 'fulfilled' });
+    send({ type: 'execution', exportName, ref, params, status: 'fulfilled' });
   } else {
     send({
       type: 'execution',
       exportName,
       ref,
+      params,
       status: 'rejected',
       error: serializeError(result.error),
     });
