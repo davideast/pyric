@@ -132,7 +132,6 @@ describe('isolated Functions RTDB child', () => {
         serveUrl: runtime.handle.url,
         registerUrl: registerModuleUrl(),
       }),
-      projectId: 'demo-project',
       instance: 'demo-project-default-rtdb',
       location: 'us-central1',
       onEvent: (event) => events.push(event),
@@ -189,7 +188,6 @@ exports.second = onValueCreated({ ref: '/second/{id}', instance: 'second-rtdb' }
         serveUrl: runtime.handle.url,
         registerUrl: registerModuleUrl(),
       }),
-      projectId: 'demo-project',
       instance: 'demo-project-default-rtdb',
       location: 'us-central1',
     });

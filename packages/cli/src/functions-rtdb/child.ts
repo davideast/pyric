@@ -57,7 +57,6 @@ export interface SpawnFunctionsRtdbChildOptions {
   cwd: string;
   entry: string;
   env: NodeJS.ProcessEnv;
-  projectId: string;
   instance: string;
   location: string;
   databaseHost?: string;
@@ -110,7 +109,6 @@ export function spawnFunctionsRtdbChild(
       ...options.env,
       PYRIC_FUNCTIONS_RTDB_CHILD: '1',
       PYRIC_FUNCTIONS_ENTRY: resolve(options.entry),
-      PYRIC_FUNCTIONS_PROJECT_ID: options.projectId,
       PYRIC_FUNCTIONS_INSTANCE: options.instance,
       PYRIC_FUNCTIONS_LOCATION: options.location,
       PYRIC_FUNCTIONS_DATABASE_HOST: options.databaseHost ?? 'firebasedatabase.app',
@@ -207,11 +205,10 @@ function send(message: FunctionsRtdbChildMessage): void {
 
 async function runFunctionsRtdbChild(): Promise<void> {
   const entry = process.env.PYRIC_FUNCTIONS_ENTRY;
-  const projectId = process.env.PYRIC_FUNCTIONS_PROJECT_ID;
   const instance = process.env.PYRIC_FUNCTIONS_INSTANCE;
   const location = process.env.PYRIC_FUNCTIONS_LOCATION;
   const databaseHost = process.env.PYRIC_FUNCTIONS_DATABASE_HOST;
-  if (!entry || !projectId || !instance || !location || !databaseHost) {
+  if (!entry || !instance || !location || !databaseHost) {
     throw new Error('Functions RTDB child is missing its required environment');
   }
 

@@ -790,7 +790,6 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
           serveUrl: runtime.handle.url,
           registerUrl: registerModuleUrl(),
         }),
-        projectId: functionsProjectId,
         instance: `${functionsProjectId}-default-rtdb`,
         location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
         onEvent(event) {

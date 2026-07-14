@@ -139,7 +139,6 @@ async function runFixtureOnce(): Promise<RuntimeOutcomes> {
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
     }),
-    projectId: 'digame-mas',
     instance: 'digame-mas-default-rtdb',
     location: 'us-central1',
     onEvent: (event) => events.push(event),

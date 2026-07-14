@@ -1,3 +1,9 @@
+import {
+  normalizeRtdbReference,
+  rtdbReferenceParamName,
+  rtdbReferenceParts,
+} from './reference-pattern.js';
+
 export interface RtdbSnapshotCommit {
   path: string;
   before: unknown;
@@ -10,26 +16,13 @@ export interface CreatedValueProjection {
   value: unknown;
 }
 
-function normalizePath(path: string): string {
-  return path.split('/').filter(Boolean).join('/');
-}
-
 function canonicalPath(path: string): string {
-  const normalized = normalizePath(path);
+  const normalized = normalizeRtdbReference(path);
   return normalized ? `/${normalized}` : '/';
-}
-
-function pathParts(path: string): string[] {
-  const normalized = normalizePath(path);
-  return normalized ? normalized.split('/') : [];
 }
 
 function exists(value: unknown): boolean {
   return value !== null && value !== undefined;
-}
-
-function paramName(segment: string): string | null {
-  return /^\{([A-Za-z0-9_]+)(?:=\*)?\}$/.exec(segment)?.[1] ?? null;
 }
 
 function child(value: unknown, key: string): unknown {
@@ -46,8 +39,8 @@ function childKeys(value: unknown): string[] {
 
 export function watchPath(reference: string): string {
   const literal: string[] = [];
-  for (const segment of pathParts(reference)) {
-    if (paramName(segment)) break;
+  for (const segment of rtdbReferenceParts(reference)) {
+    if (rtdbReferenceParamName(segment)) break;
     literal.push(segment);
   }
   return canonicalPath(literal.join('/'));
@@ -58,13 +51,13 @@ export function projectValueCreates(
   reference: string,
   commit: RtdbSnapshotCommit,
 ): CreatedValueProjection[] {
-  const pattern = pathParts(reference);
-  const committed = pathParts(commit.path);
+  const pattern = rtdbReferenceParts(reference);
+  const committed = rtdbReferenceParts(commit.path);
   if (committed.length > pattern.length) return [];
 
   const params: Record<string, string> = {};
   for (let index = 0; index < committed.length; index += 1) {
-    const capture = paramName(pattern[index]);
+    const capture = rtdbReferenceParamName(pattern[index]);
     if (capture) params[capture] = committed[index];
     else if (pattern[index] !== committed[index]) return [];
   }
@@ -84,7 +77,7 @@ export function projectValueCreates(
       return;
     }
     const segment = pattern[depth];
-    const capture = paramName(segment);
+    const capture = rtdbReferenceParamName(segment);
     if (capture) {
       for (const key of childKeys(after)) {
         visit(

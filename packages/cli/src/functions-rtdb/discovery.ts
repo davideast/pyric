@@ -1,3 +1,8 @@
+import {
+  normalizeRtdbReference,
+  supportsRtdbReference,
+} from './reference-pattern.js';
+
 export type RtdbCreatedCallable = (
   rawEvent: Record<string, unknown>,
 ) => unknown | Promise<unknown>;
@@ -64,22 +69,6 @@ export function listFirebaseEndpoints(
   return endpoints;
 }
 
-function normalizePath(path: string): string {
-  return path.split('/').filter(Boolean).join('/');
-}
-
-function paramName(segment: string): string | null {
-  return /^\{([A-Za-z0-9_]+)(?:=\*)?\}$/.exec(segment)?.[1] ?? null;
-}
-
-function supportsReference(reference: string): boolean {
-  return normalizePath(reference).split('/').every((segment) =>
-    paramName(segment) !== null || (
-      !segment.includes('{') && !segment.includes('}') && !segment.includes('*')
-    ),
-  );
-}
-
 /** Classify unchanged v2 RTDB create exports against the admitted first slice. */
 export function inspectOnValueCreated(
   exported: Record<string, unknown>,
@@ -118,7 +107,7 @@ export function inspectOnValueCreated(
       continue;
     }
     const instance = typeof exactInstance === 'string' ? exactInstance : '*';
-    if (!supportsReference(reference)) {
+    if (!supportsRtdbReference(reference)) {
       unsupported.push({
         exportName,
         eventType: `${CREATED_EVENT_TYPE} (unsupported ref pattern: ${reference})`,
@@ -131,7 +120,7 @@ export function inspectOnValueCreated(
       : undefined;
     triggers.push({
       exportName,
-      reference: normalizePath(reference),
+      reference: normalizeRtdbReference(reference),
       instance,
       ...(location === undefined ? {} : { location }),
       callable,
