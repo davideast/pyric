@@ -112,6 +112,15 @@ describe('subjectTarget', () => {
     });
   });
 
+  it('routes a Storage root list to the bucket root', () => {
+    expect(subjectTarget({ service: 'storage', method: 'list', path: '' })).toEqual({
+      tab: 'storage',
+    });
+    expect(subjectTarget({ service: 'storage', method: 'list', path: '/' })).toEqual({
+      tab: 'storage',
+    });
+  });
+
   it('yields nothing for non-addressable subjects', () => {
     expect(subjectTarget({ service: 'auth', method: 'delete', path: '*' })).toBeNull();
     expect(subjectTarget({ service: 'rtdb', method: 'get', path: '(service)' })).toBeNull();

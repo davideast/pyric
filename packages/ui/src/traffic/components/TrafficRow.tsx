@@ -62,7 +62,7 @@ export function TrafficRow({
       <span data-pyric-traffic-time="">{formatTime(event.at)}</span>
       <span data-pyric-traffic-service={event.service ?? ''}>{event.service ?? ''}</span>
       <Badge kind={event.method}>{event.method}</Badge>
-      <span data-pyric-traffic-path="">{event.path}</span>
+      <span data-pyric-traffic-path="">{event.path || '/'}</span>
       {renderClassification ? renderClassification(event) : null}
     </button>
   );
