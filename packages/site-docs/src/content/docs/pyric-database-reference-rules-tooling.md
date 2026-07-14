@@ -135,7 +135,7 @@ pulls in Node builtins.
 
 #### CLI
 ```sh
-pyric database:rules:generate [--config <path>] [--out <path>]
+pyric database rules generate [--config <path>] [--out <path>]
 ```
 Loads a constraints module (default `database.rules.ts`, or the `--config`
 path), looks for a named `rules` export or a default export produced by
@@ -229,7 +229,7 @@ Also on `pyric/rules/internal/rtdb`:
 ## Production deployment
 
 The rules engine performs no production reads or writes. Generate and inspect
-rules locally (`pyric database:rules:generate`, `rtdbRules(doc).toJSON()`), then
+rules locally (`pyric database rules generate`, `rtdbRules(doc).toJSON()`), then
 ship with `firebase-tools` / Console (`firebase deploy --only database`).
 Production operations never live on the Firebase-shaped `pyric/database` mirror
 or this internal engine seam.

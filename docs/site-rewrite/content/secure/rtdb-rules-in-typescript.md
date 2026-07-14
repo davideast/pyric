@@ -63,12 +63,12 @@ writeFileSync('database.rules.json', JSON.stringify(rules.toJSON(), null, 2));
 ```
 
 ```bash
-pyric database:rules:lint database.rules.json
-# or: pyric database:rules:generate
+pyric database rules lint database.rules.json
+# or: pyric database rules generate
 firebase deploy --only database
 ```
 
-`toJSON()` emits the `{ rules: ... }` document Firebase expects. Generate or write that file locally (`pyric database:rules:generate`), then ship it with `firebase-tools` (or the Console) using the path your `firebase.json` points at. The CLI's `database:rules:lint`, `database:rules:validate`, and `database:rules:simulate` run the same checks against the JSON file, so CI can gate on them without TypeScript in the loop.
+`toJSON()` emits the `{ rules: ... }` document Firebase expects. Generate or write that file locally (`pyric database rules generate`), then ship it with `firebase-tools` (or the Console) using the path your `firebase.json` points at. The CLI's `database rules lint`, `database rules validate`, and `database rules simulate` operations run the same checks against the JSON file, so CI can gate on them without TypeScript in the loop.
 
 ## Turn enforcement, from a deployed game
 
@@ -100,7 +100,7 @@ Three constraints carry the whole game. `turnGuard` reads stored state, never th
 
 ## And from an agent
 
-An agent authors and checks the same way you do: lint and simulate locally (`pyric database:rules:*`, `rtdb_simulate_access` against the connected sandbox), generate JSON with `pyric database:rules:generate` / `rtdb_generate_rules`, then ship with `firebase-tools`. The [rtdb-security-rules skill](../agent/skills.md) packages the whole discipline.
+An agent authors and checks the same way you do: lint and simulate locally (`pyric database rules lint`, `pyric database rules simulate`, or `rtdb_simulate_access` against the connected sandbox), generate JSON with `pyric database rules generate` / `rtdb_generate_rules`, then ship with `firebase-tools`. The [rtdb-security-rules skill](../agent/skills.md) packages the whole discipline.
 
 ## Where to go next
 

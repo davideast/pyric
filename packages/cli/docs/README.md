@@ -31,6 +31,8 @@ Firebase project.
   exit codes, environment variables. The authoritative source.
 - [Verify API](reference/verify.md): programmatic captured-session replay for
   Firestore and RTDB rules.
+- [Package exports and resolution](reference/package-and-resolution.md):
+  public subpaths and the activated-development/inactive-production seam.
 - [Bridge](bridge/README.md): `@pyric/cli/bridge` (server + client).
 
 ## Explanation: understanding why

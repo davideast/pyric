@@ -319,18 +319,18 @@ on surfaces; nothing in a surface depends on it.
 
 ## 8.5 Worker and serve entries, and tools
 
-The serve worker and its per-surface entries live in `pyric-tools`, not in the
+The serve worker and its per-surface entries live in `@pyric/cli`, not in the
 surface directories. They are the transport that hosts the sandbox in a
 SharedWorker and bridges it to a page. They depend on the surfaces; the surfaces
 do not know they exist.
 
 Rule.
 
-- Serve worker host and client and entries stay in `pyric-tools`
+- Serve worker host and client and entries stay in `@pyric/cli`
   (`serve/worker/host-<surface>.ts`, `serve/worker/client/<surface>.ts`,
   `serve/entries/<surface>.ts`). Confirmed today: `host-auth.ts` imports
   `pyric/auth`, `host-ai.ts` imports `pyric/ai`, `entries/auth.ts` imports
-  `pyric/auth`. Direction is downward, `pyric-tools` onto `pyric` barrels.
+  `pyric/auth`. Direction is downward, `@pyric/cli` onto `pyric` barrels.
 - A worker entry imports a surface through its published barrel or its published
   `./internal` subpath. It never reaches into a surface's non-exported files by
   relative path. A host that needs bypass or host-only seams uses the surface's

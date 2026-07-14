@@ -1,12 +1,12 @@
 # Verify API
 
-`pyric-tools/verify` verifies captured sandbox sessions from code. It uses the
+`@pyric/cli/verify` verifies captured sandbox sessions from code. It uses the
 same fixture format and replay behavior as `pyric verify`.
 
 ## `verifyFixture(fixture, options)`
 
 ```ts
-import { verifyFixture } from 'pyric-tools/verify';
+import { verifyFixture } from '@pyric/cli/verify';
 
 const result = await verifyFixture(fixture, {
   engines: ['sandbox', 'rulesTestApi'],
@@ -83,7 +83,7 @@ Failing divergence kinds are `now-denied`, `now-allowed`, `state-drift`,
 ## `deriveRulesTestCases(fixture, options)`
 
 ```ts
-import { deriveRulesTestCases } from 'pyric-tools/verify';
+import { deriveRulesTestCases } from '@pyric/cli/verify';
 
 const cases = deriveRulesTestCases(fixture, {
   service: 'firestore',
@@ -102,7 +102,7 @@ excluded. Unsupported derivation entries fail verification when the
 import {
   buildVerifyFixture,
   parseVerifyFixture,
-} from 'pyric-tools/verify';
+} from '@pyric/cli/verify';
 ```
 
 `buildVerifyFixture()` is used by `pyric dev` capture. Most users read the

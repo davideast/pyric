@@ -1,4 +1,4 @@
-# Run the same demo against production
+# Run canonical imports against Firebase
 
 In this lesson you will take the canonical-import demo from the previous
 tutorial, remove sandbox activation, and observe Firebase becoming the backend
@@ -25,9 +25,6 @@ const ref = doc(db, 'notes/n1');
 await setDoc(ref, { title: 'hello from production' });
 console.log((await getDoc(ref)).data());
 ```
-
-If the previous tutorial used direct `pyric/firestore` imports, change those
-imports to `firebase/firestore` now. The function calls stay the same.
 
 ## 2. Deploy rules that permit the exercise
 
@@ -75,10 +72,11 @@ changed.
 
 ## 5. Compare with the sandbox run
 
-Run the same file through the Node activation seam:
+Run the same file through the activated development seam while `pyric dev`
+hosts the sandbox:
 
 ```bash
-PYRIC_SANDBOX=local node --import @pyric/cli/register demo.mjs
+pyric dev -- node demo.mjs
 ```
 
 This time package resolution selects the sandbox mirror. The Firebase

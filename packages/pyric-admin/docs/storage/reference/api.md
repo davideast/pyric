@@ -1,12 +1,14 @@
 # API reference: `pyric-admin/storage`
 
-Exact signatures of every public export, plus the per-arm method matrix for `Storage`, `Bucket`, and `File`. Storage support is experimental; the surfaces below are tested but mostly not yet pinned to recorded production observations.
+Exact signatures of every public export, plus the local/remote method matrix for `Storage`, `Bucket`, and `File`. Storage support is experimental; the surfaces below are tested but mostly not yet pinned to recorded production observations.
 
-The three arms:
+The two sandbox backends:
 
-- **prod**: `getStorage` delegates to `firebase-admin/storage`. The returned object is the unmodified production `Storage`; everything `@google-cloud/storage` documents applies. Nothing below constrains prod.
 - **local**: an in-memory `Map<bucketName, Map<path, entry>>` per `Sandbox`. Multi-bucket isolation is real (buckets are independent maps). `sandbox.reset()` wipes the store.
 - **remote**: a remote-branded sandbox relays operations over the worker channel with `actAs: { mode: 'admin' }` pinned (rules bypass) against the one object store the browser app, Studio, and agents share. Single bucket; 8 MiB per-operation byte cap.
+
+Production code loads `firebase-admin/storage` directly with Pyric activation
+absent.
 
 ---
 
@@ -18,7 +20,7 @@ The three arms:
 function getStorage(app?: StorageApp): Storage;
 ```
 
-Get the `Storage` service for the given app, or for the `'[DEFAULT]'` app when called with no argument (throws `app/no-app` when nothing is initialized). Dispatch reads the brand symbol: prod delegates to `firebase-admin/storage`; a remote-branded sandbox gets the relay backend; a local sandbox gets the in-memory backend. Throws `TypeError` for an unbranded value.
+Get the `Storage` service for the given sandbox app, or for the `'[DEFAULT]'` app when called with no argument (throws `app/no-app` when nothing is initialized). A remote-branded sandbox gets the relay backend; a local sandbox gets the in-memory backend. Throws `TypeError` for an unbranded value.
 
 ---
 
@@ -32,7 +34,6 @@ bucket(name?: string): Bucket;
 
 - Local: returns a handle for `name`, creating the bucket map on first use. Omitted `name` resolves to the default bucket `'pyric-default'` (the same default `pyric/storage` uses). Buckets are genuinely isolated from each other.
 - Remote: the worker's object store is single-bucket. `bucket()` and `bucket('pyric-default')` work; any other name throws immediately rather than silently merging buckets. This is the sharpest local/remote divergence, and it is loud on purpose.
-- Prod: whatever `firebase-admin/storage`'s `bucket()` resolves from app config.
 
 ### `bucket.file(path)`
 
@@ -40,7 +41,7 @@ bucket(name?: string): Bucket;
 file(path: string): File;
 ```
 
-All arms. Returns a `File` handle; the file may or may not exist.
+Returns a `File` handle; the file may or may not exist.
 
 ---
 
@@ -54,7 +55,7 @@ save(data: Buffer | string | Uint8Array, options?: SaveOptions): Promise<void>;
 
 Arms: local, remote. Persists `data` at the file's path, replacing any existing content (no append semantics). Strings are UTF-8 encoded; buffers are copied on ingest so callers can reuse their input. `options.metadata` and `options.contentType` are stored alongside the bytes and round-trip.
 
-- `options.resumable: true` throws on both sandbox arms (resumable uploads are deferred; prod forwards it).
+- `options.resumable: true` throws on both sandbox backends because resumable uploads are deferred.
 - Remote: relays `storage.putBytes` (base64 over the wire). Payloads over 8 MiB reject with the payload-too-large error below, before anything is sent.
 
 ### `file.download(options?)`
@@ -93,7 +94,7 @@ Arms: local, remote (byte-identical output; the remote arm never relays this cal
 pyric-sandbox-storage://<bucket>/<path>?expires=<ms>&action=<action>
 ```
 
-The sandbox does NOT serve this URL. It is a stable placeholder so code that round-trips signed URLs through logs, fixtures, or replay sees a consistent shape. `expires` accepts ms-since-epoch, an ISO date string, or a `Date`, normalized to ms; expiration is not enforced. Prod returns real signed URLs from GCS.
+The sandbox does NOT serve this URL. It is a stable placeholder so code that round-trips signed URLs through logs, fixtures, or replay sees a consistent shape. `expires` accepts ms-since-epoch, an ISO date string, or a `Date`, normalized to ms; expiration is not enforced.
 
 ---
 
@@ -116,7 +117,7 @@ Each throws `Error('not implemented in pyric-admin/storage sandbox backend: <wha
 - Copy / move
 - Notifications
 
-Every one of these works on the prod arm.
+Use Firebase Admin directly when production needs these methods.
 
 ---
 
@@ -145,7 +146,7 @@ interface File {
 }
 ```
 
-The shared contract across backends. On prod the returned object is a structural superset (the full `@google-cloud/storage` surface); the interfaces document the subset the sandbox arms implement.
+These interfaces document the subset the sandbox backends implement.
 
 ### `SaveOptions`
 
@@ -153,7 +154,7 @@ The shared contract across backends. On prod the returned object is a structural
 interface SaveOptions {
   metadata?: Record<string, unknown>;
   contentType?: string; // shortcut for metadata.contentType
-  resumable?: boolean;  // true throws on sandbox arms; prod forwards
+  resumable?: boolean;  // true throws on sandbox backends
 }
 ```
 
@@ -161,7 +162,7 @@ interface SaveOptions {
 
 ```ts
 interface DownloadOptions {
-  validation?: 'md5' | 'crc32c' | boolean; // sandbox arms ignore; prod forwards
+  validation?: 'md5' | 'crc32c' | boolean; // sandbox backends ignore
 }
 ```
 
@@ -186,5 +187,5 @@ The input `getStorage` accepts; an alias of the branded handle from `pyric-admin
 
 ## Where to go next
 
-- [`pyric-admin/app` reference](../../app/reference/api.md) for how the arm is chosen.
+- [`pyric-admin/app` reference](../../app/reference/api.md) for sandbox binding and activation.
 - `pyric/storage` for the Web-SDK-shaped mirror and the storage rules engine.

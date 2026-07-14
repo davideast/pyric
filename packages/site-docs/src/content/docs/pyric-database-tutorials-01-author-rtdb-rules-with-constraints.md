@@ -127,7 +127,7 @@ await writeRtdbRulesFile(rules, 'database.rules.json');
 ```
 or from the CLI, without writing a script at all:
 ```sh
-pyric database:rules:generate --config database.rules.ts --out database.rules.json
+pyric database rules generate --config database.rules.ts --out database.rules.json
 ```
 Both routes run the same compilation `rtdbRules(rules).toJSON()` performs. See
 [RTDB rules tooling](../pyric-database-reference-rules-tooling/#generating-databaserulesjson)
@@ -142,7 +142,7 @@ After running `pyric dev` and exercising the app, the latest session is saved
 to `.pyric/last-session.json`. You can verify that capture against the in-memory
 rules document before generating JSON:
 ```ts
-import { verifyFixture } from 'pyric-tools/verify';
+import { verifyFixture } from '@pyric/cli/verify';
 import { rules } from './database.rules.js';
 
 const fixture = JSON.parse(await Bun.file('.pyric/last-session.json').text());

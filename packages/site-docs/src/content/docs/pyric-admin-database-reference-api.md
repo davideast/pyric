@@ -7,13 +7,15 @@ order: 21002
 ---
 # API reference: `pyric-admin/database`
 
-Exact signatures of every public export, plus the per-arm method matrix for `Database`, `Reference`, and `DataSnapshot`. Realtime Database support is experimental; the surfaces below are tested but mostly not yet pinned to recorded production observations.
+Exact signatures of every public export, plus the local/remote method matrix for `Database`, `Reference`, and `DataSnapshot`. Realtime Database support is experimental; the surfaces below are tested but mostly not yet pinned to recorded production observations.
 
-The three arms:
+The two sandbox backends:
 
-- **prod**: `getDatabase` delegates to `firebase-admin/database`. The returned `Database` and every `Reference` it produces are the genuine firebase-admin objects (`transaction`, `onDisconnect`, query builders, rules methods, all present and identical in behavior). Nothing below applies to prod.
 - **local**: an in-memory JSON tree per `Sandbox`. `sandbox.reset()` wipes it (via the sandbox's `session_boundary` event). Writes are rule-bypass, matching firebase-admin's behavior of bypassing rules.
 - **remote**: a remote-branded sandbox relays every data operation over the worker channel with `actAs: { mode: 'admin' }` pinned (rules bypass) against the browser-hosted tree. Server writes emit `SandboxEvent`s in the worker and fire the app's live listeners.
+
+Production code loads `firebase-admin/database` directly with Pyric activation
+absent.
 
 ---
 
@@ -25,9 +27,9 @@ function getDatabase(app?: PyricAdminApp, url?: string): Database;
 ```
 firebase-admin's `getDatabase(app?)` and `getDatabaseWithUrl(url, app)` collapsed into one function:
 
-- `getDatabase()`: default database for the `'[DEFAULT]'` app, resolved through `pyric-admin/app`'s registry. Throws `app/no-app` when nothing is initialized. Works on all three arms.
+- `getDatabase()`: default database for the `'[DEFAULT]'` sandbox app, resolved through `pyric-admin/app`'s registry. Throws `app/no-app` when nothing is initialized.
 - `getDatabase(app)`: default database for the app.
-- `getDatabase(app, url)`: on prod, delegates to `getDatabaseWithUrl(url, app)`. The sandbox arms ignore `url`; the sandbox has no notion of multiple database instances per project.
+- `getDatabase(app, url)`: accepts `url` for shape compatibility; the sandbox ignores it because it has no project-level database instances.
 
 Successive calls for the same sandbox return handles that share data, matching firebase-admin's singleton-per-app semantics. Throws `TypeError` for an unbranded value.
 
@@ -127,7 +129,7 @@ Each throws `Error('pyric-admin/database sandbox: <method> not implemented')`:
 | Rules metadata | `Database.getRules`, `getRulesJSON`, `setRules` |
 | Local arm only | `on`, `off`, `once` with a non-`'value'` type |
 
-All of these work on the prod arm.
+Use Firebase Admin directly when production needs these methods.
 
 ---
 
@@ -158,11 +160,13 @@ The local tree is backed by plain JavaScript objects, so the path segments `__pr
 
 ## Types
 
-All re-exported from `firebase-admin/database` so every type spells with a `pyric-admin/database` import path: `Database`, `Reference`, `DataSnapshot`, `ThenableReference`, `Query`, `OnDisconnect`, `EventType`. The sandbox backends implement the load-bearing subset of these shapes; the prod arm returns the genuine instances.
+The package exposes Firebase Admin-shaped `Database`, `Reference`,
+`DataSnapshot`, `ThenableReference`, `Query`, `OnDisconnect`, and `EventType`
+types. The sandbox backends implement the load-bearing subset documented here.
 
 ---
 
 ## Where to go next
 
-- [`pyric-admin/app` reference](../pyric-admin-app-reference-api/) for how the arm is chosen.
+- [`pyric-admin/app` reference](../pyric-admin-app-reference-api/) for sandbox binding and activation.
 - `pyric/database` for the modular mirror with listeners, transactions, and the query builder.

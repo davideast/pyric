@@ -9,8 +9,8 @@ description: "Run a working Firebase backend locally, in a new app or the one yo
 
 # Your backend in one command
 ```bash
-npm i -g pyric-tools
-pyric dev
+npm install -D @pyric/cli
+npx pyric dev
 ```
 That is a full Firebase backend, running inside the browser tab you are about to open. No account. No cloud project. No emulator, no Java, no port to babysit.
 
@@ -41,7 +41,7 @@ Pick by how your app is built.
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
-import { pyricSandbox } from 'pyric-tools/vite';
+import { pyricSandbox } from '@pyric/cli/vite';
 
 export default defineConfig({
   plugins: [pyricSandbox()],

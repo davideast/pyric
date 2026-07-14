@@ -1,7 +1,7 @@
 ---
 title: "Wire Claude Code to your pyric sandbox (manual MCP wiring)"
 navLabel: "Wire Claude Code"
-group: "pyric-tools"
+group: "@pyric/cli"
 section: "Tutorials"
 order: 9003
 ---
@@ -36,7 +36,7 @@ In your app's repo:
 ```bash
 npm install --save-dev pyric
 ```
-This pulls in the bridge implementation (`@pyric/cli/bridge`) as a transitive dependency. You don't install it separately: it ships inside `@pyric/cli` / `pyric-tools`.
+This pulls in the bridge implementation (`@pyric/cli/bridge`) as part of `@pyric/cli`.
 
 Verify:
 ```bash
@@ -51,13 +51,13 @@ The bridge waits for a browser tab to register a sandbox over WebSocket. Your ap
 **Vite users**: the simplest path. Use the `pyricSandbox` plugin with `bridge: true`. One plugin does the `firebase/*` → sandbox swap **and** the bridge, so you don't even add the `connectBridge` snippet below:
 ```ts
 import { defineConfig } from 'vite';
-import { pyricSandbox } from 'pyric-tools/vite';
+import { pyricSandbox } from '@pyric/cli/vite';
 
 export default defineConfig({
   plugins: [pyricSandbox({ bridge: true })],
 });
 ```
-The plugin attaches the bridge to Vite's own dev server (so it shares Vite's port instead of running as a sidecar) AND wires the browser side automatically via the served init payload. You can skip Step 3 and 4: your app is already wired. `bridge: true` routes the agent's tool-calls through the **SharedWorker**, so the agent, your app, and Pyric Studio all share one sandbox (keep a tab open while the agent works); see [Use the Vite plugin](../pyric-tools-how-to-use-the-vite-plugin/#drive-the-sandbox-from-an-agent-bridge).
+The plugin attaches the bridge to Vite's own dev server (so it shares Vite's port instead of running as a sidecar) AND wires the browser side automatically via the served init payload. You can skip Step 3 and 4: your app is already wired. `bridge: true` routes the agent's tool-calls through the **SharedWorker**, so the agent, your app, and Pyric Studio all share one sandbox (keep a tab open while the agent works); see [Use the Vite plugin](../pyric-cli-how-to-use-the-vite-plugin/#drive-the-sandbox-from-an-agent-bridge).
 
 **Non-Vite users**: add a small dev-mode snippet wherever your app initializes the sandbox:
 ```ts
@@ -194,5 +194,5 @@ Expected: two tool calls (`firestore_simulator_undo`, `firestore_simulator_redo`
 
 ## Next steps
 
-- Read [the bridge README](../pyric-tools-bridge/) for the bridge architecture.
+- Read [the bridge README](../pyric-cli-bridge/) for the bridge architecture.
 - The bridge audit log at `~/.pyric/projects/<project>/events.ndjson` is the durable record of every tool call: review it after agent sessions.

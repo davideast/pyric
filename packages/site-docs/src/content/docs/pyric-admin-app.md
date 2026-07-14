@@ -7,27 +7,26 @@ order: 18001
 ---
 # `pyric-admin/app`
 
-The entry point where the sandbox-vs-production choice is made for the whole admin surface. `initializeApp` returns a branded `PyricAdminApp` handle, and every other `pyric-admin/*` subpath (`firestore`, `auth`, `database`, `storage`) reads that brand to pick its backend.
+This subpath owns the sandbox admin app registry. `initializeApp` returns a
+branded `PyricAdminApp`, and every other `pyric-admin/*` subpath uses that app's
+sandbox.
 
-Three ways to initialize, one line of difference:
+Use an explicit sandbox in tests and scripts:
 ```ts
 import { initializeApp } from 'pyric-admin/app';
-
-// Production: delegates to firebase-admin/app
-import { applicationDefault } from 'firebase-admin/app';
-const prodApp = initializeApp({ credential: applicationDefault() });
-
-// Sandbox: the one pyric-flavored line
 import { initializeSandbox } from 'pyric/sandbox';
-const sandboxApp = initializeApp({ sandbox: initializeSandbox() });
 
-// Ambient: zero pyric identifiers, the environment decides
-const app = initializeApp();
+const app = initializeApp({ sandbox: initializeSandbox() });
 ```
-The ambient form is the adoption story. Server code with a bare `initializeApp()` runs against real Firebase by default, and against a sandbox when `PYRIC_SANDBOX` is set (for example under `pyric dev`). A guard refuses sandbox routing when `NODE_ENV` is `production`.
+Or use a bare `initializeApp()` in canonical server code running under `pyric
+dev`. The activated `@pyric/cli/register` resolver supplies the remote sandbox
+factory. Outside activated development, canonical `firebase-admin/app` imports
+resolve directly to Firebase Admin; this package is not loaded.
 
-The registry (`getApp`, `getApps`, `deleteApp`) mirrors `firebase-admin/app`'s lifecycle, and lifecycle errors reuse firebase-admin's own `FirebaseAppError` class, so error identity matches production.
+The registry exports `getApp`, `getApps`, and `deleteApp`, with Firebase-shaped
+names and lifecycle errors.
 
 ## Where to go next
 
-- [API reference](../pyric-admin-app-reference-api/) covers every export, the ambient rules, and the error codes.
+- [API reference](../pyric-admin-app-reference-api/)
+- [Package resolution](../pyric-cli-reference-package-and-resolution/)

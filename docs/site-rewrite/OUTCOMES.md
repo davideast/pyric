@@ -64,7 +64,7 @@ That arc is the candidate spine for the hierarchy. It is verbs the whole way dow
 
 **The Pyric path.** Rules are a library here, not a deploy target. Lint them. Simulate a hypothetical request and read the verdict. Write a real test suite. Ask, in plain terms, whether this operation would be allowed for this user, and get an answer with the exact rule and data that decided it. And when your running app hits a denial, it does not throw a bare `permission-denied`. It hands you the verdict.
 
-**The parts behind it.** The rules engine (parser, linter, validator, simulator, the Rules Test API client). The rules-verdict event on every operation. Denial inspection in the running app and in Studio. `pyric rules:lint`, `rules:simulate`, and the agent tools that wrap them.
+**The parts behind it.** The rules engine (parser, linter, validator, simulator, the Rules Test API client). The rules-verdict event on every operation. Denial inspection in the running app and in Studio. `pyric firestore rules lint`, `pyric firestore rules simulate`, and the agent tools that wrap them.
 
 **Maturity.** Core and a headline. Rules is one of the three conformance-held surfaces, and it is arguably the single best reason to reach for Pyric.
 
@@ -112,7 +112,7 @@ That arc is the candidate spine for the hierarchy. It is verbs the whole way dow
 
 **The Pyric path.** The same code that ran against the sandbox ships to real Firebase, no rewrite. Rules leave the sandbox already exercised against the app's real behavior; ship them with `firebase-tools` / Console. Composite indexes come out of your actual query shapes instead of a hand-kept file. And `pyric verify` replays a captured session against a candidate ruleset and tells you which operations flip verdict, before prod does.
 
-**The parts behind it.** `firestore_extract_indexes` / `pyric firestore:indexes:generate`. `pyric verify` with its sandbox and Rules Test API engines (`@pyric/cli/credentials/node` for SA/ADC). Production shipping via `firebase-tools` / Console. The production build that keeps the real `firebase` package.
+**The parts behind it.** `firestore_extract_indexes` / `pyric firestore indexes generate`. `pyric verify` with its sandbox and Rules Test API engines (`@pyric/cli/credentials/node` for SA/ADC). Production shipping via `firebase-tools` / Console. The production build that keeps the real `firebase` package.
 
 **Maturity.** Core, and it is the proof that this is a development tool and not a toy. It literally deployed its own website.
 
@@ -122,11 +122,11 @@ That arc is the candidate spine for the hierarchy. It is verbs the whole way dow
 
 **The old friction.** Backend tests meant mocks, or the emulator, or a throwaway project. Admin code and client code lived in different worlds with different setups.
 
-**The Pyric path.** Pyric runs in the Node process too, so a test gets the whole backend with no browser involved. When you need the privileged, admin-shaped surface, the code is byte-identical to `firebase-admin` except one setup line, and the same code can point at the sandbox or at real production. A Node script, the browser app, and an agent can even share one pool of data over the bridge.
+**The Pyric path.** Pyric runs in the Node process too, so a test gets the whole backend with no browser involved. When you need the privileged, admin-shaped surface, activated development resolves canonical Firebase Admin imports to the sandbox mirror. With activation absent, production loads Firebase Admin directly. A Node script, the browser app, and an agent can share one pool of sandbox data over the bridge.
 
 **The parts behind it.** `pyric` in Node. `pyric-admin` with its one-line sandbox seam and its ambient env mode. The remote sandbox that relays Node calls to the browser-hosted worker with the admin lens.
 
-**Maturity.** Core for the client-in-Node path. The admin mirror is real but uneven by service (Firestore is sandbox-only, others have full production arms), so we teach the seam and are precise about the edges.
+**Maturity.** Core for the client-in-Node path. The admin-shaped sandbox mirror is uneven by service, so we teach the activation seam and are precise about the edges.
 
 ---
 
@@ -134,7 +134,7 @@ That arc is the candidate spine for the hierarchy. It is verbs the whole way dow
 
 A few things fall out of the outcomes, ahead of the step 3 conversation.
 
-The left nav wants to read like that journey. Start, build, secure, observe, hand to an agent, shape state, ship, test. Those are the doorways. Not "firestore," not "sandbox," not "pyric-tools."
+The left nav wants to read like that journey. Start, build, secure, observe, hand to an agent, shape state, ship, test. Those are the doorways. Not "firestore," not "sandbox," not a package name.
 
 Auth, Firestore, and Rules carry the weight. They are v1 and proven, so the outcomes built on them come first and loudest. Realtime Database and Storage appear where they are genuinely useful, wearing an experimental label, never with equal billing.
 

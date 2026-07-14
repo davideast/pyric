@@ -20,7 +20,7 @@ network access.
 That split keeps the in-memory workflow usable in tests, code generation, agent
 planning, and browser-like hosts. A caller can inspect `rtdbRules(rules).toJSON()`
 without holding credentials, write `database.rules.json` (or run
-`pyric database:rules:generate`), then ship later:
+`pyric database rules generate`), then ship later:
 ```bash
 firebase deploy --only database
 ```

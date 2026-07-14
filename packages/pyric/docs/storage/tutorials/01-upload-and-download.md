@@ -152,6 +152,6 @@ The delete works under the `request.resource == null` carve-out: the rule's writ
 
 ## Where to go next
 
-- See how unchanged application imports select sandbox or Firebase: [Switch between sandbox and production](../how-to/switch-backends.md).
+- See how canonical application imports select sandbox or Firebase: [Select the Storage runtime](../how-to/switch-backends.md).
 - Round-trip custom metadata: see [Round-trip metadata](../how-to/round-trip-metadata.md).
 - Read about what's deferred from this v1 scope: see [Implementation scope and deferred features](../explanation/implementation-scope.md).

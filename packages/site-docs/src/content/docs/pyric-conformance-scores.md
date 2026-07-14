@@ -1,7 +1,6 @@
 ---
 title: "Conformance scores"
-navLabel: "Scores"
-group: "Compatibility"
+group: "Conformance"
 section: ""
 order: 8001
 ---

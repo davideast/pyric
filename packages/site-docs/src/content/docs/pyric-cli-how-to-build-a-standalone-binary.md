@@ -1,7 +1,7 @@
 ---
 title: "Build a standalone pyric binary"
 navLabel: "Build a standalone binary"
-group: "pyric-tools"
+group: "@pyric/cli"
 section: "How-to"
 order: 9004
 ---
@@ -46,7 +46,7 @@ Normally `pyric dev` bundles its `firebase/*` → sandbox SDK shims with esbuild
 **at runtime**, reading the installed `pyric` dist. Neither esbuild's native
 helper nor that on-disk dist exist inside a compiled binary's virtual
 filesystem. But those bundles are **deterministic**: a pure function of
-pyric-tools' wrapper entries and the `pyric` version baked into pyric-tools, not
+`@pyric/cli`'s wrapper entries and the `pyric` version baked into the CLI, not
 your project (pyric dev ships its *own* sandbox; your app imports `firebase/*`, nothing more).
 
 So the compile step runs the bundler **once on the build host** and embeds the
@@ -57,21 +57,21 @@ unchanged. `dev`, `dev --ui`, and `dev --bridge` all work fully offline.
 
 ## How `init` scaffolds an installable project (vendoring)
 
-`pyric` and `pyric-tools` are unpublished, so a scaffold that depended on them
-from npm would 404 on `bun install`. The binary fixes this by **vendoring**: the
+`pyric` and `@pyric/cli` are embedded in the standalone binary. It makes them
+available to a scaffold by **vendoring**: the
 compile step also `npm pack`s both packages and embeds the tarballs, and
 `pyric init` (in the standalone binary) writes them into `vendor/` and points the
 project's deps at them:
 ```jsonc
-"devDependencies": { "pyric-tools": "file:vendor/pyric-tools.tgz", "pyric": "file:vendor/pyric.tgz", … },
+"devDependencies": { "@pyric/cli": "file:vendor/pyric-cli.tgz", "pyric": "file:vendor/pyric.tgz", … },
 "overrides": { "pyric": "file:vendor/pyric.tgz" }
 ```
-`bun install` then resolves `pyric`/`pyric-tools` from `vendor/` and everything
+`bun install` then resolves `pyric`/`@pyric/cli` from `vendor/` and everything
 else (`firebase`, `vite`, `@inbrowser/agent`, `esbuild`) from npm. The
 `overrides` pin is load-bearing: a **placeholder `pyric` is published to npm at a
-higher version than the local `0.0.0`**, so `pyric-tools`' transitive `pyric@*`
+higher version than the local `0.0.0`**, so `@pyric/cli`'s transitive `pyric@*`
 would otherwise pull that empty stub instead of the vendored package.
-(`pyric-tools`' own `pyric` dep is rewritten to `*` at pack time so it dedupes to
+(`@pyric/cli`'s own `pyric` dependency is rewritten to `*` at pack time so it dedupes to
 the override.) `vendor/` is committable (the scaffold ignores only `.pyric/`), so
 a clone installs offline too.
 
@@ -87,12 +87,10 @@ Default is `vendor` in the standalone binary, `npm` otherwise (e.g. `npx pyric`
 from the monorepo). `PYRIC_INIT_DEPS=npm` sets the default; `--deps` overrides it.
 
 Smoke the whole chain (`init → bun install → vite build`, offline for
-pyric/pyric-tools) against a compiled binary:
+`pyric`/`@pyric/cli`) against a compiled binary:
 ```bash
 bun run --cwd packages/cli smoke:vendor
 ```
-## Contract
-
 ## Contract
 
 - **ESM-only**, like the npm package. The binary embeds its own runtime.

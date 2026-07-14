@@ -1,8 +1,8 @@
 ---
 title: "@pyric/cli/bridge"
-group: "pyric-tools"
+group: "@pyric/cli"
 section: "Bridge"
-order: 9011
+order: 9012
 ---
 # `@pyric/cli/bridge`
 
@@ -72,7 +72,7 @@ The plugin mounts the bridge on Vite's own dev server at `/__pyric/mcp`,
 `/__pyric/health`, and `/__pyric/sandbox` (WS), so the bridge shares Vite's port
 instead of running as a sidecar. The agent's tool-calls route through the
 SharedWorker, so the app, Pyric Studio, and the agent all share one sandbox. See
-[Use the Vite plugin](../pyric-tools-how-to-use-the-vite-plugin/#drive-the-sandbox-from-an-agent-bridge).
+[Use the Vite plugin](../pyric-cli-how-to-use-the-vite-plugin/#drive-the-sandbox-from-an-agent-bridge).
 
 ## Browser side
 ```ts
@@ -90,4 +90,4 @@ if (import.meta.env.DEV) {
 ## See also
 
 - Agent tool inventory
-- [Wire Claude Code](../pyric-tools-tutorials-wire-claude-code/)
+- [Wire Claude Code](../pyric-cli-tutorials-wire-claude-code/)

@@ -1,11 +1,11 @@
 ---
-title: "How Storage switches between sandbox and production"
+title: "Select the Storage runtime"
 navLabel: "Switch backends"
 group: "pyric / storage"
 section: "How-to"
 order: 14004
 ---
-# How Storage switches between sandbox and production
+# Select the Storage runtime
 
 Keep application imports canonical:
 ```ts
