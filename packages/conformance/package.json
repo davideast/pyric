@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Private conformance workspace: the compatibility registry, surface descriptors, the oracle capture rigs and their observations, and the gates/reports that turn them into the published compat coverage number. Not published to npm; consumed only by root package.json scripts and CI.",
   "exports": {
-    "./functions-rtdb-fixture": "./src/functions-rtdb-fixture.ts"
+    "./functions-rtdb-fixture": "./src/functions-rtdb-fixture/index.ts"
   },
   "scripts": {
     "test": "bun test"

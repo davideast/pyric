@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { InMemoryRtdbTriggerDelivery } from '../../src/functions-rtdb/delivery.js';
+import { InMemoryRtdbTriggerDelivery } from '../../src/functions-rtdb/in-memory-delivery.js';
 import { startOnValueCreatedExecution } from '../../src/functions-rtdb/execution.js';
 
 const requireFromConformance = createRequire(

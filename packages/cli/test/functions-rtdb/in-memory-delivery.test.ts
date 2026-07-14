@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { InMemoryRtdbTriggerDelivery } from '../../src/functions-rtdb/delivery.js';
+import { InMemoryRtdbTriggerDelivery } from '../../src/functions-rtdb/in-memory-delivery.js';
 
 describe('InMemoryRtdbTriggerDelivery', () => {
   test('normalizes paths, clones snapshots, and stops delivery after unsubscribe', () => {
