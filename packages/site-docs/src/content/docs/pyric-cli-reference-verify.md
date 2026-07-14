@@ -2,7 +2,7 @@
 title: "Verify API"
 group: "@pyric/cli"
 section: "Reference"
-order: 9011
+order: 9012
 ---
 # Verify API
 

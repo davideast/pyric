@@ -10,10 +10,10 @@
  * rules load (fail fast on broken rules) → SDK bundle (cached per pyric
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
-import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
+import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
 import {
   isStandalone,
@@ -33,6 +33,7 @@ import { createBridgeMount } from '../serve/bridge-mount.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import {
   buildChildEnv,
+  createLinePrefixer,
   detectPackageManager,
   readDevScript,
   registerModuleUrl,
@@ -41,6 +42,12 @@ import {
   waitForSandboxPeer,
   type DevChildHandle,
 } from './dev-runner.js';
+import {
+  discoverFunctionsRtdbProject,
+  spawnFunctionsRtdbChild,
+  type FunctionsRtdbChildHandle,
+  type FunctionsRtdbProject,
+} from '../functions-rtdb/index.js';
 
 interface HostingConfig {
   public?: string;
@@ -575,8 +582,9 @@ export function bridgeEnabledFromFlags(flags: { get(key: string): unknown }): bo
 export function bridgeEnabledFor(
   flags: { get(key: string): unknown },
   childPlan: unknown,
+  functionsProject: unknown = null,
 ): boolean {
-  return bridgeEnabledFromFlags(flags) || childPlan != null;
+  return bridgeEnabledFromFlags(flags) || childPlan != null || functionsProject != null;
 }
 
 /**
@@ -644,6 +652,23 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // the bridge (see bridgeEnabledFor) — the child's injected PYRIC_SANDBOX
   // is useless without the /__pyric/sandbox WS mount.
   const cwd = process.cwd();
+  let functionsProject: FunctionsRtdbProject | null;
+  let functionsProjectId: string | null = null;
+  try {
+    functionsProject = discoverFunctionsRtdbProject(cwd);
+    if (functionsProject) {
+      const flagProject = parsed.flags.get('project');
+      const rc = await readFirebaseRc(cwd);
+      functionsProjectId =
+        (typeof flagProject === 'string' ? flagProject : undefined) ??
+        process.env.PYRIC_PROJECT ??
+        rc?.projects?.default ??
+        'demo-project';
+    }
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
   const plan = resolveDevChild({
     passthrough: parsed.passthrough ?? [],
     noRun: Boolean(parsed.flags.get('no-run')),
@@ -651,7 +676,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     devScript: readDevScript(cwd),
     packageManager: detectPackageManager(cwd),
   });
-  const bridgeOn = bridgeEnabledFor(parsed.flags, plan);
+  const bridgeOn = bridgeEnabledFor(parsed.flags, plan, functionsProject);
 
   let runtime: ServeRuntime;
   try {
@@ -675,7 +700,10 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
         typeof parsed.flags.get('allowed-host') === 'string'
           ? (parsed.flags.get('allowed-host') as string).split(',').map((h) => h.trim()).filter(Boolean)
           : undefined,
-      project: typeof parsed.flags.get('project') === 'string' ? (parsed.flags.get('project') as string) : process.env.PYRIC_PROJECT,
+      project:
+        typeof parsed.flags.get('project') === 'string'
+          ? (parsed.flags.get('project') as string)
+          : process.env.PYRIC_PROJECT ?? functionsProjectId ?? undefined,
     });
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`);
@@ -711,6 +739,75 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   if (opened) {
     // With --ui, open Studio directly; the served page is still available.
     void openBrowser(runtime.uiUrl ?? runtime.handle.url);
+  }
+
+  let functionsChild: FunctionsRtdbChildHandle | null = null;
+  if (functionsProject && functionsProjectId) {
+    const info = json ? process.stderr : process.stdout;
+    info.write('• functions waiting for the browser tab to connect the sandbox…\n');
+    const connected = await waitForSandboxPeer(runtime.handle.url);
+    if (!connected) {
+      process.stderr.write(
+        `  ⚠ functions not started — no browser tab connected after 30s. ` +
+          `Open ${runtime.handle.url} and restart pyric dev.\n`,
+      );
+    } else {
+      functionsChild = spawnFunctionsRtdbChild({
+        cwd: functionsProject.sourceDir,
+        entry: functionsProject.entry,
+        env: buildChildEnv(process.env, {
+          serveUrl: runtime.handle.url,
+          registerUrl: registerModuleUrl(),
+        }),
+        projectId: functionsProjectId,
+        instance: `${functionsProjectId}-default-rtdb`,
+        location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
+        onEvent(event) {
+          if (event.type === 'execution') {
+            if (event.status === 'fulfilled') {
+              info.write(`✔ function  ${event.exportName} ← /${event.ref}\n`);
+            } else {
+              process.stderr.write(
+                `✖ function  ${event.exportName} ← /${event.ref}: ${event.error.message}\n`,
+              );
+            }
+          } else {
+            process.stderr.write(
+              `✖ functions delivery for ${event.exportName}: ${event.error.message}\n`,
+            );
+          }
+        },
+      });
+
+      const stdout = createLinePrefixer('[functions] ', (line) =>
+        (json ? process.stderr : process.stdout).write(line));
+      const stderr = createLinePrefixer('[functions] ', (line) => process.stderr.write(line));
+      functionsChild.child.stdout?.setEncoding('utf8');
+      functionsChild.child.stderr?.setEncoding('utf8');
+      functionsChild.child.stdout?.on('data', (chunk: string) => stdout.push(chunk));
+      functionsChild.child.stderr?.on('data', (chunk: string) => stderr.push(chunk));
+      functionsChild.child.stdout?.once('end', () => stdout.flush());
+      functionsChild.child.stderr?.once('end', () => stderr.flush());
+
+      try {
+        const ready = await functionsChild.ready;
+        info.write(
+          `✔ functions ${ready.triggerCount} onValueCreated trigger${ready.triggerCount === 1 ? '' : 's'} ` +
+            `from ${relative(cwd, functionsProject.entry)}\n`,
+        );
+        for (const unsupported of ready.unsupportedTriggers) {
+          process.stderr.write(
+            `  ⚠ functions export ${unsupported.exportName} uses unsupported trigger ` +
+              `${unsupported.eventType}; it will not run in pyric dev.\n`,
+          );
+        }
+      } catch (error) {
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        await functionsChild.stop();
+        await runtime.handle.stop();
+        return 2;
+      }
+    }
   }
 
   // The child runner ("one command, not two"): run the user's own dev
@@ -750,16 +847,21 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
 
   return await new Promise<number>((resolveExit) => {
     let settled = false;
+    let shuttingDown = false;
     const finish = (code: number): void => {
       if (settled) return;
       settled = true;
-      void runtime.handle.stop().then(
-        () => resolveExit(code),
-        () => resolveExit(code),
-      );
+      void (async () => {
+        await functionsChild?.stop().catch(() => undefined);
+        await runtime.handle.stop().catch(() => undefined);
+        resolveExit(code);
+      })();
     };
     const shutdown = (signal: NodeJS.Signals): void => {
+      if (shuttingDown) return;
+      shuttingDown = true;
       (json ? process.stderr : process.stdout).write('\nShutting down...\n');
+      void functionsChild?.stop();
       if (devChild && devChild.child.exitCode === null) {
         // Forward the signal; the child's exit (below) closes the host.
         // (The terminal delivers Ctrl-C to the whole group too — the
@@ -771,6 +873,14 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     };
     // Child exits → close the host and propagate its code (Ctrl-C → 0).
     if (devChild) void devChild.exited.then((code) => finish(code));
+    if (functionsChild) {
+      void functionsChild.exited.then((code) => {
+        if (!settled && !shuttingDown) {
+          process.stderr.write(`pyric dev: Functions child exited unexpectedly (code ${code}).\n`);
+          finish(code === 0 ? 1 : code);
+        }
+      });
+    }
     process.once('SIGINT', () => shutdown('SIGINT'));
     process.once('SIGTERM', () => shutdown('SIGTERM'));
   });

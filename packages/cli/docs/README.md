@@ -22,6 +22,7 @@ Firebase project.
 - [Verify your rules against a captured session](how-to/verify-against-a-captured-session.md)
 - [Promote sandbox state to a committable fixture](how-to/promote-sandbox-state-to-a-fixture.md)
 - [Use the Vite plugin](how-to/use-the-vite-plugin.md)
+- [Run an RTDB `onValueCreated` function locally](how-to/run-rtdb-onvaluecreated.md)
 - [Build a standalone `pyric` binary](how-to/build-a-standalone-binary.md): a
   single self-contained executable via `bun build --compile`.
 

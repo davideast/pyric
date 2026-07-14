@@ -39,6 +39,12 @@ export type FunctionsRtdbChildEvent =
 
 export interface FunctionsRtdbChildReady {
   triggerCount: number;
+  unsupportedTriggers: UnsupportedFunctionsTrigger[];
+}
+
+export interface UnsupportedFunctionsTrigger {
+  exportName: string;
+  eventType: string;
 }
 
 export interface SpawnFunctionsRtdbChildOptions {
@@ -125,7 +131,10 @@ export function spawnFunctionsRtdbChild(
     if (!isChildMessage(raw)) return;
     if (raw.type === 'ready') {
       readySettled = true;
-      resolveReady({ triggerCount: raw.triggerCount });
+      resolveReady({
+        triggerCount: raw.triggerCount,
+        unsupportedTriggers: raw.unsupportedTriggers,
+      });
     } else if (raw.type === 'fatal') {
       if (!readySettled) {
         readySettled = true;
@@ -244,12 +253,12 @@ async function runFunctionsRtdbChild(): Promise<void> {
     host = startOnValueCreatedExecution({
       exported,
       delivery: new RemoteRtdbTriggerDelivery(app.sandbox.rtdb),
-      eventOptions: (_projection, sequence) => ({
+      eventOptions: (_projection, sequence, trigger) => ({
         id: `${randomUUID()}-${sequence}`,
         time: new Date().toISOString(),
         projectId,
-        instance,
-        location,
+        instance: trigger.instance === '*' ? instance : trigger.instance,
+        location: trigger.location ?? location,
         databaseHost,
       }),
       onExecution(result, trigger, projection) {
@@ -264,11 +273,47 @@ async function runFunctionsRtdbChild(): Promise<void> {
       },
     });
     await host.ready;
-    send({ type: 'ready', triggerCount: host.triggerCount });
+    send({
+      type: 'ready',
+      triggerCount: host.triggerCount,
+      unsupportedTriggers: findUnsupportedTriggers(exported),
+    });
   } catch (error) {
     await close();
     throw error;
   }
+}
+
+function findUnsupportedTriggers(exported: Record<string, unknown>): UnsupportedFunctionsTrigger[] {
+  const unsupported: UnsupportedFunctionsTrigger[] = [];
+  for (const [exportName, value] of Object.entries(exported)) {
+    if (typeof value !== 'function') continue;
+    const endpoint = (value as {
+      __endpoint?: {
+        eventTrigger?: { eventType?: unknown };
+        callableTrigger?: unknown;
+        httpsTrigger?: unknown;
+        scheduleTrigger?: unknown;
+        taskQueueTrigger?: unknown;
+      };
+    }).__endpoint;
+    if (!endpoint) continue;
+    const eventType = endpoint.eventTrigger?.eventType;
+    if (eventType === 'google.firebase.database.ref.v1.created') continue;
+    const label = typeof eventType === 'string'
+      ? eventType
+      : endpoint.callableTrigger !== undefined
+        ? 'callable'
+        : endpoint.httpsTrigger !== undefined
+          ? 'https'
+          : endpoint.scheduleTrigger !== undefined
+            ? 'schedule'
+            : endpoint.taskQueueTrigger !== undefined
+              ? 'task-queue'
+              : 'unknown';
+    unsupported.push({ exportName, eventType: label });
+  }
+  return unsupported;
 }
 
 function sendExecution(

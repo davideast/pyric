@@ -149,6 +149,23 @@ describe('discoverOnValueCreated', () => {
       },
     ]);
   });
+
+  test('keeps a trigger-specific instance and region for the raw event', () => {
+    const { onValueCreated } = databaseFunctions;
+    const regional = onValueCreated({
+      ref: '/messages/{id}',
+      instance: 'regional-rtdb',
+      region: 'europe-west1',
+    }, () => undefined);
+
+    expect(discoverOnValueCreated({ regional })).toEqual([{
+      exportName: 'regional',
+      reference: 'messages/{id}',
+      instance: 'regional-rtdb',
+      location: 'europe-west1',
+      callable: regional,
+    }]);
+  });
 });
 
 describe('executeOnValueCreated', () => {
@@ -236,6 +253,37 @@ describe('executeOnValueCreated', () => {
     );
 
     expect(result).toMatchObject({ status: 'rejected', error: marker });
+  });
+
+  test('presents RTDB object children in production key order', async () => {
+    const { onValueCreated } = databaseFunctions;
+    const childKeys: Array<string | null> = [];
+    const [trigger] = discoverOnValueCreated({
+      ordered: onValueCreated('/ordered', (event) => {
+        event.data.forEach((child) => {
+          childKeys.push(child.key);
+        });
+      }),
+    });
+
+    await executeOnValueCreated(
+      trigger,
+      {
+        ref: 'ordered',
+        params: {},
+        value: { hello: 1, count: 2, nested: 3, items: 4 },
+      },
+      {
+        id: 'ordered-1',
+        time: '2026-07-13T20:00:00.000Z',
+        projectId: 'demo-project',
+        instance: 'demo-project-default-rtdb',
+        location: 'us-central1',
+        databaseHost: 'firebasedatabase.app',
+      },
+    );
+
+    expect(childKeys).toEqual(['count', 'hello', 'items', 'nested']);
   });
 });
 

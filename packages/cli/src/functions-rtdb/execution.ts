@@ -20,6 +20,7 @@ export interface DiscoveredOnValueCreated {
   exportName: string;
   reference: string;
   instance: string;
+  location?: string;
   callable: RtdbCreatedCallable;
 }
 
@@ -71,6 +72,7 @@ const CREATED_EVENT_TYPE = 'google.firebase.database.ref.v1.created';
 
 type EndpointFunction = RtdbCreatedCallable & {
   __endpoint?: {
+    region?: unknown;
     eventTrigger?: {
       eventType?: unknown;
       eventFilters?: Record<string, unknown>;
@@ -93,7 +95,17 @@ export function discoverOnValueCreated(
     const instance =
       trigger.eventFilters?.instance ?? trigger.eventFilterPathPatterns?.instance;
     if (typeof reference !== 'string' || typeof instance !== 'string') continue;
-    discovered.push({ exportName, reference, instance, callable });
+    const region = callable.__endpoint?.region;
+    const location = Array.isArray(region) && typeof region[0] === 'string'
+      ? region[0]
+      : undefined;
+    discovered.push({
+      exportName,
+      reference,
+      instance,
+      ...(location === undefined ? {} : { location }),
+      callable,
+    });
   }
   return discovered;
 }
@@ -121,7 +133,11 @@ export async function executeOnValueCreated(
     authid: null,
     data: {
       data: null,
-      delta: projection.value,
+      // RTDB materializes object children in key order before Functions builds
+      // its DataSnapshot. Canonicalizing the event payload preserves that
+      // observable `forEach()` order even when the local write object used a
+      // different insertion order.
+      delta: canonicalizeRtdbValue(projection.value),
     },
   };
 
@@ -131,6 +147,19 @@ export async function executeOnValueCreated(
   } catch (error) {
     return { status: 'rejected', event, error };
   }
+}
+
+function canonicalizeRtdbValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeRtdbValue);
+  if (typeof value !== 'object' || value === null) return value;
+  return Object.fromEntries(
+    Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((key) => [
+        key,
+        canonicalizeRtdbValue((value as Record<string, unknown>)[key]),
+      ]),
+  );
 }
 
 function normalizePath(path: string): string {

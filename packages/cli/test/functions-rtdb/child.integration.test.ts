@@ -161,7 +161,7 @@ beforeAll(async () => {
   );
   writeFileSync(
     join(fixtureDir, 'functions/index.cjs'),
-    `const { onValueCreated } = require('firebase-functions/v2/database');
+    `const { onValueCreated, onValueUpdated } = require('firebase-functions/v2/database');
 exports.makeUppercase = onValueCreated(
   '/messages/{pushId}/original',
   event => event.data.ref.parent.child('uppercase').set(event.data.val().toUpperCase()),
@@ -171,6 +171,10 @@ exports.markProcessed = onValueCreated(
   event => event.data.ref.parent.child('processed').set(
     event.params.pushId + ':' + event.data.val()
   ),
+);
+exports.unsupportedUpdate = onValueUpdated(
+  '/messages/{pushId}/original',
+  () => undefined,
 );
 `,
   );
@@ -218,7 +222,13 @@ describe('isolated Functions RTDB child', () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect((await child.ready).triggerCount).toBe(2);
+    expect(await child.ready).toEqual({
+      triggerCount: 2,
+      unsupportedTriggers: [{
+        exportName: 'unsupportedUpdate',
+        eventType: 'google.firebase.database.ref.v1.updated',
+      }],
+    });
     await observer.rtdb.set('messages/id/original', 'hello');
     await waitForValue('messages/id/uppercase', 'HELLO');
     await waitForValue('messages/id/processed', 'id:HELLO');

@@ -70,6 +70,14 @@ Without an explicit command, `pyric dev` runs the package's `dev` script when
 one exists. The child receives the activated package-resolution environment;
 see [package exports and resolution](./package-and-resolution.md).
 
+When `firebase.json` declares one Functions source, `pyric dev` also reads that
+source package's `main` field (`index.js` by default) and starts an isolated
+Node child for supported `firebase-functions/v2/database.onValueCreated`
+exports. A Functions source implies the local bridge even without `--bridge`.
+`--no-run` suppresses only the project's `dev` script; it does not suppress the
+declared Functions source. Unsupported trigger exports are reported and left
+inactive. See [run an RTDB `onValueCreated` function locally](../how-to/run-rtdb-onvaluecreated.md).
+
 Persistence, multi-tab, and SharedWorker behaviour are covered in
 [persistence and multi-tab](../how-to/serve-persistence-and-multi-tab.md).
 

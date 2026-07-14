@@ -68,7 +68,7 @@ describe('integration compatibility score', () => {
       entryPathVerdicts: {},
     });
     expect(block).toContain('integration contract (unchanged upstream source; breadth is the signed row inventory)');
-    expect(block).toContain('0 of 13 tracked claims');
+    expect(block).toContain('100% (13 of 13 tracked claims match production)');
     expect(block).toContain('../../../pyric/docs/conformance/SCORES.md');
     expect(block).not.toContain('Coverage is about whether the export exists');
   });

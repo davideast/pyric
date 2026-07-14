@@ -39,6 +39,10 @@ Application and server source keeps canonical imports such as
 - `pyric dev` activates the Node swap for the child process it runs. It sets
   `PYRIC_SANDBOX` and preloads `@pyric/cli/register`; the hook resolves
   `firebase/*` to `pyric/*` and `firebase-admin/*` to `pyric-admin/*`.
+- A declared Functions source runs the real installed `firebase-functions`
+  package in its own Node child. Its `firebase-admin/app` and
+  `firebase-admin/database` dependencies resolve to the same sandbox Admin
+  adapters, so `event.data.ref` reads and writes share the app's RTDB.
 
 Activation belongs to the development invocation, not to application source or
 the presence of a file. That keeps the source identical on both sides of the

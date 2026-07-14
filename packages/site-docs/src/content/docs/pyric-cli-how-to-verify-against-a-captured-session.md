@@ -3,7 +3,7 @@ title: "How to verify your rules against a captured session"
 navLabel: "Verify rules"
 group: "@pyric/cli"
 section: "How-to"
-order: 9008
+order: 9009
 ---
 # How to verify your rules against a captured session
 
