@@ -82,10 +82,20 @@ const LIST_AVATARS = {
   rulesDisposition: { kind: 'not-evaluated', reason: 'no-rules' },
 } as StudioTrafficEvent;
 
-function StorageListTrafficRow() {
+const LIST_ROOT = {
+  ...LIST_AVATARS,
+  id: 'storage-list-root',
+  path: '',
+} as StudioTrafficEvent;
+
+function StorageListTrafficRow({
+  event = LIST_AVATARS,
+}: {
+  event?: StudioTrafficEvent;
+}) {
   return (
     <TrafficRow
-      event={LIST_AVATARS}
+      event={event}
       onSelect={(event) => {
         const target = subjectTarget(event as StudioTrafficEvent);
         if (target) pushPath(target);
@@ -119,6 +129,31 @@ describe('Storage route intent', () => {
     expect(
       view.container.querySelector('[data-pyric-ui="object-inspector"][data-pyric-error]'),
     ).toBeNull();
+  });
+
+  it('labels a Storage root list as slash and opens the bucket root', async () => {
+    const storage = makeStorage();
+    await uploadBytes(ref(storage, 'avatars/alice.png'), new Uint8Array([1]));
+    window.history.replaceState(null, '', '/traffic');
+
+    const view = render(
+      <>
+        <StorageListTrafficRow event={LIST_ROOT} />
+        <RoutedStoragePane storage={storage} />
+      </>,
+    );
+    const row = view.container.querySelector('[data-pyric-traffic-row]')!;
+    expect(row.querySelector('[data-pyric-traffic-path]')!.textContent).toBe('/');
+
+    fireEvent.click(row);
+    expect(window.location.pathname + window.location.search).toBe('/storage');
+    await waitFor(() =>
+      expect(
+        view.container.querySelector(
+          '[data-pyric-entry-kind="folder"][data-pyric-entry-path="avatars"]',
+        ),
+      ).not.toBeNull(),
+    );
   });
 
   it('browses a prefix and inspects an object at the identical path', async () => {
