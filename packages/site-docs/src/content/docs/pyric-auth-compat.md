@@ -469,8 +469,8 @@ means a Bun test in `packages/auth/test/<file>`.
 <div class="compat-note">password really changes + is verified; no requires-recent-login enforcement</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Re-reads the stored record into the <code>user</code> object in place, so a change made out of band (e.g. <code>sandbox.updateUser</code>) is reflected on the held reference — matching prod's server refresh. Users not tracked in the DB (anonymous / popup) have nothing to refresh (safe no-op)</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — an out-of-band <code>sandbox.updateUser</code> displayName change is visible on the held user after <code>reload</code></div></div>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Re-reads the stored record into the <code>user</code> object in place, so a change made out of band (e.g. <code>sandbox.updateUser</code>) is reflected on the held reference — matching prod's server refresh. If the identity is absent from the store (including after <code>deleteUser</code>), rejects with <code>auth/user-token-expired</code></span></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — an out-of-band <code>sandbox.updateUser</code> displayName change is visible on the held user after <code>reload</code>; missing-store / post-delete: <code>unit:upstream-auth-probes.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Sets the sandbox's current user (pass <code>null</code> to sign out), firing <code>onAuthStateChanged</code> — <code>auth.currentUser</code> reflects the passed user afterward</span></span></summary>
@@ -720,9 +720,8 @@ Rows **locked by the empirical oracle harness** (committed observations under `p
 
 Rows currently marked **—** that we might want to fill (rough priority):
 
-1. #20-23 `updateProfile` — common app pattern, agent code often calls it
-2. #57 `user.emailVerified` — used by gating logic in real apps
-3. #58-61 `user.metadata` / `reload` / `delete` — full User shape parity
+1. #57 `user.emailVerified` — used by gating logic in real apps
+2. #58-61 `user.metadata` / instance `User.reload`/`User.delete`/`toJSON` — full User *instance-method* shape parity (top-level `reload`/`deleteUser`/`updateProfile` are already ✓)
 
 Rows currently marked **⚠** that we might want to upgrade to **✓**
 (by aligning the sandbox to prod or by formally documenting the

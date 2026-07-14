@@ -46,11 +46,11 @@ The right column ("Use in agent-generated `appSource`?") is the deny-list / allo
 | `signInWithCredential(auth, credential)` | ⚠️ | Mock-or-throw, keyed on `credential.providerId` (not a popup/resolver flow, opens no UI); throws `auth/no-mock-configured` with none staged. Records the provider; disabled accounts throw `auth/user-disabled` | Yes |
 | `signInWithRedirect(auth, provider, resolver?)` | ⚠️ | Resolves inline via the sandbox `AuthFlowResolver` (no real navigation); signs in + stashes for `getRedirectResult`. Unswapped production imports remain on `firebase/auth` (real navigation) | Yes |
 | `getRedirectResult(auth)` | ⚠️ | Returns-and-clears the pending sandbox redirect credential (one-shot), or `null`. Unswapped production imports remain on `firebase/auth` | Yes |
-| `signInWithCustomToken(auth, token)` | ❌ | Custom-token sign-in out of scope v0 | No |
+| `signInWithCustomToken(auth, token)` | ✅ | Accepts JSON `{uid, claims?}` (or base64url / JWT payload segment). Signature not verified (documented ⚠ accept-path). Mints identity if missing; `providerId: null` | Yes |
 | `signInWithPhoneNumber(auth, phone, verifier)` | ❌ | Phone auth out of scope v0 | No |
-| `signInWithEmailLink(auth, email, link)` | ❌ | Email-link sign-in out of scope v0 | No |
-| `isSignInWithEmailLink(auth, link)` | ❌ | As above | No |
-| `sendSignInLinkToEmail(auth, email, settings)` | ❌ | As above | No |
+| `signInWithEmailLink(auth, email, link)` | ⚠️ | Sandbox: consumes outbox / action-code path; see COMPAT email-link rows | Yes |
+| `isSignInWithEmailLink(auth, link)` | ✅ | Client-side predicate | Yes |
+| `sendSignInLinkToEmail(auth, email, settings)` | ⚠️ | Sandbox: records mail in auth outbox (`sandbox.takeAuthMail`) rather than SMTP | Yes |
 | `signOut(auth)` | ✅ | Sandbox: sets currentUser to null, emits | Yes |
 | `auth.signOut()` (method form) | ✅ | Same as the free function; `firebase/auth`'s `Auth` exposes both (AUTH-GAP) | Yes |
 
@@ -104,11 +104,12 @@ The right column ("Use in agent-generated `appSource`?") is the deny-list / allo
 
 | Symbol | Status | Note | Use in `appSource`? |
 |---|---|---|---|
-| `updateProfile(user, { displayName, photoURL })` | ❌ | Profile mutation out of scope v0 | No |
-| `updateEmail(user, newEmail)` | ❌ | As above | No |
-| `updatePassword(user, newPassword)` | ❌ | As above | No |
-| `verifyBeforeUpdateEmail(user, newEmail, settings?)` | ❌ | As above | No |
-| `deleteUser(user)` | ❌ | As above | No |
+| `updateProfile(user, { displayName, photoURL })` | ✅ | Mutates held user + stored record; null clears; no extra `onAuthStateChanged` | Yes |
+| `updateEmail(user, newEmail)` | ✅ | Updates store + held user; next sign-in uses the new email (no `requires-recent-login`) | Yes |
+| `updatePassword(user, newPassword)` | ✅ | Stored + verified; old password rejected after change (no `requires-recent-login`) | Yes |
+| `verifyBeforeUpdateEmail(user, newEmail, settings?)` | ❌ | Email verification round-trip for updates not mirrored as a separate export path | No |
+| `deleteUser(user)` | ✅ | Removes store record and signs out if current; post-delete `reload(user)` → `auth/user-token-expired` | Yes |
+| `reload(user)` | ✅ | Re-reads store into held user; missing identity → `auth/user-token-expired` | Yes |
 
 ## Password reset & email verification
 
@@ -130,8 +131,7 @@ The right column ("Use in agent-generated `appSource`?") is the deny-list / allo
 | `user.getIdToken(forceRefresh?)` | ⚠️ | Sandbox: returns stable opaque `sandbox-id-token-…` string | Yes |
 | `user.getIdTokenResult(forceRefresh?)` | ⚠️ | Sandbox: claims include `customClaims` + synthesized `sub`/`aud`/`iss` + reserved `firebase.sign_in_provider`; `signInProvider` reflects the session's provider (`'anonymous'`/`'password'`/`'google.com'`/…). Claims are read live from the user DB, so `sandbox.updateUser` claims changes land on the next forced refresh (prod parity) | Yes |
 | `user.{photoURL, emailVerified, phoneNumber, providerId, providerData}` | ✅ | Present on every `User`; sandbox synthesizes (photoURL/phoneNumber `null`, emailVerified `false`, one `providerData` entry for non-anon); prod passes the real values through (no longer stripped) (AUTH-GAP) | Yes |
-| `user.reload()` | ❌ | No remote profile to reload from on sandbox | No |
-| `user.delete()` | ❌ | Profile deletion out of scope v0 | No |
+| `user.reload()` / `user.delete()` | ⚠️ | Prefer top-level `reload(user)` / `deleteUser(user)` (COMPAT ✓); instance methods are not the documented appSource path | No |
 | `user.{metadata, refreshToken, tenantId, toJSON()}` | ❌ | Not modeled by the sandbox; documented per AUTH-GAP | No |
 
 ## Error code constants

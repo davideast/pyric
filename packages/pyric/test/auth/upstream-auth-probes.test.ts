@@ -62,6 +62,7 @@ describe('A1 getAdditionalUserInfo (upstream auth probes)', () => {
     await signOut(auth);
     const again = await signInWithCustomToken(auth, customToken('custom-1', { role: 'admin' }));
     expect(getAdditionalUserInfo(again)!.isNewUser).toBe(false);
+    expect(getAdditionalUserInfo(again)!.providerId).toBeNull();
   });
 });
 

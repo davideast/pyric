@@ -193,7 +193,7 @@ means a Bun test in `packages/auth/test/<file>`.
 | 83 | Deletes the account from the user store AND signs the user out if they are current (fires `onAuthStateChanged(null)`), matching prod where deleting the signed-in user clears `auth.currentUser`. Real behavior: a subsequent `signInWithEmailAndPassword` for that identity throws `auth/user-not-found`; `reload(user)` after delete rejects with `auth/user-token-expired` | ✓ | `unit:fruit-aliases.test.ts` — user removed from the store, sign-out fired, re-sign-in throws `auth/user-not-found`; post-delete `reload` → `auth/user-token-expired`: `unit:upstream-auth-probes.test.ts` |
 | 84 | Changes the stored email (via the same path as `sandbox.updateUser`, rejecting `auth/email-already-in-use` / `auth/invalid-email`) and mutates the held `user` in place, so the next sign-in resolves against the new email. Leniency vs prod: the sandbox does NOT enforce `auth/requires-recent-login` and is not routed through `verifyBeforeUpdateEmail` (which the real SDK requires when email-enumeration protection is on) | ⚠ email really changes; no requires-recent-login / verifyBeforeUpdateEmail enforcement | `unit:fruit-aliases.test.ts` — stored email changes; re-sign-in works with the new email, fails with the old |
 | 85 | Sets the stored password (validated for strength). The sandbox DOES store and verify passwords, so this is a real mutation: a subsequent `signInWithEmailAndPassword` with the new password succeeds and the old one throws `auth/wrong-password`. Leniency vs prod: no `auth/requires-recent-login` enforcement | ⚠ password really changes + is verified; no requires-recent-login enforcement | `unit:fruit-aliases.test.ts` — new password signs in, old password throws `auth/wrong-password` |
-| 86 | Re-reads the stored record into the `user` object in place, so a change made out of band (e.g. `sandbox.updateUser`) is reflected on the held reference — matching prod's server refresh. Users not tracked in the DB (anonymous / popup) have nothing to refresh (safe no-op) | ✓ | `unit:fruit-aliases.test.ts` — an out-of-band `sandbox.updateUser` displayName change is visible on the held user after `reload` |
+| 86 | Re-reads the stored record into the `user` object in place, so a change made out of band (e.g. `sandbox.updateUser`) is reflected on the held reference — matching prod's server refresh. If the identity is absent from the store (including after `deleteUser`), rejects with `auth/user-token-expired` | ✓ | `unit:fruit-aliases.test.ts` — an out-of-band `sandbox.updateUser` displayName change is visible on the held user after `reload`; missing-store / post-delete: `unit:upstream-auth-probes.test.ts` |
 | 87 | Sets the sandbox's current user (pass `null` to sign out), firing `onAuthStateChanged` — `auth.currentUser` reflects the passed user afterward | ✓ | `unit:fruit-aliases.test.ts` — `auth.currentUser` becomes the passed user; `null` signs out |
 | 88 | Accepted no-op — the sandbox has no device locale to read, so there is no language to set; accepted so init code that calls it compiles + runs | ⚠ no device locale in the sandbox | `unit:fruit-aliases.test.ts` — resolves/returns without error |
 
@@ -350,9 +350,8 @@ Rows **locked by the empirical oracle harness** (committed observations under `p
 
 Rows currently marked **—** that we might want to fill (rough priority):
 
-1. #20-23 `updateProfile` — common app pattern, agent code often calls it
-2. #57 `user.emailVerified` — used by gating logic in real apps
-3. #58-61 `user.metadata` / `reload` / `delete` — full User shape parity
+1. #57 `user.emailVerified` — used by gating logic in real apps
+2. #58-61 `user.metadata` / instance `User.reload`/`User.delete`/`toJSON` — full User *instance-method* shape parity (top-level `reload`/`deleteUser`/`updateProfile` are already ✓)
 
 Rows currently marked **⚠** that we might want to upgrade to **✓**
 (by aligning the sandbox to prod or by formally documenting the
