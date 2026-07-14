@@ -85,12 +85,16 @@ describe('discoverOnValueCreated', () => {
       ref: '/messages/{id}',
       instance: 'db-*',
     }, () => undefined);
+    const anonymousGlob = onValueCreated('/messages/*', () => undefined);
+    const prefixGlobLiteral = onValueCreated('/messages/prefix-*', () => undefined);
 
     const inspected = inspectOnValueCreated({
       supported,
       prefixGlob,
       recursiveGlob,
       instanceGlob,
+      anonymousGlob,
+      prefixGlobLiteral,
     });
 
     expect(inspected.triggers.map((trigger) => trigger.exportName)).toEqual(['supported']);
@@ -107,6 +111,30 @@ describe('discoverOnValueCreated', () => {
         exportName: 'instanceGlob',
         eventType: 'google.firebase.database.ref.v1.created (unsupported instance pattern: db-*)',
       },
+      {
+        exportName: 'anonymousGlob',
+        eventType: 'google.firebase.database.ref.v1.created (unsupported ref pattern: messages/*)',
+      },
+      {
+        exportName: 'prefixGlobLiteral',
+        eventType: 'google.firebase.database.ref.v1.created (unsupported ref pattern: messages/prefix-*)',
+      },
+    ]);
+  });
+
+  test('accepts the complete named single-segment Eventarc capture grammar', () => {
+    const { onValueCreated } = databaseFunctions;
+    const underscore = onValueCreated('/messages/{_id}', () => undefined);
+    const numeric = onValueCreated('/messages/{123}', () => undefined);
+    const explicitSingle = onValueCreated('/messages/{id=*}', () => undefined);
+
+    expect(discoverOnValueCreated({ underscore, numeric, explicitSingle }).map((trigger) => ({
+      exportName: trigger.exportName,
+      reference: trigger.reference,
+    }))).toEqual([
+      { exportName: 'underscore', reference: 'messages/{_id}' },
+      { exportName: 'numeric', reference: 'messages/{123}' },
+      { exportName: 'explicitSingle', reference: 'messages/{id=*}' },
     ]);
   });
 });

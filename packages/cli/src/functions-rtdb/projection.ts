@@ -29,7 +29,7 @@ function exists(value: unknown): boolean {
 }
 
 function paramName(segment: string): string | null {
-  return /^\{([A-Za-z][A-Za-z0-9_]*)\}$/.exec(segment)?.[1] ?? null;
+  return /^\{([A-Za-z0-9_]+)(?:=\*)?\}$/.exec(segment)?.[1] ?? null;
 }
 
 function child(value: unknown, key: string): unknown {

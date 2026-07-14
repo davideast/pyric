@@ -66,12 +66,14 @@ function normalizePath(path: string): string {
 }
 
 function paramName(segment: string): string | null {
-  return /^\{([A-Za-z][A-Za-z0-9_]*)\}$/.exec(segment)?.[1] ?? null;
+  return /^\{([A-Za-z0-9_]+)(?:=\*)?\}$/.exec(segment)?.[1] ?? null;
 }
 
 function supportsReference(reference: string): boolean {
   return normalizePath(reference).split('/').every((segment) =>
-    paramName(segment) !== null || (!segment.includes('{') && !segment.includes('}')),
+    paramName(segment) !== null || (
+      !segment.includes('{') && !segment.includes('}') && !segment.includes('*')
+    ),
   );
 }
 

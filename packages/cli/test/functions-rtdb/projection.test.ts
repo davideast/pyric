@@ -39,6 +39,18 @@ describe('projectValueCreates', () => {
     ]);
   });
 
+  test('projects every admitted named capture identifier and explicit star form', () => {
+    expect(projectValueCreates('/messages/{_id}', {
+      path: '/messages/alpha', before: null, after: 1,
+    })[0]?.params).toEqual({ _id: 'alpha' });
+    expect(projectValueCreates('/messages/{123}', {
+      path: '/messages/numeric', before: null, after: 1,
+    })[0]?.params).toEqual({ 123: 'numeric' });
+    expect(projectValueCreates('/messages/{id=*}', {
+      path: '/messages/explicit', before: null, after: 1,
+    })[0]?.params).toEqual({ id: 'explicit' });
+  });
+
   test('projects every newly present matched descendant from ancestor and multi-path snapshots', () => {
     expect(
       projectValueCreates('/cases/{caseId}/items/{itemId}', {
