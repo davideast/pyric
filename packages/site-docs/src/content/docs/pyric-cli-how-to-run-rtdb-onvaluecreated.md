@@ -76,9 +76,10 @@ sequential delivery within the current session, and Admin reads and writes
 through `event.data.ref`.
 
 Firebase path patterns beyond that grammar, such as `{id=prefix/*}` and
-`{id=**}`, are reported as unsupported instead of being announced and then
-silently left unmatched. If supported exports resolve to more than one database
-instance, startup fails and names the conflicting instances.
+`{id=**}`, and instance selectors such as `db-*` are reported as unsupported
+instead of being announced and then silently left unmatched. If supported
+exports resolve to more than one database instance, startup fails and names the
+conflicting instances.
 
 Native ESM entries, other RTDB trigger types, other Firebase products, retries,
 deployed concurrency, multiple Functions codebases or database instances,

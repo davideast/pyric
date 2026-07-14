@@ -77,6 +77,10 @@ exports.unsupportedPattern = onValueCreated(
   '/messages/{pushId=prefix/*}',
   () => undefined,
 );
+exports.unsupportedInstance = onValueCreated(
+  { ref: '/messages/{pushId}', instance: 'db-*' },
+  () => undefined,
+);
 `,
   );
   symlinkSync(
@@ -133,6 +137,9 @@ describe('isolated Functions RTDB child', () => {
       unsupportedTriggers: [{
         exportName: 'unsupportedPattern',
         eventType: 'google.firebase.database.ref.v1.created (unsupported ref pattern: messages/{pushId=prefix/*})',
+      }, {
+        exportName: 'unsupportedInstance',
+        eventType: 'google.firebase.database.ref.v1.created (unsupported instance pattern: db-*)',
       }, {
         exportName: 'unsupportedUpdate',
         eventType: 'google.firebase.database.ref.v1.updated',

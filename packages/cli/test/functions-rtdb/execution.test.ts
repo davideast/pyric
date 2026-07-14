@@ -173,8 +173,17 @@ describe('discoverOnValueCreated', () => {
     const supported = onValueCreated('/messages/{id}', () => undefined);
     const prefixGlob = onValueCreated('/messages/{id=prefix/*}', () => undefined);
     const recursiveGlob = onValueCreated('/messages/{id=**}', () => undefined);
+    const instanceGlob = onValueCreated({
+      ref: '/messages/{id}',
+      instance: 'db-*',
+    }, () => undefined);
 
-    const inspected = inspectOnValueCreated({ supported, prefixGlob, recursiveGlob });
+    const inspected = inspectOnValueCreated({
+      supported,
+      prefixGlob,
+      recursiveGlob,
+      instanceGlob,
+    });
 
     expect(inspected.triggers.map((trigger) => trigger.exportName)).toEqual(['supported']);
     expect(inspected.unsupported).toEqual([
@@ -185,6 +194,10 @@ describe('discoverOnValueCreated', () => {
       {
         exportName: 'recursiveGlob',
         eventType: 'google.firebase.database.ref.v1.created (unsupported ref pattern: messages/{id=**})',
+      },
+      {
+        exportName: 'instanceGlob',
+        eventType: 'google.firebase.database.ref.v1.created (unsupported instance pattern: db-*)',
       },
     ]);
   });

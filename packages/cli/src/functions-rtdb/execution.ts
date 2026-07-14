@@ -109,9 +109,19 @@ export function inspectOnValueCreated(
     const trigger = callable.__endpoint?.eventTrigger;
     if (trigger?.eventType !== CREATED_EVENT_TYPE) continue;
     const reference = trigger.eventFilterPathPatterns?.ref;
-    const instance =
-      trigger.eventFilters?.instance ?? trigger.eventFilterPathPatterns?.instance;
-    if (typeof reference !== 'string' || typeof instance !== 'string') continue;
+    const exactInstance = trigger.eventFilters?.instance;
+    const instancePattern = trigger.eventFilterPathPatterns?.instance;
+    if (typeof reference !== 'string') continue;
+    if (typeof exactInstance !== 'string' && instancePattern !== '*') {
+      if (typeof instancePattern === 'string') {
+        unsupported.push({
+          exportName,
+          eventType: `${CREATED_EVENT_TYPE} (unsupported instance pattern: ${instancePattern})`,
+        });
+      }
+      continue;
+    }
+    const instance = typeof exactInstance === 'string' ? exactInstance : '*';
     if (!supportsReference(reference)) {
       unsupported.push({
         exportName,
