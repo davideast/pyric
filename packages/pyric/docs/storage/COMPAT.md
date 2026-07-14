@@ -4,7 +4,7 @@
 
 > **Surface coverage:** 48.1% of Firebase's public exports · 72.2% of what pyric intends to mirror
 >
-> **Fidelity:** 83.8% (83 of 99 tracked claims match production)
+> **Fidelity:** 85.9% (85 of 99 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
 
@@ -107,7 +107,7 @@ matrix has to cover:
 | 32 | Returned `metadata.fullPath` matches the ref's `fullPath` | ✓ | `unit:reference.test.ts` |
 | 33 | Returned `metadata.size` matches the input blob's byte length | ✓ | `unit:reference.test.ts` |
 | 34 | Returned `metadata.bucket` matches the storage handle's bucket | ✓ | `unit:reference.test.ts` |
-| 35 | Replaces any existing object at the path (overwrite, not append) | ? | sandbox semantics in `persistence.ts` use `put`; no explicit overwrite test |
+| 35 | Replaces any existing object at the path (overwrite, not append) | ✓ | `unit:upstream-storage-probes.test.ts` ("second uploadBytes at the same path replaces bytes and metadata") |
 | 36 | Prod: round-trips uploaded bytes through `getDownloadURL` + fetch (byte-for-byte equality) | ✓ (prod-only) | oracle: `packages/conformance/observations/storage/storage-upload-bytes-roundtrip.json` (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → `bytesMatch: true`, `urlIsHttps: true`, `bodyLen === payloadLen === 6`). This row records the production answer key; row #51 compares the sandbox's page-local URL behavior against it. |
 | 37 | Returned `metadata.contentType` matches what the caller hinted (when set) | ✓ | `unit:reference.test.ts` + oracle: `packages/conformance/observations/storage/storage-upload-then-getmetadata.json` (`contentType: 'application/octet-stream'` round-trip against blockingfun, fb-js-sdk 12.13.0; `contentTypeMatches: true`) |
 | 38 | Returned `metadata.generation` / `metageneration` are stringified counters (`'1'` after fresh upload) | ✓ | `unit:metadata.test.ts` |
@@ -120,7 +120,7 @@ matrix has to cover:
 | 40 | `format='base64'`: decodes payload bytes from standard base64 | ✓ | `unit:reference.test.ts` ("base64 format decodes payload bytes") |
 | 41 | Sandbox: `format='base64url'` (or any unknown format) rejected with `storage/invalid-format` naming the bad format. Prod: `base64url` is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws `storage/unknown` | ⚠ | divergence, both halves oracle-locked by `packages/conformance/observations/storage/storage-uploadstring-unknown-format.json`: prod accepts `base64url` (`base64urlOk: true`) and throws `storage/unknown` for an unrecognized format — not `storage/invalid-format`. The v1 sandbox ships only `raw`/`base64`/`data_url` (matches `StringFormat`) and throws `storage/invalid-format` for anything else (ST-B3 replaced the old mis-parse-as-data_url behavior). Both sides pinned in `oracle-conformance.test.ts`; sandbox code path documented in `upload.ts`'s `decodeString`. Implementing base64url decoding is still one line in `decodeString`. |
 | 42 | `format='data_url'`: parses `data:<mime>;base64,<payload>`, infers `contentType` from prefix | ✓ | `unit:reference.test.ts` ("data_url format infers contentType from the prefix") |
-| 43 | `format='data_url'` with non-base64 payload: percent-decodes the body | ✓ | (covered by `decodeString` else-branch; no explicit test for the URL-encoded form yet) |
+| 43 | `format='data_url'` with non-base64 payload: percent-decodes the body | ✓ | `unit:upstream-storage-probes.test.ts` ("non-base64 data_url percent-decodes the body"; malformed `%%0` → `storage/invalid-format`) |
 | 44 | Caller's `metadata.contentType` beats data_url inference | ✓ | `unit:reference.test.ts` ("caller metadata.contentType beats data_url inference") |
 | 45 | Malformed `data_url` (no comma / doesn't start with `data:`) throws `TypeError` with "data_url format" message | ✓ | `unit:reference.test.ts` ("throws on malformed data_url") |
 | 46 | Prod: `uploadString(ref, value, 'base64')` round-trips via `getDownloadURL` + fetch | ✓ (prod-only) | oracle: `packages/conformance/observations/storage/storage-uploadstring-base64-roundtrip.json` (`'aGVsbG8='` → `'hello'` against blockingfun, fb-js-sdk 12.13.0; `textMatches: true`) |
@@ -147,8 +147,8 @@ matrix has to cover:
 |---|---|---|---|
 | 53 | Returns the blob's contents as an `ArrayBuffer` | ✓ | `unit:reference.test.ts` ("accepts a Uint8Array" round-trip via `getBytes`) |
 | 54 | Throws `storage/object-not-found` when no object exists at the path | ✓ | `unit:reference.test.ts` ("throws storage/object-not-found for missing paths") + oracle: `packages/conformance/observations/storage/storage-delete-then-get-throws.json` (against blockingfun, fb-js-sdk 12.13.0: upload → delete → `getDownloadURL` on the deleted ref throws `FirebaseError` with `code: 'storage/object-not-found'`) |
-| 55 | Throws when `blob.size > maxDownloadSize` with `.code` exposed | ⚠ | code-divergence (ST-B1): sandbox now throws a `StorageError` with `.code === 'storage/quota-exceeded'` (was a plain `Error` with the code only in the message). Prod's client-side cap throws `FirebaseError` with `code: 'storage/invalid-argument'` — the codes still differ, but both now expose `.code`. Probe: `unit:error-codes.test.ts` ("quota-exceeded when the blob exceeds maxDownloadSizeBytes"). Documented in `download.ts`. Aligning the code value to `invalid-argument` is deferred pending an oracle capture of prod's exact shape. |
-| 56 | Just-under-cap reads succeed and return the full byte length | ✓ | `unit:reference.test.ts` ("honors maxDownloadSizeBytes when the blob is too large") |
+| 55 | When the object exceeds `maxDownloadSize`, returns a truncated prefix of that byte length (does not throw) | ✓ | `unit:upstream-storage-probes.test.ts` ("getBytes / getBlob return a truncated prefix when the object exceeds the cap"). Matches upstream `getBytesInternal` / `getBlobInternal` post-fetch slice (GCS may ignore Range on small files). Prior COMPAT claim that the cap throws was wrong. |
+| 56 | Just-under-cap reads succeed and return the full byte length | ✓ | `unit:upstream-storage-probes.test.ts` ("just-under-cap reads return the full object") + `unit:reference.test.ts` ("honors maxDownloadSizeBytes when the blob is too large") |
 | 57 | Throws `storage/invalid-root-operation` when called on the root reference | ✓ | `unit:reference.test.ts` ("throws invalid-root-operation on root reads") |
 
 ## `getBlob(ref, maxDownloadSize?)` — read as Blob
@@ -157,7 +157,7 @@ matrix has to cover:
 |---|---|---|---|
 | 58 | Returns the stored bytes wrapped as a `Blob` (with `.type` from metadata) | ✓ | `unit:reference.test.ts` ("accepts a Blob and round-trips through getBlob") |
 | 59 | Throws `storage/object-not-found` for missing paths | ✓ | `unit:reference.test.ts` ("throws storage/object-not-found for missing paths") |
-| 60 | Honors `maxDownloadSize` same as `getBytes` | ✓ | (shared `fetchBlob` helper in `download.ts`) |
+| 60 | Honors `maxDownloadSize` same as `getBytes` | ✓ | `unit:upstream-storage-probes.test.ts` ("getBytes / getBlob return a truncated prefix when the object exceeds the cap"; shared `fetchBlob` helper in `download.ts`) |
 | 61 | Root-ref read throws `storage/invalid-root-operation` | ✓ | shared via `guardNonRoot` in `download.ts` |
 
 ## `getStream(ref, maxDownloadSize?)` — Node-specific
@@ -295,13 +295,6 @@ against the `blockingfun` project on fb-js-sdk 12.13.0:
   format; the sandbox throws `storage/invalid-format` for both. Fix
   candidates: decode `base64url` in `decodeString` (one line) and
   align the unknown-format error code.
-- **Sandbox `quota-exceeded` error code value** (row #55) — ST-B1
-  gave the sandbox a `StorageError` class, so the cap now throws with
-  `.code === 'storage/quota-exceeded'` (was a plain `Error`). The
-  remaining gap is the code *value*: prod throws a `FirebaseError`
-  with `code: 'storage/invalid-argument'` for the client-side cap.
-  Aligning the value is deferred pending an oracle capture of prod's
-  exact shape.
 - **`null`-clear semantics in `updateMetadata`** (row #86) — sandbox
   preserves prior values when patch fields are `undefined`, but
   doesn't model `null`-clear at all. Documented in `metadata.ts`.

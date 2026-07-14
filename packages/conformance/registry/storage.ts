@@ -662,14 +662,14 @@ export const storageRegistry = {
           "section": "`uploadBytes(ref, data, metadata?)` — write blob",
           "api": "uploadBytes(ref, data, metadata?)",
           "behavior": "Replaces any existing object at the path (overwrite, not append)",
-          "status": "unverified",
-          "evidence": "sandbox semantics in `persistence.ts` use `put`; no explicit overwrite test",
-          "risk": [],
-          "riskScore": 0,
-          "riskReasons": [],
-          "automation": "unverified",
+          "status": "conforms",
+          "evidence": "`unit:upstream-storage-probes.test.ts` (\"second uploadBytes at the same path replaces bytes and metadata\")",
+          "risk": ["specific-value"],
+          "riskScore": 1,
+          "riskReasons": ["asserts overwritten bytes and contentType"],
+          "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": []
+          "conformanceTests": ["packages/pyric/test/storage/upstream-storage-probes.test.ts"]
         },
         {
           "id": "storage#36",
@@ -814,13 +814,13 @@ export const storageRegistry = {
           "api": "uploadString(ref, value, format?, metadata?)",
           "behavior": "`format='data_url'` with non-base64 payload: percent-decodes the body",
           "status": "conforms",
-          "evidence": "(covered by `decodeString` else-branch; no explicit test for the URL-encoded form yet)",
-          "risk": [],
-          "riskScore": 0,
-          "riskReasons": [],
-          "automation": "unverified",
+          "evidence": "`unit:upstream-storage-probes.test.ts` (\"non-base64 data_url percent-decodes the body\"; malformed `%%0` → `storage/invalid-format`)",
+          "risk": ["specific-value", "error-code"],
+          "riskScore": 5,
+          "riskReasons": ["asserts decoded bytes", "asserts Firebase error code(s): `storage/invalid-format`"],
+          "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": []
+          "conformanceTests": ["packages/pyric/test/storage/upstream-storage-probes.test.ts"]
         },
         {
           "id": "storage#44",
@@ -1051,15 +1051,15 @@ export const storageRegistry = {
           "rowNumber": 55,
           "section": "`getBytes(ref, maxDownloadSize?)` — read as ArrayBuffer",
           "api": "getBytes(ref, maxDownloadSize?)",
-          "behavior": "Throws when `blob.size > maxDownloadSize` with `.code` exposed",
-          "status": "diverged-documented",
-          "evidence": "code-divergence (ST-B1): sandbox now throws a `StorageError` with `.code === 'storage/quota-exceeded'` (was a plain `Error` with the code only in the message). Prod's client-side cap throws `FirebaseError` with `code: 'storage/invalid-argument'` — the codes still differ, but both now expose `.code`. Probe: `unit:error-codes.test.ts` (\"quota-exceeded when the blob exceeds maxDownloadSizeBytes\"). Documented in `download.ts`. Aligning the code value to `invalid-argument` is deferred pending an oracle capture of prod's exact shape.",
-          "risk": ["specific-value", "error-code", "specific-field"],
-          "riskScore": 6,
-          "riskReasons": ["asserts 1 specific value(s)", "asserts Firebase error code(s): `invalid-argument`", "asserts a specific field/property value"],
+          "behavior": "When the object exceeds `maxDownloadSize`, returns a truncated prefix of that byte length (does not throw)",
+          "status": "conforms",
+          "evidence": "`unit:upstream-storage-probes.test.ts` (\"getBytes / getBlob return a truncated prefix when the object exceeds the cap\"). Matches upstream `getBytesInternal` / `getBlobInternal` post-fetch slice (GCS may ignore Range on small files). Prior COMPAT claim that the cap throws was wrong.",
+          "risk": ["specific-value"],
+          "riskScore": 1,
+          "riskReasons": ["asserts truncated byte length and contents"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/storage/error-codes.test.ts"]
+          "conformanceTests": ["packages/pyric/test/storage/upstream-storage-probes.test.ts"]
         },
         {
           "id": "storage#56",
@@ -1071,13 +1071,16 @@ export const storageRegistry = {
           "api": "getBytes(ref, maxDownloadSize?)",
           "behavior": "Just-under-cap reads succeed and return the full byte length",
           "status": "conforms",
-          "evidence": "`unit:reference.test.ts` (\"honors maxDownloadSizeBytes when the blob is too large\")",
+          "evidence": "`unit:upstream-storage-probes.test.ts` (\"just-under-cap reads return the full object\") + `unit:reference.test.ts` (\"honors maxDownloadSizeBytes when the blob is too large\")",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/storage/reference.test.ts"]
+          "conformanceTests": [
+            "packages/pyric/test/storage/upstream-storage-probes.test.ts",
+            "packages/pyric/test/storage/reference.test.ts"
+          ]
         },
         {
           "id": "storage#57",
@@ -1149,13 +1152,13 @@ export const storageRegistry = {
           "api": "getBlob(ref, maxDownloadSize?)",
           "behavior": "Honors `maxDownloadSize` same as `getBytes`",
           "status": "conforms",
-          "evidence": "(shared `fetchBlob` helper in `download.ts`)",
+          "evidence": "`unit:upstream-storage-probes.test.ts` (\"getBytes / getBlob return a truncated prefix when the object exceeds the cap\"; shared `fetchBlob` helper in `download.ts`)",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
-          "automation": "unverified",
+          "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": []
+          "conformanceTests": ["packages/pyric/test/storage/upstream-storage-probes.test.ts"]
         },
         {
           "id": "storage#61",
@@ -1892,7 +1895,7 @@ export const storageRegistry = {
         },
       ],
     },
-    { kind: 'markdown', markdown: "\n## Visible gaps / open questions\n\n- `uploadBytesResumable` (rows 47-50) — the entire upload-task + observer\n  surface is unmodeled. The session-archive use case (the v1 driver)\n  uses one-shot `uploadBytes`, so this stayed deferred.\n- `md5Hash` (row 91) — sandbox doesn't compute it. Oracle confirms\n  prod always sets it. Worth a one-row alignment if real consumer\n  code reads it.\n- Canonical bucket routing (row #11) — the single-bucket sandbox accepts but\n  ignores `getStorage(app, bucketUrl)`. Production observations should pin the\n  upstream bucket-name format before a multi-bucket sandbox is designed.\n\n## Rows locked by the empirical oracle harness\n\nCommitted observations under `packages/conformance/observations/storage/`, captured\nagainst the `blockingfun` project on fb-js-sdk 12.13.0:\n\n- #36 / #51 `uploadBytes` → `getDownloadURL` → fetch round-trip — bytes\n  match exactly. Production returns HTTPS; the sandbox returns a page-local\n  `blob:` URL, so #51 is `diverged-documented`.\n- #37 `metadata.contentType` matches caller's hint — exact round-trip.\n- #46 `uploadString(_, _, 'base64')` → `getDownloadURL` → fetch text —\n  decodes correctly.\n- #52 / #54 / #66 `getDownloadURL` on a deleted ref — throws\n  `FirebaseError` with `code: 'storage/object-not-found'` in production;\n  the sandbox matches the code.\n- #64 `deleteObject` on a never-uploaded path — throws\n  `FirebaseError` with `code: 'storage/object-not-found'`. **Sandbox\n  diverges** (no-op).\n- #77 `listAll` shape — items + prefixes sort lex-order; 3 direct\n  children + 1 sub-folder yields the documented shape.\n- #89 `getMetadata` after `uploadBytes` — `contentType`, `size`,\n  `fullPath`, `bucket`, `metageneration: '1'` all match.\n- #90 `updateMetadata({customMetadata})` — round-trips through a\n  follow-up `getMetadata`; `metageneration` bumps `'1'` → `'2'`.\n- #91 `md5Hash` — prod sets it on every upload. **Sandbox diverges**\n  (does not compute).\n- #105 Op-level rules-denied — prod throws `FirebaseError` with\n  `code: 'storage/unauthorized'`; message shape recorded.\n\n## Divergences surfaced by oracle observations\n\n- **`getDownloadURL` URL identity and lifetime** (row #51) — production\n  returns token-signed HTTPS; the sandbox returns a page-local `blob:` snapshot\n  that cannot be shared and lives until revoked or page unload. Both fetch the\n  recorded bytes.\n- **`deleteObject` on missing path** (row #64) — sandbox is a no-op\n  via `persistence.ts`'s `delete`; prod throws\n  `storage/object-not-found`. Fix candidate: detect-and-throw in\n  `download.ts`'s `deleteObject` sandbox path.\n- **`md5Hash` not populated by sandbox** (row #91) — prod always sets\n  it. Fix candidate: compute hex md5 in `upload.ts`'s\n  `buildStoredMetadata` (Node `crypto` or Web Crypto in browser).\n- **`uploadString` format handling** (row #41) — prod accepts\n  `base64url` and throws `storage/unknown` for a genuinely-unknown\n  format; the sandbox throws `storage/invalid-format` for both. Fix\n  candidates: decode `base64url` in `decodeString` (one line) and\n  align the unknown-format error code.\n- **Sandbox `quota-exceeded` error code value** (row #55) — ST-B1\n  gave the sandbox a `StorageError` class, so the cap now throws with\n  `.code === 'storage/quota-exceeded'` (was a plain `Error`). The\n  remaining gap is the code *value*: prod throws a `FirebaseError`\n  with `code: 'storage/invalid-argument'` for the client-side cap.\n  Aligning the value is deferred pending an oracle capture of prod's\n  exact shape.\n- **`null`-clear semantics in `updateMetadata`** (row #86) — sandbox\n  preserves prior values when patch fields are `undefined`, but\n  doesn't model `null`-clear at all. Documented in `metadata.ts`.\n\n---\n\n## Deny-list (intentionally NOT shimmed)\n\nThese exist in `firebase/storage` but the sandbox refuses to import or\nmodel them. They're either out-of-scope per the v1 scope or pending\na follow-up driver decision.\n\n| Name | Reason |\n|---|---|\n| `uploadBytesResumable` + `UploadTask` (pause/resume/cancel, state_changed observer) | Out of scope — session-archive use case is one-shot upload-bytes only |\n| `getStream` | Node-stream variant not modeled in the browser-shaped v1 scope |\n| `list(ref, { maxResults, pageToken })` paginated form | Deferred — `listAll` covers the v1 scope scenarios; pagination needs a stable pageToken shape |\n| Cloud Functions Storage triggers (`onFinalize`, `onArchive`, …) | Server-side surface — not the Web SDK |\n| Image transformation URLs (Firebase Image extension) | Extension surface, not core Storage |\n| `StorageObserver` advanced shapes (progress milestones, error subclasses) | Tied to `UploadTask`; out of scope until resumable ships |\n" },
+    { kind: 'markdown', markdown: "\n## Visible gaps / open questions\n\n- `uploadBytesResumable` (rows 47-50) — the entire upload-task + observer\n  surface is unmodeled. The session-archive use case (the v1 driver)\n  uses one-shot `uploadBytes`, so this stayed deferred.\n- `md5Hash` (row 91) — sandbox doesn't compute it. Oracle confirms\n  prod always sets it. Worth a one-row alignment if real consumer\n  code reads it.\n- Canonical bucket routing (row #11) — the single-bucket sandbox accepts but\n  ignores `getStorage(app, bucketUrl)`. Production observations should pin the\n  upstream bucket-name format before a multi-bucket sandbox is designed.\n\n## Rows locked by the empirical oracle harness\n\nCommitted observations under `packages/conformance/observations/storage/`, captured\nagainst the `blockingfun` project on fb-js-sdk 12.13.0:\n\n- #36 / #51 `uploadBytes` → `getDownloadURL` → fetch round-trip — bytes\n  match exactly. Production returns HTTPS; the sandbox returns a page-local\n  `blob:` URL, so #51 is `diverged-documented`.\n- #37 `metadata.contentType` matches caller's hint — exact round-trip.\n- #46 `uploadString(_, _, 'base64')` → `getDownloadURL` → fetch text —\n  decodes correctly.\n- #52 / #54 / #66 `getDownloadURL` on a deleted ref — throws\n  `FirebaseError` with `code: 'storage/object-not-found'` in production;\n  the sandbox matches the code.\n- #64 `deleteObject` on a never-uploaded path — throws\n  `FirebaseError` with `code: 'storage/object-not-found'`. **Sandbox\n  diverges** (no-op).\n- #77 `listAll` shape — items + prefixes sort lex-order; 3 direct\n  children + 1 sub-folder yields the documented shape.\n- #89 `getMetadata` after `uploadBytes` — `contentType`, `size`,\n  `fullPath`, `bucket`, `metageneration: '1'` all match.\n- #90 `updateMetadata({customMetadata})` — round-trips through a\n  follow-up `getMetadata`; `metageneration` bumps `'1'` → `'2'`.\n- #91 `md5Hash` — prod sets it on every upload. **Sandbox diverges**\n  (does not compute).\n- #105 Op-level rules-denied — prod throws `FirebaseError` with\n  `code: 'storage/unauthorized'`; message shape recorded.\n\n## Divergences surfaced by oracle observations\n\n- **`getDownloadURL` URL identity and lifetime** (row #51) — production\n  returns token-signed HTTPS; the sandbox returns a page-local `blob:` snapshot\n  that cannot be shared and lives until revoked or page unload. Both fetch the\n  recorded bytes.\n- **`deleteObject` on missing path** (row #64) — sandbox is a no-op\n  via `persistence.ts`'s `delete`; prod throws\n  `storage/object-not-found`. Fix candidate: detect-and-throw in\n  `download.ts`'s `deleteObject` sandbox path.\n- **`md5Hash` not populated by sandbox** (row #91) — prod always sets\n  it. Fix candidate: compute hex md5 in `upload.ts`'s\n  `buildStoredMetadata` (Node `crypto` or Web Crypto in browser).\n- **`uploadString` format handling** (row #41) — prod accepts\n  `base64url` and throws `storage/unknown` for a genuinely-unknown\n  format; the sandbox throws `storage/invalid-format` for both. Fix\n  candidates: decode `base64url` in `decodeString` (one line) and\n  align the unknown-format error code.\n- **`null`-clear semantics in `updateMetadata`** (row #86) — sandbox\n  preserves prior values when patch fields are `undefined`, but\n  doesn't model `null`-clear at all. Documented in `metadata.ts`.\n\n---\n\n## Deny-list (intentionally NOT shimmed)\n\nThese exist in `firebase/storage` but the sandbox refuses to import or\nmodel them. They're either out-of-scope per the v1 scope or pending\na follow-up driver decision.\n\n| Name | Reason |\n|---|---|\n| `uploadBytesResumable` + `UploadTask` (pause/resume/cancel, state_changed observer) | Out of scope — session-archive use case is one-shot upload-bytes only |\n| `getStream` | Node-stream variant not modeled in the browser-shaped v1 scope |\n| `list(ref, { maxResults, pageToken })` paginated form | Deferred — `listAll` covers the v1 scope scenarios; pagination needs a stable pageToken shape |\n| Cloud Functions Storage triggers (`onFinalize`, `onArchive`, …) | Server-side surface — not the Web SDK |\n| Image transformation URLs (Firebase Image extension) | Extension surface, not core Storage |\n| `StorageObserver` advanced shapes (progress milestones, error subclasses) | Tied to `UploadTask`; out of scope until resumable ships |\n" },
   ],
 } satisfies CompatibilitySurfaceRegistry;
 

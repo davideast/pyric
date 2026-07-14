@@ -52,8 +52,8 @@ Read the matrix below the score on each COMPAT page for the concrete rows behind
 | Auth | 82.4% | 83.3% | 81.5% (97/119) |
 | Firestore | 55.5% | 63.5% | 87.6% (141/161) |
 | Realtime Database | 64.8% | 79.5% | 77% (154/200) |
-| Storage | 48.1% | 72.2% | 83.8% (83/99) |
+| Storage | 48.1% | 72.2% | 85.9% (85/99) |
 | Messaging | 100% | 100% | 100% (56/56) |
 | Functions · RTDB | integration | integration | 0% (0/13) |
 | Rules | native | native | 86.2% (50/58) |
-| **Overall** | **64.1%** | **75.6%** | **83.5%** (667/799) |
+| **Overall** | **64.1%** | **75.6%** | **83.7%** (669/799) |
