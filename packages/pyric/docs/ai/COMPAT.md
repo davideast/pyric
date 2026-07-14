@@ -104,7 +104,7 @@ capture's distilled facts in the named test.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| chat-startchat | `startChat` returns a `ChatSession` seeded with `StartChatParams.history` | ✓ | `unit:chat-session.test.ts` test `ai#chat-startchat` (no capture; structural claim) |
+| chat-startchat | `startChat` returns a `ChatSession` seeded with `StartChatParams.history` | ✓ | `unit:upstream-ai-probes.test.ts` (I1 validateChatHistory accept/reject via startChat) + `unit:chat-session.test.ts` test `ai#chat-startchat` |
 | chat-history-threads | `sendMessage` appends the user turn and the model turn; `getHistory()` returns the ordered `Content[]` with alternating roles | ⚠ clone | `unit:chat-session.test.ts` test `ai#chat-history-threads` (no capture; history threading claim) |
 | chat-history-excludes-blocked | Blocked prompts and blocked candidates are excluded from `getHistory()` | ⚠ blocked history | `unit:chat-session.test.ts` test `ai#chat-history-excludes-blocked` (upstream JSDoc contract; exercised with a scripted blocked envelope) |
 | chat-sendmessage-envelope | A `sendMessage` result carries the same envelope facts as `generateContent`: the four top-level keys and role `model` | ✓ | Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/chat-session.test.ts test `ai#chat-sendmessage-envelope` |
@@ -146,10 +146,10 @@ capture's distilled facts in the named test.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| helper-text | `text()` concatenates the text parts of the first candidate | ✓ | `unit:helpers-schema.test.ts` test `ai#helper-text` (text value asserted only because the scripted engine was scripted to return it) |
+| helper-text | `text()` concatenates the text parts of the first candidate | ✓ | `unit:upstream-ai-probes.test.ts` (I3 text() across mixed parts) + `unit:helpers-schema.test.ts` test `ai#helper-text` |
 | helper-text-throws | `text()` throws on bad finish reasons such as `SAFETY` and on a blocked prompt | ✓ | `unit:helpers-schema.test.ts` test `ai#helper-text-throws` (exercised with a scripted SAFETY envelope) |
-| helper-functioncalls | `functionCalls()` returns the `FunctionCall` array from the functionCall parts, args as parsed objects | ✓ | Capture ai-function-call-shape replayed by packages/pyric/test/ai/helpers-schema.test.ts test `ai#helper-functioncalls` |
-| helper-thoughtsummary | `thoughtSummary()` returns undefined when no part is flagged `thought: true`, the captured lite-model case | ✓ | Capture ai-thinking-thought-parts (anyThoughtPart false) replayed by packages/pyric/test/ai/helpers-schema.test.ts test `ai#helper-thoughtsummary` |
+| helper-functioncalls | `functionCalls()` returns the `FunctionCall` array from the functionCall parts, args as parsed objects | ✓ | `unit:upstream-ai-probes.test.ts` (I3 text+functionCall mix) + Capture ai-function-call-shape replayed by `unit:helpers-schema.test.ts` test `ai#helper-functioncalls` |
+| helper-thoughtsummary | `thoughtSummary()` returns undefined when no part is flagged `thought: true`, the captured lite-model case | ✓ | `unit:upstream-ai-probes.test.ts` (I3 thoughtSummary from thought parts) + Capture ai-thinking-thought-parts replayed by `unit:helpers-schema.test.ts` test `ai#helper-thoughtsummary` |
 | helper-inlinedataparts | `inlineDataParts()` returns the `InlineDataPart` array when inlineData parts exist and undefined when none do | ✓ | `unit:helpers-schema.test.ts` test `ai#helper-inlinedataparts` (exercised with a scripted raw envelope) |
 | helper-tolerates-missing-decor | Helpers tolerate omitted decoration: an envelope without `usageMetadata`, `finishReason`, or `safetyRatings` still serves `text()` without throwing | ✓ | `unit:helpers-schema.test.ts` test `ai#helper-tolerates-missing-decor` (exercised with a scripted bare envelope) |
 
@@ -157,10 +157,10 @@ capture's distilled facts in the named test.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| schema-object-tojson | `Schema.object` serializes to type `object` with `properties`, and `required` is derived by excluding `optionalProperties` | ✓ | `unit:helpers-schema.test.ts` test `ai#schema-object-tojson` (upstream toJSON request shape) |
+| schema-object-tojson | `Schema.object` serializes to type `object` with `properties`, and `required` is derived by excluding `optionalProperties` | ✓ | `unit:upstream-ai-probes.test.ts` (I2 empty optionalProperties + propertyOrdering) + `unit:helpers-schema.test.ts` test `ai#schema-object-tojson` |
 | schema-string-enum | `Schema.enumString` serializes the enum values with type `string` and format `enum` | ⚠ format | `unit:helpers-schema.test.ts` test `ai#schema-string-enum` (upstream toJSON request shape; GoogleAI accepts only enum and date-time formats) |
 | schema-primitives | Each primitive builder serializes its `SchemaType`, and `array` carries `items` | ✓ | `unit:helpers-schema.test.ts` test `ai#schema-primitives` (upstream toJSON request shape) |
-| schema-anyof | `Schema.anyOf` returns an `AnyOfSchema` whose JSON carries an `anyOf` array of sub-schemas and no top-level type | ✓ | `unit:helpers-schema.test.ts` test `ai#schema-anyof` (upstream toJSON request shape) |
+| schema-anyof | `Schema.anyOf` returns an `AnyOfSchema` whose JSON carries an `anyOf` array of sub-schemas and no top-level type | ✓ | `unit:upstream-ai-probes.test.ts` (I2 empty anyOf → invalid-schema) + `unit:helpers-schema.test.ts` test `ai#schema-anyof` |
 | schema-rides-request | A built `Schema` serializes into `generationConfig.responseSchema` on the request and drives JSON output | ✓ | Capture ai-structured-output-shape replayed by packages/pyric/test/ai/helpers-schema.test.ts test `ai#schema-rides-request` |
 
 ## Sandbox answer engine: scripted
