@@ -45,6 +45,12 @@ export interface SuggestionGroup {
   results: CommandResult[];
 }
 
+/** Stable resource identity: labels can change (an Auth user's email), while
+ * the routed target remains the same resource. */
+export function resourceEntryIdentity(entry: ResourceEntry): string {
+  return `${entry.kind}:${entry.target.tab}:${(entry.target.rest ?? []).join('/')}`;
+}
+
 /** Build-time caps (the index is a suggestion source, not a mirror). The caps
  *  bound the FETCHES, not just the kept entries: doc queries carry a limit(),
  *  only the first `collectionsScanned` collections get a doc query at all, and
@@ -313,8 +319,11 @@ export function matchTypeahead(
     // to recover.
     const pathAware = kind === 'document' || kind === 'subcollection';
     const groupable = kind === 'collection' || kind === 'subcollection';
-    const scored = entries
-      .filter((e) => e.kind === kind)
+    const uniqueEntries = new Map<string, ResourceEntry>();
+    for (const entry of entries) {
+      if (entry.kind === kind) uniqueEntries.set(resourceEntryIdentity(entry), entry);
+    }
+    const scored = [...uniqueEntries.values()]
       .map((e) => ({
         entry: e,
         score: Math.max(
@@ -332,7 +341,7 @@ export function matchTypeahead(
         kind,
         title: GROUP_TITLES[kind],
         results: scored.map(({ entry }) => ({
-          id: `${entry.kind}:${entry.label}`,
+          id: resourceEntryIdentity(entry),
           label: entry.label,
           hint: hintFor(entry),
           target: entry.target,

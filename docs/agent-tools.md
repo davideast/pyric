@@ -7,7 +7,7 @@ into whatever runtime you use. They reach an agent two ways:
 1. **`pyric dev --bridge`** (or `pyric bridge`) — exposes the **default sandbox
    registry** over MCP; the [Claude Code plugin](../pyric-plugin/README.md)
    auto-wires it. Forwarded + in-process names are pinned in
-   `packages/cli/src/bridge/server/mcp-contract.ts` (**36** tools today).
+   `packages/cli/src/bridge/server/mcp-contract.ts` (**35** tools today).
 2. **Programmatic** — import a factory and register the handlers with any agent
    framework (the playground does this with `@inbrowser/agent`).
 
@@ -64,7 +64,7 @@ database or requires a rules-loading tool call first.
 ## Index extraction — `pyric/rules/indexes`
 
 `firestore_extract_indexes` — derive composite-index definitions from query
-shapes. Available as a library and via `pyric firestore:indexes:generate`;
+shapes. Available as a library and via `pyric firestore indexes generate`;
 **not** registered on the default MCP bridge.
 
 ## Realtime Database rule artifacts — `@pyric/cli`
@@ -72,7 +72,7 @@ shapes. Available as a library and via `pyric firestore:indexes:generate`;
 Local compilation of a constraints module to `database.rules.json` data. It
 does not fetch or deploy production rules.
 
-`rtdb_generate_rules` — library / CLI (`pyric database:rules:generate`);
+`rtdb_generate_rules` — library / CLI (`pyric database rules generate`);
 **not** on the default MCP bridge.
 
 ## Storage control plane — `createStorageAdminTools` (`pyric/storage`)
@@ -84,7 +84,8 @@ Ship Storage rules and buckets with `firebase-tools` / Console for production.
 
 ## Discovery — `createFirestoreDiscoverTools` (`@pyric/cli/discover`)
 
-Sandbox / Rest crawl helpers for agents that compose their own registry:
+Credential-free crawl helpers for agents that compose their own registry and
+provide the data source:
 
 `firestore_discover_paths` · `firestore_find_collection_group`
 
@@ -103,9 +104,6 @@ Registered on the default MCP bridge:
 
 ---
 
-**Default MCP bridge: 36 unique tool names** (see `DEFAULT_MCP_TOOL_NAMES` in
+**Default MCP bridge: 35 unique tool names** (see `DEFAULT_MCP_TOOL_NAMES` in
 `mcp-contract.ts`). Production shipping (rules, indexes, hosting, functions) is
-`firebase-tools` / Console — not a pyric control-plane toolset. Removed since the
-legacy control-plane surface: deploy factories, Identity Toolkit auth-config
-tools, prod MCP registry composition, and
-`firebase_get_project` / `firebase_get_client_config`.
+owned by `firebase-tools` or the Firebase Console.

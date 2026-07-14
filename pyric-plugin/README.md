@@ -5,7 +5,7 @@ Drive a local Firebase sandbox from Claude Code with zero MCP wiring.
 `pyric dev --bridge` exposes an MCP endpoint, but at a runtime port
 (`http://localhost:<PORT>/__pyric/mcp`) that a static `.mcp.json` can't name.
 This plugin bridges that with a **stdio MCP proxy**: it declares a stdio
-server that runs `pyric mcp-proxy`, which discovers the live serve (from the
+server that runs `pyric mcp`, which discovers the live serve (from the
 `.pyric/serve.json` pointer serve writes, else a port scan) and relays the
 protocol. No `claude mcp add`, no fixed port.
 
@@ -28,13 +28,13 @@ claude --plugin-dir ./pyric-plugin
 ```
 
 `pyric` must be available on the project's PATH (the `pyric init` web
-template adds `pyric-tools` as a devDep, so `npx pyric …` resolves it).
+template adds `@pyric/cli` as a development dependency, so `npx pyric …` resolves it).
 
 ## How it connects (no manual steps)
 
 1. `/pyric:pyric-start` runs `pyric dev --bridge` → the dev server writes
    `.pyric/serve.json` with the bound port.
-2. The plugin's stdio proxy (`pyric mcp-proxy`) reads that pointer and relays
+2. The plugin's stdio server (`pyric mcp`) reads that pointer and relays
    stdio ↔ `http://<addr>:<port>/__pyric/mcp`.
 3. Claude Code auto-reconnects if `pyric dev` restarts.
 

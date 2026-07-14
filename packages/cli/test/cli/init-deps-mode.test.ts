@@ -6,7 +6,7 @@
  *  lives in scripts/standalone-vendor-smoke against a compiled binary. */
 import { describe, expect, it } from 'bun:test';
 import { applyDepsMode, resolveDepsMode } from '../../src/cli/init.js';
-import { TEMPLATES } from '../../src/cli/init-templates.js';
+import { TEMPLATES } from 'create-pyric';
 import type { ParsedArgs } from '../../src/cli/parse-args.js';
 
 const args = (flags: Record<string, string | boolean> = {}): ParsedArgs => ({

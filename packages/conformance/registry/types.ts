@@ -8,6 +8,7 @@ export type Surface =
   | 'storage'
   | 'messaging'
   | 'messaging-admin'
+  | 'functions-rtdb'
   // Native surfaces (no upstream module to mirror; conformance is measured
   // against their own public API and the production Rules Test API engine).
   // `firestore-rules` and `storage-rules` are descriptor surfaces; `rules` is

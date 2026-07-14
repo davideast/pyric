@@ -1,0 +1,19 @@
+{
+  "name": "functions-rtdb-onvaluecreated-startup-existing",
+  "matrixRow": "functions-rtdb #3",
+  "rowIds": [
+    "functions-rtdb#3"
+  ],
+  "description": "A value created before the production trigger is deployed remains present but is not replayed as an onValueCreated event.",
+  "observedAt": "2026-07-14T05:07:11.847Z",
+  "functionsSdkVersion": "7.2.5",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "deliveryCount": 0,
+    "value": {
+      "existedBeforeDeploy": true
+    },
+    "observationWindowMs": 15000
+  }
+}

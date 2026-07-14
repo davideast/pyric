@@ -8,12 +8,10 @@ import {
   bundleSdk,
   bundleWorker,
   cacheKey,
-  collectFirebaseBindings,
   pyricPackageRoot,
   pyricVersion,
   resolveDocsUiDir,
   sourceTreeHash,
-  stubModuleSource,
   workerEntryPath,
   workerSourceHash,
 } from '../../src/serve/bundler.js';
@@ -36,18 +34,7 @@ describe('resolveDocsUiDir (embed fallback)', () => {
   });
 });
 
-describe('firebase stub generation (drift-proof list)', () => {
-  it('finds no production Firebase bindings in the sandbox mirror package', () => {
-    const bindings = collectFirebaseBindings(join(pyricPackageRoot(), 'dist'));
-    // These are sandbox-only mirrors: package resolution chooses Firebase or
-    // Pyric before either module loads.
-    expect(bindings.has('firebase/app')).toBe(false);
-    expect(bindings.has('firebase/auth')).toBe(false);
-    expect(bindings.has('firebase/firestore')).toBe(false);
-    expect(bindings.has('firebase/storage')).toBe(false);
-    expect(bindings.has('firebase/database')).toBe(false);
-  });
-
+describe('sandbox mirror isolation', () => {
   it('bundles the public database mirror without a firebase/database runtime', async () => {
     const manifest = JSON.parse(
       readFileSync(join(pyricPackageRoot(), 'package.json'), 'utf8'),
@@ -73,34 +60,7 @@ describe('firebase stub generation (drift-proof list)', () => {
       result.files.find((file) => file.endsWith('/database.js'))!,
       'utf8',
     );
-    // Any imported Firebase binding is replaced by this deny proxy. Its
-    // absence proves the public entry graph never reached the stub plugin.
-    expect(source).not.toContain('var deny = new Proxy');
     expect(source).not.toMatch(/from\s*['"]firebase\//);
-  });
-
-  it('stub module is INERT — exports every name as a non-throwing deny proxy', () => {
-    const src = stubModuleSource('firebase/firestore', new Set(['Bytes', 'where']));
-    expect(src).toContain('export default deny');
-    expect(src).toContain('export const Bytes = deny;');
-    expect(src).toContain('export const where = deny;');
-    // Inert, NOT throwing: pyric calls fb.where(...) / new fb.Bytes() eagerly on
-    // the sandbox path; a throwing stub would break those constructors.
-    expect(src).not.toContain('throw');
-    expect(src).toContain('apply() { return deny; }');
-    // Eval the stub and prove the proxy is callable + chainable without throwing.
-    const mod = (0, eval)(
-      '(function(){' + src.replace(/export default deny;?/, '').replace(/export const \w+ = deny;/g, '') + 'return deny;})()',
-    );
-    expect(() => mod('uid', '==', 'x')).not.toThrow();
-    expect(mod.anything.deep).toBe(mod); // get → deny
-  });
-
-  it('firebase/app needs no special runtime class after app isolation', () => {
-    const src = stubModuleSource('firebase/app', new Set(['FirebaseError', 'initializeApp']));
-    expect(src).not.toContain('export class FirebaseError extends Error');
-    expect(src).toContain('export const FirebaseError = deny;');
-    expect(src).toContain('export const initializeApp = deny;');
   });
 });
 

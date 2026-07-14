@@ -70,7 +70,7 @@ export interface RigManifestRecord {
   };
   freshness: {
     /** Which field in the observation envelope pins the SDK version this rig captured against. */
-    versionField: 'fbSdkVersion' | 'adminSdkVersion';
+    versionField: 'fbSdkVersion' | 'adminSdkVersion' | 'functionsSdkVersion';
     /** How that field is enforced to stay current. */
     policy: string;
   };

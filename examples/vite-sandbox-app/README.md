@@ -1,7 +1,7 @@
 # vite-sandbox-app
 
 Reference example: a Firebase web app built with **Vite** + the
-`pyric-tools/vite` plugin. This is the shape `pyric init --template web`
+`@pyric/cli/vite` plugin. This is the shape `pyric init --template web`
 scaffolds, kept in-repo as a dogfood + the runtime-verified reference.
 
 In development it runs entirely on pyric's in-process sandbox — no Firebase

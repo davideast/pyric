@@ -28,9 +28,8 @@ browser's IndexedDB automatically: refresh the page, close the tab and reopen,
 or restart `pyric dev`, and your Firestore docs, auth users, and signed-in
 session come back.
 
-> This is a deliberate change from older `pyric serve`, which was ephemeral by
-> default. The SharedWorker makes **durability the default** so a refresh never
-> loses your work.
+The SharedWorker makes **durability the default** so a refresh does not lose
+your work.
 
 ## What survives what: the coverage matrix
 
@@ -149,11 +148,6 @@ Live multi-tab sync needs all tabs to share one worker. They will, as long as
 they're the **same origin** (same `http://localhost:PORT`) and loaded from the
 **same pyric build**. If you opened tabs across a rebuild, close them all and
 reopen so they share the current worker.
-
-**"A new tab hangs on a blank page while others are open."**
-Fixed in current builds: the worker owns a single hot-reload connection, so
-tabs don't accumulate persistent connections. On an older build, closing some
-tabs frees the browser's per-origin connection pool.
 
 **Sign-in.** Email/password, anonymous, and provider popup/redirect
 (`signInWithPopup`/`signInWithRedirect`) all work over the worker: the picker

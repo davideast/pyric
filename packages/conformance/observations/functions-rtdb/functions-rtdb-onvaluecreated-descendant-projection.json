@@ -1,0 +1,25 @@
+{
+  "name": "functions-rtdb-onvaluecreated-descendant-projection",
+  "matrixRow": "functions-rtdb #6",
+  "rowIds": [
+    "functions-rtdb#6"
+  ],
+  "description": "Writing an ancestor object creates the exact matched leaf, whose event snapshot contains only the descendant value.",
+  "observedAt": "2026-07-14T05:07:11.849Z",
+  "functionsSdkVersion": "7.2.5",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "deliveryCount": 1,
+    "key": "leaf",
+    "val": {
+      "projected": true
+    },
+    "siblingExcluded": true,
+    "event": {
+      "type": "google.firebase.database.ref.v1.created",
+      "refMatchesRunId": true,
+      "runIdPresent": true
+    }
+  }
+}

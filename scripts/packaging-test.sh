@@ -21,16 +21,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/pyric-packaging-test"
 NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
+RELEASE_CONTRACT="$ROOT/scripts/fixtures/cli-release-contract.json"
 
 # Publishable packages, in dependency order (dependencies first).
 # - pyric is foundational (everyone else workspace:* it)
 # - pyric-admin depends on pyric
-# - @pyric/cli depends on pyric
+# - create-pyric is standalone (scaffolder; no Firebase SDK deps)
+# - @pyric/cli depends on pyric + pyric-admin + create-pyric
 # - @pyric/ui peer-depends on pyric
 PACKAGES=(
   "packages/pyric"         # pyric
   "packages/pyric-admin"   # pyric-admin
-  "packages/cli"   # @pyric/cli (bin: pyric)
+  "packages/create-pyric"  # create-pyric (bin: create-pyric)
+  "packages/cli"           # @pyric/cli (bin: pyric)
   "packages/ui"            # @pyric/ui
 )
 
@@ -137,8 +140,23 @@ pack_one() {
 }
 TARBALL_PYRIC=$(pack_one packages/pyric)
 TARBALL_PYRIC_ADMIN=$(pack_one packages/pyric-admin)
+TARBALL_CREATE_PYRIC=$(pack_one packages/create-pyric)
 TARBALL_PYRIC_CLI=$(pack_one packages/cli)
 TARBALL_UI=$(pack_one packages/ui)
+
+assert_no_sdk_runtime_deps() {
+  local tarball="$1" name="$2"
+  if ! tar -xzOf "$tarball" package/package.json | jq -e '
+    ((.dependencies // {}) | has("firebase") or has("firebase-admin")) | not
+  ' >/dev/null; then
+    echo "  ✗ $name packed manifest contains a Firebase SDK runtime dependency" >&2
+    exit 1
+  fi
+  echo "  ✓ $name packed manifest has no Firebase SDK runtime dependency"
+}
+assert_no_sdk_runtime_deps "$TARBALL_PYRIC" "pyric"
+assert_no_sdk_runtime_deps "$TARBALL_PYRIC_ADMIN" "pyric-admin"
+assert_no_sdk_runtime_deps "$TARBALL_PYRIC_CLI" "@pyric/cli"
 
 # ─── Phase 2.5: publish file-set + runtime-asset presence ──────────────
 # Hermetic (NO registry): `npm pack --dry-run --json` computes the exact file set
@@ -181,12 +199,14 @@ assert_tar_has() {
 }
 packset_check packages/pyric pyric
 packset_check packages/pyric-admin pyric-admin
+packset_check packages/create-pyric create-pyric
 packset_check packages/cli @pyric/cli
 packset_check packages/ui @pyric/ui
 # Load-bearing runtime assets — pass import() but break at first use if dropped.
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$' "pyric ships the Firestore rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/rtdb/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/modules/stdlib/.*\.rules$' "pyric ships the rules stdlib modules (.rules)"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/dist/bin\.js$' "create-pyric ships the create-pyric bin"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
 # The Vite plugin's `ui` option + `pyric dev --ui` resolve the Studio app from
 # dist/serve/studio-ui (build-embedded). The plugin's firebase swap resolves the
@@ -222,10 +242,12 @@ cat > package.json <<JSON
   "dependencies": {
     "pyric": "file:${TARBALL_PYRIC}",
     "pyric-admin": "file:${TARBALL_PYRIC_ADMIN}",
+    "create-pyric": "file:${TARBALL_CREATE_PYRIC}",
     "@pyric/cli": "file:${TARBALL_PYRIC_CLI}",
     "@pyric/ui": "file:${TARBALL_UI}",
     "firebase": "^12.12.0",
     "firebase-admin": "^13.0.0",
+    "vite": "^5.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }
@@ -251,6 +273,31 @@ else
 fi
 printf '%s' "$LOCAL_RUNTIME_TREE" \
   | node "$ROOT/scripts/lib/check-cloud-only-agent-install.mjs" "$LOCAL_RUNTIME_STATUS"
+
+# A second consumer owns the SDK-absence proof. The broad consumer above
+# deliberately installs Firebase for inactive-production and UI peer coverage;
+# using it for CLI smoke tests would mask a transitive dependency regression.
+SDK_FREE_CONSUMER="$WORK/sdk-free-consumer"
+mkdir -p "$SDK_FREE_CONSUMER"
+cat > "$SDK_FREE_CONSUMER/package.json" <<JSON
+{
+  "name": "pyric-sdk-free-cli-consumer",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "pyric": "file:${TARBALL_PYRIC}",
+    "pyric-admin": "file:${TARBALL_PYRIC_ADMIN}",
+    "create-pyric": "file:${TARBALL_CREATE_PYRIC}",
+    "@pyric/cli": "file:${TARBALL_PYRIC_CLI}"
+  }
+}
+JSON
+(cd "$SDK_FREE_CONSUMER" && npm install --cache "$NPM_CACHE" --prefer-offline --no-audit --no-fund --loglevel=error)
+test ! -e "$SDK_FREE_CONSUMER/node_modules/firebase"
+test ! -e "$SDK_FREE_CONSUMER/node_modules/firebase-admin"
+echo "  ✓ packed CLI dependency closure installs without firebase or firebase-admin"
+node "$ROOT/scripts/audit-packed-cli.mjs" "$SDK_FREE_CONSUMER" "$RELEASE_CONTRACT"
 
 # ─── Phase 4: subpath resolution test ──────────────────────────────────
 # For each advertised subpath, write a tiny file that imports it and
@@ -365,21 +412,15 @@ for (const sym of [
   else bad('@pyric/cli/bridge STILL exports retired ' + sym);
 }
 
-// Credential-free discovery is the retained contract. The production REST
-// adapter remains reachable only through its explicit temporary entry until
-// issue #265 removes it.
+// Credential-free discovery is the retained contract. Production discovery
+// has no package entry or adapter export.
 const discover = await import('@pyric/cli/discover');
-const productionDiscover = await import('@pyric/cli/discover/production');
 if (!('createRestCrawlerFirestore' in discover)) {
   ok('@pyric/cli/discover does NOT export production REST discovery');
 } else {
   bad('@pyric/cli/discover STILL exports production REST discovery');
 }
-if (typeof productionDiscover.createRestCrawlerFirestore === 'function') {
-  ok('@pyric/cli/discover/production exports the isolated REST adapter');
-} else {
-  bad('@pyric/cli/discover/production is MISSING the isolated REST adapter');
-}
+await assertNotExported('@pyric/cli/discover/production');
 
 // Production deployment is owned by firebase-tools. The old programmatic
 // subpath must fail resolution instead of lingering as a compatibility shim.
@@ -404,7 +445,8 @@ SHAPEJS
 # Start and exercise the installed bridge through its public package entry.
 # The fake WebSocket peer is the browser half of the sandbox relay; the MCP
 # client proves tools/list and a forwarded call work from the packed artifact.
-cat > "$WORK/consumer/__bridge-smoke.mjs" <<'BRIDGEJS'
+cat > "$SDK_FREE_CONSUMER/__bridge-smoke.mjs" <<'BRIDGEJS'
+import { readFileSync } from 'node:fs';
 import WebSocket from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -455,8 +497,12 @@ try {
   client = new Client({ name: 'packed-bridge-smoke', version: '1' });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`)));
   const listed = await client.listTools();
-  if (listed.tools.length !== 35) {
-    throw new Error(`packed bridge exposed ${listed.tools.length} tools, expected 35`);
+  const expected = JSON.parse(readFileSync(process.env.PYRIC_RELEASE_CONTRACT, 'utf8')).mcpTools;
+  const actual = listed.tools.map((tool) => tool.name);
+  if (JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort())) {
+    throw new Error(
+      `packed bridge MCP contract drifted\nexpected: ${expected.join(', ')}\nactual:   ${actual.join(', ')}`,
+    );
   }
   const called = await client.callTool({ name: 'sandbox_inspect', arguments: {} });
   const payload = JSON.parse(called.content[0].text);
@@ -466,14 +512,14 @@ try {
   if (payload._pyric?.mode !== 'sandbox' || payload._pyric?.project !== 'packed-smoke') {
     throw new Error(`unexpected bridge provenance: ${JSON.stringify(payload._pyric)}`);
   }
-  console.log('  ✓ packed @pyric/cli bridge starts, lists 35 tools, and relays a sandbox call');
+  console.log(`  ✓ packed @pyric/cli bridge starts, lists the exact ${actual.length}-tool contract, and relays a sandbox call`);
 } finally {
   await client?.close().catch(() => {});
   socket?.close();
   await server.stop();
 }
 BRIDGEJS
-(cd "$WORK/consumer" && node __bridge-smoke.mjs)
+(cd "$SDK_FREE_CONSUMER" && PYRIC_RELEASE_CONTRACT="$RELEASE_CONTRACT" node __bridge-smoke.mjs)
 
 # ─── Phase 5: bin checks ───────────────────────────────────────────────
 echo ""
@@ -481,7 +527,8 @@ echo "━━━ Phase 5: packed CLI smoke ━━━"
 
 check_bin_executable() {
   local bin="$1"
-  local path="$WORK/consumer/node_modules/.bin/$bin"
+  local consumer="${2:-$SDK_FREE_CONSUMER}"
+  local path="$consumer/node_modules/.bin/$bin"
   if [ ! -x "$path" ]; then
     echo "  ✗ $bin — missing or not executable"
     exit 1
@@ -490,12 +537,32 @@ check_bin_executable() {
 }
 
 check_bin_executable "pyric"
-PYRIC_BIN="$WORK/consumer/node_modules/.bin/pyric"
-node "$ROOT/scripts/packed-cli-smoke.mjs" "$PYRIC_BIN" "$WORK/cli-smoke"
+check_bin_executable "create-pyric" "$WORK/consumer"
+PYRIC_BIN="$SDK_FREE_CONSUMER/node_modules/.bin/pyric"
+CREATE_PYRIC_BIN="$WORK/consumer/node_modules/.bin/create-pyric"
+node "$ROOT/scripts/packed-cli-smoke.mjs" \
+  "$PYRIC_BIN" \
+  "$WORK/cli-smoke" \
+  "$RELEASE_CONTRACT"
 node "$ROOT/scripts/packed-mcp-smoke.mjs" \
   "$PYRIC_BIN" \
   "$WORK/mcp-smoke" \
-  "$ROOT/packages/cli/dist/bridge/server/mcp-contract.js"
+  "$RELEASE_CONTRACT"
+
+node "$ROOT/scripts/packed-resolution-smoke.mjs" "$WORK/consumer" "$SDK_FREE_CONSUMER"
+
+# create-pyric smoke: scaffold a Vite web app into a fresh directory and
+# assert the load-bearing files exist (vite.config imports @pyric/cli/vite).
+echo "▸ create-pyric smoke"
+CREATE_OUT="$WORK/create-smoke-app"
+rm -rf "$CREATE_OUT"
+"$CREATE_PYRIC_BIN" "$CREATE_OUT"
+test -f "$CREATE_OUT/vite.config.ts"
+grep -q "@pyric/cli/vite" "$CREATE_OUT/vite.config.ts"
+grep -q "pyricSandbox" "$CREATE_OUT/vite.config.ts"
+test -f "$CREATE_OUT/package.json"
+grep -q '"dev": "vite"' "$CREATE_OUT/package.json"
+echo "  ✓ create-pyric scaffolds Vite + @pyric/cli/vite"
 
 # ─── Phase 5.5: serve smoke (init + serve from the packed bin) ─────────
 # The subpath + bin checks above prove imports resolve, but they never boot
@@ -673,4 +740,4 @@ rm -rf "$WORK"
 
 trap - ERR
 echo ""
-echo "✓ packaging gate PASS — all 4 packages pack, install, and resolve every advertised subpath."
+echo "✓ packaging gate PASS — all 5 packages pack, install, and resolve every advertised subpath."

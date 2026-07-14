@@ -18,7 +18,6 @@
  * pyric's diagnostic context.
  */
 import { useWorkspaceStore } from '~/lib/store/workspace';
-import { useSessionStore } from '~/lib/store/session';
 import { useGithubSessionStore } from '~/lib/store/github-session';
 import { useSkillsStore } from '~/lib/store/skills';
 import { resolveActiveSkills } from '~/lib/skills/registry';
@@ -59,11 +58,6 @@ const INTRO_BASE = [
   'GITHUB PUBLISH — there is NO `git` command in bash. Local commits/branches: `workspace_git` (status, checkout, commit). Remote: `github_push_branch`, `github_create_pull_request` (PAT in Settings → github; read `man workflow` section  PUBLISH). `github_create_repo` is ONLY for sessions with no linked repo — it always creates a **private** repo. Never claim a push/PR succeeded unless a GitHub tool returned ok:true with a URL. `workspace_checkpoints` is local rollback only.',
 ].join('\n');
 
-const REAL_PROJECT_TOOLS = [
-  '',
-  'REAL PROJECT TOOLS — `firestore_discover_paths`, `firestore_find_collection_group`, `firestore_get_rules` operate on the user\'s signed-in Firebase project, NOT the sandbox. Route questions about THEIR real Firestore to these — never answer real-project questions with `sandbox_*` tools, or vice versa. Nothing is cached between turns: call the tool when you need project structure or deployed rules — the result arrives in the same turn. Crawl-cost preview + detail: `man workflow`.',
-].join('\n');
-
 export const SCOPE = [
   'SDK SHAPE: write modular Firebase Web SDK code (`collection(db, "users")`, `getDoc(ref)`, `setDoc(ref, data)`). NOT the admin namespaced shape (`db.collection(...).doc(...).get()`).',
   '',
@@ -77,14 +71,14 @@ export const SCOPE = [
   '`firebase/auth` in app code:',
   '  - Call `getAuth()` (no args) inside hooks or event handlers to grab the auth instance — the entry initializes the Firebase app before App renders, so the default instance is already attached.',
   '  - Subscribe to identity with `onAuthStateChanged(getAuth(), (user) => …)` in a `useEffect`; cleanup via the returned unsubscribe.',
-  '  - In sandbox preview, `firebase/auth` is aliased to `pyric/auth` — `signInAnonymously`, `signInWithEmailAndPassword`, etc. integrate with the sandbox\'s identity so rules see `request.auth.uid` correctly. In a normal production build, the same imports hit real Firebase Auth. App code is identical in both worlds; only package resolution differs.',
+  '  - In sandbox preview, `firebase/auth` is aliased to `pyric/auth` — `signInAnonymously`, `signInWithEmailAndPassword`, `signInWithCustomToken`, `updateProfile` / `updateEmail` / `updatePassword`, `deleteUser` / `reload`, and email-link sign-in integrate with the sandbox\'s identity so rules see `request.auth.uid` correctly. In a normal production build, the same imports hit real Firebase Auth. App code is identical in both worlds; only package resolution differs.',
   '  - Provider sign-in WORKS in preview: `signInWithPopup` / `signInWithRedirect` with `GoogleAuthProvider` / `FacebookAuthProvider` / `GithubAuthProvider` / `OAuthProvider` open a built-in account-picker (the sandbox sign-in helper) where the user picks or adds a test identity — write them exactly as you would against real Firebase. `getRedirectResult` is supported too.',
   '  - Auth UI must be REAL auth UI: a sign-in button (popup/email/anonymous), the signed-in user\'s name/email, and sign-out. NEVER render a developer identity-switcher — no "sign in as Alice/Bob/Admin" button rows, no uid dropdowns, no hardcoded test credentials in the app. Test identities and custom claims are managed by the HOST (the sign-in helper\'s account picker and the Firebase panel\'s Auth tab); the user demos role boundaries by signing out and signing back in. An in-app switcher fakes the auth boundary the rules exist to enforce.',
   '',
   'Constraints on the App TSX:',
   '  - Do NOT import `sandbox` or anything from `pyric/*` — generated application source must stay on canonical `firebase/*` imports.',
   '  - Do NOT import `firebase/firestore` cache APIs (`getDocFromCache`, `getDocFromServer`), persistence (`enableIndexedDbPersistence`), network manipulation (`disableNetwork`), bundles (`loadBundle`), vector search, or `initializeFirestore` — not supported in the sandbox preview. See packages/firestore/docs/reference/feature-matrix.md.',
-  '  - Do NOT use these `firebase/auth` symbols — not supported in the sandbox preview (they resolve to `undefined` and throw at runtime): `signInWithCustomToken`, `signInWithPhoneNumber` / `PhoneAuthProvider` / `RecaptchaVerifier`, email-link sign-in (`sendSignInLinkToEmail` / `isSignInWithEmailLink` / `signInWithEmailLink`), `updateProfile` / `updateEmail` / `updatePassword`, `sendPasswordResetEmail` / `sendEmailVerification`, account linking (`linkWith*` / `unlink`), re-authentication (`reauthenticateWith*`), MFA (`multiFactor` / `getMultiFactorResolver`), `deleteUser` / `user.reload()`, `TwitterAuthProvider` (use `new OAuthProvider("twitter.com")`), `initializeAuth`. See packages/pyric/docs/auth/reference/feature-matrix.md (the "No" column).',
+  '  - Do NOT use these `firebase/auth` symbols until the feature-matrix "Use in appSource" column says Yes: account linking (`linkWith*` / `unlink`), re-authentication (`reauthenticateWith*`), `sendPasswordResetEmail` / `sendEmailVerification`, `signInWithPhoneNumber` / `PhoneAuthProvider` / `RecaptchaVerifier`, MFA (`multiFactor` / `getMultiFactorResolver`), `TwitterAuthProvider` (use `new OAuthProvider("twitter.com")`), `initializeAuth`. Prefer top-level `reload(user)` / `deleteUser(user)` over `user.reload()` / `user.delete()`. See packages/pyric/docs/auth/reference/feature-matrix.md.',
   '  - The preview compiles via `esbuild-wasm` with automatic JSX runtime.',
 ].join('\n');
 
@@ -96,7 +90,7 @@ export const SCOPE = [
 export const WORKFLOW_PHASES = [
   'WORKFLOW — output-first, not tool-first. Open with a short written PLAN before any tool call, then work in announced phases: more plain-text narration, fewer exploratory tool calls, no long silent thinking pass up front. Announce each phase in one line with its rationale.',
   '  1. PLAN the build + phases (a few bullets).',
-  '  2. ANALYZE existing files + sandbox data (`sandbox_discover_paths`) + deployed rules; say what you found.',
+  '  2. ANALYZE existing files + sandbox data (`sandbox_discover_paths`) + active sandbox rules; say what you found.',
   '  3. MODEL data + rules and WHY; write firestore.rules.',
   '  4. SEED with `seed_firestore_data_as_admin` using the Firestore seed ID policy.',
   '  5. BUILD App.tsx last.',
@@ -107,7 +101,7 @@ export const FIREBASE_PROFILE = [
   '  Pyric is the local Firebase runtime and evidence surface. Do not recommend Firebase Emulators.',
   '  Do NOT create or edit `/workspace/src/App.tsx` unless the user explicitly asks for an app, UI, or preview. Do not end the task by building an app.',
   '  Primary outputs are rules, workspace tests, seed data, Auth users, audit reports, schema notes, simulations, and evidence-backed recommendations.',
-  '  Use local sandbox/workspace evidence first: active rules, sandbox data shape, Auth users, traffic/denials, and files. Real-project tools are for explicitly requested signed-in project work only.',
+  '  Use local sandbox/workspace evidence: active rules, sandbox data shape, Auth users, traffic/denials, and files.',
   '  Teach Firebase work as Lesson -> Action -> Evidence: explain the principle, apply the smallest useful change, then show the result with data, tests, simulations, traffic, or denials.',
   '  Keep the Firebase workbench as the visible state of the world: Sandbox, Data, Auth, Traffic, Seed, and File.',
 ].join('\n');
@@ -244,12 +238,8 @@ export function buildSystemPrompt({ diagnosticsEnabled, prompt = '' }: BuildSyst
   // correcting: once the agent writes App.tsx or rules this flips false.
   const isFresh = (ws.rules ?? '').trim() === '' && (ws.appSource ?? '').trim() === '';
 
-  // Tack the real-project tool description onto INTRO only when the
-  // user is signed in with a project picked — otherwise the agent
-  // sees tools it can't actually call.
-  const hasRealProject = useSessionStore.getState().currentProjectId !== null;
   const linkedGithubRepo = useGithubSessionStore.getState().linkedRepo;
-  const intro = hasRealProject ? `${INTRO_BASE}\n${REAL_PROJECT_TOOLS}` : INTRO_BASE;
+  const intro = INTRO_BASE;
   const agentContext = resolveAgentContext({
     prompt,
     activeSkillIds: useSkillsStore.getState().activeSkillIds,

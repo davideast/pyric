@@ -35,7 +35,7 @@
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import { SandboxContextImpl } from 'pyric/sandbox';
 
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import {
   defaultClientApp,
   resolveClientApp,

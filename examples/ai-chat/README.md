@@ -19,7 +19,7 @@ root):
 node ../../packages/cli/dist/cli/index.js dev --no-open
 ```
 
-Or, with pyric-tools installed, just `pyric dev`. Open the printed URL
+Or, with `@pyric/cli` installed, run `pyric dev`. Open the printed URL
 (serve picks a free port).
 
 ## The two modes

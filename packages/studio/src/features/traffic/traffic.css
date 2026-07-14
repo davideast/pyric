@@ -20,8 +20,7 @@
   margin: 0;
 }
 
-/* ── Tab strip (S-TRAFFIC: Timeline / Billable metrics / Subscriptions &
-   Rules) ────────────────────────────────────────────────────────────── */
+/* ── Tab strip (S-TRAFFIC: Timeline / Billable metrics / Rules) ─────── */
 .traffic__tabs {
   display: flex;
   align-items: center;
@@ -92,19 +91,39 @@
   flex-direction: column;
   gap: var(--space-3);
 }
-.traffic__metric-title {
-  margin: 0;
-  font-size: var(--fs-label);
-  font-weight: 600;
-  color: var(--ink);
+/* Metric views use a data-journal hierarchy: the finding and observed totals
+   lead; the chart is supporting evidence; methodology is disclosed on demand. */
+.traffic__metric-panel--journal {
+  gap: var(--space-5);
 }
-.traffic__metric-note {
+.traffic__metric-story {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 720px;
+}
+.traffic__metric-eyebrow {
   margin: 0;
   color: var(--faint);
-  font-size: var(--fs-caption);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
 }
-.traffic__metric-note code {
-  font-family: var(--font-mono);
+.traffic__metric-headline {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+}
+.traffic__metric-finding {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-body);
+  line-height: 1.5;
 }
 
 .traffic__metric-cards {
@@ -146,22 +165,104 @@
   color: var(--ink);
 }
 
+.traffic__metric-cards--journal {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+}
+.traffic__metric-cards--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.traffic__metric-cards--journal [data-pyric-metric-card] {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    'toggle swatch label'
+    'value value value';
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  border: none;
+  border-top: 3px solid var(--pyric-series-color, var(--line-2));
+  border-radius: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  background: transparent;
+}
+.traffic__metric-cards--journal [data-pyric-metric-card] + [data-pyric-metric-card] {
+  border-left: 1px solid var(--line);
+}
+.traffic__metric-cards--journal [data-pyric-metric-checkbox] {
+  grid-area: toggle;
+  margin: 0;
+}
+.traffic__metric-cards--journal [data-pyric-metric-swatch] {
+  grid-area: swatch;
+}
+.traffic__metric-cards--journal [data-pyric-metric-label] {
+  grid-area: label;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.traffic__metric-cards--journal [data-pyric-metric-value] {
+  grid-area: value;
+  margin-top: var(--space-1);
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+
 /* Series color channel: one index per metric key, shared by a card's
    swatch and the chart's matching line — token roles only. */
+.traffic__metric-cards [data-pyric-series-index='0'],
 .traffic__metric-cards [data-pyric-series-index='0'] [data-pyric-metric-swatch],
 .traffic__chart [data-pyric-series-index='0'] {
   --pyric-series-color: var(--accent);
 }
+.traffic__metric-cards [data-pyric-series-index='1'],
 .traffic__metric-cards [data-pyric-series-index='1'] [data-pyric-metric-swatch],
 .traffic__chart [data-pyric-series-index='1'] {
   --pyric-series-color: var(--diff-add);
 }
+.traffic__metric-cards [data-pyric-series-index='2'],
 .traffic__metric-cards [data-pyric-series-index='2'] [data-pyric-metric-swatch],
 .traffic__chart [data-pyric-series-index='2'] {
   --pyric-series-color: var(--diff-remove);
 }
 .traffic__metric-cards [data-pyric-metric-swatch] {
   background: var(--pyric-series-color, var(--muted));
+}
+
+/* Rules is a decision pair: calm green for allows, consequential red for
+   denies. Billable retains the neutral three-series palette above. */
+[data-pyric-ui='traffic-rules-view']
+  .traffic__metric-cards
+  [data-pyric-series-index='0'],
+[data-pyric-ui='traffic-rules-view']
+  .traffic__metric-cards
+  [data-pyric-series-index='0']
+  [data-pyric-metric-swatch],
+[data-pyric-ui='traffic-rules-view'] .traffic__chart [data-pyric-series-index='0'] {
+  --pyric-series-color: var(--diff-add);
+}
+[data-pyric-ui='traffic-rules-view']
+  .traffic__metric-cards
+  [data-pyric-series-index='1'],
+[data-pyric-ui='traffic-rules-view']
+  .traffic__metric-cards
+  [data-pyric-series-index='1']
+  [data-pyric-metric-swatch],
+[data-pyric-ui='traffic-rules-view'] .traffic__chart [data-pyric-series-index='1'] {
+  --pyric-series-color: var(--diff-remove);
 }
 
 .traffic__chart {
@@ -240,6 +341,117 @@
   color: var(--ink);
 }
 
+.traffic__metric-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.traffic__metric-evidence-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.traffic__metric-evidence-header h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-label);
+  font-weight: 600;
+}
+.traffic__metric-evidence-header span,
+.traffic__metric-axis {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+}
+.traffic__chart--journal {
+  border: none;
+  border-radius: 0;
+  padding: var(--space-3) 0 0;
+  background: transparent;
+}
+.traffic__chart--journal [data-pyric-chart-svg] {
+  height: 220px;
+  border-bottom: 1px solid var(--line);
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent calc(25% - 1px),
+    var(--line) 25%
+  );
+}
+.traffic__chart--journal [data-pyric-chart-line] {
+  stroke-width: 2;
+}
+.traffic__metric-axis {
+  display: flex;
+  justify-content: space-between;
+}
+.traffic__metric-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-3);
+}
+.traffic__metric-source {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--fs-caption);
+}
+.traffic__metric-methodology {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}
+.traffic__metric-methodology summary {
+  width: max-content;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+.traffic__metric-methodology > div {
+  max-width: 760px;
+  padding-top: var(--space-2);
+  line-height: 1.55;
+}
+.traffic__metric-methodology p {
+  margin: 0;
+}
+.traffic__metric-methodology p + p {
+  margin-top: var(--space-2);
+}
+.traffic__metric-methodology code {
+  font-family: var(--font-mono);
+}
+.traffic__metric-methodology strong {
+  color: var(--ink);
+}
+
+@media (max-width: 620px) {
+  .traffic__metric-cards--journal [data-pyric-metric-card] {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'swatch label'
+      'value value';
+    padding-inline: var(--space-2);
+  }
+  .traffic__metric-cards--journal [data-pyric-metric-checkbox] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+  }
+  .traffic__metric-cards--journal [data-pyric-metric-card]:has(input:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .traffic__metric-evidence-header span {
+    display: none;
+  }
+}
+
 /* ── Volume timeline ────────────────────────────────────────────────── */
 .traffic__timeline {
   border: 1px solid var(--line);
@@ -298,6 +510,37 @@
   position: relative;
 }
 
+.traffic__timeline [data-pyric-bucket-summary] {
+  position: absolute;
+  z-index: 4;
+  top: 4px;
+  left: clamp(
+    92px,
+    calc(var(--pyric-bucket-summary-x, 0.5) * 100%),
+    calc(100% - 92px)
+  );
+  transform: translateX(-50%);
+  max-width: calc(100% - 12px);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  pointer-events: none;
+}
+.traffic__bucket-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+}
+.traffic__bucket-summary strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .traffic__timeline [data-pyric-timeline-bars] {
   display: flex;
   align-items: flex-end;
@@ -319,6 +562,21 @@
   justify-content: flex-end;
   cursor: default;
   min-width: 2px;
+}
+.traffic__timeline [data-pyric-bucket]:not(:disabled) {
+  cursor: pointer;
+}
+.traffic__timeline [data-pyric-bucket]:not(:disabled):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.traffic__timeline
+  [data-pyric-bucket]:not(:disabled):hover
+  [data-pyric-bucket-allow],
+.traffic__timeline
+  [data-pyric-bucket]:not(:disabled):focus-visible
+  [data-pyric-bucket-allow] {
+  background: color-mix(in srgb, var(--accent) 42%, var(--line-2));
 }
 
 .traffic__timeline [data-pyric-bucket-allow] {
@@ -345,6 +603,22 @@
   border-radius: 2px;
 }
 
+/* A pinned bucket stays legible as the rest of the live timeline continues
+   to provide context. */
+.traffic__timeline [data-pyric-brush] {
+  position: absolute;
+  z-index: 1;
+  inset-block: 0;
+  left: calc(var(--pyric-brush-left, 0) * 100%);
+  right: calc(var(--pyric-brush-right, 0) * 100%);
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent-tint) 55%, transparent);
+  pointer-events: none;
+}
+.traffic__timeline [data-pyric-bucket-selected] {
+  filter: saturate(1.2);
+}
+
 /* Live edge marker. */
 .traffic__timeline [data-pyric-live] {
   position: absolute;
@@ -362,6 +636,80 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--faint);
+}
+
+/* Pinned interval: the chart states the finding, then the request stream
+   becomes the supporting evidence for that exact half-open range. */
+.traffic__time-focus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  border-left: 3px solid var(--accent);
+  padding: var(--space-2) var(--space-3);
+  background: var(--panel);
+}
+.traffic__time-focus-story {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+.traffic__time-focus-eyebrow {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+.traffic__time-focus h3,
+.traffic__time-focus p {
+  margin: 0;
+}
+.traffic__time-focus h3 {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.traffic__time-focus-story > p:last-child {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}
+.traffic__time-focus > button {
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+.traffic__time-focus > button:hover {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+
+@media (max-width: 620px) {
+  .traffic__bucket-summary span:last-child {
+    display: none;
+  }
+  .traffic__time-focus {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .traffic__time-focus-story {
+    grid-template-columns: 1fr;
+  }
+  .traffic__time-focus > button {
+    margin-left: 0;
+  }
 }
 
 /* ── Filter row (single compact row — no stacked toolbars) ──────────── */

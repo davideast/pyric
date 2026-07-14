@@ -7,7 +7,7 @@
  * variants, `setLogLevel`, and `onSnapshotsInSync`. Read the section note
  * below before touching any function.
  */
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 

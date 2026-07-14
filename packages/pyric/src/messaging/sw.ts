@@ -11,7 +11,7 @@
  * per-sandbox broker (production's one-service-worker-per-origin model), so
  * routing between the two planes is a single visibility decision.
  */
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import {
   defaultRegistration,
   deliverToMessaging,

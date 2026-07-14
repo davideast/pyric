@@ -82,15 +82,33 @@ describe('<TrafficTimeline>', () => {
   it('fires onBrush with the clicked bucket window', () => {
     let picked: TimeWindow | null = null;
     const { container } = render(
-      <TrafficTimeline
-        events={[evt({ at: 150 })]}
-        window={WINDOW}
-        bucketCount={10}
-        onBrush={(w) => (picked = w)}
-      />,
+      <TrafficTimeline events={[evt({ at: 150 })]} window={WINDOW} bucketCount={10} onBrush={(w) => (picked = w)} />,
     );
     fireEvent.click(container.querySelectorAll('[data-pyric-bucket]')[1]);
     expect(picked).toEqual({ start: 100, end: 200 });
+  });
+
+  it('shows a direct bucket summary on pointer hover and keyboard focus', () => {
+    const { container, getByText, queryByText } = render(
+      <TrafficTimeline
+        events={[evt({ at: 150 }), evt({ at: 160, result: 'deny' })]}
+        window={WINDOW}
+        bucketCount={10}
+        onBrush={() => {}}
+        renderBucketSummary={(bucket) => <span>{`${bucket.count} requests · ${bucket.denies} denied`}</span>}
+      />,
+    );
+    const bucket = container.querySelectorAll('[data-pyric-bucket]')[1];
+
+    expect(queryByText('2 requests · 1 denied')).toBeNull();
+    fireEvent.pointerEnter(bucket);
+    expect(getByText('2 requests · 1 denied')).toBeTruthy();
+    fireEvent.pointerLeave(bucket);
+    expect(queryByText('2 requests · 1 denied')).toBeNull();
+    fireEvent.focus(bucket);
+    expect(getByText('2 requests · 1 denied')).toBeTruthy();
+    fireEvent.blur(bucket);
+    expect(queryByText('2 requests · 1 denied')).toBeNull();
   });
 
   it('does not make bars interactive without onBrush', () => {

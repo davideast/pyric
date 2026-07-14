@@ -21,24 +21,6 @@ This is stronger than choosing a backend inside `getFirestore`. A sandbox
 module cannot accidentally acquire a production client, and a production
 module does not carry dormant simulator code.
 
-## The old internal-dispatch model
-
-The original mirror loaded `firebase/firestore`, constructed either a sandbox
-or production target, and branched inside every operation. A single package
-therefore owned two implementations:
-```text
-pyric/firestore
-  +-- target.kind === sandbox --> local engine
-  `-- target.kind === prod ----> firebase/firestore
-```
-That arrangement had three structural problems:
-
-1. Direct mirror imports could reach production even though the mirror was
-   meant to be a sandbox.
-2. Browser bundling required inert Firebase stubs to stop recursive rewrites.
-3. Conformance claims could credit production forwarding rather than sandbox
-   behaviour.
-
 ## The package boundary now carries the invariant
 
 `pyric/firestore` has only sandbox targets. Its compiled artifact has no

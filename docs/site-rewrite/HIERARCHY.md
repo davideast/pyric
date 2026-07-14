@@ -61,7 +61,7 @@ TRUST
   What's experimental
 
 REFERENCE
-  pyric  ·  pyric-admin  ·  pyric-tools
+  pyric  ·  pyric-admin  ·  @pyric/cli
 ```
 
 ---
@@ -85,7 +85,7 @@ Leads reader-first. The person who just wants to ship gets everything they need 
 
 ### Start building
 **Promise:** a working Firebase backend in one command. No account, no project, no emulator.
-- Your backend in one command `[reuse: pyric-tools/tutorials/getting-started]`
+- Your backend in one command `[reuse: @pyric/cli/tutorials/getting-started]`
 - Scaffold a new app `[reuse: init template docs]`
 - Add Pyric to an app you already have `[reuse: how-to/use-the-vite-plugin, tutorials/server-adoption]`
 - What just happened (the swap, one page) `[new, short]`
@@ -188,7 +188,7 @@ The landing that orients the wing and shows the core loop: write, simulate, see 
 The agent is the ambient second reader everywhere, and this is its home. Every "and from an agent" note across the docs points here.
 
 - **Set up your agent.** What MCP gives you; Claude Code (the plugin and `pyric-start`); Cursor; Codex; any MCP client `[reuse: bridge, wire-claude-code, pyric-plugin]`
-- **What your agent can do.** The backend as a tool surface, by capability: read/write/query, simulate rules, run a stateful session, inspect and discover, deploy and operate `[reuse: agent-tools.md]`
+- **What your agent can do.** The backend as a tool surface, by capability: read/write/query, simulate rules, run a stateful session, inspect, and discover `[reuse: agent-tools.md]`
 - **Skills.** What a skill is, how to install it, and the catalog: auth models, query and index design, rules audits, RTDB data models, RTDB rules, whole-project audits `[reuse: .agents/skills, pyric-plugin/skills]`
 - **Watch and review.** The Prototype console and the event stream `[reuse: studio Prototype, events]`
 
@@ -204,8 +204,8 @@ The agent is the ambient second reader everywhere, and this is its home. Every "
 ## REFERENCE  (the one noun section)
 Per package, for the reader who already knows what they want.
 - **pyric** — Web SDK, sandbox runtime, rules engine, COMPAT matrices.
-- **pyric-admin** — admin surface and the sandbox/prod seam.
-- **pyric-tools** — CLI, deploy API, MCP tool catalog.
+- **pyric-admin** — admin-shaped sandbox surface and activation seam.
+- **@pyric/cli** — sandbox CLI, artifact and verification APIs, MCP tool catalog.
 
 `@pyric/ui` keeps its own component docs, out of scope here.
 

@@ -1,5 +1,5 @@
 /** Internal adapter seam for transport-backed AI handles. */
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import { BackendType, GoogleAIBackend, VertexAIBackend } from './backend.js';
 import type { AnswerEngine } from './broker/types.js';
 import { TARGET_SYMBOL } from './target.js';

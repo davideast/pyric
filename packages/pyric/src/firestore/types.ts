@@ -21,7 +21,7 @@ import {
   type Transaction as ChainTransaction,
 } from 'pyric/sandbox/admin-firestore';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import { TARGET_SYMBOL, type Target } from './state.js';
 
 /**

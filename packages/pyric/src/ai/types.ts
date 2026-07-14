@@ -23,7 +23,7 @@ import type {
   Role,
   SchemaType,
 } from './enums.js';
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import type { AiBroker } from './broker/broker.js';
 import type { AnswerEngine, EngineConfig } from './broker/types.js';

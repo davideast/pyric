@@ -20,13 +20,11 @@ Takes about five minutes.
 ## Step 1: Install
 
 ```bash
-npm i -D pyric-tools pyric-admin pyric
+npm i -D @pyric/cli
 ```
 
-Three packages, one job each: `pyric-tools` is the CLI + Node loader,
-`pyric-admin` and `pyric` are the mirror packages your unchanged
-`firebase-admin/*` and `firebase/*` imports resolve to at dev time. None
-of them appear in your app code.
+`@pyric/cli` provides the CLI and Node resolver; its sandbox mirror
+dependencies are installed with it. None of them appear in your app code.
 
 ## Step 2: Run it
 
@@ -84,12 +82,12 @@ prefixed with `[dev]`:
   ⚠ the pyric sandbox runs IN the served page — keep the browser tab open.
     Firestore/auth data and persistence stop when no page is open.
 ✔ run      `npm run dev` — firebase-admin/firebase imports are routed to the sandbox at http://localhost:3473
-[dev] pyric-tools/register: active — firebase-admin/firebase imports now resolve to the pyric sandbox (PYRIC_SANDBOX=remote:http://localhost:3473).
+[dev] @pyric/cli/register: active — firebase-admin/firebase imports now resolve to the pyric sandbox (PYRIC_SANDBOX=remote:http://localhost:3473).
 [dev]
 [dev] > dev
 [dev] > node server.mjs
 [dev]
-[dev] pyric-tools/register: active — firebase-admin/firebase imports now resolve to the pyric sandbox (PYRIC_SANDBOX=remote:http://localhost:3473).
+[dev] @pyric/cli/register: active — firebase-admin/firebase imports now resolve to the pyric sandbox (PYRIC_SANDBOX=remote:http://localhost:3473).
 [dev] pyric: firebase-admin routed to sandbox at http://localhost:3473
 [dev] api listening on http://localhost:8080
 ```
@@ -116,12 +114,12 @@ Three small pieces, nothing hidden:
 
 1. **Activator**: `pyric dev` runs your dev command with
    `PYRIC_SANDBOX=remote:<serve url>` set and
-   `--import pyric-tools/register` appended to `NODE_OPTIONS`.
-2. **Loader**: `pyric-tools/register` rewrites module resolution:
+   `--import @pyric/cli/register` appended to `NODE_OPTIONS`.
+2. **Loader**: `@pyric/cli/register` rewrites module resolution:
    `firebase-admin/*` → `pyric-admin/*` and `firebase/*` → `pyric/*`,
-   every subpath 1:1. Without `PYRIC_SANDBOX` it is completely inert, and
-   `pyric-admin`'s bare `initializeApp()` delegates straight to the real
-   `firebase-admin`: same code, prod behavior.
+   every subpath 1:1. Without `PYRIC_SANDBOX` it is completely inert, so
+   canonical imports resolve to `firebase-admin` directly and `pyric-admin`
+   never loads.
 3. **Bridge**: each Firebase call becomes an op relayed over a local
    WebSocket to `pyric dev`, then into the browser tab, where the sandbox
    runs in a SharedWorker. Your server, the page's `firebase/*` code,
@@ -183,7 +181,7 @@ running elsewhere:
 
 ```bash
 PYRIC_SANDBOX=remote \
-NODE_OPTIONS="--import pyric-tools/register" \
+NODE_OPTIONS="--import @pyric/cli/register" \
 node server.mjs
 ```
 
@@ -198,7 +196,7 @@ start your dev server with the bridge enabled and retry.``
 purpose instead of env-var routing:
 
 ```ts
-import { connectRemoteSandbox } from 'pyric-tools/remote';
+import { connectRemoteSandbox } from '@pyric/cli/remote';
 import { initializeApp } from 'pyric-admin/app';
 import { getDatabase } from 'pyric-admin/database';
 
@@ -214,7 +212,7 @@ code keeps full control even under `pyric dev`.
 
 **Production guard.** Under `NODE_ENV=production` both the loader and
 `pyric-admin` refuse to route to a sandbox: the loader prints
-`pyric-tools/register: refusing to activate under NODE_ENV=production —
+`@pyric/cli/register: refusing to activate under NODE_ENV=production —
 firebase-admin/firebase imports are NOT rewritten.` and your app talks to
 real Firebase. Set `PYRIC_SANDBOX_FORCE=1` to override (dev/CI only).
 

@@ -66,10 +66,15 @@ jobs:
         # CI and local can't drift.
         run: bash scripts/build.sh
 
-      - name: Install Chromium for served app conformance
-        # The app-registry claims include real browser/SharedWorker behavior;
-        # unit tests cannot prove cross-tab sessions or worker-port teardown.
-        run: bun x playwright install --with-deps chromium
+      - name: Install Chromium for browser gates
+        run: bunx playwright install --with-deps chromium
+
+      - name: Documentation generation, drift, links, and site build
+        # API markdown is generated from the declarations named by each
+        # package export map. The site test re-ports authored sources, builds
+        # every route and Markdown twin, verifies the output/link inventory,
+        # and runs the documentation-rhythm audit.
+        run: bun run docs:api:check && bun run --cwd packages/site-docs test
 
       - name: Served app + SharedWorker conformance
         # Runs the canonical firebase/* swap through pyric dev, including named

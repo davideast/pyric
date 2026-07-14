@@ -1,5 +1,5 @@
 /** Firebase-compatible client app registry backed by one local sandbox. */
-import type { FirebaseApp, FirebaseAppSettings, FirebaseOptions } from 'firebase/app';
+import type { FirebaseApp, FirebaseAppSettings, FirebaseOptions } from './types.js';
 import {
   attachSandboxApp,
   installDefaultAppResolver,

@@ -13,7 +13,7 @@
  * injection + the simulated service-worker registration); it has no
  * upstream counterpart and is additive to the mirrored surface.
  */
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import {
   defaultRegistration,
   deliverToMessaging,

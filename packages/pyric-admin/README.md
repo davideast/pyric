@@ -1,27 +1,28 @@
-# pyric-admin
+# `pyric-admin`
 
-Firebase Admin-shaped adapters that can run against either a Pyric sandbox or
-real Firebase Admin SDK backends.
+Firebase Admin-shaped adapters for a Pyric sandbox.
 
-Use `pyric-admin` when you want server/admin ergonomics while keeping the same
-backend-selection model as the client package.
+Use these subpaths when tests, development servers, or scripts need
+`firebase-admin` ergonomics against local or browser-hosted sandbox state. In
+activated development, `@pyric/cli/register` resolves canonical
+`firebase-admin/*` imports here. With activation absent, production execution
+loads `firebase-admin` directly.
 
-> **Alpha.** This package is an early alpha. The admin-shaped subpaths are
-> best-effort mirror contracts of `firebase-admin` — not guaranteed parity.
-> Any exported surface beyond the mirrored shapes is experimental public-alpha
-> and may change without notice.
+> **Alpha.** These are best-effort mirror contracts of `firebase-admin`. Read
+> the conformance matrices and service references for implemented behaviour and
+> explicit gaps.
 
 ## Subpaths
 
-| Subpath | Surface |
+| Subpath | Sandbox surface |
 |---|---|
-| `pyric-admin/app` | Admin app initialization for sandbox or production |
-| `pyric-admin/firestore` | Admin Firestore shape over sandbox or `firebase-admin/firestore` |
-| `pyric-admin/auth` | Admin Auth shape over sandbox or `firebase-admin/auth` |
-| `pyric-admin/database` | Admin Realtime Database shape over sandbox or `firebase-admin/database` |
-| `pyric-admin/storage` | Admin Storage shape over sandbox or `firebase-admin/storage` |
+| `pyric-admin/app` | Admin app registry and sandbox binding |
+| `pyric-admin/firestore` | Admin Firestore shape |
+| `pyric-admin/auth` | Admin Auth shape |
+| `pyric-admin/database` | Admin Realtime Database shape |
+| `pyric-admin/storage` | Admin Storage shape |
 
-## Example
+## Explicit sandbox setup
 
 ```ts
 import { initializeApp } from 'pyric-admin/app';
@@ -34,16 +35,14 @@ const db = getFirestore(app);
 await db.collection('posts').doc('hello').set({ title: 'Hello' });
 ```
 
-Production apps pass normal Firebase Admin credentials:
+For unchanged server source, keep `firebase-admin/*` imports and run the
+development command through `pyric dev`. Production runs the same source
+without sandbox activation and therefore resolves Firebase Admin directly.
 
-```ts
-import { initializeApp, cert } from 'pyric-admin/app';
+## Documentation
 
-const app = initializeApp({
-  credential: cert(serviceAccount),
-});
-```
-
-## Docs
-
-- [Firestore docs](docs/firestore/)
+- [App registry and activation](docs/app/)
+- [Firestore](docs/firestore/)
+- [Auth API](docs/auth/reference/api.md)
+- [Realtime Database API](docs/database/reference/api.md)
+- [Storage API](docs/storage/reference/api.md)

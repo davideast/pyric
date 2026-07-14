@@ -1,7 +1,7 @@
 /** Node register adapter for canonical `firebase/app` imports. */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { FirebaseApp, FirebaseAppSettings, FirebaseOptions } from 'firebase/app';
+import type { FirebaseApp, FirebaseAppSettings, FirebaseOptions } from './types.js';
 import { setRules } from 'pyric/sandbox/firestore';
 import { initializeSandbox } from '../sandbox/index.js';
 import {

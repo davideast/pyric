@@ -1,5 +1,5 @@
 /** App-owned runtime state behind the neutral sandbox adapter seam. */
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from './types.js';
 import {
   installClientAppAdapter,
   type ClientAppRuntime,

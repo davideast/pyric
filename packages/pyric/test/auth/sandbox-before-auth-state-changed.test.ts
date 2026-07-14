@@ -19,8 +19,7 @@
  *
  * Covers the sign-in paths that exist in `pyric/auth` today:
  * `signInAnonymously`, `signInWithEmailAndPassword`,
- * `createUserWithEmailAndPassword`, and `signOut`. (`pyric/auth` has no
- * `signInWithCustomToken` yet — nothing to gate there.)
+ * `createUserWithEmailAndPassword`, `signInWithCustomToken`, and `signOut`.
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';

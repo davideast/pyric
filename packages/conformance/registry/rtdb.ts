@@ -729,13 +729,13 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface (Phase 3)",
           "behavior": "`update(rootRef, { '/a/x': v1, '/b/y': v2 })` is a multi-path atomic write — all paths land or none do",
           "status": "conforms",
-          "evidence": "Sandbox aligned: `unit:modular/sandbox-target.test.ts` (\"writes every listed path atomically\" + \"rejects the entire update if rules deny any one path\"); matches the matrix #23 prod contract",
+          "evidence": "`unit:upstream-rtdb-probes.test.ts` (\"one update nulls, mutates, and displaces within a limitToFirst window\") + `unit:modular/sandbox-target.test.ts` (atomic multipath + rules denial); matches the matrix #23 prod contract",
           "risk": ["sentinel", "atomicity"],
           "riskScore": 4,
           "riskReasons": ["asserts sentinel or atomic transform semantics", "asserts transaction/batch atomicity"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/modular/sandbox-target.test.ts"]
+          "conformanceTests": ["packages/pyric/test/database/upstream-rtdb-probes.test.ts", "packages/pyric/test/database/modular/sandbox-target.test.ts"]
         },
         {
           "id": "rtdb-modular#M16",
@@ -1107,13 +1107,13 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface (Phase 3)",
           "behavior": "`onChildRemoved` has NO initial replay; fires once when a direct child is deleted (via `remove(child)` or `set(child, null)`); snapshot carries the PRIOR (now-removed) value",
           "status": "conforms",
-          "evidence": "Sandbox aligned: `unit:modular/sandbox-child-events.test.ts` (\"fires once when a child is deleted via remove(); snapshot carries PRIOR val\" + \"fires once when a child is deleted via set(child, null); snapshot carries PRIOR val\"); matches oracle observation `packages/conformance/observations/rtdb-modular/rtdb-modular-onchildremoved-fires-on-delete.json` (`firedOnInitial: 0, firedOnDelete: 1, removedSnapCarriesPriorValue: true`).",
+          "evidence": "`unit:upstream-rtdb-probes.test.ts` (parent wipe fan-out via remove(parent) / set(parent, scalar)) + `unit:modular/sandbox-child-events.test.ts` (single-child delete carries PRIOR val); matches oracle `rtdb-modular-onchildremoved-fires-on-delete.json`",
           "risk": ["listener-fire-count", "listener"],
           "riskScore": 4,
           "riskReasons": ["asserts a specific listener fire count", "asserts listener semantics"],
           "automation": "oracle-backed",
           "oracleObservations": ["rtdb-modular-onchildremoved-fires-on-delete"],
-          "conformanceTests": ["packages/pyric/test/database/modular/sandbox-child-events.test.ts"]
+          "conformanceTests": ["packages/pyric/test/database/upstream-rtdb-probes.test.ts", "packages/pyric/test/database/modular/sandbox-child-events.test.ts"]
         },
         {
           "id": "rtdb-modular#M46",
@@ -1251,13 +1251,13 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface (Phase 3)",
           "behavior": "`query(ref, ...constraints)` + ordering/range constraints",
           "status": "conforms",
-          "evidence": "Sandbox aligned: `unit:modular/queries.test.ts` covers `query(ref, orderByChild/Key/Value, startAt/After, endAt/Before, equalTo, limitToFirst/Last)` against the executor in `packages/pyric/src/database/sandbox/query.ts`; oracle observations under `packages/conformance/observations/rtdb-modular/rtdb-modular-{orderbychild-window,orderbykey-window,orderbyvalue-numeric,equalTo-filter,limittofirst-vs-limittolast,startafter-endbefore-exclusive,onvalue-with-query}.json` lock each constraint's behavior. See M49–M64 below for the per-claim breakdown.",
+          "evidence": "`unit:upstream-rtdb-probes.test.ts` (\"orderByChild('a/b') + limitToFirst orders by the nested path\") + `unit:modular/queries.test.ts` + oracle observations under `packages/conformance/observations/rtdb-modular/`; see M49–M64 for the per-claim breakdown.",
           "risk": ["cursor-inclusivity"],
           "riskScore": 2,
           "riskReasons": ["asserts cursor/boundary semantics"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/modular/queries.test.ts"]
+          "conformanceTests": ["packages/pyric/test/database/upstream-rtdb-probes.test.ts", "packages/pyric/test/database/modular/queries.test.ts"]
         },
         {
           "id": "rtdb-modular#M37",
@@ -1487,13 +1487,13 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface (Phase 3)",
           "behavior": "`query(ref, orderByChild(p), startAt(v), endAt(w))` window is BOTH-INCLUSIVE — children whose ordered field === `v` or === `w` are included",
           "status": "conforms",
-          "evidence": "Sandbox aligned: `unit:modular/queries.test.ts` (\"returns children whose ordered child is within [startAt, endAt] inclusive\"); matches oracle observation `packages/conformance/observations/rtdb-modular/rtdb-modular-orderbychild-window.json` (positions `[2,3,4]`, both ends inclusive).",
+          "evidence": "`unit:upstream-rtdb-probes.test.ts` (deep orderByChild nested path) + `unit:modular/queries.test.ts` (\"returns children whose ordered child is within [startAt, endAt] inclusive\"); matches oracle `rtdb-modular-orderbychild-window.json`",
           "risk": ["cursor-inclusivity"],
           "riskScore": 2,
           "riskReasons": ["asserts cursor/boundary semantics"],
           "automation": "oracle-backed",
           "oracleObservations": ["rtdb-modular-orderbychild-window"],
-          "conformanceTests": ["packages/pyric/test/database/modular/queries.test.ts"]
+          "conformanceTests": ["packages/pyric/test/database/upstream-rtdb-probes.test.ts", "packages/pyric/test/database/modular/queries.test.ts"]
         },
         {
           "id": "rtdb-modular#M50",
@@ -1505,13 +1505,13 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface (Phase 3)",
           "behavior": "`orderByKey()` orders children by RTDB `nameCompare` — integer-looking keys sort numerically FIRST (so `['1','2','10']`, not the lexicographic `['1','10','2']`), then non-integer keys lexicographically; `startAt`/`endAt` cursors + the optional `key` tie-breaker use the same order (DB-B4)",
           "status": "conforms",
-          "evidence": "Sandbox aligned: `unit:modular/queries.test.ts` (\"orderByKey + startAt(s) + endAt(e) yields keys in [s,e] inclusive\") + `unit:modular/name-compare.test.ts` (\"orderByKey sorts integer keys numerically, before non-integer keys\" + \"numeric-key cursor uses nameCompare bounds\"); matches oracle `rtdb-modular-orderbykey-window.json` and upstream `core/util/util.ts:253-276`.",
+          "evidence": "`unit:upstream-rtdb-probes.test.ts` (INT32 overflow/underflow cursors) + `unit:modular/queries.test.ts` + `unit:modular/name-compare.test.ts`; matches oracle `rtdb-modular-orderbykey-window.json` and upstream `core/util/util.ts:253-276`",
           "risk": ["cursor-inclusivity"],
           "riskScore": 2,
           "riskReasons": ["asserts cursor/boundary semantics"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/modular/name-compare.test.ts", "packages/pyric/test/database/modular/queries.test.ts"]
+          "conformanceTests": ["packages/pyric/test/database/upstream-rtdb-probes.test.ts", "packages/pyric/test/database/modular/name-compare.test.ts", "packages/pyric/test/database/modular/queries.test.ts"]
         },
         {
           "id": "rtdb-modular#M51",
@@ -1649,13 +1649,13 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface (Phase 3)",
           "behavior": "`onValue(query, cb)` only fires when the windowed result changes — writes OUTSIDE the window don't re-fire the listener; writes that displace a member DO",
           "status": "conforms",
-          "evidence": "Sandbox aligned: `unit:modular/queries.test.ts` (\"fires only when the windowed result changes\"); matches oracle observation `packages/conformance/observations/rtdb-modular/rtdb-modular-onvalue-with-query.json` (3 fires: initial + INSIDE-window write + displacing write; OUTSIDE-window write skipped).",
+          "evidence": "`unit:upstream-rtdb-probes.test.ts` (\"one update nulls, mutates, and displaces within a limitToFirst window\") + `unit:modular/queries.test.ts` (\"fires only when the windowed result changes\"); matches oracle `rtdb-modular-onvalue-with-query.json`",
           "risk": ["listener"],
           "riskScore": 2,
           "riskReasons": ["asserts listener semantics"],
           "automation": "oracle-backed",
           "oracleObservations": ["rtdb-modular-onvalue-with-query"],
-          "conformanceTests": ["packages/pyric/test/database/modular/queries.test.ts"]
+          "conformanceTests": ["packages/pyric/test/database/upstream-rtdb-probes.test.ts", "packages/pyric/test/database/modular/queries.test.ts"]
         },
         {
           "id": "rtdb-modular#M59",

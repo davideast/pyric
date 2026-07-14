@@ -1,0 +1,59 @@
+{
+  "name": "functions-rtdb-onvaluecreated-wildcard-batches",
+  "matrixRow": "functions-rtdb #4, #5, #7, #13",
+  "rowIds": [
+    "functions-rtdb#4",
+    "functions-rtdb#5",
+    "functions-rtdb#7",
+    "functions-rtdb#13"
+  ],
+  "description": "Named wildcards are captured for one child, an ancestor fan-out, a multi-location update, and three sequential creates whose arrival order is recorded without making it a guarantee.",
+  "observedAt": "2026-07-14T05:07:11.848Z",
+  "functionsSdkVersion": "7.2.5",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "single": {
+      "deliveryCount": 1,
+      "params": {
+        "caseId": "single",
+        "itemId": "itemA",
+        "runIdPresent": true
+      },
+      "value": {
+        "marker": "single"
+      }
+    },
+    "fanout": {
+      "deliveryCount": 2,
+      "itemIds": [
+        "alpha",
+        "beta"
+      ],
+      "values": [
+        "fanout-a",
+        "fanout-b"
+      ]
+    },
+    "multipath": {
+      "deliveryCount": 2,
+      "itemIds": [
+        "delta",
+        "gamma"
+      ],
+      "values": [
+        "multi-a",
+        "multi-b"
+      ]
+    },
+    "ordering": {
+      "deliveryCount": 3,
+      "observedArrival": [
+        2,
+        1,
+        3
+      ],
+      "guaranteed": false
+    }
+  }
+}

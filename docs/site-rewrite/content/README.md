@@ -46,7 +46,9 @@ Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3.
 
 ## What re-hanging means
 
-The deep existing pages (the rules how-tos, the sandbox how-tos, the deploy tree, the reference trees) are not rewritten here. The new pages above are the doorways and the connective tissue; they link into the existing pages, which get re-shelved under these sections when the generator's nav plan is remapped. Prose-level voice cleanup of those older pages is a later, separate pass.
+The package how-tos, explanations, and reference trees provide the depth behind
+these guide pages. The site porter shelves both sets beneath one outcome-first
+navigation model and rewrites links from authored sources.
 
 ## Review guide
 

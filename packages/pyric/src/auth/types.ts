@@ -10,7 +10,7 @@
  */
 
 import type { Target } from './target.js';
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 
 /** Branded handle for {@link Auth}. Set on every handle returned by
  *  {@link getAuth}; consumers don't read it. Exposed only so the

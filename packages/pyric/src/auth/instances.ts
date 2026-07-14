@@ -1,5 +1,5 @@
 /** Auth instance ownership: one handle/session per app over one project store. */
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox } from 'pyric/sandbox';
 import {
   defaultClientApp,

@@ -250,8 +250,18 @@ function decodeString(
   const payload = value.slice(comma + 1);
   const isB64 = header.endsWith(';base64');
   const mime = (isB64 ? header.slice(0, -7) : header) || 'application/octet-stream';
-  const bytes = isB64 ? base64ToBytes(payload) : new TextEncoder().encode(decodeURIComponent(payload));
-  return { bytes, inferredType: mime };
+  if (isB64) {
+    return { bytes: base64ToBytes(payload), inferredType: mime };
+  }
+  // Upstream `percentEncodedBytes_` maps decode failures to
+  // storage/invalid-format (string.test.ts: `data:,%%0`).
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(payload);
+  } catch {
+    throw invalidFormat('data_url', 'Malformed data URL.');
+  }
+  return { bytes: new TextEncoder().encode(decoded), inferredType: mime };
 }
 
 function base64ToBytes(b64: string): Uint8Array {

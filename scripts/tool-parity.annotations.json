@@ -29,25 +29,13 @@
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
-    "firestore_discover_paths": {
-      "decision": "deliberate",
-      "reason": "production-project discovery is excluded from the local MCP contract and is scheduled for removal from @pyric/cli"
-    },
     "firestore_extract_indexes": {
       "decision": "deliberate",
       "reason": "artifact generation is exposed through `pyric firestore indexes generate`; external agents can invoke the CLI without a duplicate MCP tool"
     },
-    "firestore_find_collection_group": {
-      "decision": "deliberate",
-      "reason": "production-project discovery is excluded from the local MCP contract and is scheduled for removal from @pyric/cli"
-    },
     "firestore_get_document": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_inspect_rules": {
-      "decision": "deliberate",
-      "reason": "production rules inspection is excluded from the local MCP contract; Playground exposure remains explicitly project-gated"
     },
     "firestore_lint_rules": {
       "decision": "deliberate",

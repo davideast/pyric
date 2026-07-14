@@ -9,14 +9,13 @@
  *     getSignedUrl shape, multi-bucket isolation, reset clears state.
  */
 
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 
 import { initializeSandbox } from 'pyric/sandbox';
 
 import {
   ADMIN_APP_TARGET,
   type PyricAdminApp,
-  type ProdAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
 import { getStorage } from './index.js';
@@ -38,44 +37,6 @@ function sandboxAdminApp(): SandboxAdminApp {
     name: 'storage-test',
   };
 }
-
-/** Minimal prod-shaped `PyricAdminApp` — opaque `adminApp` is enough
- *  to verify the dispatch reaches `firebase-admin/storage`. */
-function prodAdminApp(): ProdAdminApp {
-  return {
-    [ADMIN_APP_TARGET]: 'prod',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    adminApp: { name: '[DEFAULT]', options: { projectId: 'test-project' } } as any,
-    name: 'storage-test-prod',
-  };
-}
-
-// ── Prod dispatch ─────────────────────────────────────────────────────
-
-describe('pyric-admin/storage — prod dispatch', () => {
-  it('dispatches to firebase-admin/storage when the app is prod-branded', async () => {
-    // Mock firebase-admin/storage so the test stays hermetic. Bun's
-    // `mock.module` applies to subsequent imports — re-import the
-    // module under test dynamically so it picks up the mock.
-    const sentinel = { __sentinel: 'prod-storage-handle' };
-    const getStorageMock = mock(() => sentinel);
-
-    mock.module('firebase-admin/storage', () => ({
-      getStorage: getStorageMock,
-    }));
-
-    const { getStorage: getStorageUnderTest } = await import(
-      `./index.js?prod-dispatch=${Date.now()}`
-    );
-
-    const app = prodAdminApp();
-    const out = getStorageUnderTest(app);
-
-    expect(out).toBe(sentinel);
-    expect(getStorageMock).toHaveBeenCalledTimes(1);
-    expect(getStorageMock).toHaveBeenCalledWith(app.adminApp);
-  });
-});
 
 // ── Sandbox backend ───────────────────────────────────────────────────
 

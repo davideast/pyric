@@ -832,9 +832,8 @@ describe('Tier 1 surface — equality + emulator + scalar re-exports', () => {
     expect(typeof mod.GeoPoint).toBe('function');
     expect(typeof mod.FieldPath).toBe('function');
     expect(typeof mod.documentId).toBe('function');
-    // documentId() returns a FieldPath sentinel — verify it's a value
-    // (the actual where() integration is tested separately when the
-    // simulator grows documentId support).
+    // documentId() returns a FieldPath sentinel; where()/orderBy() wiring
+    // is covered by unit:upstream-query-probes.test.ts.
     const fp = mod.documentId();
     expect(fp).toBeDefined();
   });

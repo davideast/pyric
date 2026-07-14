@@ -3,7 +3,7 @@ import {
   defaultClientApp,
   resolveClientAppIncludingDeleted,
 } from '../sandbox/internal/client-app.js';
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import { Backend, BackendType, GoogleAIBackend, VertexAIBackend } from './backend.js';
 import { AiBroker } from './broker/broker.js';

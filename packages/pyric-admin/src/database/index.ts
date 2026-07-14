@@ -1,22 +1,9 @@
 /**
- * `pyric-admin/database` — Phase 3 dispatch + Phase 4b sandbox backend.
+ * `pyric-admin/database` — sandbox mirror for the admin-shape RTDB surface.
  *
  * Mirrors `firebase-admin/database` for the admin-shape RTDB surface,
- * with backend dispatch on the {@link PyricAdminApp} brand
- * (ADR-001 D6 — every `pyric-admin/*` subpath dispatches on
- * `ADMIN_APP_TARGET`):
- *
- *   - **Prod path** (`ADMIN_APP_TARGET === 'prod'`) — `getDatabase`
- *     delegates to `firebase-admin/database`. The returned
- *     `Database` / `Reference` instances are the genuine firebase-admin
- *     objects, so every instance method (`set`, `get`, `update`,
- *     `remove`, `push`, `transaction`, `onDisconnect`, `child`, query
- *     builders, …) is present and identical in behavior to calling
- *     firebase-admin directly.
- *
- *   - **Sandbox path** (`ADMIN_APP_TARGET === 'sandbox'`) — a minimal
- *     in-memory RTDB implemented in this file. Backs the load-bearing
- *     data-plane subset:
+ * selected by the sandbox brand on {@link PyricAdminApp}. The local path is
+ * an in-memory RTDB implementing this load-bearing data-plane subset:
  *
  *       - `Database.ref(path?)` returns a {@link Reference}.
  *       - `Reference#set(value)` writes into the in-memory tree.
@@ -84,20 +71,6 @@
  *     sends it with the `rtdb.push` op (the worker-protocol contract).
  */
 
-import type { App } from 'firebase-admin/app';
-import {
-  getDatabase as adminGetDatabase,
-  getDatabaseWithUrl as adminGetDatabaseWithUrl,
-} from 'firebase-admin/database';
-import type {
-  Database as AdminDatabase,
-  Reference as AdminReference,
-  DataSnapshot as AdminDataSnapshot,
-  ThenableReference as AdminThenableReference,
-  Query as AdminQuery,
-  OnDisconnect as AdminOnDisconnect,
-  EventType as AdminEventType,
-} from 'firebase-admin/database';
 import {
   isRemoteSandbox,
   type RemoteSandbox,
@@ -112,53 +85,79 @@ import {
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 
-// Re-export the firebase-admin/database types so consumers can spell
-// every type with a `pyric-admin/database` import path. The sandbox
-// backend's `Database` / `Reference` / `DataSnapshot` implement the
-// load-bearing subset of these shapes; the prod path returns the
-// genuine firebase-admin instances unchanged.
-export type {
-  AdminDatabase as Database,
-  AdminReference as Reference,
-  AdminDataSnapshot as DataSnapshot,
-  AdminThenableReference as ThenableReference,
-  AdminQuery as Query,
-  AdminOnDisconnect as OnDisconnect,
-  AdminEventType as EventType,
-};
+/** Mirror-owned structural types for the implemented admin RTDB surface. */
+export type EventType = 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
+export interface Database {
+  ref(path?: string): Reference;
+  refFromURL(url: string): Reference;
+  goOffline(): void;
+  goOnline(): void;
+  getRules(): Promise<string>;
+  getRulesJSON(): Promise<object>;
+  setRules(source: string | object): Promise<void>;
+  readonly app: unknown;
+}
+export interface DataSnapshot {
+  readonly key: string | null;
+  readonly ref: Reference;
+  val(): unknown;
+  exists(): boolean;
+  child(path: string): DataSnapshot;
+  hasChild(path: string): boolean;
+  hasChildren(children?: string[]): boolean;
+  numChildren(): number;
+  forEach(action: (child: DataSnapshot) => boolean | void): boolean;
+  exportVal(): unknown;
+  getPriority(): string | number | null;
+  toJSON(): unknown;
+}
+export interface Reference {
+  readonly key: string | null;
+  readonly parent: Reference | null;
+  readonly root: Reference;
+  readonly database: Database;
+  readonly ref: Reference;
+  toString(): string;
+  get(): Promise<DataSnapshot>;
+  once(eventType: EventType, successCallback?: (snapshot: DataSnapshot) => unknown, failureCallback?: (error: Error) => unknown): Promise<DataSnapshot>;
+  set(value: unknown, onComplete?: (error: Error | null) => void): Promise<void>;
+  update(values: object, onComplete?: (error: Error | null) => void): Promise<void>;
+  remove(onComplete?: (error: Error | null) => void): Promise<void>;
+  push(value?: unknown, onComplete?: (error: Error | null) => void): ThenableReference;
+  child(path: string): Reference;
+  on(eventType: EventType, callback: (snapshot: DataSnapshot, previousChildKey?: string | null) => unknown, cancelCallback?: (error: Error) => unknown): unknown;
+  off(eventType?: EventType, callback?: (snapshot: DataSnapshot, previousChildKey?: string | null) => unknown): void;
+  [key: string]: unknown;
+}
+export type ThenableReference = Reference & PromiseLike<Reference>;
+export type Query = Reference;
+export interface OnDisconnect { [key: string]: unknown }
+
+type AdminDatabase = Database;
+type AdminReference = Reference;
+type AdminDataSnapshot = DataSnapshot;
+type AdminThenableReference = ThenableReference;
+type AdminEventType = EventType;
 
 /**
  * Returns the {@link AdminDatabase} service for the supplied app.
  *
- * Signature mirrors `firebase-admin/database`'s `getDatabase(app?)` and
- * `getDatabaseWithUrl(url, app)` collapsed into a single function:
+ * Signature mirrors `firebase-admin/database`'s `getDatabase(app?)`.
  *
  *   - `getDatabase()` — default database for the DEFAULT app (resolved
  *     through `pyric-admin/app`'s registry, exactly like firebase-admin's
  *     no-arg `getDatabase()`; throws `app/no-app` when no default app has
- *     been initialized). Works on all three arms — local sandbox, remote
- *     sandbox, and prod — since it dispatches on whatever brand the
- *     registered default app carries.
+ *     been initialized). Works for local and remote sandbox apps.
  *   - `getDatabase(app)` — default database for the app.
- *   - `getDatabase(app, url)` — database at the explicit URL (delegates
- *     to firebase-admin's `getDatabaseWithUrl` on the prod path; the
- *     sandbox path ignores `url` since the sandbox has no notion of
- *     multiple database instances per project).
+ *   - `getDatabase(app, url)` — legacy Pyric-only compatibility form. New
+ *     code should use the upstream-shaped {@link getDatabaseWithUrl} export.
  *
- * Backend dispatch is by `ADMIN_APP_TARGET` brand on the
- * {@link PyricAdminApp} handle:
- *
- *   - `'prod'` → delegates to `firebase-admin/database`. The returned
- *     object is the genuine firebase-admin `Database`, so every
- *     instance method (`ref`, query builders, `getRules` / `setRules`,
- *     transactions, …) works unchanged.
- *
- *   - `'sandbox'` → returns the minimal in-memory `Database` backed by
- *     the per-`Sandbox` state described in the module-level docs.
+ * The sandbox brand returns the local or remote `Database` backed by the
+ * per-`Sandbox` state described in the module-level docs.
  */
 export function getDatabase(
   app?: PyricAdminApp,
-  url?: string,
+  _url?: string,
 ): AdminDatabase {
   if (app === undefined) {
     // No-arg mirror of firebase-admin's `getDatabase()` — resolve the
@@ -166,11 +165,6 @@ export function getDatabase(
     app = getApp();
   }
   assertAdminAppActive(app);
-  if (app[ADMIN_APP_TARGET] === 'prod') {
-    return url === undefined
-      ? adminGetDatabase(app.adminApp)
-      : adminGetDatabaseWithUrl(url, app.adminApp);
-  }
   if (app[ADMIN_APP_TARGET] === 'sandbox') {
     return getSandboxDatabase(app.sandbox);
   }
@@ -178,6 +172,22 @@ export function getDatabase(
     'pyric-admin/database: getDatabase expected a PyricAdminApp ' +
       '(initialize via `initializeApp` from pyric-admin/app).',
   );
+}
+
+/**
+ * Returns the {@link AdminDatabase} service selected by an upstream-shaped
+ * database URL.
+ *
+ * This is the exact `firebase-admin/database` argument order used by the
+ * Firebase Functions SDK: `getDatabaseWithUrl(url, app?)`. The first Pyric
+ * Functions slice has one shared RTDB instance, so the URL selects that
+ * instance rather than creating a second sandbox database.
+ */
+export function getDatabaseWithUrl(
+  _url: string,
+  app?: PyricAdminApp,
+): AdminDatabase {
+  return getDatabase(app);
 }
 
 // ─── Sandbox backend ─────────────────────────────────────────────────
@@ -299,7 +309,7 @@ function buildDatabaseShell(
     // `app` is required on the firebase-admin Database interface; the
     // sandbox doesn't carry a firebase-admin App, so we stub it. The
     // load-bearing data-plane methods above don't read it.
-    app: undefined as unknown as App,
+    app: undefined,
   };
   return db as unknown as AdminDatabase;
 }

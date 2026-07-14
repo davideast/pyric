@@ -69,7 +69,7 @@ rhythm.
 
 ```bash
 # pre + pre: two code blocks at the group beat
-pyric rules:lint firestore.rules
+pyric firestore rules lint firestore.rules
 ```
 
 ## Blockquote

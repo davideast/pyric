@@ -4,8 +4,7 @@
  * This is the internal composition seam for traversal, grouping, schema
  * inference, convergence, tool handlers, and sandbox adapters. It must remain
  * importable without production REST, auth/token modules, or Firebase SDKs.
- * The public `@pyric/cli/discover` entry exposes only this retained module;
- * the production adapter lives at a separate temporary entry for issue #265.
+ * The public `@pyric/cli/discover` entry exposes only this retained module.
  */
 
 export type {

@@ -1,4 +1,4 @@
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import { bindOperationContext } from 'pyric/sandbox/internal';
 import {
   defaultClientApp,

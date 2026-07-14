@@ -9,7 +9,8 @@ order: 19008
 
 Every public export of the subpath, grouped by purpose. This page is the map; the sibling pages carry the depth ([`onSnapshot` overloads](../pyric-admin-firestore-reference-onsnapshot/), [`SandboxFirestore` surface](../pyric-admin-firestore-reference-sandbox-firestore/), [Re-exported types](../pyric-admin-firestore-reference-re-exported-types/)).
 
-One arm difference to know before anything else: unlike `pyric-admin/{auth,database,storage}`, this subpath has **no production arm**. It runs against a sandbox, local or remote. A prod app throws with a pointer to use `firebase-admin/firestore` directly, which already covers production.
+This subpath runs against a sandbox, local or remote. Production execution
+loads `firebase-admin/firestore` directly with Pyric activation absent.
 
 ---
 
@@ -22,7 +23,7 @@ function getFirestore(target?: SandboxContext | PyricAdminApp): SandboxFirestore
 Resolve the rules-applied Firestore handle. Three input shapes:
 
 - **`getFirestore(ctx)`** with a `SandboxContext`: the load-bearing form. Operations run under the context's captured identity. Anonymous is `sandbox.withAuth(null)`, written explicitly, so every call site states identity. Idempotent: repeat calls with the same context return the same handle (cached in a `WeakMap`).
-- **`getFirestore(app)`** with a `PyricAdminApp`: resolves the app's sandbox as `sandbox.withAuth(null)`. The resulting handle is **anonymous**. For a specific identity, use the context form. A prod app throws: the in-process backend does not model firebase-admin's real Firestore; use `firebase-admin/firestore` directly for production.
+- **`getFirestore(app)`** with a `PyricAdminApp`: resolves the app's sandbox as `sandbox.withAuth(null)`. The resulting handle is **anonymous**. For a specific identity, use the context form.
 - **`getFirestore()`**: resolves the `'[DEFAULT]'` app from `pyric-admin/app`'s registry (throws `app/no-app` when nothing is initialized), then behaves like the app form.
 
 **Remote arm.** A remote-branded sandbox (a Node handle onto the browser-hosted worker sandbox) gets a channel-backed handle instead of the in-process engine. The context's frozen auth pins the per-operation lens: `withAuth(null)` pins `{ mode: 'anon' }`, and a signed identity pins `{ mode: 'as', uid, token? }` with the full claims token, so custom claims evaluate in rules exactly as on the local arm.

@@ -235,8 +235,10 @@ describe('getBytes / getBlob', () => {
     const storage = freshStorage('size-cap');
     const r = ref(storage, 'big.bin');
     await uploadBytes(r, new Uint8Array(1024));
-    await expect(getBytes(r, 512)).rejects.toThrow(/quota-exceeded/);
-    // Just under the cap → ok.
+    // Upstream truncates; does not throw (COMPAT #55).
+    const truncated = await getBytes(r, 512);
+    expect(truncated.byteLength).toBe(512);
+    // Just under the cap → full object.
     const ok = await getBytes(r, 2048);
     expect(ok.byteLength).toBe(1024);
   });

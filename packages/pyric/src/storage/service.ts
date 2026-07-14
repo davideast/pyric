@@ -20,7 +20,7 @@
  */
 import { SandboxContextImpl } from 'pyric/sandbox';
 import type { AuthState, EventProvenance, Sandbox, SandboxContext } from 'pyric/sandbox';
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import {
   bindOperationContext,
   provenanceForOperationContext,

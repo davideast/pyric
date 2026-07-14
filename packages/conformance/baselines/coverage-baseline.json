@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T08:47:05.093Z",
+  "generatedAt": "2026-07-14T17:49:17.905Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -45,6 +45,9 @@
         "total": 100,
         "intended": 100
       }
+    },
+    "functions-rtdb": {
+      "integration": true
     },
     "firestore-rules": {
       "native": true
@@ -248,7 +251,7 @@
     "auth#68": "conforms",
     "auth#75": "conforms",
     "auth#61": "unsupported",
-    "auth#62": "unsupported",
+    "auth#62": "conforms",
     "auth#76": "conforms",
     "auth#76a": "conforms",
     "auth#76b": "conforms",
@@ -686,7 +689,7 @@
     "storage#32": "conforms",
     "storage#33": "conforms",
     "storage#34": "conforms",
-    "storage#35": "unverified",
+    "storage#35": "conforms",
     "storage#36": "conforms",
     "storage#37": "conforms",
     "storage#38": "conforms",
@@ -706,7 +709,7 @@
     "storage#52": "conforms",
     "storage#53": "conforms",
     "storage#54": "conforms",
-    "storage#55": "diverged-documented",
+    "storage#55": "conforms",
     "storage#56": "conforms",
     "storage#57": "conforms",
     "storage#58": "conforms",
@@ -806,6 +809,19 @@
     "messaging-admin#37": "conforms",
     "messaging-admin#38": "conforms",
     "messaging-admin#39": "conforms",
+    "functions-rtdb#1": "unverified",
+    "functions-rtdb#2": "unverified",
+    "functions-rtdb#3": "unverified",
+    "functions-rtdb#4": "unverified",
+    "functions-rtdb#5": "unverified",
+    "functions-rtdb#6": "unverified",
+    "functions-rtdb#7": "unverified",
+    "functions-rtdb#8": "unverified",
+    "functions-rtdb#9": "unverified",
+    "functions-rtdb#10": "unverified",
+    "functions-rtdb#11": "unverified",
+    "functions-rtdb#12": "unverified",
+    "functions-rtdb#13": "unverified",
     "firestore-rules#160": "conforms",
     "firestore-rules#161": "diverged-documented",
     "firestore-rules#162": "conforms",

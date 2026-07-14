@@ -1,50 +1,49 @@
-# pyric
+# `pyric`
 
-Firebase-shaped client SDK adapters with a swappable in-process sandbox
-backend, plus Pyric's rules tooling and sandbox runtime.
+Firebase-shaped Web SDK mirrors backed by an in-process sandbox, plus Security
+Rules tooling and explicit sandbox controls.
 
-> **Alpha.** This package is an early alpha. The Firebase-mirrored subpaths
-> (`pyric/app`, `pyric/firestore`, `pyric/auth`, `pyric/database`,
-> `pyric/storage`) are best-effort mirror contracts of the modular Web SDK —
-> not guaranteed parity. Non-mirrored exports (e.g. `pyric/sandbox/internal`,
-> the rules tooling subpaths) are experimental public-alpha surfaces that may
-> change without notice.
+> **Alpha.** Mirrored subpaths are best-effort Firebase contracts. Read the
+> generated conformance scores and service matrices for measured coverage,
+> fidelity, and known gaps. Pyric-specific sandbox APIs are public alpha.
 
-`pyric` mirrors Firebase's modular Web SDK subpaths:
+## Public service fronts
 
 | Subpath | Surface |
 |---|---|
-| `pyric/app` | Firebase-shaped `initializeApp`, `getApp`, `getApps`, and `deleteApp` |
-| `pyric/firestore` | Firestore modular SDK mirror plus data/inspect tool factories |
-| `pyric/auth` | Auth modular SDK mirror plus sandbox auth helpers |
-| `pyric/database` | Realtime Database modular SDK mirror plus admin tools |
-| `pyric/storage` | Storage modular SDK mirror plus storage admin tools |
-| `pyric/rules` | Firestore rules parser, linter, validator, simulator, stdlib tooling |
-| `pyric/rules/node` | Node-only rules module resolution helpers |
-| `pyric/rules/rtdb` | Realtime Database rules facade: mapper, parser/linter, simulator, deploy/read rule tool factory |
-| `pyric/rules/rtdb-constraints` | Realtime Database rules constraint helpers |
-| `pyric/sandbox` | In-process Firebase sandbox runtime |
-| `pyric/sandbox/database` | Owner controls for local RTDB rules, seed data, and state snapshots |
-| `pyric/sandbox/internal` | Adapter-only internal protocol surface |
-| `pyric/sandbox/admin-compat` | Chainable admin-compat Firestore wrapper over the sandbox |
+| `pyric/app` | Firebase-shaped default and named app registry |
+| `pyric/firestore` | Firestore modular mirror and data/inspection tools |
+| `pyric/auth` | Auth modular mirror and sandbox auth helpers |
+| `pyric/database` | Realtime Database modular mirror |
+| `pyric/storage` | Storage modular mirror and rules-aware sandbox tools |
+| `pyric/rules` | Firestore and RTDB rules lint, simulation, explanation, constraints, and standard library |
+| `pyric/firestore-values` | Firestore value helpers |
+| `pyric/sandbox` | Sandbox lifecycle, identity, events, persistence, and replay |
 
-## Example
+The package manifest is the authority for public exports, including the
+service-specific sandbox controls and adapter-only internal seams.
+
+## Explicit sandbox example
 
 ```ts
 import { initializeApp } from 'pyric/app';
-import { getFirestore, collection, getDocs } from 'pyric/firestore';
+import { collection, getDocs, getFirestore } from 'pyric/firestore';
 
 const app = initializeApp({ projectId: 'demo-project' });
 const db = getFirestore(app);
-
 const snap = await getDocs(collection(db, 'posts'));
 ```
 
-The same options and downstream call shapes work with `firebase/*`. Pyric
-currently accepts one Firebase configuration per runtime; named apps with
-equal options are distinct service containers connected to the same sandbox.
+Application code normally keeps canonical `firebase/*` imports.
+`@pyric/cli/vite`, `pyric dev`, or `@pyric/cli/register` activates development
+resolution to these mirrors. With activation absent, production loads Firebase
+directly; `pyric` contains no production dispatch.
 
-## Docs
+Pyric currently accepts one Firebase configuration per runtime. Default and
+named apps with equal options are distinct service containers connected to the
+same sandbox backend.
+
+## Documentation
 
 - [Firestore](docs/firestore/)
 - [Auth](docs/auth/)
@@ -52,3 +51,4 @@ equal options are distinct service containers connected to the same sandbox.
 - [Storage](docs/storage/)
 - [Rules](docs/rules/)
 - [Sandbox](docs/sandbox/)
+- [Conformance scores](docs/conformance/SCORES.md)

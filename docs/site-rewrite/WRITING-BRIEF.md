@@ -10,7 +10,7 @@ We are the person in the video. We show the result first. We narrate the moves. 
 
 ## The one product
 
-Pyric is one system, referred to in the singular, taught as one. Never "the packages," never "the suite," never "pyric-tools provides." Pyric does things. Package names appear in exactly two places: install commands, and the API reference section. Everywhere else the subject is Pyric or the reader.
+Pyric is one system, referred to in the singular, taught as one. Never "the packages," never "the suite," never "the CLI package provides." Pyric does things. Package names appear in exactly two places: install commands, and the API reference section. Everywhere else the subject is Pyric or the reader.
 
 ## Verbs, not nouns
 

@@ -3,17 +3,12 @@
  * (surface `messaging-admin`, rows `messaging-admin#1`–`#39` in
  * `packages/conformance/registry/messaging.ts`).
  *
- * Backend dispatch on the `pyric-admin/app` brand, exactly like
- * `pyric-admin/storage`:
- *
- *   - **Prod app** → delegates to `firebase-admin/messaging`'s
- *     `getMessaging(adminApp)` — the genuine production `Messaging`.
- *   - **Sandbox app** → an in-process {@link Messaging} over the
- *     per-sandbox {@link MessagingBroker} from `pyric/messaging/internal`.
- *     Sharing the `Sandbox` with the client mirrors closes the loop:
- *     `send()` here routes deliveries into `pyric/messaging`'s `onMessage`
- *     / `pyric/messaging/sw`'s `onBackgroundMessage` by the captured
- *     visibility rule.
+ * A sandbox-branded app produces an in-process {@link Messaging} over the
+ * per-sandbox {@link MessagingBroker} from `pyric/messaging/internal`.
+ * Sharing the `Sandbox` with the client mirrors closes the loop: `send()`
+ * here routes deliveries into `pyric/messaging`'s `onMessage` /
+ * `pyric/messaging/sw`'s `onBackgroundMessage` by the captured visibility
+ * rule.
  *
  * Rejections carry the broker's captured `google.rpc` envelopes and are
  * re-wrapped here the way firebase-admin wraps the wire: the FcmError
@@ -27,27 +22,11 @@
  * app (mirroring firebase-admin, including the exact `app/no-app` throw).
  * Only when NO default exists AND `PYRIC_CLIMB=1` does the mirror mint an
  * implicit, UNREGISTERED sandbox app — the conformance suites' headless
- * degenerate case. Outside the climb the behavior is byte-for-byte
- * firebase-admin's.
+ * degenerate case. Outside the climb it preserves the captured no-app error.
  *
- * Error classes are firebase-admin's OWN exports (`FirebaseMessagingError`,
- * `MessagingClientErrorCode`), re-exported so `instanceof`, `.code`, and
- * static members match production exactly (the `FirebaseAppError` precedent
- * in `pyric-admin/app`).
+ * Mirror-owned `FirebaseMessagingError` and `MessagingClientErrorCode`
+ * preserve the observable names, codes, and static members used by callers.
  */
-
-import {
-  getMessaging as getProdMessaging,
-  FirebaseMessagingError,
-  MessagingClientErrorCode,
-} from 'firebase-admin/messaging';
-import type {
-  BatchResponse,
-  MessagingTopicManagementResponse,
-  Message,
-  MulticastMessage,
-  SendResponse,
-} from 'firebase-admin/messaging';
 
 import { initializeSandbox } from 'pyric/sandbox';
 import {
@@ -61,63 +40,74 @@ import {
 import {
   ADMIN_APP_TARGET,
   getApp,
-  isProdAdminApp,
   type PyricAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 
-// ── Upstream error surface, re-exported verbatim ────────────────────────────
-
-export { FirebaseMessagingError, MessagingClientErrorCode };
-
-// ── Upstream message/option/response types, re-exported verbatim ───────────
-// (rows messaging-admin#10–#37 are type-parity rows; re-exporting
-// firebase-admin's own declarations makes the tier-2 assignability census
-// trivially exact for the admin plane.)
-export type {
-  BaseMessage,
-  Message,
-  TokenMessage,
-  TopicMessage,
-  ConditionMessage,
-  MulticastMessage,
-  Notification,
-  FcmOptions,
-  WebpushConfig,
-  WebpushFcmOptions,
-  WebpushNotification,
-  ApnsConfig,
-  ApnsPayload,
-  Aps,
-  ApsAlert,
-  CriticalSound,
-  ApnsFcmOptions,
-  AndroidConfig,
-  AndroidNotification,
-  LightSettings,
-  AndroidFcmOptions,
-  DataMessagePayload,
-  NotificationMessagePayload,
-  MessagingPayload,
-  MessagingOptions,
-  MessagingTopicManagementResponse,
-  BatchResponse,
-  SendResponse,
-} from 'firebase-admin/messaging';
-
-/**
- * firebase-admin's published typings hide the error constructor; the runtime
- * class takes `(info, message?)` where `info` is a `MessagingClientErrorCode`
- * static. Same recovery cast as `pyric-admin/app`'s `FirebaseAppError`.
- */
-const MessagingError = FirebaseMessagingError as unknown as new (
-  info: { code: string; message: string },
-  message?: string,
-) => Error & { readonly code: string };
-
 type ErrorCodeInfo = { code: string; message: string };
+export class MessagingClientErrorCode {
+  static readonly INVALID_ARGUMENT = {
+    code: 'invalid-argument',
+    message: 'Invalid argument provided.',
+  };
+  static readonly INVALID_REGISTRATION_TOKEN = {
+    code: 'invalid-registration-token',
+    message: 'Invalid registration token provided.',
+  };
+  static readonly REGISTRATION_TOKEN_NOT_REGISTERED = {
+    code: 'registration-token-not-registered',
+    message: 'The provided registration token is not registered.',
+  };
+}
+
+export class FirebaseMessagingError extends Error {
+  readonly code: string;
+
+  constructor(info: ErrorCodeInfo, message?: string) {
+    super(message ?? info.message);
+    this.name = 'FirebaseMessagingError';
+    this.code = `messaging/${info.code}`;
+  }
+}
+
+const MessagingError = FirebaseMessagingError;
 const ErrorCodes = MessagingClientErrorCode as unknown as Record<string, ErrorCodeInfo>;
+
+/** Mirror-owned structural messaging types. */
+export type Notification = NonNullable<BrokerMessage['notification']>;
+export type FcmOptions = NonNullable<BrokerMessage['fcmOptions']>;
+export type WebpushConfig = NonNullable<BrokerMessage['webpush']>;
+export type WebpushFcmOptions = NonNullable<WebpushConfig['fcmOptions']>;
+export type WebpushNotification = Record<string, unknown>;
+export type ApnsConfig = Record<string, unknown>;
+export type ApnsPayload = Record<string, unknown>;
+export type Aps = Record<string, unknown>;
+export type ApsAlert = string | Record<string, unknown>;
+export type CriticalSound = Record<string, unknown>;
+export type ApnsFcmOptions = Record<string, unknown>;
+export type AndroidConfig = Record<string, unknown>;
+export type AndroidNotification = Record<string, unknown>;
+export type LightSettings = Record<string, unknown>;
+export type AndroidFcmOptions = Record<string, unknown>;
+export type DataMessagePayload = Record<string, string>;
+export type NotificationMessagePayload = Record<string, string>;
+export type MessagingPayload = Record<string, unknown>;
+export type MessagingOptions = Record<string, unknown>;
+
+export interface BaseMessage extends Omit<BrokerMessage, 'token' | 'topic' | 'condition'> {}
+export interface TokenMessage extends BaseMessage { token: string }
+export interface TopicMessage extends BaseMessage { topic: string }
+export interface ConditionMessage extends BaseMessage { condition: string }
+export type Message = TokenMessage | TopicMessage | ConditionMessage;
+export interface MulticastMessage extends BaseMessage { tokens: string[] }
+export interface SendResponse { success: boolean; messageId?: string; error?: FirebaseMessagingError }
+export interface BatchResponse { responses: SendResponse[]; successCount: number; failureCount: number }
+export interface MessagingTopicManagementResponse {
+  successCount: number;
+  failureCount: number;
+  errors: Array<{ index: number; error: FirebaseMessagingError }>;
+}
 
 /** Wire FcmError errorCode → firebase-admin client error info. */
 function clientErrorInfoFor(fcmErrorCode: string | undefined): ErrorCodeInfo {
@@ -140,9 +130,8 @@ function invalidArgument(message: string): Error & { readonly code: string } {
 // ── The sandbox Messaging service ────────────────────────────────────────────
 
 /**
- * The `Messaging` service mirror. On the prod path the returned object is
- * literally `firebase-admin/messaging`'s `Messaging`; this class is the
- * sandbox arm, implementing the send plane over the broker.
+ * The sandbox `Messaging` service mirror, implementing the send plane over
+ * the broker.
  */
 export class Messaging {
   private readonly broker: MessagingBroker;
@@ -308,16 +297,12 @@ function resolveApp(app?: PyricAdminApp): PyricAdminApp {
 }
 
 /**
- * Return the `Messaging` service for the default or given admin app.
- * Prod apps get the genuine `firebase-admin/messaging` service; sandbox
- * apps get the broker-backed mirror.
+ * Return the broker-backed `Messaging` service for the default or given
+ * sandbox admin app.
  */
 export function getMessaging(app?: PyricAdminApp): Messaging {
   const resolved = resolveApp(app);
   assertAdminAppActive(resolved);
-  if (isProdAdminApp(resolved)) {
-    return getProdMessaging(resolved.adminApp) as unknown as Messaging;
-  }
   const existing = sandboxInstances.get(resolved);
   if (existing !== undefined) return existing;
   const instance = new Messaging(resolved);

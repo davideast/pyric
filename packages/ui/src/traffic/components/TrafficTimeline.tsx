@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { useTrafficBuckets } from '../hooks/useTrafficBuckets.js';
 import type {
   TimeWindow,
@@ -39,6 +39,12 @@ export interface TrafficTimelineProps {
    * window so a bare consumer still gets a working selection.
    */
   onBrush?: (window: TimeWindow) => void;
+  /**
+   * Direct annotation shown while a bucket is hovered or keyboard-focused.
+   * The timeline owns preview state and positioning; the consumer owns the
+   * words and number formatting.
+   */
+  renderBucketSummary?: (bucket: TrafficBucket) => ReactNode;
   /**
    * Where the live edge marker sits, in epoch-ms. Defaults to
    * `window.end` (the right edge = "now"). Omit / pass `null` to hide
@@ -95,8 +101,9 @@ function fraction(t: number, window: TimeWindow): number {
  * Styling hooks: `[data-pyric-ui="traffic-timeline"]`,
  * `[data-pyric-timeline-header]`, `[data-pyric-timeline-bars]`,
  * `[data-pyric-bucket]` (with `data-pyric-bucket-index`,
- * `data-pyric-has-denies`), `[data-pyric-brush]`,
- * `[data-pyric-live]`, `[data-pyric-timeline-axis]`.
+ * `data-pyric-has-denies`, `data-pyric-bucket-selected`),
+ * `[data-pyric-bucket-summary]`, `[data-pyric-brush]`, `[data-pyric-live]`,
+ * `[data-pyric-timeline-axis]`.
  */
 export function TrafficTimeline({
   events,
@@ -105,12 +112,16 @@ export function TrafficTimeline({
   bucketCount = 30,
   brush,
   onBrush,
+  renderBucketSummary,
   liveAt,
   header,
   axis,
   emptyState,
   className,
 }: TrafficTimelineProps) {
+  const summaryId = useId();
+  const [hoveredBucket, setHoveredBucket] = useState<number | null>(null);
+  const [focusedBucket, setFocusedBucket] = useState<number | null>(null);
   // Hook is always called (rules of hooks); its result is discarded
   // when the caller pre-bucketed.
   const computed = useTrafficBuckets({
@@ -120,6 +131,11 @@ export function TrafficTimeline({
   });
   const result = prebucketed ?? computed;
   const { buckets, total } = result;
+  const activeBucketIndex = hoveredBucket ?? focusedBucket;
+  const activeBucket =
+    activeBucketIndex === null ? null : (buckets.find((bucket) => bucket.index === activeBucketIndex) ?? null);
+  const activeBucketSelected =
+    activeBucket !== null && brush?.start === activeBucket.start && brush.end === activeBucket.end;
 
   if (buckets.length === 0) {
     return (
@@ -150,11 +166,43 @@ export function TrafficTimeline({
       )}
 
       <div data-pyric-timeline-chart="">
-        <div data-pyric-timeline-bars="" role="img" aria-label="request volume over time">
+        <div
+          data-pyric-timeline-bars=""
+          role={onBrush ? 'group' : 'img'}
+          aria-label="request volume over time"
+        >
           {buckets.map((bucket) => (
-            <Bar key={bucket.index} bucket={bucket} window={window} onBrush={onBrush} />
+            <Bar
+              key={bucket.index}
+              bucket={bucket}
+              window={window}
+              onBrush={onBrush}
+              onHover={renderBucketSummary ? setHoveredBucket : undefined}
+              onFocus={renderBucketSummary ? setFocusedBucket : undefined}
+              summaryId={
+                renderBucketSummary && !activeBucketSelected && activeBucket?.index === bucket.index
+                  ? summaryId
+                  : undefined
+              }
+              selected={brush?.start === bucket.start && brush.end === bucket.end}
+            />
           ))}
         </div>
+
+        {activeBucket && renderBucketSummary && !activeBucketSelected ? (
+          <div
+            id={summaryId}
+            role="tooltip"
+            data-pyric-bucket-summary=""
+            style={
+              {
+                '--pyric-bucket-summary-x': (activeBucket.index + 0.5) / Math.max(buckets.length, 1),
+              } as React.CSSProperties
+            }
+          >
+            {renderBucketSummary(activeBucket)}
+          </div>
+        ) : null}
 
         {brush && (
           <div
@@ -189,12 +237,22 @@ function Bar({
   bucket,
   window,
   onBrush,
+  onHover,
+  onFocus,
+  summaryId,
+  selected,
 }: {
   bucket: TrafficBucket;
   window: TimeWindow;
   onBrush?: (window: TimeWindow) => void;
+  onHover?: (index: number | null) => void;
+  onFocus?: (index: number | null) => void;
+  summaryId?: string;
+  selected: boolean;
 }) {
   const interactive = onBrush !== undefined;
+  const requestLabel = `${bucket.count} ${bucket.count === 1 ? 'request' : 'requests'}`;
+  const denyLabel = `${bucket.denies} denied`;
   return (
     <button
       type="button"
@@ -203,7 +261,15 @@ function Bar({
       data-pyric-bucket-count={bucket.count}
       data-pyric-bucket-denies={bucket.denies}
       data-pyric-has-denies={bucket.denies > 0 ? '' : undefined}
+      data-pyric-bucket-selected={selected ? '' : undefined}
       disabled={!interactive}
+      aria-label={`${requestLabel}, ${denyLabel}`}
+      aria-describedby={summaryId}
+      aria-pressed={interactive ? selected : undefined}
+      onPointerEnter={onHover ? () => onHover(bucket.index) : undefined}
+      onPointerLeave={onHover ? () => onHover(null) : undefined}
+      onFocus={onFocus ? () => onFocus(bucket.index) : undefined}
+      onBlur={onFocus ? () => onFocus(null) : undefined}
       onClick={
         interactive
           ? () => onBrush?.({ start: bucket.start, end: bucket.end })

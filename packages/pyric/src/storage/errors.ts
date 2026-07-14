@@ -76,6 +76,8 @@ export function unauthorized(method: string, path: string, detail: string): Stor
 }
 
 export function quotaExceeded(path: string, size: number, max: number): StorageError {
+  // Kept for StorageErrorCode parity. maxDownloadSizeBytes truncates
+  // (COMPAT #55); this factory is unused by download paths today.
   return new StorageError(
     'quota-exceeded',
     `object at "${path}" is ${size} bytes, exceeds maxDownloadSizeBytes ${max}.`,

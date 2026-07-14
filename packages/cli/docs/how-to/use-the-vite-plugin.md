@@ -1,4 +1,4 @@
-# Use the Vite plugin (`pyric-tools/vite`)
+# Use the Vite plugin (`@pyric/cli/vite`)
 
 The `pyricSandbox()` Vite plugin gives a **source-driven** app the same
 `firebase/*` → pyric-sandbox swap that `pyric dev` gives a **static** app,
@@ -40,22 +40,22 @@ a pre-built or no-build app, reach for [`pyric dev`](./serve-persistence-and-mul
 
 ## Install
 
-Add `pyric-tools` as a dev dependency:
+Add `@pyric/cli` as a development dependency:
 
 ```bash
-npm install --save-dev pyric-tools
+npm install --save-dev @pyric/cli
 ```
 
 (`vite` is a peer dependency you already have.)
 
 ## Add it to `vite.config.ts`
 
-Import `pyricSandbox` from `pyric-tools/vite` and add it to your `plugins`:
+Import `pyricSandbox` from `@pyric/cli/vite` and add it to your `plugins`:
 
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
-import { pyricSandbox } from 'pyric-tools/vite';
+import { pyricSandbox } from '@pyric/cli/vite';
 
 export default defineConfig({
   plugins: [pyricSandbox()],
@@ -290,9 +290,9 @@ What the plugin does and doesn't cover:
 
 ## Troubleshooting
 
-**`pyric-tools/vite: pyric is not built …`** The plugin needs pyric's compiled
+**`@pyric/cli/vite: pyric is not built …`** The plugin needs pyric's compiled
 output to read Firebase's public surface. In a monorepo checkout, build pyric
-first (e.g. `bun run build`). An installed `pyric-tools` from npm ships built, so
+first (e.g. `bun run build`). An installed `@pyric/cli` from npm ships built, so
 you'll only hit this developing against a source checkout.
 
 **A `firebase/*` import you expected to swap didn't.** Only `firebase/app`,

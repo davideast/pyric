@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish all four pyric packages at a given version.
+# Publish all lockstep pyric packages at a given version.
 #
 #   bash scripts/publish-alpha.sh 0.1.0-alpha.9
 #
@@ -25,17 +25,19 @@
 #    fails the script — no release ships silently without a compatibility
 #    claim. See
 #    packages/pyric/docs/explanation/versioning-and-compatibility.md.
+#  - `create-pyric` ships on alpha/latest with the others but does not
+#    receive an `fb*` tag (it is a scaffolder, not a Firebase mirror).
 set -euo pipefail
 
 V="${1:?usage: bash scripts/publish-alpha.sh <version> (e.g. 0.1.0-alpha.9)}"
 
 bash scripts/pack-packages.sh
 
-for t in pyric pyric-admin pyric-cli pyric-ui; do
+for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do
   npm publish "dist/packages/${t}-${V}.tgz" --tag alpha --access public
 done
 
-for p in pyric pyric-admin @pyric/cli @pyric/ui; do
+for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
   npm dist-tag add "${p}@${V}" latest
 done
 
@@ -56,6 +58,6 @@ else
   exit 1
 fi
 
-for p in pyric pyric-admin @pyric/cli @pyric/ui; do
+for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
   echo "== ${p}"; npm dist-tag ls "${p}"
 done

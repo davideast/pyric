@@ -23,12 +23,19 @@ import {
   tagSandboxRef,
   buildSandboxShell,
 } from './state.js';
+import { FieldPath } from './field-values.js';
 import type {
   CollectionReference,
   Query,
   DocumentSnapshot,
   DocumentData,
 } from './types.js';
+
+/** Accept modular `where`/`orderBy` field args as string or FieldPath. */
+function fieldToString(field: string | FieldPath): string {
+  if (typeof field === 'string') return field;
+  return field._internalPath.segments.join('.');
+}
 
 // ─── Query constraints ────────────────────────────────────────────────
 
@@ -74,10 +81,15 @@ export function query<T = DocumentData>(
   return tagged as Query<T>;
 }
 
-export function where(field: string, op: WhereFilterOp, value: unknown): QueryConstraint {
-  const sandboxFilter: ChainFilter = { kind: 'where', field, op, value };
+export function where(
+  field: string | FieldPath,
+  op: WhereFilterOp,
+  value: unknown,
+): QueryConstraint {
+  const fieldPath = fieldToString(field);
+  const sandboxFilter: ChainFilter = { kind: 'where', field: fieldPath, op, value };
   return {
-    applySandbox: (q) => q.where(field, op, value),
+    applySandbox: (q) => q.where(fieldPath, op, value),
     _sandboxFilter: sandboxFilter,
   };
 }
@@ -132,9 +144,13 @@ function composite(
   };
 }
 
-export function orderBy(field: string, direction?: OrderDirection): QueryConstraint {
+export function orderBy(
+  field: string | FieldPath,
+  direction?: OrderDirection,
+): QueryConstraint {
+  const fieldPath = fieldToString(field);
   return {
-    applySandbox: (q) => q.orderBy(field, direction),
+    applySandbox: (q) => q.orderBy(fieldPath, direction),
   };
 }
 

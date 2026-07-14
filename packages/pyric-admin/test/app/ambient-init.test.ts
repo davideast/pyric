@@ -29,7 +29,6 @@ import {
   deleteApp,
   getApps,
   initializeApp,
-  isProdAdminApp,
   isSandboxAdminApp,
 } from '../../src/app/index.js';
 
@@ -94,19 +93,17 @@ function installFakeFactory(): {
 // ─── Env unset: exactly today's prod behavior ───────────────────────────
 
 describe('ambient init — PYRIC_SANDBOX unset', () => {
-  it('bare initializeApp() takes the prod arm and never consults the factory', () => {
-    const { calls } = installFakeFactory(); // installed but must be ignored
-    const app = initializeApp();
-    expect(isProdAdminApp(app)).toBe(true);
+  it('bare initializeApp() refuses to select production inside the mirror', () => {
+    const { calls } = installFakeFactory();
+    expect(() => initializeApp()).toThrow(/sandbox-only mirror.*no sandbox is active/s);
     expect(calls).toHaveLength(0);
-    expect(stderrLines).toHaveLength(0); // no activation log on prod
+    expect(stderrLines).toHaveLength(0);
   });
 
   it('empty-string PYRIC_SANDBOX is treated as unset', () => {
     const { calls } = installFakeFactory();
     process.env.PYRIC_SANDBOX = '';
-    const app = initializeApp();
-    expect(isProdAdminApp(app)).toBe(true);
+    expect(() => initializeApp()).toThrow(/sandbox-only mirror.*no sandbox is active/s);
     expect(calls).toHaveLength(0);
   });
 });
@@ -168,9 +165,6 @@ describe('ambient init — PYRIC_SANDBOX set', () => {
     const sandbox = initializeSandbox();
     const app = initializeApp({ sandbox });
     expect(isSandboxAdminApp(app) && app.sandbox === sandbox).toBe(true);
-    const prod = initializeApp({ projectId: 'demo-explicit' }, 'explicit-prod');
-    expect(isProdAdminApp(prod)).toBe(true);
-
     expect(calls).toHaveLength(0);
     expect(stderrLines).toHaveLength(0);
   });

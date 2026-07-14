@@ -1,0 +1,81 @@
+{
+  "name": "functions-rtdb-onvaluecreated-exact-create",
+  "matrixRow": "functions-rtdb #1, #2, #8, #9, #10, #11",
+  "rowIds": [
+    "functions-rtdb#1",
+    "functions-rtdb#2",
+    "functions-rtdb#8",
+    "functions-rtdb#9",
+    "functions-rtdb#10",
+    "functions-rtdb#11"
+  ],
+  "description": "An exact production onValueCreated trigger captures create-only delivery, the event and DataSnapshot shape, Admin ref behavior, writer context, and awaited handler completion.",
+  "observedAt": "2026-07-14T05:07:11.841Z",
+  "functionsSdkVersion": "7.2.5",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "deliveryCount": 1,
+    "createOnlyAfterUpdateAndDelete": true,
+    "event": {
+      "idPresent": true,
+      "type": "google.firebase.database.ref.v1.created",
+      "timePresent": true,
+      "instance": "digame-mas-default-rtdb",
+      "location": "us-central1",
+      "refMatchesRunId": true,
+      "subjectMatchesRef": true,
+      "params": {
+        "runIdPresent": true
+      },
+      "authType": "unknown",
+      "authId": null
+    },
+    "snapshot": {
+      "key": "target",
+      "exists": true,
+      "childKeys": [
+        "count",
+        "hello",
+        "items",
+        "nested"
+      ],
+      "numChildren": 4,
+      "hasNestedEnabled": true,
+      "nestedEnabled": true,
+      "val": {
+        "hello": "functions",
+        "items": {
+          "alpha": 1,
+          "beta": 2
+        },
+        "nested": {
+          "enabled": true
+        },
+        "count": 1
+      },
+      "toJSON": {
+        "hello": "functions",
+        "items": {
+          "beta": 2,
+          "alpha": 1
+        },
+        "nested": {
+          "enabled": true
+        },
+        "count": 1
+      }
+    },
+    "handler": {
+      "adminRefKey": "target",
+      "outputRefKey": "handler-write",
+      "adminWriteCompleted": true,
+      "awaitedMs": 1066,
+      "adminRefPathMatchesEventRef": true
+    },
+    "handlerWrite": {
+      "completed": true,
+      "sourceKey": "target"
+    }
+  }
+}

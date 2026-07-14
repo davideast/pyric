@@ -81,6 +81,33 @@ describe('matchTypeahead', () => {
     expect(groups.find((g) => g.kind === 'user')!.results[0].label).toBe('alice@example.com');
   });
 
+  it('returns one row when the same indexed resource is repeated', () => {
+    const aliceDoc = documentEntry('users/alice');
+    const aliceUser = userEntry({
+      uid: 'uid-alice-1',
+      email: 'alice@example.com',
+    });
+    const aliceObject = objectEntry('uploads/avatars/alice.png');
+    const repeated = [aliceDoc, aliceDoc, aliceUser, aliceUser, aliceObject, aliceObject];
+
+    const groups = matchTypeahead('alice', ROUTES, repeated);
+
+    expect(groups.find((group) => group.kind === 'document')!.results).toHaveLength(1);
+    expect(groups.find((group) => group.kind === 'user')!.results).toHaveLength(1);
+    expect(groups.find((group) => group.kind === 'object')!.results).toHaveLength(1);
+  });
+
+  it('keeps distinct Auth users that happen to share an email label', () => {
+    const groups = matchTypeahead('shared@example.com', ROUTES, [
+      userEntry({ uid: 'first', email: 'shared@example.com' }),
+      userEntry({ uid: 'second', email: 'shared@example.com' }),
+    ]);
+    const users = groups.find((group) => group.kind === 'user')!.results;
+
+    expect(users).toHaveLength(2);
+    expect(users.map((user) => user.target.rest?.[0]).sort()).toEqual(['first', 'second']);
+  });
+
   it('matches auth users by uid as well as email', () => {
     const groups = matchTypeahead('uid-bob', ROUTES, INDEX);
     const users = groups.find((g) => g.kind === 'user');

@@ -18,8 +18,6 @@
  * behavior on/off regardless of mode. See `sandbox-marker.ts`.
  *
  * This is a thin adapter over serve's proven machinery. It REUSES, not reimplements:
- *   - the firebase peer stubs — `collectFirebaseBindings` + `stubModuleSource`
- *     (named-export inert proxies; a bare default proxy fails the build);
  *   - the node-builtin shims — `NODE_BUILTIN_SHIMS`;
  *   - the swap targets — `defaultSdkEntries()` (the `serve/entries/*` wrappers,
  *     compiled-dist preferred, src fallback);
@@ -49,8 +47,6 @@ import type { Plugin, UserConfig, ConfigEnv } from 'vite';
 import type { Plugin as EsbuildPlugin } from 'esbuild';
 import {
   SDK_MODULES,
-  collectFirebaseBindings,
-  stubModuleSource,
   defaultSdkEntries,
   resolveStudioUiDir,
   pyricPackageRoot,
@@ -88,7 +84,6 @@ const FB_ANY = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 /** The firebase subpaths with swap entries. */
 const SERVED = new Set(SDK_MODULES.map((specifier) => specifier.slice('firebase/'.length)));
 const entryKey = (subpath: string): string => subpath.replaceAll('/', '-');
-const STUB_PREFIX = '\0pyric:fb-stub:';
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
 
 /** Walk up from a file to the nearest directory containing a package.json. */
@@ -98,25 +93,6 @@ function packageRootOf(file: string): string {
     dir = path.dirname(dir);
   }
   return dir;
-}
-
-/** Memoize the (synchronous, O(pyric/dist)) firebase-binding scan across plugin
- *  constructions + Vite config reloads, keyed by the resolved pyric root. */
-const bindingsCache = new Map<string, Map<string, Set<string>>>();
-function bindingsFor(pyricRoot: string): Map<string, Set<string>> {
-  let b = bindingsCache.get(pyricRoot);
-  if (!b) {
-    const distDir = path.join(pyricRoot, 'dist');
-    if (!existsSync(distDir)) {
-      throw new Error(
-        `@pyric/cli/vite: pyric is not built — run \`bun run build\` first ` +
-          `(expected pyric dist at ${distDir}).`,
-      );
-    }
-    b = collectFirebaseBindings(distDir);
-    bindingsCache.set(pyricRoot, b);
-  }
-  return b;
 }
 
 export interface PyricSandboxOptions {
@@ -172,12 +148,10 @@ export interface PyricSandboxOptions {
  *   export default defineConfig({ plugins: [pyricSandbox()] });
  */
 export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
-  // Resolved once: the swap entries + the firebase binding set the inert stub
-  // must export. `defaultSdkEntries()` prefers compiled dist `.js`, falls back
-  // to src `.ts`; `collectFirebaseBindings` scans pyric's compiled dist.
+  // Resolved once. `defaultSdkEntries()` prefers compiled dist `.js` and falls
+  // back to source `.ts` in the workspace.
   const entries = defaultSdkEntries(); // { app, auth, firestore, init } → abs paths
   const pyricRoot = pyricPackageRoot();
-  const bindings = bindingsFor(pyricRoot); // memoized; throws an actionable error if pyric isn't built
   // The @pyric/cli package root — covers the served entries AND their siblings
   // (`worker/client.js`, the bridge client) that the entries statically import.
   const cliRoot = packageRootOf(entries.init);
@@ -200,7 +174,6 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
     const f = importer.split('?')[0];
     return f === cliRoot || f.startsWith(cliRoot + path.sep);
   };
-  const stubFor = (spec: string): string => stubModuleSource(spec, bindings.get(spec) ?? new Set());
   const shimFor = (spec: string): string => NODE_BUILTIN_SHIMS[spec.replace(/^node:/, '')]!;
 
   // The esbuild mirror for Vite's dep optimizer — REQUIRED so a node_modules
@@ -211,14 +184,9 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
     setup(build) {
       build.onResolve({ filter: FB_ANY }, (args) => {
         const sub = FB_ANY.exec(args.path)![1]!;
-        if (isPyricImporter(args.importer)) return { path: args.path, namespace: 'pyric-fb-stub' };
         if (SERVED.has(sub)) return { path: entries[entryKey(sub)]! };
         return null; // non-served firebase from a lib → real firebase
       });
-      build.onLoad({ filter: /.*/, namespace: 'pyric-fb-stub' }, (args) => ({
-        contents: stubFor(args.path),
-        loader: 'js',
-      }));
       build.onResolve({ filter: NODE_BUILTIN_RE }, (args) => {
         if (!isOurCode(args.importer)) return null; // user/lib node builtins → Vite/their polyfill
         return { path: args.path.replace(/^node:/, ''), namespace: 'pyric-node-shim' };
@@ -332,7 +300,6 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       const fb = FB_ANY.exec(source);
       if (fb) {
         const sub = fb[1]!;
-        if (isPyricImporter(importer)) return STUB_PREFIX + source; // stub ANY firebase/* from pyric
         if (SERVED.has(sub)) return entries[entryKey(sub)]!; // swap served set for user/lib
         return null; // non-served firebase from user → real firebase
       }
@@ -344,7 +311,6 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
     },
 
     load(id) {
-      if (id.startsWith(STUB_PREFIX)) return stubFor(id.slice(STUB_PREFIX.length));
       if (id.startsWith(NODE_SHIM_PREFIX)) return shimFor(id.slice(NODE_SHIM_PREFIX.length));
       return null;
     },

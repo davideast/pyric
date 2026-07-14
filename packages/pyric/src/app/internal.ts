@@ -1,5 +1,5 @@
 /** Host-only seams for attaching Firebase-shaped apps to managed sandboxes. */
-import type { FirebaseApp, FirebaseOptions } from 'firebase/app';
+import type { FirebaseApp, FirebaseOptions } from './types.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import {
   attachSandboxApp,

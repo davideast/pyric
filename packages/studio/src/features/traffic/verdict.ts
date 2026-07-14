@@ -119,14 +119,23 @@ export function opensRulesInspector(event: {
  *   rtdb      → /rtdb                 (the viewer's path is component state —
  *                                      N4 gap: no path deep-link yet)
  *   storage   → /storage/<path>       (object path)
+ *             → /storage/<path>?kind=prefix (listed prefix)
  *   auth      → /auth/<uid>           (`path` carries the uid; `*` = clear-all,
  *                                      not addressable)
  */
 export function subjectTarget(event: {
   service?: StudioTrafficEvent['service'];
+  method: StudioTrafficEvent['method'];
   path: string;
 }): CommandTarget | null {
   const path = event.path;
+  if (
+    event.service === 'storage' &&
+    event.method === 'list' &&
+    (path === '' || path === '/')
+  ) {
+    return { tab: 'storage' };
+  }
   if (!path || path === '(service)') return null;
   const rest = path.split('/').filter(Boolean);
   switch (event.service ?? 'firestore') {
@@ -135,7 +144,13 @@ export function subjectTarget(event: {
     case 'rtdb':
       return { tab: 'rtdb' };
     case 'storage':
-      return rest.length ? { tab: 'storage', rest } : null;
+      return rest.length
+        ? {
+            tab: 'storage',
+            rest,
+            ...(event.method === 'list' ? { query: { kind: 'prefix' } } : {}),
+          }
+        : null;
     case 'auth':
       return path !== '*' ? { tab: 'auth', rest: [path] } : null;
     default:

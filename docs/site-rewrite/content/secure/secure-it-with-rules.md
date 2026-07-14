@@ -83,7 +83,7 @@ When the answers hold, ship the same file to production with `firebase-tools`:
 firebase deploy --only firestore:rules
 ```
 
-Gate on error-severity lint findings in CI first (`lintFirestoreRules` / `pyric rules:lint`), so the mistakes that produce opaque production failures get stopped at the door.
+Gate on error-severity lint findings in CI first (`lintFirestoreRules` / `pyric firestore rules lint`), so the mistakes that produce opaque production failures get stopped at the door.
 
 ## Where the wing goes deeper
 

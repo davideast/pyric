@@ -14,7 +14,7 @@ import { SandboxContextImpl } from 'pyric/sandbox';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import { bindOperationContext } from 'pyric/sandbox/internal';
 import { getInternalEnv } from '../sandbox/internal/sandbox-impl.js';
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import {
   defaultClientApp,

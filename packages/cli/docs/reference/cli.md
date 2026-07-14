@@ -10,8 +10,9 @@ Run `pyric --help` for the same surface inline, or `pyric --version`.
 
 - `<required>` arguments; `[optional]` arguments and flags.
 - Flags accept `--flag value` or `--flag=value`.
-- Unless noted, commands exit **0** on success, **1** on a usage or runtime
-  error. Specific non-standard exit codes are called out per command.
+- Unless noted, commands exit **0** on success, **1** on a usage error, and
+  **2** on a runtime error. Specific non-standard exit codes are called out
+  per command.
 
 ## Environment variables
 
@@ -23,10 +24,10 @@ Run `pyric --help` for the same surface inline, or `pyric --version`.
 | `FIREBASE_SA_BASE64` | `verify --engine rules-test-api\|both` | base64-encoded service-account JSON for the hosted Rules Test API. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `verify --engine rules-test-api\|both` | Filesystem path to service-account JSON for the hosted Rules Test API. |
 
-Local sandbox commands (`dev`, `init`, `snapshot`, `bridge`, `verify` with the
-default `sandbox` engine, `rules:*`, `database:rules:*`, `storage:rules:*`) need
-no credentials. Hosted Rules Test API verification (`--engine rules-test-api` or
-`both`) needs a project id plus `FIREBASE_SA_BASE64` or
+Local sandbox commands (`dev`, `init`, `snapshot`, `bridge`, `mcp`, `verify`
+with the default `sandbox` engine, and every service-first rules or index
+command) need no credentials. Hosted Rules Test API verification (`--engine
+rules-test-api` or `both`) needs a project id plus `FIREBASE_SA_BASE64` or
 `GOOGLE_APPLICATION_CREDENTIALS` (or ADC). See
 [`@pyric/cli/credentials/node`](../../README.md#programmatic-subpaths).
 
@@ -57,9 +58,17 @@ backend. `firestore.rules` is installed and hot-reloaded over SSE.
 | `--no-open` | auto-open on | Don't auto-open the browser. (Auto-open is already suppressed under `--json`, no TTY, and CI.) |
 | `--no-cache` | cache on | Rebuild the served SDK + worker bundles instead of using `~/.pyric/serve-cache`. |
 | `--bridge` | off | Also mount the MCP bridge on the dev-server origin (`/__pyric/mcp`). `--project` labels health/audit. |
+| `--ui` | off | Serve Pyric Studio at `/__pyric/ui/` and open it instead of the app. Implies `--bridge`. |
+| `--project <id>` | none | Project label exposed by the mounted bridge. |
 | `--allowed-host <h,…>` | none | Extra `Host` headers to accept past the DNS-rebinding guard (`localhost`/`127.0.0.1` always allowed). |
 | `--only hosting` | none | Accepted for firebase-serve parity (hosting is all v1 serves). |
+| `--no-run` | off | Do not run the project's `dev` script; host only. |
 | `--json` | off | One machine line on stdout (`{url, port, mcpUrl, rulesHash, persist, restoredDocs, restoredUsers}`); banner → stderr. Readiness probe: `GET <url>/__pyric/init.json` → 200. |
+
+Append `-- <command>` to run an explicit child process after the host starts.
+Without an explicit command, `pyric dev` runs the package's `dev` script when
+one exists. The child receives the activated package-resolution environment;
+see [package exports and resolution](./package-and-resolution.md).
 
 Persistence, multi-tab, and SharedWorker behaviour are covered in
 [persistence and multi-tab](../how-to/serve-persistence-and-multi-tab.md).
@@ -70,10 +79,16 @@ Scaffold a pyric project. Never prompts; rerunning is safe (idempotent).
 
 | Flag | Default | Description |
 |---|---|---|
-| `--template <web\|node>` | `web` | `web`: a servable app with canonical `firebase/*` imports, owner-based rules, `seed.json`, `dev`/`dev:agent` scripts. `node`: script-style scaffold (`PYRIC_TARGET=sandbox\|firebase`). |
+| `--template <web\|static\|node>` | `web` | `web`: a Vite app using canonical `firebase/*` imports. `static`: a no-bundler app served by `pyric dev`. `node`: a script-style scaffold whose canonical Firebase imports are swapped when run through `pyric dev`. |
 | `--name <name>` | dir name | Project name. |
 | `--force` | off | Overwrite scaffold-owned files. |
 | `--json` | off | Machine result on stdout: `{template, dir, created, merged, skipped, conflicts, nextSteps}`. |
+
+### `pyric vendor [dir] [--json]`
+
+Retrofit the standalone-binary package tarballs into an existing project and
+merge their dependencies into `package.json`. This command is available in the
+standalone binary; registry installs normally use `npm install -D @pyric/cli`.
 
 <a id="pyric-snapshot"></a>
 ### `pyric snapshot [flags]`
@@ -103,7 +118,7 @@ positional argument it replays the latest `pyric dev` capture at
 
 | Flag | Default | Description |
 |---|---|---|
-| `--service <firestore\|rtdb>` | all services in fixture | Verify one service. Repeat to verify several selected services. `database` is accepted as an alias for `rtdb`. |
+| `--service <firestore\|rtdb>` | all services in fixture | Verify one service. Repeat to verify several selected services. |
 | `--engine <sandbox\|rules-test-api\|both>` | `sandbox` | Choose the verification engine. `rules-test-api` and `both` require `--project` (or `.firebaserc`) plus service-account / ADC credentials. Rules Test API verification is Firestore-only. |
 | `--rules <service=path>` | from `firebase.json` | Candidate rules to verify against. Repeat for mixed-service captures. Firestore rules are source files; RTDB rules are JSON files. |
 | `--json` | off | Machine output on stdout. |
@@ -143,11 +158,12 @@ verification.
 pyric verify cases journeys/checkout.json --service firestore --out journeys/checkout.cases.json
 ```
 
-### `pyric mcp-proxy`
+### `pyric mcp`
 
-Stdio MCP server that relays to a running `pyric dev --bridge`, discovering the
-port via `.pyric/serve.json` (then a port scan). Used by the Claude Code plugin;
-not run by hand. See [wire Claude Code](../tutorials/wire-claude-code.md).
+Start a stdio MCP server for editors. It attaches to a running `pyric dev
+--bridge`, discovered through `.pyric/serve.json`, or hosts a persistent
+headless sandbox when no development server is available. See
+[wire Claude Code](../tutorials/wire-claude-code.md).
 
 ### `pyric bridge [flags]`
 
@@ -161,20 +177,21 @@ tool calls to a connected in-browser sandbox. See [bridge](../bridge/README.md).
 
 ---
 
-## Rules
+## Service-first artifact commands
 
-These wrap the rules toolchain documented in
+Every service command follows `pyric <service> <artifact> <operation>`. The
+Firestore rules commands wrap the rules toolchain documented in
 [`pyric/docs/rules/`](../../../pyric/docs/rules/).
 
-### `pyric rules:lint <path>`
+### `pyric firestore rules lint <path>`
 
 Run the Firestore rules linter against a file.
 
-### `pyric rules:validate <path>`
+### `pyric firestore rules validate <path>`
 
 Validate Firestore rules structure against a file.
 
-### `pyric rules:simulate [--stdin]`
+### `pyric firestore rules simulate [--stdin]`
 
 Local rules simulator.
 
@@ -182,32 +199,41 @@ Local rules simulator.
 |---|---|
 | `--stdin` | Read a scripted simulation from stdin instead of running the interactive smoke-test. |
 
-### `pyric database:rules:lint <path>`
+### `pyric firestore rules resolve <path> [--out <path>]`
+
+Resolve a Firestore `2+modules` source and write ordinary Firebase rules to
+stdout or `--out`.
+
+### `pyric firestore indexes generate <path...> [--out <path>]`
+
+Derive composite-index definitions from application source. The default output
+is `firestore.indexes.json`.
+
+### `pyric storage rules lint <path>`
+
+Check Storage rules syntax locally.
+
+### `pyric storage rules simulate [--stdin]`
+
+Run the local Storage rules evaluator.
+
+### `pyric database rules lint <path>`
 
 Run the Realtime Database rules JSON expression linter against a file.
 
-### `pyric database:rules:validate <path>`
+### `pyric database rules validate <path>`
 
 Validate Realtime Database rules JSON expressions against the local parser and
 expression validator.
 
-### `pyric database:rules:simulate [--stdin]`
+### `pyric database rules simulate [--stdin]`
 
 Local Realtime Database rules simulator. With no flags, reads
 `firebase.json.database.rules` and runs a sample anonymous read. With `--stdin`,
 reads a JSON payload with `rulesJson` or `rulesPath`, `operation`, `path`,
 optional `auth`, `mockData`, and `newData`.
 
-### `pyric database:rules:generate [--config <path>] [--out <path>]`
+### `pyric database rules generate [--config <path>] [--out <path>]`
 
 Load a constraints module (default `database.rules.ts`), compile it to Firebase
 RTDB rules JSON, and write the file. Does not contact a Firebase project.
-
-### `pyric firestore:indexes:generate`
-
-Derive composite-index definitions from query shapes (see
-`firestore_extract_indexes`).
-
-### `pyric storage:rules:lint <path>` / `pyric storage:rules:simulate`
-
-Local Storage rules lint and simulation.

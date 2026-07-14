@@ -38,6 +38,7 @@ interface CoverageBaseline {
   services: Record<string, {
     surfaceCoveragePct?: { total: number; intended: number };
     native?: boolean;
+    integration?: boolean;
   }>;
   overall: { surfaceCoveragePct: { total: number; intended: number } };
   rowStatuses: Record<string, string>;
@@ -54,6 +55,10 @@ interface SurfaceScoreSpec {
   rowServices: string[];
   /** Baseline `services` keys that contribute surface-coverage % (mirror only). */
   censusServices: string[];
+  /** Label used when this registry has no export-census denominator. */
+  noCensusKind?: 'native' | 'integration';
+  /** Relative link from this surface's generated COMPAT page to the scoreboard. */
+  scoreboardHref?: string;
 }
 
 /**
@@ -71,6 +76,13 @@ const SCORE_SPECS: Record<string, SurfaceScoreSpec> = {
   storage: { label: 'Storage', rowServices: ['storage'], censusServices: ['storage'] },
   messaging: { label: 'Messaging', rowServices: ['messaging'], censusServices: ['messaging'] },
   rules: { label: 'Rules', rowServices: ['firestore-rules', 'storage-rules', 'rtdb-rules'], censusServices: [] },
+  'functions-rtdb': {
+    label: 'Functions · RTDB',
+    rowServices: ['functions-rtdb'],
+    censusServices: [],
+    noCensusKind: 'integration',
+    scoreboardHref: '../../../pyric/docs/conformance/SCORES.md',
+  },
 };
 
 interface BehaviorScore {
@@ -125,14 +137,19 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, base = readBas
   const coverage = computeSurface(spec, base);
   const fidelityLine = `**Fidelity:** ${behavior.pct}% (${behavior.conforms} of ${behavior.total} tracked claims match production)`;
   const coverageLine = coverage.intendedPct === null
-    ? '**Surface coverage:** native (no upstream Firebase public API — measured against pyric\'s own surface)'
+    ? spec.noCensusKind === 'integration'
+      ? '**Surface coverage:** integration contract (unchanged upstream source; breadth is the signed row inventory)'
+      : '**Surface coverage:** native (no upstream Firebase public API — measured against pyric\'s own surface)'
     : `**Surface coverage:** ${coverage.totalPct}% of Firebase's public exports · ${coverage.intendedPct}% of what pyric intends to mirror`;
+  const explanation = spec.noCensusKind === 'integration'
+    ? `The signed row inventory defines this integration contract. Fidelity shows how many of those tracked behaviors match production — see the [scoreboard](${spec.scoreboardHref ?? '../conformance/SCORES.md'}) for what that percentage does and does not mean.`
+    : `Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](${spec.scoreboardHref ?? '../conformance/SCORES.md'}) for what that percentage does and does not mean.`;
   return [
     '> ' + coverageLine,
     '>',
     '> ' + fidelityLine,
     '>',
-    '> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.',
+    '> ' + explanation,
     '',
   ].join('\n');
 }
@@ -194,8 +211,9 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     if (!spec) continue;
     const behavior = computeBehavior(spec);
     const coverage = computeSurface(spec, base);
-    const totalCell = coverage.totalPct === null ? 'native' : `${coverage.totalPct}%`;
-    const intendedCell = coverage.intendedPct === null ? 'native' : `${coverage.intendedPct}%`;
+    const noCensusLabel = spec.noCensusKind === 'integration' ? 'integration' : 'native';
+    const totalCell = coverage.totalPct === null ? noCensusLabel : `${coverage.totalPct}%`;
+    const intendedCell = coverage.intendedPct === null ? noCensusLabel : `${coverage.intendedPct}%`;
     lines.push(`| ${spec.label} | ${totalCell} | ${intendedCell} | ${behavior.pct}% (${behavior.conforms}/${behavior.total}) |`);
   }
   const overallBehavior = (() => {

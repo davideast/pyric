@@ -195,8 +195,10 @@ describe('man', () => {
     expect(wf.stdout).toContain('firestore_rules_stdlib_list');
     expect(wf.stdout).toContain("rules_version = '2+modules';");
     expect(wf.stdout).toContain("import { isAuthenticated, isOwner } from 'auth';");
-    expect(wf.stdout).toContain('dryRun');
     expect(wf.stdout).toContain('firestore_extract_indexes');
+    expect(wf.stdout).not.toContain('firestore_discover_paths');
+    expect(wf.stdout).not.toContain('firestore_find_collection_group');
+    expect(wf.stdout).not.toContain('firestore_get_rules');
     const dg = await shell.exec('man diagnostics');
     expect(dg.stdout).toContain('simulate_firestore_write');
     expect(dg.stdout).toContain('expressionTrace');

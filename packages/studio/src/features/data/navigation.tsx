@@ -27,6 +27,7 @@ import {
   subscribeToLocation,
 } from '../../shell/router.js';
 import { parsePath } from '../../shell/path.js';
+import type { CommandTarget } from '../home/command.js';
 import type { CrossRef } from './refs.js';
 
 /** The three service sub-views the Data feature spans. */
@@ -54,7 +55,8 @@ export function parseDocPath(docPath: string): NavigationPathSegment[] {
 export type DataTarget =
   | { view: 'firestore'; path: NavigationPathSegment[] }
   | { view: 'auth'; uid: string | null }
-  | { view: 'storage'; objectPath: string | null };
+  | { view: 'storage'; kind: 'root' }
+  | { view: 'storage'; kind: 'prefix' | 'object'; path: string };
 
 interface NavState {
   target: DataTarget | null;
@@ -68,20 +70,56 @@ interface NavState {
 // location is unchanged (else `useSyncExternalStore` re-renders forever), so we
 // memoize the derived state on the raw `pathname + search` key.
 
-function deriveNav(raw: string): NavState {
+function parsedLocation(raw: string) {
   const qIdx = raw.indexOf('?');
-  const { tab, rest, query } = parsePath(
+  return parsePath(
     qIdx === -1 ? raw : raw.slice(0, qIdx),
     qIdx === -1 ? '' : raw.slice(qIdx),
   );
-  let target: DataTarget | null = null;
-  if (tab === 'firestore') {
-    target = { view: 'firestore', path: parseDocPath(rest.join('/')) };
-  } else if (tab === 'auth') {
-    target = { view: 'auth', uid: rest[0] ?? null };
-  } else if (tab === 'storage') {
-    target = { view: 'storage', objectPath: rest.length ? rest.join('/') : null };
+}
+
+/** Decode the data target carried by a pathname + query location key. */
+export function targetForLocation(raw: string): DataTarget | null {
+  const { tab, rest, query } = parsedLocation(raw);
+  const path = rest.join('/');
+  if (tab === 'firestore') return { view: 'firestore', path: parseDocPath(path) };
+  if (tab === 'auth') return { view: 'auth', uid: rest[0] ?? null };
+  if (tab === 'storage') {
+    if (!path) return { view: 'storage', kind: 'root' };
+    return {
+      view: 'storage',
+      kind: query.kind === 'prefix' ? 'prefix' : 'object',
+      path,
+    };
   }
+  return null;
+}
+
+/** Encode a data target for the shell's single History-API router. */
+export function routeForTarget(target: DataTarget): CommandTarget {
+  switch (target.view) {
+    case 'firestore': {
+      const last = target.path[target.path.length - 1];
+      return {
+        tab: 'firestore',
+        rest: last ? last.path.split('/').filter(Boolean) : [],
+      };
+    }
+    case 'auth':
+      return { tab: 'auth', rest: target.uid ? [target.uid] : [] };
+    case 'storage':
+      if (target.kind === 'root') return { tab: 'storage' };
+      return {
+        tab: 'storage',
+        rest: target.path.split('/').filter(Boolean),
+        ...(target.kind === 'prefix' ? { query: { kind: 'prefix' } } : {}),
+      };
+  }
+}
+
+function deriveNav(raw: string): NavState {
+  const { tab, query } = parsedLocation(raw);
+  const target = targetForLocation(raw);
   const selectedInspectId = tab === 'traffic' ? query.inspect ?? null : null;
   return { target, selectedInspectId };
 }
@@ -102,26 +140,9 @@ function getServerSnapshot(): NavState {
   return cachedSnap;
 }
 
-/** The in-service `rest` segments for a target. */
-function restForTarget(target: DataTarget): string[] {
-  switch (target.view) {
-    case 'firestore': {
-      const last = target.path[target.path.length - 1];
-      return last ? last.path.split('/').filter(Boolean) : [];
-    }
-    case 'auth':
-      return target.uid ? [target.uid] : [];
-    case 'storage':
-      return target.objectPath ? target.objectPath.split('/').filter(Boolean) : [];
-  }
-}
-
 /** Switch sub-view (shell tab) + focus a target. */
 function navigateTo(target: DataTarget): void {
-  pushPath({
-    tab: target.view,
-    rest: restForTarget(target),
-  });
+  pushPath(routeForTarget(target));
 }
 
 function navigateInspectUrl(id: string): void {
@@ -154,7 +175,7 @@ export function useDataNav(): DataNavValue {
         navigateTo({ view: 'auth', uid: ref.uid });
         break;
       case 'storage':
-        navigateTo({ view: 'storage', objectPath: ref.objectPath });
+        navigateTo({ view: 'storage', kind: 'object', path: ref.objectPath });
         break;
       case 'document':
         navigateTo({ view: 'firestore', path: parseDocPath(ref.path) });

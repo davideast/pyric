@@ -71,9 +71,13 @@ import { initializeApp } from 'pyric-admin/app';
 
 const app = initializeApp({ sandbox: initializeSandbox() });
 ```
-Or with zero changed lines. A bare `initializeApp()` lets the environment decide: with `PYRIC_SANDBOX=remote` set, the app routes to the sandbox, and with it unset you get exactly `firebase-admin`'s behavior. Your source carries no Pyric identifiers at all.
+Or with zero changed lines. Under `pyric dev`, the activated
+`@pyric/cli/register` resolver maps canonical `firebase-admin/*` imports to
+`pyric-admin/*` and a bare `initializeApp()` uses the sandbox. With activation
+absent, normal package resolution loads `firebase-admin` directly. Your source
+carries no Pyric identifiers at all.
 
-`pyric dev` sets that variable for the dev command it runs, and a guard refuses sandbox routing when `NODE_ENV` is `production`, so the swap cannot follow you to a real deployment.
+`pyric dev` sets that variable and preloads the resolver for the development command it runs. A guard refuses sandbox routing when `NODE_ENV` is `production`, so the swap cannot follow you to production execution.
 
 ## One backend across app, Node, and agent
 

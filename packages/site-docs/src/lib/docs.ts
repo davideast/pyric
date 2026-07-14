@@ -8,11 +8,11 @@ export function slugOf(entry: DocEntry): string {
 }
 
 /**
- * Path-absolute URL of a doc page, base-aware. `/docs/pyric-tools/`.
+ * Path-absolute URL of a doc page, base-aware. `/docs/pyric-cli/`.
  * Trailing slash matters: `build.format: 'directory'` (astro.config.mjs)
  * emits every doc page as `<slug>/index.html`, so the URL must name the
  * directory explicitly — dumb static hosts don't rewrite an
- * extensionless `/docs/pyric-tools` to its `index.html`.
+ * extensionless `/docs/pyric-cli` to its `index.html`.
  */
 export function docPath(entry: DocEntry): string {
   return withBase(`/docs/${slugOf(entry)}/`);
@@ -20,7 +20,7 @@ export function docPath(entry: DocEntry): string {
 
 /**
  * Path-absolute URL of a doc page's raw-markdown agent twin — always
- * FLAT (`/docs/pyric-tools.md`), never the directory form `docPath`
+ * FLAT (`/docs/pyric-cli.md`), never the directory form `docPath`
  * returns. The twin is an API route ([slug].md.ts), not a content
  * page, so `build.format: 'directory'` doesn't touch it.
  */
@@ -123,7 +123,7 @@ export const GUIDE_GROUP_LABELS: ReadonlySet<string> = new Set([
   'Ship & test',
   'Work with an agent',
   'Trust',
-  'Compatibility',
+  'Conformance',
 ]);
 
 export function isGuideGroup(label: string): boolean {
@@ -139,7 +139,7 @@ export function groupLanding(group: NavGroup): DocEntry {
   );
 }
 
-/** id-safe slug of an arbitrary nav label ("pyric-tools / deploy" -> "pyric-tools-deploy"). */
+/** id-safe slug of an arbitrary nav label ("@pyric/cli / verify" -> "pyric-cli-verify"). */
 function slugifyId(s: string): string {
   return s
     .toLowerCase()

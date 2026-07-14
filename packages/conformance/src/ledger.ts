@@ -20,6 +20,8 @@ export interface Observation {
   rowIds: string[];
   observedAt?: string;
   fbSdkVersion?: string;
+  adminSdkVersion?: string;
+  functionsSdkVersion?: string;
   behavior: Record<string, unknown>;
   raw: Record<string, unknown>;
 }
@@ -77,6 +79,8 @@ export function loadObservations(): Observation[] {
       rowIds: Array.isArray(raw.rowIds) ? raw.rowIds.map(String) : [],
       observedAt: typeof raw.observedAt === 'string' ? raw.observedAt : undefined,
       fbSdkVersion: typeof raw.fbSdkVersion === 'string' ? raw.fbSdkVersion : undefined,
+      adminSdkVersion: typeof raw.adminSdkVersion === 'string' ? raw.adminSdkVersion : undefined,
+      functionsSdkVersion: typeof raw.functionsSdkVersion === 'string' ? raw.functionsSdkVersion : undefined,
       behavior: (raw.behavior && typeof raw.behavior === 'object' ? raw.behavior : {}) as Record<string, unknown>,
       raw,
     } satisfies Observation;

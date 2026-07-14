@@ -91,8 +91,8 @@ function classify(prevTag: string, curTag: string): Adjacency {
 // plus a spread of real pages across all four source packages.
 const SAMPLE_SLUGS = [
   '_rhythm',
-  'pyric-tools-tutorials-getting-started',
-  'pyric-firestore-how-to-build-queries',
+  'pyric-cli-tutorials-server-adoption',
+  'pyric-firestore-how-to-pick-a-backend',
   'pyric-rules-explanation-agent-failure-modes',
   'pyric-sandbox-tutorials-01-your-first-sandbox-session',
   'pyric-storage-how-to-enforce-rules',

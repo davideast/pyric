@@ -23,11 +23,11 @@ The CI guard for the fix is the unit test `test/serve/worker/random-uuid.test.ts
   `*.soak.ts`, so neither `bun test` nor this config picks them up). Each
   scenario spawns a real `pyric dev --ui --bridge --no-open --port 0 --json`
   serve and drives real tabs (app + Studio), a real Node remote client
-  (`pyric-tools/remote`), and the MCP streamable-HTTP endpoint — the
+  (`@pyric/cli/remote`), and the MCP streamable-HTTP endpoint — the
   connection-lifecycle layer (peer slot, standby, sub re-issue dedup) that
   headless tests can't see. On its first run it found the admin-lens
   listener denial (pinned as an expected-fail test) and the stale
-  serve-bundle-cache masking of pyric-tools client fixes (the suite runs
+  serve-bundle-cache masking of `@pyric/cli` client fixes (the suite runs
   `--no-cache`). Run from the repo root with `bun run test:soak` (same
   prerequisites as below; ~1.5 minutes, the headline scenario soaks ~60s).
 

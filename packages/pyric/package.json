@@ -139,8 +139,6 @@
   "dependencies": {
     "@inbrowser/agent": "0.4.2",
     "fake-indexeddb": "^6.0.0",
-    "firebase": "^12.12.0",
-    "firebase-admin": "^13.0.0",
     "js-md5": "^0.8.3",
     "js-sha256": "^0.11.0",
     "ohm-js": "^17.1.0",
@@ -148,6 +146,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "firebase": "^12.12.0",
+    "firebase-admin": "^13.0.0",
     "typescript": "^5.7.0"
   },
   "engines": {

@@ -10,7 +10,7 @@
  * `getMessaging()` with no app mirrors `firebase/messaging` by resolving the
  * default app registered through `pyric/app`.
  */
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseApp } from '../app/types.js';
 import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-app.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import { DEFAULT_CLIENT_ID, getMessagingBroker, MessagingBroker } from './broker/index.js';

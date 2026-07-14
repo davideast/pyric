@@ -27,13 +27,16 @@ const hasRegisterHooks =
   }).stdout?.trim() === 'function';
 
 let fixtureDir: string;
+let inactiveFixtureDir: string;
+let isolatedFixtureDir: string;
 
 function runNode(
   script: string,
   env: Record<string, string | undefined>,
+  cwd: string = fixtureDir,
 ): { status: number | null; stdout: string; stderr: string } {
   const res = spawnSync('node', ['--import', registerUrl, script], {
-    cwd: fixtureDir,
+    cwd,
     encoding: 'utf8',
     env: { ...process.env, NODE_ENV: undefined, PYRIC_SANDBOX: undefined, PYRIC_SANDBOX_FORCE: undefined, ...env },
     timeout: 30_000,
@@ -51,12 +54,10 @@ beforeAll(() => {
   fixtureDir = mkdtempSync(join(tmpdir(), 'pyric-register-'));
   const nm = join(fixtureDir, 'node_modules');
   mkdirSync(nm);
-  // The pyric mirrors (workspace builds) + the real Firebase packages, so
-  // the fixture resolves BOTH the mapped and the unmapped specifiers.
+  // Activated fixture: mirrors only. The canonical Firebase specifiers below
+  // must be intercepted before Node attempts to find either production SDK.
   symlinkSync(join(repoRoot, 'packages/pyric-admin'), join(nm, 'pyric-admin'));
   symlinkSync(join(repoRoot, 'packages/pyric'), join(nm, 'pyric'));
-  symlinkSync(join(repoRoot, 'node_modules/firebase-admin'), join(nm, 'firebase-admin'));
-  symlinkSync(join(repoRoot, 'node_modules/firebase'), join(nm, 'firebase'));
   writeFileSync(join(fixtureDir, 'package.json'), JSON.stringify({ name: 'register-fixture', type: 'commonjs' }));
   writeFileSync(join(fixtureDir, 'firebase.json'), JSON.stringify({ firestore: { rules: 'firestore.rules' } }));
   writeFileSync(
@@ -68,6 +69,36 @@ service cloud.firestore {
     match /{document=**} { allow read, write: if false; }
   }
 }`,
+  );
+
+  // Inactive production fixture: consumer-owned SDKs only. Importing the
+  // register module with no activator must leave their resolution untouched.
+  inactiveFixtureDir = mkdtempSync(join(tmpdir(), 'pyric-register-inactive-'));
+  const inactiveNm = join(inactiveFixtureDir, 'node_modules');
+  mkdirSync(inactiveNm);
+  symlinkSync(join(repoRoot, 'node_modules/firebase-admin'), join(inactiveNm, 'firebase-admin'));
+  symlinkSync(join(repoRoot, 'node_modules/firebase'), join(inactiveNm, 'firebase'));
+  writeFileSync(
+    join(inactiveFixtureDir, 'package.json'),
+    JSON.stringify({ name: 'register-inactive-fixture', type: 'module' }),
+  );
+
+  // Installed-CLI fixture: the user package intentionally has neither
+  // firebase-admin nor pyric-admin in its own dependency tree. The register
+  // hook must resolve its mapped target from @pyric/cli's installation.
+  isolatedFixtureDir = mkdtempSync(join(tmpdir(), 'pyric-register-isolated-'));
+  mkdirSync(join(isolatedFixtureDir, 'node_modules'));
+  writeFileSync(
+    join(isolatedFixtureDir, 'package.json'),
+    JSON.stringify({ name: 'register-isolated-fixture', type: 'commonjs' }),
+  );
+  writeFileSync(
+    join(isolatedFixtureDir, 'database.cjs'),
+    `const assert = require('node:assert');
+const database = require('firebase-admin/database');
+assert.strictEqual(typeof database.getDatabaseWithUrl, 'function');
+console.log('ISOLATED_DATABASE_OK');
+`,
   );
 
   // ESM fixture: env is set, firebase-admin/app IS pyric-admin (its
@@ -89,8 +120,6 @@ await new Promise((resolve, reject) => server.close((error) => error ? reject(er
 const handle = factory({ url: 'http://127.0.0.1:' + port });
 assert.strictEqual(handle[Symbol.for('pyric.remote.sandbox')], true, 'factory must return the branded handle');
 assert.strictEqual(typeof handle.channel.op, 'function');
-assert.ok(handle.ready instanceof Promise, 'handle.ready must be a promise');
-handle.ready.catch(() => {});
 handle.close();
 console.log('ESM_OK');
 `,
@@ -110,25 +139,6 @@ assert.strictEqual(clientApp.name, '[DEFAULT]');
 assert.strictEqual(clientApp.options.projectId, 'cjs-demo');
 assert.strictEqual(typeof require('firebase/firestore').getFirestore(clientApp), 'object');
 console.log('CJS_OK');
-`,
-  );
-
-  // Mirror-exemption fixture (the merged-stack repro, scoped to this
-  // branch): a USER import of firebase-admin/database is rewritten to
-  // pyric-admin/database, whose OWN prod-arm import of
-  // firebase-admin/database (getDatabaseWithUrl et al.) must resolve to
-  // REAL firebase-admin — without the exemption that import self-rewrites
-  // and the load crashes with "does not provide an export named
-  // 'getDatabaseWithUrl'".
-  writeFileSync(
-    join(fixtureDir, 'prod-arm.mjs'),
-    `import assert from 'node:assert';
-const db = await import('firebase-admin/database');
-const direct = await import('pyric-admin/database');
-assert.strictEqual(db, direct, 'user import of firebase-admin/database must BE pyric-admin/database');
-assert.strictEqual(db.getDatabaseWithUrl, undefined, 'surface must be pyric-admin, not real firebase-admin');
-assert.strictEqual(typeof db.getDatabase, 'function');
-console.log('PROD_ARM_OK');
 `,
   );
 
@@ -182,9 +192,7 @@ console.log('AI_CLIENT_OK');
   );
 
   // Inertness probe: reports whether the rewrite happened + factory presence.
-  writeFileSync(
-    join(fixtureDir, 'probe.mjs'),
-    `const app = await import('firebase-admin/app');
+  const probeSource = `const app = await import('firebase-admin/app');
 const clientAppModule = await import('firebase/app');
 const firestoreModule = await import('firebase/firestore');
 const factory = globalThis[Symbol.for('pyric.remote.sandboxFactory')];
@@ -199,28 +207,24 @@ console.log(JSON.stringify({
     .some((symbol) => symbol.description === 'pyric/firestore/target'),
   factory: typeof factory,
 }));
-`,
-  );
+`;
+  writeFileSync(join(fixtureDir, 'probe.mjs'), probeSource);
+  writeFileSync(join(inactiveFixtureDir, 'probe.mjs'), probeSource);
 });
 
 afterAll(() => {
   if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });
+  if (inactiveFixtureDir) rmSync(inactiveFixtureDir, { recursive: true, force: true });
+  if (isolatedFixtureDir) rmSync(isolatedFixtureDir, { recursive: true, force: true });
 });
 
 describe('@pyric/cli/register (child process)', () => {
   it('rewrites ESM imports and installs the factory global when PYRIC_SANDBOX is set', () => {
+    expect(existsSync(join(fixtureDir, 'node_modules/firebase'))).toBe(false);
+    expect(existsSync(join(fixtureDir, 'node_modules/firebase-admin'))).toBe(false);
     const res = runNode('main.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
     expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(res.stdout).toContain('ESM_OK');
-    expect(res.status).toBe(0);
-  });
-
-  it("rewrites user imports but EXEMPTS the mirrors' own prod-arm imports", () => {
-    const res = runNode('prod-arm.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
-    expect(res.stderr).toContain('@pyric/cli/register: active');
-    // The success line is only reachable when pyric-admin/database loaded,
-    // i.e. its internal firebase-admin/database import stayed unrewritten.
-    expect(res.stdout).toContain('PROD_ARM_OK');
     expect(res.status).toBe(0);
   });
 
@@ -245,8 +249,22 @@ describe('@pyric/cli/register (child process)', () => {
     expect(res.status).toBe(0);
   });
 
+  it.skipIf(!hasRegisterHooks)('resolves mapped packages from the installed CLI rather than the requiring package', () => {
+    expect(existsSync(join(isolatedFixtureDir, 'node_modules/pyric-admin'))).toBe(false);
+    expect(existsSync(join(isolatedFixtureDir, 'node_modules/firebase-admin'))).toBe(false);
+    const res = runNode(
+      'database.cjs',
+      { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' },
+      isolatedFixtureDir,
+    );
+    expect(res).toMatchObject({
+      status: 0,
+      stdout: expect.stringContaining('ISOLATED_DATABASE_OK'),
+    });
+  });
+
   it('is inert without PYRIC_SANDBOX — real firebase-admin, no factory, no log', () => {
-    const res = runNode('probe.mjs', {});
+    const res = runNode('probe.mjs', {}, inactiveFixtureDir);
     expect(res.status).toBe(0);
     expect(JSON.parse(res.stdout)).toEqual({
       rewritten: false,
@@ -260,7 +278,7 @@ describe('@pyric/cli/register (child process)', () => {
     const res = runNode('probe.mjs', {
       PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000',
       NODE_ENV: 'production',
-    });
+    }, inactiveFixtureDir);
     expect(res.status).toBe(0);
     expect(res.stderr).toContain('refusing to activate under NODE_ENV=production');
     expect(JSON.parse(res.stdout)).toEqual({
