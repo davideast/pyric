@@ -43,21 +43,24 @@ export function listFirebaseEndpoints(
   exported: Record<string, unknown>,
 ): Array<{ exportName: string; callable: FirebaseEndpointFunction }> {
   const endpoints: Array<{ exportName: string; callable: FirebaseEndpointFunction }> = [];
-  const seen = new WeakSet<object>();
-  const visit = (value: Record<string, unknown>, prefix: string): void => {
-    if (seen.has(value)) return;
-    seen.add(value);
+  const visit = (
+    value: Record<string, unknown>,
+    prefix: string,
+    ancestors: ReadonlySet<object>,
+  ): void => {
+    if (ancestors.has(value)) return;
+    const nestedAncestors = new Set(ancestors).add(value);
     for (const [name, candidate] of Object.entries(value)) {
       const exportName = `${prefix}${name}`;
       const callable = candidate as FirebaseEndpointFunction;
       if (typeof candidate === 'function' && callable.__endpoint) {
         endpoints.push({ exportName, callable });
       } else if (typeof candidate === 'object' && candidate !== null) {
-        visit(candidate as Record<string, unknown>, `${exportName}-`);
+        visit(candidate as Record<string, unknown>, `${exportName}-`, nestedAncestors);
       }
     }
   };
-  visit(exported, '');
+  visit(exported, '', new Set());
   return endpoints;
 }
 

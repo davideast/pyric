@@ -43,6 +43,27 @@ describe('discoverOnValueCreated', () => {
     ]);
   });
 
+  test('discovers every Firebase name for aliased grouped exports', () => {
+    const { onValueCreated } = databaseFunctions;
+    const grouped = { run: onValueCreated('/messages/{id}', () => undefined) };
+
+    expect(discoverOnValueCreated({ first: grouped, second: grouped }).map((trigger) => (
+      trigger.exportName
+    ))).toEqual(['first-run', 'second-run']);
+  });
+
+  test('stops recursive export cycles without suppressing other endpoints', () => {
+    const { onValueCreated } = databaseFunctions;
+    const grouped: Record<string, unknown> = {
+      run: onValueCreated('/messages/{id}', () => undefined),
+    };
+    grouped.self = grouped;
+
+    expect(discoverOnValueCreated({ grouped }).map((trigger) => trigger.exportName)).toEqual([
+      'grouped-run',
+    ]);
+  });
+
   test('does not activate endpoints Firebase marks omit from emulation', () => {
     const { onValueCreated } = databaseFunctions;
     const omitted = onValueCreated({
