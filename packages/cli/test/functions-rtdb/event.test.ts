@@ -70,7 +70,6 @@ describe('executeOnValueCreated', () => {
       {
         id: 'delivery-1',
         time: '2026-07-13T20:00:00.000Z',
-        projectId: 'demo-project',
         instance: 'demo-project-default-rtdb',
         location: 'us-central1',
         databaseHost: 'firebasedatabase.app',
@@ -110,7 +109,6 @@ describe('executeOnValueCreated', () => {
       {
         id: 'failed-delivery',
         time: '2026-07-13T20:00:00.000Z',
-        projectId: 'demo-project',
         instance: 'demo-project-default-rtdb',
         location: 'us-central1',
         databaseHost: 'firebasedatabase.app',
@@ -141,7 +139,6 @@ describe('executeOnValueCreated', () => {
       {
         id: 'ordered-1',
         time: '2026-07-13T20:00:00.000Z',
-        projectId: 'demo-project',
         instance: 'demo-project-default-rtdb',
         location: 'us-central1',
         databaseHost: 'firebasedatabase.app',

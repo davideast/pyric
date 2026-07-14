@@ -4,7 +4,6 @@ import type { CreatedValueProjection } from './projection.js';
 export interface CreatedEventOptions {
   id: string;
   time: string;
-  projectId: string;
   instance: string;
   location: string;
   databaseHost: string;

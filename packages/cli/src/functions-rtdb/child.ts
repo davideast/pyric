@@ -273,7 +273,6 @@ async function runFunctionsRtdbChild(): Promise<void> {
       eventOptions: (_projection, sequence, trigger) => ({
         id: `${randomUUID()}-${sequence}`,
         time: new Date().toISOString(),
-        projectId,
         instance: trigger.instance === '*' ? instance : trigger.instance,
         location: trigger.location ?? location,
         databaseHost,

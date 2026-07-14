@@ -56,7 +56,6 @@ describe('startOnValueCreatedExecution', () => {
       eventOptions: (_projection, sequence) => ({
         id: `delivery-${sequence}`,
         time: '2026-07-13T20:00:00.000Z',
-        projectId: 'demo-project',
         instance: 'demo-project-default-rtdb',
         location: 'us-central1',
         databaseHost: 'firebasedatabase.app',
@@ -95,7 +94,6 @@ describe('startOnValueCreatedExecution', () => {
       eventOptions: (_projection, sequence) => ({
         id: `serial-${sequence}`,
         time: '2026-07-13T20:00:00.000Z',
-        projectId: 'demo-project',
         instance: 'demo-project-default-rtdb',
         location: 'us-central1',
         databaseHost: 'firebasedatabase.app',
