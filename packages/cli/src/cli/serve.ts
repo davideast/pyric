@@ -892,6 +892,10 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       settled = true;
       void (async () => {
         await functionsChild?.stop().catch(() => undefined);
+        if (devChild && devChild.child.exitCode === null) {
+          devChild.signal('SIGTERM');
+          await devChild.exited.catch(() => undefined);
+        }
         await runtime.handle.stop().catch(() => undefined);
         removeSignalHandlers();
         resolveExit(code);

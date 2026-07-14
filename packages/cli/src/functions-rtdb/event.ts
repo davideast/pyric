@@ -36,8 +36,10 @@ export async function executeOnValueCreated(
   const event: Record<string, unknown> = {
     specversion: '1.0',
     id: options.id,
+    // RTDB CloudEvents use the provider resource and a `_` project segment;
+    // the concrete database identity lives in `instances/<instance>`.
     source:
-      `//firebase.googleapis.com/projects/${options.projectId}` +
+      '//firebasedatabase.googleapis.com/projects/_' +
       `/locations/${options.location}/instances/${options.instance}`,
     subject: `refs/${projection.ref}`,
     type: CREATED_EVENT_TYPE,

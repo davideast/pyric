@@ -29,6 +29,36 @@ describe('discoverOnValueCreated', () => {
     ]);
   });
 
+  test('recursively discovers grouped exports using Firebase endpoint names', () => {
+    const { onValueCreated } = databaseFunctions;
+    const grouped = onValueCreated('/messages/{id}', () => undefined);
+
+    expect(discoverOnValueCreated({ messages: { makeUppercase: grouped } })).toEqual([
+      {
+        exportName: 'messages-makeUppercase',
+        reference: 'messages/{id}',
+        instance: '*',
+        callable: grouped,
+      },
+    ]);
+  });
+
+  test('does not activate endpoints Firebase marks omit from emulation', () => {
+    const { onValueCreated } = databaseFunctions;
+    const omitted = onValueCreated({
+      ref: '/messages/{id}',
+      omit: true,
+    }, () => undefined);
+
+    expect(inspectOnValueCreated({ omitted })).toEqual({
+      triggers: [],
+      unsupported: [{
+        exportName: 'omitted',
+        eventType: 'google.firebase.database.ref.v1.created (omitted from emulation)',
+      }],
+    });
+  });
+
   test('keeps a trigger-specific instance and region for the raw event', () => {
     const { onValueCreated } = databaseFunctions;
     const regional = onValueCreated({

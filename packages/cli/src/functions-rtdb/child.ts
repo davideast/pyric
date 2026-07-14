@@ -10,6 +10,7 @@ import {
 } from './execution.js';
 import {
   inspectOnValueCreated,
+  listFirebaseEndpoints,
 } from './discovery.js';
 import type { CreatedExecutionResult } from './event.js';
 import { RemoteRtdbTriggerDelivery } from './remote-delivery.js';
@@ -304,17 +305,8 @@ function findUnsupportedTriggers(exported: Record<string, unknown>): Unsupported
   const unsupported: UnsupportedFunctionsTrigger[] = [
     ...inspectOnValueCreated(exported).unsupported,
   ];
-  for (const [exportName, value] of Object.entries(exported)) {
-    if (typeof value !== 'function') continue;
-    const endpoint = (value as {
-      __endpoint?: {
-        eventTrigger?: { eventType?: unknown };
-        callableTrigger?: unknown;
-        httpsTrigger?: unknown;
-        scheduleTrigger?: unknown;
-        taskQueueTrigger?: unknown;
-      };
-    }).__endpoint;
+  for (const { exportName, callable } of listFirebaseEndpoints(exported)) {
+    const endpoint = callable.__endpoint;
     if (!endpoint) continue;
     const eventType = endpoint.eventTrigger?.eventType;
     if (eventType === 'google.firebase.database.ref.v1.created') continue;

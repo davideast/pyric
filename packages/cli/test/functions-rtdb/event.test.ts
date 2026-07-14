@@ -43,6 +43,7 @@ describe('executeOnValueCreated', () => {
         await new Promise((resolve) => setTimeout(resolve, 15));
         received = {
           id: event.id,
+          source: event.source,
           type: event.type,
           time: event.time,
           instance: event.instance,
@@ -80,6 +81,7 @@ describe('executeOnValueCreated', () => {
     expect(result.status).toBe('fulfilled');
     expect(received).toEqual({
       id: 'delivery-1',
+      source: '//firebasedatabase.googleapis.com/projects/_/locations/us-central1/instances/demo-project-default-rtdb',
       type: 'google.firebase.database.ref.v1.created',
       time: '2026-07-13T20:00:00.000Z',
       instance: 'demo-project-default-rtdb',

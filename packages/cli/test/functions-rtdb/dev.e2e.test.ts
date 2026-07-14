@@ -198,4 +198,85 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
       }
     }
   }, 20_000);
+
+  test('an unexpected Functions exit also stops the project dev child', async () => {
+    if (!existsSync(cliEntry)) throw new Error(`build the CLI first: ${cliEntry}`);
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-functions-fatal-stop-'));
+    mkdirSync(join(cwd, 'public'));
+    mkdirSync(join(cwd, 'functions'));
+    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
+    writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
+    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({
+      hosting: { public: 'public' },
+      functions: { source: 'functions' },
+    }));
+    writeFileSync(join(cwd, 'package.json'), JSON.stringify({
+      private: true,
+      scripts: {
+        dev: `node -e "require('node:fs').writeFileSync('dev-child.pid', String(process.pid)); setTimeout(() => {}, 60000)"`,
+      },
+    }));
+    writeFileSync(join(cwd, 'functions/package.json'), JSON.stringify({
+      name: 'fatal-functions',
+      private: true,
+      type: 'commonjs',
+      main: 'index.cjs',
+    }));
+    writeFileSync(join(cwd, 'functions/index.cjs'), 'setTimeout(() => process.exit(7), 3000);\n');
+
+    let stderr = '';
+    const fatalCommand = spawn('node', [
+      cliEntry,
+      'dev',
+      '--port=0',
+      '--host=127.0.0.1',
+      '--no-open',
+      '--no-capture',
+    ], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    fatalCommand.stderr?.setEncoding('utf8');
+    fatalCommand.stderr?.on('data', (chunk: string) => { stderr += chunk; });
+    let devPid: number | undefined;
+    let fatalPeer: { close(): Promise<void> } | undefined;
+
+    try {
+      const pointer = await waitFor(() => {
+        const path = join(cwd, '.pyric/serve.json');
+        return existsSync(path)
+          ? JSON.parse(readFileSync(path, 'utf8')) as { url: string }
+          : null;
+      });
+      fatalPeer = await connectWorkerPeer(
+        `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
+      );
+      devPid = await waitFor(() => {
+        const path = join(cwd, 'dev-child.pid');
+        return existsSync(path) ? Number(readFileSync(path, 'utf8')) : null;
+      });
+      const code = await Promise.race([
+        new Promise<number>((resolveExit) =>
+          fatalCommand.once('exit', (exit) => resolveExit(exit ?? 1))),
+        Bun.sleep(5_000).then(() => -1),
+      ]);
+      expect(code).toBe(7);
+      expect(stderr).toContain('Functions child exited unexpectedly (code 7)');
+      await waitFor(() => {
+        try {
+          process.kill(devPid!, 0);
+          return null;
+        } catch {
+          return true;
+        }
+      }, 5_000);
+    } finally {
+      await fatalPeer?.close().catch(() => {});
+      if (fatalCommand.exitCode === null) fatalCommand.kill('SIGKILL');
+      if (devPid !== undefined) {
+        try {
+          process.kill(devPid, 'SIGKILL');
+        } catch {
+          // Expected: fatal Functions shutdown owns and stops the dev child.
+        }
+      }
+    }
+  }, 20_000);
 });

@@ -22,24 +22,47 @@ export interface OnValueCreatedInspection {
 
 export const CREATED_EVENT_TYPE = 'google.firebase.database.ref.v1.created';
 
-type EndpointFunction = RtdbCreatedCallable & {
+export type FirebaseEndpointFunction = RtdbCreatedCallable & {
   __endpoint?: {
+    omit?: unknown;
     region?: unknown;
     eventTrigger?: {
       eventType?: unknown;
       eventFilters?: Record<string, unknown>;
       eventFilterPathPatterns?: Record<string, unknown>;
     };
+    callableTrigger?: unknown;
+    httpsTrigger?: unknown;
+    scheduleTrigger?: unknown;
+    taskQueueTrigger?: unknown;
   };
 };
 
-function normalizePath(path: string): string {
-  return path.split('/').filter(Boolean).join('/');
+/** Walk exports using the same hyphenated nested names as Firebase's loader. */
+export function listFirebaseEndpoints(
+  exported: Record<string, unknown>,
+): Array<{ exportName: string; callable: FirebaseEndpointFunction }> {
+  const endpoints: Array<{ exportName: string; callable: FirebaseEndpointFunction }> = [];
+  const seen = new WeakSet<object>();
+  const visit = (value: Record<string, unknown>, prefix: string): void => {
+    if (seen.has(value)) return;
+    seen.add(value);
+    for (const [name, candidate] of Object.entries(value)) {
+      const exportName = `${prefix}${name}`;
+      const callable = candidate as FirebaseEndpointFunction;
+      if (typeof candidate === 'function' && callable.__endpoint) {
+        endpoints.push({ exportName, callable });
+      } else if (typeof candidate === 'object' && candidate !== null) {
+        visit(candidate as Record<string, unknown>, `${exportName}-`);
+      }
+    }
+  };
+  visit(exported, '');
+  return endpoints;
 }
 
-function pathParts(path: string): string[] {
-  const normalized = normalizePath(path);
-  return normalized ? normalized.split('/') : [];
+function normalizePath(path: string): string {
+  return path.split('/').filter(Boolean).join('/');
 }
 
 function paramName(segment: string): string | null {
@@ -47,7 +70,7 @@ function paramName(segment: string): string | null {
 }
 
 function supportsReference(reference: string): boolean {
-  return pathParts(reference).every((segment) =>
+  return normalizePath(reference).split('/').every((segment) =>
     paramName(segment) !== null || (!segment.includes('{') && !segment.includes('}')),
   );
 }
@@ -58,11 +81,24 @@ export function inspectOnValueCreated(
 ): OnValueCreatedInspection {
   const triggers: DiscoveredOnValueCreated[] = [];
   const unsupported: UnsupportedOnValueCreated[] = [];
-  for (const [exportName, value] of Object.entries(exported)) {
-    if (typeof value !== 'function') continue;
-    const callable = value as EndpointFunction;
-    const trigger = callable.__endpoint?.eventTrigger;
+  for (const { exportName, callable } of listFirebaseEndpoints(exported)) {
+    const endpoint = callable.__endpoint;
+    const trigger = endpoint?.eventTrigger;
     if (trigger?.eventType !== CREATED_EVENT_TYPE) continue;
+    if (endpoint?.omit === true) {
+      unsupported.push({
+        exportName,
+        eventType: `${CREATED_EVENT_TYPE} (omitted from emulation)`,
+      });
+      continue;
+    }
+    if (endpoint?.omit !== undefined && endpoint.omit !== false) {
+      unsupported.push({
+        exportName,
+        eventType: `${CREATED_EVENT_TYPE} (unsupported dynamic omit option)`,
+      });
+      continue;
+    }
     const reference = trigger.eventFilterPathPatterns?.ref;
     const exactInstance = trigger.eventFilters?.instance;
     const instancePattern = trigger.eventFilterPathPatterns?.instance;
@@ -84,13 +120,13 @@ export function inspectOnValueCreated(
       });
       continue;
     }
-    const region = callable.__endpoint?.region;
+    const region = endpoint?.region;
     const location = Array.isArray(region) && typeof region[0] === 'string'
       ? region[0]
       : undefined;
     triggers.push({
       exportName,
-      reference,
+      reference: normalizePath(reference),
       instance,
       ...(location === undefined ? {} : { location }),
       callable,

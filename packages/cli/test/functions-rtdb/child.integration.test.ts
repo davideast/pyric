@@ -63,11 +63,17 @@ exports.makeUppercase = onValueCreated(
   '/messages/{pushId}/original',
   event => event.data.ref.parent.child('uppercase').set(event.data.val().toUpperCase()),
 );
-exports.markProcessed = onValueCreated(
-  '/messages/{pushId}/uppercase',
-  event => event.data.ref.parent.child('processed').set(
-    event.params.pushId + ':' + event.data.val()
+exports.messages = {
+  markProcessed: onValueCreated(
+    '/messages/{pushId}/uppercase',
+    event => event.data.ref.parent.child('processed').set(
+      event.params.pushId + ':' + event.data.val()
+    ),
   ),
+};
+exports.omitted = onValueCreated(
+  { ref: '/omitted/{id}', omit: true },
+  () => undefined,
 );
 exports.unsupportedUpdate = onValueUpdated(
   '/messages/{pushId}/original',
@@ -135,6 +141,9 @@ describe('isolated Functions RTDB child', () => {
     expect(await child.ready).toEqual({
       triggerCount: 2,
       unsupportedTriggers: [{
+        exportName: 'omitted',
+        eventType: 'google.firebase.database.ref.v1.created (omitted from emulation)',
+      }, {
         exportName: 'unsupportedPattern',
         eventType: 'google.firebase.database.ref.v1.created (unsupported ref pattern: messages/{pushId=prefix/*})',
       }, {
@@ -158,7 +167,7 @@ describe('isolated Functions RTDB child', () => {
     });
     expect(events).toContainEqual({
       type: 'execution',
-      exportName: 'markProcessed',
+      exportName: 'messages-markProcessed',
       ref: 'messages/id/uppercase',
       params: { pushId: 'id' },
       status: 'fulfilled',

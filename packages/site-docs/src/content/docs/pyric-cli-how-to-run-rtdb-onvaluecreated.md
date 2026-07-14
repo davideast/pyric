@@ -73,13 +73,17 @@ Pyric prints each unsupported trigger export and leaves it inactive. The first
 slice supports a CommonJS Node `onValueCreated` entry, one Functions source,
 one local RTDB instance, exact paths and named single-segment wildcards,
 sequential delivery within the current session, and Admin reads and writes
-through `event.data.ref`.
+through `event.data.ref`. Flat exports and Firebase-style grouped exports such
+as `exports.messages = { makeUppercase }` are both discovered.
 
 Firebase path patterns beyond that grammar, such as `{id=prefix/*}` and
 `{id=**}`, and instance selectors such as `db-*` are reported as unsupported
 instead of being announced and then silently left unmatched. If supported
 exports resolve to more than one database instance, startup fails and names the
 conflicting instances.
+Endpoints declared with `omit: true` remain inactive, matching Firebase's
+"do not deploy or emulate" contract. A dynamic expression used for `omit` is
+reported as unsupported because Pyric cannot resolve its deployment value.
 
 Native ESM entries, other RTDB trigger types, other Firebase products, retries,
 deployed concurrency, multiple Functions codebases or database instances,
