@@ -21,6 +21,9 @@ ignored/
 
 # Editor and tool state.
 .firebase/
+firebase-debug.log*
+packages/conformance/src/capture/functions-rtdb/fixture/runtime.cjs
+packages/conformance/src/capture/functions-rtdb/fixture/capture-state.json
 .idea/
 .vscode/
 .mcp.json

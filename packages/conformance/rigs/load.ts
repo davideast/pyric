@@ -21,7 +21,7 @@ const TYPES_FILE = 'types.ts';
 
 const AUTOMATION_VALUES = new Set<RigAutomation>(['unattended', 'credentialed', 'human-witnessed']);
 const NETWORK_VALUES = new Set(['none', 'firebase-production']);
-const VERSION_FIELD_VALUES = new Set(['fbSdkVersion', 'adminSdkVersion']);
+const VERSION_FIELD_VALUES = new Set(['fbSdkVersion', 'adminSdkVersion', 'functionsSdkVersion']);
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');

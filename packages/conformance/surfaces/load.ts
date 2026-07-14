@@ -31,7 +31,7 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 /** Structural validation for one authored record. Returns problems found (empty = valid). */
-function recordProblems(file: string, value: unknown): string[] {
+export function surfaceRecordProblems(file: string, value: unknown): string[] {
   const problems: string[] = [];
   const fail = (message: string) => problems.push(`surfaces/${file}: ${message}`);
 
@@ -60,18 +60,28 @@ function recordProblems(file: string, value: unknown): string[] {
   // mirror descriptor asserts an upstream exists (census fields); a native
   // descriptor asserts it does not (a declared symbolSource instead, and NONE
   // of the census fields). Nothing string-matches the surface name to decide.
-  if (record.kind !== 'mirror' && record.kind !== 'native') {
-    fail("missing 'kind' — must be 'mirror' or 'native'");
+  if (record.kind !== 'mirror' && record.kind !== 'native' && record.kind !== 'integration') {
+    fail("missing 'kind' — must be 'mirror', 'native', or 'integration'");
   } else if (record.kind === 'mirror') {
     if (typeof record.censusSurface !== 'string' || !record.censusSurface.trim()) fail("mirror descriptor missing 'censusSurface'");
     if (typeof record.upstream !== 'string' || !record.upstream.trim()) fail("mirror descriptor missing 'upstream'");
     if (!isStringArray(record.mirrors) || record.mirrors.length === 0) fail("mirror descriptor 'mirrors' must be a non-empty string array");
     if (record.symbolSource !== undefined) fail("mirror descriptor must not declare 'symbolSource'");
-  } else {
+    if (record.contractSource !== undefined) fail("mirror descriptor must not declare 'contractSource'");
+  } else if (record.kind === 'native') {
     if (typeof record.symbolSource !== 'string' || !record.symbolSource.trim()) fail("native descriptor missing 'symbolSource'");
     if (record.censusSurface !== undefined) fail("native descriptor must not declare 'censusSurface' (no upstream to census)");
     if (record.upstream !== undefined) fail("native descriptor must not declare 'upstream' (no upstream to census)");
     if (record.mirrors !== undefined) fail("native descriptor must not declare 'mirrors' (no upstream to census)");
+    if (record.contractSource !== undefined) fail("native descriptor must not declare 'contractSource'");
+  } else {
+    if (typeof record.contractSource !== 'string' || !record.contractSource.trim()) {
+      fail("integration descriptor missing 'contractSource'");
+    }
+    if (record.censusSurface !== undefined) fail("integration descriptor must not declare 'censusSurface'");
+    if (record.upstream !== undefined) fail("integration descriptor must not declare 'upstream'");
+    if (record.mirrors !== undefined) fail("integration descriptor must not declare 'mirrors'");
+    if (record.symbolSource !== undefined) fail("integration descriptor must not declare 'symbolSource'");
   }
 
   return problems;
@@ -94,7 +104,7 @@ export function loadSurfaceDescriptors(): SurfaceDescriptor[] {
     const surface = file.slice(0, -'.ts'.length) as Surface;
     const mod = require(join(HERE, file)) as { surface?: SurfaceDescriptorRecord; default?: SurfaceDescriptorRecord };
     const record = mod.surface ?? mod.default;
-    const recordFailures = recordProblems(file, record);
+    const recordFailures = surfaceRecordProblems(file, record);
     if (recordFailures.length > 0) {
       problems.push(...recordFailures);
       continue;

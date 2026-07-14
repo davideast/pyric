@@ -1,0 +1,19 @@
+import type { SurfaceDescriptorRecord } from './types.ts';
+
+/**
+ * Unchanged `firebase-functions` source executed against Pyric's RTDB sandbox.
+ * This is deliberately neither a package mirror nor a Pyric-native API.
+ */
+export const surface: SurfaceDescriptorRecord = {
+  order: 8.5,
+  kind: 'integration',
+  registry: 'functions-rtdb',
+  contractSource: 'firebase-functions/v2/database#onValueCreated',
+  observationPrefixes: ['functions-rtdb-'],
+  coverage: true,
+  scopeNote:
+    'integration contract: unchanged firebase-functions/v2/database onValueCreated source. First slice is Node-only, one RTDB instance, exact paths and named single-segment wildcards, serialized in-session handler execution without a cross-event ordering guarantee, and Admin writes through event.data.ref. Other trigger families, retries, deployed concurrency, durable delivery, secrets, and deployment emulation are deferred.',
+  captureRigs: ['functions-rtdb'],
+  conformanceSuite: 'packages/cli/test/functions-rtdb/oracle-conformance.test.ts',
+  climb: true,
+};

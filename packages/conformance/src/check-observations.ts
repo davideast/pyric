@@ -29,10 +29,10 @@ const byName = new Map(observations.map((obs) => [obs.name, obs]));
 const structural: string[] = [];
 for (const obs of observations) {
   for (const key of REQUIRED) if (!(key in obs.raw)) structural.push(`${obs.file}: missing '${key}'`);
-  // Version field: admin-SDK captures carry `adminSdkVersion` (guarded against
-  // firebase-admin); firebase-JS-SDK captures carry `fbSdkVersion`.
-  const versionField = 'adminSdkVersion' in obs.raw ? 'adminSdkVersion' : 'fbSdkVersion';
-  if (!(versionField in obs.raw)) structural.push(`${obs.file}: missing 'fbSdkVersion'`);
+  const versionFields = ['fbSdkVersion', 'adminSdkVersion', 'functionsSdkVersion'];
+  if (!versionFields.some((field) => typeof obs.raw[field] === 'string')) {
+    structural.push(`${obs.file}: missing SDK version field`);
+  }
   if (`${obs.name}.json` !== obs.file) structural.push(`${obs.file}: name '${obs.name}' does not match filename`);
 }
 

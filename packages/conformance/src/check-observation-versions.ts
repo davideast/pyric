@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * CI guard: every oracle observation must have been captured against the
- * SAME `firebase` version the workspace currently resolves.
+ * CI guard: every SDK version named by an oracle observation must match the
+ * version the workspace currently resolves.
  *
  * The observations in observations/<surface>/*.json are the pinned
  * record of real prod behavior the COMPAT matrices cite. If the workspace
@@ -39,46 +39,52 @@ const resolved = resolvedVersion('firebase');
 // not the firebase JS SDK, and are versioned by `adminSdkVersion`. They vouch
 // for admin behavior, so they must track the installed firebase-admin version.
 const resolvedAdmin = resolvedVersion('firebase-admin');
+const resolvedFunctions = resolvedVersion('firebase-functions');
 const observations = loadObservations();
 
 const missing: string[] = [];
-const mismatched: { file: string; got: string }[] = [];
+const mismatched: { file: string; got: string; want: string }[] = [];
+
+const VERSION_TARGETS = [
+  { field: 'fbSdkVersion', resolved },
+  { field: 'adminSdkVersion', resolved: resolvedAdmin },
+  { field: 'functionsSdkVersion', resolved: resolvedFunctions },
+] as const;
 
 for (const obs of observations) {
   const file = obs.file;
-  // An admin capture carries `adminSdkVersion` and is guarded against
-  // firebase-admin; everything else carries `fbSdkVersion` and is guarded
-  // against firebase.
-  const isAdmin = typeof obs.raw.adminSdkVersion === 'string';
-  const field = isAdmin ? 'adminSdkVersion' : 'fbSdkVersion';
-  const want = isAdmin ? resolvedAdmin : resolved;
-  const v = obs.raw[field] as string | undefined;
-  if (!v) {
-    missing.push(`${file} (missing ${field})`);
+  const present = VERSION_TARGETS.filter(({ field }) => typeof obs.raw[field] === 'string');
+  if (present.length === 0) {
+    missing.push(`${file} (missing SDK version field)`);
     continue;
   }
-  if (v !== want) mismatched.push({ file: `${file} [${field}]`, got: v });
+  for (const { field, resolved: want } of present) {
+    const got = obs.raw[field] as string;
+    if (got !== want) mismatched.push({ file: `${file} [${field}]`, got, want });
+  }
 }
 
 console.log(`# Oracle observation version guard`);
 console.log(`Resolved firebase (node_modules/firebase/package.json): ${resolved}`);
 console.log(`Resolved firebase-admin (node_modules/firebase-admin/package.json): ${resolvedAdmin}`);
+console.log(`Resolved firebase-functions (node_modules/firebase-functions/package.json): ${resolvedFunctions}`);
 console.log(`Observations checked: ${observations.length}`);
 
 if (missing.length === 0 && mismatched.length === 0) {
-  console.log(`\n✓ All observations captured at ${resolved}.`);
+  console.log('\n✓ Every observation matches its installed Firebase SDK version.');
   process.exit(0);
 }
 
 if (missing.length > 0) {
-  console.error(`\n✗ ${missing.length} observation(s) missing fbSdkVersion:`);
+  console.error(`\n✗ ${missing.length} observation(s) missing an SDK version field:`);
   for (const f of missing.slice(0, 20)) console.error(`  - ${f}`);
 }
 if (mismatched.length > 0) {
-  console.error(`\n✗ ${mismatched.length} observation(s) not captured at ${resolved}:`);
-  for (const { file, got } of mismatched.slice(0, 20)) console.error(`  - ${file}: ${got}`);
-  console.error(`\nRe-capture them against firebase@${resolved} (bun run packages/conformance/src/run.ts),`);
-  console.error(`or, if the bump is intentional, re-run the full oracle capture so every`);
-  console.error(`observation carries the new version. Do not edit fbSdkVersion by hand.`);
+  console.error(`\n✗ ${mismatched.length} observation SDK version mismatch(es):`);
+  for (const { file, got, want } of mismatched.slice(0, 20)) {
+    console.error(`  - ${file}: captured ${got}, installed ${want}`);
+  }
+  console.error('\nRe-run the owning oracle capture against the installed SDK versions.');
+  console.error('Do not edit observation version fields by hand.');
 }
 process.exit(1);

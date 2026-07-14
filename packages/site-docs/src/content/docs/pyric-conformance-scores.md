@@ -54,5 +54,6 @@ Read the matrix below the score on each COMPAT page for the concrete rows behind
 | Realtime Database | 64.8% | 79.5% | 77% (154/200) |
 | Storage | 48.1% | 72.2% | 83.8% (83/99) |
 | Messaging | 100% | 100% | 100% (56/56) |
+| Functions · RTDB | integration | integration | 0% (0/13) |
 | Rules | native | native | 86.2% (50/58) |
-| **Overall** | **64.1%** | **75.6%** | **84.7%** (666/786) |
+| **Overall** | **64.1%** | **75.6%** | **83.4%** (666/799) |
