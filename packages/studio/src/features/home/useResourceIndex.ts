@@ -43,7 +43,7 @@ import { sandbox as authSandbox } from 'pyric/auth';
 import { ref as inProcessRef, listAll as inProcessListAll } from 'pyric/storage';
 import { useEnvironment } from '../../shell/environment.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
-import { foldIndexBatch } from './resource-index-state.js';
+import { createIndexBatchPublisher } from './resource-index-state.js';
 import {
   bfsStorageObjectPaths,
   buildResourceIndex,
@@ -188,11 +188,12 @@ export function useResourceIndex(): ResourceIndexState {
       // what stops a chained rebuild (every worker tick re-fires `ensure`) from
       // stacking a fresh inventory on top of the previous one — the "counts
       // count up rapidly" bug.
-      let firstOfBuild = true;
+      const publishBatch = createIndexBatchPublisher((update) =>
+        setEntries(update),
+      );
       void buildResourceIndex(sources, INDEX_CAPS, (batch) => {
         if (token !== buildToken.current) return; // superseded by a newer build
-        setEntries((cur) => foldIndexBatch(cur, batch, firstOfBuild));
-        firstOfBuild = false;
+        publishBatch(batch);
       })
         .catch(() => {
           // Best-effort: keep whatever landed via onBatch (possibly nothing).

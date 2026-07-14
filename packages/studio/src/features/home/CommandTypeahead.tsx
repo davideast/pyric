@@ -181,10 +181,7 @@ export function CommandTypeahead({
                   {group.results.map((r, i) => {
                     const flatIndex = start + i;
                     return (
-                      // Keyed with the flat index too: two entries can share a
-                      // kind+label id (e.g. two users with no email whose uids
-                      // render identically after truncation upstream).
-                      <li key={`${r.id}:${flatIndex}`}>
+                      <li key={r.id}>
                         <button
                           type="button"
                           role="option"
