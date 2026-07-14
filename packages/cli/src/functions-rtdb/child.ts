@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RemoteSandbox } from '../remote/index.js';
 import {
+  inspectOnValueCreated,
   startOnValueCreatedExecution,
   type CreatedExecutionResult,
   type OnValueCreatedExecutionHost,
@@ -252,6 +253,17 @@ async function runFunctionsRtdbChild(): Promise<void> {
     // when it wraps a raw CloudEvent. Initializing that app before loading the
     // user's module avoids importing the broad firebase-functions/v2 barrel.
     const exported = requireFromEntry(entry) as Record<string, unknown>;
+    const effectiveInstances = [...new Set(
+      inspectOnValueCreated(exported).triggers.map((trigger) =>
+        trigger.instance === '*' ? instance : trigger.instance,
+      ),
+    )].sort();
+    if (effectiveInstances.length > 1) {
+      throw new Error(
+        'Functions RTDB first slice supports one database instance; found ' +
+          effectiveInstances.join(', '),
+      );
+    }
     host = startOnValueCreatedExecution({
       exported,
       delivery: new RemoteRtdbTriggerDelivery(app.sandbox.rtdb),
@@ -287,7 +299,9 @@ async function runFunctionsRtdbChild(): Promise<void> {
 }
 
 function findUnsupportedTriggers(exported: Record<string, unknown>): UnsupportedFunctionsTrigger[] {
-  const unsupported: UnsupportedFunctionsTrigger[] = [];
+  const unsupported: UnsupportedFunctionsTrigger[] = [
+    ...inspectOnValueCreated(exported).unsupported,
+  ];
   for (const [exportName, value] of Object.entries(exported)) {
     if (typeof value !== 'function') continue;
     const endpoint = (value as {

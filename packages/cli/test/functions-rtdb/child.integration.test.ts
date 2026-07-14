@@ -73,6 +73,10 @@ exports.unsupportedUpdate = onValueUpdated(
   '/messages/{pushId}/original',
   () => undefined,
 );
+exports.unsupportedPattern = onValueCreated(
+  '/messages/{pushId=prefix/*}',
+  () => undefined,
+);
 `,
   );
   symlinkSync(
@@ -127,6 +131,9 @@ describe('isolated Functions RTDB child', () => {
     expect(await child.ready).toEqual({
       triggerCount: 2,
       unsupportedTriggers: [{
+        exportName: 'unsupportedPattern',
+        eventType: 'google.firebase.database.ref.v1.created (unsupported ref pattern: messages/{pushId=prefix/*})',
+      }, {
         exportName: 'unsupportedUpdate',
         eventType: 'google.firebase.database.ref.v1.updated',
       }],
@@ -151,4 +158,29 @@ describe('isolated Functions RTDB child', () => {
     });
     expect(await child.stop()).toBe(0);
   }, 15_000);
+
+  test('rejects exports spanning more than one effective database instance', async () => {
+    const entry = join(fixtureDir, 'functions/multi-instance.cjs');
+    writeFileSync(entry, `const { onValueCreated } = require('firebase-functions/v2/database');
+exports.first = onValueCreated({ ref: '/first/{id}', instance: 'first-rtdb' }, () => undefined);
+exports.second = onValueCreated({ ref: '/second/{id}', instance: 'second-rtdb' }, () => undefined);
+`);
+    child = spawnFunctionsRtdbChild({
+      cwd: join(fixtureDir, 'functions'),
+      entry,
+      childModuleUrl: pathToFileURL(childModule),
+      env: buildChildEnv(process.env, {
+        serveUrl: runtime.handle.url,
+        registerUrl: registerModuleUrl(),
+      }),
+      projectId: 'demo-project',
+      instance: 'demo-project-default-rtdb',
+      location: 'us-central1',
+    });
+
+    await expect(child.ready).rejects.toThrow(
+      'Functions RTDB first slice supports one database instance; found first-rtdb, second-rtdb',
+    );
+    expect(await child.exited).toBe(1);
+  });
 });

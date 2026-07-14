@@ -9,6 +9,7 @@ import {
   startOnValueCreatedExecution,
   type RtdbSnapshotCommit,
 } from '../../src/functions-rtdb/index.js';
+import { inspectOnValueCreated } from '../../src/functions-rtdb/execution.js';
 
 const requireFromConformance = createRequire(
   join(import.meta.dir, '../../../conformance/package.json'),
@@ -165,6 +166,27 @@ describe('discoverOnValueCreated', () => {
       location: 'europe-west1',
       callable: regional,
     }]);
+  });
+
+  test('reports Firebase path patterns outside the exact and single-wildcard slice', () => {
+    const { onValueCreated } = databaseFunctions;
+    const supported = onValueCreated('/messages/{id}', () => undefined);
+    const prefixGlob = onValueCreated('/messages/{id=prefix/*}', () => undefined);
+    const recursiveGlob = onValueCreated('/messages/{id=**}', () => undefined);
+
+    const inspected = inspectOnValueCreated({ supported, prefixGlob, recursiveGlob });
+
+    expect(inspected.triggers.map((trigger) => trigger.exportName)).toEqual(['supported']);
+    expect(inspected.unsupported).toEqual([
+      {
+        exportName: 'prefixGlob',
+        eventType: 'google.firebase.database.ref.v1.created (unsupported ref pattern: messages/{id=prefix/*})',
+      },
+      {
+        exportName: 'recursiveGlob',
+        eventType: 'google.firebase.database.ref.v1.created (unsupported ref pattern: messages/{id=**})',
+      },
+    ]);
   });
 });
 

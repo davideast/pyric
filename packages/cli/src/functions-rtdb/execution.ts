@@ -24,6 +24,16 @@ export interface DiscoveredOnValueCreated {
   callable: RtdbCreatedCallable;
 }
 
+export interface UnsupportedOnValueCreated {
+  exportName: string;
+  eventType: string;
+}
+
+export interface OnValueCreatedInspection {
+  triggers: DiscoveredOnValueCreated[];
+  unsupported: UnsupportedOnValueCreated[];
+}
+
 export interface CreatedEventOptions {
   id: string;
   time: string;
@@ -81,11 +91,18 @@ type EndpointFunction = RtdbCreatedCallable & {
   };
 };
 
-/** Discover unchanged v2 RTDB create functions through public endpoint metadata. */
-export function discoverOnValueCreated(
+function supportsReference(reference: string): boolean {
+  return pathParts(reference).every((segment) =>
+    paramName(segment) !== null || (!segment.includes('{') && !segment.includes('}')),
+  );
+}
+
+/** Classify unchanged v2 RTDB create exports against the admitted first slice. */
+export function inspectOnValueCreated(
   exported: Record<string, unknown>,
-): DiscoveredOnValueCreated[] {
-  const discovered: DiscoveredOnValueCreated[] = [];
+): OnValueCreatedInspection {
+  const triggers: DiscoveredOnValueCreated[] = [];
+  const unsupported: UnsupportedOnValueCreated[] = [];
   for (const [exportName, value] of Object.entries(exported)) {
     if (typeof value !== 'function') continue;
     const callable = value as EndpointFunction;
@@ -95,11 +112,18 @@ export function discoverOnValueCreated(
     const instance =
       trigger.eventFilters?.instance ?? trigger.eventFilterPathPatterns?.instance;
     if (typeof reference !== 'string' || typeof instance !== 'string') continue;
+    if (!supportsReference(reference)) {
+      unsupported.push({
+        exportName,
+        eventType: `${CREATED_EVENT_TYPE} (unsupported ref pattern: ${reference})`,
+      });
+      continue;
+    }
     const region = callable.__endpoint?.region;
     const location = Array.isArray(region) && typeof region[0] === 'string'
       ? region[0]
       : undefined;
-    discovered.push({
+    triggers.push({
       exportName,
       reference,
       instance,
@@ -107,7 +131,14 @@ export function discoverOnValueCreated(
       callable,
     });
   }
-  return discovered;
+  return { triggers, unsupported };
+}
+
+/** Discover supported unchanged v2 RTDB create functions. */
+export function discoverOnValueCreated(
+  exported: Record<string, unknown>,
+): DiscoveredOnValueCreated[] {
+  return inspectOnValueCreated(exported).triggers;
 }
 
 /** Invoke the real Firebase Functions wrapper and await the user's result. */
