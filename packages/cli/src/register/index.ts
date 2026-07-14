@@ -58,11 +58,12 @@ const moduleApi = Module as unknown as {
  * CJS→ESM seam: a rewritten `require()` fails against the pyric mirrors'
  * `import`-condition-only exports (the CJS resolver ignores hook-supplied
  * condition overrides), even though `require(esm)` can load them fine.
- * Locate the package from the REQUIRING module and resolve the subpath under
- * import conditions ourselves. Returns the resolved file URL, or null to
- * rethrow the original error.
+ * Locate the package from this installed CLI and resolve the subpath under
+ * import conditions ourselves. The user's function package is not required
+ * to install Pyric's mapped targets. Returns the resolved file URL, or null
+ * to rethrow the original error.
  */
-function resolveEsmOnlyForRequire(mapped: string, parentURL: string | undefined): string | null {
+function resolveEsmOnlyForRequire(mapped: string): string | null {
   if (typeof moduleApi.findPackageJSON !== 'function') return null;
   const slash = mapped.indexOf('/');
   const pkgName = slash === -1 ? mapped : mapped.slice(0, slash);
@@ -71,7 +72,7 @@ function resolveEsmOnlyForRequire(mapped: string, parentURL: string | undefined)
   try {
     pkgJsonPath = moduleApi.findPackageJSON(
       pkgName,
-      parentURL ?? pathToFileURL(join(process.cwd(), 'noop.js')),
+      import.meta.url,
     );
   } catch {
     return null;
@@ -94,14 +95,15 @@ function activate(): void {
         const mapped = mapFirebaseSpecifier(specifier);
         if (mapped === null) return nextResolve(specifier, context);
         try {
-          return nextResolve(mapped, context);
+          return nextResolve(mapped, { ...context, parentURL: import.meta.url });
         } catch (err) {
           // CJS `require('firebase-admin/app')` resolves under the `require`
           // condition, but the pyric mirrors are ESM-only. Resolve the file
           // under import conditions ourselves — require(esm) (Node ≥ 22.12)
           // loads it fine once given the URL.
-          if ((err as { code?: string }).code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
-            const url = resolveEsmOnlyForRequire(mapped, context.parentURL);
+          const code = (err as { code?: string }).code;
+          if (code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' || code === 'MODULE_NOT_FOUND') {
+            const url = resolveEsmOnlyForRequire(mapped);
             if (url) return { url, shortCircuit: true };
           }
           throw err;

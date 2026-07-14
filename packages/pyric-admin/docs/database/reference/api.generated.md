@@ -436,17 +436,15 @@ Mirror-owned structural types for the implemented admin RTDB surface.
 
 Returns the AdminDatabase service for the supplied app.
 
-Signature mirrors `firebase-admin/database`'s `getDatabase(app?)` and
-`getDatabaseWithUrl(url, app)` collapsed into a single function:
+Signature mirrors `firebase-admin/database`'s `getDatabase(app?)`.
 
   - `getDatabase()` — default database for the DEFAULT app (resolved
     through `pyric-admin/app`'s registry, exactly like firebase-admin's
     no-arg `getDatabase()`; throws `app/no-app` when no default app has
     been initialized). Works for local and remote sandbox apps.
   - `getDatabase(app)` — default database for the app.
-  - `getDatabase(app, url)` — accepts the upstream-compatible URL
-    position, which the sandbox ignores because it has no notion of
-    multiple database instances per project.
+  - `getDatabase(app, url)` — legacy Pyric-only compatibility form. New
+    code should use the upstream-shaped [getDatabaseWithUrl](#getdatabasewithurl) export.
 
 The sandbox brand returns the local or remote `Database` backed by the
 per-`Sandbox` state described in the module-level docs.
@@ -460,6 +458,34 @@ per-`Sandbox` state described in the module-level docs.
 ##### \_url?
 
 `string`
+
+#### Returns
+
+[`Database`](#database)
+
+***
+
+### getDatabaseWithUrl()
+
+> **getDatabaseWithUrl**(`_url`, `app?`): [`Database`](#database)
+
+Returns the AdminDatabase service selected by an upstream-shaped
+database URL.
+
+This is the exact `firebase-admin/database` argument order used by the
+Firebase Functions SDK: `getDatabaseWithUrl(url, app?)`. The first Pyric
+Functions slice has one shared RTDB instance, so the URL selects that
+instance rather than creating a second sandbox database.
+
+#### Parameters
+
+##### \_url
+
+`string`
+
+##### app?
+
+`SandboxAdminApp`
 
 #### Returns
 
