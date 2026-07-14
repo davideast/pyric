@@ -51,25 +51,20 @@ import {
 } from './verdict.js';
 import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-selection.js';
 import { TrafficRulesInspector } from './TrafficRulesInspector.js';
-import { BillableMetricsView, SubscriptionsRulesView } from './TrafficMetricsViews.js';
+import { BillableMetricsView, RulesMetricsView } from './TrafficMetricsViews.js';
+import { TRAFFIC_TABS, trafficTabForView, type TrafficTab } from './traffic-tabs.js';
 import './traffic.css';
 
+export type { TrafficTab } from './traffic-tabs.js';
+
 /** The Traffic tab strip's three views (Firebase Console "Usage" reference:
- *  Timeline / Billable metrics / Subscriptions & Rules), deep-linkable via
+ *  Timeline / Billable metrics / Rules), deep-linkable via
  *  `?view=` (omitted for the default `timeline`, matching the `inspect`
  *  param's drop-when-empty precedent in `shell/path.ts`). */
-export type TrafficTab = 'timeline' | 'billable' | 'subscriptions';
-const TRAFFIC_TABS: ReadonlyArray<{ id: TrafficTab; label: string }> = [
-  { id: 'timeline', label: 'Timeline' },
-  { id: 'billable', label: 'Billable metrics' },
-  { id: 'subscriptions', label: 'Subscriptions & Rules' },
-];
-
 function deriveTrafficTab(): TrafficTab {
   const { tab, query } = currentPath();
   if (tab !== 'traffic') return 'timeline';
-  const v = query.view;
-  return v === 'billable' || v === 'subscriptions' ? v : 'timeline';
+  return trafficTabForView(query.view);
 }
 
 /** Two-way bind the active Traffic tab to `?view=`, mirroring `useDataNav`'s
@@ -264,8 +259,8 @@ export function TrafficSurface() {
 
       {tab === 'billable' ? (
         <BillableMetricsView events={events} window={window} />
-      ) : tab === 'subscriptions' ? (
-        <SubscriptionsRulesView events={events} window={window} />
+      ) : tab === 'rules' ? (
+        <RulesMetricsView events={events} window={window} />
       ) : (
         <>
           <TrafficTimeline

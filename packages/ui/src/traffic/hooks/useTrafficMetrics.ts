@@ -4,7 +4,7 @@ import type { TrafficEvent } from '../types.js';
 
 /**
  * Billable-metrics + rules-metrics aggregation (Traffic tab: "Billable
- * metrics" and "Subscriptions & Rules"). Mirrors the Firebase Console
+ * metrics" and "Rules"). Mirrors the Firebase Console
  * Usage tab's shape (per-series totals + a bucketed time series), built
  * on top of the same half-open `[window.start, window.end)` bucketing
  * kernel {@link bucketTraffic} already uses.
