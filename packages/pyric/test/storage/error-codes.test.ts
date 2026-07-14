@@ -88,13 +88,6 @@ describe('ST-B1 — sandbox errors carry .code === storage/<code>', () => {
     expect((await caught(() => updateMetadata(r, {}))).code).toBe('storage/object-not-found');
   });
 
-  it('quota-exceeded when the blob exceeds maxDownloadSizeBytes', async () => {
-    const storage = freshStorage('quota');
-    const r = ref(storage, 'big/file.bin');
-    await uploadBytes(r, new Blob(['x'.repeat(1024)]));
-    expect((await caught(() => getBytes(r, 16))).code).toBe('storage/quota-exceeded');
-  });
-
   it('invalid-root-operation on a root reference', async () => {
     const storage = freshStorage('root-op');
     const root = ref(storage);

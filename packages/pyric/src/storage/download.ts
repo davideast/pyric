@@ -10,21 +10,23 @@
  *     reference's `fullPath`.
  *   - `storage/invalid-root-operation` when `fullPath` is empty —
  *     matches Firebase's pre-flight on root refs.
- *   - `storage/quota-exceeded` when the persisted blob is larger
- *     than the optional `maxDownloadSizeBytes` cap. The sandbox keeps
- *     the descriptive `quota-exceeded` code — see COMPAT row 55.
+ *   - When `maxDownloadSizeBytes` is set, returns at most that many
+ *     bytes (truncates). Matches upstream `getBytesInternal` /
+ *     `getBlobInternal`, which slice after fetch because GCS may ignore
+ *     Range on small objects — see COMPAT row 55.
  */
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored } from './rules.js';
-import { objectNotFound, quotaExceeded, invalidRootOperation } from './errors.js';
+import { objectNotFound, invalidRootOperation } from './errors.js';
 import type { StorageReference } from './reference.js';
 
 /**
  * Read the blob at `ref` and return its contents as an
- * `ArrayBuffer`. Honors the optional `maxDownloadSizeBytes` cap.
+ * `ArrayBuffer`. Honors the optional `maxDownloadSizeBytes` cap by
+ * truncating to that length.
  */
 export async function getBytes(
   ref: StorageReference,
@@ -141,11 +143,14 @@ async function fetchBlob(
   if (!blob) {
     throw objectNotFound(ref.fullPath);
   }
+  // Upstream slices after download: GCS may not honor Range for small
+  // files (`packages/storage/src/reference.ts` getBytesInternal /
+  // getBlobInternal). Match that truncate-not-throw contract.
   if (
     typeof maxDownloadSizeBytes === 'number' &&
     blob.size > maxDownloadSizeBytes
   ) {
-    throw quotaExceeded(ref.fullPath, blob.size, maxDownloadSizeBytes);
+    return blob.slice(0, maxDownloadSizeBytes);
   }
   return blob;
 }
