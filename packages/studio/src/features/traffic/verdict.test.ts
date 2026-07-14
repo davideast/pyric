@@ -75,36 +75,48 @@ describe('actingIdentity', () => {
 
 describe('subjectTarget', () => {
   it('routes a Firestore op (default service) to its path', () => {
-    expect(subjectTarget({ path: 'users/alice' })).toEqual({
+    expect(subjectTarget({ method: 'get', path: 'users/alice' })).toEqual({
       tab: 'firestore',
       rest: ['users', 'alice'],
     });
-    expect(subjectTarget({ service: 'firestore', path: 'notes' })).toEqual({
+    expect(subjectTarget({ service: 'firestore', method: 'list', path: 'notes' })).toEqual({
       tab: 'firestore',
       rest: ['notes'],
     });
   });
 
   it('routes an RTDB op to the viewer tab (path is component state — N4 gap)', () => {
-    expect(subjectTarget({ service: 'rtdb', path: '/rooms/r1' })).toEqual({ tab: 'rtdb' });
+    expect(subjectTarget({ service: 'rtdb', method: 'get', path: '/rooms/r1' })).toEqual({ tab: 'rtdb' });
   });
 
   it('routes storage to the object path and auth to the uid', () => {
-    expect(subjectTarget({ service: 'storage', path: 'uploads/logo.png' })).toEqual({
+    expect(subjectTarget({ service: 'storage', method: 'get', path: 'uploads/logo.png' })).toEqual({
       tab: 'storage',
       rest: ['uploads', 'logo.png'],
     });
-    expect(subjectTarget({ service: 'auth', path: 'u-1' })).toEqual({
+    expect(subjectTarget({ service: 'auth', method: 'get', path: 'u-1' })).toEqual({
       tab: 'auth',
       rest: ['u-1'],
     });
   });
 
+  it('routes a Storage list to its prefix without conflating it with an object', () => {
+    expect(subjectTarget({ service: 'storage', method: 'list', path: 'avatars' })).toEqual({
+      tab: 'storage',
+      rest: ['avatars'],
+      query: { kind: 'prefix' },
+    });
+    expect(subjectTarget({ service: 'storage', method: 'get', path: 'avatars' })).toEqual({
+      tab: 'storage',
+      rest: ['avatars'],
+    });
+  });
+
   it('yields nothing for non-addressable subjects', () => {
-    expect(subjectTarget({ service: 'auth', path: '*' })).toBeNull();
-    expect(subjectTarget({ service: 'rtdb', path: '(service)' })).toBeNull();
-    expect(subjectTarget({ path: '' })).toBeNull();
-    expect(subjectTarget({ service: 'firestore', path: '/' })).toBeNull();
+    expect(subjectTarget({ service: 'auth', method: 'delete', path: '*' })).toBeNull();
+    expect(subjectTarget({ service: 'rtdb', method: 'get', path: '(service)' })).toBeNull();
+    expect(subjectTarget({ method: 'get', path: '' })).toBeNull();
+    expect(subjectTarget({ service: 'firestore', method: 'list', path: '/' })).toBeNull();
   });
 });
 

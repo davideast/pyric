@@ -8,9 +8,8 @@
  * `useStorageRulesGate`) on the left — wrapped in an `UploadDropzone` so
  * files and folders drop straight into the browsed folder — and an
  * `ObjectInspector` (content-type preview + metadata table + custom
- * metadata) on the right. When a `gs://` / storage-path cross-reference is
- * clicked elsewhere in Studio, `focusPath` drives the browser to that
- * object's folder and selects it.
+ * metadata) on the right. The routed `focusTarget` keeps object inspection
+ * distinct from prefix browsing even when both occupy the same Storage path.
  *
  * CREATE FOLDER (VS Code style): the "New folder" affordance discloses an
  * inline input that accepts nested paths — `stuff/things/cool` creates the
@@ -36,7 +35,14 @@
  * (token-driven).
  */
 
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
   ObjectBrowser,
@@ -66,8 +72,8 @@ import './storage.css';
 
 export interface StoragePaneProps {
   storage: FirebaseStorage;
-  /** An object path to focus (from a `gs://` cross-reference jump). */
-  focusPath: string | null;
+  /** URL-derived Storage intent. Prefix and object paths are not interchangeable. */
+  focusTarget: { kind: 'root' } | { kind: 'prefix' | 'object'; path: string };
 }
 
 /** Parent folder of an object path (`a/b/c.png` → `a/b`; `c.png` → ``). */
@@ -200,16 +206,36 @@ function renderEntry(entry: StorageListEntry): ReactNode {
   );
 }
 
-export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
+export function LiveStoragePane({ storage, focusTarget }: StoragePaneProps) {
   const nav = useDataNav();
-  const pathState = usePathState();
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  // Selecting an object writes the hash (#storage/<path>) so it's deep-linkable
-  // + reload-persistent; folder navigation / back clears it. The `focusPath`
-  // seed below reads the hash (descend + select on a deep-link/cross-ref).
-  const selectObject = (objectPath: string | null) => {
-    setSelectedPath(objectPath);
-    nav.navigate({ view: 'storage', objectPath });
+  const selectedPath =
+    focusTarget.kind === 'object'
+      ? normalizeStoragePath(focusTarget.path)
+      : null;
+  const browsedPath =
+    focusTarget.kind === 'prefix'
+      ? normalizeStoragePath(focusTarget.path)
+      : selectedPath
+        ? parentFolder(selectedPath)
+        : '';
+  const browsePrefix = useCallback(
+    (path: string) => {
+      const norm = normalizeStoragePath(path);
+      nav.navigate(
+        norm
+          ? { view: 'storage', kind: 'prefix', path: norm }
+          : { view: 'storage', kind: 'root' },
+      );
+    },
+    [nav.navigate],
+  );
+  const pathState = usePathState({ path: browsedPath, onPathChange: browsePrefix });
+  const selectObject = (objectPath: string) => {
+    nav.navigate({
+      view: 'storage',
+      kind: 'object',
+      path: normalizeStoragePath(objectPath),
+    });
   };
   const list = useStorageList(storage, pathState.path);
   const selection = useStorageSelection();
@@ -298,22 +324,10 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
     dispatchPending({ type: 'create', path: full });
     // VS Code semantics: creating `stuff/things/cool` lands you inside it.
     pathState.setPath(full);
-    selectObject(null);
     setFolderName('');
     setFolderError(null);
     setCreating(false);
   };
-
-  // Honor a cross-ref jump: descend to the object's folder and select it.
-  useEffect(() => {
-    if (focusPath) {
-      const norm = normalizeStoragePath(focusPath);
-      pathState.setPath(parentFolder(norm));
-      setSelectedPath(norm);
-    }
-    // pathState.setPath is stable; focusPath is the trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusPath]);
 
   // Selection is scoped to the directory currently on screen. Navigating to
   // another prefix starts a fresh selection, matching the Firebase console.
@@ -333,10 +347,7 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
         <PathBreadcrumb
           path={pathState.path}
           rootLabel="files"
-          onNavigate={(p) => {
-            pathState.setPath(p);
-            selectObject(null);
-          }}
+          onNavigate={pathState.setPath}
         />
         <div className="storage__actions">
           {selection.size > 0 ? (
@@ -362,7 +373,7 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
                         : selectedPath.startsWith(`${entry.fullPath}/`),
                     )
                   ) {
-                    selectObject(null);
+                    pathState.setPath(pathState.path);
                   }
                   selection.clear();
                   list.refresh();
@@ -511,10 +522,7 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
                 />
               </label>
             )}
-            onNavigate={(p) => {
-              pathState.enter(p);
-              selectObject(null);
-            }}
+            onNavigate={pathState.enter}
             onSelect={(ref) => selectObject(ref.fullPath)}
             emptyState={
               <p className="storage__empty">
@@ -537,7 +545,7 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
               <button
                 type="button"
                 className="storage__back"
-                onClick={() => selectObject(null)}
+                onClick={() => pathState.setPath(pathState.path)}
                 aria-label="Back to files"
               >
                 ‹ Files
