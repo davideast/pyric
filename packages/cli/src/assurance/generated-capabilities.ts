@@ -3,7 +3,7 @@
 // The assurance engine's capabilities, DERIVED from the conformance graph by
 // packages/conformance/src/assurance-capabilities.ts (see that file's header for
 // the derivation rules). This is the assurance runtime's copy: the conformance
-// package is private and is NOT a dependency of @pyric/cli, so the generator
+// package is private and is NOT a runtime dependency of @pyric/cli, so the generator
 // emits this self-contained module here rather than have the runtime import it.
 //
 // A capability status is never authorable. It is derived from the graph, and

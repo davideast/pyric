@@ -85,7 +85,9 @@ COMMANDS
                              with your firestore.rules deployed. Also runs your own dev
                              command (\`-- <cmd>\`, else the package.json \`dev\` script) with
                              unchanged firebase-admin/firebase imports routed to the
-                             sandbox (PYRIC_SANDBOX + \`--import @pyric/cli/register\`).
+                             sandbox (PYRIC_SANDBOX + \`--import @pyric/cli/register\`). A
+                             firebase.json Functions source is discovered automatically;
+                             supported RTDB onValueCreated exports run in isolated Node.
   init [dir]                 Scaffold a pyric project. --template=web (default; Vite app
                              on \`@pyric/cli/vite\`), static (\`pyric dev\`), or node.
                              --name=NAME --force (overwrite scaffold files) --json (machine
@@ -169,9 +171,10 @@ CORE FLAGS (dev)
                      so firebase-admin/firebase resolve to the sandbox. When
                      omitted, the package.json \`dev\` script runs (via the
                      detected package manager); no script → host-only.
-  --no-run           Never run a child command (host-only, for users with
-                     their own process manager). --json implies --no-run
-                     unless a \`-- <cmd>\` is given explicitly.
+  --no-run           Don't run the project's dev command (for users with their
+                     own process manager). A declared Functions source still
+                     runs. --json skips the dev command unless a \`-- <cmd>\`
+                     is given explicitly.
   --json             One machine-readable line on stdout ({url, port, mcpUrl,
                      rulesHash, persist, restoredDocs, restoredUsers}); the
                      banner moves to stderr. Readiness probe:

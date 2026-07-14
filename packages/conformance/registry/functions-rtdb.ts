@@ -6,7 +6,12 @@ interface RowSeed {
   behavior: string;
   evidence: string;
   observations?: string[];
+  /** Set only when the unchanged local replay passes for this row. */
+  flipped?: 'oracle-backed';
 }
+
+const CONFORMANCE_SUITE =
+  'packages/cli/test/functions-rtdb/oracle-conformance.test.ts';
 
 const UNOBSERVED_REASON =
   'Behavior stated from the firebase-functions 7.2.5 public contract; production capture has not landed yet.';
@@ -25,29 +30,35 @@ function row(seed: RowSeed): CompatibilityRow {
     section: '`firebase-functions/v2/database.onValueCreated`',
     api: seed.api,
     behavior: seed.behavior,
-    status: 'unverified',
-    evidence: seed.evidence,
-    risk: [observed ? 'cited-not-replayed' : 'unobserved'],
-    riskScore: observed ? 1 : 2,
-    riskReasons: [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
-    automation: 'unverified',
+    status: seed.flipped ? 'conforms' : 'unverified',
+    evidence: seed.flipped
+      ? `${seed.evidence} Local replay: \`${CONFORMANCE_SUITE}\` assertion set \`functions-rtdb#${seed.ref}\`.`
+      : seed.evidence,
+    risk: seed.flipped ? [] : [observed ? 'cited-not-replayed' : 'unobserved'],
+    riskScore: seed.flipped ? 0 : observed ? 1 : 2,
+    riskReasons: seed.flipped
+      ? []
+      : [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
+    automation: seed.flipped ?? 'unverified',
     oracleObservations: observations,
-    conformanceTests: [],
+    conformanceTests: seed.flipped ? [CONFORMANCE_SUITE] : [],
   };
 }
 
 export const functionsRtdbRows: CompatibilityRow[] = [
   row({
     ref: 1,
+    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
       'A write that changes an exact matched RTDB location from absent to present invokes the handler once with a create CloudEvent and a DataSnapshot containing the created value.',
     evidence:
-      'oracle: `functions-rtdb-onvaluecreated-exact-create.json` (firebase-functions 7.2.5); production observed, local Pyric replay not implemented.',
+      'oracle: `functions-rtdb-onvaluecreated-exact-create.json` (firebase-functions 7.2.5); production exact-create behavior.',
     observations: ['functions-rtdb-onvaluecreated-exact-create'],
   }),
   row({
     ref: 2,
+    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
       'After the initial create delivery, changing or deleting that same matched value does not invoke an onValueCreated handler.',
@@ -57,6 +68,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 3,
+    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
       'A value that already exists when the trigger is deployed does not produce a historical create delivery.',
@@ -66,6 +78,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 4,
+    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
       'A named single-segment wildcard matches a created child and exposes the matched segment through event.params.',
@@ -75,6 +88,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 5,
+    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
       'Creating an ancestor object invokes the wildcard handler once for each newly-present matching descendant.',
@@ -84,6 +98,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 6,
+    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
       'When an ancestor write creates an exact matched descendant, the event snapshot is projected to that descendant rather than the ancestor object.',
@@ -93,6 +108,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 7,
+    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
       'One multi-location update that creates multiple wildcard-matched children produces one create delivery for each child.',
@@ -102,6 +118,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 8,
+    flipped: 'oracle-backed',
     api: 'DatabaseEvent.data',
     behavior:
       'The delivered DataSnapshot exposes the created value, key, existence, JSON projection, child lookup, child count, and child enumeration.',
@@ -111,6 +128,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 9,
+    flipped: 'oracle-backed',
     api: 'DatabaseEvent.data.ref',
     behavior:
       'The snapshot ref is an Admin DatabaseReference rooted at the matched path and can perform an awaited write from the handler.',
@@ -120,6 +138,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 10,
+    flipped: 'oracle-backed',
     api: 'DatabaseEvent.authType / authId',
     behavior:
       'For the production Admin SDK write, the event exposes authType `unknown` and authId `null`.',
@@ -128,6 +147,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 11,
+    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, async handler)',
     behavior:
       'A Promise returned by the handler keeps the execution open through delayed asynchronous work and its awaited Admin write.',
@@ -141,11 +161,12 @@ export const functionsRtdbRows: CompatibilityRow[] = [
     behavior:
       'A handler that throws or returns a rejected Promise is reported by the managed runtime; with retry disabled, the Eventarc request can still be acknowledged with HTTP 200.',
     evidence:
-      'oracle: `functions-rtdb-onvaluecreated-failed-execution.json`; one managed-runtime error record contained the marker and the Eventarc request status was 200.',
+      'oracle: `functions-rtdb-onvaluecreated-failed-execution.json`; Pyric observes the rejected handler and marker, but has no Eventarc HTTP request seam with which to replay the captured 200 acknowledgement.',
     observations: ['functions-rtdb-onvaluecreated-failed-execution'],
   }),
   row({
     ref: 13,
+    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
       'Sequential creates are all delivered; their observed arrival order is evidence, not an ordering guarantee.',

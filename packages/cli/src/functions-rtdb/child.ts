@@ -6,9 +6,13 @@ import { fileURLToPath } from 'node:url';
 import type { RemoteSandbox } from '../remote/index.js';
 import {
   startOnValueCreatedExecution,
-  type CreatedExecutionResult,
   type OnValueCreatedExecutionHost,
 } from './execution.js';
+import {
+  inspectOnValueCreated,
+  listFirebaseEndpoints,
+} from './discovery.js';
+import type { CreatedExecutionResult } from './event.js';
 import { RemoteRtdbTriggerDelivery } from './remote-delivery.js';
 
 export interface SerializedFunctionsRtdbError {
@@ -22,12 +26,14 @@ export type FunctionsRtdbChildEvent =
       type: 'execution';
       exportName: string;
       ref: string;
+      params: Record<string, string>;
       status: 'fulfilled';
     }
   | {
       type: 'execution';
       exportName: string;
       ref: string;
+      params: Record<string, string>;
       status: 'rejected';
       error: SerializedFunctionsRtdbError;
     }
@@ -39,13 +45,18 @@ export type FunctionsRtdbChildEvent =
 
 export interface FunctionsRtdbChildReady {
   triggerCount: number;
+  unsupportedTriggers: UnsupportedFunctionsTrigger[];
+}
+
+export interface UnsupportedFunctionsTrigger {
+  exportName: string;
+  eventType: string;
 }
 
 export interface SpawnFunctionsRtdbChildOptions {
   cwd: string;
   entry: string;
   env: NodeJS.ProcessEnv;
-  projectId: string;
   instance: string;
   location: string;
   databaseHost?: string;
@@ -98,7 +109,6 @@ export function spawnFunctionsRtdbChild(
       ...options.env,
       PYRIC_FUNCTIONS_RTDB_CHILD: '1',
       PYRIC_FUNCTIONS_ENTRY: resolve(options.entry),
-      PYRIC_FUNCTIONS_PROJECT_ID: options.projectId,
       PYRIC_FUNCTIONS_INSTANCE: options.instance,
       PYRIC_FUNCTIONS_LOCATION: options.location,
       PYRIC_FUNCTIONS_DATABASE_HOST: options.databaseHost ?? 'firebasedatabase.app',
@@ -125,7 +135,10 @@ export function spawnFunctionsRtdbChild(
     if (!isChildMessage(raw)) return;
     if (raw.type === 'ready') {
       readySettled = true;
-      resolveReady({ triggerCount: raw.triggerCount });
+      resolveReady({
+        triggerCount: raw.triggerCount,
+        unsupportedTriggers: raw.unsupportedTriggers,
+      });
     } else if (raw.type === 'fatal') {
       if (!readySettled) {
         readySettled = true;
@@ -192,11 +205,10 @@ function send(message: FunctionsRtdbChildMessage): void {
 
 async function runFunctionsRtdbChild(): Promise<void> {
   const entry = process.env.PYRIC_FUNCTIONS_ENTRY;
-  const projectId = process.env.PYRIC_FUNCTIONS_PROJECT_ID;
   const instance = process.env.PYRIC_FUNCTIONS_INSTANCE;
   const location = process.env.PYRIC_FUNCTIONS_LOCATION;
   const databaseHost = process.env.PYRIC_FUNCTIONS_DATABASE_HOST;
-  if (!entry || !projectId || !instance || !location || !databaseHost) {
+  if (!entry || !instance || !location || !databaseHost) {
     throw new Error('Functions RTDB child is missing its required environment');
   }
 
@@ -241,19 +253,29 @@ async function runFunctionsRtdbChild(): Promise<void> {
     // when it wraps a raw CloudEvent. Initializing that app before loading the
     // user's module avoids importing the broad firebase-functions/v2 barrel.
     const exported = requireFromEntry(entry) as Record<string, unknown>;
+    const effectiveInstances = [...new Set(
+      inspectOnValueCreated(exported).triggers.map((trigger) =>
+        trigger.instance === '*' ? instance : trigger.instance,
+      ),
+    )].sort();
+    if (effectiveInstances.length > 1) {
+      throw new Error(
+        'Functions RTDB first slice supports one database instance; found ' +
+          effectiveInstances.join(', '),
+      );
+    }
     host = startOnValueCreatedExecution({
       exported,
       delivery: new RemoteRtdbTriggerDelivery(app.sandbox.rtdb),
-      eventOptions: (_projection, sequence) => ({
+      eventOptions: (_projection, sequence, trigger) => ({
         id: `${randomUUID()}-${sequence}`,
         time: new Date().toISOString(),
-        projectId,
-        instance,
-        location,
+        instance: trigger.instance === '*' ? instance : trigger.instance,
+        location: trigger.location ?? location,
         databaseHost,
       }),
       onExecution(result, trigger, projection) {
-        sendExecution(result, trigger.exportName, projection.ref);
+        sendExecution(result, trigger.exportName, projection.ref, projection.params);
       },
       onDeliveryError(error, trigger) {
         send({
@@ -264,25 +286,56 @@ async function runFunctionsRtdbChild(): Promise<void> {
       },
     });
     await host.ready;
-    send({ type: 'ready', triggerCount: host.triggerCount });
+    send({
+      type: 'ready',
+      triggerCount: host.triggerCount,
+      unsupportedTriggers: findUnsupportedTriggers(exported),
+    });
   } catch (error) {
     await close();
     throw error;
   }
 }
 
+function findUnsupportedTriggers(exported: Record<string, unknown>): UnsupportedFunctionsTrigger[] {
+  const unsupported: UnsupportedFunctionsTrigger[] = [
+    ...inspectOnValueCreated(exported).unsupported,
+  ];
+  for (const { exportName, callable } of listFirebaseEndpoints(exported)) {
+    const endpoint = callable.__endpoint;
+    if (!endpoint) continue;
+    const eventType = endpoint.eventTrigger?.eventType;
+    if (eventType === 'google.firebase.database.ref.v1.created') continue;
+    const label = typeof eventType === 'string'
+      ? eventType
+      : endpoint.callableTrigger !== undefined
+        ? 'callable'
+        : endpoint.httpsTrigger !== undefined
+          ? 'https'
+          : endpoint.scheduleTrigger !== undefined
+            ? 'schedule'
+            : endpoint.taskQueueTrigger !== undefined
+              ? 'task-queue'
+              : 'unknown';
+    unsupported.push({ exportName, eventType: label });
+  }
+  return unsupported;
+}
+
 function sendExecution(
   result: CreatedExecutionResult,
   exportName: string,
   ref: string,
+  params: Record<string, string>,
 ): void {
   if (result.status === 'fulfilled') {
-    send({ type: 'execution', exportName, ref, status: 'fulfilled' });
+    send({ type: 'execution', exportName, ref, params, status: 'fulfilled' });
   } else {
     send({
       type: 'execution',
       exportName,
       ref,
+      params,
       status: 'rejected',
       error: serializeError(result.error),
     });

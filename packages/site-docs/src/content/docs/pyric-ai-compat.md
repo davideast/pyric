@@ -207,7 +207,7 @@ capture's distilled facts in the named test.
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>startChat</code> returns a <code>ChatSession</code> seeded with <code>StartChatParams.history</code></span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:chat-session.test.ts</code> test <code>ai#chat-startchat</code> (no capture; structural claim)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-ai-probes.test.ts</code> (I1 validateChatHistory accept/reject via startChat) + <code>unit:chat-session.test.ts</code> test <code>ai#chat-startchat</code></div></div>
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior"><code>sendMessage</code> appends the user turn and the model turn; <code>getHistory()</code> returns the ordered <code>Content[]</code> with alternating roles</span></span></summary>
@@ -318,7 +318,7 @@ capture's distilled facts in the named test.
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>text()</code> concatenates the text parts of the first candidate</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:helpers-schema.test.ts</code> test <code>ai#helper-text</code> (text value asserted only because the scripted engine was scripted to return it)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-ai-probes.test.ts</code> (I3 text() across mixed parts) + <code>unit:helpers-schema.test.ts</code> test <code>ai#helper-text</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>text()</code> throws on bad finish reasons such as <code>SAFETY</code> and on a blocked prompt</span></span></summary>
@@ -326,11 +326,11 @@ capture's distilled facts in the named test.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>functionCalls()</code> returns the <code>FunctionCall</code> array from the functionCall parts, args as parsed objects</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Capture ai-function-call-shape replayed by packages/pyric/test/ai/helpers-schema.test.ts test <code>ai#helper-functioncalls</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-ai-probes.test.ts</code> (I3 text+functionCall mix) + Capture ai-function-call-shape replayed by <code>unit:helpers-schema.test.ts</code> test <code>ai#helper-functioncalls</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>thoughtSummary()</code> returns undefined when no part is flagged <code>thought: true</code>, the captured lite-model case</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Capture ai-thinking-thought-parts (anyThoughtPart false) replayed by packages/pyric/test/ai/helpers-schema.test.ts test <code>ai#helper-thoughtsummary</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-ai-probes.test.ts</code> (I3 thoughtSummary from thought parts) + Capture ai-thinking-thought-parts replayed by <code>unit:helpers-schema.test.ts</code> test <code>ai#helper-thoughtsummary</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>inlineDataParts()</code> returns the <code>InlineDataPart</code> array when inlineData parts exist and undefined when none do</span></span></summary>
@@ -347,7 +347,7 @@ capture's distilled facts in the named test.
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>Schema.object</code> serializes to type <code>object</code> with <code>properties</code>, and <code>required</code> is derived by excluding <code>optionalProperties</code></span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:helpers-schema.test.ts</code> test <code>ai#schema-object-tojson</code> (upstream toJSON request shape)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-ai-probes.test.ts</code> (I2 empty optionalProperties + propertyOrdering) + <code>unit:helpers-schema.test.ts</code> test <code>ai#schema-object-tojson</code></div></div>
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior"><code>Schema.enumString</code> serializes the enum values with type <code>string</code> and format <code>enum</code></span></span></summary>
@@ -360,7 +360,7 @@ capture's distilled facts in the named test.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>Schema.anyOf</code> returns an <code>AnyOfSchema</code> whose JSON carries an <code>anyOf</code> array of sub-schemas and no top-level type</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:helpers-schema.test.ts</code> test <code>ai#schema-anyof</code> (upstream toJSON request shape)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-ai-probes.test.ts</code> (I2 empty anyOf → invalid-schema) + <code>unit:helpers-schema.test.ts</code> test <code>ai#schema-anyof</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">A built <code>Schema</code> serializes into <code>generationConfig.responseSchema</code> on the request and drives JSON output</span></span></summary>

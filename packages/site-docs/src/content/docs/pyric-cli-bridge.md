@@ -2,7 +2,7 @@
 title: "@pyric/cli/bridge"
 group: "@pyric/cli"
 section: "Bridge"
-order: 9012
+order: 9013
 ---
 # `@pyric/cli/bridge`
 

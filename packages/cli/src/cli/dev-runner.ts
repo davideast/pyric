@@ -220,6 +220,10 @@ export function spawnDevChild(
     cwd: opts.cwd,
     env: opts.env,
     stdio: ['inherit', 'pipe', 'pipe'],
+    // Own a process group so shutdown reaches package-manager grandchildren
+    // (for example `bun run dev` -> `node server.js`) rather than orphaning
+    // the actual dev server when only the runner exits.
+    detached: process.platform !== 'win32',
   });
 
   const outTarget = opts.json ? process.stderr : process.stdout;
@@ -232,6 +236,13 @@ export function spawnDevChild(
 
   let signalled = false;
   let forceTimer: ReturnType<typeof setTimeout> | null = null;
+  const killTree = (signal: NodeJS.Signals): void => {
+    if (process.platform !== 'win32' && child.pid !== undefined) {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  };
 
   const exited = new Promise<number>((resolve) => {
     child.once('error', (e) => {
@@ -256,13 +267,13 @@ export function spawnDevChild(
       if (child.exitCode !== null || signalled) return;
       signalled = true;
       try {
-        child.kill(sig);
+        killTree(sig);
       } catch {
         return;
       }
       forceTimer = setTimeout(() => {
         try {
-          child.kill('SIGKILL');
+          killTree('SIGKILL');
         } catch {}
       }, FORCE_KILL_AFTER_MS);
       forceTimer.unref();

@@ -36,4 +36,8 @@ describe('bridgeEnabledFor (child implies bridge)', () => {
     expect(bridgeEnabledFor(flags({ bridge: true }), null)).toBe(true);
     expect(bridgeEnabledFor(flags({ ui: true }), null)).toBe(true);
   });
+
+  it('a discovered Functions source turns the bridge on without flags or a dev child', () => {
+    expect(bridgeEnabledFor(flags({}), null, { entry: '/project/functions/index.js' })).toBe(true);
+  });
 });
