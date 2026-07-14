@@ -14,3 +14,14 @@ export {
   type RtdbSnapshotCommit,
   type RtdbTriggerDelivery,
 } from './execution.js';
+
+export { RemoteRtdbTriggerDelivery } from './remote-delivery.js';
+
+export {
+  spawnFunctionsRtdbChild,
+  type FunctionsRtdbChildEvent,
+  type FunctionsRtdbChildHandle,
+  type FunctionsRtdbChildReady,
+  type SerializedFunctionsRtdbError,
+  type SpawnFunctionsRtdbChildOptions,
+} from './child.js';
