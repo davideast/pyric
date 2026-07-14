@@ -83,6 +83,8 @@ exports. A Functions source implies the local bridge even without `--bridge`.
 `--no-run` suppresses only the project's `dev` script; it does not suppress the
 declared Functions source. Unsupported trigger exports are reported and left
 inactive. See [run an RTDB `onValueCreated` function locally](../pyric-cli-how-to-run-rtdb-onvaluecreated/).
+The entry selected by `main` must be CommonJS; native ESM Functions entries are
+outside this first slice.
 
 Persistence, multi-tab, and SharedWorker behaviour are covered in
 [persistence and multi-tab](../pyric-cli-how-to-serve-persistence-and-multi-tab/).

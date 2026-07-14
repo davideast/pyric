@@ -18,8 +18,10 @@ Your `firebase.json` must declare one Functions source:
   "functions": { "source": "functions" }
 }
 ```
-The source package's `main` field selects the built JavaScript entry. It
-defaults to `index.js`:
+The source package's `main` field selects the built CommonJS JavaScript entry.
+It defaults to `index.js`. Native ESM Functions entries are not supported in
+this first slice; compile an ESM or TypeScript source package to CommonJS and
+point `main` at that output:
 ```json
 {
   "name": "my-functions",
@@ -68,13 +70,13 @@ same sandbox. Press Ctrl-C to stop both `pyric dev` and the Functions child.
 ## If an export is outside the first slice
 
 Pyric prints each unsupported trigger export and leaves it inactive. The first
-slice supports Node `onValueCreated`, one Functions source, one local RTDB
-instance, exact paths and named single-segment wildcards, sequential delivery
-within the current session, and Admin reads and writes through
-`event.data.ref`.
+slice supports a CommonJS Node `onValueCreated` entry, one Functions source,
+one local RTDB instance, exact paths and named single-segment wildcards,
+sequential delivery within the current session, and Admin reads and writes
+through `event.data.ref`.
 
-Other RTDB trigger types, other Firebase products, retries, deployed
-concurrency, multiple Functions codebases or database instances, durable
-delivery across restarts, secrets, and deployment emulation remain outside the
-slice. See the [Functions RTDB compatibility matrix](../pyric-cli-functions-rtdb-compat/)
+Native ESM entries, other RTDB trigger types, other Firebase products, retries,
+deployed concurrency, multiple Functions codebases or database instances,
+durable delivery across restarts, secrets, and deployment emulation remain
+outside the slice. See the [Functions RTDB compatibility matrix](../pyric-cli-functions-rtdb-compat/)
 for the production-observed behaviour Pyric replays.

@@ -78,13 +78,19 @@ export interface SoakServe {
  * Resolves once the one-line JSON contract arrives on stdout.
  */
 export async function startSoakServe(
-  opts: { extraFiles?: Record<string, string>; passthrough?: string[]; flags?: string[] } = {},
+  opts: {
+    extraFiles?: Record<string, string>;
+    prepare?: (dir: string) => void;
+    passthrough?: string[];
+    flags?: string[];
+  } = {},
 ): Promise<SoakServe> {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-bridge-soak-'));
   cpSync(FIXTURE_DIR, dir, { recursive: true });
   for (const [name, content] of Object.entries(opts.extraFiles ?? {})) {
     writeFileSync(join(dir, name), content);
   }
+  opts.prepare?.(dir);
 
   const args = [
     CLI_PATH,
