@@ -1806,7 +1806,8 @@ Read the current CORS configuration for a bucket.
 > **getBytes**(`ref`, `maxDownloadSizeBytes?`): `Promise`\<`ArrayBuffer`\>
 
 Read the blob at `ref` and return its contents as an
-`ArrayBuffer`. Honors the optional `maxDownloadSizeBytes` cap.
+`ArrayBuffer`. Honors the optional `maxDownloadSizeBytes` cap by
+truncating to that length.
 
 #### Parameters
 
