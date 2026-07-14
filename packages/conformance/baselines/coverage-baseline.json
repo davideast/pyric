@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T19:05:15.987Z",
+  "generatedAt": "2026-07-14T05:38:26.170Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -45,6 +45,9 @@
         "total": 100,
         "intended": 100
       }
+    },
+    "functions-rtdb": {
+      "integration": true
     },
     "firestore-rules": {
       "native": true
@@ -791,6 +794,19 @@
     "messaging-admin#37": "conforms",
     "messaging-admin#38": "conforms",
     "messaging-admin#39": "conforms",
+    "functions-rtdb#1": "unverified",
+    "functions-rtdb#2": "unverified",
+    "functions-rtdb#3": "unverified",
+    "functions-rtdb#4": "unverified",
+    "functions-rtdb#5": "unverified",
+    "functions-rtdb#6": "unverified",
+    "functions-rtdb#7": "unverified",
+    "functions-rtdb#8": "unverified",
+    "functions-rtdb#9": "unverified",
+    "functions-rtdb#10": "unverified",
+    "functions-rtdb#11": "unverified",
+    "functions-rtdb#12": "unverified",
+    "functions-rtdb#13": "unverified",
     "firestore-rules#160": "conforms",
     "firestore-rules#161": "diverged-documented",
     "firestore-rules#162": "conforms",

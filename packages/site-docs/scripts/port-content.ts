@@ -485,21 +485,27 @@ for (const group of GUIDE_GROUPS) {
 // conformance tables are the receipt behind the Trust pages and matter
 // to agents especially, so they stay itemized in the nav rather than
 // folding into the Reference shelf. Slugs are unchanged (slugFor).
-const COMPAT_PAGES: { file: string; label: string }[] = [
-  { file: 'conformance/SCORES.md', label: 'Conformance scores' },
-  { file: 'app/COMPAT.md', label: 'App' },
-  { file: 'firestore/COMPAT.md', label: 'Firestore' },
-  { file: 'auth/COMPAT.md', label: 'Auth' },
-  { file: 'database/COMPAT.md', label: 'Realtime Database' },
-  { file: 'storage/COMPAT.md', label: 'Storage' },
-  { file: 'rules/COMPAT.md', label: 'Rules' },
-  { file: 'messaging/COMPAT.md', label: 'Messaging' },
-  { file: 'ai/COMPAT.md', label: 'AI Logic' },
+const COMPAT_PAGES: { pkg: string; file: string; label: string; slugPrefix?: string }[] = [
+  { pkg: 'pyric', file: 'conformance/SCORES.md', label: 'Conformance scores' },
+  { pkg: 'pyric', file: 'app/COMPAT.md', label: 'App' },
+  { pkg: 'pyric', file: 'firestore/COMPAT.md', label: 'Firestore' },
+  { pkg: 'pyric', file: 'auth/COMPAT.md', label: 'Auth' },
+  { pkg: 'pyric', file: 'database/COMPAT.md', label: 'Realtime Database' },
+  { pkg: 'pyric', file: 'storage/COMPAT.md', label: 'Storage' },
+  { pkg: 'pyric', file: 'rules/COMPAT.md', label: 'Rules' },
+  { pkg: 'pyric', file: 'messaging/COMPAT.md', label: 'Messaging' },
+  { pkg: 'pyric', file: 'ai/COMPAT.md', label: 'AI Logic' },
+  {
+    pkg: 'cli',
+    file: 'functions-rtdb/COMPAT.md',
+    label: 'Functions · RTDB',
+    slugPrefix: 'pyric-cli',
+  },
 ];
 for (const c of COMPAT_PAGES) {
-  const src = join(docsRoot('pyric'), c.file);
+  const src = join(docsRoot(c.pkg), c.file);
   if (!existsSync(src)) throw new Error(`compat matrix missing: ${src}`);
-  const slug = slugFor('pyric', src);
+  const slug = slugFor(c.pkg, src, c.slugPrefix);
   const clash = bySlug.get(slug);
   if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
   const page: Page = {

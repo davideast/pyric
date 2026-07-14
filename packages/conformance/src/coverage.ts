@@ -195,8 +195,8 @@ function behaviorConformanceFor(rows: RegistryEntry[]): BehaviorConformance {
 
 interface ServiceCoverage {
   surface: Surface;
-  /** 'mirror' surfaces have an upstream census; 'native' surfaces do not. */
-  kind: 'mirror' | 'native';
+  /** Only mirror surfaces have an upstream export census. */
+  kind: 'mirror' | 'native' | 'integration';
   /** The census surface for a mirror service; null for a native one. */
   censusSurface: CensusSurface | null;
   /** SURFACE (breadth) coverage — null for a native surface (no upstream denominator). */
@@ -237,7 +237,8 @@ function buildReport(): CoverageReport {
     // (breadth) column is 'native', not a percentage against a denominator
     // that does not exist.
     if (censusSurface === undefined) {
-      return { surface, kind: 'native', censusSurface: null, surfaceCoverage: null, behavior };
+      const descriptor = DESCRIPTOR_FOR.get(surface)!;
+      return { surface, kind: descriptor.kind, censusSurface: null, surfaceCoverage: null, behavior };
     }
     const census = censusBySurface.get(censusSurface);
     if (!census) throw new Error(`No surface census entry for '${censusSurface}' (service '${surface}')`);
@@ -313,8 +314,9 @@ function printTable(report: CoverageReport): void {
     // A native surface has no upstream breadth denominator — its SURFACE cells
     // read 'native', never a percentage, so a reader can never confuse "N% of
     // my own exports claimed" with "N% of upstream mirrored".
-    const surfaceTotal = s.surfaceCoverage ? `${s.surfaceCoverage.total.pct}%` : 'native';
-    const surfaceIntended = s.surfaceCoverage ? `${s.surfaceCoverage.intended.pct}%` : 'native';
+    const noCensusLabel = s.kind === 'integration' ? 'integration' : 'native';
+    const surfaceTotal = s.surfaceCoverage ? `${s.surfaceCoverage.total.pct}%` : noCensusLabel;
+    const surfaceIntended = s.surfaceCoverage ? `${s.surfaceCoverage.intended.pct}%` : noCensusLabel;
     console.log(
       [
         s.surface.padEnd(15),
@@ -339,7 +341,7 @@ function printTable(report: CoverageReport): void {
       String(report.overall.behavior.unverified).padStart(11),
     ].join('  '),
   );
-  console.log('\nSURFACE reads `native` for a surface with no upstream module (its completeness is measured against its own public API, not against Firebase); OVERALL surface coverage sums the mirror surfaces only.');
+  console.log('\nSURFACE reads `native` for a Pyric-owned API and `integration` for unchanged upstream code run through a Pyric runtime seam; neither has an export-census denominator. OVERALL surface coverage sums mirror surfaces only.');
   console.log(`\nHigh-risk unverified conforms rows: ${report.highRiskUnverified.length}`);
   console.log(`Orphan observations: ${report.orphanObservations.length}`);
 
@@ -356,6 +358,8 @@ interface BaselineService {
   surfaceCoveragePct?: { total: number; intended: number };
   /** Marks a native surface so the regression gate skips its (absent) breadth. */
   native?: boolean;
+  /** Marks an unchanged-upstream integration surface with no export census. */
+  integration?: boolean;
 }
 
 interface Baseline {
@@ -379,7 +383,7 @@ function toBaseline(report: CoverageReport): Baseline {
         s.surface,
         s.surfaceCoverage
           ? { surfaceCoveragePct: { total: s.surfaceCoverage.total.pct, intended: s.surfaceCoverage.intended.pct } }
-          : { native: true },
+          : s.kind === 'integration' ? { integration: true } : { native: true },
       ]),
     ),
     overall: { surfaceCoveragePct: { total: report.overall.surfaceCoverage.total.pct, intended: report.overall.surfaceCoverage.intended.pct } },

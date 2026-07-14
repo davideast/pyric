@@ -1,0 +1,21 @@
+{
+  "name": "functions-rtdb-onvaluecreated-failed-execution",
+  "matrixRow": "functions-rtdb #12",
+  "rowIds": [
+    "functions-rtdb#12"
+  ],
+  "description": "A production onValueCreated async handler throws a marker error and the managed runtime emits an error-level execution record containing that marker.",
+  "observedAt": "2026-07-14T05:07:11.849Z",
+  "functionsSdkVersion": "7.2.5",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "deliveryCount": 1,
+    "runtimeErrorReported": true,
+    "matchingRuntimeErrorCount": 1,
+    "errorMarker": "PYRIC_EXPECTED_ONVALUECREATED_FAILURE",
+    "requestStatuses": [
+      200
+    ]
+  }
+}

@@ -110,11 +110,27 @@ export interface NativeSurfaceDescriptorRecord extends SurfaceDescriptorRecordBa
 }
 
 /**
+ * An INTEGRATION surface: Pyric does not mirror an upstream package and does
+ * not introduce its own public package. Instead it runs unchanged upstream
+ * application code against the sandbox through a runtime integration seam.
+ * Its breadth is the explicitly signed contract inventory, not an export
+ * census and not a Pyric-native symbol set.
+ */
+export interface IntegrationSurfaceDescriptorRecord extends SurfaceDescriptorRecordBase {
+  kind: 'integration';
+  /** Upstream entry point whose unchanged source defines the integration. */
+  contractSource: string;
+}
+
+/**
  * The record authored in each `surfaces/<key>.ts` file — a discriminated union
  * on `kind`. `surface-census.ts` and `coverage.ts` branch on `kind` (never on
  * the surface name string) to decide which axis applies.
  */
-export type SurfaceDescriptorRecord = MirrorSurfaceDescriptorRecord | NativeSurfaceDescriptorRecord;
+export type SurfaceDescriptorRecord =
+  | MirrorSurfaceDescriptorRecord
+  | NativeSurfaceDescriptorRecord
+  | IntegrationSurfaceDescriptorRecord;
 
 interface SurfaceDescriptorResolved {
   /** Derived from the filename. */
@@ -137,8 +153,16 @@ export interface NativeSurfaceDescriptor
   extends Omit<NativeSurfaceDescriptorRecord, 'registry'>,
     SurfaceDescriptorResolved {}
 
+/** The loaded INTEGRATION descriptor. */
+export interface IntegrationSurfaceDescriptor
+  extends Omit<IntegrationSurfaceDescriptorRecord, 'registry'>,
+    SurfaceDescriptorResolved {}
+
 /** The loaded shape: a discriminated union on `kind`, mirroring the authored record. */
-export type SurfaceDescriptor = MirrorSurfaceDescriptor | NativeSurfaceDescriptor;
+export type SurfaceDescriptor =
+  | MirrorSurfaceDescriptor
+  | NativeSurfaceDescriptor
+  | IntegrationSurfaceDescriptor;
 
 /**
  * An export-census surface with NO COMPAT matrix — it exists only for the

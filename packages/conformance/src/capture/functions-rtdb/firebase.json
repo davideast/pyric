@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "source": "fixture",
+    "codebase": "pyric-functions-rtdb-oracle",
+    "runtime": "nodejs22"
+  }
+}

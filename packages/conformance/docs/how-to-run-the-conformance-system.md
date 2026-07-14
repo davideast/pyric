@@ -80,7 +80,7 @@ Exit code 0. Gates 4 and 5 have the same fix when they fail, and it is never
 "edit the file":
 
 ```sh
-bun run compat:generate     # rewrites packages/pyric/docs/*/COMPAT.md from the registry
+bun run compat:generate     # rewrites generated COMPAT pages + the scoreboard from the registry
 bun run compat:assurance    # rewrites assurance-capabilities/{capabilities.json,generated.ts}
 git diff                    # the diff IS the report: it shows exactly what changed
 ```
@@ -156,12 +156,13 @@ Current high-risk unverified ✓ rows: 5 (baseline tolerates 5).
 
 ### Generators (they write files; never edit their output)
 
-**`compat:generate`** (exit 0) regenerates the eight `COMPAT.md` docs from the
-registry. `--check` (what `compat:check` chains) verifies instead of writing.
+**`compat:generate`** (exit 0) regenerates the nine `COMPAT.md` docs and the
+scoreboard from the registry. `--check` (what `compat:check` chains) verifies
+instead of writing.
 
 ```
 $ bun run compat:generate
-Generated 8 compatibility document(s).
+Generated 9 compatibility document(s) + scoreboard.
 ```
 
 **`compat:assurance`** (exit 0) derives, from the conformance graph, which
@@ -262,9 +263,10 @@ $ bun run compat:oracle-versions
 # Oracle observation version guard
 Resolved firebase (node_modules/firebase/package.json): 12.13.0
 Resolved firebase-admin (node_modules/firebase-admin/package.json): 13.10.0
-Observations checked: 225
+Resolved firebase-functions (node_modules/firebase-functions/package.json): 7.2.5
+Observations checked: 256
 
-✓ All observations captured at 12.13.0.
+✓ Every observation matches its installed Firebase SDK version.
 ```
 
 A failure after a `firebase` bump means the pinned baseline no longer vouches
@@ -994,7 +996,9 @@ reading what changed.
 
 **Never edit a generated file.** They are:
 
-- `packages/pyric/docs/*/COMPAT.md` (from the registry, via `compat:generate`)
+- `packages/pyric/docs/*/COMPAT.md` and integration-owned COMPAT pages such as
+  `packages/cli/docs/functions-rtdb/COMPAT.md` (from the registry, via
+  `compat:generate`)
 - `packages/conformance/assurance-capabilities/{capabilities.json,generated.ts}` (via `compat:assurance`)
 - `packages/conformance/rules-language/{coverage,capability,acceptance}-report.json` (via the three report scripts)
 - `packages/conformance/baselines/*.json` (each via its own gate's `--update`)
@@ -1007,16 +1011,22 @@ changing what is true.
 ### Admit a surface
 
 A surface becomes real to every gate at once, because the gates iterate the
-descriptors instead of hardcoding a list. Admission is two files:
+descriptors instead of hardcoding a list. Admission is two authored files plus
+one registry-barrel import:
 
 1. **One descriptor file**, `surfaces/<name>.ts`, exporting a
    `SurfaceDescriptorRecord`. The filename is the key. The record names the
    registry it hosts rows in, the observation filename prefixes it owns, and the
-   capture rigs that produce them.
+   capture rigs that produce them. Its `kind` is `mirror` for a Pyric package
+   measured against an upstream export census, `native` for a Pyric-owned API,
+   or `integration` for unchanged upstream source executed through a Pyric
+   runtime seam.
 2. **One registry file**, `registry/<name>.ts`, exporting a
    `CompatibilitySurfaceRegistry` with its `compatPath` and its rows.
+3. **One import in `registry/index.ts`**, adding that registry to
+   `registriesByKey` so descriptor loading can resolve its key.
 
-Nothing else. `compat:validate`, `compat:report`, `compat:generate`,
+After that wiring, `compat:validate`, `compat:report`, `compat:generate`,
 `compat:audit`, `compat:coverage`, and `compat:oracle-check` all pick the surface
 up from the descriptor with no further wiring. New surfaces are authored under
 Conformance Driven Development (`docs/conformance/cdd.md`): rows are written
