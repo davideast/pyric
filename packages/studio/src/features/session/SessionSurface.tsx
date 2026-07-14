@@ -127,7 +127,7 @@ export function SessionSurface() {
         nav.navigate({ view: 'auth', uid: row.target });
         break;
       case 'storage':
-        nav.navigate({ view: 'storage', objectPath: row.target });
+        nav.navigate({ view: 'storage', kind: 'object', path: row.target });
         break;
       // rtdb has no surface yet: no-op (the row stays inert).
     }

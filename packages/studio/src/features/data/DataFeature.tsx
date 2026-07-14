@@ -126,7 +126,7 @@ function DataViews({
       const pane = (
         <LiveStoragePane
           storage={handles.storage}
-          focusPath={target?.view === 'storage' ? target.objectPath : null}
+          focusTarget={target?.view === 'storage' ? target : { kind: 'root' }}
         />
       );
       // Served mode supplies the worker StorageApi bundle so the browser drives
