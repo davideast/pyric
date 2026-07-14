@@ -26,8 +26,8 @@ type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent;
 /** The rule-engine verdict a service's mechanical simulator/enforcer stamped on
  *  the operation event. Mirrors {@link SandboxOperationEvent.rules} verbatim (do
  *  not invent a parallel shape). Present on RTDB denials today; Firestore keeps
- *  its per-rule trace on `reasons`/`matchedRule`; Storage will populate it once
- *  a storage denial-event emitter lands. */
+ *  its per-rule trace on `reasons`/`matchedRule`; Storage emits its evaluator
+ *  reasons without a Firestore-style expression trace. */
 export type RuleVerdict = NonNullable<SandboxOperationEvent['rules']>;
 
 /**
@@ -384,77 +384,11 @@ function explainStorage(
   };
 }
 
-// ─── Re-run capability, per service ─────────────────────────────────────────
-
-/**
- * Whether a re-run path is backed by a real mechanical tool, and if so which.
- *   - `live`     a tool backs it AND the host can wire it now (Firestore).
- *     Enable the control when the matching callback is supplied; otherwise the UI
- *     shows the standard "needs the live backend" hint.
- *   - `pending`  the mechanical tool EXISTS but the Studio worker hasn't wired it
- *     for this service — render disabled, hint naming `tool`.
- *   - `absent`   no mechanical tool exists for this path yet — render disabled,
- *     hint naming the `missingTool` (roadmap signal, not a bug).
- */
-export type RerunSupport =
-  | { kind: 'live'; tool: string }
-  | { kind: 'pending'; tool: string; hint: string }
-  | { kind: 'absent'; missingTool: string; hint: string };
-
-export interface ServiceRerunSupport {
-  /** Re-issue the denied op AS the attempting user (impersonation). */
-  impersonate: RerunSupport;
-  /** Re-run against an edited ruleset (fork + lint + simulate + diff). */
-  editedRuleset: RerunSupport;
-}
-
-/**
- * The re-run capability for a denial's service, grounded in what each service's
- * rules tooling actually offers today (see `SPEC.md`). Pure over the denial's
- * `service` — the UI combines this with callback presence to decide enabled vs
- * disabled-with-hint.
- */
-export function rerunSupport(denial: Denial): ServiceRerunSupport {
-  switch (engineOf(denial)) {
-    case 'firestore':
-      return {
-        impersonate: {
-          kind: 'live',
-          tool: "worker setLens({mode:'as',uid}) → Firestore replay",
-        },
-        editedRuleset: {
-          kind: 'live',
-          tool: 'fork + firestore_lint_rules + firestore_simulate_rules',
-        },
-      };
-    case 'rtdb':
-      return {
-        impersonate: {
-          kind: 'pending',
-          tool: 'rtdb_simulate_access',
-          hint: 'RTDB re-runs through the local rules simulator as this user once the Studio worker exposes rtdb_simulate_access. This is a simulation, not a live re-issue — RTDB has no live local enforcement path.',
-        },
-        editedRuleset: {
-          kind: 'pending',
-          tool: 'RulesEvaluator.setRules + rtdb_simulate_access',
-          hint: 'Editing the RTDB ruleset re-simulates the write once the worker exposes the RTDB simulator. Note: there is no whole-ruleset RTDB linter yet (rtdb_build_expression lints a single expression).',
-        },
-      };
-    case 'storage':
-      return {
-        impersonate: {
-          kind: 'absent',
-          missingTool: 'storage_simulate_rules',
-          hint: 'Storage rule evaluation (enforceRules / evaluateStorageRules) is internal — no storage_simulate_rules tool exists to re-run a denial as a user.',
-        },
-        editedRuleset: {
-          kind: 'absent',
-          missingTool: 'storage_simulate_rules + a storage denial event',
-          hint: 'Storage denials do not yet emit an operation event with rules.engine="storage", and there is no storage rules simulate/lint tool to fork against. Storage rules also aren\'t enforced in the served sandbox yet.',
-        },
-      };
-  }
-}
+export {
+  rerunSupport,
+  type RerunSupport,
+  type ServiceRerunSupport,
+} from './rerun-support.js';
 
 /**
  * Severity ramp for a denial, mapping to the `--color-severity-*` token roles.

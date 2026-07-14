@@ -43,14 +43,14 @@ describe('ST-B2 — listAll enforces rules', () => {
       dbName,
       rules: AUTHED_ONLY,
     });
-    await uploadBytes(ref(alice, 'b/pyric-default/o/sessions/s1.json'), new Blob(['{}']), {
+    await uploadBytes(ref(alice, 'sessions/s1.json'), new Blob(['{}']), {
       contentType: 'application/json',
     });
 
     const anon = getStorageSandbox(sandbox.withAuth(null), { dbName });
     let code: unknown;
     try {
-      await listAll(ref(anon, 'b/pyric-default/o/sessions'));
+      await listAll(ref(anon, 'sessions'));
     } catch (e) {
       code = (e as { code?: unknown }).code;
     }
@@ -64,10 +64,10 @@ describe('ST-B2 — listAll enforces rules', () => {
       dbName,
       rules: AUTHED_ONLY,
     });
-    await uploadBytes(ref(alice, 'b/pyric-default/o/sessions/s1.json'), new Blob(['{}']), {
+    await uploadBytes(ref(alice, 'sessions/s1.json'), new Blob(['{}']), {
       contentType: 'application/json',
     });
-    const listed = await listAll(ref(alice, 'b/pyric-default/o/sessions'));
+    const listed = await listAll(ref(alice, 'sessions'));
     expect(listed.items.map((i) => i.name)).toEqual(['s1.json']);
   });
 

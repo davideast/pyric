@@ -78,15 +78,15 @@ const RTDB_LENS_RULES = {
   },
 };
 
-// NOTE: no /b/{bucket}/o wrapper — pyric/storage's evaluator matches against
-// the raw fullPath (same convention as storage-ops.test.ts).
 const STORAGE_LENS_RULES = `
 service firebase.storage {
-  match /notes/{file} {
-    allow read, write: if request.auth != null;
-  }
-  match /anonOnly/{file} {
-    allow read, write: if request.auth == null;
+  match /b/{bucket}/o {
+    match /notes/{file} {
+      allow read, write: if request.auth != null;
+    }
+    match /anonOnly/{file} {
+      allow read, write: if request.auth == null;
+    }
   }
 }`;
 

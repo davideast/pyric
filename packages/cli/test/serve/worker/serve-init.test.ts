@@ -81,20 +81,21 @@ const RTDB_RULES = {
   },
 };
 
-// NOTE: like storage-ops.test.ts, storage rules are written WITHOUT the
-// /b/{bucket}/o wrapper — pyric/storage's evaluator matches against the
-// reference's raw fullPath.
 const DENY_ALL_STORAGE_RULES = `
 service firebase.storage {
-  match /{allPaths=**} {
-    allow read, write: if false;
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
   }
 }`;
 
 const OWNER_ONLY_STORAGE_RULES = `
 service firebase.storage {
-  match /users/{uid}/{file} {
-    allow read, write: if request.auth.uid == uid;
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow read, write: if request.auth.uid == uid;
+    }
   }
 }`;
 
@@ -166,6 +167,8 @@ const tick = (ms = 10): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const basePayload: InitPayload = {
   rules: null,
   rulesHash: null,
+  storageRules: null,
+  storageRulesHash: null,
   bridgeUrl: null,
   seed: null,
 };

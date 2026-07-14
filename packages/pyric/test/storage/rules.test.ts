@@ -884,18 +884,29 @@ function authedStorage(label: string, auth: { uid: string } | null) {
 }
 
 describe('uploadBytes with rules', () => {
+  it('maps ordinary SDK object paths into the canonical bucket rules namespace', async () => {
+    const storage = authedStorage('upload-canonical-path', { uid: 'alice' });
+    const ordinaryRef = ref(storage, 'sessions/s1.json');
+
+    const result = await uploadBytes(ordinaryRef, new Blob(['{}']), {
+      contentType: 'application/json',
+    });
+
+    expect(result.metadata.fullPath).toBe('sessions/s1.json');
+  });
+
   it('allows an authed JSON upload to /sessions', async () => {
     const storage = authedStorage('upload-allowed', { uid: 'alice' });
-    const r = ref(storage, 'b/pyric-default/o/sessions/s1.json');
+    const r = ref(storage, 'sessions/s1.json');
     const result = await uploadBytes(r, new Blob(['{}']), {
       contentType: 'application/json',
     });
-    expect(result.metadata.fullPath).toBe('b/pyric-default/o/sessions/s1.json');
+    expect(result.metadata.fullPath).toBe('sessions/s1.json');
   });
 
   it('denies an anonymous upload', async () => {
     const storage = authedStorage('upload-anon', null);
-    const r = ref(storage, 'b/pyric-default/o/sessions/s1.json');
+    const r = ref(storage, 'sessions/s1.json');
     await expect(
       uploadBytes(r, new Blob(['{}']), { contentType: 'application/json' }),
     ).rejects.toThrow(/unauthorized/);
@@ -903,7 +914,7 @@ describe('uploadBytes with rules', () => {
 
   it('denies non-JSON content type', async () => {
     const storage = authedStorage('upload-bad-ct', { uid: 'alice' });
-    const r = ref(storage, 'b/pyric-default/o/sessions/s1.txt');
+    const r = ref(storage, 'sessions/s1.txt');
     await expect(
       uploadBytes(r, new Blob(['plain']), { contentType: 'text/plain' }),
     ).rejects.toThrow(/unauthorized/);
@@ -911,7 +922,7 @@ describe('uploadBytes with rules', () => {
 
   it('denies a path outside /sessions', async () => {
     const storage = authedStorage('upload-bad-path', { uid: 'alice' });
-    const r = ref(storage, 'b/pyric-default/o/other/x.json');
+    const r = ref(storage, 'other/x.json');
     await expect(
       uploadBytes(r, new Blob(['{}']), { contentType: 'application/json' }),
     ).rejects.toThrow(/unauthorized/);
@@ -921,7 +932,7 @@ describe('uploadBytes with rules', () => {
 describe('reads with rules', () => {
   it('allows authed reads', async () => {
     const storage = authedStorage('read-allowed', { uid: 'alice' });
-    const r = ref(storage, 'b/pyric-default/o/sessions/s1.json');
+    const r = ref(storage, 'sessions/s1.json');
     await uploadBytes(r, new Blob(['{"s":1}']), { contentType: 'application/json' });
     const blob = await getBlob(r);
     expect(await blob.text()).toBe('{"s":1}');
@@ -937,13 +948,13 @@ describe('reads with rules', () => {
       rules: SESSION_ARCHIVE_RULES,
     });
     await uploadBytes(
-      ref(aliceStorage, 'b/pyric-default/o/sessions/s1.json'),
+      ref(aliceStorage, 'sessions/s1.json'),
       new Blob(['{}']),
       { contentType: 'application/json' },
     );
 
     const anonStorage = getStorageSandbox(sandbox.withAuth(null), { dbName });
-    const r = ref(anonStorage, 'b/pyric-default/o/sessions/s1.json');
+    const r = ref(anonStorage, 'sessions/s1.json');
     await expect(getBlob(r)).rejects.toThrow(/unauthorized/);
   });
 });
@@ -956,7 +967,7 @@ describe('deleteObject / metadata with rules', () => {
       dbName,
       rules: SESSION_ARCHIVE_RULES,
     });
-    const path = 'b/pyric-default/o/sessions/s1.json';
+    const path = 'sessions/s1.json';
     await uploadBytes(ref(aliceStorage, path), new Blob(['{}']), {
       contentType: 'application/json',
     });
@@ -972,7 +983,7 @@ describe('deleteObject / metadata with rules', () => {
       dbName,
       rules: SESSION_ARCHIVE_RULES,
     });
-    const path = 'b/pyric-default/o/sessions/s1.json';
+    const path = 'sessions/s1.json';
     await uploadBytes(ref(aliceStorage, path), new Blob(['{}']), {
       contentType: 'application/json',
     });
@@ -986,7 +997,7 @@ describe('deleteObject / metadata with rules', () => {
 });
 
 describe('metadata-based authorization threads through real ops (#764)', () => {
-  const path = 'b/pyric-default/o/docs/d1.json';
+  const path = 'docs/d1.json';
 
   function metadataStorage(sandbox: ReturnType<typeof initializeSandbox>, dbName: string, auth: { uid: string } | null) {
     return getStorageSandbox(sandbox.withAuth(auth), { dbName, rules: METADATA_RULES });
@@ -1057,7 +1068,7 @@ service firebase.storage {
   }
 }`;
 
-  const path = 'b/pyric-default/o/files/f1.json';
+  const path = 'files/f1.json';
 
   it('allows the initial create but denies an overwrite update', async () => {
     const sandbox = initializeSandbox({});
@@ -1154,7 +1165,7 @@ service firebase.storage {
 }`;
 
 describe('firestore lookups thread through real storage enforcement', () => {
-  const path = 'b/pyric-default/o/uploads/report.json';
+  const path = 'uploads/report.json';
 
   it('allows an upload when the user\'s Firestore doc says premium == true', async () => {
     const sandbox = initializeSandbox({});
@@ -1221,7 +1232,7 @@ describe('resource object-identity / time fields thread through real ops', () =>
       dbName,
       rules: OBJECT_IDENTITY_RULES,
     });
-    const path = 'b/pyric-default/o/uploads/pic.png';
+    const path = 'uploads/pic.png';
     await uploadBytes(ref(alice, path), new Blob(['x']), { contentType: 'image/png' });
     const blob = await getBlob(ref(alice, path));
     expect(await blob.text()).toBe('x');
@@ -1234,7 +1245,7 @@ describe('resource object-identity / time fields thread through real ops', () =>
       dbName,
       rules: OBJECT_IDENTITY_RULES,
     });
-    const path = 'b/pyric-default/o/uploads/notes.txt';
+    const path = 'uploads/notes.txt';
     await uploadBytes(ref(alice, path), new Blob(['x']), { contentType: 'text/plain' });
     await expect(getBlob(ref(alice, path))).rejects.toThrow(/unauthorized/);
   });
@@ -1246,7 +1257,7 @@ describe('resource object-identity / time fields thread through real ops', () =>
       dbName,
       rules: OBJECT_IDENTITY_RULES,
     });
-    const path = 'b/pyric-default/o/uploads/pic.png';
+    const path = 'uploads/pic.png';
     await uploadBytes(ref(alice, path), new Blob(['x']), { contentType: 'image/png' });
     // Freshly uploaded: timeCreated === updated, so the update is allowed.
     const meta = await updateMetadata(ref(alice, path), { contentType: 'image/png' });

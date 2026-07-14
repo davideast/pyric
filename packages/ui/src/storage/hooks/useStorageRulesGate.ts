@@ -215,12 +215,15 @@ export function useStorageRulesGate(
   const verdictFor = useCallback(
     (path: string): StorageGateVerdict => {
       if (rules == null) return ALLOW_ALL;
+      const objectPath = normalizeStoragePath(path);
+      const bucket = target?.bucket ?? 'pyric-default';
+      const rulesPath = objectPath === '' ? `b/${bucket}/o` : `b/${bucket}/o/${objectPath}`;
       const evaluate = (method: StorageMethod) =>
         evaluateStorageRules(rules, {
           request: {
             auth: identity,
             method,
-            path: normalizeStoragePath(path),
+            path: rulesPath,
             ...(method === 'write' && writeSize !== undefined
               ? { resource: { size: writeSize, contentType: writeContentType } }
               : {}),
@@ -240,7 +243,7 @@ export function useStorageRulesGate(
         },
       };
     },
-    [rules, identity, writeSize, writeContentType],
+    [rules, target?.bucket, identity, writeSize, writeContentType],
   );
 
   const pathsKey = typeof paths === 'string' ? paths : (paths ?? []).join('\n');

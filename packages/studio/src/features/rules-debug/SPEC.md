@@ -190,18 +190,14 @@ one). Denials surface as a `StorageError` with code `storage/unauthorized`
 false (or implicit deny), the free-text reasons verbatim, request context
 (path, method, `request.auth`; size/contentType when present on the event).
 
-**Re-runs**: both **absent** — no `storage_simulate_rules` tool exists
-(`evaluateStorageRules` is internal, not exposed as a mechanical tool), so
-there is nothing to re-issue an op against even in principle. Compounding
-this, the served worker never wires storage rules at all: `serve-init.ts`
-sets Firestore + RTDB rules but not Storage, and `host.ts:610-659`'s own
-comment says worker-mode Storage is effectively open — so a live Storage
-denial cannot occur in served mode today, and Storage does not yet emit a
-`SandboxOperationEvent { service:'storage', result:'deny',
-rules.engine:'storage' }` onto the stream at all (it only throws
-`storage/unauthorized`; the allow path emits `service_mutation`). Both gaps
-are named in the disabled-hint copy: the missing `storage_simulate_rules`
-tool, and the missing denial-event emitter.
+**Re-runs**: both **absent**. Storage rules are installed by both served
+runtimes before application operations, and evaluated allow/deny operations
+emit `SandboxOperationEvent` records that open this inspector. Studio still
+has no Storage replay operation for re-running a captured request as a user,
+and no temporary edited-rules deployment seam for testing an edit. Those are
+the gaps named by the disabled controls. Admin-lens operations are explicitly
+`bypassed`; because rules never ran, Traffic labels them but does not open a
+rules inspection for them.
 
 ## Re-run, mapped to real mechanical tools
 
@@ -210,8 +206,8 @@ Two re-run actions, each graded `live` / `pending` / `absent` per service
 
 | Action | Firestore | RTDB | Storage |
 |---|---|---|---|
-| Impersonate attempting user | **live** — worker `setLens({mode:'as',uid})` seam, real backend | **pending** — needs a `SimulateHandler` re-run operation wired into the Studio worker | **absent** — no `storage_simulate_rules` tool exists |
-| Test an edited ruleset | **live** — `fork` + `lintFirestoreRules` (surfaced pre-run) + `firestore_simulate_rules` (via `issueOp`) + structural `diff`, same now-denied/now-allowed classification `pyric verify`'s `deriveRulesTestCases` performs, applied to one op | **pending** — needs `RulesEvaluator.setRules` + a `SimulateHandler` re-run operation, and there is no whole-ruleset RTDB linter yet | **absent** — needs `storage_simulate_rules` AND the storage denial-event emitter above |
+| Impersonate attempting user | **live** — worker `setLens({mode:'as',uid})` seam, real backend | **pending** — needs a `SimulateHandler` re-run operation wired into the Studio worker | **absent** — evaluated events exist, but Studio has no Storage replay operation |
+| Test an edited ruleset | **live** — `fork` + `lintFirestoreRules` (surfaced pre-run) + `firestore_simulate_rules` (via `issueOp`) + structural `diff`, same now-denied/now-allowed classification `pyric verify`'s `deriveRulesTestCases` performs, applied to one op | **pending** — needs `RulesEvaluator.setRules` + a `SimulateHandler` re-run operation, and there is no whole-ruleset RTDB linter yet | **absent** — needs a Storage replay operation and temporary edited-rules deployment seam |
 
 For the edited-ruleset re-run, a **parse failure is the only hard blocker**:
 an unparseable ruleset can't be forked/simulated, so the re-run

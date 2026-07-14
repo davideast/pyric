@@ -170,6 +170,33 @@ describe('Studio Firestore data lens', () => {
   });
 });
 
+describe('Studio Storage data lens', () => {
+  let restore: (() => void) | null = null;
+  afterEach(() => {
+    restore?.();
+    restore = null;
+    resetWorkerLens(undefined);
+  });
+
+  it('sends the admin lens and Studio issuer on storage operations', async () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const plane = connectWorkerLive('worker://test')!;
+    const objectRef = plane.storageApi.ref(plane.storage, 'avatars/alice.png');
+
+    const pending = plane.storageApi.getMetadata(objectRef);
+    const op = sw.port.sent.find(
+      (message): message is { t: 'op'; id: string; method: string; issuer?: string; actAs?: { mode: string } } =>
+        (message as { method?: string }).method === 'storage.getMetadata',
+    );
+
+    expect(op?.issuer).toBe('studio');
+    expect(op?.actAs).toEqual({ mode: 'admin' });
+    sw.deliver({ t: 'res', id: op!.id, ok: true, value: { fullPath: 'avatars/alice.png' } });
+    await pending;
+  });
+});
+
 describe('workerEventFeed (F1 live-feed adapter)', () => {
   let restore: (() => void) | null = null;
   afterEach(() => {

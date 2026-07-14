@@ -250,8 +250,10 @@ describe('DeleteSelectionWithConfirm', () => {
         dbName: `pyric-ui-delsel-gate-${label}-${Math.random().toString(36).slice(2, 10)}`,
         rules: `
 service firebase.storage {
-  match /users/{uid}/{allPaths=**} {
-    allow read, write: if request.auth != null && request.auth.uid == uid;
+  match /b/{bucket}/o {
+    match /users/{uid}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
   }
 }`,
       });

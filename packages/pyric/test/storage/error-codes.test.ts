@@ -101,7 +101,7 @@ describe('ST-B1 — sandbox errors carry .code === storage/<code>', () => {
 
   it('unauthorized when rules deny the operation', async () => {
     const storage = freshStorage('denied', DENY_ALL);
-    const r = ref(storage, 'b/pyric-default/o/sessions/s1.json');
+    const r = ref(storage, 'sessions/s1.json');
     const e = await caught(() =>
       uploadBytes(r, new Blob(['{}']), { contentType: 'application/json' }),
     );
@@ -110,7 +110,7 @@ describe('ST-B1 — sandbox errors carry .code === storage/<code>', () => {
 
   it('unauthorized when rules deny getDownloadURL', async () => {
     const storage = freshStorage('denied-download-url', WRITE_ONLY);
-    const r = ref(storage, 'b/pyric-default/o/avatars/ada.txt');
+    const r = ref(storage, 'avatars/ada.txt');
     await uploadBytes(r, new Blob(['avatar-bytes'], { type: 'text/plain' }));
 
     const e = await caught(() => getDownloadURL(r));

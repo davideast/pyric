@@ -390,18 +390,18 @@ service firebase.storage {
     // Allowed: alice writing under her own uid.
     const aliceStorage = getStorageSandbox(sandbox2.withAuth({ uid: 'alice' }), { dbName: dbName2 });
     const allowedResult = await uploadBytes(
-      storageRef(aliceStorage, 'b/pyric-default/o/users/alice/notes.txt'),
+      storageRef(aliceStorage, 'users/alice/notes.txt'),
       new Blob(['hi']),
       { contentType: 'text/plain' },
     );
-    expect(allowedResult.metadata.fullPath).toBe('b/pyric-default/o/users/alice/notes.txt');
+    expect(allowedResult.metadata.fullPath).toBe('users/alice/notes.txt');
 
     // Denied: bob writing under alice's uid — the restored rules are
     // actually enforcing, not just present as inert text.
     const bobStorage = getStorageSandbox(sandbox2.withAuth({ uid: 'bob' }), { dbName: dbName2 });
     await expect(
       uploadBytes(
-        storageRef(bobStorage, 'b/pyric-default/o/users/alice/hijack.txt'),
+        storageRef(bobStorage, 'users/alice/hijack.txt'),
         new Blob(['nope']),
         { contentType: 'text/plain' },
       ),

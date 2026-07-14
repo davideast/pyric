@@ -75,7 +75,7 @@ describe('session-archive end-to-end', () => {
     const anon = getStorageSandbox(sandbox.withAuth(null), { dbName });
 
     const sessionId = 'gen-1234-abc';
-    const path = `b/pyric-default/o/sessions/${sessionId}`;
+    const path = `sessions/${sessionId}`;
 
     // 2. Anonymous write is denied.
     await expect(
@@ -89,7 +89,7 @@ describe('session-archive end-to-end', () => {
     // 3. Bob writes non-JSON — denied.
     await expect(
       uploadString(
-        ref(bob, `b/pyric-default/o/sessions/text.txt`),
+        ref(bob, `sessions/text.txt`),
         'just text',
       ),
     ).rejects.toThrow(/unauthorized/);
@@ -98,7 +98,7 @@ describe('session-archive end-to-end', () => {
     const bigPayload = new Uint8Array(11 * 1024 * 1024);
     await expect(
       uploadBytes(
-        ref(bob, `b/pyric-default/o/sessions/big.json`),
+        ref(bob, `sessions/big.json`),
         bigPayload,
         { contentType: 'application/json' },
       ),
@@ -112,7 +112,7 @@ describe('session-archive end-to-end', () => {
     ];
     for (const s of sessions) {
       const result = await uploadBytes(
-        ref(alice, `b/pyric-default/o/sessions/${s.id}`),
+        ref(alice, `sessions/${s.id}`),
         new Blob([s.body]),
         {
           contentType: 'application/json',
@@ -124,36 +124,36 @@ describe('session-archive end-to-end', () => {
     }
 
     // 6. Bob lists the archive — sees all three.
-    const listed = await listAll(ref(bob, 'b/pyric-default/o/sessions'));
+    const listed = await listAll(ref(bob, 'sessions'));
     expect(listed.items.map((i) => i.name).sort()).toEqual(['gen-1', 'gen-2', 'gen-3']);
     expect(listed.prefixes).toEqual([]);
 
     // 7. Bob downloads gen-2 and gets Alice's JSON back.
-    const blob = await getBlob(ref(bob, 'b/pyric-default/o/sessions/gen-2'));
+    const blob = await getBlob(ref(bob, 'sessions/gen-2'));
     expect(await blob.text()).toBe('{"task":"second","ok":false}');
 
     // 8. Anonymous read denied.
     await expect(
-      getBlob(ref(anon, 'b/pyric-default/o/sessions/gen-1')),
+      getBlob(ref(anon, 'sessions/gen-1')),
     ).rejects.toThrow(/unauthorized/);
 
     // 9. Alice deletes gen-3.
-    await deleteObject(ref(alice, 'b/pyric-default/o/sessions/gen-3'));
-    const afterDelete = await listAll(ref(alice, 'b/pyric-default/o/sessions'));
+    await deleteObject(ref(alice, 'sessions/gen-3'));
+    const afterDelete = await listAll(ref(alice, 'sessions'));
     expect(afterDelete.items.map((i) => i.name).sort()).toEqual(['gen-1', 'gen-2']);
 
     // 10. Update metadata for gen-1, verify blob preserved.
-    const md = await updateMetadata(ref(alice, 'b/pyric-default/o/sessions/gen-1'), {
+    const md = await updateMetadata(ref(alice, 'sessions/gen-1'), {
       customMetadata: { sessionId: 'gen-1', timestamp: '2026-05-10T00:00:00.000Z', tag: 'reviewed' },
     });
     expect(md.customMetadata?.tag).toBe('reviewed');
     expect(md.metageneration).toBe('2');
 
-    const stillThere = await getBlob(ref(bob, 'b/pyric-default/o/sessions/gen-1'));
+    const stillThere = await getBlob(ref(bob, 'sessions/gen-1'));
     expect(await stillThere.text()).toBe('{"task":"first","ok":true}');
 
     // 11. getMetadata returns the latest record.
-    const fetched = await getMetadata(ref(bob, 'b/pyric-default/o/sessions/gen-1'));
+    const fetched = await getMetadata(ref(bob, 'sessions/gen-1'));
     expect(fetched.customMetadata?.tag).toBe('reviewed');
   });
 });

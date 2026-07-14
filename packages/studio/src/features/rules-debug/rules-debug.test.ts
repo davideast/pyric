@@ -296,9 +296,13 @@ describe('rules-debug re-run: capability grading per service (rerunSupport)', ()
     expect(support.editedRuleset.kind).toBe('absent');
     if (support.impersonate.kind === 'absent') {
       expect(support.impersonate.missingTool).toBe('storage_simulate_rules');
+      expect(support.impersonate.hint).toContain('rules are enforced');
+      expect(support.impersonate.hint).toContain('events open this inspector');
     }
     if (support.editedRuleset.kind === 'absent') {
       expect(support.editedRuleset.missingTool).toContain('storage_simulate_rules');
+      expect(support.editedRuleset.hint).toContain('denial events are inspectable');
+      expect(support.editedRuleset.hint).not.toContain('not yet emit');
     }
 
     const exp = explainDenial(d);

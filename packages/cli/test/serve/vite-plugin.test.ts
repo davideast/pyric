@@ -350,6 +350,20 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     expect((await initJson(await bootPlugin({}, tmp))).rules).toBeNull();
   });
 
+  it('serves configured Storage rules and their hash in the shared init payload', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-storage-rules-'));
+    writeFileSync(path.join(tmp, 'firebase.json'), JSON.stringify({
+      storage: { rules: 'storage.rules' },
+    }));
+    writeFileSync(path.join(tmp, 'storage.rules'), `service firebase.storage {
+      match /b/{bucket}/o { match /{path=**} { allow read, write: if false; } }
+    }`);
+
+    const init = await initJson(await bootPlugin({}, tmp));
+    expect(init.storageRules).toContain('service firebase.storage');
+    expect(typeof init.storageRulesHash).toBe('string');
+  });
+
   it('fails fast when an explicit rules path does not exist', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-badrules-'));
     let threw = false;
