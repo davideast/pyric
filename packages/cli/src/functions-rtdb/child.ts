@@ -5,11 +5,13 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RemoteSandbox } from '../remote/index.js';
 import {
-  inspectOnValueCreated,
   startOnValueCreatedExecution,
-  type CreatedExecutionResult,
   type OnValueCreatedExecutionHost,
 } from './execution.js';
+import {
+  inspectOnValueCreated,
+} from './discovery.js';
+import type { CreatedExecutionResult } from './event.js';
 import { RemoteRtdbTriggerDelivery } from './remote-delivery.js';
 
 export interface SerializedFunctionsRtdbError {
