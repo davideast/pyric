@@ -601,13 +601,13 @@ export const firestoreRegistry = {
           "api": "setDoc(ref, data[, options])",
           "behavior": "`{ mergeFields: [...] }` → writes only the listed **dot-separated field paths** into the existing doc (FS-B6); other keys in `data` are ignored, other fields in the existing doc preserved. `mergeFields: ['a.b']` reaches into a nested map.",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`, `unit:admin-compat/field-path-merge.test.ts` (dotted mergeField)",
+          "evidence": "`unit:sandbox-target.test.ts`, `unit:admin-compat/field-path-merge.test.ts` (dotted mergeField); mask edges (delete/transform outside mask, empty mask, deleteField in mask): `unit:upstream-write-aggregate-probes.test.ts`",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/sandbox/firestore/admin-compat/field-path-merge.test.ts"]
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/sandbox/firestore/admin-compat/field-path-merge.test.ts", "packages/pyric/test/firestore/upstream-write-aggregate-probes.test.ts"]
         },
         {
           "id": "firestore#29",
@@ -1125,13 +1125,13 @@ export const firestoreRegistry = {
           "api": "Query construction",
           "behavior": "`where(field, op, value)` — all 10 ops: `<`, `<=`, `==`, `>=`, `>`, `!=`, `in`, `not-in`, `array-contains`, `array-contains-any`",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts` (canonical query test)",
+          "evidence": "`unit:sandbox-target.test.ts` (canonical query test); membership ops + OR/`in`/`array-contains` composites: `unit:upstream-query-probes.test.ts`",
           "risk": ["specific-value"],
           "riskScore": 2,
           "riskReasons": ["asserts 3 specific value(s)"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"],
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/upstream-query-probes.test.ts"],
           "exceptionReason": "structural / type shape — verified without a prod observation"
         },
         {
@@ -1306,13 +1306,13 @@ export const firestoreRegistry = {
           "api": "Query construction",
           "behavior": "`limitToLast(n)` — trailing n in ordered result (requires `orderBy`). Sandbox: the no-orderBy precondition throws a `FirestoreError` with `.code === 'invalid-argument'` (FS-B16; pre-fix plain `Error`s). Prod: the same precondition throws `.code === 'unimplemented'`",
           "status": "diverged-documented",
-          "evidence": "divergence, oracle-locked by `packages/conformance/observations/firestore/firestore-limittolast-preconditions.json`: prod's no-orderBy `limitToLast` throws code `unimplemented`, the sandbox throws `invalid-argument`. Trailing-window semantics with `orderBy` conform (observed `[\"b\"]` matches). Both sides pinned in `oracle-conformance.test.ts`. Cursor/empty-snapshot precondition codes remain per `unit:sandbox-target.test.ts` + `unit:admin-compat/cursors.test.ts` (verified failing pre-fix)",
+          "evidence": "divergence, oracle-locked by `packages/conformance/observations/firestore/firestore-limittolast-preconditions.json`: prod's no-orderBy `limitToLast` throws code `unimplemented`, the sandbox throws `invalid-argument`. Trailing-window semantics with `orderBy` conform (observed `[\"b\"]` matches). Both sides pinned in `oracle-conformance.test.ts`. Cursor composition + descending: `unit:upstream-query-probes.test.ts`. Cursor/empty-snapshot precondition codes remain per `unit:sandbox-target.test.ts` + `unit:admin-compat/cursors.test.ts` (verified failing pre-fix)",
           "risk": ["specific-value", "error-code"],
           "riskScore": 5,
           "riskReasons": ["asserts 2 specific value(s)", "asserts Firebase error code(s): `invalid-argument`, `not-found`"],
           "automation": "oracle-backed",
           "oracleObservations": ["firestore-limittolast-preconditions"],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/sandbox/firestore/admin-compat/cursors.test.ts", "packages/pyric/test/firestore/oracle-conformance.test.ts"]
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/sandbox/firestore/admin-compat/cursors.test.ts", "packages/pyric/test/firestore/oracle-conformance.test.ts", "packages/pyric/test/firestore/upstream-query-probes.test.ts"]
         },
         {
           "id": "firestore#62",
@@ -1552,13 +1552,13 @@ export const firestoreRegistry = {
           "api": "Aggregates",
           "behavior": "`getCountFromServer(query)` returns `{ data: () => ({ count: N }) }`",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`",
+          "evidence": "`unit:sandbox-target.test.ts`; collectionGroup: `unit:upstream-write-aggregate-probes.test.ts`",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"]
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/upstream-write-aggregate-probes.test.ts"]
         },
         {
           "id": "firestore#75",
@@ -1588,13 +1588,13 @@ export const firestoreRegistry = {
           "api": "Aggregates",
           "behavior": "`getAggregateFromServer(query, spec)` returns `{ data: () => Record<alias, number|null> }`",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`",
+          "evidence": "`unit:sandbox-target.test.ts`; collectionGroup + nested paths: `unit:upstream-write-aggregate-probes.test.ts`",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"]
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/upstream-write-aggregate-probes.test.ts"]
         },
         {
           "id": "firestore#77",
@@ -1604,15 +1604,15 @@ export const firestoreRegistry = {
           "rowNumber": 77,
           "section": "Aggregates — `getCountFromServer` / `getAggregateFromServer` / `count` / `sum` / `average`",
           "api": "Aggregates",
-          "behavior": "`count()` / `sum(field)` / `average(field)` compose under one spec",
+          "behavior": "`count()` / `sum(field)` / `average(field)` compose under one spec — `field` may be a dotted nested path",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`",
+          "evidence": "`unit:sandbox-target.test.ts`; nested `sum('metadata.pages')`: `unit:upstream-write-aggregate-probes.test.ts`",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"]
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/upstream-write-aggregate-probes.test.ts"]
         },
         {
           "id": "firestore#78",
@@ -1683,15 +1683,15 @@ export const firestoreRegistry = {
           "rowNumber": 81,
           "section": "`onSnapshot(refOrQuery, …)` — listeners",
           "api": "onSnapshot(refOrQuery, …)",
-          "behavior": "`onSnapshot(query, cb)` fires on collection writes",
+          "behavior": "`onSnapshot(query, cb)` fires on collection writes; `QuerySnapshot.docChanges()` reports `added` / `modified` / `removed` with `oldIndex` / `newIndex`",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`, oracle: `packages/conformance/observations/firestore/firestore-row-81-onsnapshot-query-fires-on-write.json` — listener on `query(coll)` saw 1 initial fire (empty, `size:0`), then one fire per write: `addDoc` → `size:1`, `setDoc(coll, 'known-id')` → `size:2`, `deleteDoc(addedRef)` → `size:1`. Total 4 fires, each reflecting the current collection state. Every collection-level write produces a distinct fire. (Note: this oracle used a *filterless* `query(coll)`, which masked FS-B2 — see row 81a.)",
+          "evidence": "`unit:sandbox-target.test.ts`, oracle: `packages/conformance/observations/firestore/firestore-row-81-onsnapshot-query-fires-on-write.json` — listener on `query(coll)` saw 1 initial fire (empty, `size:0`), then one fire per write: `addDoc` → `size:1`, `setDoc(coll, 'known-id')` → `size:2`, `deleteDoc(addedRef)` → `size:1`. Total 4 fires, each reflecting the current collection state. Every collection-level write produces a distinct fire. (Note: this oracle used a *filterless* `query(coll)`, which masked FS-B2 — see row 81a.) Modular `docChanges` indexes: `unit:upstream-transform-txn-listener-probes.test.ts`",
           "risk": ["specific-field", "listener"],
           "riskScore": 3,
           "riskReasons": ["asserts a specific field/property value", "asserts listener semantics"],
           "automation": "oracle-backed",
           "oracleObservations": ["firestore-row-81-onsnapshot-query-fires-on-write"],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"]
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/upstream-transform-txn-listener-probes.test.ts"]
         },
         {
           "id": "firestore#81a",
@@ -1912,13 +1912,13 @@ export const firestoreRegistry = {
           "api": "runTransaction(db, fn)",
           "behavior": "Atomic read-write — all reads in `fn` see a consistent snapshot, writes commit together",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`, `playground:firestore-transaction`",
+          "evidence": "`unit:sandbox-target.test.ts`, `playground:firestore-transaction`; get-missing/deleted + empty txn + nested update: `unit:upstream-transform-txn-listener-probes.test.ts`",
           "risk": ["specific-field", "atomicity"],
           "riskScore": 3,
           "riskReasons": ["asserts a specific field/property value", "asserts transaction/batch atomicity"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"],
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/upstream-transform-txn-listener-probes.test.ts"],
           "exceptionReason": "playground / preview behavior — no firebase-js-sdk counterpart to observe"
         },
         {
@@ -2089,13 +2089,13 @@ export const firestoreRegistry = {
           "api": "Sentinels",
           "behavior": "`increment(n)` atomically bumps a numeric field; `null`/missing field starts from 0",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`, `playground:firestore-sentinels` (bundled) + `playground:firestore-row-100-increment-bumps-numeric` (one-claim), oracle: `packages/conformance/observations/firestore/firestore-row-100-increment-bumps-numeric.json` — `setDoc` with no `count` field then `updateDoc({count: increment(5)})` yields `count === 5` (starts from 0). Follow-up `increment(3)` → 8, then `increment(-2)` → 6 (negative deltas apply, increments accumulate).",
+          "evidence": "`unit:sandbox-target.test.ts`, `playground:firestore-sentinels` (bundled) + `playground:firestore-row-100-increment-bumps-numeric` (one-claim), oracle: `packages/conformance/observations/firestore/firestore-row-100-increment-bumps-numeric.json` — `setDoc` with no `count` field then `updateDoc({count: increment(5)})` yields `count === 5` (starts from 0). Follow-up `increment(3)` → 8, then `increment(-2)` → 6 (negative deltas apply, increments accumulate). Merge-create + int↔double + batch-across-docs: `unit:upstream-transform-txn-listener-probes.test.ts`",
           "risk": ["specific-field", "sentinel", "atomicity"],
           "riskScore": 5,
           "riskReasons": ["asserts a specific field/property value", "asserts sentinel or atomic transform semantics", "asserts transaction/batch atomicity"],
           "automation": "oracle-backed",
           "oracleObservations": ["firestore-row-100-increment-bumps-numeric"],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"],
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/upstream-transform-txn-listener-probes.test.ts"],
           "exceptionReason": "playground / preview behavior — no firebase-js-sdk counterpart to observe"
         },
         {
@@ -2108,13 +2108,13 @@ export const firestoreRegistry = {
           "api": "Sentinels",
           "behavior": "`arrayUnion(...values)` de-dupes against existing members **and** against duplicate args within the same call",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`, `playground:firestore-sentinels` (bundled) + `playground:firestore-row-101-arrayunion-dedupes` (one-claim), oracle: `packages/conformance/observations/firestore/firestore-row-101-arrayunion-dedupes.json` — `setDoc({tags: ['a','b']})` then `updateDoc({tags: arrayUnion('b','c')})` yields `['a','b','c']` (single `b`, not double). Follow-up `updateDoc({tags: arrayUnion('d','d','a')})` yields `['a','b','c','d']` — both inline duplicate args and existing-member duplicates are de-duped.",
+          "evidence": "`unit:sandbox-target.test.ts`, `playground:firestore-sentinels` (bundled) + `playground:firestore-row-101-arrayunion-dedupes` (one-claim), oracle: `packages/conformance/observations/firestore/firestore-row-101-arrayunion-dedupes.json` — `setDoc({tags: ['a','b']})` then `updateDoc({tags: arrayUnion('b','c')})` yields `['a','b','c']` (single `b`, not double). Follow-up `updateDoc({tags: arrayUnion('d','d','a')})` yields `['a','b','c','d']` — both inline duplicate args and existing-member duplicates are de-duped. Merge-path + object members: `unit:upstream-transform-txn-listener-probes.test.ts`",
           "risk": ["specific-field", "sentinel"],
           "riskScore": 3,
           "riskReasons": ["asserts a specific field/property value", "asserts sentinel or atomic transform semantics"],
           "automation": "oracle-backed",
           "oracleObservations": ["firestore-row-101-arrayunion-dedupes"],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"],
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/upstream-transform-txn-listener-probes.test.ts"],
           "exceptionReason": "playground / preview behavior — no firebase-js-sdk counterpart to observe"
         },
         {
@@ -2127,13 +2127,13 @@ export const firestoreRegistry = {
           "api": "Sentinels",
           "behavior": "`arrayRemove(...values)` strips matching members; values not present in the array are silent no-ops",
           "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`, `playground:firestore-sentinels` (bundled) + `playground:firestore-row-102-arrayremove-strips` (one-claim), oracle: `packages/conformance/observations/firestore/firestore-row-102-arrayremove-strips.json` — `setDoc({tags: ['a','b','c']})` then `updateDoc({tags: arrayRemove('b','d')})` yields `['a','c']`: `'b'` removed, `'d'` (absent) was a silent no-op (no error).",
+          "evidence": "`unit:sandbox-target.test.ts`, `playground:firestore-sentinels` (bundled) + `playground:firestore-row-102-arrayremove-strips` (one-claim), oracle: `packages/conformance/observations/firestore/firestore-row-102-arrayremove-strips.json` — `setDoc({tags: ['a','b','c']})` then `updateDoc({tags: arrayRemove('b','d')})` yields `['a','c']`: `'b'` removed, `'d'` (absent) was a silent no-op (no error). Merge-path: `unit:upstream-transform-txn-listener-probes.test.ts`",
           "risk": ["specific-value", "specific-field", "sentinel"],
           "riskScore": 5,
           "riskReasons": ["asserts 2 specific value(s)", "asserts a specific field/property value", "asserts sentinel or atomic transform semantics"],
           "automation": "oracle-backed",
           "oracleObservations": ["firestore-row-102-arrayremove-strips"],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"],
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/upstream-transform-txn-listener-probes.test.ts"],
           "exceptionReason": "playground / preview behavior — no firebase-js-sdk counterpart to observe"
         },
         {
@@ -2279,15 +2279,15 @@ export const firestoreRegistry = {
           "rowNumber": 107,
           "section": "Scalar types — `Bytes` / `GeoPoint` / `FieldPath` / `documentId`",
           "api": "Scalar types",
-          "behavior": "`documentId()` works in `where(documentId(), 'in', [...])` against the sandbox",
+          "behavior": "`documentId()` works in `where(documentId(), …)` / `orderBy(documentId())` against the sandbox — string ids, DocumentReference operands, ranges, and id sort",
           "status": "conforms",
-          "evidence": "(chainable adapter recognizes the FieldPath sentinel)",
+          "evidence": "`unit:upstream-query-probes.test.ts` (`documentId() filters + orderBy`); modular `where`/`orderBy` accept `FieldPath`",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
-          "automation": "unverified",
+          "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": []
+          "conformanceTests": ["packages/pyric/test/firestore/upstream-query-probes.test.ts"]
         },
         {
           "id": "firestore#108",
