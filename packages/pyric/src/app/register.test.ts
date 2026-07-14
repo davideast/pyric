@@ -1,16 +1,15 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
 import {
-  deleteApp,
   getApp,
-  getApps,
   initializeApp,
 } from './register.js';
+import { resetAppRegistryForTests } from './registry.js';
 
-afterEach(async () => {
-  await Promise.all(getApps().map((app) => deleteApp(app)));
-});
+beforeEach(() => resetAppRegistryForTests());
+
+afterEach(() => resetAppRegistryForTests());
 
 describe('Node register app adapter', () => {
   it('depends on Firestore through its published sandbox control seam', () => {

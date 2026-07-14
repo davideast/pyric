@@ -7,10 +7,11 @@
  * fake-indexeddb supplies the browser persistence primitive Storage needs.
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import 'fake-indexeddb/auto';
 
-import { initializeApp, getApps, deleteApp } from './index.js';
+import { initializeApp } from './index.js';
+import { resetAppRegistryForTests } from './registry.js';
 // Use relative imports to the adapter sources so the test exercises
 // the in-tree dispatch added in this PR rather than whatever's sitting
 // in `dist/` from the last `bun run build`. The package-exports map
@@ -33,12 +34,12 @@ import { getMessaging } from '../messaging/index.js';
 describe('pyric/app — Firebase-shaped service containers', () => {
   const options = { apiKey: 'ignored-in-sandbox', projectId: 'demo-project' };
   // The app registry is a process-global singleton (mirroring firebase/app's
-  // store), so clear it before each case: every test below initializes the
-  // default '[DEFAULT]' app and would otherwise collide with the previous one
-  // (app/duplicate-app), exactly as firebase would.
-  beforeEach(async () => {
-    await Promise.all(getApps().map((app) => deleteApp(app)));
-  });
+  // store). Use the test-only full reset here: deleteApp() intentionally keeps
+  // the one-runtime backend/config lock alive, which must not leak across test
+  // files when Bun schedules them in a different order.
+  beforeEach(() => resetAppRegistryForTests());
+
+  afterEach(() => resetAppRegistryForTests());
 
   it('getFirestore(app) returns a Firestore handle for a sandbox app', () => {
     const app = initializeApp(options);
