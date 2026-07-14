@@ -47,8 +47,12 @@ const admin = await import('firebase-admin/database');
 const appModule = await import('firebase/app');
 const firestore = await import('firebase/firestore');
 assert.equal(typeof admin.getDatabase, 'function');
-const app = appModule.initializeApp({ projectId: 'packed-active-resolution' });
-assert.equal(app[Symbol.for('pyric.app.target')], 'sandbox');
+const options = { projectId: 'packed-active-resolution' };
+const app = appModule.initializeApp(options);
+assert.equal(app.name, '[DEFAULT]');
+assert.deepEqual(app.options, options);
+assert.equal(appModule.getApp(), app);
+assert.deepEqual(appModule.getApps(), [app]);
 assert.equal(typeof firestore.getFirestore(app), 'object');
 `,
 );
