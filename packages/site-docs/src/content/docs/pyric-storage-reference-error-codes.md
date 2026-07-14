@@ -24,7 +24,7 @@ The operation has an authenticated user but rules denied it.
 
 ### `'storage/quota-exceeded'`
 
-Reserved on the `StorageErrorCode` union for upstream parity. The sandbox does **not** raise it for `maxDownloadSizeBytes` — that path truncates like production. Bucket-level quota is not modeled.
+`getBytes` / `getBlob` called with `maxDownloadSizeBytes` and the stored object is larger.
 
 ### `'storage/invalid-argument'`
 

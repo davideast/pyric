@@ -11,7 +11,7 @@ order: 8006
 
 > **Surface coverage:** 48.1% of Firebase's public exports · 72.2% of what pyric intends to mirror
 >
-> **Fidelity:** 85.9% (85 of 99 tracked claims match production)
+> **Fidelity:** 83.8% (83 of 99 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
@@ -218,9 +218,9 @@ matrix has to cover:
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returned <code>metadata.bucket</code> matches the storage handle's bucket</span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Replaces any existing object at the path (overwrite, not append)</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("second uploadBytes at the same path replaces bytes and metadata")</div></div>
+<details class="compat-row" data-status="unverified">
+<summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><span class="compat-behavior">Replaces any existing object at the path (overwrite, not append)</span></span></summary>
+<div class="compat-evidence"><div class="compat-probe">sandbox semantics in <code>persistence.ts</code> use <code>put</code>; no explicit overwrite test</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Prod: round-trips uploaded bytes through <code>getDownloadURL</code> + fetch (byte-for-byte equality)</span></span></summary>
@@ -258,7 +258,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>format='data_url'</code> with non-base64 payload: percent-decodes the body</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("non-base64 data_url percent-decodes the body"; malformed <code>%%0</code> → <code>storage/invalid-format</code>)</div></div>
+<div class="compat-evidence"><div class="compat-probe">(covered by <code>decodeString</code> else-branch; no explicit test for the URL-encoded form yet)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Caller's <code>metadata.contentType</code> beats data_url inference</span></span></summary>
@@ -320,13 +320,13 @@ matrix has to cover:
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Throws <code>storage/object-not-found</code> when no object exists at the path</span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws storage/object-not-found for missing paths") + oracle: <code>packages/conformance/observations/storage/storage-delete-then-get-throws.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload → delete → <code>getDownloadURL</code> on the deleted ref throws <code>FirebaseError</code> with <code>code: 'storage/object-not-found'</code>)</div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">When the object exceeds <code>maxDownloadSize</code>, returns a truncated prefix of that byte length (does not throw)</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("getBytes / getBlob return a truncated prefix when the object exceeds the cap"). Matches upstream <code>getBytesInternal</code> / <code>getBlobInternal</code> post-fetch slice (GCS may ignore Range on small files). Prior COMPAT claim that the cap throws was wrong.</div></div>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior">Throws when <code>blob.size &gt; maxDownloadSize</code> with <code>.code</code> exposed</span></span></summary>
+<div class="compat-evidence"><div class="compat-probe">code-divergence (ST-B1): sandbox now throws a <code>StorageError</code> with <code>.code === 'storage/quota-exceeded'</code> (was a plain <code>Error</code> with the code only in the message). Prod's client-side cap throws <code>FirebaseError</code> with <code>code: 'storage/invalid-argument'</code> — the codes still differ, but both now expose <code>.code</code>. Probe: <code>unit:error-codes.test.ts</code> ("quota-exceeded when the blob exceeds maxDownloadSizeBytes"). Documented in <code>download.ts</code>. Aligning the code value to <code>invalid-argument</code> is deferred pending an oracle capture of prod's exact shape.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Just-under-cap reads succeed and return the full byte length</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("just-under-cap reads return the full object") + <code>unit:reference.test.ts</code> ("honors maxDownloadSizeBytes when the blob is too large")</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("honors maxDownloadSizeBytes when the blob is too large")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> when called on the root reference</span></span></summary>
@@ -347,7 +347,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Honors <code>maxDownloadSize</code> same as <code>getBytes</code></span></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("getBytes / getBlob return a truncated prefix when the object exceeds the cap"; shared <code>fetchBlob</code> helper in <code>download.ts</code>)</div></div>
+<div class="compat-evidence"><div class="compat-probe">(shared <code>fetchBlob</code> helper in <code>download.ts</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Root-ref read throws <code>storage/invalid-root-operation</code></span></span></summary>
@@ -604,6 +604,13 @@ against the `blockingfun` project on fb-js-sdk 12.13.0:
   format; the sandbox throws `storage/invalid-format` for both. Fix
   candidates: decode `base64url` in `decodeString` (one line) and
   align the unknown-format error code.
+- **Sandbox `quota-exceeded` error code value** (row #55) — ST-B1
+  gave the sandbox a `StorageError` class, so the cap now throws with
+  `.code === 'storage/quota-exceeded'` (was a plain `Error`). The
+  remaining gap is the code *value*: prod throws a `FirebaseError`
+  with `code: 'storage/invalid-argument'` for the client-side cap.
+  Aligning the value is deferred pending an oracle capture of prod's
+  exact shape.
 - **`null`-clear semantics in `updateMetadata`** (row #86) — sandbox
   preserves prior values when patch fields are `undefined`, but
   doesn't model `null`-clear at all. Documented in `metadata.ts`.
