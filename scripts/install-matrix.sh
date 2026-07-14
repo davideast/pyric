@@ -121,11 +121,16 @@ if (failed) { console.error('install matrix: subpath resolution FAILED'); proces
 console.log(`  ✓ all ${total} advertised subpaths resolve under ${process.env.PM_LABEL ?? 'this manager'}`);
 NODECHECK
 PM_LABEL="$PM" node __matrix-resolve.mjs
+node "$ROOT/scripts/audit-packed-cli.mjs" \
+  "$CONSUMER" \
+  "$ROOT/scripts/fixtures/cli-release-contract.json"
 
 # 5. Execute a small public-command proof through this package manager's bin
 # link. The helper owns only command behavior; this script remains the single
 # source of truth for packing and installing the consumer.
 node "$ROOT/scripts/packed-cli-smoke.mjs" \
-  "$CONSUMER/node_modules/.bin/pyric" "$WORK/cli-smoke"
+  "$CONSUMER/node_modules/.bin/pyric" \
+  "$WORK/cli-smoke" \
+  "$ROOT/scripts/fixtures/cli-release-contract.json"
 
 echo "✓ install matrix PASS ($PM) — libraries install, subpaths resolve, CLI executes"

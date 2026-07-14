@@ -21,6 +21,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/pyric-packaging-test"
 NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
+RELEASE_CONTRACT="$ROOT/scripts/fixtures/cli-release-contract.json"
 
 # Publishable packages, in dependency order (dependencies first).
 # - pyric is foundational (everyone else workspace:* it)
@@ -246,6 +247,7 @@ cat > package.json <<JSON
     "@pyric/ui": "file:${TARBALL_UI}",
     "firebase": "^12.12.0",
     "firebase-admin": "^13.0.0",
+    "vite": "^5.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }
@@ -278,6 +280,7 @@ JSON
 test ! -e "$SDK_FREE_CONSUMER/node_modules/firebase"
 test ! -e "$SDK_FREE_CONSUMER/node_modules/firebase-admin"
 echo "  ✓ packed CLI dependency closure installs without firebase or firebase-admin"
+node "$ROOT/scripts/audit-packed-cli.mjs" "$SDK_FREE_CONSUMER" "$RELEASE_CONTRACT"
 
 # ─── Phase 4: subpath resolution test ──────────────────────────────────
 # For each advertised subpath, write a tiny file that imports it and
@@ -426,6 +429,7 @@ SHAPEJS
 # The fake WebSocket peer is the browser half of the sandbox relay; the MCP
 # client proves tools/list and a forwarded call work from the packed artifact.
 cat > "$SDK_FREE_CONSUMER/__bridge-smoke.mjs" <<'BRIDGEJS'
+import { readFileSync } from 'node:fs';
 import WebSocket from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -476,8 +480,12 @@ try {
   client = new Client({ name: 'packed-bridge-smoke', version: '1' });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`)));
   const listed = await client.listTools();
-  if (listed.tools.length !== 35) {
-    throw new Error(`packed bridge exposed ${listed.tools.length} tools, expected 35`);
+  const expected = JSON.parse(readFileSync(process.env.PYRIC_RELEASE_CONTRACT, 'utf8')).mcpTools;
+  const actual = listed.tools.map((tool) => tool.name);
+  if (JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort())) {
+    throw new Error(
+      `packed bridge MCP contract drifted\nexpected: ${expected.join(', ')}\nactual:   ${actual.join(', ')}`,
+    );
   }
   const called = await client.callTool({ name: 'sandbox_inspect', arguments: {} });
   const payload = JSON.parse(called.content[0].text);
@@ -487,14 +495,14 @@ try {
   if (payload._pyric?.mode !== 'sandbox' || payload._pyric?.project !== 'packed-smoke') {
     throw new Error(`unexpected bridge provenance: ${JSON.stringify(payload._pyric)}`);
   }
-  console.log('  ✓ packed @pyric/cli bridge starts, lists 35 tools, and relays a sandbox call');
+  console.log(`  ✓ packed @pyric/cli bridge starts, lists the exact ${actual.length}-tool contract, and relays a sandbox call`);
 } finally {
   await client?.close().catch(() => {});
   socket?.close();
   await server.stop();
 }
 BRIDGEJS
-(cd "$SDK_FREE_CONSUMER" && node __bridge-smoke.mjs)
+(cd "$SDK_FREE_CONSUMER" && PYRIC_RELEASE_CONTRACT="$RELEASE_CONTRACT" node __bridge-smoke.mjs)
 
 # ─── Phase 5: bin checks ───────────────────────────────────────────────
 echo ""
@@ -515,26 +523,16 @@ check_bin_executable "pyric"
 check_bin_executable "create-pyric" "$WORK/consumer"
 PYRIC_BIN="$SDK_FREE_CONSUMER/node_modules/.bin/pyric"
 CREATE_PYRIC_BIN="$WORK/consumer/node_modules/.bin/create-pyric"
-node "$ROOT/scripts/packed-cli-smoke.mjs" "$PYRIC_BIN" "$WORK/cli-smoke"
+node "$ROOT/scripts/packed-cli-smoke.mjs" \
+  "$PYRIC_BIN" \
+  "$WORK/cli-smoke" \
+  "$RELEASE_CONTRACT"
 node "$ROOT/scripts/packed-mcp-smoke.mjs" \
   "$PYRIC_BIN" \
   "$WORK/mcp-smoke" \
-  "$ROOT/packages/cli/dist/bridge/server/mcp-contract.js"
+  "$RELEASE_CONTRACT"
 
-# The packed Node register hook must intercept canonical imports before Node
-# searches for the absent production SDK packages.
-cat > "$SDK_FREE_CONSUMER/__register-smoke.mjs" <<'REGISTERSMOKE'
-import assert from 'node:assert/strict';
-const admin = await import('firebase-admin/database');
-const appModule = await import('firebase/app');
-const firestore = await import('firebase/firestore');
-assert.equal(typeof admin.getDatabase, 'function');
-const app = appModule.initializeApp({ projectId: 'packed-register-smoke' });
-assert.equal(app[Symbol.for('pyric.app.target')], 'sandbox');
-assert.equal(typeof firestore.getFirestore(app), 'object');
-console.log('  ✓ packed Node register redirects canonical imports without Firebase SDKs');
-REGISTERSMOKE
-(cd "$SDK_FREE_CONSUMER" && PYRIC_SANDBOX=local node --import @pyric/cli/register __register-smoke.mjs)
+node "$ROOT/scripts/packed-resolution-smoke.mjs" "$WORK/consumer" "$SDK_FREE_CONSUMER"
 
 # create-pyric smoke: scaffold a Vite web app into a fresh directory and
 # assert the load-bearing files exist (vite.config imports @pyric/cli/vite).

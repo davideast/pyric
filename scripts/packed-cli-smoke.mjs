@@ -9,23 +9,27 @@
  * steps; keeping this runner focused lets both gates reuse the same behavioral
  * proof without introducing another publishing path.
  *
- * Usage: node scripts/packed-cli-smoke.mjs <absolute-pyric-bin> <work-dir>
+ * Usage: node scripts/packed-cli-smoke.mjs <absolute-pyric-bin> <work-dir> <release-contract.json>
  */
 
 import { spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const [binArg, workArg] = process.argv.slice(2);
-if (!binArg || !workArg) {
+const [binArg, workArg, contractArg] = process.argv.slice(2);
+if (!binArg || !workArg || !contractArg) {
   process.stderr.write(
-    'usage: node scripts/packed-cli-smoke.mjs <absolute-pyric-bin> <work-dir>\n',
+    'usage: node scripts/packed-cli-smoke.mjs <absolute-pyric-bin> <work-dir> <release-contract.json>\n',
   );
   process.exit(2);
 }
 
 const bin = isAbsolute(binArg) ? binArg : resolve(binArg);
 const workDir = isAbsolute(workArg) ? workArg : resolve(workArg);
+const contractPath = isAbsolute(contractArg) ? contractArg : resolve(contractArg);
+const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
 rmSync(workDir, { recursive: true, force: true });
 mkdirSync(workDir, { recursive: true });
 
@@ -38,11 +42,12 @@ for (const name of [
   delete childEnv[name];
 }
 
-function run(args) {
+function run(args, options = {}) {
   const result = spawnSync(bin, args, {
     cwd: workDir,
     encoding: 'utf8',
-    env: childEnv,
+    env: { ...childEnv, ...(options.env ?? {}) },
+    input: options.input,
     shell: process.platform === 'win32',
     timeout: 30_000,
   });
@@ -54,6 +59,25 @@ function run(args) {
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
   };
+}
+
+function assertExact(label, actual, expected) {
+  const actualSorted = [...actual].sort();
+  const expectedSorted = [...expected].sort();
+  expect(
+    JSON.stringify(actualSorted) === JSON.stringify(expectedSorted),
+    `${label} drifted\nexpected: ${expectedSorted.join(', ')}\nactual:   ${actualSorted.join(', ')}`,
+  );
+}
+
+function advertisedCommands(help) {
+  const section = help.split('\nCOMMANDS\n')[1]?.split('\nCORE FLAGS')[0];
+  expect(section !== undefined, 'pyric help must contain a COMMANDS section');
+  return section
+    .split('\n')
+    .filter((line) => /^  \S/.test(line))
+    .map((line) => line.trim().split(/\s{2,}|\s+(?=[A-Z])/, 1)[0])
+    .map((cell) => cell.replace(/\s+(?:\[|<).*$/, ''));
 }
 
 function expect(condition, message, result) {
@@ -88,6 +112,7 @@ process.stdout.write('  ✓ packed pyric starts and reports its package + Fireba
 // deployment surface through generated help or stale dispatch code.
 const help = run(['--help']);
 expect(help.code === 0, 'pyric --help must exit 0', help);
+assertExact('packed pyric command inventory', advertisedCommands(help.stdout), contract.commands);
 expect(!help.stdout.includes('pyric deploy'), 'pyric --help must not advertise production deployment', help);
 expect(!help.stdout.includes('hosting:channel:deploy'), 'pyric --help must not advertise Hosting deployment', help);
 for (const command of [
@@ -189,6 +214,26 @@ expect(
   'pyric firestore rules lint must return warnings JSON',
   firestoreLint,
 );
+const firestoreSimulate = run(['firestore', 'rules', 'simulate', '--stdin'], {
+  input: JSON.stringify({
+    source: allowAnonymous,
+    testCases: [
+      {
+        description: 'anonymous read is denied',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'notes/packed',
+        auth: null,
+      },
+    ],
+  }),
+});
+expect(
+  firestoreSimulate.code === 0 &&
+    parseJson(firestoreSimulate, 'pyric firestore rules simulate').success === true,
+  'pyric firestore rules simulate must execute through the packed artifact',
+  firestoreSimulate,
+);
 
 const storageRules = `service firebase.storage {
   match /b/{bucket}/o {
@@ -203,6 +248,23 @@ expect(
   'pyric storage rules lint must return warnings JSON',
   storageLint,
 );
+const storageSimulate = run(['storage', 'rules', 'simulate', '--stdin'], {
+  input: JSON.stringify({
+    source: storageRules,
+    request: {
+      auth: null,
+      method: 'get',
+      path: 'b/packed-bucket/o/notes/one.txt',
+    },
+    resource: { size: 12 },
+  }),
+});
+expect(
+  storageSimulate.code === 0 &&
+    parseJson(storageSimulate, 'pyric storage rules simulate').data?.allowed === false,
+  'pyric storage rules simulate must execute through the packed artifact',
+  storageSimulate,
+);
 
 writeFileSync(
   resolve(workDir, 'database.rules.json'),
@@ -214,6 +276,21 @@ expect(
   Array.isArray(parseJson(databaseLint, 'pyric database rules lint').warnings),
   'pyric database rules lint must return warnings JSON',
   databaseLint,
+);
+const databaseSimulate = run(['database', 'rules', 'simulate', '--stdin'], {
+  input: JSON.stringify({
+    rulesJson: { rules: { '.read': true, '.write': false } },
+    operation: 'read',
+    path: '/notes/one',
+    auth: null,
+    mockData: {},
+  }),
+});
+expect(
+  databaseSimulate.code === 0 &&
+    parseJson(databaseSimulate, 'pyric database rules simulate').data?.allowed === true,
+  'pyric database rules simulate must execute through the packed artifact',
+  databaseSimulate,
 );
 
 const moduleRules = `import { isAuthenticated } from 'auth';
@@ -365,5 +442,88 @@ expect(regressed.code === 1, 'pyric verify must exit 1 when candidate rules regr
 const regressedResult = parseJson(regressed, 'regressing pyric verify');
 expect(regressedResult.ok === false, 'regressing pyric verify JSON must report ok: false', regressed);
 process.stdout.write('  ✓ packed pyric verify replays locally without auth and preserves exit 0/1\n');
+
+// Slice 5: drive the packed Rules Test API command with the supported
+// non-interactive service-account environment source. A Node preload replaces
+// fetch inside the packed bin process so the smoke proves credential exchange,
+// bearer forwarding, and API routing without depending on a live Google project.
+writeFileSync(resolve(workDir, 'firestore.rules'), `${allowAnonymous}\n`);
+const fetchLogPath = resolve(workDir, 'rules-test-api-fetch.log');
+const fetchStubPath = resolve(workDir, 'rules-test-api-fetch-stub.mjs');
+writeFileSync(
+  fetchStubPath,
+  `import { appendFileSync } from 'node:fs';
+globalThis.fetch = async (input, init = {}) => {
+  const url = typeof input === 'string' ? input : input.url;
+  const authorization = new Headers(init.headers).get('authorization') ?? '';
+  appendFileSync(process.env.PYRIC_FETCH_LOG, url + '\\t' + authorization + '\\n');
+  if (url === 'https://oauth2.googleapis.com/token') {
+    return new Response(JSON.stringify({
+      access_token: 'packed-access-token',
+      expires_in: 3600,
+      token_type: 'Bearer',
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  if (url === 'https://firebaserules.googleapis.com/v1/projects/packed-rules-test-project:test') {
+    return new Response(JSON.stringify({ testResults: [{ state: 'SUCCESS' }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+  return new Response('unexpected packed smoke request: ' + url, { status: 599 });
+};
+`,
+);
+const { privateKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
+const serviceAccount = Buffer.from(
+  JSON.stringify({
+    client_email: 'packed-smoke@packed-rules-test-project.iam.gserviceaccount.com',
+    private_key: privateKey,
+    project_id: 'credential-project-is-overridden',
+  }),
+).toString('base64');
+const rulesApiVerified = run(
+  [
+    'verify',
+    'session.json',
+    '--engine',
+    'rules-test-api',
+    '--project',
+    'packed-rules-test-project',
+    '--rules',
+    'firestore=firestore.rules',
+    '--json',
+  ],
+  {
+    env: {
+      FIREBASE_SA_BASE64: serviceAccount,
+      PYRIC_FETCH_LOG: fetchLogPath,
+      NODE_OPTIONS: `${childEnv.NODE_OPTIONS ?? ''} --import=${pathToFileURL(fetchStubPath).href}`.trim(),
+    },
+  },
+);
+expect(
+  rulesApiVerified.code === 0,
+  'pyric verify --engine rules-test-api must accept supported external credentials',
+  rulesApiVerified,
+);
+const rulesApiResult = parseJson(rulesApiVerified, 'pyric verify --engine rules-test-api');
+expect(rulesApiResult.ok === true, 'Rules Test API verification must report ok: true', rulesApiVerified);
+const fetchLog = readFileSync(fetchLogPath, 'utf8');
+expect(
+  fetchLog.includes('https://oauth2.googleapis.com/token\t'),
+  'Rules Test API verification must exchange the supplied service-account credential',
+);
+expect(
+  fetchLog.includes(
+    'https://firebaserules.googleapis.com/v1/projects/packed-rules-test-project:test\tBearer packed-access-token',
+  ),
+  'Rules Test API verification must forward the externally resolved bearer token',
+);
+process.stdout.write('  ✓ packed Rules Test API verify uses external service-account credentials\n');
 
 process.stdout.write('✓ packed CLI smoke PASS\n');
