@@ -28,6 +28,7 @@ const hasRegisterHooks =
 
 let fixtureDir: string;
 let inactiveFixtureDir: string;
+let isolatedFixtureDir: string;
 
 function runNode(
   script: string,
@@ -69,6 +70,24 @@ beforeAll(() => {
   writeFileSync(
     join(inactiveFixtureDir, 'package.json'),
     JSON.stringify({ name: 'register-inactive-fixture', type: 'module' }),
+  );
+
+  // Installed-CLI fixture: the user package intentionally has neither
+  // firebase-admin nor pyric-admin in its own dependency tree. The register
+  // hook must resolve its mapped target from @pyric/cli's installation.
+  isolatedFixtureDir = mkdtempSync(join(tmpdir(), 'pyric-register-isolated-'));
+  mkdirSync(join(isolatedFixtureDir, 'node_modules'));
+  writeFileSync(
+    join(isolatedFixtureDir, 'package.json'),
+    JSON.stringify({ name: 'register-isolated-fixture', type: 'commonjs' }),
+  );
+  writeFileSync(
+    join(isolatedFixtureDir, 'database.cjs'),
+    `const assert = require('node:assert');
+const database = require('firebase-admin/database');
+assert.strictEqual(typeof database.getDatabaseWithUrl, 'function');
+console.log('ISOLATED_DATABASE_OK');
+`,
   );
 
   // ESM fixture: env is set, firebase-admin/app IS pyric-admin (its
@@ -174,6 +193,7 @@ console.log(JSON.stringify({
 afterAll(() => {
   if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });
   if (inactiveFixtureDir) rmSync(inactiveFixtureDir, { recursive: true, force: true });
+  if (isolatedFixtureDir) rmSync(isolatedFixtureDir, { recursive: true, force: true });
 });
 
 describe('@pyric/cli/register (child process)', () => {
@@ -205,6 +225,20 @@ describe('@pyric/cli/register (child process)', () => {
     expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(res.stdout).toContain('CJS_OK');
     expect(res.status).toBe(0);
+  });
+
+  it.skipIf(!hasRegisterHooks)('resolves mapped packages from the installed CLI rather than the requiring package', () => {
+    expect(existsSync(join(isolatedFixtureDir, 'node_modules/pyric-admin'))).toBe(false);
+    expect(existsSync(join(isolatedFixtureDir, 'node_modules/firebase-admin'))).toBe(false);
+    const res = runNode(
+      'database.cjs',
+      { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' },
+      isolatedFixtureDir,
+    );
+    expect(res).toMatchObject({
+      status: 0,
+      stdout: expect.stringContaining('ISOLATED_DATABASE_OK'),
+    });
   });
 
   it('is inert without PYRIC_SANDBOX — real firebase-admin, no factory, no log', () => {

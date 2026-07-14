@@ -21,17 +21,26 @@ absent.
 
 ## Initialization
 
-### `getDatabase(app?, url?)`
+### `getDatabase(app?, legacyUrl?)`
 ```ts
-function getDatabase(app?: PyricAdminApp, url?: string): Database;
+function getDatabase(app?: PyricAdminApp, legacyUrl?: string): Database;
 ```
-firebase-admin's `getDatabase(app?)` and `getDatabaseWithUrl(url, app)` collapsed into one function:
+Mirrors firebase-admin's `getDatabase(app?)`:
 
 - `getDatabase()`: default database for the `'[DEFAULT]'` sandbox app, resolved through `pyric-admin/app`'s registry. Throws `app/no-app` when nothing is initialized.
 - `getDatabase(app)`: default database for the app.
-- `getDatabase(app, url)`: accepts `url` for shape compatibility; the sandbox ignores it because it has no project-level database instances.
+- `getDatabase(app, legacyUrl)`: retained for compatibility with Pyric's former collapsed signature. New code should use `getDatabaseWithUrl`.
 
 Successive calls for the same sandbox return handles that share data, matching firebase-admin's singleton-per-app semantics. Throws `TypeError` for an unbranded value.
+
+### `getDatabaseWithUrl(url, app?)`
+```ts
+function getDatabaseWithUrl(url: string, app?: PyricAdminApp): Database;
+```
+Uses firebase-admin's exact URL-first argument order. The Functions SDK calls
+this export when materializing `event.data.ref`. Pyric's first Functions slice
+has one shared RTDB instance, so the URL selects that instance; it does not
+create a separate sandbox tree.
 
 ---
 
