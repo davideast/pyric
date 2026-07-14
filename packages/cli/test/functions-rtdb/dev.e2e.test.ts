@@ -11,24 +11,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import WebSocket from 'ws';
-import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
-import { getFirestore } from 'pyric/firestore';
-import {
-  isBridgeMessage,
-  WORKER_RELAY_CAPABILITY,
-  type BridgeMessage,
-} from '../../src/bridge/protocol.js';
 import { connectRemoteSandbox, type RemoteSandbox } from '../../src/remote/index.js';
 import {
-  handleMessage,
-  type HostCtx,
-  type PortLike,
-} from '../../src/serve/worker/host.js';
-import type {
-  InboundMessage,
-  OutboundMessage,
-} from '../../src/serve/worker/protocol.js';
+  connectFunctionsWorkerPeer,
+  createFunctionsWorkerHostCtx,
+} from './worker-peer.js';
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
@@ -38,87 +25,12 @@ let command: ChildProcess | undefined;
 let peer: { close(): Promise<void> } | undefined;
 let observer: RemoteSandbox | undefined;
 
-async function makeWorkerCtx(): Promise<HostCtx> {
-  const sandbox = initializeSandbox();
-  await sandbox.enablePersistence({
-    key: `functions-dev-${Math.random()}`,
-    injectedBackend: createMemoryBackend(),
-  });
-  return {
-    db: getFirestore(sandbox),
-    sandbox,
-    instanceId: 'functions-dev-e2e',
-    subs: new Map(),
-  };
-}
-
 async function connectWorkerPeer(url: string): Promise<{ close(): Promise<void> }> {
-  const ctx = await makeWorkerCtx();
-  const ws = new WebSocket(url);
-  const port: PortLike = {
-    postMessage(raw: unknown) {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      const message = raw as OutboundMessage;
-      if (message.t === 'res') {
-        ws.send(JSON.stringify(message.ok
-          ? { type: 'worker-res', id: message.id, ok: true, value: message.value }
-          : { type: 'worker-res', id: message.id, ok: false, error: message.error }));
-      } else if (message.t === 'snap') {
-        ws.send(JSON.stringify({
-          type: 'worker-snap',
-          subId: message.subId,
-          value: message.value,
-        } satisfies BridgeMessage));
-      }
-    },
-  };
-
-  await new Promise<void>((resolveConnected, rejectConnected) => {
-    ws.once('open', () => ws.send(JSON.stringify({
-      type: 'hello',
-      protocol: 1,
-      tools: [],
-      sandboxId: 'functions-dev-peer',
-      capabilities: [WORKER_RELAY_CAPABILITY],
-    } satisfies BridgeMessage)));
-    ws.on('message', (raw) => {
-      let message: unknown;
-      try {
-        message = JSON.parse(raw.toString());
-      } catch {
-        return;
-      }
-      if (!isBridgeMessage(message)) return;
-      if (message.type === 'hello-ack') resolveConnected();
-      else if (message.type === 'worker-op') {
-        void handleMessage(ctx, port, {
-          ...message.op,
-          t: 'op',
-          id: message.id,
-        } as InboundMessage);
-      } else if (message.type === 'worker-sub') {
-        void handleMessage(ctx, port, {
-          ...message.sub,
-          t: 'sub',
-          subId: message.subId,
-        } as InboundMessage);
-      } else if (message.type === 'worker-unsub') {
-        void handleMessage(ctx, port, {
-          t: 'unsub',
-          subId: message.subId,
-        } satisfies InboundMessage);
-      }
-    });
-    ws.once('error', rejectConnected);
+  const ctx = await createFunctionsWorkerHostCtx({
+    persistenceKeyPrefix: 'functions-dev',
+    instanceId: 'functions-dev-e2e',
   });
-
-  return {
-    close: () => new Promise<void>((resolveClosed) => {
-      if (ws.readyState === WebSocket.CLOSED) return resolveClosed();
-      ws.once('close', () => resolveClosed());
-      ws.close();
-    }),
-  };
+  return connectFunctionsWorkerPeer({ url, ctx, sandboxId: 'functions-dev-peer' });
 }
 
 async function waitFor<T>(read: () => T | null | Promise<T | null>, timeoutMs = 8_000): Promise<T> {

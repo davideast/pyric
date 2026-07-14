@@ -16,9 +16,6 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import WebSocket from 'ws';
-import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
-import { getFirestore } from 'pyric/firestore';
 import { functionsRtdbRows } from '../../../conformance/registry/functions-rtdb.ts';
 import { probe as exactProbe } from '../../../conformance/probes/functions-rtdb/functions-rtdb-onvaluecreated-exact-create.ts';
 import { probe as startupProbe } from '../../../conformance/probes/functions-rtdb/functions-rtdb-onvaluecreated-startup-existing.ts';
@@ -31,22 +28,12 @@ import {
 } from '../../src/functions-rtdb/child.js';
 import { buildChildEnv, registerModuleUrl } from '../../src/cli/dev-runner.js';
 import { startServe } from '../../src/cli/serve.js';
-import {
-  isBridgeMessage,
-  WORKER_RELAY_CAPABILITY,
-  type BridgeMessage,
-} from '../../src/bridge/protocol.js';
 import { connectRemoteSandbox } from '../../src/remote/index.js';
 import { silentServeLogger } from '../../src/serve/server.js';
 import {
-  handleMessage,
-  type HostCtx,
-  type PortLike,
-} from '../../src/serve/worker/host.js';
-import type {
-  InboundMessage,
-  OutboundMessage,
-} from '../../src/serve/worker/protocol.js';
+  connectFunctionsWorkerPeer,
+  createFunctionsWorkerHostCtx,
+} from './worker-peer.js';
 
 const climbDescribe = process.env.PYRIC_CLIMB === '1' ? describe : describe.skip;
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'functions-rtdb');
@@ -75,76 +62,17 @@ function observation(name: string): Behavior {
  */
 let fixtureRun: Promise<RuntimeOutcomes> | undefined;
 
-async function makeWorkerCtx(): Promise<HostCtx> {
-  const sandbox = initializeSandbox();
-  await sandbox.enablePersistence({
-    key: `functions-conformance-${Math.random()}`,
-    injectedBackend: createMemoryBackend(),
-  });
-  return {
-    db: getFirestore(sandbox),
-    sandbox,
-    instanceId: 'functions-conformance',
-    subs: new Map(),
-  };
-}
-
 async function connectWorkerPeer(url: string): Promise<() => Promise<void>> {
-  const ctx = await makeWorkerCtx();
-  const ws = new WebSocket(url);
-  const port: PortLike = {
-    postMessage(raw: unknown) {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      const message = raw as OutboundMessage;
-      if (message.t === 'res') {
-        ws.send(JSON.stringify(message.ok
-          ? { type: 'worker-res', id: message.id, ok: true, value: message.value }
-          : { type: 'worker-res', id: message.id, ok: false, error: message.error }));
-      } else if (message.t === 'snap') {
-        ws.send(JSON.stringify({
-          type: 'worker-snap', subId: message.subId, value: message.value,
-        } satisfies BridgeMessage));
-      }
-    },
-  };
-  await new Promise<void>((resolveConnected, rejectConnected) => {
-    ws.once('open', () => ws.send(JSON.stringify({
-      type: 'hello',
-      protocol: 1,
-      tools: [],
-      sandboxId: 'functions-conformance-peer',
-      capabilities: [WORKER_RELAY_CAPABILITY],
-    } satisfies BridgeMessage)));
-    ws.on('message', (raw) => {
-      let message: unknown;
-      try {
-        message = JSON.parse(raw.toString());
-      } catch {
-        return;
-      }
-      if (!isBridgeMessage(message)) return;
-      if (message.type === 'hello-ack') resolveConnected();
-      else if (message.type === 'worker-op') {
-        void handleMessage(ctx, port, {
-          ...message.op, t: 'op', id: message.id,
-        } as InboundMessage);
-      } else if (message.type === 'worker-sub') {
-        void handleMessage(ctx, port, {
-          ...message.sub, t: 'sub', subId: message.subId,
-        } as InboundMessage);
-      } else if (message.type === 'worker-unsub') {
-        void handleMessage(ctx, port, {
-          t: 'unsub', subId: message.subId,
-        } satisfies InboundMessage);
-      }
-    });
-    ws.once('error', rejectConnected);
+  const ctx = await createFunctionsWorkerHostCtx({
+    persistenceKeyPrefix: 'functions-conformance',
+    instanceId: 'functions-conformance',
   });
-  return () => new Promise<void>((resolveClosed) => {
-    if (ws.readyState === WebSocket.CLOSED) return resolveClosed();
-    ws.once('close', () => resolveClosed());
-    ws.close();
+  const peer = await connectFunctionsWorkerPeer({
+    url,
+    ctx,
+    sandboxId: 'functions-conformance-peer',
   });
+  return peer.close;
 }
 
 async function waitFor(read: () => Promise<boolean>, timeoutMs = 8_000): Promise<void> {
