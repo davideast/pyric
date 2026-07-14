@@ -58,6 +58,8 @@ type AssertionSpec = { observation: string; assert(local: Behavior, production: 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
 const childModule = join(cliRoot, 'dist/functions-rtdb/child.js');
+const EXACT_NEGATIVE_OBSERVATION_MS = 1_000;
+const STARTUP_OBSERVATION_MS = 15_000;
 
 function observation(name: string): Behavior {
   const raw = JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
@@ -229,14 +231,17 @@ async function runFixtureOnce(): Promise<RuntimeOutcomes> {
 
   try {
     expect((await child.ready).triggerCount).toBe(5);
+    const startupObservationStartedAt = Date.now();
 
     await observer.rtdb.set(exactProbe.inputPath(runId), exactProbe.inputValue);
-    const exactCaptures = await waitForCount('exact-lifecycle', 1);
+    await waitForCount('exact-lifecycle', 1);
+    await observer.rtdb.update(exactProbe.inputPath(runId), { count: 2 });
+    await observer.rtdb.remove(exactProbe.inputPath(runId));
+    await Bun.sleep(EXACT_NEGATIVE_OBSERVATION_MS);
+    const exactCaptures = await scenario('exact-lifecycle');
     for (const capture of exactCaptures) {
       if (capture.event.authId === '__PYRIC_NULL__') capture.event.authId = null;
     }
-    await observer.rtdb.update(exactProbe.inputPath(runId), { count: 2 });
-    await observer.rtdb.remove(exactProbe.inputPath(runId));
 
     const wildcardRoot = wildcardProbe.rootPath(runId);
     await observer.rtdb.set(`${wildcardRoot}/single`, wildcardProbe.cases.single);
@@ -260,22 +265,34 @@ async function runFixtureOnce(): Promise<RuntimeOutcomes> {
       event.status === 'rejected' &&
       event.error.message.includes(failureProbe.errorMarker)));
 
+    await waitFor(
+      async () => Date.now() - startupObservationStartedAt >= STARTUP_OBSERVATION_MS,
+      STARTUP_OBSERVATION_MS + 1_000,
+    );
+
     const handlerWrite = await observer.rtdb.get(`${base}/exact/handler-write`);
     const startupValue = await observer.rtdb.get(startupProbe.inputPath(runId));
     const matchingRuntimeErrorCount = events.filter((event) =>
       event.type === 'execution' &&
       event.status === 'rejected' &&
       event.error.message.includes(failureProbe.errorMarker)).length;
+    const startupDeliveryCount = events.filter((event) =>
+      event.type === 'execution' &&
+      event.ref === startupProbe.inputPath(runId).replace(/^\//, '')).length;
     return {
       [exact]: exactProbe.behavior(exactCaptures, handlerWrite),
-      [startup]: startupProbe.behavior(0, startupValue, 15_000),
+      [startup]: startupProbe.behavior(
+        startupDeliveryCount,
+        startupValue,
+        Date.now() - startupObservationStartedAt,
+      ),
       [wildcard]: wildcardProbe.behavior(wildcardCaptures),
       [descendant]: descendantProbe.behavior(descendantCaptures[0]!),
       [failure]: failureProbe.behavior(failureCaptures.length, {
         matchingRuntimeErrorCount,
-        // The local snapshot delivery is acknowledged even when the awaited
-        // handler rejects; retry remains disabled, matching the captured 200.
-        requestStatuses: [200],
+        // Pyric has no Eventarc HTTP request seam, so it cannot observe or
+        // claim the production request acknowledgement status.
+        requestStatuses: [],
       }),
     };
   } finally {
@@ -400,6 +417,7 @@ const assertions: Record<string, AssertionSpec> = {
     assert(local, production) {
       expect(local.deliveryCount).toBe(production.deliveryCount);
       expect(local.value).toEqual(production.value);
+      expect(local.observationWindowMs).toBeGreaterThanOrEqual(production.observationWindowMs);
     },
   },
   'functions-rtdb#4': {
@@ -491,7 +509,7 @@ for (const row of functionsRtdbRows) {
       const production = observation(spec.observation);
       const local = (await runUnchangedFunctionsFixture())[spec.observation];
       spec.assert(local, production);
-    });
+    }, 30_000);
   });
 }
 

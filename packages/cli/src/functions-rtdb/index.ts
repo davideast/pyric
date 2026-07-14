@@ -24,10 +24,4 @@ export {
   type FunctionsRtdbChildReady,
   type SerializedFunctionsRtdbError,
   type SpawnFunctionsRtdbChildOptions,
-  type UnsupportedFunctionsTrigger,
 } from './child.js';
-
-export {
-  discoverFunctionsRtdbProject,
-  type FunctionsRtdbProject,
-} from './project.js';

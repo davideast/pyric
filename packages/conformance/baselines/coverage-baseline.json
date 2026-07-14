@@ -820,7 +820,7 @@
     "functions-rtdb#9": "conforms",
     "functions-rtdb#10": "conforms",
     "functions-rtdb#11": "conforms",
-    "functions-rtdb#12": "conforms",
+    "functions-rtdb#12": "unverified",
     "functions-rtdb#13": "conforms",
     "firestore-rules#160": "conforms",
     "firestore-rules#161": "diverged-documented",

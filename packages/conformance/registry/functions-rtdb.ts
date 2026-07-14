@@ -157,12 +157,11 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 12,
-    flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
       'A handler that throws or returns a rejected Promise is reported by the managed runtime; with retry disabled, the Eventarc request can still be acknowledged with HTTP 200.',
     evidence:
-      'oracle: `functions-rtdb-onvaluecreated-failed-execution.json`; one managed-runtime error record contained the marker and the Eventarc request status was 200.',
+      'oracle: `functions-rtdb-onvaluecreated-failed-execution.json`; Pyric observes the rejected handler and marker, but has no Eventarc HTTP request seam with which to replay the captured 200 acknowledgement.',
     observations: ['functions-rtdb-onvaluecreated-failed-execution'],
   }),
   row({

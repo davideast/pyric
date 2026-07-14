@@ -8,14 +8,14 @@ order: 8010
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 > **Climb status: this surface is climbing under CDD.**
-> 13 of 13 rows conforming.
+> 12 of 13 rows conforming. 1 unverified.
 > A `?` row below is a target with a derived failing test, not a guarantee.
 
 # Firebase Functions RTDB integration compatibility
 
 > **Surface coverage:** integration contract (unchanged upstream source; breadth is the signed row inventory)
 >
-> **Fidelity:** 100% (13 of 13 tracked claims match production)
+> **Fidelity:** 92.3% (12 of 13 tracked claims match production)
 >
 > The signed row inventory defines this integration contract. Fidelity shows how many of those tracked behaviors match production — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
@@ -92,9 +92,9 @@ configuration.
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">A Promise returned by the handler keeps the execution open through delayed asynchronous work and its awaited Admin write.</span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>functions-rtdb-onvaluecreated-exact-create.json</code>; capture logged only after the delayed Admin write completed. Local replay: <code>packages/cli/test/functions-rtdb/oracle-conformance.test.ts</code> assertion set <code>functions-rtdb#11</code>.</div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">A handler that throws or returns a rejected Promise is reported by the managed runtime; with retry disabled, the Eventarc request can still be acknowledged with HTTP 200.</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>functions-rtdb-onvaluecreated-failed-execution.json</code>; one managed-runtime error record contained the marker and the Eventarc request status was 200. Local replay: <code>packages/cli/test/functions-rtdb/oracle-conformance.test.ts</code> assertion set <code>functions-rtdb#12</code>.</div></div>
+<details class="compat-row" data-status="unverified">
+<summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><span class="compat-behavior">A handler that throws or returns a rejected Promise is reported by the managed runtime; with retry disabled, the Eventarc request can still be acknowledged with HTTP 200.</span></span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>functions-rtdb-onvaluecreated-failed-execution.json</code>; Pyric observes the rejected handler and marker, but has no Eventarc HTTP request seam with which to replay the captured 200 acknowledgement.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Sequential creates are all delivered; their observed arrival order is evidence, not an ordering guarantee.</span></span></summary>

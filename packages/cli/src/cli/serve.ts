@@ -43,11 +43,13 @@ import {
   type DevChildHandle,
 } from './dev-runner.js';
 import {
-  discoverFunctionsRtdbProject,
   spawnFunctionsRtdbChild,
   type FunctionsRtdbChildHandle,
+} from '../functions-rtdb/child.js';
+import {
+  discoverFunctionsRtdbProject,
   type FunctionsRtdbProject,
-} from '../functions-rtdb/index.js';
+} from '../functions-rtdb/project.js';
 
 interface HostingConfig {
   public?: string;

@@ -62,7 +62,7 @@ await set(ref(getDatabase(), 'messages/id/original'), 'hello');
 ```
 The terminal reports the execution:
 ```text
-✔ function  makeUppercase ← /messages/id/original
+✔ function  makeUppercase ← /messages/id/original (pushId=id)
 ```
 The app and Studio now read `messages/id/uppercase` as `"HELLO"` from that
 same sandbox. Press Ctrl-C to stop both `pyric dev` and the Functions child.

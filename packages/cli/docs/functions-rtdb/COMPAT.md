@@ -1,14 +1,14 @@
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 > **Climb status: this surface is climbing under CDD.**
-> 13 of 13 rows conforming.
+> 12 of 13 rows conforming. 1 unverified.
 > A `?` row below is a target with a derived failing test, not a guarantee.
 
 # Firebase Functions RTDB integration compatibility
 
 > **Surface coverage:** integration contract (unchanged upstream source; breadth is the signed row inventory)
 >
-> **Fidelity:** 100% (13 of 13 tracked claims match production)
+> **Fidelity:** 92.3% (12 of 13 tracked claims match production)
 >
 > The signed row inventory defines this integration contract. Fidelity shows how many of those tracked behaviors match production — see the [scoreboard](../../../pyric/docs/conformance/SCORES.md) for what that percentage does and does not mean.
 
@@ -53,5 +53,5 @@ configuration.
 | 9 | The snapshot ref is an Admin DatabaseReference rooted at the matched path and can perform an awaited write from the handler. | ✓ | oracle: `functions-rtdb-onvaluecreated-exact-create.json`; matched Admin ref completed the awaited sibling write. Local replay: `packages/cli/test/functions-rtdb/oracle-conformance.test.ts` assertion set `functions-rtdb#9`. |
 | 10 | For the production Admin SDK write, the event exposes authType `unknown` and authId `null`. | ✓ | oracle: `functions-rtdb-onvaluecreated-exact-create.json`. Local replay: `packages/cli/test/functions-rtdb/oracle-conformance.test.ts` assertion set `functions-rtdb#10`. |
 | 11 | A Promise returned by the handler keeps the execution open through delayed asynchronous work and its awaited Admin write. | ✓ | oracle: `functions-rtdb-onvaluecreated-exact-create.json`; capture logged only after the delayed Admin write completed. Local replay: `packages/cli/test/functions-rtdb/oracle-conformance.test.ts` assertion set `functions-rtdb#11`. |
-| 12 | A handler that throws or returns a rejected Promise is reported by the managed runtime; with retry disabled, the Eventarc request can still be acknowledged with HTTP 200. | ✓ | oracle: `functions-rtdb-onvaluecreated-failed-execution.json`; one managed-runtime error record contained the marker and the Eventarc request status was 200. Local replay: `packages/cli/test/functions-rtdb/oracle-conformance.test.ts` assertion set `functions-rtdb#12`. |
+| 12 | A handler that throws or returns a rejected Promise is reported by the managed runtime; with retry disabled, the Eventarc request can still be acknowledged with HTTP 200. | ? | oracle: `functions-rtdb-onvaluecreated-failed-execution.json`; Pyric observes the rejected handler and marker, but has no Eventarc HTTP request seam with which to replay the captured 200 acknowledgement. |
 | 13 | Sequential creates are all delivered; their observed arrival order is evidence, not an ordering guarantee. | ✓ | oracle: `functions-rtdb-onvaluecreated-wildcard-batches.json`; all three arrived in observed order 2, 1, 3. Local replay: `packages/cli/test/functions-rtdb/oracle-conformance.test.ts` assertion set `functions-rtdb#13`. |

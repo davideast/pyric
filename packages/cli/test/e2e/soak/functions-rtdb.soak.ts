@@ -62,6 +62,9 @@ exports.makeUppercase = onValueCreated(
     await studio.locator('[data-rtdb-path-input]').press('Enter');
     await expect(studio.locator('[data-rtdb-view-root] [data-rtdb-value]')).toHaveText('"HELLO"');
 
+    // Exactly-once is a negative observation: leave a bounded window for a
+    // duplicate serialized delivery to finish before counting reports.
+    await studio.waitForTimeout(1_000);
     const executionReports = serve
       .stderr()
       .split('\n')
