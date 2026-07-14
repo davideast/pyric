@@ -8,6 +8,9 @@ export interface TrafficLineChartProps {
    *  {@link TrafficMetricCards}' `visible`/`onToggle` so the legend cards
    *  and the chart's lines toggle in lockstep. */
   visible?: ReadonlySet<string>;
+  /** Omit all-zero series from the plot and tooltip while retaining their
+   *  explicit total in the accompanying metric strip. */
+  omitZeroSeries?: boolean;
   formatValue?: (n: number) => string;
   formatTime?: (t: number) => string;
   emptyState?: React.ReactNode;
@@ -40,6 +43,7 @@ export function TrafficLineChart({
   points,
   series,
   visible,
+  omitZeroSeries = false,
   formatValue = defaultFormatValue,
   formatTime = defaultFormatTime,
   emptyState,
@@ -55,7 +59,9 @@ export function TrafficLineChart({
     );
   }
 
-  const visibleSeries = series.filter((s) => !visible || visible.has(s.key));
+  const visibleSeries = series.filter(
+    (s) => (!visible || visible.has(s.key)) && (!omitZeroSeries || s.total > 0),
+  );
   let maxValue = 0;
   for (const s of visibleSeries) for (const v of s.values) if (v > maxValue) maxValue = v;
   const scale = maxValue === 0 ? 1 : maxValue;
@@ -72,7 +78,8 @@ export function TrafficLineChart({
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="metrics over time">
           {series.map((s) => {
             const seriesIndex = series.indexOf(s);
-            const isVisible = !visible || visible.has(s.key);
+            const isVisible =
+              (!visible || visible.has(s.key)) && (!omitZeroSeries || s.total > 0);
             if (!isVisible) return null;
             const d = s.values.map((v, i) => `${i === 0 ? 'M' : 'L'}${xAt(i)},${yAt(v)}`).join(' ');
             return (

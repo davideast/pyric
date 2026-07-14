@@ -33,9 +33,11 @@
     Consolas, monospace;
   --font-display: var(--font-ui);
 
-  /* One tight type scale. Title for surface heads, body for prose, label for
-     UI controls, data for mono identifiers/values, micro for uppercase
-     eyebrows + column heads, caption for the quietest meta. */
+  /* One tight type scale. Display is reserved for an editorial headline or
+     primary metric; title for surface heads, body for prose, label for UI
+     controls, data for mono identifiers/values, micro for uppercase eyebrows
+     + column heads, caption for the quietest meta. */
+  --fs-display: 28px;
   --fs-title: 17px;
   --fs-body: 13px;
   --fs-label: 12px;

@@ -57,6 +57,17 @@ describe('<TrafficLineChart>', () => {
     expect(container.querySelector('[data-pyric-series-key="reads"]')).toBeNull();
   });
 
+  it('can omit zero-total series without hiding their metric card', () => {
+    const events = [evt({ at: 50, method: 'get', result: 'allow' })];
+    const { points, series } = bucketBillableMetrics(events, WINDOW, 10);
+    const { container } = render(
+      <TrafficLineChart points={points} series={series} omitZeroSeries />,
+    );
+    const lines = container.querySelectorAll('[data-pyric-chart-line]');
+    expect(lines.length).toBe(1);
+    expect(lines[0].getAttribute('data-pyric-series-key')).toBe('reads');
+  });
+
   it('shows a tooltip with per-series values on hover', () => {
     const events = [evt({ at: 50, method: 'get', result: 'allow' })];
     const { points, series } = bucketBillableMetrics(events, WINDOW, 10);
