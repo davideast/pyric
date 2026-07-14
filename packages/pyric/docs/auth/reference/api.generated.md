@@ -4332,6 +4332,7 @@ as `signInWithRedirect`.
 Top-level mirror of `firebase/auth`'s `reload(user)`. Re-reads the stored
 record into the `user` object in place so out-of-band changes (e.g.
 `sandbox.updateUser`) are reflected — matching prod's server refresh.
+After `deleteUser`, rejects with `auth/user-token-expired`.
 
 #### Parameters
 

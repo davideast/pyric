@@ -107,7 +107,7 @@ The right column ("Use in agent-generated `appSource`?") is the deny-list / allo
 | `updateProfile(user, { displayName, photoURL })` | ✅ | Mutates held user + stored record; null clears; no extra `onAuthStateChanged` | Yes |
 | `updateEmail(user, newEmail)` | ✅ | Updates store + held user; next sign-in uses the new email (no `requires-recent-login`) | Yes |
 | `updatePassword(user, newPassword)` | ✅ | Stored + verified; old password rejected after change (no `requires-recent-login`) | Yes |
-| `verifyBeforeUpdateEmail(user, newEmail, settings?)` | ❌ | Email verification round-trip for updates not mirrored as a separate export path | No |
+| `verifyBeforeUpdateEmail(user, newEmail, settings?)` | ✅ | Mails a code to the new address via auth outbox; email changes only on redemption (`emailVerified: true`) | Yes |
 | `deleteUser(user)` | ✅ | Removes store record and signs out if current; post-delete `reload(user)` → `auth/user-token-expired` | Yes |
 | `reload(user)` | ✅ | Re-reads store into held user; missing identity → `auth/user-token-expired` | Yes |
 
