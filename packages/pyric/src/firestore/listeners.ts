@@ -5,8 +5,9 @@
  * under current auth, threading the follows-current-user marker, tagging +
  * rehydrating delivered snapshots, and the default uncaught-error handler.
  */
-import { FOLLOWS_CURRENT_USER } from 'pyric/sandbox/admin-firestore';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
+import { AUTH_SESSION_SCOPE, FOLLOWS_CURRENT_USER } from 'pyric/firestore/internal';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 
 import {
   targetOf,
@@ -57,11 +58,43 @@ export function onSnapshot(
   const r = resolveSandboxListenable(target, ref);
   const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target);
   const finalArgs = markSandboxLiveSnapshotArgs(wrappedArgs, target);
-  return finalArgs.length === 3
+  const unsubscribe = finalArgs.length === 3
     ? r.onSnapshot(finalArgs[0], finalArgs[1], finalArgs[2])
     : finalArgs.length === 2
       ? r.onSnapshot(finalArgs[0], finalArgs[1])
       : r.onSnapshot(finalArgs[0]);
+  if (target.kind !== 'sandbox-live' || !target.own) return unsubscribe;
+  let stopped = false;
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    unsubscribe();
+  };
+  const abort = (): void => {
+    if (stopped) return;
+    stop();
+    snapshotErrorHandler(finalArgs)?.(
+      new FirebaseError('aborted', 'The operation was aborted.'),
+    );
+  };
+  const release = target.own(abort);
+  return () => {
+    release();
+    stop();
+  };
+}
+
+/** Recover the normalized listener error handler for app-deletion aborts. */
+function snapshotErrorHandler(args: unknown[]): ((error: unknown) => void) | undefined {
+  const last = args.at(-1);
+  if (typeof last === 'function' && args.length >= 3) {
+    return last as (error: unknown) => void;
+  }
+  if (last && typeof last === 'object') {
+    const error = (last as SnapshotObserver<unknown>).error;
+    if (typeof error === 'function') return error;
+  }
+  return undefined;
 }
 
 /**
@@ -183,10 +216,17 @@ function markSandboxLiveSnapshotArgs(args: unknown[], target: Target): unknown[]
   const firstIsOptions =
     typeof first === 'object' && first !== null && !isPartialObserver(first);
   if (firstIsOptions) {
-    const opts = { ...(first as Record<PropertyKey, unknown>), [FOLLOWS_CURRENT_USER]: true };
+    const opts = {
+      ...(first as Record<PropertyKey, unknown>),
+      [FOLLOWS_CURRENT_USER]: true,
+      ...(target.authScope ? { [AUTH_SESSION_SCOPE]: target.authScope } : {}),
+    };
     return [opts, ...args.slice(1)];
   }
-  return [{ [FOLLOWS_CURRENT_USER]: true }, ...args];
+  return [{
+    [FOLLOWS_CURRENT_USER]: true,
+    ...(target.authScope ? { [AUTH_SESSION_SCOPE]: target.authScope } : {}),
+  }, ...args];
 }
 
 function finalizeSandboxSnapshot(snap: unknown, target: Target): unknown {

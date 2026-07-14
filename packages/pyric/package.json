@@ -22,9 +22,17 @@
       "types": "./dist/app/register.d.ts",
       "import": "./dist/app/register.js"
     },
+    "./app/internal": {
+      "types": "./dist/app/internal.d.ts",
+      "import": "./dist/app/internal.js"
+    },
     "./firestore": {
       "types": "./dist/firestore/index.d.ts",
       "import": "./dist/firestore/index.js"
+    },
+    "./firestore/internal": {
+      "types": "./dist/firestore/internal/index.d.ts",
+      "import": "./dist/firestore/internal/index.js"
     },
     "./auth": {
       "types": "./dist/auth/index.d.ts",
@@ -33,6 +41,10 @@
     "./ai": {
       "types": "./dist/ai/index.d.ts",
       "import": "./dist/ai/index.js"
+    },
+    "./ai/internal": {
+      "types": "./dist/ai/internal.d.ts",
+      "import": "./dist/ai/internal.js"
     },
     "./ai/scripting": {
       "types": "./dist/ai/scripting.d.ts",
@@ -125,7 +137,7 @@
     "typecheck": "bun x tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@inbrowser/agent": "0.4.1",
+    "@inbrowser/agent": "0.4.2",
     "fake-indexeddb": "^6.0.0",
     "js-md5": "^0.8.3",
     "js-sha256": "^0.11.0",

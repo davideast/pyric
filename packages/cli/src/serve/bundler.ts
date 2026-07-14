@@ -22,9 +22,9 @@
  * bypasses.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
@@ -35,6 +35,8 @@ export const SDK_MODULES = [
   'firebase/auth',
   'firebase/firestore',
   'firebase/database',
+  'firebase/messaging',
+  'firebase/messaging/sw',
   'firebase/storage',
 ] as const;
 
@@ -58,6 +60,8 @@ export function defaultSdkEntries(): Record<string, string> {
     auth: pick('auth'),
     firestore: pick('firestore'),
     database: pick('database'),
+    messaging: pick('messaging'),
+    'messaging-sw': pick('messaging-sw'),
     storage: pick('storage'),
     init: pick('init'),
   };
@@ -188,7 +192,7 @@ export interface BundleOptions {
   /** Entry files (the wrapper modules in `entries/`), keyed by the served
    *  basename (`auth` → `/__pyric/sdk/auth.js`). */
   entries: Record<string, string>;
-  /** Bypass + overwrite the cache. */
+  /** Bypass the cache and build an immutable, process-independent generation. */
   noCache?: boolean;
   /** Override the cache root (tests). Default `~/.pyric/serve-cache`. */
   cacheRoot?: string;
@@ -200,31 +204,89 @@ export interface BundleResult {
   /** Served basename → absolute file path (entry bundles + shared chunks). */
   files: string[];
   cached: boolean;
+  /** Release a bypass generation after its server stops. Cache generations
+   *  deliberately remain durable, so their disposer is a no-op. */
+  dispose(): void;
 }
 
 /** Bump when bundler logic changes in a way that must invalidate caches. */
-const BUNDLER_REV = 6; // 6: sandbox mirrors have no production-SDK stub layer
+const BUNDLER_REV = 9; // 9: cache keys also cover dependency-resolution metadata
 
-export function cacheKey(opts: BundleOptions, version: string): string {
+const RESOLUTION_FILES = [
+  'bun.lock',
+  'bun.lockb',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+] as const;
+
+function nearestPackageRoot(start: string): string | undefined {
+  let dir = start;
+  while (true) {
+    if (existsSync(join(dir, 'package.json'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/**
+ * Hash package-manager identity separately from executable source bytes.
+ * Workspace dependency upgrades commonly change package.json/bun.lock before
+ * the prerelease package version moves; installed packages get the same signal
+ * from their consumer lockfile. Package managers own third-party byte
+ * integrity, so their manifests/locks are the supported cache boundary.
+ */
+function packageResolutionHash(graphRoot: string, pyricRoot: string): string {
+  const h = createHash('sha256');
+  const cliRoot = nearestPackageRoot(graphRoot);
+  for (const [label, root] of [
+    ['cli', cliRoot],
+    ['pyric', pyricRoot],
+  ] as const) {
+    if (!root) continue;
+    const manifest = join(root, 'package.json');
+    if (!existsSync(manifest)) continue;
+    h.update(label);
+    h.update(readFileSync(manifest));
+  }
+
+  let dir = cliRoot ?? graphRoot;
+  while (true) {
+    for (const name of RESOLUTION_FILES) {
+      const file = join(dir, name);
+      if (!existsSync(file)) continue;
+      h.update(name);
+      h.update(readFileSync(file));
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return h.digest('hex');
+}
+
+export function cacheKey(
+  opts: BundleOptions,
+  version: string,
+  graphRoot = dirname(dirname(fileURLToPath(import.meta.url))),
+  pyricRoot = pyricPackageRoot(),
+): string {
   const h = createHash('sha256');
   h.update(`rev${BUNDLER_REV}`);
   h.update(version);
-  // Hash the WHOLE local graph, not just the entry files: entries import
-  // sibling modules (runtime, auth-helper-*) whose edits must invalidate the
-  // cache — hashing entries alone served stale bundles (caught by the P3
-  // browser gate). pyric's own dist is covered by the version component.
-  const dirs = new Set<string>();
+  // Hash the WHOLE local CLI graph, not just entries or entries/ siblings.
+  // Page adapters import worker/client, worker/protocol, bridge, and verify
+  // leaves outside that directory; missing one can pair a stale page client
+  // with a freshly rebuilt worker. The installed pyric implementation is
+  // hashed separately: workspace and prerelease builds can change dist bytes
+  // without changing package.json's version.
+  h.update(sourceTreeHash(graphRoot));
+  h.update(sourceTreeHash(join(pyricRoot, 'dist')));
+  h.update(packageResolutionHash(graphRoot, pyricRoot));
   for (const [name, file] of Object.entries(opts.entries).sort()) {
     h.update(name);
     h.update(readFileSync(file, 'utf8'));
-    dirs.add(dirname(file));
-  }
-  for (const dir of [...dirs].sort()) {
-    for (const sibling of (readdirSync(dir) as string[]).sort()) {
-      if (!sibling.endsWith('.ts') && !sibling.endsWith('.js')) continue;
-      h.update(sibling);
-      h.update(readFileSync(join(dir, sibling), 'utf8'));
-    }
   }
   return `${version}-${h.digest('hex').slice(0, 12)}`;
 }
@@ -236,46 +298,65 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
   const version = pyricVersion(root);
   const key = cacheKey(opts, version);
   const cacheRoot = opts.cacheRoot ?? join(homedir(), '.pyric', 'serve-cache');
-  const outDir = join(cacheRoot, key, 'sdk');
+  mkdirSync(cacheRoot, { recursive: true });
+  // A running server keeps serving this directory after bundleSdk returns.
+  // Therefore `--no-cache` must never overwrite the deterministic warm-cache
+  // path: another concurrent `pyric dev --no-cache` could otherwise replace
+  // an entry and its shared chunks between browser requests, splitting
+  // singleton module state (notably the app registry). Each bypass build gets
+  // an immutable generation; the OS-level mkdir primitive makes concurrent
+  // callers distinct without coordination.
+  const generationRoot = opts.noCache
+    ? mkdtempSync(join(cacheRoot, `.no-cache-${key}-`))
+    : join(cacheRoot, key);
+  const outDir = join(generationRoot, 'sdk');
+  const dispose = opts.noCache
+    ? () => rmSync(generationRoot, { recursive: true, force: true })
+    : () => {};
 
   if (!opts.noCache && existsSync(join(outDir, '.complete'))) {
     const files = (readdirSync(outDir) as string[])
       .filter((f) => f.endsWith('.js'))
       .map((f) => join(outDir, f));
-    return { outDir, files, cached: true };
+    return { outDir, files, cached: true, dispose };
   }
 
   mkdirSync(outDir, { recursive: true });
-  const result = await esbuild.build({
-    entryPoints: Object.fromEntries(
-      Object.entries(opts.entries).map(([name, file]) => [name, file]),
-    ),
-    outdir: outDir,
-    bundle: true,
-    format: 'esm',
-    platform: 'browser',
-    splitting: true,
-    sourcemap: 'linked',
-    minify: opts.minify ?? true,
-    logLevel: 'silent',
-    // Provenance: any stack frame or "view source" into these bundles must
-    // self-identify as the sandbox shim, not the real Firebase SDK.
-    chunkNames: 'pyric-sandbox-[hash]',
-    banner: {
-      js: '/* pyric dev: pyric sandbox shim serving firebase/* — NOT the real Firebase SDK */',
-    },
-    plugins: [pyricResolvePlugin(), nodeShimPlugin()],
-  });
-  if (result.errors.length > 0) {
-    throw new Error(
-      `pyric dev: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
-    );
+  try {
+    const result = await esbuild.build({
+      entryPoints: Object.fromEntries(
+        Object.entries(opts.entries).map(([name, file]) => [name, file]),
+      ),
+      outdir: outDir,
+      bundle: true,
+      format: 'esm',
+      platform: 'browser',
+      splitting: true,
+      sourcemap: 'linked',
+      minify: opts.minify ?? true,
+      logLevel: 'silent',
+      // Provenance: any stack frame or "view source" into these bundles must
+      // self-identify as the sandbox shim, not the real Firebase SDK.
+      chunkNames: 'pyric-sandbox-[hash]',
+      banner: {
+        js: '/* pyric dev: pyric sandbox shim serving firebase/* — NOT the real Firebase SDK */',
+      },
+      plugins: [pyricResolvePlugin(), nodeShimPlugin()],
+    });
+    if (result.errors.length > 0) {
+      throw new Error(
+        `pyric dev: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
+      );
+    }
+    writeFileSync(join(outDir, '.complete'), new Date().toISOString());
+    const files = (readdirSync(outDir) as string[])
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => join(outDir, f));
+    return { outDir, files, cached: false, dispose };
+  } catch (error) {
+    dispose();
+    throw error;
   }
-  writeFileSync(join(outDir, '.complete'), new Date().toISOString());
-  const files = (readdirSync(outDir) as string[])
-    .filter((f) => f.endsWith('.js'))
-    .map((f) => join(outDir, f));
-  return { outDir, files, cached: false };
 }
 
 // ─── the SharedWorker bundle (Phase 3c.A) ─────────────────────────────────
@@ -304,24 +385,46 @@ export interface WorkerBundleOptions {
 }
 
 /**
- * Content hash of the worker source graph + pyric version. The worker bundle
+ * Content hash of the worker's executable CLI graph + pyric version. The worker bundle
  * shares the SDK `outDir` (keyed by the SDK entries), which does NOT cover the
- * `worker/` sources — so the worker bundle carries its OWN content marker: a
- * worker-only edit changes this hash and forces a rebuild even when the SDK
- * cache is warm. (pyric library changes are covered by the version component,
- * the same model `bundleSdk` uses.)
+ * worker graph — so the worker bundle carries its OWN content marker. Hash the
+ * full CLI source/dist tree because the worker imports bridge and verify leaves
+ * outside `serve/worker`; an allowlist would silently miss future dependencies.
+ * Installed pyric dist bytes are also hashed because workspace and prerelease
+ * builds can change implementation without a version bump.
  */
-export function workerSourceHash(): string {
+export function workerSourceHash(
+  pyricRoot = pyricPackageRoot(),
+  graphRoot = dirname(dirname(fileURLToPath(import.meta.url))),
+): string {
   const h = createHash('sha256');
   h.update(`rev${BUNDLER_REV}`);
-  h.update(pyricVersion());
-  const dir = dirname(workerEntryPath());
-  for (const f of (readdirSync(dir) as string[]).sort()) {
-    if (!f.endsWith('.ts') && !f.endsWith('.js')) continue;
-    h.update(f);
-    h.update(readFileSync(join(dir, f), 'utf8'));
-  }
+  h.update(pyricVersion(pyricRoot));
+  h.update(sourceTreeHash(join(pyricRoot, 'dist')));
+  h.update(sourceTreeHash(graphRoot));
+  h.update(packageResolutionHash(graphRoot, pyricRoot));
   return h.digest('hex').slice(0, 16);
+}
+
+/** Hash every JS/TS source below a directory, including split host/client leaves. */
+export function sourceTreeHash(root: string): string {
+  const files: string[] = [];
+  const visit = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.js'))) {
+        files.push(path);
+      }
+    }
+  };
+  visit(root);
+  const h = createHash('sha256');
+  for (const file of files.sort()) {
+    h.update(relative(root, file).split(sep).join('/'));
+    h.update(readFileSync(file, 'utf8'));
+  }
+  return h.digest('hex');
 }
 
 /**
@@ -341,10 +444,10 @@ export function workerSourceHash(): string {
  * backend — so this bundle is large, but it loads ONCE per origin (not per
  * page). Trimming node/admin dead paths is tracked as Phase 3b.
  *
- * The `.worker-complete` marker is independent of `bundleSdk`'s `.complete`.
- * Folding the worker source graph into `bundleSdk`'s cache key (so a
- * worker-only edit invalidates the shared `outDir`) lands with the serve
- * wiring in 3c.E; until then callers pass `noCache` when iterating.
+ * The `.worker-complete` marker is independent of `bundleSdk`'s `.complete`,
+ * while `cacheKey()` includes the complete CLI source graph. A worker/client
+ * or protocol edit therefore invalidates the shared SDK generation too, so
+ * the page and worker halves cannot come from different source generations.
  */
 export async function bundleWorker(opts: WorkerBundleOptions): Promise<string> {
   const outFile = join(opts.outDir, 'worker.js');

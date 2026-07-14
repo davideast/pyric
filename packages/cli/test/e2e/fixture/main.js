@@ -13,6 +13,7 @@ const auth = getAuth(app);
 
 // The test observes these: every onAuthStateChanged fire is recorded.
 window.__authLog = [];
+window.__authError = null;
 const status = document.getElementById('status');
 
 onAuthStateChanged(auth, (user) => {
@@ -22,4 +23,8 @@ onAuthStateChanged(auth, (user) => {
 
 document
   .getElementById('signin')
-  .addEventListener('click', () => signInWithPopup(auth, new GoogleAuthProvider()));
+  .addEventListener('click', () => {
+    void signInWithPopup(auth, new GoogleAuthProvider()).catch((error) => {
+      window.__authError = { code: error?.code, message: error?.message };
+    });
+  });

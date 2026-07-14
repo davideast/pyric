@@ -20,6 +20,7 @@
  *   - `studio`          event stream, confirm-policy, sandbox snapshot
  *   - `auth`            per-port auth surface
  *   - `storage`         worker-backed storage mirror
+ *   - `messaging`       token lifecycle + foreground/background subscriptions
  *
  * The barrel is part of the worker's PUBLIC shape: `serve/worker/index.ts`
  * re-exports from here for the `@pyric/cli/serve/worker` package subpath.

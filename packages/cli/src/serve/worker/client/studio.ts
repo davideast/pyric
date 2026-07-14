@@ -6,7 +6,7 @@
 
 import type { InboundMessage } from '../protocol.js';
 import type { SandboxEvent, SandboxSnapshot } from 'pyric/sandbox';
-import { nextId, nextSubId, rpc, _eventSubs } from './core.js';
+import { closeSubscription, nextId, nextSubId, openEventSubscription, rpc } from './core.js';
 import type { ClientDb, Unsubscribe } from './handles.js';
 
 // ════════════════════════════════════════════════════════════════════════
@@ -39,11 +39,14 @@ export function subscribeEvents(
 ): Unsubscribe {
   const subId = nextSubId();
   const port = db.port;
-  _eventSubs.set(subId, callback);
-  port.postMessage({ t: 'sub', subId, target: 'events' } satisfies InboundMessage);
+  openEventSubscription(
+    port,
+    subId,
+    callback,
+    { t: 'sub', subId, target: 'events' } satisfies InboundMessage,
+  );
   return () => {
-    _eventSubs.delete(subId);
-    port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+    closeSubscription(port, subId);
   };
 }
 

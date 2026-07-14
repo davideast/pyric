@@ -653,6 +653,10 @@ free functions.
 
 > `readonly` **\[TARGET\_SYMBOL\]**: [`SandboxTarget`](#sandboxtarget)
 
+##### app?
+
+> `readonly` `optional` **app**: `FirebaseApp`
+
 ***
 
 ### FirebaseStorageBucket
@@ -1053,6 +1057,16 @@ firebase-admin semantics against the same shared store.
 ##### context
 
 > `readonly` **context**: `SandboxContext`
+
+##### currentAuth()?
+
+> `readonly` `optional` **currentAuth**: () => `AuthState`
+
+App handles resolve auth at operation time; explicit contexts stay frozen.
+
+###### Returns
+
+`AuthState`
 
 ##### kind
 
@@ -1490,6 +1504,8 @@ first `:addFirebase` call.
 
 > **connectStorageEmulator**(`_storage`, `_host`, `_port`, `_options?`): `void`
 
+Accepted no-op because the selected Storage backend already is local.
+
 #### Parameters
 
 ##### \_storage
@@ -1880,21 +1896,23 @@ write left them as.
 
 ### getStorage()
 
-> **getStorage**(`app`, `_bucketUrl?`): [`FirebaseStorage`](#firebasestorage)
+> **getStorage**(`app?`, `bucketUrl?`): `AppFirebaseStorage`
+
+Resolve the Firebase-shaped Storage service associated with an app.
 
 #### Parameters
 
-##### app
+##### app?
 
-`PyricApp`
+`FirebaseApp`
 
-##### \_bucketUrl?
+##### bucketUrl?
 
 `string`
 
 #### Returns
 
-[`FirebaseStorage`](#firebasestorage)
+`AppFirebaseStorage`
 
 ***
 

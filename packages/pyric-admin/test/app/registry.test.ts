@@ -33,6 +33,9 @@ import {
 } from '../../src/app/index.js';
 import { getDatabase } from '../../src/database/index.js';
 import { getAuth } from '../../src/auth/index.js';
+import { getFirestore } from '../../src/firestore/index.js';
+import { getStorage } from '../../src/storage/index.js';
+import { getMessaging } from '../../src/messaging/index.js';
 
 // The registry is module-global (mirror of firebase-admin's
 // defaultAppStore) — start every test from an empty registry, and make
@@ -147,15 +150,45 @@ describe('app registry — deleteApp', () => {
     expect(again).not.toBe(app);
   });
 
-  it('unregistered app throws app/no-app; non-app values throw app/invalid-argument', async () => {
+  it('deleted app throws app/app-deleted; non-app values throw app/invalid-argument', async () => {
     const sandbox = initializeSandbox();
     const app = initializeApp({ sandbox });
     await deleteApp(app);
-    expectAppError(() => deleteApp(app), 'app/no-app', /does not exist/);
+    expectAppError(() => deleteApp(app), 'app/app-deleted', /has already been deleted/);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expectAppError(() => deleteApp({} as any), 'app/invalid-argument', /^Invalid app argument\.$/);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expectAppError(() => deleteApp(null as any), 'app/invalid-argument', /^Invalid app argument\.$/);
+  });
+
+  it('explicit service factories reject a deleted sandbox app', async () => {
+    const app = initializeApp({ sandbox: initializeSandbox() });
+    await deleteApp(app);
+
+    for (const factory of [getAuth, getFirestore, getDatabase, getStorage, getMessaging]) {
+      expectAppError(
+        () => factory(app),
+        'app/app-deleted',
+        /Firebase app named "\[DEFAULT\]" has already been deleted/,
+      );
+    }
+  });
+
+  it('a stale deleted wrapper cannot delete its same-name replacement', async () => {
+    const stale = initializeApp({ sandbox: initializeSandbox() });
+    await deleteApp(stale);
+    const replacement = initializeApp({ sandbox: initializeSandbox() });
+
+    let error: unknown;
+    try {
+      await deleteApp(stale);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect((error as { code?: string }).code).toBe('app/app-deleted');
+    expect(getApp()).toBe(replacement);
+    expect(() => getAuth(replacement)).not.toThrow();
   });
 });
 

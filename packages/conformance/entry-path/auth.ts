@@ -17,14 +17,11 @@
  * are set for the same reason: a real app picks one, but each is a distinct
  * entry point the gate should prove resolves.
  *
- * The only adjustment pyric requires: `initializeApp({ sandbox:
- * initializeSandbox() })` in place of `initializeApp(firebaseConfig)`.
- * Everything downstream is the exact modular-SDK call shape the quickstarts
+ * Initialization and everything downstream use the exact modular-SDK call shape the quickstarts
  * show — import subpaths, argument order, and the persistence-then-sign-in
  * sequencing the persistence doc's own example uses.
  */
 import { initializeApp } from 'pyric/app';
-import { initializeSandbox } from 'pyric/sandbox';
 import {
   getAuth,
   initializeAuth,
@@ -37,7 +34,7 @@ import {
 } from 'pyric/auth';
 
 export async function run(): Promise<void> {
-  const app = initializeApp({ sandbox: initializeSandbox() });
+  const app = initializeApp({ projectId: 'entry-path-project' });
 
   // The explicit-init front door: `initializeAuth(app, { persistence })` is
   // the pattern app code writes when it configures auth up front.

@@ -1,0 +1,16 @@
+{
+  "name": "app-registry-default-service-factories",
+  "matrixRow": "app #22",
+  "rowIds": [
+    "app#22"
+  ],
+  "description": "No-argument Firebase service factories resolve their service from the registered default app.",
+  "observedAt": "2026-07-14T00:23:04.079Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "authUsesDefaultApp": true,
+    "firestoreUsesDefaultApp": true,
+    "databaseUsesDefaultApp": true,
+    "storageUsesDefaultApp": true
+  }
+}

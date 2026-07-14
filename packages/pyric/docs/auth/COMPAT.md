@@ -4,7 +4,7 @@
 
 > **Surface coverage:** 82.4% of Firebase's public exports · 83.3% of what pyric intends to mirror
 >
-> **Fidelity:** 81.5% (97 of 119 tracked claims match production)
+> **Fidelity:** 81.8% (99 of 121 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
 
@@ -35,11 +35,18 @@ means a Bun test in `packages/auth/test/<file>`.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 1 | Returns a stable `Auth` handle for repeat calls with the same sandbox or sandbox-backed `PyricApp` — one backend and handle per sandbox | ✓ | `unit:sandbox-anonymous.test.ts` + canonical Node register child (`register-child.test.ts`) |
+| 1 | Returns a stable `Auth` handle for repeated calls with the same input | ✓ | `unit:sandbox-anonymous.test.ts` + canonical Node register child (`register-child.test.ts`) |
 | 2 | `getAuth(sandbox)` dispatches to the sandbox backend | ✓ | `unit:sandbox-anonymous.test.ts` |
 | 3 | Without sandbox package swapping, canonical `firebase/auth` imports remain Firebase and never enter this mirror | ? | Direct mirror rejection is locked by `unit:package-resolution.test.ts`; an unswapped production-resolution observation is still needed |
 | 4 | After package swapping, bare `getAuth()` resolves the registered default sandbox app; without swapping, Firebase retains its `app/no-app` behavior when no default app exists | ✓ (wrap) | canonical Node register child (`register-child.test.ts`) + oracle: `packages/conformance/observations/auth/auth-bare-getauth-no-default-app.json` (`code: 'app/no-app'` against blockingfun, fb-js-sdk 12.13.0 — confirms unswapped Firebase behavior) |
 | 5 | `auth.currentUser` is a live getter, not a snapshot — reads through to the backend on every access | ✓ | implicit in `unit:sandbox-anonymous.test.ts` |
+
+## Multi-app Auth session topology
+
+| # | Behavior | Status | Probe |
+|---|---|---|---|
+| 183 | Equal-config Firebase apps have independent active Auth sessions; signing in or out on one app does not change another app's currentUser | ✓ | oracle: `app-production-multi-app-topology` (firebase 12.13.0, real Chromium against production) + twin replay: `packages/pyric/test/app/production-multi-app-oracle.test.ts` |
+| 184 | After the sibling receives the LOCAL persistence event, same-named Firebase app instances in sibling tabs keep independent active Auth sessions; an anonymous sign-in in one tab does not update the sibling tab's currentUser during the bounded post-signal observation window | ✓ | oracle: `app-production-cross-tab-auth-persistence` (firebase 12.13.0, two real Chromium pages in one browser context) + served twin: `packages/cli/test/e2e/app-multi-app.pw.ts` |
 
 ## `signInAnonymously(auth)` — anonymous
 

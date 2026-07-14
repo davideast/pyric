@@ -10,7 +10,7 @@ import type {
   AggregateSpecDescriptor,
   InboundMessage,
 } from '../protocol.js';
-import { nextId, nextSubId, dataRpc, _snapSubs, _defaultLens, stampIssuer } from './core.js';
+import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
 import { makeDocSnapshot, makeQuerySnapshot } from './snapshots.js';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot } from './snapshots.js';
@@ -136,8 +136,10 @@ export function onSnapshot(
   const subId = nextSubId();
   const port = target.port;
 
-  _snapSubs.set(subId, {
-    next: (raw) => {
+  const subscription = {
+    port,
+    service: 'firestore' as const,
+    next: (raw: unknown) => {
       const r = raw as Record<string, unknown>;
       if ('docs' in r) {
         callback(makeQuerySnapshot(r as unknown as RawQueryResult, port));
@@ -146,7 +148,7 @@ export function onSnapshot(
       }
     },
     error: errorCallback,
-  });
+  };
 
   const descriptor: TargetDescriptor =
     target.__kind === 'doc-ref'
@@ -161,16 +163,19 @@ export function onSnapshot(
   // wire message, preserving the additive contract. The declared op source
   // rides along the same way (client-constructed subs only — the relay's
   // subs post verbatim).
-  port.postMessage(
+  const opened = openSnapshotSubscription(
+    port,
+    subId,
+    subscription,
     stampIssuer(
       (_defaultLens
         ? { t: 'sub', subId, target: descriptor, actAs: _defaultLens }
         : { t: 'sub', subId, target: descriptor }) satisfies InboundMessage,
     ),
   );
+  if (!opened && errorCallback) queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
 
   return () => {
-    _snapSubs.delete(subId);
-    port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+    closeSubscription(port, subId);
   };
 }

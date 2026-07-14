@@ -252,6 +252,78 @@ https://v8.dev/docs/stack-trace-api#customizing-stack-traces
 
 ## Interfaces
 
+### FirebaseApp
+
+#### Properties
+
+##### automaticDataCollectionEnabled
+
+> **automaticDataCollectionEnabled**: `boolean`
+
+##### name
+
+> `readonly` **name**: `string`
+
+##### options
+
+> `readonly` **options**: [`FirebaseOptions`](#firebaseoptions)
+
+***
+
+### FirebaseAppSettings
+
+#### Properties
+
+##### automaticDataCollectionEnabled?
+
+> `optional` **automaticDataCollectionEnabled**: `boolean`
+
+##### name?
+
+> `optional` **name**: `string`
+
+***
+
+### FirebaseOptions
+
+Firebase-compatible public value types for `pyric/app`.
+
+#### Properties
+
+##### apiKey?
+
+> `optional` **apiKey**: `string`
+
+##### appId?
+
+> `optional` **appId**: `string`
+
+##### authDomain?
+
+> `optional` **authDomain**: `string`
+
+##### databaseURL?
+
+> `optional` **databaseURL**: `string`
+
+##### measurementId?
+
+> `optional` **measurementId**: `string`
+
+##### messagingSenderId?
+
+> `optional` **messagingSenderId**: `string`
+
+##### projectId?
+
+> `optional` **projectId**: `string`
+
+##### storageBucket?
+
+> `optional` **storageBucket**: `string`
+
+***
+
 ### LogEntry
 
 #### Properties
@@ -282,39 +354,7 @@ https://v8.dev/docs/stack-trace-api#customizing-stack-traces
 
 > **level**: [`LogLevel`](#loglevel)
 
-***
-
-### SandboxApp
-
-#### Properties
-
-##### \[APP\_TARGET\]
-
-> `readonly` **\[APP\_TARGET\]**: `"sandbox"`
-
-##### name
-
-> `readonly` **name**: `string`
-
-##### sandbox
-
-> `readonly` **sandbox**: `Sandbox`
-
 ## Type Aliases
-
-### InitializeAppConfig
-
-> **InitializeAppConfig** = `object`
-
-Direct Pyric initialization always requires an explicit sandbox.
-
-#### Properties
-
-##### sandbox
-
-> **sandbox**: `Sandbox`
-
-***
 
 ### LogCallback()
 
@@ -336,35 +376,7 @@ Direct Pyric initialization always requires an explicit sandbox.
 
 > **LogLevel** = `"debug"` \| `"verbose"` \| `"info"` \| `"warn"` \| `"error"` \| `"silent"`
 
-***
-
-### PyricApp
-
-> **PyricApp** = [`SandboxApp`](#sandboxapp)
-
-***
-
-### PyricAppTarget
-
-> **PyricAppTarget** = `"sandbox"`
-
 ## Variables
-
-### APP\_TARGET
-
-> `const` **APP\_TARGET**: unique `symbol`
-
-`pyric/app` — sandbox-only mirror selected by package resolution.
-
-***
-
-### DEFAULT\_APP\_NAME
-
-> `const` **DEFAULT\_APP\_NAME**: `"[DEFAULT]"` = `"[DEFAULT]"`
-
-firebase/app's default app name — `'[DEFAULT]'`.
-
-***
 
 ### SDK\_VERSION
 
@@ -379,15 +391,11 @@ The app conformance replay makes this pin fail visibly when observations move.
 
 > **deleteApp**(`app`): `Promise`\<`void`\>
 
-Remove `app` from the registry, mirroring `firebase/app.deleteApp`. A second
-`deleteApp` on the same handle throws `app/app-deleted`. The Sandbox handle's
-lifetime remains owned by its creator.
-
 #### Parameters
 
 ##### app
 
-[`SandboxApp`](#sandboxapp)
+[`FirebaseApp`](#firebaseapp)
 
 #### Returns
 
@@ -397,10 +405,7 @@ lifetime remains owned by its creator.
 
 ### getApp()
 
-> **getApp**(`name?`): [`SandboxApp`](#sandboxapp)
-
-Return the registered app for `name` (default `'[DEFAULT]'`). Mirrors
-`firebase/app.getApp` — including the exact `app/no-app` message on a miss.
+> **getApp**(`name?`): [`FirebaseApp`](#firebaseapp)
 
 #### Parameters
 
@@ -410,73 +415,37 @@ Return the registered app for `name` (default `'[DEFAULT]'`). Mirrors
 
 #### Returns
 
-[`SandboxApp`](#sandboxapp)
+[`FirebaseApp`](#firebaseapp)
 
 ***
 
 ### getApps()
 
-> **getApps**(): [`SandboxApp`](#sandboxapp)[]
-
-A copy of the list of all registered apps, by identity. Mirrors
-`firebase/app.getApps`.
+> **getApps**(): [`FirebaseApp`](#firebaseapp)[]
 
 #### Returns
 
-[`SandboxApp`](#sandboxapp)[]
+[`FirebaseApp`](#firebaseapp)[]
 
 ***
 
 ### initializeApp()
 
-> **initializeApp**(`config`, `name?`): [`SandboxApp`](#sandboxapp)
-
-Initialize a Pyric app and register it under `name` (default `'[DEFAULT]'`),
-mirroring `firebase/app.initializeApp`.
+> **initializeApp**(`options?`, `rawSettings?`): [`FirebaseApp`](#firebaseapp)
 
 #### Parameters
 
-##### config
+##### options?
 
-[`InitializeAppConfig`](#initializeappconfig)
+[`FirebaseOptions`](#firebaseoptions)
 
-##### name?
+##### rawSettings?
 
-`string`
-
-#### Returns
-
-[`SandboxApp`](#sandboxapp)
-
-#### Example
-
-```ts
-// Sandbox-backed (tests, agent loops, playground)
-import { initializeApp } from 'pyric/app';
-import { initializeSandbox } from 'pyric/sandbox';
-const app = initializeApp({ sandbox: initializeSandbox() });
-
-// A second, independent app needs its own name (firebase's rule)
-const worker = initializeApp({ sandbox: initializeSandbox() }, 'worker');
-```
-
-***
-
-### isSandboxApp()
-
-> **isSandboxApp**(`value`): `value is SandboxApp`
-
-`pyric/app` — sandbox-only mirror selected by package resolution.
-
-#### Parameters
-
-##### value
-
-`unknown`
+`string` | [`FirebaseAppSettings`](#firebaseappsettings)
 
 #### Returns
 
-`value is SandboxApp`
+[`FirebaseApp`](#firebaseapp)
 
 ***
 

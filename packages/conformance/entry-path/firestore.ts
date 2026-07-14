@@ -22,11 +22,10 @@
  * because each no-ops honestly on a sandbox target and the point is to prove
  * the call shape, not to model one app's choice.
  *
- * The only adjustment pyric requires: `initializeApp({ sandbox:
- * initializeSandbox() })` in place of `initializeApp(firebaseConfig)`.
+ * The initialization is byte-for-byte Firebase-shaped; package resolution is
+ * the only switch between the Firebase and Pyric implementations.
  */
 import { initializeApp } from 'pyric/app';
-import { initializeSandbox } from 'pyric/sandbox';
 import {
   getFirestore,
   initializeFirestore,
@@ -53,7 +52,7 @@ import {
 } from 'pyric/firestore';
 
 export async function run(): Promise<void> {
-  const app = initializeApp({ sandbox: initializeSandbox() });
+  const app = initializeApp({ projectId: 'entry-path-project' });
 
   // https://firebase.google.com/docs/firestore/manage-data/enable-offline —
   // the explicit-init pattern: choose a cache strategy up front. This is the

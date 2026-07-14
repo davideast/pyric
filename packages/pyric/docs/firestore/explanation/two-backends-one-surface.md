@@ -20,7 +20,8 @@ module does not carry dormant simulator code.
 
 `pyric/firestore` has only sandbox targets. Its compiled artifact has no
 `firebase/firestore` dependency. Direct calls accept a `Sandbox`, a
-`SandboxContext`, or a sandbox `PyricApp`; a real `FirebaseApp` is rejected.
+`SandboxContext`, or a privately-associated `FirebaseApp`; an app produced by
+the unswapped Firebase package is rejected.
 
 Production remains Firebase because the activation layer is absent. The Vite
 plugin and Node register hook are therefore the only switch:

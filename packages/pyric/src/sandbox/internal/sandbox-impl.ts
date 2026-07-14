@@ -142,6 +142,7 @@ export class SandboxImpl implements LocalSandbox {
    * so a single slot is sufficient.
    */
   private _onServiceRegistered: ((name: string, hooks: PersistableService) => void) | null = null;
+  private _onServiceUnregistered: ((name: string) => void) | null = null;
 
   private constructor(env: LocalEnvironment) {
     this._env = env;
@@ -426,6 +427,7 @@ export class SandboxImpl implements LocalSandbox {
     // reference here so a dead sandbox doesn't hold service closures.
     this.serviceRegistry.clear();
     this._onServiceRegistered = null;
+    this._onServiceUnregistered = null;
     // Drop user callbacks too — a disposed sandbox is dead, holding
     // subscriptions on it would leak.
     this.eventSubs.clear();
@@ -602,7 +604,9 @@ export class SandboxImpl implements LocalSandbox {
       this._onServiceRegistered(name, hooks);
     }
     return () => {
+      if (this.serviceRegistry.get(name) !== hooks) return;
       this.serviceRegistry.delete(name);
+      this._onServiceUnregistered?.(name);
     };
   }
 
@@ -618,6 +622,11 @@ export class SandboxImpl implements LocalSandbox {
     cb: ((name: string, hooks: PersistableService) => void) | null,
   ): void {
     this._onServiceRegistered = cb;
+  }
+
+  /** Internal persistence hook paired with service registration. */
+  setServiceUnregistrationHook(cb: ((name: string) => void) | null): void {
+    this._onServiceUnregistered = cb;
   }
 
   /**

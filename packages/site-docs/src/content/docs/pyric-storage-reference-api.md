@@ -12,11 +12,17 @@ Every symbol exported from `pyric/storage`.
 
 ## Entry points
 
-### `getStorage(app, bucketUrl?): FirebaseStorage`
+### `getStorage(app?, bucketUrl?): FirebaseStorage`
 ```ts
-function getStorage(app: PyricApp, bucketUrl?: string): FirebaseStorage
+function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStorage
 ```
-Firebase-shaped sandbox entry point. Package resolution selects this mirror before it loads, so it accepts only a sandbox-backed `PyricApp`. `bucketUrl` is accepted for call-site compatibility but ignored by the single-bucket sandbox. Direct tests that need `bucket`, `dbName`, or `rules` use `getStorageSandbox`.
+Firebase-shaped sandbox entry point. Package resolution selects this mirror
+before it loads, and the app's private association resolves the shared sandbox
+plus its app-local Auth session. `bucketUrl` is accepted for call-site
+compatibility but ignored by the single-bucket sandbox. Direct tests that need
+`bucket`, `dbName`, or `rules` use `getStorageSandbox`.
+With no app, the registered default app is resolved, matching
+`firebase/storage`.
 
 ### `getStorageSandbox(target, options?): FirebaseStorage`
 
@@ -99,7 +105,7 @@ type StringFormat = 'raw' | 'base64' | 'data_url';
 ### `getBytes(ref, maxDownloadSizeBytes?): Promise<ArrayBuffer>`
 ### `getBlob(ref, maxDownloadSizeBytes?): Promise<Blob>`
 
-Throws `storage/object-not-found` on missing path. Throws `storage/quota-exceeded` when the object exceeds `maxDownloadSizeBytes`. Throws `storage/invalid-root-operation` on the root reference. The rule check runs before the not-found check, so a denied read of a missing path reports `storage/unauthorized`, matching prod's refusal to disclose object existence to a caller without read permission.
+Throws `storage/object-not-found` on missing path. When `maxDownloadSizeBytes` is set and the object is larger, returns a truncated prefix of that length (does not throw) — matching upstream's post-fetch slice. Throws `storage/invalid-root-operation` on the root reference. The rule check runs before the not-found check, so a denied read of a missing path reports `storage/unauthorized`, matching prod's refusal to disclose object existence to a caller without read permission.
 
 ### `getDownloadURL(ref): Promise<string>`
 

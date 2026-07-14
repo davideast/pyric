@@ -31,6 +31,7 @@ import {
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { embeddedAssetVersion as hashEmbeddedAssets } from './embedded-asset-version.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = resolve(__dirname, '..');
@@ -129,6 +130,7 @@ function collectTree(root: string): Record<string, string> {
 const sdkBlob = collectSdk(outDir);
 const studioBlob = existsSync(studioUi) ? collectTree(studioUi) : {};
 const docsBlob = existsSync(docsUi) ? collectTree(docsUi) : {};
+const assetVersion = hashEmbeddedAssets({ sdk: sdkBlob, studio: studioBlob, docs: docsBlob });
 process.stdout.write(
   `  embedded ${Object.keys(sdkBlob).length} SDK file(s), ${Object.keys(studioBlob).length} studio file(s), ` +
     `${Object.keys(docsBlob).length} docs file(s) ` +
@@ -191,6 +193,7 @@ writeFileSync(
   banner +
     `globalThis.__PYRIC_EMBEDDED__ = {\n` +
     `  version: ${JSON.stringify(version)},\n` +
+    `  assetVersion: ${JSON.stringify(assetVersion)},\n` +
     `  workerVersion: ${JSON.stringify(workerVersion)},\n` +
     `  sdk: () => import('./embedded-sdk.js').then((m) => m.default),\n` +
     `  studio: () => import('./embedded-studio.js').then((m) => m.default),\n` +

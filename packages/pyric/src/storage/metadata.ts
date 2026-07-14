@@ -17,7 +17,7 @@
  */
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
-import { getStorageService, storageOperationProvenance, targetOf } from './service.js';
+import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './rules.js';
 import { objectNotFound, invalidRootOperation } from './errors.js';
@@ -132,7 +132,7 @@ export async function getMetadata(ref: StorageReference): Promise<FullMetadata> 
   const stored = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
     request: {
-      auth: target.context.auth,
+      auth: storageAuth(target),
       method: 'get',
       path: ref.fullPath,
     },
@@ -172,7 +172,7 @@ export async function updateMetadata(
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
     request: {
-      auth: target.context.auth,
+      auth: storageAuth(target),
       // updateMetadata always targets an existing object (it throws
       // object-not-found below when absent), so the verb is `update`.
       method: 'update',
@@ -204,7 +204,7 @@ export async function updateMetadata(
         service: 'storage',
         op: 'metadata_update',
         path: ref.fullPath,
-        auth: target.context.auth,
+        auth: storageAuth(target),
         before: existing,
         after: next,
         detail: { bucket: ref.bucket },

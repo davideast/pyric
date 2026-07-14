@@ -13,7 +13,13 @@ import {
 import { SandboxContextImpl } from 'pyric/sandbox';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import { bindOperationContext } from 'pyric/sandbox/internal';
-import { APP_TARGET, type PyricApp } from 'pyric/app';
+import { getInternalEnv } from '../sandbox/internal/sandbox-impl.js';
+import type { FirebaseApp } from '../app/types.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
+import {
+  defaultClientApp,
+  resolveClientApp,
+} from '../sandbox/internal/client-app.js';
 
 import {
   TARGET_SYMBOL,
@@ -21,7 +27,7 @@ import {
   type SandboxTarget,
   type SandboxLiveTarget,
 } from './state.js';
-import type { Firestore } from './types.js';
+import type { AppFirestore, Firestore } from './types.js';
 
 /**
  * Construct a Firestore handle. Three overloads dispatch by the
@@ -60,13 +66,39 @@ import type { Firestore } from './types.js';
  */
 export function getFirestore(ctx: SandboxContext): Firestore;
 export function getFirestore(sandbox: Sandbox): Firestore;
-export function getFirestore(app: PyricApp): Firestore;
-export function getFirestore(target: SandboxContext | Sandbox | PyricApp): Firestore;
-export function getFirestore(target: SandboxContext | Sandbox | PyricApp): Firestore {
+export function getFirestore(app: FirebaseApp): AppFirestore;
+export function getFirestore(): AppFirestore;
+export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): Firestore;
+export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): Firestore {
+  if (target === undefined) return getFirestore(defaultClientApp() as FirebaseApp);
   // Package resolution already selected the sandbox mirror before this code
-  // loaded, so a PyricApp can only unwrap to its Sandbox.
-  if (isPyricApp(target)) {
-    return getFirestore(target.sandbox);
+  // loaded, so a recognized FirebaseApp resolves to its private Sandbox.
+  const appRuntime = resolveClientApp(target);
+  if (appRuntime) {
+    return appRuntime.service('firestore/default', () => {
+      const { sandbox, session } = appRuntime;
+      let terminated = false;
+      appRuntime.onDelete(() => { terminated = true; });
+      const authScope = appRuntime.authScope;
+      if (authScope) {
+        appRuntime.onDelete(session.onCurrentUserChanged((user) => {
+          getInternalEnv(sandbox).reevaluateLiveListeners(user, authScope);
+        }));
+      }
+      const t: SandboxLiveTarget = {
+        kind: 'sandbox-live',
+        sandbox,
+        getDb: makeGetDb(sandbox, () => session.currentUser),
+        authScope,
+        own: (cleanup) => appRuntime.onDelete(cleanup),
+        assertUsable: () => {
+          if (terminated) {
+            throw new FirebaseError('failed-precondition', 'The client has already been terminated.');
+          }
+        },
+      };
+      return { [TARGET_SYMBOL]: t, app: target as FirebaseApp };
+    });
   }
   if (isSandboxContext(target)) {
     const chainable = getChainableFirestore(target);
@@ -129,7 +161,7 @@ export function actingAs(sandbox: Sandbox, identity: AuthState): Firestore {
  *
  * Sandbox-only. There is no prod analog (you cannot bypass deployed
  * security rules from a client), so this overload set accepts only a
- * `Sandbox` / `SandboxContext` / `PyricApp` — never a `FirebaseApp`.
+ * `Sandbox`, `SandboxContext`, or a privately-associated `FirebaseApp`.
  * Admin ops are identity-agnostic (rules are off), so the
  * handle is a FROZEN `sandbox` target: it does not track
  * `sandbox.currentUser`.
@@ -150,10 +182,13 @@ export function actingAs(sandbox: Sandbox, identity: AuthState): Firestore {
  */
 export function getAdminFirestore(sandbox: Sandbox): Firestore;
 export function getAdminFirestore(ctx: SandboxContext): Firestore;
-export function getAdminFirestore(app: PyricApp): Firestore;
-export function getAdminFirestore(target: Sandbox | SandboxContext | PyricApp): Firestore {
-  if (isPyricApp(target)) {
-    return getAdminFirestore(bindOperationContext(target.sandbox.withAuth(null), {
+export function getAdminFirestore(app: FirebaseApp): Firestore;
+export function getAdminFirestore(target: Sandbox | SandboxContext | FirebaseApp): Firestore {
+  const appRuntime = resolveClientApp(target);
+  if (appRuntime) {
+    appRuntime.assertAlive();
+    const sandbox = appRuntime.sandbox;
+    return getAdminFirestore(bindOperationContext(sandbox.withAuth(null), {
       source: { kind: 'app' },
       authLens: { mode: 'admin' },
     }));
@@ -168,20 +203,6 @@ export function getAdminFirestore(target: Sandbox | SandboxContext | PyricApp): 
 }
 
 /**
- * Brand-based test for the {@link PyricApp} overload. Direct Sandbox,
- * SandboxContext handles never carry the app-wrapper symbol.
- */
-function isPyricApp(
-  target: SandboxContext | Sandbox | PyricApp,
-): target is PyricApp {
-  return (
-    target !== null
-    && typeof target === 'object'
-    && APP_TARGET in target
-  );
-}
-
-/**
  * Brand-based test for the SandboxContext overload. Uses
  * `instanceof SandboxContextImpl` for robustness — structural
  * dispatch would silently break if `SandboxContext`'s shape ever
@@ -190,7 +211,7 @@ function isPyricApp(
  * Internal — consumers always call `getFirestore` and let the
  * dispatch figure it out.
  */
-function isSandboxContext(target: SandboxContext | Sandbox | PyricApp): target is SandboxContext {
+function isSandboxContext(target: SandboxContext | Sandbox | FirebaseApp): target is SandboxContext {
   return target instanceof SandboxContextImpl;
 }
 
@@ -205,7 +226,7 @@ function isSandboxContext(target: SandboxContext | Sandbox | PyricApp): target i
  * because every member of this set has been on `Sandbox` since v0
  * and `FirebaseApp` would have to grow all four to collide.
  */
-function isSandbox(target: SandboxContext | Sandbox | PyricApp): target is Sandbox {
+function isSandbox(target: SandboxContext | Sandbox | FirebaseApp): target is Sandbox {
   if (target === null || typeof target !== 'object') return false;
   const o = target as unknown as Record<string, unknown>;
   return (
@@ -230,9 +251,12 @@ function isSandbox(target: SandboxContext | Sandbox | PyricApp): target is Sandb
  * `request.auth == null`, matching production Firebase Auth's
  * "signed out" state.
  */
-function makeGetDb(sandbox: Sandbox): () => SandboxFirestore {
+function makeGetDb(
+  sandbox: Sandbox,
+  currentUser: () => AuthState = () => sandbox.currentUser,
+): () => SandboxFirestore {
   return () => {
-    const ctx = bindOperationContext(sandbox.withAuth(sandbox.currentUser), {
+    const ctx = bindOperationContext(sandbox.withAuth(currentUser()), {
       source: { kind: 'app' },
       authLens: { mode: 'app-session' },
     });

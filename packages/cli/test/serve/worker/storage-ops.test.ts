@@ -244,6 +244,31 @@ describe('storage worker ops — 8 MiB raw cap', () => {
 // ─── Auth lens + rules (spike risk 5: page-configured rules vs admin) ──────
 
 describe('storage worker ops — actAs lens against page-configured rules', () => {
+  it('an app-session Storage operation uses the initiating port session', async () => {
+    const ctx = makeCtx(OWNER_ONLY_RULES);
+    const messages: OutboundMessage[] = [];
+    const port: PortLike = { postMessage: (message) => messages.push(message) };
+    const send = async (payload: Record<string, unknown>): Promise<ResMessage> => {
+      const id = `sop-${++opSeq}`;
+      await handleMessage(ctx, port, { ...payload, t: 'op', id } as InboundMessage);
+      const response = messages.find((message): message is ResMessage => message.t === 'res' && message.id === id);
+      if (!response) throw new Error(`missing response ${id}`);
+      return response;
+    };
+
+    const signIn = await send({ method: 'auth.signInAnonymously' });
+    expect(signIn.ok).toBe(true);
+    if (!signIn.ok) return;
+    const uid = (signIn.value as { user: { uid: string } }).user.uid;
+
+    const put = await send({
+      method: 'storage.putBytes',
+      path: `users/${uid}/mine.txt`,
+      dataB64: bytesToBase64(new TextEncoder().encode('mine')),
+    });
+    expect(put.ok).toBe(true);
+  });
+
   it('deny-all rules: anonymous page ops are denied; the admin lens genuinely bypasses', async () => {
     const ctx = makeCtx(DENY_ALL_RULES);
     const dataB64 = bytesToBase64(binaryFixture());

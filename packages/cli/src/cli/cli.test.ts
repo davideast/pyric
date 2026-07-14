@@ -337,14 +337,13 @@ describe('runInit', () => {
     // package.json uses the directory basename as the project name
     const pkgCall = writeFn.mock.calls.find((c) => c[0] === '/tmp/scaffold/package.json');
     expect(pkgCall?.[1]).toContain('"name": "scaffold"');
-    // App template: PYRIC_TARGET env picks sandbox vs firebase backend
+    // App template stays canonical; the dev command owns package resolution.
     const appCall = writeFn.mock.calls.find((c) => c[0] === '/tmp/scaffold/src/app.ts');
-    expect(appCall?.[1]).toContain("from 'pyric/sandbox'");
-    expect(appCall?.[1]).toContain("from 'pyric/sandbox/firestore'");
-    expect(appCall?.[1]).toContain('PYRIC_TARGET');
-    expect(appCall?.[1]).toContain('const sandbox = target === \'firebase\' ? null : initializeSandbox()');
-    expect(appCall?.[1]).toContain('initializeApp({ sandbox: sandbox! })');
-    expect(appCall?.[1]).toContain("setRules(sandbox, readFileSync(rulesPath, 'utf8'))");
+    expect(appCall?.[1]).toContain("from 'firebase/app'");
+    expect(appCall?.[1]).toContain("from 'firebase/firestore'");
+    expect(appCall?.[1]).not.toContain("from 'pyric/");
+    expect(appCall?.[1]).toContain("projectId: process.env.FIREBASE_PROJECT_ID ?? 'pyric-local'");
+    expect(appCall?.[1]).not.toContain('initializeApp({ sandbox:');
   });
 
   it('honors --name override for the package name', async () => {
@@ -413,10 +412,11 @@ describe('runInit', () => {
 
     // Missing Pyric development scripts + deps added.
     expect(written.scripts.bridge).toBe('pyric bridge');
-    expect(written.scripts.dev).toBe('bun --watch src/app.ts');
+    expect(written.scripts.dev).toBe('pyric dev --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts');
     expect(Object.keys(written.scripts).some((name) => name.startsWith('deploy'))).toBe(false);
-    expect(written.dependencies.pyric).toBe('*');
-    expect(written.dependencies['@pyric/cli']).toBe('*');
+    expect(written.dependencies.firebase).toBe('^12.12.0');
+    expect(written.dependencies.pyric).toBeUndefined();
+    expect(written.devDependencies['@pyric/cli']).toBe('*');
     expect(written.devDependencies.typescript).toBe('^5.7.0');
 
     // User-facing report mentions the conflict on `start`.
@@ -436,12 +436,12 @@ describe('runInit', () => {
         type: 'module',
         private: true,
         scripts: {
-          start: 'bun src/app.ts',
-          dev: 'bun --watch src/app.ts',
+          start: 'node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
+          dev: 'pyric dev --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
           bridge: 'pyric bridge',
         },
-        dependencies: { pyric: '*', '@pyric/cli': '*' },
-        devDependencies: { '@types/bun': 'latest', typescript: '^5.7.0' },
+        dependencies: { firebase: '^12.12.0' },
+        devDependencies: { '@pyric/cli': '*', '@types/node': '^22.0.0', typescript: '^5.7.0' },
       },
       null,
       2,

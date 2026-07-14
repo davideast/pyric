@@ -107,6 +107,32 @@ function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | n
   }
 }
 
+/** Apply a forced ID-token refresh to this port's data authorization state. */
+function refreshPortAuthorization(
+  ctx: HostCtx,
+  port: PortLike,
+  session: MintedSession,
+  claims: Record<string, unknown>,
+): void {
+  session.state.token = { ...claims };
+
+  // Frozen sandbox.withAuth handles capture the old token. Clear all
+  // session-handle caches so this port and any same-uid sibling rebuild from
+  // their own current session state on the next operation.
+  ctx.sessionDbs?.clear();
+  ctx.sessionRtdbs?.clear();
+  ctx.sessionStorages?.clear();
+
+  // Existing Firestore/RTDB streams must reauthorize under the refreshed
+  // claims. A token refresh is not an auth-state transition, so notify only
+  // onIdTokenChanged observers with the still-current user.
+  ctx.resubscribePortSubs?.(port);
+  const serialized = serializeUser(session.user);
+  for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
+    if (target === 'idToken') post(port, { t: 'snap', subId, value: serialized });
+  }
+}
+
 /** Tear down a disconnected port's session (called from cleanupPort). */
 export function cleanupPortSession(ctx: HostCtx, port: PortLike): void {
   ctx.portSessions?.delete(port);
@@ -195,8 +221,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.getIdToken': {
       try {
-        const user = requireSessionUser(ctx, port, 'getIdToken');
+        const session = requirePortSession(ctx, port, 'getIdToken');
+        const user = session.user;
         const token = await user.getIdToken(msg.forceRefresh);
+        if (msg.forceRefresh) {
+          const result = await user.getIdTokenResult(false);
+          refreshPortAuthorization(ctx, port, session, result.claims);
+        }
         ok(port, msg.id, token);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -204,8 +235,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.getIdTokenResult': {
       try {
-        const user = requireSessionUser(ctx, port, 'getIdTokenResult');
+        const session = requirePortSession(ctx, port, 'getIdTokenResult');
+        const user = session.user;
         const r = await user.getIdTokenResult(msg.forceRefresh);
+        if (msg.forceRefresh) refreshPortAuthorization(ctx, port, session, r.claims);
         ok(port, msg.id, {
           token: r.token,
           claims: r.claims,
@@ -359,9 +392,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
 /** The port session's User, or throw `auth/no-current-user`. */
 function requireSessionUser(ctx: HostCtx, port: PortLike, api: string): User {
+  return requirePortSession(ctx, port, api).user;
+}
+
+function requirePortSession(ctx: HostCtx, port: PortLike, api: string): MintedSession {
   const session = portSession(ctx, port);
   if (!session) throw makeNoUserError(api);
-  return session.user;
+  return session;
 }
 
 /**

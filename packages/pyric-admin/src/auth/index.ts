@@ -77,6 +77,7 @@ import {
   getApp,
   type PyricAdminApp,
 } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 
 export interface CreateRequest {
   uid?: string;
@@ -894,6 +895,7 @@ export function getAuth(app?: PyricAdminApp): Auth {
         '`initializeApp({ sandbox })`.',
     );
   }
+  assertAdminAppActive(app);
   if (app[ADMIN_APP_TARGET] !== 'sandbox') {
     throw new TypeError('pyric-admin/auth: getAuth expected a sandbox admin app.');
   }

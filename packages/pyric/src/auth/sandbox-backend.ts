@@ -1,7 +1,7 @@
 /**
  * Sandbox backend for `pyric/auth`.
  *
- * Owns four pieces of per-sandbox state:
+ * Owns app-session state over a sandbox-shared project store:
  *   1. In-memory user database — emails / passwords / customClaims
  *      seeded via `sandbox.seedUsers(auth, …)` plus accounts created
  *      through `createUserWithEmailAndPassword`.
@@ -23,15 +23,14 @@
  *      `getIdToken(false)` reads return the cached token (matches
  *      prod — see `auth-getidtoken-force-refresh.json`).
  *
- * The "current user" itself lives on `sandbox.currentUser`. We don't
- * shadow it — the source of truth is the sandbox so future
- * `getFirestore(sandbox)` overloads (deferred follow-up PR) can read
- * the same value per-call.
+ * The current user lives on the injected session host. The default app and
+ * bare-sandbox API use `sandbox.currentUser`; named apps inject independent
+ * session hosts, while Firestore/RTDB/Storage read that app session per call.
  *
  * `signInAnonymously` / `signInWithEmailAndPassword` / `signOut` /
  * `sandbox.setUser` all flow through {@link setCurrentUser}, which
- * writes `sandbox.currentUser` and fans out to both listener
- * registries. The sandbox's own `currentUser` setter is idempotent,
+ * writes the session's `currentUser` and fans out to both listener
+ * registries. The session setter is idempotent,
  * so calling it with the same identity twice is a no-op.
  */
 
@@ -45,6 +44,10 @@ import {
 import type { SandboxTarget } from './target.js';
 import { sandboxTokenFor } from './sandbox-token.js';
 import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
+import {
+  createAuthProjectStore,
+  type AuthProjectStore,
+} from './sandbox/project-store.js';
 
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
@@ -91,17 +94,17 @@ export type {
 } from './sandbox-backend-types.js';
 
 /**
- * Per-sandbox backend state. One instance per `getAuth(sandbox)` —
- * memoized so repeat calls return the same backing store (matches
- * `firebase/auth`'s `getAuth(app)` idempotency).
+ * Per-app-session backend state. Repeated `getAuth(app)` calls are memoized;
+ * sibling app backends share account/provider maps but not currentUser,
+ * listeners, tokens, flow staging, or persistence mode.
  */
 export class SandboxBackend {
   /** Email → stored user. Lowercase keys so lookups are case-
    *  insensitive (matches upstream). */
-  private readonly usersByEmail = new Map<string, StoredUser>();
+  private readonly usersByEmail: Map<string, StoredUser>;
   /** UID → stored user. Lets `setUser` resolve customClaims for an
    *  arbitrary uid without scanning the email index. */
-  private readonly usersByUid = new Map<string, StoredUser>();
+  private readonly usersByUid: Map<string, StoredUser>;
 
   /** onAuthStateChanged registrations. Array, NOT a Set, so duplicate
    *  observer functions register independently — upstream backs each
@@ -116,7 +119,7 @@ export class SandboxBackend {
   private readonly idTokenSubs: Registration[] = [];
   /** `subscribeUsers` subscribers — coarse "user DB changed"
    *  callbacks; listeners re-list via `listUsers`. */
-  private readonly userDbSubs = new Set<() => void>();
+  private readonly userDbSubs: Set<() => void>;
 
   /** `beforeAuthStateChanged` registrations, in registration order.
    *  Mirrors upstream's `AuthMiddlewareQueue` (`auth_impl.ts`): an
@@ -126,7 +129,10 @@ export class SandboxBackend {
    *  disturb an in-flight `runBeforeStateChange` iteration. */
   private readonly beforeStateSubs: BeforeStateReg[] = [];
   /** Monotonic uid counter for `createUser` calls without a uid. */
-  private nextAdminUserId = 1;
+  private readonly sharedCounters: {
+    nextAdminUserId: number;
+    nextAnonymousId: number;
+  };
 
   /** Popup / redirect / credential flow-staging machinery — the
    *  one-shot mock registry, the injected resolver, and the pending
@@ -137,11 +143,10 @@ export class SandboxBackend {
    *  delegate here verbatim. */
   private readonly flow = new AuthFlowRegistry();
 
-  /** Monotonic uid counter for anonymous users. */
-  private nextAnonymousId = 1;
-
   /** Underlying sandbox — written to on every sign-in/out. */
   private readonly sandbox: Sandbox;
+  /** App-local session state. Bare-sandbox callers use the sandbox itself. */
+  private readonly session: Pick<Sandbox, 'currentUser' | 'onCurrentUserChanged'>;
   /** Cached `User` for `auth.currentUser` snapshots. Recomputed when
    *  the sandbox's currentUser changes; null on signed-out. */
   private cachedUser: User | null = null;
@@ -180,7 +185,7 @@ export class SandboxBackend {
    * browser restarts).
    *
    * Stored here on the backend so the persistence controller can read it
-   * without knowing about auth internals. The `auth/index.ts` top-level
+   * without knowing about auth internals. The `auth/modular.ts` top-level
    * `setPersistence` function writes this via `setPersistenceMode`; the
    * controller reads it via `getPersistenceMode` on every session save.
    *
@@ -230,15 +235,12 @@ export class SandboxBackend {
    * keeps signing in via email/password and anonymous auth unchanged
    * after this landed.
    */
-  private readonly providerConfig = new Map<string, boolean>([
-    ['password', true],
-    ['anonymous', true],
-  ]);
+  private readonly providerConfig: Map<string, boolean>;
 
   /** Subscribers to provider-config changes — the config analog of
    *  {@link userDbSubs}. Same coarse contract: no payload, re-read via
    *  {@link listProviderConfig} on each callback. */
-  private readonly providerConfigSubs = new Set<() => void>();
+  private readonly providerConfigSubs: Set<() => void>;
 
   /** When true, THIS backend's provider gate is delegated to a remote
    *  authority (see the {@link providerConfig} docstring's delegation
@@ -246,15 +248,25 @@ export class SandboxBackend {
    *  persisted: a runtime wiring decision, not project config. */
   private providerEnforcementDelegated = false;
 
-  constructor(sandbox: Sandbox) {
+  constructor(
+    sandbox: Sandbox,
+    session: Pick<Sandbox, 'currentUser' | 'onCurrentUserChanged'> = sandbox,
+    projectStore: AuthProjectStore = createAuthProjectStore(),
+    ownCleanup?: (cleanup: () => void) => void,
+  ) {
     this.sandbox = sandbox;
-    // Initialize cachedUser from whatever the sandbox currently has —
-    // a fresh sandbox starts at null, but if another Auth handle
-    // (or a manual mutation) already set a user, mirror it.
-    this.cachedUser = this.buildUserFromState(sandbox.currentUser);
-    // Subscribe to sandbox-level changes — covers cases where a
-    // future bridge (or another `getAuth` handle) mutates
-    // currentUser directly. Fans out to both listener registries.
+    this.session = session;
+    this.usersByEmail = projectStore.usersByEmail;
+    this.usersByUid = projectStore.usersByUid;
+    this.userDbSubs = projectStore.userDbSubscribers;
+    this.providerConfig = projectStore.providerConfig;
+    this.providerConfigSubs = projectStore.providerConfigSubscribers;
+    this.sharedCounters = projectStore.counters;
+    // Initialize cachedUser from the injected session host.
+    this.cachedUser = this.buildUserFromState(session.currentUser);
+    this.lastNotifiedUid = this.cachedUser?.uid ?? null;
+    // Subscribe to session-level changes, including direct sandbox mutations
+    // for the default/bare-sandbox session host.
     //
     // Critically, this must NOT clobber a richer `User` that
     // `setCurrentUser` already cached for the SAME identity. Sign-in
@@ -271,7 +283,7 @@ export class SandboxBackend {
     // `_updateCurrentUser(userCredential.user)` makes the credential's
     // user the live `currentUser` — same fields, same reference
     // (`core/strategies/anonymous.ts:60-68`, `auth_impl.ts:714-719`).
-    sandbox.onCurrentUserChanged((state) => {
+    const unsubscribeSession = session.onCurrentUserChanged((state) => {
       // `setCurrentUser` owns the fan-out for transitions it drives (it
       // calls `notifyAuthListeners` itself with the right id-token /
       // auth-state split). Skip here so we don't double-notify.
@@ -285,6 +297,12 @@ export class SandboxBackend {
       // handle): notify with the same id-token-always / auth-state-on-
       // uid-change rule.
       this.notifyAuthListeners();
+    });
+    ownCleanup?.(() => {
+      unsubscribeSession();
+      this.authStateSubs.length = 0;
+      this.idTokenSubs.length = 0;
+      this.beforeStateSubs.length = 0;
     });
   }
 
@@ -449,7 +467,7 @@ export class SandboxBackend {
           service: 'auth',
           op,
           path: fields.path,
-          auth: fields.auth ?? this.sandbox.currentUser,
+          auth: fields.auth ?? this.session.currentUser,
           before: fields.before,
           after: fields.after,
           detail: fields.detail,
@@ -1179,7 +1197,7 @@ export class SandboxBackend {
       this.cachedUser = null;
       this.applyingTransition = true;
       try {
-        this.sandbox.currentUser = null;
+        this.session.currentUser = null;
       } finally {
         this.applyingTransition = false;
       }
@@ -1232,7 +1250,7 @@ export class SandboxBackend {
     const nextState: AuthState = { uid: user.uid, token: claims };
     this.applyingTransition = true;
     try {
-      this.sandbox.currentUser = nextState;
+      this.session.currentUser = nextState;
     } finally {
       this.applyingTransition = false;
     }
@@ -1473,7 +1491,7 @@ export class SandboxBackend {
    *  `createUserWithEmailAndPassword`) — matches the emulator's
    *  add-user flow / admin SDK semantics. */
   createUser(req: CreateUserRequest): AuthUserRecord {
-    const uid = req.uid ?? `user-${this.nextAdminUserId++}`;
+    const uid = req.uid ?? `user-${this.sharedCounters.nextAdminUserId++}`;
     if (this.usersByUid.has(uid)) {
       throw makeAuthError(
         'auth/uid-already-exists',
@@ -1646,7 +1664,7 @@ export class SandboxBackend {
    *  the emulator) so `listIdentities` / future user-admin surfaces
    *  see anonymous accounts too. */
   mintAnonymousUser(): User {
-    const uid = `anonymous-${this.nextAnonymousId++}`;
+    const uid = `anonymous-${this.sharedCounters.nextAnonymousId++}`;
     const record = this.makeStored({ uid, isAnonymous: true });
     this.usersByUid.set(uid, record);
     this.notifyUsersChanged();

@@ -9,8 +9,10 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -265,14 +267,50 @@ describe('pyric init v2 — CLI surface', () => {
     expect(result.template).toBe('node');
     expect(existsSync(join(dir, 'src/app.ts'))).toBe(true);
     expect(existsSync(join(dir, 'public'))).toBe(false);
-    // graduation is the PYRIC_TARGET env swap, not a hand edit
+    // App code stays canonical; the dev command installs the Node swap.
     const appTs = readFileSync(join(dir, 'src/app.ts'), 'utf8');
-    expect(appTs).toContain('process.env.PYRIC_TARGET');
+    expect(appTs).toContain("from 'firebase/app'");
+    expect(appTs).toContain("from 'firebase/firestore'");
+    expect(appTs).not.toContain("from 'pyric/");
     expect(existsSync(join(dir, '.env.example'))).toBe(true);
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-    expect(pkg.dependencies.pyric).toBe('*');
-    expect(pkg.scripts.start).toBe('bun src/app.ts');
+    expect(pkg.dependencies.firebase).toMatch(/^\^/);
+    expect(pkg.dependencies.pyric).toBeUndefined();
+    expect(pkg.scripts.dev).toContain('pyric dev');
+    expect(pkg.scripts.start).toContain('node');
   });
+
+  it('--template node executes its TypeScript entry through the documented Node path', async () => {
+    const dir = tmp();
+    expect(await runInit(
+      args([], { template: 'node', json: true }),
+      capture().deps(dir),
+    )).toBe(0);
+    symlinkSync(join(import.meta.dirname, '../../../../node_modules'), join(dir, 'node_modules'), 'dir');
+
+    const result = spawnSync(
+      'node',
+      [
+        '--import',
+        new URL('../../dist/register/index.js', import.meta.url).href,
+        '--env-file-if-exists=.env',
+        '--experimental-strip-types',
+        'src/app.ts',
+      ],
+      {
+        cwd: dir,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PYRIC_SANDBOX: 'local',
+        },
+        timeout: 20_000,
+      },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('2 posts:');
+  }, 30_000);
 });
 
 describe('pyric init v2 — production handoff', () => {
@@ -360,15 +398,15 @@ describe('pyric init output contract', () => {
         'vite.config.ts': '2c4fd6ee8faa56bc468283b99d587d25f89c0c26efebdbb9d5046b76c2f4a005',
       },
       node: {
-        '.env.example': 'e60553a1045edd51d9df5f4057e9f920fa21fcf0742e0df945628f6958e67ddf',
+        '.env.example': '20b0fec5308501f75cab4d6026678eefbbbef0001bfabaa17c66d92e67c9d582',
         '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
-        'README.md': '150bd778e17e4c5a1b3ab87f8e234290f52f67d63a5965e5f501477e93399543',
+        'README.md': '80980e88cdcc1d4e261cd2b65748cd68290a24255bbae01e512d4a64ea52198f',
         'firebase.json': 'e817f89d2f9776ba460ec062be7d40f827b8f910d740cff2522b72232f1cdf5a',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '9028ecbf9580fee3a04afae28223bad887df81c814d14d2ebe983d30f3a49080',
-        'package.json': '96524aef187496ccda772db4378f642b7fc20656862c71f785b9163b7e6664c2',
-        'src/app.ts': '93d6c24bbea61702e9cc23cc5e3a8ae5c8aaef785e098b18d53ae95b4f353a75',
-        'src/seed.ts': 'cf9a890fcc9e1f4a836bf5c150573978a0af454763077fcf4aaed5199d04ded8',
+        'package.json': '7d57614df14281e451465b0286ee7e702bf3dac8d16e36c16a86c029d7aeb46f',
+        'src/app.ts': '7833e1f764904c9e800cd5728ab0cc68df0347d9b5e6a2084be79f75b35958e5',
+        'src/seed.ts': '6f04998f57b899fa7189706553645247f4b354715e899bb8070269b0564c1124',
       },
       static: {
         '.env.example': '18c3e06dc3745d958ab69b314618808d7b0d0f31fad4db05552bf5c9c6613c92',

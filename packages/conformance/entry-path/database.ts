@@ -8,15 +8,13 @@
  *     (the `writeUserData` `ref` + `set` example, and the `child` + `get`
  *     "read data once" example)
  *
- * The only adjustment pyric requires: `initializeApp({ sandbox:
- * initializeSandbox() })` in place of `initializeApp(firebaseConfig)`.
+ * Initialization is exactly Firebase-shaped; package resolution selects Pyric.
  */
 import { initializeApp } from 'pyric/app';
-import { initializeSandbox } from 'pyric/sandbox';
 import { getDatabase, ref, set, child, get } from 'pyric/database';
 
 export async function run(): Promise<void> {
-  const app = initializeApp({ sandbox: initializeSandbox() });
+  const app = initializeApp({ projectId: 'entry-path-project' });
   const db = getDatabase(app);
 
   // https://firebase.google.com/docs/database/web/read-and-write —

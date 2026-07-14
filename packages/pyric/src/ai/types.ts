@@ -23,7 +23,7 @@ import type {
   Role,
   SchemaType,
 } from './enums.js';
-import type { SandboxApp } from '../sandbox/internal/app-handle.js';
+import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import type { AiBroker } from './broker/broker.js';
 import type { AnswerEngine, EngineConfig } from './broker/types.js';
@@ -40,17 +40,34 @@ export interface AIOptions {
 
 /** Sandbox AI handle. Direct sandbox handles have no `app`. */
 export interface AI {
-  app?: SandboxApp;
+  app?: FirebaseApp;
   backend: Backend;
   location: string;
   options?: AIOptions;
 }
 
+/** AI handle returned by Firebase-shaped app overloads. */
+export type AppAI = AI & { readonly app: FirebaseApp };
+
 /** Per-handle sandbox dispatch state. */
 export interface SandboxTarget {
+  kind: 'sandbox';
   sandbox: Sandbox;
   broker: AiBroker;
+  /** App-backed handles assert their container is live before every operation. */
+  assertAlive?: () => void;
 }
+
+/** Adapter-owned transport target. It deliberately has no local sandbox or broker. */
+export interface TransportTarget {
+  kind: 'transport';
+  transport: AnswerEngine;
+  /** App-backed handles assert their container is live before every operation. */
+  assertAlive?: () => void;
+}
+
+/** Internal dispatch state carried by every branded AI handle. */
+export type AITarget = SandboxTarget | TransportTarget;
 
 export interface Date {
   year: number;

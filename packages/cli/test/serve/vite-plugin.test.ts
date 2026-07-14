@@ -88,6 +88,8 @@ describe('resolveId — the importer-aware swap', () => {
     expect(resolveId('firebase/auth', userImporter)).toBe(entries.auth);
     expect(resolveId('firebase/firestore', userImporter)).toBe(entries.firestore);
     expect(resolveId('firebase/storage', userImporter)).toBe(entries.storage);
+    expect(resolveId('firebase/messaging', userImporter)).toBe(entries.messaging);
+    expect(resolveId('firebase/messaging/sw', userImporter)).toBe(entries['messaging-sw']);
   });
 
   it('swaps a node_modules library importer too (transitive deps)', () => {
@@ -337,6 +339,7 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     expect(init.rules).toContain('rules_version');
     expect(typeof init.rulesHash).toBe('string');
     expect(init.persist).toBe(false);
+    expect(init.messaging).toBe(true);
     // DNS-rebinding guard: a forged Host is refused before the namespace runs.
     const forged = await callPyric(handler, { path: '/__pyric/init.json', host: 'evil.example' });
     expect(forged.statusCode).toBe(403);

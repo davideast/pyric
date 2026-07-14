@@ -11,7 +11,7 @@ order: 8004
 
 > **Surface coverage:** 82.4% of Firebase's public exports · 83.3% of what pyric intends to mirror
 >
-> **Fidelity:** 81.5% (97 of 119 tracked claims match production)
+> **Fidelity:** 81.8% (99 of 121 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
@@ -42,7 +42,7 @@ means a Bun test in `packages/auth/test/<file>`.
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returns a stable <code>Auth</code> handle for repeat calls with the same sandbox or sandbox-backed <code>PyricApp</code> — one backend and handle per sandbox</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returns a stable <code>Auth</code> handle for repeated calls with the same input</span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code> + canonical Node register child (<code>register-child.test.ts</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -61,6 +61,19 @@ means a Bun test in `packages/auth/test/<file>`.
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>auth.currentUser</code> is a live getter, not a snapshot — reads through to the backend on every access</span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">implicit in <code>unit:sandbox-anonymous.test.ts</code></div></div>
+</details>
+</div>
+
+## Multi-app Auth session topology
+
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Equal-config Firebase apps have independent active Auth sessions; signing in or out on one app does not change another app's currentUser</span></span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-production-multi-app-topology</code> (firebase 12.13.0, real Chromium against production) + twin replay: <code>packages/pyric/test/app/production-multi-app-oracle.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">After the sibling receives the LOCAL persistence event, same-named Firebase app instances in sibling tabs keep independent active Auth sessions; an anonymous sign-in in one tab does not update the sibling tab's currentUser during the bounded post-signal observation window</span></span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>app-production-cross-tab-auth-persistence</code> (firebase 12.13.0, two real Chromium pages in one browser context) + served twin: <code>packages/cli/test/e2e/app-multi-app.pw.ts</code></div></div>
 </details>
 </div>
 

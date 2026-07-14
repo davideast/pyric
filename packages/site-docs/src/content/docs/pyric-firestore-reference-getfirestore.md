@@ -10,12 +10,15 @@ Constructs a Firestore handle owned by the Pyric sandbox mirror.
 
 ## Signatures
 ```ts
+function getFirestore(): Firestore;
 function getFirestore(context: SandboxContext): Firestore;
 function getFirestore(sandbox: Sandbox): Firestore;
-function getFirestore(app: PyricApp): Firestore;
+function getFirestore(app: FirebaseApp): Firestore;
 ```
-`PyricApp` is the sandbox app returned when package resolution has swapped
-canonical `firebase/app` imports to `pyric/app`.
+The `FirebaseApp` overload accepts the Firebase-shaped app returned after
+package resolution swaps canonical `firebase/app` imports to `pyric/app`.
+With no argument, `getFirestore()` resolves the registered default app,
+matching `firebase/firestore`.
 
 ## `SandboxContext`
 ```ts
@@ -31,7 +34,7 @@ const db = getFirestore(sandbox);
 Each operation reads `sandbox.currentUser`. This form follows authentication
 changes made through the matching `pyric/auth` sandbox.
 
-## `PyricApp`
+## `FirebaseApp`
 ```ts
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
@@ -40,8 +43,9 @@ const app = initializeApp({ projectId: 'demo' });
 const db = getFirestore(app);
 ```
 When a Pyric activation seam is active, both canonical imports resolve to the
-sandbox packages and `app` owns a `Sandbox`. Without activation, both imports
-remain Firebase and Firebase's own `getFirestore` runs instead.
+sandbox packages and the app is privately associated with the shared sandbox.
+Without activation, both imports remain Firebase and Firebase's own
+`getFirestore` runs instead.
 
 ## Invalid input
 

@@ -11,7 +11,7 @@ order: 8005
 
 > **Surface coverage:** 64.8% of Firebase's public exports · 79.5% of what pyric intends to mirror
 >
-> **Fidelity:** 77% (154 of 200 tracked claims match production)
+> **Fidelity:** 76.6% (154 of 201 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
@@ -296,7 +296,7 @@ tooling coverage and are not exports of `pyric/database`.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>update(rootRef, { '/a/x': v1, '/b/y': v2 })</code> is a multi-path atomic write — all paths land or none do</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/sandbox-target.test.ts</code> ("writes every listed path atomically" + "rejects the entire update if rules deny any one path"); matches the matrix #23 prod contract</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-rtdb-probes.test.ts</code> ("one update nulls, mutates, and displaces within a limitToFirst window") + <code>unit:modular/sandbox-target.test.ts</code> (atomic multipath + rules denial); matches the matrix #23 prod contract</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Overlapping multi-path updates (one path is a descendant of another) reject before any path is written</span></span></summary>
@@ -380,7 +380,7 @@ tooling coverage and are not exports of `pyric/database`.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>onChildRemoved</code> has NO initial replay; fires once when a direct child is deleted (via <code>remove(child)</code> or <code>set(child, null)</code>); snapshot carries the PRIOR (now-removed) value</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/sandbox-child-events.test.ts</code> ("fires once when a child is deleted via remove(); snapshot carries PRIOR val" + "fires once when a child is deleted via set(child, null); snapshot carries PRIOR val"); matches oracle observation <code>packages/conformance/observations/rtdb-modular/rtdb-modular-onchildremoved-fires-on-delete.json</code> (<code>firedOnInitial: 0, firedOnDelete: 1, removedSnapCarriesPriorValue: true</code>).</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-rtdb-probes.test.ts</code> (parent wipe fan-out via remove(parent) / set(parent, scalar)) + <code>unit:modular/sandbox-child-events.test.ts</code> (single-child delete carries PRIOR val); matches oracle <code>rtdb-modular-onchildremoved-fires-on-delete.json</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>onChildMoved</code> on a plain ref (no <code>query(_, orderBy*)</code>) NEVER fires — per RTDB docs, child_moved emits only under ordered queries</span></span></summary>
@@ -412,7 +412,7 @@ tooling coverage and are not exports of `pyric/database`.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>query(ref, ...constraints)</code> + ordering/range constraints</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/queries.test.ts</code> covers <code>query(ref, orderByChild/Key/Value, startAt/After, endAt/Before, equalTo, limitToFirst/Last)</code> against the executor in <code>packages/pyric/src/database/sandbox/query.ts</code>; oracle observations under <code>packages/conformance/observations/rtdb-modular/rtdb-modular-{orderbychild-window,orderbykey-window,orderbyvalue-numeric,equalTo-filter,limittofirst-vs-limittolast,startafter-endbefore-exclusive,onvalue-with-query}.json</code> lock each constraint's behavior. See M49–M64 below for the per-claim breakdown.</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-rtdb-probes.test.ts</code> ("orderByChild('a/b') + limitToFirst orders by the nested path") + <code>unit:modular/queries.test.ts</code> + oracle observations under <code>packages/conformance/observations/rtdb-modular/</code>; see M49–M64 for the per-claim breakdown.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>runTransaction(ref, fn, options?)</code> resolves to <code>{ committed: boolean, snapshot: DataSnapshot }</code> for the happy path — the update fn return value is written, committed is <code>true</code>, and <code>snapshot.val()</code> reflects the committed value</span></span></summary>
@@ -464,11 +464,11 @@ tooling coverage and are not exports of `pyric/database`.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>query(ref, orderByChild(p), startAt(v), endAt(w))</code> window is BOTH-INCLUSIVE — children whose ordered field === <code>v</code> or === <code>w</code> are included</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/queries.test.ts</code> ("returns children whose ordered child is within [startAt, endAt] inclusive"); matches oracle observation <code>packages/conformance/observations/rtdb-modular/rtdb-modular-orderbychild-window.json</code> (positions <code>[2,3,4]</code>, both ends inclusive).</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-rtdb-probes.test.ts</code> (deep orderByChild nested path) + <code>unit:modular/queries.test.ts</code> ("returns children whose ordered child is within [startAt, endAt] inclusive"); matches oracle <code>rtdb-modular-orderbychild-window.json</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>orderByKey()</code> orders children by RTDB <code>nameCompare</code> — integer-looking keys sort numerically FIRST (so <code>['1','2','10']</code>, not the lexicographic <code>['1','10','2']</code>), then non-integer keys lexicographically; <code>startAt</code>/<code>endAt</code> cursors + the optional <code>key</code> tie-breaker use the same order (DB-B4)</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/queries.test.ts</code> ("orderByKey + startAt(s) + endAt(e) yields keys in [s,e] inclusive") + <code>unit:modular/name-compare.test.ts</code> ("orderByKey sorts integer keys numerically, before non-integer keys" + "numeric-key cursor uses nameCompare bounds"); matches oracle <code>rtdb-modular-orderbykey-window.json</code> and upstream <code>core/util/util.ts:253-276</code>.</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-rtdb-probes.test.ts</code> (INT32 overflow/underflow cursors) + <code>unit:modular/queries.test.ts</code> + <code>unit:modular/name-compare.test.ts</code>; matches oracle <code>rtdb-modular-orderbykey-window.json</code> and upstream <code>core/util/util.ts:253-276</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>orderByValue()</code> orders primitive children by their value; <code>limitToFirst(N)</code> returns the N smallest, ascending</span></span></summary>
@@ -500,7 +500,7 @@ tooling coverage and are not exports of `pyric/database`.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>onValue(query, cb)</code> only fires when the windowed result changes — writes OUTSIDE the window don't re-fire the listener; writes that displace a member DO</span></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Sandbox aligned: <code>unit:modular/queries.test.ts</code> ("fires only when the windowed result changes"); matches oracle observation <code>packages/conformance/observations/rtdb-modular/rtdb-modular-onvalue-with-query.json</code> (3 fires: initial + INSIDE-window write + displacing write; OUTSIDE-window write skipped).</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-rtdb-probes.test.ts</code> ("one update nulls, mutates, and displaces within a limitToFirst window") + <code>unit:modular/queries.test.ts</code> ("fires only when the windowed result changes"); matches oracle <code>rtdb-modular-onvalue-with-query.json</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>onValue(query)</code> initial fire delivers an empty window (<code>numChildren() === 0</code>) when the path is absent</span></span></summary>
@@ -828,6 +828,10 @@ Simulation and structure crawling are sandbox/CLI operations; rules authoring an
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">The returned unsubscribe function from <code>onValue(ref, cb)</code> is equivalent to <code>off(ref, 'value', cb)</code></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Sandbox aligned (M48); oracle: <code>packages/conformance/observations/rtdb/rtdb-onvalue-unsub-equivalence.json</code> — <code>unsubReturnType: 'function'</code>, <code>unsubReturnedFnStopsListener: true</code> (the captured return value halted fires on write), <code>offRefValueCbStopsListener: true</code> (the same effect via <code>off(ref, 'value', cb)</code>), <code>bothFormsEquivalent: true</code>.</div></div>
+</details>
+<details class="compat-row" data-status="unverified">
+<summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><span class="compat-behavior">When the same callback is registered more than once, each <code>off(ref, eventType, callback)</code> removes one registration without orphaning the others</span></span></summary>
+<div class="compat-evidence"><div class="compat-probe">Pyric behavior is locked by <code>packages/pyric/test/app/multi-app-listener-auth.test.ts</code>; a production duplicate-registration oracle capture is still needed</div></div>
 </details>
 </div>
 

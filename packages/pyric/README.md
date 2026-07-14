@@ -11,7 +11,7 @@ Rules tooling and explicit sandbox controls.
 
 | Subpath | Surface |
 |---|---|
-| `pyric/app` | Sandbox app registry |
+| `pyric/app` | Firebase-shaped default and named app registry |
 | `pyric/firestore` | Firestore modular mirror and data/inspection tools |
 | `pyric/auth` | Auth modular mirror and sandbox auth helpers |
 | `pyric/database` | Realtime Database modular mirror |
@@ -27,10 +27,9 @@ service-specific sandbox controls and adapter-only internal seams.
 
 ```ts
 import { initializeApp } from 'pyric/app';
-import { initializeSandbox } from 'pyric/sandbox';
 import { collection, getDocs, getFirestore } from 'pyric/firestore';
 
-const app = initializeApp({ sandbox: initializeSandbox() });
+const app = initializeApp({ projectId: 'demo-project' });
 const db = getFirestore(app);
 const snap = await getDocs(collection(db, 'posts'));
 ```
@@ -39,6 +38,10 @@ Application code normally keeps canonical `firebase/*` imports.
 `@pyric/cli/vite`, `pyric dev`, or `@pyric/cli/register` activates development
 resolution to these mirrors. With activation absent, production loads Firebase
 directly; `pyric` contains no production dispatch.
+
+Pyric currently accepts one Firebase configuration per runtime. Default and
+named apps with equal options are distinct service containers connected to the
+same sandbox backend.
 
 ## Documentation
 

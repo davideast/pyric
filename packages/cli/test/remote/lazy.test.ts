@@ -166,9 +166,17 @@ describe('createLazyRemoteSandbox', () => {
 
 describe('remoteSandbox', () => {
   it('is synchronous and fails fast on the first op when nothing is listening', async () => {
-    const lazy = remoteSandbox({ url: 'http://127.0.0.1:1' });
+    const server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: () => new Response(),
+    });
+    const url = `http://127.0.0.1:${server.port}`;
+    server.stop(true);
+
+    const lazy = remoteSandbox({ url });
     expect(lazy[REMOTE_SANDBOX]).toBe(true);
-    expect(lazy.serveUrl).toBe('http://127.0.0.1:1');
+    expect(lazy.serveUrl).toBe(url);
     expect(lazy.channel.op({ method: 'getSnapshot' })).rejects.toThrow(/failed to connect|timed out/);
   });
 });

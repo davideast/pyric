@@ -14,6 +14,8 @@ import type { InboundMessage, OutboundMessage } from '../protocol.js';
 // with the worker host + the sandbox's event provenance. Erased at build, so the
 // leaf client bundle stays engine-free.
 import type { AuthLens, SandboxEvent } from 'pyric/sandbox';
+import { FirebaseError } from 'pyric/app';
+import type { ClientPort } from './handles.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
 
@@ -29,6 +31,7 @@ export function nextSubId(): string { return `sub-${++_subCounter}`; }
  * on failure.
  */
 export const _pending = new Map<string, {
+  port: ClientPort;
   resolve: (v: unknown) => void;
   reject: (e: Error & { code: string }) => void;
 }>();
@@ -38,8 +41,11 @@ export const _pending = new Map<string, {
  * `next` is the user-supplied callback; `error` is the optional error handler.
  */
 export const _snapSubs = new Map<string, {
+  port: ClientPort;
   next: (snap: unknown) => void;
   error?: (err: unknown) => void;
+  /** Firestore listeners abort on app deletion; RTDB/Auth stop silently. */
+  service?: 'firestore';
 }>();
 
 /**
@@ -47,10 +53,80 @@ export const _snapSubs = new Map<string, {
  * `next` receives each delivered BATCH of `SandboxEvent`s — the first batch is
  * the initial `history()` snapshot, subsequent batches are single live events.
  */
-export const _eventSubs = new Map<string, (events: readonly SandboxEvent[]) => void>();
+export const _eventSubs = new Map<string, {
+  port: ClientPort;
+  next: (events: readonly SandboxEvent[]) => void;
+}>();
+const disconnectedPorts = new WeakSet<ClientPort>();
+
+function appDeletedError(): Error & { code: string } {
+  return Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' });
+}
+
+export function isDisconnectedPort(port: ClientPort): boolean {
+  return disconnectedPorts.has(port);
+}
+
+/** Atomically register and post a subscription unless its app port is closed. */
+export function openSnapshotSubscription(
+  port: ClientPort,
+  subId: string,
+  subscription: (typeof _snapSubs extends Map<string, infer T> ? T : never),
+  message: InboundMessage,
+): boolean {
+  if (disconnectedPorts.has(port)) return false;
+  _snapSubs.set(subId, subscription);
+  port.postMessage(message);
+  return true;
+}
+
+/** Atomically register an event-stream subscription unless its port is closed. */
+export function openEventSubscription(
+  port: ClientPort,
+  subId: string,
+  next: (events: readonly SandboxEvent[]) => void,
+  message: InboundMessage,
+): boolean {
+  if (disconnectedPorts.has(port)) return false;
+  _eventSubs.set(subId, { port, next });
+  port.postMessage(message);
+  return true;
+}
+
+/** Remove a local subscription and notify only a live app port. */
+export function closeSubscription(port: ClientPort, subId: string): void {
+  _snapSubs.delete(subId);
+  _eventSubs.delete(subId);
+  if (!disconnectedPorts.has(port)) {
+    port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+  }
+}
+
+/** Drop every client-side correlation owned by a closing app port. */
+export function disconnectPort(port: ClientPort): void {
+  disconnectedPorts.add(port);
+  const error = appDeletedError();
+  for (const [id, pending] of [..._pending]) {
+    if (pending.port !== port) continue;
+    _pending.delete(id);
+    pending.reject(error);
+  }
+  for (const [id, subscription] of [..._snapSubs]) {
+    if (subscription.port !== port) continue;
+    _snapSubs.delete(id);
+    if (subscription.service === 'firestore') {
+      subscription.error?.(new FirebaseError('aborted', 'The operation was aborted.'));
+    }
+  }
+  for (const [id, subscription] of [..._eventSubs]) {
+    if (subscription.port !== port) continue;
+    _eventSubs.delete(id);
+  }
+  port.onmessage = null;
+}
 
 /** Wire up the port's onmessage handler (idempotent per-port). */
-export function wirePort(port: MessagePort): void {
+export function wirePort(port: ClientPort): void {
   port.onmessage = (ev: MessageEvent<OutboundMessage>) => {
     const msg = ev.data;
     if (msg.t === 'res') {
@@ -103,8 +179,8 @@ export function wirePort(port: MessagePort): void {
     } else if (msg.t === 'event') {
       // Event-stream batch (Pyric Studio keystone). Plain JSON SandboxEvents —
       // no rehydration. Deliver the whole batch to the registered subscriber.
-      const cb = _eventSubs.get(msg.subId);
-      if (cb) cb(msg.events);
+      const subscription = _eventSubs.get(msg.subId);
+      if (subscription) subscription.next(msg.events);
     }
   };
 }
@@ -186,16 +262,21 @@ export function stampIssuer<T extends { t?: string }>(msg: T): T {
  * stamping. The RELAY path ({@link relayWorkerOp}) sends through this so
  * remote frames pass verbatim.
  */
-export function rawRpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
+export function rawRpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
+  if (disconnectedPorts.has(port)) return Promise.reject(appDeletedError());
   return new Promise<unknown>((resolve, reject) => {
     const opMsg = msg as { id: string };
-    _pending.set(opMsg.id, { resolve, reject: reject as (e: Error & { code: string }) => void });
+    _pending.set(opMsg.id, {
+      port,
+      resolve,
+      reject: reject as (e: Error & { code: string }) => void,
+    });
     port.postMessage(msg);
   });
 }
 
 /** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
-export function rpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
+export function rpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
   return rawRpc(port, stampIssuer(msg));
 }
 
@@ -208,7 +289,12 @@ export function rpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
  * `actAs` is only attached when a lens is active — when none is set the wire
  * message is byte-identical to before, preserving the additive contract.
  */
-export function dataRpc(port: MessagePort, msg: InboundMessage & { t: 'op' }): Promise<unknown> {
+export function dataRpc(port: ClientPort, msg: InboundMessage & { t: 'op' }): Promise<unknown> {
+  if (disconnectedPorts.has(port) && !msg.method.startsWith('rtdb.')) {
+    return Promise.reject(
+      new FirebaseError('failed-precondition', 'The client has already been terminated.'),
+    );
+  }
   const withLens = _defaultLens ? { ...msg, actAs: _defaultLens } : msg;
   return rpc(port, withLens);
 }

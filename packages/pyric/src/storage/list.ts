@@ -24,7 +24,7 @@
  * that semantic exactly.
  */
 import { ref, type StorageReference } from './reference.js';
-import { getStorageService, storageOperationProvenance, targetOf } from './service.js';
+import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 
 /**
@@ -55,7 +55,7 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
   // no rules are configured this is a no-op (open-by-default).
   enforceRules(service, {
     request: {
-      auth: target.context.auth,
+      auth: storageAuth(target),
       method: 'list',
       path: refIn.fullPath,
     },

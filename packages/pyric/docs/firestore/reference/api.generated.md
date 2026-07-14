@@ -433,6 +433,10 @@ Opaque sandbox handle carrying its owner via [TARGET\_SYMBOL](#target_symbol-1).
 
 > `readonly` **\[TARGET\_SYMBOL\]**: `Target`
 
+##### app?
+
+> `readonly` `optional` **app**: `FirebaseApp`
+
 ***
 
 ### FirestoreDataConverter
@@ -873,6 +877,20 @@ Aggregate-field descriptor returned by `count()` / `sum(field)` /
 > **AggregateSpec** = `Record`\<`string`, [`AggregateField`](#aggregatefield)\>
 
 Spec passed to `getAggregateFromServer(query, spec)`.
+
+***
+
+### AppFirestore
+
+> **AppFirestore** = [`Firestore`](#firestore) & `object`
+
+Firestore handle returned by Firebase-shaped app overloads.
+
+#### Type Declaration
+
+##### app
+
+> `readonly` **app**: `FirebaseApp`
 
 ***
 
@@ -1507,7 +1525,7 @@ not a parallel reimplementation.
 
 Sandbox-only. There is no prod analog (you cannot bypass deployed
 security rules from a client), so this overload set accepts only a
-`Sandbox` / `SandboxContext` / `PyricApp` — never a `FirebaseApp`.
+`Sandbox`, `SandboxContext`, or a privately-associated `FirebaseApp`.
 Admin ops are identity-agnostic (rules are off), so the
 handle is a FROZEN `sandbox` target: it does not track
 `sandbox.currentUser`.
@@ -1553,7 +1571,7 @@ not a parallel reimplementation.
 
 Sandbox-only. There is no prod analog (you cannot bypass deployed
 security rules from a client), so this overload set accepts only a
-`Sandbox` / `SandboxContext` / `PyricApp` — never a `FirebaseApp`.
+`Sandbox`, `SandboxContext`, or a privately-associated `FirebaseApp`.
 Admin ops are identity-agnostic (rules are off), so the
 handle is a FROZEN `sandbox` target: it does not track
 `sandbox.currentUser`.
@@ -1599,7 +1617,7 @@ not a parallel reimplementation.
 
 Sandbox-only. There is no prod analog (you cannot bypass deployed
 security rules from a client), so this overload set accepts only a
-`Sandbox` / `SandboxContext` / `PyricApp` — never a `FirebaseApp`.
+`Sandbox`, `SandboxContext`, or a privately-associated `FirebaseApp`.
 Admin ops are identity-agnostic (rules are off), so the
 handle is a FROZEN `sandbox` target: it does not track
 `sandbox.currentUser`.
@@ -1613,7 +1631,7 @@ uid }))` instead.
 
 ###### app
 
-`PyricApp`
+`FirebaseApp`
 
 ##### Returns
 
@@ -1934,7 +1952,7 @@ const db = getFirestore(app);
 
 #### Call Signature
 
-> **getFirestore**(`app`): [`Firestore`](#firestore)
+> **getFirestore**(`app`): [`AppFirestore`](#appfirestore)
 
 Construct a Firestore handle. Three overloads dispatch by the
 input's shape:
@@ -1952,11 +1970,11 @@ input's shape:
 
 ###### app
 
-`PyricApp`
+`FirebaseApp`
 
 ##### Returns
 
-[`Firestore`](#firestore)
+[`AppFirestore`](#appfirestore)
 
 ##### Example
 
@@ -1984,7 +2002,51 @@ const db = getFirestore(app);
 
 #### Call Signature
 
-> **getFirestore**(`target`): [`Firestore`](#firestore)
+> **getFirestore**(): [`AppFirestore`](#appfirestore)
+
+Construct a Firestore handle. Three overloads dispatch by the
+input's shape:
+
+  - `SandboxContext` → sandbox-backed Firestore with a frozen
+    identity (the ctx's `auth` chosen at `getFirestore` time). Best
+    for runner/test code that names identity explicitly per
+    scenario.
+  - `Sandbox` → sandbox-backed Firestore that reads
+    `sandbox.currentUser` per-call. Best for app code that drives
+    identity through `pyric/auth` — every Firestore op evaluates
+    rules under whatever user is currently signed in.
+
+##### Returns
+
+[`AppFirestore`](#appfirestore)
+
+##### Example
+
+```ts
+// Sandbox, frozen identity (runner / explicit tests).
+import { initializeSandbox } from 'pyric/sandbox';
+import { getFirestore, doc, setDoc } from 'pyric/firestore';
+const sandbox = initializeSandbox();
+const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+
+// Sandbox, live identity (app code paired with pyric/auth).
+import { initializeSandbox } from 'pyric/sandbox';
+import { getAuth, signInAnonymously } from 'pyric/auth';
+const sandbox = initializeSandbox();
+const auth = getAuth(sandbox);
+const db = getFirestore(sandbox); // reads sandbox.currentUser per op
+await signInAnonymously(auth);    // subsequent db ops use the new identity
+
+// Canonical imports are swapped to this mirror in a sandbox process.
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+const app = initializeApp({ projectId: 'demo-project' });
+const db = getFirestore(app);
+```
+
+#### Call Signature
+
+> **getFirestore**(`target?`): [`Firestore`](#firestore)
 
 Construct a Firestore handle. Three overloads dispatch by the
 input's shape:
@@ -2000,7 +2062,7 @@ input's shape:
 
 ##### Parameters
 
-###### target
+###### target?
 
 `any`
 

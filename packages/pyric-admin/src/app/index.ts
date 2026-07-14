@@ -11,6 +11,7 @@ import {
   type RemoteSandboxFactoryOptions,
   type Sandbox,
 } from 'pyric/sandbox';
+import { assertAdminAppActive, markAdminAppDeleted } from './lifecycle.js';
 
 /** Brand carried by every sandbox admin app. */
 export const ADMIN_APP_TARGET = Symbol.for('pyric.admin.app.target');
@@ -134,8 +135,10 @@ export function deleteApp(app: PyricAdminApp): Promise<void> {
   if (typeof app !== 'object' || app === null || !(ADMIN_APP_TARGET in app)) {
     throw new FirebaseAppError('invalid-argument', 'Invalid app argument.');
   }
+  assertAdminAppActive(app);
   const existing = getApp(app.name);
   appRegistry.delete(existing.name);
+  markAdminAppDeleted(existing);
   return Promise.resolve();
 }
 

@@ -1647,8 +1647,9 @@ SIGNED-IN user (not the user database — that's `snapshot`/`restore`).
 The controller calls `session.subscribe` so it hears every sign-in /
 sign-out, then writes the uid to the appropriate web-storage slot
 (determined by `session.mode()`). On init, the controller reads the
-stored uid and calls `session.restore(uid)` to re-establish the
-session, firing `onAuthStateChanged` as if the user just signed in.
+stored uid and its storage-derived mode, then calls
+`session.restore(uid, mode)` to re-establish both before firing
+`onAuthStateChanged` as if the user just signed in.
 
 Only active when `SandboxPersistenceOptions.sessionStorage` is
 provided; omitting `sessionStorage` causes the controller to skip
@@ -1690,9 +1691,10 @@ next write without an explicit migration step.
 
 ###### restore()
 
-> **restore**(`uid`): `void`
+> **restore**(`uid`, `mode`): `void`
 
-Re-establish the signed-in session for `uid`. Fires
+Re-establish the signed-in session for `uid` under the mode inferred
+from the storage slot that supplied it. Fires
 `onAuthStateChanged` as if the user just signed in. May throw
 `auth/user-not-found` or `auth/user-disabled` — the controller
 catches and clears the stored session so a stale uid (user deleted
@@ -1703,6 +1705,10 @@ between sessions) doesn't crash init.
 ###### uid
 
 `string`
+
+###### mode
+
+`"LOCAL"` | `"SESSION"`
 
 ###### Returns
 

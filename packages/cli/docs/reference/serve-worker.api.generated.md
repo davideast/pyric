@@ -23,7 +23,7 @@ Local mirror of the worker's currentUser, updated from the stream.
 
 ##### port
 
-> `readonly` **port**: `MessagePort`
+> `readonly` **port**: `ClientPort`
 
 ***
 
@@ -39,7 +39,7 @@ Opaque client-side Firestore handle. Holds the MessagePort to the worker.
 
 ##### port
 
-> `readonly` **port**: `MessagePort`
+> `readonly` **port**: `ClientPort`
 
 ***
 
@@ -111,7 +111,7 @@ Worker-backed Storage handle (carries the shared `MessagePort`).
 
 ##### port
 
-> `readonly` **port**: `MessagePort`
+> `readonly` **port**: `ClientPort`
 
 ***
 
@@ -179,7 +179,7 @@ Exposed by `@pyric/cli`'s `./serve/worker` package export so Studio can
 
 ##### port
 
-> `readonly` **port**: `MessagePort`
+> `readonly` **port**: `ClientPort`
 
 ***
 
@@ -239,7 +239,7 @@ Worker-backed Storage reference (path + name; carries the port for ops).
 
 ##### port
 
-> `readonly` **port**: `MessagePort`
+> `readonly` **port**: `ClientPort`
 
 ***
 
@@ -527,7 +527,7 @@ Client-side collection reference.
 
 ##### port
 
-> `readonly` **port**: `MessagePort`
+> `readonly` **port**: `ClientPort`
 
 ***
 
@@ -555,7 +555,7 @@ Client-side document reference — carries a DocRef descriptor + port.
 
 ##### port
 
-> `readonly` **port**: `MessagePort`
+> `readonly` **port**: `ClientPort`
 
 ***
 
@@ -633,7 +633,7 @@ Client-side query.
 
 ##### port
 
-> `readonly` **port**: `MessagePort`
+> `readonly` **port**: `ClientPort`
 
 ***
 
@@ -830,7 +830,7 @@ Exposed by `@pyric/cli`'s `./serve/worker` package export so Studio can
 
 ##### port
 
-> `readonly` **port**: `MessagePort`
+> `readonly` **port**: `ClientPort`
 
 ##### root
 

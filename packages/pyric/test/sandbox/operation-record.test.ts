@@ -17,7 +17,7 @@ import {
   type SandboxEvent,
 } from 'pyric/sandbox';
 import { bindOperationContext } from 'pyric/sandbox/internal';
-import { initializeApp } from 'pyric/app';
+import { createAppForSandbox } from 'pyric/app/internal';
 import {
   collection,
   doc,
@@ -71,8 +71,9 @@ describe('canonical operation records', () => {
   it('keeps app source orthogonal to an admin Firestore lens', async () => {
     const sandbox = initializeSandbox();
     sandbox.admin.setDocument('posts/p1', { title: 'One' });
-    const app = initializeApp(
-      { sandbox },
+    const app = createAppForSandbox(
+      sandbox,
+      { projectId: 'operation-record-test' },
       `operation-record-app-admin-${Math.random().toString(36).slice(2)}`,
     );
     const db = getAdminFirestore(app);

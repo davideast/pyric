@@ -269,7 +269,8 @@ describe('worker auth — per-port sessions are isolated', () => {
     expect(await currentUser(ctx, port)).not.toBeNull();
 
     cleanupPort(ctx, port);
-    expect(await currentUser(ctx, port)).toBeNull();
+    const reconnectedPort = fakePort();
+    expect(await currentUser(ctx, reconnectedPort)).toBeNull();
   });
 
   it('cleanupPort drops the port SESSION-BOUND SUB RECORDS (a later session change does not resurrect them)', async () => {

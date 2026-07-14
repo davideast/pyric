@@ -10,8 +10,9 @@
  *  scripts/standalone-smoke.ts against a real binary. */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import {
   embeddedWorkerVersion,
   isStandalone,
@@ -19,17 +20,19 @@ import {
   materializeStudioUi,
   type EmbeddedAssets,
 } from '../../src/serve/standalone-assets.js';
+import { embeddedAssetVersion } from '../../scripts/embedded-asset-version.js';
 
 const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64');
 
 const VERSION = 'unit-test-0';
+const ASSET_VERSION = 'assets-deadbeef';
 const WORKER_V = 'wv-deadbeef';
 const SDK_BLOB: Record<string, string> = { 'app.js': b64('// pyric app shim'), 'worker.js': b64('// worker') };
 const STUDIO_BLOB: Record<string, string> = {
   'index.html': b64('<!doctype html>studio'),
   'assets/app.js': b64('// studio bundle'),
 };
-const TMP_ROOT = join(tmpdir(), `pyric-serve-${VERSION}`);
+const TMP_ROOT = join(tmpdir(), `pyric-serve-${VERSION}-${ASSET_VERSION}`);
 
 let sdkCalls = 0;
 let studioCalls = 0;
@@ -38,6 +41,7 @@ beforeAll(() => {
   rmSync(TMP_ROOT, { recursive: true, force: true });
   const embedded: EmbeddedAssets = {
     version: VERSION,
+    assetVersion: ASSET_VERSION,
     workerVersion: WORKER_V,
     sdk: async () => {
       sdkCalls++;
@@ -73,6 +77,14 @@ describe('embeddedWorkerVersion', () => {
 });
 
 describe('materializeServeAssets', () => {
+  it('derives a stable identity from every embedded asset tree', () => {
+    const first = embeddedAssetVersion({ sdk: { 'app.js': 'first' }, studio: {}, docs: {} });
+    const reordered = embeddedAssetVersion({ docs: {}, studio: {}, sdk: { 'app.js': 'first' } });
+    const changed = embeddedAssetVersion({ sdk: { 'app.js': 'second' }, studio: {}, docs: {} });
+    expect(reordered).toBe(first);
+    expect(changed).not.toBe(first);
+  });
+
   it('decodes the embedded SDK files to a real dir the namespace can serve', async () => {
     const { outDir, cached } = await materializeServeAssets();
     expect(outDir).toBe(join(TMP_ROOT, 'sdk'));
@@ -91,6 +103,51 @@ describe('materializeServeAssets', () => {
     expect(outDir).toBe(join(TMP_ROOT, 'sdk'));
     expect(cached).toBe(true);
     expect(sdkCalls).toBe(before); // loader not invoked again
+  });
+
+  it('isolates same-version standalone rebuilds by embedded asset content', () => {
+    const version = `same-version-${process.pid}-${Date.now()}`;
+    const moduleUrl = pathToFileURL(
+      resolve(import.meta.dir, '../../src/serve/standalone-assets.ts'),
+    ).href;
+    const runBuild = (assetVersion: string, appSource: string) => {
+      const script = `
+        globalThis.__PYRIC_EMBEDDED__ = {
+          version: ${JSON.stringify(version)},
+          assetVersion: ${JSON.stringify(assetVersion)},
+          workerVersion: 'worker',
+          sdk: async () => ({ 'app.js': Buffer.from(${JSON.stringify(appSource)}).toString('base64') }),
+          studio: async () => ({}),
+        };
+        const { materializeServeAssets } = await import(${JSON.stringify(moduleUrl)});
+        const result = await materializeServeAssets();
+        const source = await Bun.file(result.outDir + '/app.js').text();
+        process.stdout.write(JSON.stringify({ ...result, source }));
+      `;
+      const result = Bun.spawnSync({
+        cmd: [process.execPath, '-e', script],
+        env: process.env,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      expect(result.exitCode).toBe(0);
+      return JSON.parse(result.stdout.toString()) as {
+        outDir: string;
+        cached: boolean;
+        source: string;
+      };
+    };
+
+    const first = runBuild('content-a', 'first build');
+    const second = runBuild('content-b', 'second build');
+    expect(first.cached).toBe(false);
+    expect(second.cached).toBe(false);
+    expect(second.outDir).not.toBe(first.outDir);
+    expect(second.source).toBe('second build');
+
+    rmSync(join(tmpdir(), `pyric-serve-${version}-content-a`), { recursive: true, force: true });
+    rmSync(join(tmpdir(), `pyric-serve-${version}-content-b`), { recursive: true, force: true });
+    rmSync(join(tmpdir(), `pyric-serve-${version}`), { recursive: true, force: true });
   });
 });
 

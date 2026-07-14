@@ -4,7 +4,7 @@
 
 > **Surface coverage:** 48.1% of Firebase's public exports · 72.2% of what pyric intends to mirror
 >
-> **Fidelity:** 83.8% (83 of 99 tracked claims match production)
+> **Fidelity:** 85.9% (85 of 99 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
 

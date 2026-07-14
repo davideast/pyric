@@ -16,7 +16,9 @@
 import * as ip from 'pyric/firestore';
 import { getFirestore as pyricGetFirestore } from 'pyric/firestore';
 import * as wcRaw from '../worker/client.js';
-import { sandbox, workerDb, useWorker } from './runtime.js';
+import { useWorker } from './worker-runtime.js';
+import { getApp, type FirebaseApp } from 'pyric/app';
+import { workerClientForApp } from './app-client.js';
 
 // The worker client mirrors pyric/firestore's DATA surface (same names + arg
 // shapes); cast so the picked bindings type-check against the canonical module.
@@ -75,12 +77,18 @@ export const and = D.and;
 
 // ── getFirestore — the canonical bare call returns the page's shared backend:
 //    the worker ClientDb on the worker path, the in-page sandbox otherwise. ──
-export const getFirestore = (
-  useWorker
-    ? (_app?: unknown) => workerDb!
-    : (target?: Parameters<typeof pyricGetFirestore>[0]) =>
-        pyricGetFirestore((target ?? sandbox) as never)
-) as typeof pyricGetFirestore;
+const workerFirestoreByApp = new WeakMap<FirebaseApp, ReturnType<typeof pyricGetFirestore>>();
+
+export const getFirestore = ((app?: FirebaseApp) => {
+  const resolved = app ?? getApp();
+  if (!useWorker) return pyricGetFirestore(resolved);
+  const existing = workerFirestoreByApp.get(resolved);
+  if (existing) return existing;
+  const client = workerClientForApp(resolved);
+  const handle = Object.assign(client, { app: resolved }) as unknown as ReturnType<typeof pyricGetFirestore>;
+  workerFirestoreByApp.set(resolved, handle);
+  return handle;
+}) as typeof pyricGetFirestore;
 
 // ── section 3c tier 2: ACCEPTED, sandbox-managed (no-op + one-time notice). ──────
 // Apps configure client caching unconditionally; a missing named export

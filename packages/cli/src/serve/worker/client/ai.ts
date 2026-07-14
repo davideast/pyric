@@ -4,7 +4,7 @@
  */
 
 import type { AiEngineConfigWire, InboundMessage } from '../protocol.js';
-import { nextId, nextSubId, rpc, _snapSubs } from './core.js';
+import { closeSubscription, nextId, nextSubId, openSnapshotSubscription, rpc } from './core.js';
 import type { ClientDb } from './handles.js';
 
 // ─── AI ops (pyric/ai over the worker — cdd-deltas #98.3) ──────────────────
@@ -85,16 +85,15 @@ export async function* aiStreamGenerateContent(
     notify = null;
   };
 
-  _snapSubs.set(subId, {
+  const opened = openSnapshotSubscription(db.port, subId, {
+    port: db.port,
     next: (raw) => {
       const v = (raw ?? {}) as { chunk?: Record<string, unknown>; done?: boolean };
       if (v.done) push({ kind: 'done' });
       else push({ kind: 'chunk', chunk: v.chunk ?? {} });
     },
     error: (err) => push({ kind: 'error', error: err }),
-  });
-
-  db.port.postMessage({
+  }, {
     t: 'sub',
     subId,
     target: { service: 'ai', op: 'streamGenerateContent' },
@@ -102,6 +101,10 @@ export async function* aiStreamGenerateContent(
     request: params.request,
     ...(params.engine !== undefined ? { engine: params.engine } : {}),
   } satisfies InboundMessage);
+  if (!opened) push({
+    kind: 'error',
+    error: Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' }),
+  });
 
   try {
     for (;;) {
@@ -116,7 +119,6 @@ export async function* aiStreamGenerateContent(
       yield item.chunk;
     }
   } finally {
-    _snapSubs.delete(subId);
-    db.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+    closeSubscription(db.port, subId);
   }
 }

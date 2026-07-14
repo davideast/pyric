@@ -10,6 +10,7 @@
  */
 
 import type { Target } from './target.js';
+import type { FirebaseApp } from '../app/types.js';
 
 /** Branded handle for {@link Auth}. Set on every handle returned by
  *  {@link getAuth}; consumers don't read it. Exposed only so the
@@ -281,6 +282,7 @@ export interface Persistence {
  * target. Consumers don't read it.
  */
 export interface Auth {
+  readonly app?: FirebaseApp;
   /** Currently signed-in user, or `null`. Snapshot value — read
    *  through `onAuthStateChanged` for live updates. */
   readonly currentUser: User | null;
@@ -291,3 +293,6 @@ export interface Auth {
   /** Internal — identifies the owning sandbox backend. */
   readonly [TARGET_SYMBOL]: Target;
 }
+
+/** Auth handle returned by Firebase-shaped app overloads. */
+export type AppAuth = Auth & { readonly app: FirebaseApp };

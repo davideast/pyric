@@ -8,8 +8,10 @@
  * (production's one-service-worker-per-origin model). Routing correctness for
  * that shared broker lives in `sandbox-routing.test.ts`.
  */
-import { describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
+import { createAppForSandbox } from '../../src/app/internal.js';
 import { initializeApp } from '../../src/app/index.js';
+import { resetAppRegistryForTests } from '../../src/app/registry.js';
 import { initializeSandbox } from '../../src/sandbox/index.js';
 import { getMessaging, onMessage, sandbox as messagingSandbox } from '../../src/messaging/index.js';
 import { getMessaging as getMessagingInSw, onBackgroundMessage } from '../../src/messaging/sw.js';
@@ -19,10 +21,12 @@ function sandboxApp() {
   // would collide (app/duplicate-app), exactly as firebase/app does. The
   // random suffix stays unique across the messaging test files (one process,
   // one shared app registry).
-  return initializeApp({ sandbox: initializeSandbox() }, `msg-${Math.random().toString(36).slice(2)}`);
+  return createAppForSandbox(initializeSandbox(), { projectId: 'messaging-test' }, `msg-${Math.random().toString(36).slice(2)}`);
 }
 
 describe('Messaging instance identity (sandbox)', () => {
+  beforeEach(() => resetAppRegistryForTests());
+
   it('returns the same client instance for repeated getMessaging on one app', () => {
     const app = sandboxApp();
     expect(getMessaging(app)).toBe(getMessaging(app));
@@ -61,6 +65,19 @@ describe('Messaging instance identity (sandbox)', () => {
     expect(result.route).toBe('background');
   });
 
+  it('distinct app handles over one sandbox share the messaging broker', async () => {
+    const sandbox = initializeSandbox();
+    const appA = createAppForSandbox(sandbox, { projectId: 'shared-messaging' }, 'msg-a');
+    const appB = createAppForSandbox(sandbox, { projectId: 'shared-messaging' }, 'msg-b');
+    const client = getMessaging(appA);
+    const worker = getMessagingInSw(appB);
+    const background: unknown[] = [];
+    onBackgroundMessage(worker, (payload) => { background.push(payload); });
+
+    await messagingSandbox.deliver(client, { visibilityState: 'hidden', data: { shared: 'yes' } });
+    expect(background).toHaveLength(1);
+  });
+
   it('separate sandboxes are isolated — a delivery on one reaches only its own handlers', async () => {
     const a = getMessaging(sandboxApp());
     const b = getMessaging(sandboxApp());
@@ -73,15 +90,8 @@ describe('Messaging instance identity (sandbox)', () => {
     expect(seenB.length).toBe(0);
   });
 
-  it('getMessaging() with no app refuses outside the climb (WIP-isolation contract)', () => {
-    // The blocking run never sets PYRIC_CLIMB, so the bare call must refuse
-    // rather than silently mint a sandbox. Under the climb flag the mirror
-    // provides a module-default sandbox instead; both sides pinned so this
-    // file is honest in either run mode (it is not itself flag-gated).
-    if (process.env.PYRIC_CLIMB === '1') {
-      expect(getMessaging().app).toBeDefined();
-    } else {
-      expect(() => getMessaging()).toThrow(/without an app/);
-    }
+  it('getMessaging() with no app resolves the Firebase default app', () => {
+    const app = initializeApp({ projectId: 'messaging-default-test' });
+    expect(getMessaging().app).toBe(app);
   });
 });

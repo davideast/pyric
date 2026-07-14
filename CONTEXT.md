@@ -45,15 +45,31 @@ package subpaths; do not import through another package's source tree.
 `pyric` mirrors Firebase Web SDK shapes against a sandbox. Important public
 subpaths include:
 
-- `pyric/app`
-- `pyric/auth`
-- `pyric/firestore`
-- `pyric/database`
-- `pyric/storage`
-- `pyric/rules`
-- `pyric/firestore-values`
-- `pyric/sandbox`
-- service-specific sandbox controls under `pyric/sandbox/*`
+| Subpath | Purpose |
+|---|---|
+| `pyric/app` | Firebase-shaped client app registry: `initializeApp(options, settings?)`, `getApp`, `getApps`, `deleteApp`, local `FirebaseError`, pinned `SDK_VERSION`, `onLog`, `setLogLevel`, `registerVersion`. Default and named equal-config app containers share one managed sandbox backend; a second Firebase configuration in the same runtime is intentionally rejected. It has no `firebase/app` runtime dependency; production imports stay on `firebase/app`. |
+| `pyric/auth` | Sandbox-only modular Auth mirror, identity, providers, and popup/redirect resolver. It has no `firebase/auth` runtime dependency; production imports stay on `firebase/auth`. |
+| `pyric/firestore` | Sandbox-only modular Firestore mirror plus Firestore data/inspect tools. It has no `firebase/firestore` runtime dependency; production imports stay on `firebase/firestore`. |
+| `pyric/firestore-values` | Firestore value helpers/wrappers. |
+| `pyric/database` | Sandbox-only modular Realtime Database mirror. It has no `firebase/database` runtime dependency; production imports stay on `firebase/database`. |
+| `pyric/sandbox/database` | Owner controls for installing RTDB rules, seeding data, and reading detached snapshots. |
+| `pyric/storage` | Modular Storage mirror and storage admin-style tools. |
+| `pyric/storage/internal` | Storage engine seam. |
+| `pyric/ai` | Sandbox-only Firebase AI Logic mirror (`getAI`, `getGenerativeModel`, generateContent, streaming, chat, function calling, countTokens). It has no `firebase/ai` runtime dependency; production imports stay on `firebase/ai`. |
+| `pyric/ai/scripting` | Scripted answer-engine seam for the AI sandbox. |
+| `pyric/messaging` | Cloud Messaging client mirror. |
+| `pyric/messaging/sw` | Service-worker messaging entry. |
+| `pyric/messaging/internal` | Messaging broker seam. |
+| `pyric/rules` | **The whole rules public API** (see below). |
+| `pyric/rules/internal` | Engine internals seam. |
+| `pyric/rules/internal/node` | Node-only filesystem-backed module resolution. |
+| `pyric/rules/internal/extract` | Composite-index extraction. |
+| `pyric/rules/internal/rtdb` | Pure RTDB rules engine internals: environment-independent compile/serialize/simulate seams plus replay and constraints. |
+| `pyric/sandbox` | Sandbox lifecycle, events, persistence, replay, branches. |
+| `pyric/sandbox/firestore` | Firestore-specific sandbox controls: rules, seeding, snapshots, and inspection. Controls receive the owning local `Sandbox`. |
+| `pyric/sandbox/internal` | Adapter-only internal protocol. |
+| `pyric/sandbox/admin-compat` | Chainable admin-Firestore-shaped sandbox wrapper. |
+| `pyric/sandbox/admin-firestore` | Internals backing the admin-compat layer. |
 
 The exact contract is `packages/pyric/package.json#exports`. Some exported
 internal seams exist for adapters; application code should use the ordinary
@@ -166,6 +182,11 @@ a shared backend. IndexedDB provides browser-local durability. `--persist`
 adds the committable `.pyric/state/state.json`; `pyric snapshot` promotes lived
 state to a fixture; the session capture at `.pyric/last-session.json` feeds
 `pyric verify`.
+
+`pyric/app` mirrors Firebase's default and named registry. Equal-option apps
+receive separate service containers and Auth/listener sessions over that one
+backend. A second Firebase configuration in the same runtime is rejected rather
+than silently creating another persistence domain.
 
 `pyric dev --bridge` mounts MCP on the development server and routes calls to
 the same sandbox as the open application and Studio. `pyric bridge` provides a

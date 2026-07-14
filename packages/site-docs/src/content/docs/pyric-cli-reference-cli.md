@@ -46,9 +46,11 @@ rules-test-api` or `both`) needs a project id plus `FIREBASE_SA_BASE64` or
 
 Serve the app locally with the pyric sandbox standing in for Firebase. Unmodified
 `firebase/*` imports resolve, via a served import map, to a sandbox running in a
-**SharedWorker by default** (one backend shared across all tabs; durable in the
-browser's IndexedDB; a per-tab in-page sandbox is the fallback when SharedWorker
-is unavailable). `firestore.rules` is installed and hot-reloaded over SSE.
+**SharedWorker by default** (one authoritative backend shared across all tabs;
+durable in the browser's IndexedDB; service adapters use the per-tab in-page
+sandbox only when SharedWorker is unavailable). The current bundle still
+constructs that inactive fallback primitive eagerly; it is not a second routed
+backend. `firestore.rules` is installed and hot-reloaded over SSE.
 
 | Flag | Default | Description |
 |---|---|---|

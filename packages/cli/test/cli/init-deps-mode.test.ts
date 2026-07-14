@@ -45,10 +45,11 @@ describe('applyDepsMode — vendor', () => {
     expect(out.overrides).toEqual({ pyric: 'file:vendor/pyric.tgz' });
   });
 
-  it('node template: rewrites both, no duplicate pyric', () => {
+  it('node template: vendors the dev-only swap packages while Firebase stays a runtime dependency', () => {
     const out = applyDepsMode(TEMPLATES.node, 'vendor', { vendorSpecs: specs });
-    expect(out.dependencies['pyric']).toBe('file:vendor/pyric.tgz');
-    expect(out.dependencies['@pyric/cli']).toBe('file:vendor/pyric-cli.tgz');
+    expect(out.dependencies['firebase']).toBe(TEMPLATES.node.dependencies['firebase']);
+    expect(out.devDependencies['pyric']).toBe('file:vendor/pyric.tgz');
+    expect(out.devDependencies['@pyric/cli']).toBe('file:vendor/pyric-cli.tgz');
   });
 
   it('does not mutate the shared template object', () => {

@@ -29,9 +29,11 @@ describe('ai: initialization and dispatch', () => {
   });
 
   rowTest('ai#getai-app-dispatch getAI(app) uses the app sandbox selected by package resolution and carries the app', async () => {
-    const { initializeApp, deleteApp } = await import('pyric/app');
-    const app = initializeApp(
-      { sandbox },
+    const { deleteApp } = await import('pyric/app');
+    const { createAppForSandbox } = await import('pyric/app/internal');
+    const app = createAppForSandbox(
+      sandbox,
+      { projectId: 'ai-test' },
       'ai-app-dispatch',
     );
     try {

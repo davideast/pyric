@@ -59,6 +59,17 @@ beforeAll(() => {
   symlinkSync(join(repoRoot, 'packages/pyric-admin'), join(nm, 'pyric-admin'));
   symlinkSync(join(repoRoot, 'packages/pyric'), join(nm, 'pyric'));
   writeFileSync(join(fixtureDir, 'package.json'), JSON.stringify({ name: 'register-fixture', type: 'commonjs' }));
+  writeFileSync(join(fixtureDir, 'firebase.json'), JSON.stringify({ firestore: { rules: 'firestore.rules' } }));
+  writeFileSync(
+    join(fixtureDir, 'firestore.rules'),
+    `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /package-resolution/{doc} { allow read, write: if true; }
+    match /{document=**} { allow read, write: if false; }
+  }
+}`,
+  );
 
   // Inactive production fixture: consumer-owned SDKs only. Importing the
   // register module with no activator must leave their resolution untouched.
@@ -96,12 +107,17 @@ console.log('ISOLATED_DATABASE_OK');
   writeFileSync(
     join(fixtureDir, 'main.mjs'),
     `import assert from 'node:assert';
+import { createServer } from 'node:net';
 assert.ok(process.env.PYRIC_SANDBOX, 'PYRIC_SANDBOX must be set in the child');
 const app = await import('firebase-admin/app');
 assert.strictEqual(app.ADMIN_APP_TARGET, Symbol.for('pyric.admin.app.target'), 'firebase-admin/app must be pyric-admin/app');
 const factory = globalThis[Symbol.for('pyric.remote.sandboxFactory')];
 assert.strictEqual(typeof factory, 'function', 'sandbox factory global must be installed');
-const handle = factory({ url: 'http://127.0.0.1:9' });
+const server = createServer();
+await new Promise((resolve, reject) => server.listen(0, '127.0.0.1', resolve).once('error', reject));
+const { port } = server.address();
+await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+const handle = factory({ url: 'http://127.0.0.1:' + port });
 assert.strictEqual(handle[Symbol.for('pyric.remote.sandbox')], true, 'factory must return the branded handle');
 assert.strictEqual(typeof handle.channel.op, 'function');
 handle.close();
@@ -119,7 +135,7 @@ const app = require('firebase-admin/app');
 assert.strictEqual(app.ADMIN_APP_TARGET, Symbol.for('pyric.admin.app.target'), 'require(firebase-admin/app) must be pyric-admin/app');
 assert.strictEqual(typeof globalThis[Symbol.for('pyric.remote.sandboxFactory')], 'function');
 const clientApp = require('firebase/app').initializeApp({ projectId: 'cjs-demo' });
-assert.strictEqual(clientApp[Symbol.for('pyric.app.target')], 'sandbox');
+assert.strictEqual(clientApp.name, '[DEFAULT]');
 assert.strictEqual(clientApp.options.projectId, 'cjs-demo');
 assert.strictEqual(typeof require('firebase/firestore').getFirestore(clientApp), 'object');
 console.log('CJS_OK');
@@ -136,14 +152,21 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore';
 const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-project' });
-assert.strictEqual(app[Symbol.for('pyric.app.target')], 'sandbox');
+assert.strictEqual(app.name, '[DEFAULT]');
 assert.strictEqual(app.options.projectId, 'demo-project');
 const db = getFirestore(app);
 assert.strictEqual(typeof db, 'object');
+assert.strictEqual(db.app, app);
 const ref = doc(db, 'package-resolution/firestore');
 await setDoc(ref, { selected: 'sandbox' });
 assert.strictEqual((await getDoc(ref)).data()?.selected, 'sandbox');
+await assert.rejects(
+  setDoc(doc(db, 'forbidden/write'), { should: 'deny' }),
+  (error) => error?.code === 'permission-denied',
+  'the Node register must apply firestore.rules from firebase.json',
+);
 const auth = getAuth(app);
+assert.strictEqual(auth.app, app);
 assert.strictEqual(getAuth(), auth, 'bare getAuth() must use the registered default sandbox app');
 const credential = await signInAnonymously(auth);
 assert.strictEqual(auth.currentUser, credential.user, 'canonical auth imports must update sandbox auth state');
@@ -180,7 +203,6 @@ const clientApp = clientAppModule.initializeApp(
 const clientDb = firestoreModule.getFirestore(clientApp);
 console.log(JSON.stringify({
   rewritten: app.ADMIN_APP_TARGET === Symbol.for('pyric.admin.app.target'),
-  clientRewritten: clientApp[Symbol.for('pyric.app.target')] === 'sandbox',
   firestoreRewritten: Object.getOwnPropertySymbols(clientDb)
     .some((symbol) => symbol.description === 'pyric/firestore/target'),
   factory: typeof factory,
@@ -246,7 +268,6 @@ describe('@pyric/cli/register (child process)', () => {
     expect(res.status).toBe(0);
     expect(JSON.parse(res.stdout)).toEqual({
       rewritten: false,
-      clientRewritten: false,
       firestoreRewritten: false,
       factory: 'undefined',
     });
@@ -262,7 +283,6 @@ describe('@pyric/cli/register (child process)', () => {
     expect(res.stderr).toContain('refusing to activate under NODE_ENV=production');
     expect(JSON.parse(res.stdout)).toEqual({
       rewritten: false,
-      clientRewritten: false,
       firestoreRewritten: false,
       factory: 'undefined',
     });
@@ -278,7 +298,6 @@ describe('@pyric/cli/register (child process)', () => {
     expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(JSON.parse(res.stdout)).toEqual({
       rewritten: true,
-      clientRewritten: true,
       firestoreRewritten: true,
       factory: 'function',
     });

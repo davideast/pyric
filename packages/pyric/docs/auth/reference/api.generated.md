@@ -1256,6 +1256,10 @@ target. Consumers don't read it.
 
 Internal — identifies the owning sandbox backend.
 
+##### app?
+
+> `readonly` `optional` **app**: `FirebaseApp`
+
 ##### currentUser
 
 > `readonly` **currentUser**: [`User`](#user-1)
@@ -2111,6 +2115,20 @@ The user's id as known to this provider.
 
 ***
 
+### AppAuth
+
+> **AppAuth** = [`Auth`](#auth) & `object`
+
+Auth handle returned by Firebase-shaped app overloads.
+
+#### Type Declaration
+
+##### app
+
+> `readonly` **app**: `FirebaseApp`
+
+***
+
 ### AuthErrorMap()
 
 > **AuthErrorMap** = () => `Record`\<`string`, `string`\>
@@ -2855,34 +2873,11 @@ which is why [UserCredential.providerId](#providerid-15) is `null` for both.
 
 > `const` **sandbox**: `object`
 
-Sandbox-only lifecycle / test-driver surface. Every operation requires
-an Auth handle produced by this mirror.
-
-**Naming note:** the `sandbox` export name collides with the
-common `const sandbox = initializeSandbox()` local. Alias on
-import if both are in scope:
-
-```ts
-import { sandbox as authSandbox } from 'pyric/auth';
-import { initializeSandbox } from 'pyric/sandbox';
-const sandbox = initializeSandbox();
-const auth = getAuth(sandbox);
-authSandbox.seedUsers(auth, […]);
-```
-
 #### Type Declaration
 
 ##### assertAuthProviderEnabled()
 
 > **assertAuthProviderEnabled**(`auth`, `providerId`): `void`
-
-Assert a provider is enabled — throws `auth/operation-not-allowed`
-(the exact gate every provider entry point uses) when it is off.
-For hosts that ARE the enforcement authority for identities
-resolved elsewhere: the served SharedWorker calls this before
-accepting a page-resolved popup/redirect identity
-(`auth.acceptIdentity`), so Studio's provider toggles gate served
-OAuth sign-in at the shared backend, not at each page's UI shim.
 
 ###### Parameters
 
@@ -2902,8 +2897,6 @@ OAuth sign-in at the shared backend, not at each page's UI shim.
 
 > **clearUsers**(`auth`): `void`
 
-Drop every user record — the emulator's "delete all accounts".
-
 ###### Parameters
 
 ###### auth
@@ -2917,16 +2910,6 @@ Drop every user record — the emulator's "delete all accounts".
 ##### createSignInCredential()
 
 > **createSignInCredential**(`auth`, `request`): [`UserCredential`](#usercredential)
-
-Mint a sign-in credential for a host-driven flow — the account
-picker's "pick existing" (`{providerId, uid}`) and "add account"
-(`{providerId, spec}`) actions. Token + claims synthesis is
-backend-owned (routed through the same token cache as every
-other sign-in), replacing host-synthesized token strings.
-
-The credential does NOT sign anyone in — resolve the pending
-`AuthFlowResolver` promise with it and the in-flight
-`signInWithPopup` / `signInWithRedirect` completes the sign-in.
 
 ###### Parameters
 
@@ -2946,12 +2929,6 @@ The credential does NOT sign anyone in — resolve the pending
 
 > **createUser**(`auth`, `request`): [`AuthUserRecord`](#authuserrecord)
 
-Create a user without signing them in (admin semantics — the
-client-mirror `createUserWithEmailAndPassword` is the
-signs-you-in variant). Throws `auth/uid-already-exists`,
-`auth/email-already-in-use`, `auth/invalid-email`,
-`auth/weak-password` on bad input.
-
 ###### Parameters
 
 ###### auth
@@ -2969,15 +2946,6 @@ signs-you-in variant). Throws `auth/uid-already-exists`,
 ##### delegateProviderEnforcement()
 
 > **delegateProviderEnforcement**(`auth`, `delegated`): `void`
-
-Delegate (or reclaim) THIS handle's provider-enablement gate to a
-remote authority. Serve-layer wiring: in SharedWorker mode the
-page-local sandbox is only the UI vehicle for popup/redirect
-resolution — the worker's `auth.acceptIdentity` gate (against the
-worker's own, undelegated config) is the real toggle enforcement —
-so the served `firebase/auth` entry sets `true` on the in-page
-handle to let the picker open regardless of local defaults. Do NOT
-set this on a backend that is itself the authority.
 
 ###### Parameters
 
@@ -2997,9 +2965,6 @@ set this on a backend that is itself the authority.
 
 > **deleteUser**(`auth`, `uid`): `void`
 
-Delete a user record. Throws `auth/user-not-found` for unknown
- uids. Active sessions are not terminated (prod parity).
-
 ###### Parameters
 
 ###### auth
@@ -3018,12 +2983,6 @@ Delete a user record. Throws `auth/user-not-found` for unknown
 
 > **exportUsers**(`auth`): [`SeedUser`](#seeduser)[]
 
-Export the user DB in the exact shape [sandbox.seedUsers](#seedusers)
-accepts — `exportUsers` → `seedUsers` round-trips losslessly (the
-persistence substrate, the design rationale section 3c).
-Provider-flow identities without a password export with a documented
-sentinel; anonymous users are not exported (ephemeral by design).
-
 ###### Parameters
 
 ###### auth
@@ -3037,12 +2996,6 @@ sentinel; anonymous users are not exported (ephemeral by design).
 ##### getAuthProviderConfig()
 
 > **getAuthProviderConfig**(`auth`): `object`[]
-
-Every provider this sandbox has an explicit enablement for —
-seeded defaults (`password`, `anonymous` — both `true`) plus
-anything toggled via [sandbox.setAuthProviderConfig](#setauthproviderconfig). Every
-OTHER providerId (`google.com`, a custom OAuth id, …) is disabled
-until explicitly enabled.
 
 ###### Parameters
 
@@ -3058,9 +3011,6 @@ until explicitly enabled.
 
 > **listAuthMail**(`auth`): [`OutboundAuthMail`](#outboundauthmail)[]
 
-Every message currently in the outbox, oldest first.
- Non-destructive — unlike [sandbox.takeAuthMail](#takeauthmail).
-
 ###### Parameters
 
 ###### auth
@@ -3074,9 +3024,6 @@ Every message currently in the outbox, oldest first.
 ##### listIdentities()
 
 > **listIdentities**(`auth`): `object`[]
-
-Snapshot every known identity (seeded + created), for a host
-account-picker UI. Sandbox-only — no `firebase/auth` equivalent.
 
 ###### Parameters
 
@@ -3092,10 +3039,6 @@ account-picker UI. Sandbox-only — no `firebase/auth` equivalent.
 
 > **listUsers**(`auth`): [`AuthUserRecord`](#authuserrecord)[]
 
-Every user in the sandbox user DB (seeded, created,
-signed-in-via-provider, anonymous) as [AuthUserRecord](#authuserrecord)s.
-Snapshot — subscribe to changes via [sandbox.subscribeUsers](#subscribeusers).
-
 ###### Parameters
 
 ###### auth
@@ -3109,23 +3052,6 @@ Snapshot — subscribe to changes via [sandbox.subscribeUsers](#subscribeusers).
 ##### mintSession()
 
 > **mintSession**(`auth`, `request`): [`MintedSession`](#mintedsession)
-
-Mint a session identity WITHOUT signing it in globally — the
-substrate for **per-connection identity** at the serve layer
-(issue #754): one shared sandbox, N connections (tabs / clients),
-each with its own authenticated session. Performs a real sign-in's
-bookkeeping (provider record, `lastLoginAt`, a fresh token, the
-`sign_in` activity event) but leaves `auth.currentUser`, the
-auth-state listeners, and session persistence untouched.
-
-Returns the `User` plus the `AuthState` its data contexts should
-carry — `getFirestore(sandbox.withAuth(session.state))` evaluates
-rules exactly as a real sign-in would (`request.auth.uid` +
-custom claims on `request.auth.token`).
-
-This is an AUTHENTIC session (credentials are validated / an
-identity is really minted) — distinct from the rules-debugging
-impersonation lens, which asserts a uid without authenticating.
 
 ###### Parameters
 
@@ -3144,16 +3070,6 @@ impersonation lens, which asserts a uid without authenticating.
 ##### mockActionCode()
 
 > **mockActionCode**(`auth`, `code`, `spec`): `void`
-
-Pre-stage an out-of-band action code with a KNOWN value — the
-action-code tier of the same "stage a result" pattern
-[sandbox.mockSignInResult](#mocksigninresult) uses for OAuth.
-
-Two things this buys that the mail outbox cannot:
-  - a code whose string the test chose, so an assertion can name it;
-  - `expired: true`, which makes the `auth/expired-action-code` branch
-    reachable without waiting out a real TTL. That branch is otherwise
-    untestable, in the sandbox AND in production.
 
 ###### Parameters
 
@@ -3177,12 +3093,6 @@ Two things this buys that the mail outbox cannot:
 
 > **mockSignInResult**(`auth`, `result`): `void`
 
-Pre-stage the result that the next `signInWithPopup` /
-`signInWithCredential` call for the matching `providerId`
-returns. The one-shot tier of the resolver precedence (used when no
-resolver is injected) — consumed by the next sign-in call; stage
-again for repeat tests.
-
 ###### Parameters
 
 ###### auth
@@ -3200,12 +3110,6 @@ again for repeat tests.
 ##### restoreSession()
 
 > **restoreSession**(`auth`, `uid`): [`User`](#user-1)
-
-Re-establish a signed-in session for an EXISTING identity — the
-substrate behind web-storage session persistence at the host layer.
-Fires auth-state listeners like a real restored session. Throws
-`auth/user-not-found` for unknown uids, `auth/user-disabled` for
-disabled accounts (a restore is a sign-in).
 
 ###### Parameters
 
@@ -3225,9 +3129,6 @@ disabled accounts (a restore is a sign-in).
 
 > **seedUsers**(`auth`, `users`): `void`
 
-Bulk-load test users for email/password lookup. Idempotent for
-a given uid+email — re-seeding the same uid overwrites.
-
 ###### Parameters
 
 ###### auth
@@ -3245,15 +3146,6 @@ readonly [`SeedUser`](#seeduser)[]
 ##### setAuthFlowResolver()
 
 > **setAuthFlowResolver**(`auth`, `resolver`): `void`
-
-Install the popup/redirect resolver — the analog of browser
-`getAuth` wiring `browserPopupRedirectResolver`. The host
-(playground) sets this once; `signInWithPopup` / `signInWithRedirect`
-then delegate the experience to it. Pass `null` to clear.
-
-Precedence at sign-in time: a per-call resolver arg wins, then this
-injected one, then a one-shot `mockSignInResult`, else
-`auth/argument-error`.
 
 ###### Parameters
 
@@ -3273,17 +3165,6 @@ injected one, then a one-shot `mockSignInResult`, else
 
 > **setAuthMailResolver**(`auth`, `resolver`): `void`
 
-Install the auth MAIL resolver — the email family's analog of
-[sandbox.setAuthFlowResolver](#setauthflowresolver). Notified for every message the
-sandbox's mail server emits (a sign-in link, a password reset, a
-verification link). A host (the playground) installs one to surface
-the link in its UI. Pass `null` to clear.
-
-Advisory, not a gate: the message lands in the outbox whether or not
-a resolver is installed, and a throwing resolver does not fail the
-`sendPasswordResetEmail` that produced it. Read the outbox with
-[sandbox.takeAuthMail](#takeauthmail).
-
 ###### Parameters
 
 ###### auth
@@ -3301,18 +3182,6 @@ a resolver is installed, and a throwing resolver does not fail the
 ##### setAuthProviderConfig()
 
 > **setAuthProviderConfig**(`auth`, `providerId`, `enabled`): `void`
-
-Enable/disable a sign-in provider. Gated at every provider entry
-point of the ENFORCING backend (`signInWithPopup`/`signInWithRedirect`,
-`signInWithCredential`, `createUserWithEmailAndPassword`/
-`signInWithEmailAndPassword` for `'password'`, `signInAnonymously`
-for `'anonymous'`) — disabling a provider makes the matching sign-in
-call throw real Firebase's `auth/operation-not-allowed`, exactly
-like flipping the toggle off in the real console. Survives
-`enablePersistence` round-trips (rides the `auth` service's
-snapshot alongside the user DB). A backend whose enforcement is
-delegated ([sandbox.delegateProviderEnforcement](#delegateproviderenforcement)) does NOT
-gate locally — the remote authority it fronts does.
 
 ###### Parameters
 
@@ -3336,10 +3205,6 @@ gate locally — the remote authority it fronts does.
 
 > **setUser**(`auth`, `user`): `void`
 
-Force the current user (and emit to listeners). Pass `null` to
-sign out. Bypasses the email/password lookup — useful for
-driving auth state directly in tests without seeding.
-
 ###### Parameters
 
 ###### auth
@@ -3357,11 +3222,6 @@ driving auth state directly in tests without seeding.
 ##### subscribeAuthProviderConfig()
 
 > **subscribeAuthProviderConfig**(`auth`, `callback`): [`Unsubscribe`](#unsubscribe)
-
-Subscribe to provider-config mutations. Coarse contract: no
-payload, no initial fire — re-read via
-[sandbox.getAuthProviderConfig](#getauthproviderconfig) in the callback (same shape
-as [sandbox.subscribeUsers](#subscribeusers)).
 
 ###### Parameters
 
@@ -3381,11 +3241,6 @@ as [sandbox.subscribeUsers](#subscribeusers)).
 
 > **subscribeUsers**(`auth`, `callback`): [`Unsubscribe`](#unsubscribe)
 
-Subscribe to user-DB mutations (seed / create / update / delete /
-clear / provider links / lastLoginAt bumps). Coarse contract: no
-payload, no initial fire — re-list via [sandbox.listUsers](#listusers)
-in the callback.
-
 ###### Parameters
 
 ###### auth
@@ -3404,21 +3259,6 @@ in the callback.
 
 > **takeAuthMail**(`auth`, `email?`): [`OutboundAuthMail`](#outboundauthmail)
 
-Read and remove the oldest message from the sandbox's mail outbox,
-optionally for one recipient. THE PROGRAM'S SUBSTITUTE FOR A HUMAN
-OPENING THEIR INBOX — and the reason the email-link flow can be
-driven end to end here when it cannot be in production:
-
-```ts
-await sendSignInLinkToEmail(auth, 'ada@example.com', settings);
-const mail = authSandbox.takeAuthMail(auth);  // the "inbox"
-await signInWithEmailLink(auth, 'ada@example.com', mail!.link);
-```
-
-The code in that message is the REAL code the redemption consumes —
-nothing here is faked except the human. Returns `null` when the
-outbox is empty.
-
 ###### Parameters
 
 ###### auth
@@ -3436,13 +3276,6 @@ outbox is empty.
 ##### updateProfile()
 
 > **updateProfile**(`auth`, `uid`, `profile`): [`AuthUserRecord`](#authuserrecord)
-
-Update a user's PROFILE (`displayName` / `photoURL`) by uid — the
-backend behind the served worker path's `updateProfile`. `undefined`
-fields untouched; `null` clears. Returns the refreshed record; throws
-`auth/user-not-found` for an unknown uid. (The client-facing
-`updateProfile(user, …)` free function is the app-code surface; this is
-the by-uid op the SharedWorker host calls.)
 
 ###### Parameters
 
@@ -3471,11 +3304,6 @@ the by-uid op the SharedWorker host calls.)
 ##### updateUser()
 
 > **updateUser**(`auth`, `uid`, `update`): [`AuthUserRecord`](#authuserrecord)
-
-Update a user. `undefined` fields untouched; `customClaims`
-replaces the whole map; setting `disabled: true` blocks future
-sign-ins with `auth/user-disabled` (active sessions continue —
-same as prod until token revocation).
 
 ###### Parameters
 
@@ -3587,26 +3415,6 @@ Single-use: the code is burned on redemption, so a replay throws
 
 > **beforeAuthStateChanged**(`auth`, `callback`, `onAbort?`): [`Unsubscribe`](#unsubscribe)
 
-Top-level mirror of `firebase/auth`'s `beforeAuthStateChanged(auth,
-callback, onAbort?)` — a BLOCKING gate that runs before a real
-sign-in/sign-out transition commits. Registered callbacks run in
-registration order; if one throws (or its returned promise rejects),
-the transition is aborted: the pending `signInWith…` / `signOut`
-call rejects with `auth/login-blocked`, `currentUser` is left
-unchanged, and `onAuthStateChanged` / `onIdTokenChanged` do NOT fire.
-Every `onAbort` registered by a callback that already ran
-successfully in this pass is invoked (in reverse registration order)
-so side effects can be undone.
-
-Fires for both directions — a real sign-in (`nextUser` non-null) and
-a real sign-out (`nextUser === null`). Does NOT fire for
-`sandbox.setUser` — that test driver bypasses the gate the same way
-it bypasses provider enforcement (no prod analog; see its doc
-comment under [sandbox](#sandbox)).
-
-Sandbox target only runs one queue per `Auth` handle — mirrors
-upstream, where the queue lives on the `AuthImpl` instance.
-
 #### Parameters
 
 ##### auth
@@ -3691,12 +3499,6 @@ reset cannot install a password the create path would have rejected
 
 > **connectAuthEmulator**(`auth`, `url`, `options?`): `void`
 
-`connectAuthEmulator(auth, url, options?)` is a no-op because the mirror is
-already the sandbox.
-
-Same signature as upstream so canonical consumer code keeps working
-when package resolution selects this mirror.
-
 #### Parameters
 
 ##### auth
@@ -3747,16 +3549,6 @@ when package resolution selects this mirror.
 
 > **deleteUser**(`user`): `Promise`\<`void`\>
 
-Top-level mirror of `firebase/auth`'s `deleteUser(user)`. Deletes the
-account from the store and signs the user out if they are the current
-user (fires `onAuthStateChanged(null)`) — matching prod, where deleting
-the signed-in user clears `auth.currentUser`. Real behavior on the
-sandbox: a subsequent `signInWithEmailAndPassword` for that identity
-throws `auth/user-not-found`.
-
-Routes through the hidden USER\_INTERNAL hook (user-only
-signature, no `auth` handle) to the owning sandbox.
-
 #### Parameters
 
 ##### user
@@ -3803,42 +3595,15 @@ federated provider.
 
 #### Call Signature
 
-> **getAuth**(): [`Auth`](#auth)
-
-Construct a sandbox-backed [Auth](#auth) handle. `getAuth()` uses the
-default sandbox app initialized through the package-resolution adapter;
-`getAuth(app)` unwraps that app; and `getAuth(sandbox)` binds directly.
-Repeat calls for the same sandbox return the same handle.
+> **getAuth**(): [`AppAuth`](#appauth)
 
 ##### Returns
 
-[`Auth`](#auth)
-
-##### Example
-
-```ts
-// Sandbox.
-import { initializeSandbox } from 'pyric/sandbox';
-import { getAuth, signInAnonymously } from 'pyric/auth';
-const sandbox = initializeSandbox();
-const auth = getAuth(sandbox);
-await signInAnonymously(auth);
-
-// Canonical imports are swapped to this mirror in a sandbox process.
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-const app = initializeApp({ projectId: 'demo-project' });
-const auth = getAuth(app);
-```
+[`AppAuth`](#appauth)
 
 #### Call Signature
 
 > **getAuth**(`sandbox`): [`Auth`](#auth)
-
-Construct a sandbox-backed [Auth](#auth) handle. `getAuth()` uses the
-default sandbox app initialized through the package-resolution adapter;
-`getAuth(app)` unwraps that app; and `getAuth(sandbox)` binds directly.
-Repeat calls for the same sandbox return the same handle.
 
 ##### Parameters
 
@@ -3850,67 +3615,23 @@ Repeat calls for the same sandbox return the same handle.
 
 [`Auth`](#auth)
 
-##### Example
-
-```ts
-// Sandbox.
-import { initializeSandbox } from 'pyric/sandbox';
-import { getAuth, signInAnonymously } from 'pyric/auth';
-const sandbox = initializeSandbox();
-const auth = getAuth(sandbox);
-await signInAnonymously(auth);
-
-// Canonical imports are swapped to this mirror in a sandbox process.
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-const app = initializeApp({ projectId: 'demo-project' });
-const auth = getAuth(app);
-```
-
 #### Call Signature
 
-> **getAuth**(`app`): [`Auth`](#auth)
-
-Construct a sandbox-backed [Auth](#auth) handle. `getAuth()` uses the
-default sandbox app initialized through the package-resolution adapter;
-`getAuth(app)` unwraps that app; and `getAuth(sandbox)` binds directly.
-Repeat calls for the same sandbox return the same handle.
+> **getAuth**(`app`): [`AppAuth`](#appauth)
 
 ##### Parameters
 
 ###### app
 
-`PyricApp`
+`FirebaseApp`
 
 ##### Returns
 
-[`Auth`](#auth)
-
-##### Example
-
-```ts
-// Sandbox.
-import { initializeSandbox } from 'pyric/sandbox';
-import { getAuth, signInAnonymously } from 'pyric/auth';
-const sandbox = initializeSandbox();
-const auth = getAuth(sandbox);
-await signInAnonymously(auth);
-
-// Canonical imports are swapped to this mirror in a sandbox process.
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-const app = initializeApp({ projectId: 'demo-project' });
-const auth = getAuth(app);
-```
+[`AppAuth`](#appauth)
 
 #### Call Signature
 
 > **getAuth**(`target?`): [`Auth`](#auth)
-
-Construct a sandbox-backed [Auth](#auth) handle. `getAuth()` uses the
-default sandbox app initialized through the package-resolution adapter;
-`getAuth(app)` unwraps that app; and `getAuth(sandbox)` binds directly.
-Repeat calls for the same sandbox return the same handle.
 
 ##### Parameters
 
@@ -3922,35 +3643,11 @@ Repeat calls for the same sandbox return the same handle.
 
 [`Auth`](#auth)
 
-##### Example
-
-```ts
-// Sandbox.
-import { initializeSandbox } from 'pyric/sandbox';
-import { getAuth, signInAnonymously } from 'pyric/auth';
-const sandbox = initializeSandbox();
-const auth = getAuth(sandbox);
-await signInAnonymously(auth);
-
-// Canonical imports are swapped to this mirror in a sandbox process.
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-const app = initializeApp({ projectId: 'demo-project' });
-const auth = getAuth(app);
-```
-
 ***
 
 ### getIdToken()
 
 > **getIdToken**(`user`, `forceRefresh?`): `Promise`\<`string`\>
-
-Top-level mirror of `firebase/auth`'s `getIdToken(user)`. Delegates
-to the method on the sandbox user handle.
-
-Parity provenance: W1.5 grid (2026-06-10) — generated apps import
-the modular free function, and its absence failed every render of
-the claims-driven fixtures.
 
 #### Parameters
 
@@ -3971,8 +3668,6 @@ the claims-driven fixtures.
 ### getIdTokenResult()
 
 > **getIdTokenResult**(`user`, `forceRefresh?`): `Promise`\<[`IdTokenResult`](#idtokenresult)\>
-
-Top-level mirror of `firebase/auth`'s `getIdTokenResult(user)`.
 
 #### Parameters
 
@@ -4012,31 +3707,39 @@ Top-level mirror of `firebase/auth`'s `getIdTokenResult(user)`.
 
 ### initializeAuth()
 
-> **initializeAuth**(`app`, `deps?`): [`Auth`](#auth)
+#### Call Signature
 
-`initializeAuth(app, deps?)` — mirror of `firebase/auth`'s explicit
-initializer. Aliases [getAuth](#getauth): returns the same stable `Auth`
-handle for the app, so an app that calls `initializeAuth` instead of
-`getAuth` gets an equivalent, working instance.
+> **initializeAuth**(`app`, `deps?`): [`AppAuth`](#appauth)
 
-The optional `Dependencies` argument (persistence / popupRedirectResolver)
-is accepted for signature parity but not applied — persistence is already
-a documented no-op in the sandbox model (`setPersistence`, the persistence
-markers), so there is nothing new to configure. Unlike prod, calling this
-twice for the same app does NOT throw `auth/already-initialized`; it
-returns the cached handle (same leniency as repeated `getAuth`).
+##### Parameters
 
-#### Parameters
+###### app
 
-##### app
+`FirebaseApp`
 
-`any`
-
-##### deps?
+###### deps?
 
 `unknown`
 
-#### Returns
+##### Returns
+
+[`AppAuth`](#appauth)
+
+#### Call Signature
+
+> **initializeAuth**(`app`, `deps?`): [`Auth`](#auth)
+
+##### Parameters
+
+###### app
+
+`Sandbox`
+
+###### deps?
+
+`unknown`
+
+##### Returns
 
 [`Auth`](#auth)
 
@@ -4328,11 +4031,6 @@ as `signInWithRedirect`.
 ### reload()
 
 > **reload**(`user`): `Promise`\<`void`\>
-
-Top-level mirror of `firebase/auth`'s `reload(user)`. Re-reads the stored
-record into the `user` object in place so out-of-band changes (e.g.
-`sandbox.updateUser`) are reflected — matching prod's server refresh.
-After `deleteUser`, rejects with `auth/user-token-expired`.
 
 #### Parameters
 
@@ -4657,10 +4355,6 @@ never issued or that has already been redeemed (single-use).
 
 > **signInWithPopup**(`auth`, `provider`, `resolver?`): `Promise`\<[`UserCredential`](#usercredential)\>
 
-The optional `resolver` argument is a sandbox-only injection seam.
-Production imports remain on `firebase/auth`, which owns its platform
-resolver independently.
-
 #### Parameters
 
 ##### auth
@@ -4684,8 +4378,6 @@ resolver independently.
 ### signInWithRedirect()
 
 > **signInWithRedirect**(`auth`, `provider`, `resolver?`): `Promise`\<`void`\>
-
-The `resolver` argument is sandbox-only — see [signInWithPopup](#signinwithpopup).
 
 #### Parameters
 
@@ -4759,11 +4451,6 @@ born, not what it currently carries.
 
 > **updateCurrentUser**(`auth`, `user`): `Promise`\<`void`\>
 
-Top-level mirror of `firebase/auth`'s `updateCurrentUser(auth, user)`.
-Sets the sandbox's current user (pass `null` to sign out), firing
-`onAuthStateChanged`. Real behavior — `auth.currentUser` reflects the
-passed user afterward.
-
 #### Parameters
 
 ##### auth
@@ -4783,15 +4470,6 @@ passed user afterward.
 ### updateEmail()
 
 > **updateEmail**(`user`, `newEmail`): `Promise`\<`void`\>
-
-Top-level mirror of `firebase/auth`'s `updateEmail(user, newEmail)`.
-Changes the signed-in user's email in the store (rejecting
-`auth/email-already-in-use` / `auth/invalid-email`) and mutates the held
-`user` in place. Real behavior: the next sign-in resolves against the
-new email.
-
-Leniency vs prod: the sandbox does NOT enforce `auth/requires-recent-login`
-and does not route through `verifyBeforeUpdateEmail` — see the COMPAT row.
 
 #### Parameters
 
@@ -4813,15 +4491,6 @@ and does not route through `verifyBeforeUpdateEmail` — see the COMPAT row.
 
 > **updatePassword**(`user`, `newPassword`): `Promise`\<`void`\>
 
-Top-level mirror of `firebase/auth`'s `updatePassword(user, newPassword)`.
-Sets the stored password (validated for strength). Real behavior: the
-sandbox stores AND verifies passwords, so the next
-`signInWithEmailAndPassword` with the new password succeeds and the old
-one throws `auth/wrong-password`.
-
-Leniency vs prod: no `auth/requires-recent-login` enforcement — see the
-COMPAT row.
-
 #### Parameters
 
 ##### user
@@ -4841,18 +4510,6 @@ COMPAT row.
 ### updateProfile()
 
 > **updateProfile**(`user`, `profile`): `Promise`\<`void`\>
-
-Top-level mirror of `firebase/auth`'s `updateProfile(user, profile)`.
-Updates the signed-in user's `displayName` / `photoURL` — pass `null` to
-clear a field, omit it to leave it untouched. Mutates the user object in
-place (held references, including `auth.currentUser`, reflect the change).
-
-Dispatches through the hidden USER\_INTERNAL hook the sandbox
-backend stamps on every `User`, so it works WITHOUT an `auth` handle —
-matching upstream's user-only signature.
-
-Per `firebase/auth`, this does NOT fire `onAuthStateChanged` /
-`onIdTokenChanged`.
 
 #### Parameters
 
@@ -4879,10 +4536,6 @@ Per `firebase/auth`, this does NOT fire `onAuthStateChanged` /
 ### useDeviceLanguage()
 
 > **useDeviceLanguage**(`auth`): `void`
-
-`useDeviceLanguage(auth)` — accepted no-op. The sandbox has no device
-locale to read, so there is no language to set; the call is accepted so
-init code that calls it compiles + runs. `diverged-documented`.
 
 #### Parameters
 

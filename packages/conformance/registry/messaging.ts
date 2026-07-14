@@ -41,6 +41,8 @@ interface RowSeed {
   evidence: string;
   /** Committed `messaging-*` observations that vouch for `behavior`. */
   observations?: string[];
+  /** Additional blocking witnesses outside the in-process surface suite. */
+  tests?: string[];
   notes?: string;
   /**
    * CDD flip (Step 4): set at review time when the row's assertion set in the
@@ -83,7 +85,7 @@ function row(seed: RowSeed): CompatibilityRow {
     riskReasons: seed.flipped ? [] : [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
     automation: seed.flipped ?? 'unverified',
     oracleObservations: observations,
-    conformanceTests: seed.flipped ? [SUITE[seed.surface]] : [],
+    conformanceTests: seed.flipped ? [SUITE[seed.surface], ...(seed.tests ?? [])] : [],
     ...(seed.notes ? { notes: seed.notes } : {}),
   };
 }
@@ -99,7 +101,9 @@ const clientRows: CompatibilityRow[] = [
     api: 'getMessaging(app?): Messaging',
     behavior:
       'Returns the FCM `Messaging` instance associated with the given (or default) `FirebaseApp`. Bound to the client component registered under the name `messaging`.',
-    evidence: 'Upstream typings/JSDoc (firebase 12.13.0, `@firebase/messaging` 0.12.26); no observation yet.',
+    evidence:
+      'Upstream typings/JSDoc (firebase 12.13.0, `@firebase/messaging` 0.12.26); in-process mirror suite plus canonical-import SharedWorker replay `messaging-app-boundary.pw.ts`.',
+    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts'],
   }),
   row({
     surface: 'messaging',
@@ -233,7 +237,11 @@ const swRows: CompatibilityRow[] = [
     api: 'getMessaging(app?): Messaging (sw)',
     behavior:
       'Returns the FCM instance within a service-worker context (bound to `getMessagingInSw`); registers under the component name `messaging-sw`.',
-    evidence: 'Upstream typings (`@firebase/messaging` 0.12.26 `sw/index-public`); no observation yet.',
+    evidence:
+      'Upstream typings (`@firebase/messaging` 0.12.26 `sw/index-public`) plus real module-ServiceWorker served-entry replay `messaging-app-boundary.pw.ts`.',
+    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts'],
+    notes:
+      'The static-server witness imports the generated `/__pyric/sdk/*.js` entry URLs because native module workers do not inherit the page import map. Application source may use `firebase/messaging/sw` through the Vite/register bundler alias, just as production Firebase package imports require a build step.',
   }),
   row({
     surface: 'messaging',
@@ -244,12 +252,13 @@ const swRows: CompatibilityRow[] = [
     behavior:
       'Called when a message arrives while the app has no visible window client. Production routes background deliveries here rather than to `onMessage`; the delivered payload carries `data` / `from` / `messageId` and, for notification messages, a `notification` block. A DATA-ONLY message still fires `onBackgroundMessage` with no `notification` key, and a registered handler suppresses the SDK auto-display.',
     evidence:
-      'oracle: `messaging-web-onbackgroundmessage.json` (no visible client → onBackgroundMessage) + `messaging-web-visibility-routing.json` + `messaging-web-data-only-background.json` (data-only fires, no notification key). Replayed by the conformance suite.',
+      'oracle: `messaging-web-onbackgroundmessage.json` (no visible client → onBackgroundMessage) + `messaging-web-visibility-routing.json` + `messaging-web-data-only-background.json` (data-only fires, no notification key). Replayed by the conformance suite and by a real module Service Worker connected to the canonical SharedWorker broker in `messaging-app-boundary.pw.ts`.',
     observations: [
       'messaging-web-onbackgroundmessage',
       'messaging-web-visibility-routing',
       'messaging-web-data-only-background',
     ],
+    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts'],
   }),
   row({
     surface: 'messaging',
@@ -278,7 +287,9 @@ const swRows: CompatibilityRow[] = [
     api: 'firebase/messaging/sw module boundary + shared type parity',
     behavior:
       'The sw entry exports `onBackgroundMessage`, `getMessaging`, `experimentalSetDeliveryMetricsExportedToBigQueryEnabled`, and `isSupported`, but NOT `getToken` / `deleteToken` / `onMessage`; the client entry exports the latter but NOT `onBackgroundMessage` / the metrics toggle. The two modules register under different component names (`messaging` vs `messaging-sw`) and re-export identical `Messaging` / `GetTokenOptions` / `MessagePayload` / `NotificationPayload` / `FcmOptions` type declarations.',
-    evidence: 'Upstream typings (`@firebase/messaging` 0.12.26 `index.d.ts` / `index.sw.d.ts`); no observation yet.',
+    evidence:
+      'Upstream typings (`@firebase/messaging` 0.12.26 `index.d.ts` / `index.sw.d.ts`) plus Window and real module-ServiceWorker boundary replay `messaging-app-boundary.pw.ts`.',
+    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts'],
   }),
 ];
 
@@ -701,12 +712,10 @@ const adminErrorRows: CompatibilityRow[] = [
 const INTRO = [
   '# `pyric` messaging compatibility matrix',
   '',
-  '> **Conformance-held; not yet in published packages.** Every row below is',
-  '> replayed by conformance suites that run in blocking CI, so the statuses are',
-  '> live guarantees against this repository. The messaging entry points are not',
-  '> yet included in the published npm packages: the mirror is complete here, and',
-  '> it ships in a release after graduation. Until then, installing `pyric` from',
-  '> npm does not provide `pyric/messaging`.',
+  '> **Published and conformance-held.** The client, service-worker, and admin',
+  '> messaging entry points ship in the published `pyric` and `pyric-admin`',
+  '> packages. Every row below is replayed by conformance suites that run in',
+  '> blocking CI, so the statuses are live guarantees against this repository.',
   '',
   'The single readable contract for "what `pyric` will guarantee vs the production',
   'Firebase Cloud Messaging surface" — the client (`firebase/messaging`) and',

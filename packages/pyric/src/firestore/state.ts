@@ -55,7 +55,14 @@ export type SandboxTarget = { kind: 'sandbox'; db: SandboxFirestore; sandbox: Sa
  *
  * `withAuth(null)` is anonymous; `withAuth(state)` is signed-in.
  */
-export type SandboxLiveTarget = { kind: 'sandbox-live'; sandbox: Sandbox; getDb: () => SandboxFirestore };
+export type SandboxLiveTarget = {
+  kind: 'sandbox-live';
+  sandbox: Sandbox;
+  getDb: () => SandboxFirestore;
+  authScope?: object;
+  own?: (cleanup: () => void) => () => void;
+  assertUsable?: () => void;
+};
 export type Target = SandboxTarget | SandboxLiveTarget;
 
 /**
@@ -201,16 +208,19 @@ export function parentRebuild(parent: object): (db: SandboxFirestore) => object 
 }
 
 export function targetOf(refOrDb: object): Target {
+  let target: Target | undefined;
   if (TARGET_SYMBOL in refOrDb) {
-    return (refOrDb as { [TARGET_SYMBOL]: Target })[TARGET_SYMBOL];
+    target = (refOrDb as { [TARGET_SYMBOL]: Target })[TARGET_SYMBOL];
+  } else {
+    target = refToTarget.get(refOrDb);
   }
-  const t = refToTarget.get(refOrDb);
-  if (!t) {
+  if (!target) {
     throw new TypeError(
       'pyric/firestore: unrecognized reference — was it produced by a factory in this package?',
     );
   }
-  return t;
+  if (target.kind === 'sandbox-live') target.assertUsable?.();
+  return target;
 }
 
 export const refToConverter = new WeakMap<object, FirestoreDataConverter<unknown> | null>();

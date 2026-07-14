@@ -492,13 +492,12 @@ export type OpMessage = (
   // on a throwaway branch (no live mutation). The reply is the serializable
   // `SandboxSnapshot` (the persistence format).
   | { t: 'op'; id: string; method: 'getSnapshot' }
-  // ── Messaging ops (surface: 'messaging' — CLIMB-GATED, see host-messaging.ts) ──
+  // ── Messaging ops (surface: 'messaging'; host-capability gated) ──
   // The broker's documented worker-host seam (pyric/src/messaging/broker/
   // broker.ts header): each public broker method is one op here. All payloads
-  // and replies are plain JSON. The surface is climbing under CDD, so the host
-  // answers `messaging/disabled` unless the ctx was built with
-  // `messagingEnabled: true` (pyric dev: init payload `messaging`, emitted
-  // only under PYRIC_CLIMB=1 — the messaging isolation flag). NEVER lensed:
+  // and replies are plain JSON. The host answers `messaging/disabled` unless
+  // its ctx has `messagingEnabled: true`; normal serve producers set that
+  // capability. NEVER lensed:
   // FCM has no rules identity; visibility (below) is the only routing input.
   //
   // `registrationId` names the page's service-worker registration (token
@@ -691,7 +690,7 @@ export interface AiStreamSubMessage {
 
 /**
  * Register a MESSAGING delivery listener (the receive plane crossing the
- * transport — climb-gated like the `messaging.*` ops).
+ * transport — host-capability gated like the `messaging.*` ops).
  *
  * `target: 'messaging.foreground'` mirrors the client mirror's `onMessage`;
  * `target: 'messaging.background'` mirrors the sw mirror's
@@ -797,6 +796,26 @@ export interface UnsubMessage {
   subId: string;
 }
 
+/** Explicit app-port teardown; MessagePort close events are unreliable in Chrome. */
+export interface DisconnectMessage {
+  t: 'disconnect';
+  id: string;
+}
+
+/**
+ * Bind an app-owned port to the worker's one Firebase configuration.
+ *
+ * This control frame is deliberately response-free: it is posted immediately
+ * after opening the port, and MessagePort FIFO ordering guarantees the worker
+ * evaluates it before any service op/sub posted through that port. A conflict
+ * tombstones the port; subsequent operations receive
+ * `app/multiple-configs-not-supported` instead of touching the shared backend.
+ */
+export interface AppConfigMessage {
+  t: 'appConfig';
+  options: Record<string, unknown>;
+}
+
 /**
  * Agent tool-call, forwarded by the bridge peer to the worker so the agent
  * executes against the SAME sandbox the app + Studio use (no separate in-page
@@ -811,7 +830,13 @@ export interface ToolMessage {
   args: Record<string, unknown>;
 }
 
-export type InboundMessage = OpMessage | SubMessage | UnsubMessage | ToolMessage;
+export type InboundMessage =
+  | OpMessage
+  | SubMessage
+  | UnsubMessage
+  | DisconnectMessage
+  | AppConfigMessage
+  | ToolMessage;
 
 // ─── Worker → client messages ─────────────────────────────────────────────
 

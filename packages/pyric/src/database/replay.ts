@@ -13,6 +13,7 @@ import {
   set,
   update,
   sandbox as rtdbSandbox,
+  type Database,
 } from './modular.js';
 import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
 
@@ -137,7 +138,7 @@ async function rewindRtdbCommits(
 }
 
 async function replayRtdbCommitWithDatabase(
-  db: ReturnType<typeof getDatabase>,
+  db: Database,
   commit: SandboxCommitEvent,
   divergences: RtdbReplayDivergence[],
 ): Promise<void> {

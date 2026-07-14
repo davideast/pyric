@@ -8,10 +8,9 @@
  * admin twin packages/pyric-admin/test/app/oracle-conformance.test.ts): each
  * observation's recorded values are the EXPECTED side. We assert the
  * environment-independent facts the capture pinned — error CODES, error-class
- * NAMES, message text, app names, registry counts, idempotency identity — and
- * deliberately NOT prod-only handle shape (a sandbox app handle is opaque; it
- * does not carry firebase's `options` / `automaticDataCollectionEnabled`, which
- * the default/named captures also record but pyric does not claim).
+ * NAMES, message text, app names, registry counts, idempotency identity,
+ * FirebaseOptions snapshots, settings, and per-app service containers. The two
+ * single-config limitations are replayed as explicit documented divergences.
  *
  * Every `app-registry-*` observation must be either asserted here or listed in
  * NOT_APPLICABLE with a reason; the completeness test at the bottom enforces
@@ -23,7 +22,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { initializeSandbox } from 'pyric/sandbox';
+import 'fake-indexeddb/auto';
 import {
   initializeApp,
   getApp,
@@ -35,12 +34,23 @@ import {
   SDK_VERSION,
   FirebaseError,
 } from '../../src/app/index.js';
+import { resetAppRegistryForTests } from '../../src/app/registry.js';
+import { getAuth } from '../../src/auth/index.js';
+import { getFirestore } from '../../src/firestore/index.js';
+import { getDatabase, ref as databaseRef } from '../../src/database/index.js';
+import { getStorage, ref as storageRef } from '../../src/storage/index.js';
+import { getAI } from '../../src/ai/index.js';
 
 // app-registry-* observations live under the 'app' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'app');
 
 /** Observations that cannot be replayed against the pyric/app sandbox registry. */
 const NOT_APPLICABLE: Record<string, string> = {};
+const OPTS = {
+  apiKey: 'fake-api-key',
+  projectId: 'demo-app-registry',
+  appId: '1:0:web:0',
+};
 
 function load(name: string): Record<string, unknown> {
   const json = JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
@@ -72,6 +82,7 @@ async function expectRejectedOrThrewCode(p: () => Promise<unknown>, code: string
 }
 
 beforeEach(async () => {
+  await resetAppRegistryForTests();
   await Promise.all(getApps().map((app) => deleteApp(app)));
 });
 afterEach(async () => {
@@ -79,20 +90,29 @@ afterEach(async () => {
 });
 
 describe('oracle conformance (client app registry)', () => {
+  it('app-registry-default-service-factories', () => {
+    const obs = load('app-registry-default-service-factories');
+    const app = initializeApp(OPTS);
+    expect(getAuth().app === app).toBe(obs.authUsesDefaultApp as boolean);
+    expect(getFirestore().app === app).toBe(obs.firestoreUsesDefaultApp as boolean);
+    expect(getDatabase().app === app).toBe(obs.databaseUsesDefaultApp as boolean);
+    expect(getStorage().app === app).toBe(obs.storageUsesDefaultApp as boolean);
+  });
+
   it('app-registry-initializeapp-default', () => {
     const obs = load('app-registry-initializeapp-default');
-    const app = initializeApp({ sandbox: initializeSandbox() }); // implicit [DEFAULT]
+    const app = initializeApp(OPTS); // implicit [DEFAULT]
     expect(app.name).toBe(obs.name as string); // '[DEFAULT]'
     expect(getApps().length).toBe(obs.getAppsLength as number); // 1
     expect(getApp() === app).toBe(obs.getAppNoArgResolvesSame as boolean); // true
-    // (automaticDataCollectionEnabled / optionKeys are prod-only handle shape —
-    //  the opaque sandbox handle does not claim them.)
+    expect(app.automaticDataCollectionEnabled).toBe(obs.automaticDataCollectionEnabled as boolean);
+    expect(Object.keys(app.options).sort()).toEqual(obs.optionKeys as string[]);
   });
 
   it('app-registry-initializeapp-named', () => {
     const obs = load('app-registry-initializeapp-named');
-    const def = initializeApp({ sandbox: initializeSandbox() });
-    const named = initializeApp({ sandbox: initializeSandbox() }, 'secondary');
+    const def = initializeApp(OPTS);
+    const named = initializeApp({ ...OPTS }, 'secondary');
     expect(def.name).toBe(obs.defaultName as string); // '[DEFAULT]'
     expect(named.name).toBe(obs.namedName as string); // 'secondary'
     expect(getApps().length).toBe(obs.getAppsLength as number); // 2
@@ -101,10 +121,9 @@ describe('oracle conformance (client app registry)', () => {
 
   it('app-registry-initializeapp-duplicate-name', () => {
     const obs = load('app-registry-initializeapp-duplicate-name');
-    initializeApp({ sandbox: initializeSandbox() }); // default
-    // A different sandbox under the same (default) name → different config.
+    initializeApp(OPTS); // default
     const err = expectThrewCode(
-      () => initializeApp({ sandbox: initializeSandbox() }),
+      () => initializeApp({ ...OPTS, projectId: 'a-different-project' }),
       obs.code as string, // 'app/duplicate-app'
     );
     expect(err.constructor.name).toBe(obs.errorName as string); // 'FirebaseError'
@@ -114,18 +133,15 @@ describe('oracle conformance (client app registry)', () => {
 
   it('app-registry-initializeapp-duplicate-config', () => {
     const obs = load('app-registry-initializeapp-duplicate-config');
-    // EQUAL config for a sandbox app is the SAME sandbox reference (the deep-
-    // equal-options idempotency analog).
-    const sandbox = initializeSandbox();
-    const first = initializeApp({ sandbox });
-    const second = initializeApp({ sandbox });
+    const first = initializeApp(OPTS);
+    const second = initializeApp({ ...OPTS });
     expect(first === second).toBe(obs.returnedSameInstance as boolean); // true
     expect(getApps().length).toBe(obs.getAppsLength as number); // 1
   });
 
   it('app-registry-getapp-default', () => {
     const obs = load('app-registry-getapp-default');
-    const app = initializeApp({ sandbox: initializeSandbox() });
+    const app = initializeApp(OPTS);
     const got = getApp();
     expect(got === app).toBe(obs.resolvesSameInstance as boolean);
     expect(got.name).toBe(obs.name as string); // '[DEFAULT]'
@@ -133,8 +149,8 @@ describe('oracle conformance (client app registry)', () => {
 
   it('app-registry-getapp-named', () => {
     const obs = load('app-registry-getapp-named');
-    initializeApp({ sandbox: initializeSandbox() });
-    const named = initializeApp({ sandbox: initializeSandbox() }, 'secondary');
+    initializeApp(OPTS);
+    const named = initializeApp(OPTS, 'secondary');
     const got = getApp('secondary');
     expect(got === named).toBe(obs.resolvesSameInstance as boolean);
     expect(got.name).toBe(obs.name as string); // 'secondary'
@@ -150,8 +166,8 @@ describe('oracle conformance (client app registry)', () => {
 
   it('app-registry-getapps-contents', () => {
     const obs = load('app-registry-getapps-contents');
-    const def = initializeApp({ sandbox: initializeSandbox() });
-    const named = initializeApp({ sandbox: initializeSandbox() }, 'secondary');
+    const def = initializeApp(OPTS);
+    const named = initializeApp(OPTS, 'secondary');
     const apps = getApps();
     expect(Array.isArray(apps)).toBe(obs.isArray as boolean);
     expect(apps.length).toBe(obs.length as number); // 2
@@ -161,7 +177,7 @@ describe('oracle conformance (client app registry)', () => {
 
   it('app-registry-deleteapp', async () => {
     const obs = load('app-registry-deleteapp');
-    const named = initializeApp({ sandbox: initializeSandbox() }, 'secondary');
+    const named = initializeApp(OPTS, 'secondary');
     const ret = deleteApp(named);
     expect(Boolean(ret && typeof ret.then === 'function')).toBe(obs.deleteReturnsPromise as boolean);
     await ret;
@@ -172,7 +188,7 @@ describe('oracle conformance (client app registry)', () => {
     // The name can be re-initialized after deletion (the slot is free).
     let reinitThrew = false;
     try {
-      initializeApp({ sandbox: initializeSandbox() }, 'secondary');
+      initializeApp(OPTS, 'secondary');
     } catch {
       reinitThrew = true;
     }
@@ -181,10 +197,165 @@ describe('oracle conformance (client app registry)', () => {
 
   it('app-registry-deleteapp-double', async () => {
     const obs = load('app-registry-deleteapp-double');
-    const named = initializeApp({ sandbox: initializeSandbox() }, 'secondary');
+    const named = initializeApp(OPTS, 'secondary');
     await deleteApp(named);
     const err = await expectRejectedOrThrewCode(() => Promise.resolve(deleteApp(named)), obs.code as string); // 'app/app-deleted'
     expect(err.constructor.name).toBe(obs.errorName as string); // 'FirebaseError'
+    expect(err instanceof Error).toBe(obs.isError as boolean);
+    expect(err.message).toBe(obs.message as string);
+  });
+
+  it('app-registry-deleted-property-access', async () => {
+    const obs = load('app-registry-deleted-property-access') as Record<
+      'name' | 'options' | 'automaticDataCollectionEnabled',
+      Record<string, unknown>
+    >;
+    const app = initializeApp(OPTS, 'secondary');
+    await deleteApp(app);
+
+    const accessors = {
+      name: () => app.name,
+      options: () => app.options,
+      automaticDataCollectionEnabled: () => app.automaticDataCollectionEnabled,
+    };
+    for (const key of Object.keys(accessors) as Array<keyof typeof accessors>) {
+      const expected = obs[key];
+      const err = expectThrewCode(accessors[key], expected.code as string);
+      expect(err.constructor.name).toBe(expected.errorName as string);
+      expect(err instanceof Error).toBe(expected.isError as boolean);
+      expect(err.message).toBe(expected.message as string);
+    }
+  });
+
+  it('app-registry-deleted-service-factories', async () => {
+    const obs = load('app-registry-deleted-service-factories') as Record<
+      'auth' | 'firestore' | 'database' | 'storage' | 'ai',
+      Record<string, unknown>
+    >;
+    const app = initializeApp(OPTS, 'deleted-services');
+    await deleteApp(app);
+
+    const factories = {
+      auth: () => getAuth(app),
+      firestore: () => getFirestore(app),
+      database: () => getDatabase(app),
+      storage: () => getStorage(app),
+      ai: () => getAI(app),
+    };
+    for (const key of ['auth', 'firestore', 'database', 'storage'] as const) {
+      const expected = obs[key];
+      const err = expectThrewCode(factories[key], expected.code as string);
+      expect(err.constructor.name).toBe(expected.errorName as string);
+      expect(err instanceof Error).toBe(expected.isError as boolean);
+      expect(err.message).toBe(expected.message as string);
+    }
+    const ai = factories.ai();
+    expect(obs.ai.threw).toBe(false);
+    expect(ai.app === app).toBe(obs.ai.usesDeletedApp as boolean);
+
+    const retainedApp = initializeApp(OPTS, 'retained-services');
+    const auth = getAuth(retainedApp);
+    const firestore = getFirestore(retainedApp);
+    const database = getDatabase(retainedApp);
+    const storage = getStorage(retainedApp);
+    await deleteApp(retainedApp);
+
+    expect(getAuth(retainedApp) === auth).toBe(obs.cachedAuthFactory.usesDeletedApp as boolean);
+    expect(getFirestore(retainedApp) === firestore).toBe(obs.cachedFirestoreFactory.usesDeletedApp as boolean);
+    expect(getDatabase(retainedApp) === database).toBe(obs.cachedDatabaseFactory.usesDeletedApp as boolean);
+    expect(getStorage(retainedApp) === storage).toBe(obs.cachedStorageFactory.usesDeletedApp as boolean);
+    void auth;
+    void database;
+    void storage;
+  });
+
+  it('app-registry-initializeapp-settings-options', () => {
+    const obs = load('app-registry-initializeapp-settings-options');
+    const input = { ...OPTS };
+    const app = initializeApp(input, {
+      name: 'settings-app',
+      automaticDataCollectionEnabled: false,
+    });
+    expect(app.name).toBe(obs.name as string);
+    expect(app.options === input).toBe(obs.optionsSameReference as boolean);
+    expect(Object.isFrozen(app.options)).toBe(obs.optionsFrozen as boolean);
+    input.projectId = 'mutated-after-initialize';
+    expect(app.options.projectId).toBe(obs.projectIdAfterInputMutation as string);
+    expect(app.automaticDataCollectionEnabled).toBe(obs.initialAutomaticDataCollectionEnabled as boolean);
+    app.automaticDataCollectionEnabled = true;
+    expect(app.automaticDataCollectionEnabled).toBe(obs.automaticDataCollectionEnabledAfterMutation as boolean);
+  });
+
+  it('app-registry-initializeapp-named-equal-config', () => {
+    const obs = load('app-registry-initializeapp-named-equal-config');
+    const defaultApp = initializeApp(OPTS);
+    const namedApp = initializeApp({ ...OPTS }, 'secondary');
+    expect(defaultApp !== namedApp).toBe(obs.distinctApps as boolean);
+    expect(JSON.stringify(defaultApp.options) === JSON.stringify(namedApp.options)).toBe(obs.equalOptions as boolean);
+    expect(getApp() === defaultApp).toBe(obs.defaultLookupSame as boolean);
+    expect(getApp('secondary') === namedApp).toBe(obs.namedLookupSame as boolean);
+    expect(getApps().map((app) => app.name)).toEqual(obs.appNames as string[]);
+  });
+
+  it('app-registry-multi-app-service-containers', () => {
+    const obs = load('app-registry-multi-app-service-containers');
+    const options = {
+      ...OPTS,
+      databaseURL: 'https://demo-app-registry-default-rtdb.firebaseio.com',
+      storageBucket: 'demo-app-registry.appspot.com',
+    };
+    const a = initializeApp(options, 'app-a');
+    const b = initializeApp({ ...options }, 'app-b');
+    const authA = getAuth(a);
+    const authB = getAuth(b);
+    const firestoreA = getFirestore(a);
+    const firestoreB = getFirestore(b);
+    const databaseA = getDatabase(a);
+    const databaseB = getDatabase(b);
+    const storageA = getStorage(a);
+    const storageB = getStorage(b);
+    expect(authA !== authB).toBe(obs.authDistinct as boolean);
+    expect(authA.app === a && authB.app === b).toBe(obs.authAppsCorrect as boolean);
+    expect(firestoreA !== firestoreB).toBe(obs.firestoreDistinct as boolean);
+    expect(firestoreA.app === a && firestoreB.app === b).toBe(obs.firestoreAppsCorrect as boolean);
+    expect(databaseA !== databaseB).toBe(obs.databaseDistinct as boolean);
+    expect(databaseA.app === a && databaseB.app === b).toBe(obs.databaseAppsCorrect as boolean);
+    expect(databaseRef(databaseA, 'probe').toString() === databaseRef(databaseB, 'probe').toString()).toBe(
+      obs.databaseLocatorsEqual as boolean,
+    );
+    expect(storageA !== storageB).toBe(obs.storageDistinct as boolean);
+    expect(storageA.app === a && storageB.app === b).toBe(obs.storageAppsCorrect as boolean);
+    expect(storageRef(storageA, 'probe').toString() === storageRef(storageB, 'probe').toString()).toBe(
+      obs.storageLocatorsEqual as boolean,
+    );
+  });
+
+  it('app-registry-initializeapp-named-different-config — documented single-backend divergence', () => {
+    const obs = load('app-registry-initializeapp-named-different-config');
+    initializeApp(OPTS);
+    expect(obs.threw).toBe(false);
+    const err = expectThrewCode(
+      () => initializeApp({ ...OPTS, projectId: 'other-app-registry', appId: '1:1:web:1' }, 'secondary'),
+      'app/multiple-configs-not-supported',
+    );
+    expect(err.constructor.name).toBe('FirebaseError');
+  });
+
+  it('app-registry-delete-reinitialize-different-config — documented runtime-lock divergence', async () => {
+    const obs = load('app-registry-delete-reinitialize-different-config');
+    const first = initializeApp(OPTS);
+    await deleteApp(first);
+    expect(obs.threw).toBe(false);
+    expectThrewCode(
+      () => initializeApp({ ...OPTS, projectId: 'other-app-registry', appId: '1:1:web:1' }),
+      'app/multiple-configs-not-supported',
+    );
+  });
+
+  it('app-registry-initializeapp-no-options', () => {
+    const obs = load('app-registry-initializeapp-no-options');
+    const err = expectThrewCode(() => initializeApp(), obs.code as string);
+    expect(err.constructor.name).toBe(obs.errorName as string);
     expect(err instanceof Error).toBe(obs.isError as boolean);
     expect(err.message).toBe(obs.message as string);
   });

@@ -14,6 +14,10 @@ Opaque RTDB handle. Routes via [TARGET\_SYMBOL](#target_symbol-1).
 
 > `readonly` **\[TARGET\_SYMBOL\]**: `Target`
 
+##### app?
+
+> `readonly` `optional` **app**: `FirebaseApp`
+
 ***
 
 ### DatabaseReference
@@ -404,6 +408,20 @@ On rule denial the promise rejects with a plain `Error` whose
 > `readonly` **snapshot**: [`DataSnapshot`](#datasnapshot)
 
 ## Type Aliases
+
+### AppDatabase
+
+> **AppDatabase** = [`Database`](#database) & `object`
+
+Database handle returned by Firebase-shaped app overloads.
+
+#### Type Declaration
+
+##### app
+
+> `readonly` **app**: `FirebaseApp`
+
+***
 
 ### JsonValue
 
@@ -817,7 +835,7 @@ controlled admin tools.
 
 ###### app
 
-`PyricApp`
+`FirebaseApp`
 
 ##### Returns
 
@@ -893,7 +911,7 @@ console.log(snap.val()); // { text: 'hi' }
 
 #### Call Signature
 
-> **getDatabase**(`app`): [`Database`](#database)
+> **getDatabase**(`app`): [`AppDatabase`](#appdatabase)
 
 Build a sandbox Database handle:
 
@@ -904,11 +922,37 @@ Build a sandbox Database handle:
 
 ###### app
 
-`PyricApp`
+`FirebaseApp`
 
 ##### Returns
 
-[`Database`](#database)
+[`AppDatabase`](#appdatabase)
+
+##### Example
+
+```ts
+import { initializeSandbox } from 'pyric/sandbox';
+import { getDatabase, ref, set, get } from 'pyric/database';
+
+const sandbox = initializeSandbox();
+const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+await set(ref(db, 'greetings/hello'), { text: 'hi' });
+const snap = await get(ref(db, 'greetings/hello'));
+console.log(snap.val()); // { text: 'hi' }
+```
+
+#### Call Signature
+
+> **getDatabase**(): [`AppDatabase`](#appdatabase)
+
+Build a sandbox Database handle:
+
+  - `SandboxContext` → sandbox-backed, frozen identity.
+  - `Sandbox` → sandbox-backed, live identity (per-op `currentUser`).
+
+##### Returns
+
+[`AppDatabase`](#appdatabase)
 
 ##### Example
 

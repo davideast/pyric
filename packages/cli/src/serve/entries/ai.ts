@@ -16,20 +16,25 @@
  * config with no `baseUrl` targets serve's same-origin `/__pyric/ai-proxy`
  * route (which forwards to the configured upstream, default
  * `http://localhost:11434/v1`) — so a localhost Ollama needs no CORS setup
- * on EITHER path. A custom AnswerEngine OBJECT can't cross the port; it
- * stays in-page (answers against the page context) on both paths.
+ * on EITHER path. A custom AnswerEngine OBJECT can't cross the port and is
+ * rejected in worker mode rather than creating a second page-local backend.
+ * Direct/in-process `pyric/ai` sandboxes still accept custom engines.
  *
- * Engine config is per-sandbox (#98.4) and first-call-wins, mirroring
- * `getAI`'s idempotence — on the worker path the FIRST ai op's config
- * creates the worker broker; later configs are ignored.
+ * Engine config is per-sandbox (#98.4) and first-call-wins at the worker
+ * host. Each app has its own in-page port wrapper so deleting one app cannot
+ * disconnect a sibling; all wrappers still forward to that one worker broker.
  * Browser-bundled by `../bundler.ts`; never imported by node-side.
  */
 import * as ipAi from 'pyric/ai';
+import { aiErrorFromEnvelope } from 'pyric/ai/internal';
 import { getAI as pyricGetAI } from 'pyric/ai';
-import type { PyricApp } from 'pyric/app';
+import { createTransportAI } from 'pyric/ai/internal';
+import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
+import { isSandboxAppDeleted } from 'pyric/app/internal';
 import type { AiEngineConfigWire } from '../worker/protocol.js';
 import { aiGenerateContent, aiCountTokens, aiStreamGenerateContent } from '../worker/client.js';
-import { workerDb, useWorker } from './runtime.js';
+import { useWorker } from './worker-runtime.js';
+import { workerClientForApp } from './app-client.js';
 
 // ── Mirror surface — path-independent (the mirror always runs in-page) ────
 export {
@@ -73,11 +78,12 @@ export {
 } from 'pyric/ai';
 
 type EngineOption = NonNullable<ipAi.AIOptions['engine']>;
+type AnswerTransport = Parameters<typeof createTransportAI>[2];
 
 /** The serve proxy route the browser openai engine defaults to (#98.2). */
 const AI_PROXY_PATH = '/__pyric/ai-proxy';
 
-/** A custom AnswerEngine object (vs a plain EngineConfig). Runs in-page. */
+/** A custom AnswerEngine object (vs a plain, worker-cloneable EngineConfig). */
 function isAnswerEngine(engine: EngineOption): boolean {
   return typeof (engine as { generateContent?: unknown }).generateContent === 'function';
 }
@@ -119,50 +125,15 @@ function withProxyDefault(options?: ipAi.AIOptions): ipAi.AIOptions | undefined 
   return options;
 }
 
-// ── Worker-side error fidelity ─────────────────────────────────────────────
-// A worker broker error crosses the port as `{ code: 'ai/<STATUS>',
-// message, aiEnvelope }` (protocol.ts). Re-mint the SAME
-// `AIError('fetch-error', …)` decoration the in-process plane applies
-// (pyric/ai's aiErrorFromEnvelope — replicated here because the plane's
-// translation seam only recognizes its own in-process AiBrokerError class).
-
-function statusTextOf(status: number): string {
-  switch (status) {
-    case 400: return 'Bad Request';
-    case 401: return 'Unauthorized';
-    case 403: return 'Forbidden';
-    case 404: return 'Not Found';
-    case 429: return 'Too Many Requests';
-    case 500: return 'Internal Server Error';
-    case 502: return 'Bad Gateway';
-    case 503: return 'Service Unavailable';
-    default: return '';
-  }
-}
-
 function aiErrorFromWire(err: unknown, modelResource: string, op: string): unknown {
-  const envelope = (err as { aiEnvelope?: { error?: { code: number; message: string; status: string; details?: Array<Record<string, unknown>> } } } | null)?.aiEnvelope;
-  const wire = envelope?.error;
-  if (!wire) return err;
-  let message = wire.message;
-  let errorDetails: Array<Record<string, unknown>> | undefined;
-  if (wire.details) {
-    message += ` ${JSON.stringify(wire.details)}`;
-    errorDetails = wire.details;
-  }
-  const statusText = statusTextOf(wire.code);
-  const url = `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/${modelResource}:${op}`;
-  return new ipAi.AIError(
-    ipAi.AIErrorCode.FETCH_ERROR,
-    `Error fetching from ${url}: [${wire.code} ${statusText}] ${message}`,
-    { status: wire.code, statusText, errorDetails },
-  );
+  const envelope = (err as { aiEnvelope?: Parameters<typeof aiErrorFromEnvelope>[0] } | null)
+    ?.aiEnvelope;
+  return envelope ? aiErrorFromEnvelope(envelope, modelResource, op) : err;
 }
 
 // ── The port-forwarding AnswerEngine (worker path) ─────────────────────────
 
-function portEngine(engineWire: AiEngineConfigWire | undefined): EngineOption {
-  const db = workerDb!;
+function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEngineConfigWire | undefined): AnswerTransport {
   const params = (model: string, request: Record<string, unknown>) => ({
     model,
     request,
@@ -194,24 +165,88 @@ function portEngine(engineWire: AiEngineConfigWire | undefined): EngineOption {
       }
     },
   };
-  return engine as unknown as EngineOption;
+  return engine as unknown as AnswerTransport;
+}
+
+/**
+ * Firebase constructs an AI handle for a deleted app, but that observation
+ * does not authorize resurrecting the app against an in-page sandbox. Keep
+ * the handle constructible while every model operation stays tombstoned.
+ */
+function deletedAppEngine(): AnswerTransport {
+  return {
+    async generateContent(): Promise<never> {
+      throw deletedAppError();
+    },
+    streamGenerateContent(): AsyncIterable<never> {
+      return (async function* tombstoned(): AsyncGenerator<never> {
+        throw deletedAppError();
+      })();
+    },
+    async countTokens(): Promise<never> {
+      throw deletedAppError();
+    },
+  } as AnswerTransport;
+}
+
+function deletedAppError(): FirebaseError {
+  return new FirebaseError(
+    'app/app-deleted',
+    'Firebase App has already been deleted.',
+  );
 }
 
 // ── getAI — worker-forwarded answering or whole-mirror in-page ─────────────
-function mirrorGetAI(app: unknown, options?: ipAi.AIOptions): ipAi.AI {
-  return pyricGetAI(app as PyricApp | undefined, options);
+function mirrorGetAI(
+  app: unknown,
+  options?: ipAi.AIOptions,
+): ipAi.AI {
+  const resolved = (app ?? getApp()) as FirebaseApp;
+  const ai = pyricGetAI(resolved, options);
+  const target = (ai as unknown as {
+    [ipAi.TARGET_SYMBOL]?: { assertAlive?: () => void };
+  })[ipAi.TARGET_SYMBOL];
+  if (target) {
+    // Served entries are separately bundled, so the in-page AI mirror cannot
+    // rely on sharing pyric/app's private adapter singleton. Stamp the target
+    // with the served registry's per-app deletion guard instead. The target is
+    // per app handle even though its broker is shared by the sandbox.
+    target.assertAlive = () => {
+      if (isSandboxAppDeleted(resolved)) throw deletedAppError();
+    };
+  }
+  return ai;
 }
 
 export const getAI = (
   useWorker
     ? (app?: unknown, options?: ipAi.AIOptions) => {
+        const resolved = (app ?? getApp()) as FirebaseApp;
         const engine = options?.engine;
-        if (engine && isAnswerEngine(engine)) {
-          // A custom AnswerEngine is page code — it can't cross the port, so
-          // the whole mirror (broker included) runs in-page against it.
-          return mirrorGetAI(app, options);
+        const assertAlive = () => {
+          if (isSandboxAppDeleted(resolved)) throw deletedAppError();
+        };
+        if (isSandboxAppDeleted(resolved)) {
+          return createTransportAI(
+            resolved,
+            options,
+            deletedAppEngine(),
+            assertAlive,
+          );
         }
-        return mirrorGetAI(app, { ...(options ?? {}), engine: portEngine(toEngineWire(engine)) });
+        if (engine && isAnswerEngine(engine)) {
+          throw new ipAi.AIError(
+            ipAi.AIErrorCode.UNSUPPORTED,
+            'Custom AnswerEngine objects cannot run in SharedWorker mode. ' +
+              "Use a structured { kind: 'scripted' } or { kind: 'openai' } engine config.",
+          );
+        }
+        return createTransportAI(
+          resolved,
+          options,
+          portEngine(workerClientForApp(resolved), toEngineWire(engine)),
+          assertAlive,
+        );
       }
     : (app?: unknown, options?: ipAi.AIOptions) => mirrorGetAI(app, withProxyDefault(options))
 ) as typeof pyricGetAI;

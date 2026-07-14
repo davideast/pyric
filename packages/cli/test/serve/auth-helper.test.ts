@@ -12,6 +12,21 @@ import {
 } from 'pyric/auth';
 import { ServeAuthHelper } from '../../src/serve/entries/auth-helper-core.js';
 
+function helperForLocalAuth(auth: ReturnType<typeof getAuth>): ServeAuthHelper {
+  const helper = new ServeAuthHelper({
+    list: () => authSandbox.listIdentities(auth),
+    add: (identity) => authSandbox.seedUsers(auth, [{
+      uid: identity.uid,
+      email: identity.email ?? '',
+      password: '__pyric_popup_no_password__',
+      displayName: identity.displayName ?? undefined,
+      customClaims: identity.customClaims,
+    }]),
+  });
+  authSandbox.setAuthFlowResolver(auth, helper.resolver());
+  return helper;
+}
+
 function wire() {
   const sandbox = initializeSandbox();
   const auth = getAuth(sandbox);
@@ -22,19 +37,42 @@ function wire() {
   // Enforcement in served mode happens at the worker's `auth.acceptIdentity`
   // (covered in test/serve/worker/auth.test.ts).
   authSandbox.delegateProviderEnforcement(auth, true);
-  const helper = new ServeAuthHelper(sandbox);
-  helper.install();
+  const helper = helperForLocalAuth(auth);
   return { auth, helper };
 }
 
 describe('ServeAuthHelper', () => {
+  it('resolves a worker-provided identity without constructing a page Sandbox/Auth backend', async () => {
+    const helper = new ServeAuthHelper({
+      list: () => [{
+        uid: 'google.com:worker@example.com',
+        email: 'worker@example.com',
+        displayName: 'Worker User',
+        customClaims: { role: 'reviewer' },
+      }],
+    });
+    const pending = helper.resolver().openPopup({
+      providerId: 'google.com',
+      authType: 'signIn',
+    });
+
+    helper.pick('google.com:worker@example.com');
+
+    await expect(pending).resolves.toMatchObject({
+      providerId: 'google.com',
+      user: {
+        uid: 'google.com:worker@example.com',
+        email: 'worker@example.com',
+      },
+    });
+  });
+
   it('non-delegated (in-page fallback) default: google.com popup throws operation-not-allowed', async () => {
     // The served NON-worker leg keeps local gating with the documented
     // sandbox defaults — no silent pre-enabling in these tests anymore.
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
-    const helper = new ServeAuthHelper(sandbox);
-    helper.install();
+    const helper = helperForLocalAuth(auth);
     await expect(signInWithPopup(auth, new GoogleAuthProvider())).rejects.toMatchObject({
       code: 'auth/operation-not-allowed',
     });

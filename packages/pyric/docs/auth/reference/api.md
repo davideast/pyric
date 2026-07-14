@@ -11,16 +11,19 @@ For coverage against `firebase/auth`'s full surface, see [feature-matrix.md](./f
 ### `getAuth(target)`
 
 ```ts
+function getAuth(): Auth;
 function getAuth(sandbox: Sandbox): Auth;
 function getAuth(app: FirebaseApp): Auth;
-function getAuth(app: PyricApp): Auth;
 ```
 
 Construct an `Auth` handle. Idempotent on all three inputs: repeat calls for the same input return the same handle (matches `firebase/auth.getAuth(app)`).
 
-On the sandbox target the handle's backend is memoized per-sandbox; subscribers attached to one handle observe changes driven through any other handle for the same sandbox.
+On a bare sandbox target, the handle and session are memoized per sandbox.
+For Firebase apps, each named app owns a stable, independent session while
+equal-config apps share the sandbox user store and service data.
 
-The `PyricApp` overload reads the app's target brand and forwards to the sandbox or `FirebaseApp` path underneath, so `getAuth(app)` works the same whether `app` came from `initializeApp` pointed at a sandbox or at a real Firebase config.
+The `FirebaseApp` association is private; consumer-visible branding or
+`app.sandbox` fields are not required.
 
 ### `connectAuthEmulator(auth, url, options?)`
 

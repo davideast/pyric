@@ -255,7 +255,24 @@ cat > package.json <<JSON
 JSON
 
 echo "▸ npm install (resolving from local tarballs)"
-npm install --cache "$NPM_CACHE" --prefer-offline --no-audit --no-fund --loglevel=error
+# Revalidate registry metadata: this cache survives successful runs, and
+# --prefer-offline can otherwise return ETARGET immediately after an exact new
+# transitive version is published because its cached packument predates it.
+npm install --cache "$NPM_CACHE" --prefer-online --no-audit --no-fund --loglevel=error
+
+# Pyric's agent integrations use cloud-backed ModelClients. A plain consumer
+# install must not acquire the optional local-inference stack (roughly 1 GB of
+# native ONNX artifacts). Inspect npm's complete resolved tree so the command
+# must succeed, unrelated dependency problems cannot hide behind a selector,
+# and a transitive metadata regression cannot hide below the top level.
+echo "▸ cloud-only agent install stays free of local-inference runtimes"
+if LOCAL_RUNTIME_TREE=$(npm ls --all --json); then
+  LOCAL_RUNTIME_STATUS=0
+else
+  LOCAL_RUNTIME_STATUS=$?
+fi
+printf '%s' "$LOCAL_RUNTIME_TREE" \
+  | node "$ROOT/scripts/lib/check-cloud-only-agent-install.mjs" "$LOCAL_RUNTIME_STATUS"
 
 # A second consumer owns the SDK-absence proof. The broad consumer above
 # deliberately installs Firebase for inactive-production and UI peer coverage;

@@ -43,6 +43,7 @@ import {
   type PyricAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 
 type ErrorCodeInfo = { code: string; message: string };
 export class MessagingClientErrorCode {
@@ -301,6 +302,7 @@ function resolveApp(app?: PyricAdminApp): PyricAdminApp {
  */
 export function getMessaging(app?: PyricAdminApp): Messaging {
   const resolved = resolveApp(app);
+  assertAdminAppActive(resolved);
   const existing = sandboxInstances.get(resolved);
   if (existing !== undefined) return existing;
   const instance = new Messaging(resolved);

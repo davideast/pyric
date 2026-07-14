@@ -107,40 +107,29 @@ Rule.
 - Shared state is hoisted before functions move. When splitting an API surface, the shared module state and symbols are lifted into one state file first, in isolation, so the family moves that follow are clean.
 - The public export path does not change during a restructure. The barrel keeps its import path; only what it re-exports from moves. Consumers see no change.
 
-<!--
-DRAFT for owner ratification. Insert into docs/code-conventions.md as the
-section that resolves the open choice in existing section 1 ("under X/sandbox/
-or under sandbox/X/"). Numbered 8 here for review; renumber on merge. This
-section supersedes that clause: it picks X/sandbox/ and says why.
--->
-
 # 8. The anatomy of a surface (canonical)
 
 Section 1 fixed the four parts of a mirrored surface but left one choice open:
 the sandbox implementation lives "under `X/sandbox/` or under `sandbox/X/`."
-That "or" is the most foundational unratified convention in the tree. Every
+That "or" was the most foundational open convention in the tree. Every
 hill-climb that touches a backend has to answer it, and today six surfaces
 answer it six different ways. This section closes it.
 
 ## 8.0 What is decided now, and what moves when
 
-Ratifying this section decides the target shape. It does not schedule a
+This section fixes the target shape. It does not schedule a
 tree-wide move.
 
-- **Decisions land now.** The anatomy, the dependency direction, and the
-  enforcement checks are settled the day this section is ratified.
+- **The decisions are settled.** The anatomy, dependency direction, and
+  enforcement checks in this section are canonical.
 - **Moves happen just in time, per surface, per climb.** No surface is
   restructured speculatively. A surface is restructured in the commit that
   precedes its next behavior climb, under the section 7 rules (characterization
   first, mechanical move as its own commit, export path unchanged).
-- **New code lands in target shape immediately.** From ratification day, code a
+- **New code lands in target shape immediately.** Under this convention, code a
   climb writes goes where this section says, even in a surface that has not yet
   been migrated. New backend concepts go in `X/sandbox/`, never in central
   `sandbox/`.
-
-So the owner is not late. The decision is what has to be made before new code
-lands, and that is exactly what this section is. The moves it implies are cheap
-and deferred.
 
 ## 8.1 What each surface does today (the motivating exhibit)
 
@@ -162,7 +151,7 @@ keeps it surface-local but in one oversized file. Storage keeps it surface-local
 but smeared across the surface root with no isolating subdirectory. Firestore,
 the oldest, is the only surface that puts its backend in central `sandbox/`.
 
-The convention should ratify what the newest code already does, not what the
+The convention ratifies what the newest code already does, not what the
 oldest code did. The target is surface-local. Firestore is the migration.
 
 ## 8.2 The ruling: surface-local backend, cross-surface-only central sandbox
@@ -215,8 +204,9 @@ packages/pyric/src/
       backend.ts            the service facade (wires collaborators, owns lifecycle)
       <concept>.ts          state, query, converters/, rules-eval, sentinels, ...
     internal.ts             host-only seam (optional; published as ./internal)
-  sandbox/                  CROSS-SURFACE runtime only (whitelist above)
-  app/                      composition root: initializeApp, dispatches to surface barrels
+  sandbox/                  CROSS-SURFACE runtime only (whitelist above), including
+    internal/client-app.ts  neutral FirebaseApp-to-runtime adapter seam
+  app/                      FirebaseApp registry + app-owned runtime/lifecycle
   rules/                    native surface (no prod/sandbox split)
   firestore-values/         native leaf codec (no prod/sandbox split)
 ```
@@ -246,15 +236,22 @@ small, stable, multi-tenant runtime that no single surface owns.
 Rule. Dependencies point one way:
 
 ```
-app  ->  surface barrel (pyric/firestore, pyric/auth, ...)
-          ->  X/ families  ->  X/sandbox/ backend  ->  sandbox/ runtime  ->  firestore-values (leaf)
+app registry  ->  app runtime  ->  sandbox/ runtime
+                       |
+                       v
+              sandbox/internal/client-app  <-  surface service factories
+
+surface barrel  ->  X/ families  ->  X/sandbox/ backend
+                                      ->  sandbox/ runtime  ->  firestore-values (leaf)
 ```
 
-A surface depends downward on the shared runtime. A surface never depends
-sideways on another surface's non-barrel internals. `app` is the composition
-root and is allowed to depend on surface barrels (it dispatches `getFirestore` /
-`getAuth` / `getDatabase` by reading the `PyricApp` brand). Tools depend on
-surface barrels from outside the package (8.5).
+A surface depends downward on its backend and the shared runtime. A surface
+never depends sideways on another surface's non-barrel internals. The app
+runtime owns the FirebaseApp-to-sandbox association and installs the neutral
+adapter in `sandbox/internal/client-app`; service factories resolve app handles
+through that seam, so surfaces do not import `app`. The app registry does not
+import or dispatch to surface barrels. Tools depend on surface barrels from
+outside the package (8.5).
 
 Today's sideways edges, enumerated:
 
@@ -286,9 +283,9 @@ Today's sideways edges, enumerated:
    `rules/simulator` import them from there. That dissolves the sideways edge.
    Until then it is the one whitelisted exception (8.7 check 2).
 
-3. **app/dispatch.test.ts -> firestore/auth/database barrels.** A test in the
-   composition root importing surface barrels. Correct direction. Not a
-   violation.
+3. **app/dispatch.test.ts -> firestore/auth/database barrels.** An app-registry
+   integration test importing surface barrels to exercise their public service
+   factories. Test-only composition is the intended direction. Not a violation.
 
 No mirror surface imports another mirror surface's family or backend files. The
 direction rule holds today except for the two documented native-engine edges
@@ -313,9 +310,12 @@ no `X/sandbox/`. It still obeys the barrel, family, size, and direction rules.
   implementation. It is the runtime every mirror surface sits on, so it lives at
   the top level, not inside any surface.
 
-`app` is not a surface. It is the composition root: `initializeApp`, the
-`PyricApp` brand, and the dispatch that routes to surface barrels. It depends
-on surfaces; nothing in a surface depends on it.
+`app` is not a service surface. It is the FirebaseApp registry and app-owned
+runtime: `initializeApp`, `getApp`, `getApps`, `deleteApp`, the private
+FirebaseApp-to-sandbox association, service caching, and app lifecycle. It
+depends on the shared sandbox runtime and installs the neutral
+`sandbox/internal/client-app` adapter. Service surfaces consume that neutral
+seam; surfaces do not import `app`, and `app` does not dispatch to their barrels.
 
 ## 8.5 Worker and serve entries, and tools
 
@@ -352,7 +352,8 @@ its own commit, export path unchanged).
 
 | Surface | Current shape | Target shape | When it moves | What moves |
 |---|---|---|---|---|
-| firestore | engine + Admin face in central `sandbox/firestore/`, `sandbox/admin-firestore/`, `sandbox/admin-compat.ts` | `firestore/sandbox/` (engine) + the Admin face under firestore (see 8.8) | the firestore behavior climb already in flight (composite queries over worker, tier-1 cache-init) | `sandbox/firestore/*` -> `firestore/sandbox/*`; split `local-environment.ts` in the same move; Admin face per 8.8; package.json subpaths `pyric/sandbox/admin-firestore` and `pyric/sandbox/admin-compat` remap to the new dist path so the export contract is unchanged |
+| firestore | engine + Admin face in central `sandbox/firestore/`, `sandbox/admin-firestore/`, `sandbox/admin-compat.ts`; `sandbox/firestore/local-environment.ts` remains oversized | `firestore/sandbox/` (engine) + the Admin face under firestore (see 8.8) | dedicated mechanical follow-up before the next Firestore behavior climb ([ADR 0007](decisions/0007-firestore-runtime-splits-follow-up.md)) | `sandbox/firestore/*` -> `firestore/sandbox/*`; split `local-environment.ts` in the same move; Admin face per 8.8; package.json subpaths `pyric/sandbox/admin-firestore` and `pyric/sandbox/admin-compat` remap to the new dist path so the export contract is unchanged |
+| shared sandbox runtime | cross-surface `sandbox/internal/sandbox-impl.ts` facade remains above the class/file triggers | `SandboxImpl` lifecycle facade with persistence/service-registry and event-history collaborators | dedicated mechanical follow-up before the next shared-runtime behavior climb ([ADR 0007](decisions/0007-firestore-runtime-splits-follow-up.md)) | extract collaborators without changing the `Sandbox` contract, service-registration ordering, or persistence lifecycle |
 | auth | one file `auth/sandbox-backend.ts`, 2173 lines (over the 600 trigger) | `auth/sandbox/backend.ts` facade + one concept per file | the next auth climb (blocking-function / before-state work) | `auth/sandbox-backend.ts` splits into `auth/sandbox/*`. Location is already correct (surface-local); the split only deepens it. The `auth-backend-split` branch target conforms (8.8) |
 | database | `database/sandbox/*`, one concept per file | unchanged. this is the reference example | no move | RTDB rule evaluation delegates through `database/sandbox/rules-eval.ts` to the native engine; no parser/compiler lives under the mirror |
 | storage | backend inlined across `storage/{service,enforce,rules,persistence,internal}.ts`, no `sandbox/` subdir | extract the backend into `storage/sandbox/` (StorageService, IDB store, rules-eval), keep `storage/internal` as the host seam | the next storage climb (metadata / list / rules slices) | the non-public backend logic in those files moves to `storage/sandbox/*`; the family and `internal` files stay; `pyric/storage/internal` subpath unchanged |
@@ -361,7 +362,7 @@ its own commit, export path unchanged).
 | rules | Firestore engine under `rules/*`; RTDB engine historically under `database/{grammar,constraints,simulation}` | both native engines under `rules/`, with RTDB isolated in `rules/rtdb/` | RTDB pure-engine relocation | move the RTDB grammar, constraints compiler, compiled tree, simulator, and their tests under `rules/rtdb/`; keep `pyric/rules` and `pyric/rules/internal/rtdb` import paths stable |
 | firestore-values | leaf codec, deep-imports rules wrappers | unchanged near-term; long-term host the wrapper leaf here (8.3 case 2) | deferred, no climb blocks on it | eventually the wrapper value classes move to a shared leaf; not scheduled |
 
-New code rule, restated for the table: from ratification day, any firestore
+New code rule, restated for the table: under this convention, any firestore
 backend concept a climb adds goes in `firestore/sandbox/` even before the bulk
 move; any auth backend concept goes in `auth/sandbox/`; and so on. The climb
 does not append to `sandbox/firestore/` or to `auth/sandbox-backend.ts`.
@@ -404,7 +405,7 @@ surface migrates, so they double as the migration's definition of done.
 
 ## 8.8 The sharpest ruling, and the two in-flight splits
 
-### The ruling the owner must make: where the Admin Firestore face goes
+### The settled ruling: where the Admin Firestore face goes
 
 The firestore capability has one sandbox engine and two adapter faces:
 
@@ -431,7 +432,7 @@ subpath. That is why this is the sharp decision. The choices:
   the export subpath maps to `dist/admin-firestore/`; the two firestore faces are
   siblings, not nested.
 
-Recommend (A). The Admin face is not a peer capability, it is a second face on
+Decision: (A). The Admin face is not a peer capability, it is a second face on
 the firestore capability, and the locality diagnosis that motivates this whole
 section says one capability lives in one directory. The engine is firestore's,
 not cross-surface, so it fails the central-`sandbox/` whitelist and belongs in

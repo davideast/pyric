@@ -2,7 +2,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { surfaceRegistries, type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from '../registry/index.ts';
+import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from '../registry/index.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -30,8 +30,9 @@ function escapeCell(value: string): string {
 // ── Scoring (surface coverage + fidelity) ───────────────────────────────────
 //
 // Kept as distinct numbers (#224). Do NOT fold coverage into fidelity.
-// Both are read from the committed coverage baseline so `--check` fails when
-// a doc drifts from the ledger.
+// Surface breadth is read from the committed census baseline. Fidelity is
+// read from the live typed registry: a newly added behavior row must affect
+// generated scores immediately, before the coverage ratchet is refreshed.
 
 interface CoverageBaseline {
   services: Record<string, {
@@ -73,7 +74,7 @@ const SCORE_SPECS: Record<string, SurfaceScoreSpec> = {
   firestore: { label: 'Firestore', rowServices: ['firestore'], censusServices: ['firestore'] },
   rtdb: { label: 'Realtime Database', rowServices: ['rtdb', 'rtdb-modular'], censusServices: ['rtdb-modular'] },
   storage: { label: 'Storage', rowServices: ['storage'], censusServices: ['storage'] },
-  messaging: { label: 'Messaging', rowServices: ['messaging', 'messaging-admin'], censusServices: ['messaging'] },
+  messaging: { label: 'Messaging', rowServices: ['messaging'], censusServices: ['messaging'] },
   rules: { label: 'Rules', rowServices: ['firestore-rules', 'storage-rules', 'rtdb-rules'], censusServices: [] },
   'functions-rtdb': {
     label: 'Functions · RTDB',
@@ -96,14 +97,13 @@ interface SurfaceScore {
   totalPct: number | null;
 }
 
-function computeBehavior(spec: SurfaceScoreSpec, base: CoverageBaseline): BehaviorScore {
+function computeBehavior(spec: SurfaceScoreSpec): BehaviorScore {
   let conforms = 0;
   let total = 0;
-  for (const [key, status] of Object.entries(base.rowStatuses)) {
-    const svc = key.slice(0, key.indexOf('#'));
-    if (!spec.rowServices.includes(svc)) continue;
+  for (const row of allCompatibilityRows) {
+    if (!spec.rowServices.includes(row.surface)) continue;
     total += 1;
-    if (status === 'conforms') conforms += 1;
+    if (row.status === 'conforms') conforms += 1;
   }
   const pct = total > 0 ? Math.round((conforms / total) * 1000) / 10 : 0;
   return { conforms, total, pct };
@@ -133,7 +133,7 @@ function computeSurface(spec: SurfaceScoreSpec, base: CoverageBaseline): Surface
 export function scoreBlock(surface: CompatibilitySurfaceRegistry, base = readBaseline()): string | null {
   const spec = SCORE_SPECS[surface.surface];
   if (!spec) return null;
-  const behavior = computeBehavior(spec, base);
+  const behavior = computeBehavior(spec);
   const coverage = computeSurface(spec, base);
   const fidelityLine = `**Fidelity:** ${behavior.pct}% (${behavior.conforms} of ${behavior.total} tracked claims match production)`;
   const coverageLine = coverage.intendedPct === null
@@ -209,7 +209,7 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
   for (const surface of surfaceRegistries) {
     const spec = SCORE_SPECS[surface.surface];
     if (!spec) continue;
-    const behavior = computeBehavior(spec, base);
+    const behavior = computeBehavior(spec);
     const coverage = computeSurface(spec, base);
     const noCensusLabel = spec.noCensusKind === 'integration' ? 'integration' : 'native';
     const totalCell = coverage.totalPct === null ? noCensusLabel : `${coverage.totalPct}%`;
@@ -220,11 +220,10 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     let conforms = 0;
     let total = 0;
     const scored = new Set(Object.values(SCORE_SPECS).flatMap((s) => s.rowServices));
-    for (const [key, status] of Object.entries(base.rowStatuses)) {
-      const svc = key.slice(0, key.indexOf('#'));
-      if (!scored.has(svc)) continue;
+    for (const row of allCompatibilityRows) {
+      if (!scored.has(row.surface)) continue;
       total += 1;
-      if (status === 'conforms') conforms += 1;
+      if (row.status === 'conforms') conforms += 1;
     }
     return { conforms, total, pct: total > 0 ? Math.round((conforms / total) * 1000) / 10 : 0 };
   })();
@@ -256,14 +255,32 @@ export function climbHeaderLines(surface: CompatibilitySurfaceRegistry): string[
   const climbing = surfaceDescriptors.some((d) => d.registry === surface && d.climb === true);
   if (!climbing) return [];
   const rows = surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows : []));
-  const conforming = rows.filter((row) => row.status === 'conforms').length;
-  const breakdown = CLIMB_STATUS_ORDER.map((status) => ({ status, count: rows.filter((row) => row.status === status).length }))
-    .filter((entry) => entry.count > 0)
-    .map((entry) => `${entry.count} ${entry.status}`)
-    .join(', ');
+  const summary = (population: CompatibilityRow[], label?: string): string => {
+    const conforming = population.filter((row) => row.status === 'conforms').length;
+    const breakdown = CLIMB_STATUS_ORDER
+      .map((status) => ({
+        status,
+        count: population.filter((row) => row.status === status).length,
+      }))
+      .filter((entry) => entry.count > 0)
+      .map((entry) => `${entry.count} ${entry.status}`)
+      .join(', ');
+    return `> ${label ? `${label}: ` : ''}${conforming} of ${population.length} rows conforming.${breakdown ? ` ${breakdown}.` : ''}`;
+  };
+  const bySurface = Map.groupBy(rows, (row) => row.surface);
+  const populationLines = bySurface.size === 1
+    ? [summary(rows)]
+    : [...bySurface].map(([rowSurface, population]) => summary(
+        population,
+        rowSurface === 'messaging'
+          ? 'Client + service-worker mirror'
+          : rowSurface === 'messaging-admin'
+            ? 'Separately tracked Admin send plane'
+            : rowSurface,
+      ));
   return [
     '> **Climb status: this surface is climbing under CDD.**',
-    `> ${conforming} of ${rows.length} rows conforming.${breakdown ? ` ${breakdown}.` : ''}`,
+    ...populationLines,
     '> A `?` row below is a target with a derived failing test, not a guarantee.',
     '',
   ];

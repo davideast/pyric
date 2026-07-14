@@ -1,11 +1,22 @@
-/** Public value types for the sandbox app composition root. */
-import type { Sandbox } from '../sandbox/types/service.js';
-import type { SandboxApp } from '../sandbox/internal/app-handle.js';
+/** Firebase-compatible public value types for `pyric/app`. */
+export interface FirebaseOptions {
+  apiKey?: string;
+  authDomain?: string;
+  databaseURL?: string;
+  projectId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  appId?: string;
+  measurementId?: string;
+}
 
-export type { SandboxApp } from '../sandbox/internal/app-handle.js';
+export interface FirebaseAppSettings {
+  name?: string;
+  automaticDataCollectionEnabled?: boolean;
+}
 
-export type PyricAppTarget = 'sandbox';
-export type PyricApp = SandboxApp;
-
-/** Direct Pyric initialization always requires an explicit sandbox. */
-export type InitializeAppConfig = { sandbox: Sandbox };
+export interface FirebaseApp {
+  readonly name: string;
+  readonly options: FirebaseOptions;
+  automaticDataCollectionEnabled: boolean;
+}

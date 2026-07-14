@@ -8,7 +8,7 @@ import { bytesToBase64, base64ToBytes, storagePayloadTooLarge, MAX_STORAGE_OP_BY
 import type { FullMetadata } from 'pyric/storage';
 import { nextId, rpc, wirePort } from './core.js';
 import { lastSegment } from './handles.js';
-import type { ClientDb } from './handles.js';
+import type { ClientDb, ClientPort } from './handles.js';
 
 // ─── Storage (Pyric Studio data browse) ───────────────────────────────────
 // A worker-backed `FirebaseStorage` mirror: `ref` is client-side (path math),
@@ -18,13 +18,13 @@ import type { ClientDb } from './handles.js';
 /** Worker-backed Storage handle (carries the shared `MessagePort`). */
 export interface ClientFirebaseStorage {
   readonly __kind: 'client-storage';
-  readonly port: MessagePort;
+  readonly port: ClientPort;
 }
 
 /** Worker-backed Storage reference (path + name; carries the port for ops). */
 export interface ClientStorageReference {
   readonly __kind: 'storage-ref';
-  readonly port: MessagePort;
+  readonly port: ClientPort;
   readonly fullPath: string;
   readonly name: string;
 }
@@ -39,7 +39,7 @@ function normalizeStorageRefPath(path: string): string {
  * `ClientDb` (reusing its port) or a worker URL (standalone).
  */
 export function getStorage(source: ClientDb | string | URL, name?: string): ClientFirebaseStorage {
-  let port: MessagePort;
+  let port: ClientPort;
   if (typeof source === 'object' && '__kind' in source && source.__kind === 'client-db') {
     port = source.port;
   } else {

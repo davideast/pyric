@@ -228,6 +228,60 @@ describe('auth persistence — auto-flush on auth change', () => {
 // ─── registerPersistableService API guards ──────────────────────────────
 
 describe('registerPersistableService guards', () => {
+  it('detaches persistence subscriptions when a service name is unregistered and reused', async () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    };
+    const sandbox = initializeSandbox();
+    await sandbox.enablePersistence({
+      key: 'service-reuse',
+      injectedBackend: createMemoryBackend(),
+      sessionStorage: { local: storage, session: storage },
+    });
+    let uid = 'first-user';
+    let firstNotify: (() => void) | undefined;
+    const unregister = sandbox.registerPersistableService('auth-session:named', {
+      snapshot: () => null,
+      restore: () => {},
+      session: {
+        currentUid: () => uid,
+        restore: () => {},
+        mode: () => 'LOCAL',
+        subscribe: (notify) => {
+          firstNotify = notify;
+          return () => { firstNotify = undefined; };
+        },
+      },
+    });
+    firstNotify!();
+    unregister();
+
+    uid = 'replacement-user';
+    let replacementNotify: (() => void) | undefined;
+    sandbox.registerPersistableService('auth-session:named', {
+      snapshot: () => null,
+      restore: () => {},
+      session: {
+        currentUid: () => uid,
+        restore: () => {},
+        mode: () => 'LOCAL',
+        subscribe: (notify) => {
+          replacementNotify = notify;
+          return () => { replacementNotify = undefined; };
+        },
+      },
+    });
+
+    expect(replacementNotify).toBeFunction();
+    replacementNotify!();
+    expect(
+      JSON.parse(values.get('pyric:sandbox:auth-session:auth-session%3Anamed')!).uid,
+    ).toBe('replacement-user');
+  });
+
   it('throws failed-precondition on duplicate service name', () => {
     const sandbox = initializeSandbox();
     sandbox.registerPersistableService('test-svc', {

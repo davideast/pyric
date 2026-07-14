@@ -302,7 +302,7 @@ export async function startServe(opts: {
   // (the /__pyric/sdk/* namespace, worker route) reads from `bundle.outDir`
   // and is identical either way.
   const t0 = performance.now();
-  let bundle: { outDir: string; cached: boolean };
+  let bundle: { outDir: string; cached: boolean; dispose?: () => void };
   // The worker content hash: stamped into the page (`<meta name="pyric-worker-v">`)
   // so the page can WARN when a still-running worker is older than the served
   // bundle. The worker NAME is stable (`pyric-shared-worker`) — all tabs share
@@ -319,7 +319,12 @@ export async function startServe(opts: {
     // adapters feature-detect SharedWorker → this worker; unsupported browsers
     // fall back to the in-page sandbox. Built alongside the SDK so a warm
     // start skips both.
-    await bundleWorker({ outDir: bundle.outDir, noCache: opts.noCache });
+    try {
+      await bundleWorker({ outDir: bundle.outDir, noCache: opts.noCache });
+    } catch (error) {
+      bundle.dispose?.();
+      throw error;
+    }
     workerVersion = workerSourceHash();
   }
   const bundleMs = Math.round(performance.now() - t0);
@@ -352,10 +357,9 @@ export async function startServe(opts: {
     authUsers: state
       ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
       : seedUsers,
-    // Messaging climb gate (CDD isolation decision): the worker enables its
-    // flag-gated messaging.* ops only under PYRIC_CLIMB=1 — the same flag
-    // that gates the in-process mirrors. Explicit opt-in, never default.
-    messaging: process.env.PYRIC_CLIMB === '1',
+    // Served firebase/messaging is part of the canonical swap, so the worker
+    // broker must be available whenever the SDK entries are served.
+    messaging: true,
   });
 
   const events = createEventHub();
@@ -405,21 +409,28 @@ export async function startServe(opts: {
     studioUiDir,
     docsUiDir,
   });
-  const handle = await startStaticServer({
-    publicDir,
-    port: opts.port ?? 3473,
-    host: opts.host ?? 'localhost',
-    spaRewrite: wantsSpaRewrite(hosting),
-    namespaceHandler: mount
-      ? async (req, res, url) => (await mount.handler(req, res, url)) || sdkNamespace(req, res, url)
-      : sdkNamespace,
-    // Never force in-page: serve always serves the worker, and the bridge peer
-    // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
-    // + Studio + agent share the one sandbox even under --bridge.
-    transformHtml: (html) => injectServeTags(html, undefined, workerVersion),
-    allowedHosts: opts.allowedHosts,
-    logger,
-  });
+  let handle: Awaited<ReturnType<typeof startStaticServer>>;
+  try {
+    handle = await startStaticServer({
+      publicDir,
+      port: opts.port ?? 3473,
+      host: opts.host ?? 'localhost',
+      spaRewrite: wantsSpaRewrite(hosting),
+      namespaceHandler: mount
+        ? async (req, res, url) => (await mount.handler(req, res, url)) || sdkNamespace(req, res, url)
+        : sdkNamespace,
+      // Never force in-page: serve always serves the worker, and the bridge peer
+      // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
+      // + Studio + agent share the one sandbox even under --bridge.
+      transformHtml: (html) => injectServeTags(html, undefined, workerVersion),
+      allowedHosts: opts.allowedHosts,
+      logger,
+    });
+  } catch (error) {
+    bundle.dispose?.();
+    throw error;
+  }
+  if (bundle.dispose) handle.server.once('close', bundle.dispose);
   origin.port = handle.port;
   // Attach the WS upgrade to EVERY bound server so the sandbox peer connects on
   // whichever loopback family the page resolved (localhost binds both now).

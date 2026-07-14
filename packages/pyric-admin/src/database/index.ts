@@ -83,6 +83,7 @@ import {
   getApp,
   type PyricAdminApp,
 } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 
 /** Mirror-owned structural types for the implemented admin RTDB surface. */
 export type EventType = 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
@@ -163,6 +164,7 @@ export function getDatabase(
     // '[DEFAULT]' app from the registry (throws app/no-app on a miss).
     app = getApp();
   }
+  assertAdminAppActive(app);
   if (app[ADMIN_APP_TARGET] === 'sandbox') {
     return getSandboxDatabase(app.sandbox);
   }

@@ -5,7 +5,7 @@
  */
 import type { SerializedDocData } from '../protocol.js';
 import { deserializeDocData } from '../protocol.js';
-import type { DocRefHandle } from './handles.js';
+import type { ClientPort, DocRefHandle } from './handles.js';
 
 // ─── Rehydration (class instance restoration) ─────────────────────────────
 
@@ -34,7 +34,7 @@ export interface RawDocResult {
   data?: SerializedDocData;
 }
 
-export function makeDocSnapshot(raw: RawDocResult, port: MessagePort): ClientDocSnapshot {
+export function makeDocSnapshot(raw: RawDocResult, port: ClientPort): ClientDocSnapshot {
   const data = raw.exists && raw.data ? rehydrateDocData(raw.data) : undefined;
   const path = raw.path ?? raw.id;
   const ref: DocRefHandle = {
@@ -59,7 +59,7 @@ export interface RawQueryResult {
   docs: RawDocResult[];
 }
 
-export function makeQuerySnapshot(raw: RawQueryResult, port: MessagePort): ClientQuerySnapshot {
+export function makeQuerySnapshot(raw: RawQueryResult, port: ClientPort): ClientQuerySnapshot {
   const docs = raw.docs.map((doc) => makeDocSnapshot(doc, port));
   return {
     size: docs.length,

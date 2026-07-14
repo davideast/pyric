@@ -10,10 +10,8 @@
  *     bun test --cwd packages/pyric
  *
  * Every messaging row's `conforms` status is backed by this suite passing in
- * blocking CI. The mirror itself still gates its implicit default-sandbox app
- * behind `PYRIC_CLIMB` (WIP isolation; see src/messaging/instance.ts) — this
- * file enables that flag for its own lifetime because the assertion sets were
- * authored against the bare-call path, and restores it afterward.
+ * blocking CI. Bare `getMessaging()` calls run after initializing the standard
+ * Firebase default app, matching the production SDK contract.
  *
  * ─── HOW EACH ASSERTION SET IS SHAPED ─────────────────────────────────────────
  * Rows are read DIRECTLY from `packages/conformance/registry/messaging.ts`
@@ -31,19 +29,19 @@
  * `messaging-admin` suite owns the rest, the two are disjoint, and together they
  * cover every row in the registry file.
  */
-import { afterAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { messagingRows } from '../../../../packages/conformance/registry/messaging.ts';
+import { initializeApp } from 'pyric/app';
+import { resetAppRegistryForTests } from '../../dist/app/registry.js';
 
-// Enable the mirror's climb-only default-sandbox path for this file's
-// lifetime, then restore, so sibling files' flag-off contract tests (e.g.
-// sandbox-instance-identity's bare-call refusal) stay honest.
-const PREV_CLIMB = process.env.PYRIC_CLIMB;
-process.env.PYRIC_CLIMB = '1';
-afterAll(() => {
-  if (PREV_CLIMB === undefined) delete process.env.PYRIC_CLIMB;
-  else process.env.PYRIC_CLIMB = PREV_CLIMB;
+beforeAll(async () => {
+  await resetAppRegistryForTests();
+  initializeApp({ projectId: 'messaging-oracle-conformance' });
+});
+afterAll(async () => {
+  await resetAppRegistryForTests();
 });
 
 /** Repo-root observations directory (four levels up from this test file).

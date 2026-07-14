@@ -28,6 +28,7 @@ import {
 // executes against THIS sandbox (one backend for app + Studio + agent), instead
 // of a separate in-page sandbox.
 import { buildSandboxDispatcher } from '../../../bridge/client/dispatch.js';
+import { firebaseOptionsEqual } from 'pyric/app/internal';
 
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import {
@@ -72,6 +73,13 @@ import {
   cleanupPortPresence,
 } from './presence.js';
 import { handleSub, handleRtdbSub, handleUnsub, dropPortSessionSubs } from './subscriptions.js';
+
+function configConflictError(): Error & { code: string } {
+  return Object.assign(
+    new Error('Pyric currently supports one Firebase configuration per runtime'),
+    { code: 'app/multiple-configs-not-supported' },
+  );
+}
 
 // ─── Op orchestrator ────────────────────────────────────────────────────────
 
@@ -145,6 +153,39 @@ export async function handleMessage(
   port: PortLike,
   msg: InboundMessage,
 ): Promise<void> {
+  if (msg.t === 'appConfig') {
+    if (ctx.appOptions === undefined) {
+      ctx.appOptions = structuredClone(msg.options);
+    } else if (!firebaseOptionsEqual(ctx.appOptions, msg.options)) {
+      (ctx.rejectedConfigPorts ??= new WeakSet()).add(port);
+    }
+    return;
+  }
+  // A rejected app port still owns host-side resources until its explicit
+  // disconnect handshake completes. Never swallow that teardown frame.
+  if (ctx.rejectedConfigPorts?.has(port) && msg.t !== 'disconnect') {
+    if (msg.t === 'op' || msg.t === 'tool') {
+      fail(port, msg.id, configConflictError());
+    } else if (msg.t === 'sub' && msg.target !== 'events') {
+      const error = configConflictError();
+      port.postMessage({
+        t: 'snap',
+        subId: msg.subId,
+        value: { __error: { code: error.code, message: error.message } },
+      });
+    }
+    return;
+  }
+  if (ctx.disconnectedPorts?.has(port) && msg.t !== 'disconnect') {
+    if (msg.t === 'op' || msg.t === 'tool') {
+      fail(
+        port,
+        msg.id,
+        Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' }),
+      );
+    }
+    return;
+  }
   // Op provenance, bound at dispatch by `opProvenance` (see its docs). Opened
   // as the sandbox's SYNCHRONOUS ambient window so firestore/rtdb/auth emits —
   // which run inside `dispatchMessage` before any await — pick it up. Storage
@@ -203,6 +244,13 @@ async function dispatchMessage(
     ) {
       handleUnsub(ctx, port, msg);
     }
+  } else if (msg.t === 'disconnect') {
+    try {
+      cleanupPort(ctx, port);
+      ok(port, msg.id, undefined);
+    } catch (error) {
+      fail(port, msg.id, error);
+    }
   } else if (msg.t === 'tool') {
     await handleTool(ctx, port, msg);
   }
@@ -216,31 +264,43 @@ async function dispatchMessage(
  * when the entry point explicitly cleans up a port.
  */
 export function cleanupPort(ctx: HostCtx, port: PortLike): void {
+  (ctx.disconnectedPorts ??= new WeakSet()).add(port);
+  const failures: unknown[] = [];
+  const attempt = (cleanup: () => void): void => {
+    try {
+      cleanup();
+    } catch (error) {
+      failures.push(error);
+    }
+  };
   // Drop the port's auth subscriptions (routing entries — no real listener
   // to tear down), its per-port session, and its session-bound sub records
   // (#754).
-  authSubsFor(ctx).delete(port);
-  cleanupPortSession(ctx, port);
-  dropPortSessionSubs(ctx, port);
+  attempt(() => { authSubsFor(ctx).delete(port); });
+  attempt(() => { cleanupPortSession(ctx, port); });
+  attempt(() => { dropPortSessionSubs(ctx, port); });
 
   // Drop the port's event-stream subscriptions too (also routing entries off
   // the single shared `sandbox.onEvent` subscription — nothing to unsubscribe,
   // just stop fanning out to a dead port).
-  eventSubsFor(ctx).delete(port);
+  attempt(() => { eventSubsFor(ctx).delete(port); });
 
   // Drop the port's messaging broker client so a closed tab's last-reported
   // visibility stops feeding the routing rule. Its delivery-handler unsubs
   // live in `ctx.subs` and are torn down with the loop below.
-  cleanupPortMessaging(ctx, port);
+  attempt(() => { cleanupPortMessaging(ctx, port); });
 
   // Presence: best-effort remove this port's logical client when it was the
   // last association (lease expiry remains the correctness path).
-  cleanupPortPresence(ctx, port);
+  attempt(() => { cleanupPortPresence(ctx, port); });
 
   const portSubs = ctx.subs.get(port);
-  if (!portSubs) return;
-  for (const unsub of portSubs.values()) {
-    unsub();
+  if (portSubs) {
+    for (const unsub of portSubs.values()) attempt(unsub);
+    ctx.subs.delete(port);
   }
-  ctx.subs.delete(port);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Multiple SharedWorker port resources failed to tear down');
+  }
 }

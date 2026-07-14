@@ -1,0 +1,81 @@
+{
+  "name": "app-registry-deleted-service-factories",
+  "matrixRow": "app #25",
+  "rowIds": [
+    "app#25"
+  ],
+  "description": "Service factories called with a deleted FirebaseApp either reject with app/app-deleted or preserve the observed Firebase AI behavior.",
+  "observedAt": "2026-07-14T04:17:18.590Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "auth": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isError": true,
+      "code": "app/app-deleted",
+      "message": "Firebase: Firebase App named 'deleted-services' already deleted (app/app-deleted)."
+    },
+    "firestore": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isError": true,
+      "code": "app/app-deleted",
+      "message": "Firebase: Firebase App named 'deleted-services' already deleted (app/app-deleted)."
+    },
+    "database": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isError": true,
+      "code": "app/app-deleted",
+      "message": "Firebase: Firebase App named 'deleted-services' already deleted (app/app-deleted)."
+    },
+    "storage": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isError": true,
+      "code": "app/app-deleted",
+      "message": "Firebase: Firebase App named 'deleted-services' already deleted (app/app-deleted)."
+    },
+    "ai": {
+      "threw": false,
+      "usesDeletedApp": true
+    },
+    "cachedAuthFactory": {
+      "threw": false,
+      "usesDeletedApp": true
+    },
+    "cachedFirestoreFactory": {
+      "threw": false,
+      "usesDeletedApp": true
+    },
+    "cachedDatabaseFactory": {
+      "threw": false,
+      "usesDeletedApp": true
+    },
+    "cachedStorageFactory": {
+      "threw": false,
+      "usesDeletedApp": true
+    },
+    "retainedAuthSignOut": {
+      "threw": false
+    },
+    "retainedFirestoreGet": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isError": true,
+      "code": "failed-precondition",
+      "message": "The client has already been terminated."
+    },
+    "retainedDatabaseRef": {
+      "threw": true,
+      "errorName": "Error",
+      "isError": true,
+      "code": null,
+      "message": "FIREBASE FATAL ERROR: Cannot call ref on a deleted database. "
+    },
+    "retainedStorageRef": {
+      "threw": false,
+      "usesDeletedApp": false
+    }
+  }
+}

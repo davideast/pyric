@@ -26,13 +26,10 @@
  * `messaging-web-visibility-routing` — visibility, never focus). Port close
  * removes the client so a dead tab cannot pin foreground routing.
  *
- * CLIMB GATE (CDD isolation decision, docs/conformance/cdd.md resolved
- * question 1/6): messaging is a surface climbing under CDD, so its worker
- * ops exist ONLY when the ctx was built with `messagingEnabled: true`.
- * `pyric dev` wires that from the init payload's `messaging` field, which
- * the serve producers emit only under `PYRIC_CLIMB=1` — messaging is in
- * `pyric dev` only when explicitly enabled. Everything else answers the
- * `messaging/disabled` remediation error below.
+ * HOST CAPABILITY GATE: ops exist only when the ctx was built with
+ * `messagingEnabled: true`. Both serve producers enable it because Messaging
+ * is part of the canonical Firebase SDK swap. The disabled path remains for
+ * standalone host construction and focused tests.
  *
  * Imports only from `./host-context.js` + external packages (host-auth
  * precedent — no circular imports).
@@ -64,15 +61,13 @@ export function isMessagingOp(method: string): boolean {
   return MESSAGING_METHODS.has(method);
 }
 
-/** The gate error every messaging op/sub answers while the flag is off. */
+/** The error every messaging op/sub answers on a host without the capability. */
 function disabledError(): { code: string; message: string } {
   return {
     code: 'messaging/disabled',
     message:
-      'pyric worker: the messaging surface is climbing under CDD and is ' +
-      'gated off by default. Run `pyric dev` with PYRIC_CLIMB=1 (the ' +
-      'messaging isolation flag) to enable the sandbox broker, or build ' +
-      'the worker host ctx with `messagingEnabled: true`.',
+      'pyric worker: this host was created without Messaging enabled. ' +
+      'Build the worker host ctx with `messagingEnabled: true`.',
   };
 }
 

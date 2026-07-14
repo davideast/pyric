@@ -14,8 +14,8 @@ import type {
   ResolvedIdentity,
 } from '../protocol.js';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
-import { nextId, nextSubId, rpc, wirePort, _snapSubs } from './core.js';
-import type { ClientDb, Unsubscribe } from './handles.js';
+import { closeSubscription, isDisconnectedPort, nextId, nextSubId, openSnapshotSubscription, rpc, wirePort } from './core.js';
+import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
 
 // ════════════════════════════════════════════════════════════════════════
 //  AUTH SURFACE (mirrors `pyric/auth` / `firebase/auth`)
@@ -69,7 +69,7 @@ export interface ClientUserCredential {
  */
 export interface ClientAuth {
   readonly __kind: 'client-auth';
-  readonly port: MessagePort;
+  readonly port: ClientPort;
   /** Local mirror of the worker's currentUser, updated from the stream. */
   currentUser: ClientUser | null;
 }
@@ -80,7 +80,7 @@ export interface ClientAuth {
 const CLIENT_USER_PORT: unique symbol = Symbol('pyric.clientUser.port');
 
 /** Build a token-capable ClientUser from a wire SerializedUser. */
-function makeClientUser(port: MessagePort, raw: SerializedUser): ClientUser {
+function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
   const user: ClientUser = {
     uid: raw.uid,
     email: raw.email,
@@ -107,7 +107,7 @@ function makeClientUser(port: MessagePort, raw: SerializedUser): ClientUser {
 }
 
 /** Convert a wire SerializedUser|null to a ClientUser|null. */
-function toClientUser(port: MessagePort, raw: SerializedUser | null): ClientUser | null {
+function toClientUser(port: ClientPort, raw: SerializedUser | null): ClientUser | null {
   return raw ? makeClientUser(port, raw) : null;
 }
 
@@ -123,7 +123,7 @@ function toClientUser(port: MessagePort, raw: SerializedUser | null): ClientUser
  * authState subscription that keeps it live across tabs.
  */
 export function getAuth(source: ClientDb | string | URL, name?: string): ClientAuth {
-  let port: MessagePort;
+  let port: ClientPort;
   if (typeof source === 'object' && '__kind' in source && source.__kind === 'client-db') {
     port = source.port;
   } else {
@@ -149,12 +149,12 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
   // sessions (#754): only THIS port's sign-ins/outs (and its session restore)
   // fire here — another tab's sign-in is another user, not an update to us.
   const subId = nextSubId();
-  _snapSubs.set(subId, {
+  openSnapshotSubscription(port, subId, {
+    port,
     next: (raw) => {
       auth.currentUser = toClientUser(port, raw as SerializedUser | null);
     },
-  });
-  port.postMessage({ t: 'sub', subId, target: 'authState' } satisfies InboundMessage);
+  }, { t: 'sub', subId, target: 'authState' } satisfies InboundMessage);
 
   return auth;
 }
@@ -268,6 +268,10 @@ export async function signInAnonymously(auth: ClientAuth): Promise<ClientUserCre
 }
 
 export async function signOut(auth: ClientAuth): Promise<void> {
+  if (isDisconnectedPort(auth.port)) {
+    auth.currentUser = null;
+    return;
+  }
   await rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.signOut' });
   // The authState stream will also clear the mirror; set eagerly so a
   // synchronous read right after `await signOut()` reflects the change.
@@ -382,19 +386,17 @@ function openAuthSub(
   const subId = nextSubId();
   const port = auth.port;
 
-  _snapSubs.set(subId, {
+  openSnapshotSubscription(port, subId, {
+    port,
     next: (raw) => {
       const user = toClientUser(port, raw as SerializedUser | null);
       auth.currentUser = user;
       callback(user);
     },
-  });
-
-  port.postMessage({ t: 'sub', subId, target } satisfies InboundMessage);
+  }, { t: 'sub', subId, target } satisfies InboundMessage);
 
   return () => {
-    _snapSubs.delete(subId);
-    port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+    closeSubscription(port, subId);
   };
 }
 
@@ -427,7 +429,7 @@ export async function updateProfile(
   user: ClientUser,
   profile: { displayName?: string | null; photoURL?: string | null },
 ): Promise<void> {
-  const port = (user as { [CLIENT_USER_PORT]?: MessagePort })[CLIENT_USER_PORT];
+  const port = (user as { [CLIENT_USER_PORT]?: ClientPort })[CLIENT_USER_PORT];
   if (!port) {
     const err = new Error(
       'updateProfile: unrecognized user — was it produced by a worker-path sign-in?',

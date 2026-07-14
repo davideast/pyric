@@ -1,0 +1,17 @@
+{
+  "name": "app-registry-initializeapp-no-options",
+  "matrixRow": "app #21",
+  "rowIds": [
+    "app#21"
+  ],
+  "description": "firebase/app initializeApp() without options outside Firebase Hosting source deployment throws FirebaseError code app/no-options.",
+  "observedAt": "2026-07-13T22:47:49.329Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "threw": true,
+    "code": "app/no-options",
+    "errorName": "FirebaseError",
+    "isError": true,
+    "message": "Firebase: Need to provide options, when not being deployed to hosting via source. (app/no-options)."
+  }
+}

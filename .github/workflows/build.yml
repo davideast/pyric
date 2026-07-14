@@ -66,7 +66,7 @@ jobs:
         # CI and local can't drift.
         run: bash scripts/build.sh
 
-      - name: Install Chromium for documentation rhythm audit
+      - name: Install Chromium for browser gates
         run: bunx playwright install --with-deps chromium
 
       - name: Documentation generation, drift, links, and site build
@@ -75,6 +75,12 @@ jobs:
         # every route and Markdown twin, verifies the output/link inventory,
         # and runs the documentation-rhythm audit.
         run: bun run docs:api:check && bun run --cwd packages/site-docs test
+
+      - name: Served app + SharedWorker conformance
+        # Runs the canonical firebase/* swap through pyric dev, including named
+        # apps, cross-tab Auth isolation, config locking, deletion teardown,
+        # and the worker-owned AI boundary. These are blocking oracle claims.
+        run: bun run --cwd packages/cli test:app-conformance
 
       - name: Oracle conformance gate (observations × probes)
         # Loads every observations/*.json (structural floor), asserts each

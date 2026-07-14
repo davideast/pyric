@@ -6,17 +6,24 @@
  * that port's session — `request.auth.uid` and `request.auth.token.*` per
  * port, on one shared store with live cross-port fan-out.
  */
+import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
+import {
+  bytesToBase64,
+  type OutboundMessage,
+  type ResMessage,
+  type SnapMessage,
+  type SerializedUserCredential,
+} from '../../../src/serve/worker/protocol.js';
 import type {
-  OutboundMessage,
-  ResMessage,
-  SnapMessage,
-  SerializedUserCredential,
+  SerializedIdTokenResult,
 } from '../../../src/serve/worker/protocol.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { setRules as setDatabaseRules } from 'pyric/sandbox/database';
+import { getStorageSandbox } from 'pyric/storage';
 
 // Owner-only claims + admin-gated collection: pins uid AND token claims.
 const RULES = `rules_version = '2';
@@ -29,8 +36,15 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     match /admins/{d} {
-      allow read, write: if request.auth != null && request.auth.token.role == 'admin';
+      allow read, write: if request.auth != null && request.auth.token['role'] == 'admin';
     }
+  }
+}`;
+
+const STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /admins/{path=**} {
+    allow read, write: if request.auth != null && request.auth.token['role'] == 'admin';
   }
 }`;
 
@@ -52,6 +66,18 @@ async function makeCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
   const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
   getAdminFirestore(sandbox.withAuth(null)).setRules(RULES);
+  setDatabaseRules(sandbox, {
+    rules: {
+      admins: {
+        '.read': "auth != null && auth.token.role == 'admin'",
+        '.write': "auth != null && auth.token.role == 'admin'",
+      },
+    },
+  });
+  getStorageSandbox(sandbox, {
+    dbName: `per-port-session-${Math.random()}`,
+    rules: STORAGE_RULES,
+  });
   const auth = getAuth(sandbox);
   return { db: getFirestore(sandbox), sandbox, subs: new Map(), auth } as HostCtx;
 }
@@ -148,6 +174,93 @@ describe('per-port sessions drive data ops (#754)', () => {
 
     expect((await op(ctx, admin, { t: 'op', method: 'setDoc', path: 'admins/x', data: { ok: true } })).ok).toBe(true);
     expect((await op(ctx, pleb, { t: 'op', method: 'setDoc', path: 'admins/y', data: { ok: false } })).ok).toBe(false);
+  });
+
+  it('does not reuse a same-uid data handle after refreshed claims change', async () => {
+    const ctx = await makeCtx();
+    const firstPort = fakePort();
+    const refreshedPort = fakePort();
+
+    authSandbox.seedUsers(ctx.auth!, [
+      { uid: 'same-user', email: 'same@example.com', password: 'password123', customClaims: { role: 'admin' } },
+    ]);
+    expect((await op(ctx, firstPort, {
+      t: 'op', method: 'auth.signInEmail', email: 'same@example.com', password: 'password123',
+    })).ok).toBe(true);
+    expect((await op(ctx, firstPort, {
+      t: 'op', method: 'setDoc', path: 'admins/before-refresh', data: { ok: true },
+    })).ok).toBe(true);
+
+    expect((await op(ctx, firstPort, {
+      t: 'op', method: 'auth.adminUpdateUser', uid: 'same-user', request: { customClaims: { role: 'member' } },
+    })).ok).toBe(true);
+    expect((await op(ctx, refreshedPort, {
+      t: 'op', method: 'auth.restorePortSession', uid: 'same-user',
+    })).ok).toBe(true);
+
+    const afterRefresh = await op(ctx, refreshedPort, {
+      t: 'op', method: 'setDoc', path: 'admins/after-refresh', data: { ok: false },
+    });
+    expect(afterRefresh.ok).toBe(false);
+  });
+
+  it('forced token refresh reauthorizes the same port across every data service and live listeners', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    authSandbox.seedUsers(ctx.auth!, [{
+      uid: 'refresh-user',
+      email: 'refresh@example.com',
+      password: 'password123',
+      customClaims: { role: 'admin' },
+    }]);
+    expect((await op(ctx, port, {
+      t: 'op', method: 'auth.signInEmail', email: 'refresh@example.com', password: 'password123',
+    })).ok).toBe(true);
+
+    expect((await op(ctx, port, {
+      t: 'op', method: 'setDoc', path: 'admins/live', data: { before: true },
+    })).ok).toBe(true);
+    expect((await op(ctx, port, {
+      t: 'op', method: 'rtdb.set', path: 'admins/live', value: { before: true },
+    })).ok).toBe(true);
+    const storageBefore = await op(ctx, port, {
+      t: 'op', method: 'storage.putBytes', path: 'admins/live.txt',
+      dataB64: bytesToBase64(new TextEncoder().encode('before')),
+    });
+    expect(storageBefore.ok, JSON.stringify(storageBefore)).toBe(true);
+
+    await handleMessage(ctx, port, {
+      t: 'sub', subId: 'refresh-listener', target: { __ref: 'doc', path: 'admins/live' },
+    });
+    await tick();
+    expect((port.snaps.at(-1)?.value as { __error?: unknown }).__error).toBeUndefined();
+
+    expect((await op(ctx, port, {
+      t: 'op', method: 'auth.adminUpdateUser', uid: 'refresh-user',
+      request: { customClaims: { role: 'member' } },
+    })).ok).toBe(true);
+    const refreshed = await op(ctx, port, {
+      t: 'op', method: 'auth.getIdTokenResult', forceRefresh: true,
+    });
+    expect(refreshed.ok).toBe(true);
+    expect((refreshed.value as SerializedIdTokenResult).claims.role).toBe('member');
+    await tick();
+
+    expect((await op(ctx, port, {
+      t: 'op', method: 'setDoc', path: 'admins/firestore-after', data: { after: true },
+    })).ok).toBe(false);
+    expect((await op(ctx, port, {
+      t: 'op', method: 'rtdb.set', path: 'admins/rtdb-after', value: { after: true },
+    })).ok).toBe(false);
+    expect((await op(ctx, port, {
+      t: 'op', method: 'storage.putBytes', path: 'admins/storage-after.txt',
+      dataB64: bytesToBase64(new TextEncoder().encode('after')),
+    })).ok).toBe(false);
+
+    const listenerSnap = port.snaps.filter((snap) => snap.subId === 'refresh-listener').at(-1);
+    expect(listenerSnap?.value).toMatchObject({
+      __error: { code: expect.stringMatching(/permission|denied/i) },
+    });
   });
 
   it('an explicit Studio lens still overrides the port session', async () => {

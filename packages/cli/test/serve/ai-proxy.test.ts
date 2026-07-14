@@ -50,6 +50,17 @@ async function startServe(aiProxyUpstream: string): Promise<ServeHandle> {
   return h;
 }
 
+function closedLoopbackUrl(path = ''): string {
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: () => new Response(),
+  });
+  const url = `http://127.0.0.1:${server.port}${path}`;
+  server.stop(true);
+  return url;
+}
+
 describe('/__pyric/ai-proxy', () => {
   it('forwards POST path suffix + query + body, keeps authorization, strips origin-sensitive headers', async () => {
     const seen: Array<{ method: string; url: string; body: string; headers: Headers }> = [];
@@ -156,8 +167,7 @@ describe('/__pyric/ai-proxy', () => {
   });
 
   it('answers 502 with a pointer when the upstream is unreachable', async () => {
-    // Port 9 (discard) — nothing listens on loopback.
-    const h = await startServe('http://127.0.0.1:9/v1');
+    const h = await startServe(closedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
