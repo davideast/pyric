@@ -2291,7 +2291,7 @@ Mirrors `firebase/firestore`'s `or(...filters)` shape.
 
 ##### field
 
-`string`
+`string` | [`FieldPath`](#fieldpath)
 
 ##### direction?
 
@@ -2747,7 +2747,7 @@ trip.
 
 ##### field
 
-`string`
+`string` | [`FieldPath`](#fieldpath)
 
 ##### op
 

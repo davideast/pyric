@@ -204,26 +204,65 @@ interface CollectionRow {
 }
 
 /**
+ * Resolve a where-clause field against a candidate row. `__name__`
+ * (documentId()) is the document key — for collection-scoped queries
+ * the modular SDK compares string operands against the document id
+ * (last path segment) and DocumentReference operands against that
+ * same id (via {@link normalizeNameOperand}).
+ */
+function filterFieldValue(row: CollectionRow, field: string): unknown {
+  if (field === KEY_FIELD) {
+    const parts = row.path.split('/');
+    return parts[parts.length - 1] ?? row.path;
+  }
+  return row.data[field];
+}
+
+/**
+ * Normalize a `documentId()` / `__name__` operand so string ids and
+ * DocumentReference-like values compare as document ids.
+ */
+function normalizeNameOperand(target: unknown): unknown {
+  if (Array.isArray(target)) {
+    return target.map(normalizeNameOperand);
+  }
+  if (target && typeof target === 'object') {
+    const ref = target as { id?: unknown; path?: unknown };
+    if (typeof ref.id === 'string') return ref.id;
+    if (typeof ref.path === 'string') {
+      const parts = ref.path.split('/');
+      return parts[parts.length - 1] ?? ref.path;
+    }
+  }
+  return target;
+}
+
+/**
  * Recursive filter evaluator. `where` leaves call into the existing
  * scalar-op matcher; AND / OR composite filters short-circuit
  * across their sub-filter list.
  */
-function matchesFilter(data: DocumentData, filter: Filter): boolean {
+function matchesFilter(row: CollectionRow, filter: Filter): boolean {
   if (filter.kind === 'where') {
-    return matchesWhere(data[filter.field], filter.op, filter.value);
+    const value = filterFieldValue(row, filter.field);
+    const target =
+      filter.field === KEY_FIELD
+        ? normalizeNameOperand(filter.value)
+        : filter.value;
+    return matchesWhere(value, filter.op, target);
   }
   if (filter.kind === 'and') {
-    return filter.filters.every((sub) => matchesFilter(data, sub));
+    return filter.filters.every((sub) => matchesFilter(row, sub));
   }
   // 'or'
-  return filter.filters.some((sub) => matchesFilter(data, sub));
+  return filter.filters.some((sub) => matchesFilter(row, sub));
 }
 
 function applyFilters(
   docs: CollectionRow[],
   filters: Filter[],
 ): CollectionRow[] {
-  return docs.filter((d) => filters.every((f) => matchesFilter(d.data, f)));
+  return docs.filter((d) => filters.every((f) => matchesFilter(d, f)));
 }
 
 /**
@@ -753,6 +792,23 @@ export class QueryImpl implements Query {
  * average — the latter matches the JS SDK's
  * `AggregateField.average(...)` contract.
  */
+/**
+ * Read a (possibly dotted) field path from a document. Aggregates accept
+ * nested paths like `sum('metadata.pages')` the same way `where`/`orderBy`
+ * do for data fields — top-level `data[field]` would miss nested values.
+ */
+function aggregateFieldValue(data: DocumentData, fieldPath: string): unknown {
+  if (!fieldPath.includes('.')) return data[fieldPath];
+  let cursor: unknown = data;
+  for (const seg of fieldPath.split('.')) {
+    if (typeof cursor !== 'object' || cursor === null || Array.isArray(cursor)) {
+      return undefined;
+    }
+    cursor = (cursor as DocumentData)[seg];
+  }
+  return cursor;
+}
+
 function computeAggregate(
   field: AggregateField,
   rows: { data: DocumentData }[],
@@ -761,7 +817,7 @@ function computeAggregate(
   let sum = 0;
   let n = 0;
   for (const row of rows) {
-    const v = row.data[field.field];
+    const v = aggregateFieldValue(row.data, field.field);
     if (typeof v === 'number' && Number.isFinite(v)) {
       sum += v;
       n++;
