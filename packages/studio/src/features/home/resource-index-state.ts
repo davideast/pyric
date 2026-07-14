@@ -19,12 +19,38 @@
  * how many builds/ticks precede it.
  */
 
-import type { ResourceEntry } from './typeahead.js';
+import { resourceEntryIdentity, type ResourceEntry } from './typeahead.js';
+
+export type ResourceIndexUpdate = (previous: ResourceEntry[] | null) => ResourceEntry[];
+
+/**
+ * Turn progressive build batches into state updates. Keeping the
+ * first-batch replacement rule here lets tests exercise the same deferred
+ * updater scheduling React uses in the hook.
+ */
+export function createIndexBatchPublisher(
+  schedule: (update: ResourceIndexUpdate) => void,
+): (batch: readonly ResourceEntry[]) => void {
+  let firstOfBuild = true;
+  return (batch) => {
+    // React may apply this updater after the progressive callback returns.
+    // Snapshot the decision now instead of closing over the mutable flag.
+    const replacePreviousBuild = firstOfBuild;
+    firstOfBuild = false;
+    schedule((previous) => foldIndexBatch(previous, batch, replacePreviousBuild));
+  };
+}
+
+function uniqueResources(entries: readonly ResourceEntry[]): ResourceEntry[] {
+  const byIdentity = new Map<string, ResourceEntry>();
+  for (const entry of entries) byIdentity.set(resourceEntryIdentity(entry), entry);
+  return [...byIdentity.values()];
+}
 
 export function foldIndexBatch(
   prev: ResourceEntry[] | null,
   batch: readonly ResourceEntry[],
   firstOfBuild: boolean,
 ): ResourceEntry[] {
-  return firstOfBuild ? [...batch] : [...(prev ?? []), ...batch];
+  return uniqueResources(firstOfBuild ? batch : [...(prev ?? []), ...batch]);
 }

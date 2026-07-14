@@ -510,6 +510,37 @@
   position: relative;
 }
 
+.traffic__timeline [data-pyric-bucket-summary] {
+  position: absolute;
+  z-index: 4;
+  top: 4px;
+  left: clamp(
+    92px,
+    calc(var(--pyric-bucket-summary-x, 0.5) * 100%),
+    calc(100% - 92px)
+  );
+  transform: translateX(-50%);
+  max-width: calc(100% - 12px);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  pointer-events: none;
+}
+.traffic__bucket-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+}
+.traffic__bucket-summary strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .traffic__timeline [data-pyric-timeline-bars] {
   display: flex;
   align-items: flex-end;
@@ -531,6 +562,21 @@
   justify-content: flex-end;
   cursor: default;
   min-width: 2px;
+}
+.traffic__timeline [data-pyric-bucket]:not(:disabled) {
+  cursor: pointer;
+}
+.traffic__timeline [data-pyric-bucket]:not(:disabled):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.traffic__timeline
+  [data-pyric-bucket]:not(:disabled):hover
+  [data-pyric-bucket-allow],
+.traffic__timeline
+  [data-pyric-bucket]:not(:disabled):focus-visible
+  [data-pyric-bucket-allow] {
+  background: color-mix(in srgb, var(--accent) 42%, var(--line-2));
 }
 
 .traffic__timeline [data-pyric-bucket-allow] {
@@ -557,6 +603,22 @@
   border-radius: 2px;
 }
 
+/* A pinned bucket stays legible as the rest of the live timeline continues
+   to provide context. */
+.traffic__timeline [data-pyric-brush] {
+  position: absolute;
+  z-index: 1;
+  inset-block: 0;
+  left: calc(var(--pyric-brush-left, 0) * 100%);
+  right: calc(var(--pyric-brush-right, 0) * 100%);
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent-tint) 55%, transparent);
+  pointer-events: none;
+}
+.traffic__timeline [data-pyric-bucket-selected] {
+  filter: saturate(1.2);
+}
+
 /* Live edge marker. */
 .traffic__timeline [data-pyric-live] {
   position: absolute;
@@ -574,6 +636,80 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--faint);
+}
+
+/* Pinned interval: the chart states the finding, then the request stream
+   becomes the supporting evidence for that exact half-open range. */
+.traffic__time-focus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  border-left: 3px solid var(--accent);
+  padding: var(--space-2) var(--space-3);
+  background: var(--panel);
+}
+.traffic__time-focus-story {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+.traffic__time-focus-eyebrow {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+.traffic__time-focus h3,
+.traffic__time-focus p {
+  margin: 0;
+}
+.traffic__time-focus h3 {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.traffic__time-focus-story > p:last-child {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}
+.traffic__time-focus > button {
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+.traffic__time-focus > button:hover {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+
+@media (max-width: 620px) {
+  .traffic__bucket-summary span:last-child {
+    display: none;
+  }
+  .traffic__time-focus {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .traffic__time-focus-story {
+    grid-template-columns: 1fr;
+  }
+  .traffic__time-focus > button {
+    margin-left: 0;
+  }
 }
 
 /* ── Filter row (single compact row — no stacked toolbars) ──────────── */

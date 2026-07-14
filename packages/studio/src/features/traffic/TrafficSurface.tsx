@@ -53,6 +53,7 @@ import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-se
 import { TrafficRulesInspector } from './TrafficRulesInspector.js';
 import { BillableMetricsView, RulesMetricsView } from './TrafficMetricsViews.js';
 import { TRAFFIC_TABS, trafficTabForView, type TrafficTab } from './traffic-tabs.js';
+import { trafficTimeFocus, toggleTimeFocus } from './timeline-focus.js';
 import './traffic.css';
 
 export type { TrafficTab } from './traffic-tabs.js';
@@ -113,6 +114,10 @@ function relAgo(at: number, now: number): string {
   return `${Math.round(m / 60)}h ago`;
 }
 
+function timelineRangeLabel(window: TimeWindow): string {
+  return `${defaultFormatTime(window.start)}–${defaultFormatTime(window.end)}`;
+}
+
 /** The per-row verdict cell (blank for non-rule ops). */
 function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   const v = verdictFor(event);
@@ -154,6 +159,7 @@ export function TrafficSurface() {
   );
   const hiddenStudioCount = allEvents.length - events.length;
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
+  const [timeFocus, setTimeFocus] = useState<TimeWindow | null>(null);
   const expandedId = useInspectParam();
   const [visibleRows, setVisibleRows] = useState(PAGE_SIZE);
 
@@ -193,11 +199,17 @@ export function TrafficSurface() {
   }, [events]);
   const now = window.end;
 
+  const focusedTraffic = useMemo(
+    () => (timeFocus ? trafficTimeFocus(events, timeFocus) : null),
+    [events, timeFocus],
+  );
+  const tableEvents = focusedTraffic?.events ?? events;
+
   // Newest-first stream; verdict filter first, then grouping (the volume
   // reducer: storms → one row).
   const ordered = useMemo(
-    () => filterByVerdict(events, verdictFilter).sort((a, b) => b.at - a.at),
-    [events, verdictFilter],
+    () => filterByVerdict(tableEvents, verdictFilter).sort((a, b) => b.at - a.at),
+    [tableEvents, verdictFilter],
   );
   const { items } = useTrafficGroups({ events: ordered });
   const visibleItems = items.slice(0, visibleRows);
@@ -266,6 +278,11 @@ export function TrafficSurface() {
           <TrafficTimeline
             events={events}
             window={window}
+            brush={timeFocus ?? undefined}
+            onBrush={(nextWindow) => {
+              setTimeFocus((current) => toggleTimeFocus(current, nextWindow));
+              if (expandedId) closeInspect();
+            }}
             liveAt={window.end}
             bucketCount={36}
             className="traffic__timeline"
@@ -297,10 +314,36 @@ export function TrafficSurface() {
                 <span>now</span>
               </div>
             )}
+            renderBucketSummary={(bucket) => (
+              <div className="traffic__bucket-summary">
+                <span>{timelineRangeLabel(bucket)}</span>
+                <strong>
+                  {bucket.count} {bucket.count === 1 ? 'request' : 'requests'}
+                </strong>
+                <span>{bucket.denies} denied</span>
+              </div>
+            )}
             emptyState={
               <p className="traffic__empty">No requests in this window yet.</p>
             }
           />
+
+          {focusedTraffic ? (
+            <section
+              className="traffic__time-focus"
+              aria-label="Selected traffic interval"
+              aria-live="polite"
+            >
+              <div className="traffic__time-focus-story">
+                <p className="traffic__time-focus-eyebrow">Selected interval</p>
+                <h3>{timelineRangeLabel(focusedTraffic.window)}</h3>
+                <p>{focusedTraffic.finding}</p>
+              </div>
+              <button type="button" onClick={() => setTimeFocus(null)}>
+                Show all traffic
+              </button>
+            </section>
+          ) : null}
 
           <div className="traffic__filters" role="group" aria-label="Traffic filters">
             <span className="traffic__filters-label" aria-hidden="true">
@@ -332,12 +375,21 @@ export function TrafficSurface() {
 
           {items.length === 0 ? (
             <p className="traffic__empty">
-              {verdictFilter === 'all'
-                ? 'No requests yet. Reads, writes, and listeners against the sandbox stream in live.'
-                : `No ${verdictFilter} traffic in this session.`}
+              {focusedTraffic
+                ? verdictFilter === 'all'
+                  ? 'No requests occurred in the selected interval.'
+                  : `No ${verdictFilter} traffic occurred in the selected interval.`
+                : verdictFilter === 'all'
+                  ? 'No requests yet. Reads, writes, and listeners against the sandbox stream in live.'
+                  : `No ${verdictFilter} traffic in this session.`}
             </p>
           ) : (
-            <div className="traffic__log" data-pyric-ui="traffic-log" data-pyric-grouped="">
+            <div
+              className="traffic__log"
+              data-pyric-ui="traffic-log"
+              data-pyric-grouped=""
+              data-pyric-time-focused={focusedTraffic ? '' : undefined}
+            >
               <ul data-pyric-traffic-log-items="">
                 {visibleItems.map((item) =>
                   item.type === 'group' ? (
