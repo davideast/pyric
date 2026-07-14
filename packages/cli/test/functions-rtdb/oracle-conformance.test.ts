@@ -16,12 +16,14 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { functionsRtdbRows } from '../../../conformance/registry/functions-rtdb.ts';
-import { probe as exactProbe } from '../../../conformance/probes/functions-rtdb/functions-rtdb-onvaluecreated-exact-create.ts';
-import { probe as startupProbe } from '../../../conformance/probes/functions-rtdb/functions-rtdb-onvaluecreated-startup-existing.ts';
-import { probe as wildcardProbe } from '../../../conformance/probes/functions-rtdb/functions-rtdb-onvaluecreated-wildcard-batches.ts';
-import { probe as descendantProbe } from '../../../conformance/probes/functions-rtdb/functions-rtdb-onvaluecreated-descendant-projection.ts';
-import { probe as failureProbe } from '../../../conformance/probes/functions-rtdb/functions-rtdb-onvaluecreated-failed-execution.ts';
+import {
+  descendantProbe,
+  exactProbe,
+  failureProbe,
+  functionsRtdbRows,
+  startupProbe,
+  wildcardProbe,
+} from '@pyric/conformance/functions-rtdb-fixture';
 import {
   spawnFunctionsRtdbChild,
   type FunctionsRtdbChildEvent,

@@ -108,6 +108,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "@pyric/conformance": "workspace:*",
     "@types/bun": "latest",
     "@types/ws": "^8.5.0",
     "firebase": "^12.12.0",
