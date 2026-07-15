@@ -1,45 +1,125 @@
-<p align="center">
-  <img src="https://pyric.dev/pyric-logo.svg" alt="Pyric" width="180" />
-</p>
+# Build with Firebase without touching production
 
-<h1 align="center">Firebase that runs in the browser</h1>
+Keep the same `firebase/*` code. Pyric runs it against a local backend during development, then gets out of the way when the app ships to Firebase.
 
-<p align="center">Agentic coding without production consequences</p>
+Pyric adds a development-only resolution layer to a Firebase application. Run the Vite development server and supported Firebase imports resolve to a browser-local backend. Run a normal production build and those imports resolve to Firebase again. The application source does not branch between the two.
 
-<p align="center"><a href="https://pyric.dev">pyric.dev</a></p>
+The mirrored data services do not connect to a production Firebase project. Local writes cannot delete production data or create Firebase usage charges, and local rules changes do not deploy. Pyric owns the development sandbox and verification workflow. Firebase owns production, with `firebase-tools` or the Firebase Console handling deployment.
 
-<p align="center">Conformance-tested against Firebase 12.13.0 — see the <a href="https://pyric.dev/docs/pyric-explanation-versioning-and-compatibility/">versioning and compatibility policy</a> and the <a href="#what-matches-firebase-and-what-doesnt">published coverage</a>.</p>
+[Read the documentation](https://pyric.dev/docs/) or continue with an existing Vite application.
 
-<br />
+## Run Firebase code locally
 
-Pyric is Firestore, Auth, Realtime Database, Storage, *Messaging soon*, and the Security Rules engine, implemented in TypeScript and running inside the application process. In the browser, that process is the page itself: the whole backend executes in the tab. In Node, it is the Node process, so tests and scripts get the same backend with no browser involved.
+Install the development plugin:
 
-## Built for dev, disappears in prod
-This is not the Firebase Emulator Suite behind a wrapper. There is no Java process, no localhost port, and no cloud Firebase project connected.
+```bash
+npm install --save-dev @pyric/cli
+```
 
-Application code keeps using `firebase/*` imports which are mapped to the sandbox during development. When you ship to production, the map goes away, and the app talks to production services.
+Add it to the existing Vite configuration:
 
-Install `@pyric/cli` for the `pyric` binary. It owns the development side of
-the boundary: running the sandbox, producing rules and index artifacts, and
-verifying captured behaviour. It never logs in to, discovers, or deploys a
-production project. Firebase and `firebase-tools` own production execution and
-deployment.
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite';
+import { pyricSandbox } from '@pyric/cli/vite';
 
-### Backed by conformance
-The services are an independent implementation of Firebase's observable behavior, and that claim is tested rather than assumed: probes run against production Firebase, their recorded behavior is committed as observations, and CI replays every observation against the sandbox on every change. The section [What matches Firebase and what doesn't](#what-matches-firebase-and-what-doesnt) has the numbers.
+export default defineConfig({
+  plugins: [pyricSandbox()],
+});
+```
 
-Because the services live in the process, the backend becomes local state. Data, identities, security rules, and time-ordered events can be seeded, snapshotted, reset, and replayed the way source code is edited.
+Start the normal development server:
 
-## Where a coding agent runs Firebase code
-Agents already know the Firebase SDK. They don't need a new API to learn, they need somewhere to run the code they already write. Pyric is that target: the same `firebase/*` calls, executed against a local sandbox instead of production. On the map of an agent's tools it doesn't sit beside Firebase as an alternative, it sits under the code the agent already generates, as the thing that code runs against during development. Because the sandbox is fully local, there is no Firebase project and no account in the loop.
+```bash
+npm run dev
+```
 
-Traditionally, Firebase development begins with an account, a project, enabled services, the Emulator Suite and its Java dependency, and hand-wired switching between emulator and production in the SDK. An agent working in that environment touches real infrastructure, so writes, deploys, and rules changes need supervision.
+During `vite dev`, the plugin swaps supported `firebase/*` modules at resolution time. The backend runs in a SharedWorker, so tabs on the same development origin use one local backend. Browser-local persistence uses IndexedDB.
 
-A backend that runs inside the app removes the infrastructure from the loop. A developer gets a full Firebase stack in the first ten seconds of a project. An agent gets the whole backend as an inspectable, resettable tool surface it can exercise without supervision.
+Pyric Studio is available on the Vite origin at `/__pyric/ui/`. It opens the same backend used by the application.
 
-## Getting Started
+## Keep writing Firebase code
 
-Install and scaffold a Vite app (or add Pyric to an existing one):
+Application code continues to import Firebase:
+
+```ts
+// src/firebase.ts
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+
+const app = initializeApp({
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+});
+
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+```
+
+The Firebase configuration is accepted by the local mirror during development. The production build passes that same configuration to Firebase. Normal Auth, Firestore, Realtime Database, Storage, Messaging, and Firebase AI Logic usage still belongs in the [Firebase documentation](https://firebase.google.com/docs).
+
+Pyric documents the parts that differ locally, including supported behavior, Security Rules, persistence, inspection, verification, and known gaps. See [use the Vite plugin](packages/cli/docs/how-to/use-the-vite-plugin.md) for the complete plugin contract.
+
+## Inspect and correct a failed operation
+
+Pyric Studio shows local data, requests, authentication state, Security Rules verdicts, and denied operations. Open `/__pyric/ui/` on the development server and reproduce the failure. A denied request includes the path and verdict needed to correct the rule or the application code.
+
+The Vite plugin discovers the Firestore rules path from `firebase.json`, or falls back to `firestore.rules`. Saving that file replaces the active local ruleset without a production deploy. A parse failure leaves the last valid ruleset active and reports the error in the development server.
+
+State and test identities stay browser-local by default. Add `persist: true` to write a committable `.pyric/state/state.json`, or use `seed` to start from a known scenario:
+
+```ts
+pyricSandbox({
+  persist: true,
+  seed: 'seed.json',
+});
+```
+
+See [persistence and multi-tab behavior](packages/cli/docs/how-to/serve-persistence-and-multi-tab.md) for reset and seed precedence.
+
+## Give coding agents the same local Firebase target
+
+An agent can keep writing the same Firebase code while inspecting and changing the backend that the application is already using. Enable the MCP bridge in the Vite plugin:
+
+```ts
+pyricSandbox({ bridge: true });
+```
+
+The bridge mounts on the Vite development origin and routes agent operations to the same SharedWorker backend used by the application and Studio. The included [Claude Code plugin](pyric-plugin/README.md) discovers that bridge, while other MCP clients can connect to its HTTP endpoint.
+
+This protects the local workflow, not an independently credentialed process. A coding agent with production Firebase credentials or deployment access can still affect production outside Pyric.
+
+## Verify the rules boundary
+
+Development sessions capture Firestore and Realtime Database operations in `.pyric/last-session.json` by default. Replay those requests against candidate rules before deployment:
+
+```bash
+npx pyric verify
+```
+
+The default engine runs locally. The optional Firestore Rules Test API engine sends derived rule cases to Google's hosted evaluator when production-authority verification is needed. It verifies rules and does not deploy them. See [verify against a captured session](packages/cli/docs/how-to/verify-against-a-captured-session.md).
+
+## Ship the same application code
+
+A standard Vite production build leaves the development swap inactive:
+
+```bash
+npm run build
+```
+
+The built application contains the real Firebase SDK and uses the Firebase configuration already present in the source. Deploy the build, rules, and indexes with `firebase-tools` or the Firebase Console. Pyric has no production deployment path.
+
+## Check what Pyric mirrors
+
+Pyric is an independent implementation of observable Firebase behavior. Conformance evidence records what has been compared with Firebase and keeps five outcomes distinct: conforms, documented divergence, bug, unsupported, and unverified. The evidence is a floor, not a claim that every Firebase behavior has been measured.
+
+Read the generated matrices for [App](packages/pyric/docs/app/COMPAT.md), [Auth](packages/pyric/docs/auth/COMPAT.md), [Firestore](packages/pyric/docs/firestore/COMPAT.md), [Realtime Database](packages/pyric/docs/database/COMPAT.md), [Storage](packages/pyric/docs/storage/COMPAT.md), [Messaging](packages/pyric/docs/messaging/COMPAT.md), [AI Logic](packages/pyric/docs/ai/COMPAT.md), [Security Rules](packages/pyric/docs/rules/COMPAT.md), and [Functions with Realtime Database](packages/cli/docs/functions-rtdb/COMPAT.md). The [versioning and compatibility policy](packages/pyric/docs/explanation/versioning-and-compatibility.md) explains the release boundary.
+
+## Start from a new application
+
+The scaffold creates a Vite application with canonical Firebase imports, the Pyric plugin, Firestore rules, and separate development and production build paths:
 
 ```bash
 npm create pyric my-app
@@ -48,95 +128,21 @@ npm install
 npm run dev
 ```
 
-`npm create pyric` runs the `create-pyric` package and scaffolds a Vite app on `@pyric/cli/vite`. Equivalent: `npx create-pyric my-app`, or `pyric init` after installing `@pyric/cli`.
+For a static application or a Node process, `pyric dev` provides the same development-only package swap without the Vite plugin. The [CLI reference](packages/cli/docs/reference/cli.md) documents those paths and every command.
 
-`pyric dev` serves the app against the in-process sandbox. The app's own `firebase/*` imports resolve to the sandbox during development; nothing in the application source changes. The sandbox holds data, identities, and rules, and everything it does is observable through the mechanisms below.
+## Stability
 
-## Security rules as a library
+Pyric is alpha software, currently `0.1.0-alpha.8`. Firebase-shaped surfaces are tracked through the compatibility matrices. Pyric-specific development APIs may change between alpha releases. All packages are ESM-only and require Node 22.15 or later.
 
-Pyric includes a rules engine for Firestore and Realtime Database rules: parser, linter, validator, and simulator, usable in-process and from the CLI.
+## Develop Pyric
 
-```bash
-pyric firestore rules lint firestore.rules
-pyric firestore rules simulate --stdin
-pyric database rules validate database.rules.json
-```
-
-Rules edits take effect in the running app without a deploy. Realtime Database `.validate` rules are evaluated on writes, matching production behavior.
-
-## Everything the sandbox does is an event
-
-The sandbox emits a typed event for every operation it performs: reads, writes, auth transitions, and rules verdicts, including denials with the rule, path, and data that produced them. The diagnostics are consumers of that stream:
-
-- Traffic inspection: what the app actually did, live, in the `pyric dev --ui` console or through the `@pyric/ui` traffic and events components.
-- Denial inspection: a rejected operation carries its verdict instead of a bare `permission-denied` error.
-- Capture and replay: `pyric snapshot` records state, and captured sessions replay through the same event stream, which is what `pyric verify` is built on.
-
-## Browser Sandbox connected to local MCP
-
-Pyric provides a local MCP server whose tool surface mirrors the sandbox (the default bridge registers on the order of three dozen tools; consolidation is ongoing). Pyric connects the browser sandbox to the server over a web socket bridge (the included [Claude Code plugin](pyric-plugin/README.md) auto-wires this) or you import factories into any agent framework. The inventory is in [docs/agent-tools.md](docs/agent-tools.md). Tools unique to this environment include:
-
-- `firestore_simulate_rules` and `rtdb_simulate_access` evaluate a rules verdict for a hypothetical operation without performing it.
-- `firestore_simulator_*` runs a stateful Firestore session with seed, execute, batch, transaction, undo, redo, and an inspectable event log.
-- `sandbox_inspect` and `rtdb_crawl_structure` map what exists in the sandbox and how it is shaped.
-- `firestore_extract_indexes` (library / CLI generate path) derives composite-index definitions from the query shapes in source.
-
-## Work that carries to production
-
-A sandbox session produces the artifacts a production deploy needs. Rules leave the sandbox already exercised against the app's actual behaviour; ship them with `firebase deploy` (or the Console). Composite indexes can come from `firestore_extract_indexes` / `pyric firestore indexes generate` instead of a hand-maintained `firestore.indexes.json`. And `pyric verify` replays a captured session against a candidate ruleset and reports which operations change verdict before production finds out. The optional Rules Test API engine verifies Firestore rules on Google's engine; it does not deploy them.
-
-## What matches Firebase and what doesn't
-
-A sandbox is only useful if it behaves like the real service. The generated
-[conformance scores](packages/pyric/docs/conformance/SCORES.md) separate API
-surface coverage from behaviour fidelity, and the public matrices name the
-evidence and every known gap. They are regenerated from the conformance
-registry, so this page does not freeze a number that will drift.
-
-Per service: [Firestore](packages/pyric/docs/firestore/COMPAT.md), [Auth](packages/pyric/docs/auth/COMPAT.md), [Realtime Database](packages/pyric/docs/database/COMPAT.md), [Storage](packages/pyric/docs/storage/COMPAT.md). How the system works: [running the conformance system](packages/conformance/docs/how-to-run-the-conformance-system.md).
-
-## Using the packages directly
-
-Most apps never import Pyric. For tests, Node scripts, and programmatic control of sandboxes, the `pyric/*` and `pyric-admin/*` packages mirror the Firebase SDKs' shape:
-
-```js
-import { initializeSandbox } from 'pyric/sandbox';
-import { initializeApp } from 'pyric-admin/app';
-import { getDatabase } from 'pyric-admin/database';
-
-initializeApp({ sandbox: initializeSandbox() }); // the only non-firebase-admin line
-const db = getDatabase();
-await db.ref('rooms/lobby').set({ topic: 'launch day' });
-```
-
-| Package | Purpose | Docs |
-|---|---|---|
-| `pyric` | Web SDK mirror, rules tooling, sandbox runtime | [docs](packages/pyric/docs/) |
-| `pyric-admin` | `firebase-admin` mirror for the sandbox | [docs](packages/pyric-admin/docs/firestore/) |
-| `@pyric/cli` | The `pyric` CLI: sandbox development, artifacts, verification, and MCP | [docs](packages/cli/docs/) |
-| `@pyric/ui` | Headless React admin components and hooks | [docs](packages/ui/docs/) |
-| `@pyric/studio` | The local console behind `pyric dev --ui` | [README](packages/studio/README.md) |
-
-```bash
-npm install -D @pyric/cli     # the CLI; sufficient for most apps
-npm install pyric pyric-admin # for direct sandbox control
-```
-
-Node 22 or later. All packages are ESM-only with subpath exports (`pyric/firestore`, not `pyric`).
-
-## Development
-
-Requires Bun and Node 22 or later.
+The repository is a Bun workspace:
 
 ```bash
 bun install
 bun run build
-bun test packages/pyric packages/pyric-admin packages/cli packages/ui
-npm run test:packaging
+bun run test
+bun run compat:check
 ```
 
-Examples: [examples/vite-sandbox-app](examples/vite-sandbox-app/), the shape `npm create pyric` / `pyric init --template web` generates, and [examples/admin-playground](examples/admin-playground/), a `@pyric/ui` showcase.
-
-## Stability
-
-Alpha, `0.1.0-alpha.8`, published as an experimental product. The one stability goal is the Firebase mirror: code written against mirrored surfaces is intended to keep working, tracked in the compatibility matrices. Pyric-specific APIs (sandbox lifecycle, replay, serve and bridge internals) are public-alpha and may change between releases.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [CONTEXT.md](CONTEXT.md), and [AGENTS.md](AGENTS.md) before changing the codebase.
