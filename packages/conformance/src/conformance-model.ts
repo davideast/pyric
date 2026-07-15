@@ -163,7 +163,16 @@ function summarize(feature: MutableFeature, fidelity: Fidelity, assurance: Assur
   return `${feature.feature} is available, ${fidelityText}, and ${assuranceText}.`;
 }
 
-export async function deriveConformanceModel(): Promise<ConformanceModel> {
+let sharedModel: Promise<ConformanceModel> | undefined;
+
+/** Derive the immutable read model once per process and share it across every
+ * consumer. CI and docs commonly ask several adapters for the same commit's
+ * facts; recomputing the live TypeScript census for each adapter adds no trust. */
+export function deriveConformanceModel(): Promise<ConformanceModel> {
+  return sharedModel ??= buildConformanceModel();
+}
+
+async function buildConformanceModel(): Promise<ConformanceModel> {
   const census = await buildSurfaceCensus();
   const evidence = await deriveConformanceEvidence();
   const verdicts = deriveAllNodeVerdicts(evidence.graph);
