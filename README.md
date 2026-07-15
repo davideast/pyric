@@ -1,12 +1,20 @@
-# Build with Firebase without touching production
+<p align="center">
+  <img src="https://pyric.dev/pyric-logo.svg" alt="Pyric" width="180" />
+</p>
 
-Keep the same `firebase/*` code. Pyric runs it against a local backend during development, then gets out of the way when the app ships to Firebase.
+<h1 align="center">Build with Firebase without touching production</h1>
+
+<p align="center">Keep the same <code>firebase/*</code> code. Pyric runs it against a local backend during development, then gets out of the way when the app ships to Firebase.</p>
+
+<p align="center"><a href="https://pyric.dev">pyric.dev</a></p>
+
+<br />
 
 Pyric adds a development-only resolution layer to a Firebase application. Run the Vite development server and supported Firebase imports resolve to a browser-local backend. Run a normal production build and those imports resolve to Firebase again. The application source does not branch between the two.
 
 The mirrored data services do not connect to a production Firebase project. Local writes cannot delete production data or create Firebase usage charges, and local rules changes do not deploy. Pyric owns the development sandbox and verification workflow. Firebase owns production, with `firebase-tools` or the Firebase Console handling deployment.
 
-[Read the documentation](https://pyric.dev/docs/) or continue with an existing Vite application.
+Continue with an existing Vite application, or [read the documentation](https://pyric.dev/docs/).
 
 ## Run Firebase code locally
 
