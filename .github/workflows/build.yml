@@ -53,6 +53,20 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
+      - name: Cache Playwright Chromium
+        id: generated-docs-playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - name: Install Chromium browser
+        if: steps.generated-docs-playwright-cache.outputs.cache-hit != 'true'
+        run: bunx playwright install chromium
+
+      - name: Install Chromium system dependencies
+        run: bunx playwright install-deps chromium
+
       - name: Build twice and verify routes, Markdown twins, links, and clean tree
         run: bun run --cwd packages/site-docs test:generated
 

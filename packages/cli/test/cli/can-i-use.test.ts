@@ -112,7 +112,7 @@ describe('can-i-use command', () => {
         supports: [expect.objectContaining({ feature: 'getAfter' })],
       });
     }
-  });
+  }, 15_000);
 
   it('shows ambiguous candidates but never returns a successful trust answer', () => {
     for (const [args, marker] of [

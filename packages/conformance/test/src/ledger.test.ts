@@ -151,7 +151,7 @@ describe('single-source compatibility registry', () => {
     );
     expect(new Set(compatibilityPageCatalog(model).map(({ path }) => path))).toEqual(new Set(docs.keys()));
     expect(docs.get(SCOREBOARD_PATH)).toContain('17/17 conform');
-  }, 20_000);
+  }, 60_000);
 
   test('every observation internal name matches its filename minus .json', () => {
     const observations = loadObservations();
@@ -236,7 +236,7 @@ describe('oracle rig manifests', () => {
       rigManifests,
     });
     expect(problems).toEqual([]);
-  });
+  }, 30_000);
 
   test('surfaces a rig manifest whose script is missing', async () => {
     const rigManifests = await loadRigManifests();

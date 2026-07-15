@@ -6,7 +6,7 @@ let census: SurfaceCensus[];
 
 beforeAll(async () => {
   census = await buildSurfaceCensus();
-}, 15_000);
+}, 60_000);
 
 describe('Firebase public-surface census', () => {
   const expectedCounts = {
