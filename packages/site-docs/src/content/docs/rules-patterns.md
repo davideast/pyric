@@ -1,5 +1,5 @@
 ---
-title: "The techniques hard rules are built from"
+title: "Apply production-tested Firestore Rules patterns"
 navLabel: "Rules patterns"
 group: "Inspect and correct"
 section: "Correct Security Rules"
@@ -7,7 +7,7 @@ order: 3007
 description: "Learn the five moves that turn \"rules can't do that\" into a ruleset that deploys."
 ---
 
-# The techniques hard rules are built from
+# Apply production-tested Firestore Rules patterns
 
 The rules language cannot loop. It cannot build a map key out of strings. And it evaluates under budgets that are real but invisible. Every hard ruleset that exists anyway, chess included, is built from a small set of moves that work with those constraints instead of against them. Here they are, generalized from the game rules where they were proven against production.
 
@@ -103,10 +103,10 @@ There are three places the computation can go:
 
 The US tax example takes this the whole way. The client computes its own tax return, and the rules verify every intermediate figure against the bracket config. A return that lies about its math is a permission denial.
 
-## And from an agent
+## Load the patterns through an agent
 
 The patterns with stable shapes ship as standard library modules an agent imports instead of re-deriving: `geometry` for the config-document lookup, `counters` for the honest arithmetic, `timing` for cooldowns. `firestore_rules_stdlib_get` serves each with its gotchas attached, and `firestore_lint_rules` catches a shared gate before it costs a debugging session. See [skills](../skills/).
 
 ## Where to go next
 
-These techniques run up against real budgets, and the exact numbers are in [the measured limits](../limits-that-bite/). To see how far the techniques reach, read the [case studies](../whats-possible/).
+These techniques run up against real budgets, and the exact numbers are in [the measured limits](../firestore-rules-limits/). To see how far the techniques reach, read the [case studies](../whats-possible/).

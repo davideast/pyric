@@ -28,7 +28,7 @@ This inventory records the disposition of every authored guide page for issue #3
 | `content/secure/rules-patterns.md` | Pyric-specific rules guidance | Inspect and correct, Correct Security Rules |
 | `content/secure/rules-standard-library.md` | Pyric-specific rules guidance | Inspect and correct, Correct Security Rules |
 | `content/secure/rtdb-rules-in-typescript.md` | Pyric-specific rules guidance | Inspect and correct, Correct Security Rules |
-| `content/secure/limits-that-bite.md` | Production-measured rules guidance | Inspect and correct, Correct Security Rules; route retained pending the final heading pass |
+| `content/secure/firestore-rules-limits.md` | Production-measured rules guidance | Inspect and correct, Correct Security Rules; replaces the rejected playful route |
 | `content/secure/whats-possible.md` | Rules case studies | Inspect and correct, Correct Security Rules |
 | `content/agent/what-your-agent-can-do.md` | Pyric-specific workflow help | Inspect and correct, Work with an agent |
 | `content/agent/skills.md` | Pyric-specific workflow help | Inspect and correct, Work with an agent |

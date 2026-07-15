@@ -1,5 +1,5 @@
 ---
-title: "Firebase that runs in your browser"
+title: "Run Firebase locally, ship unchanged"
 navLabel: "Overview"
 group: "Overview"
 section: ""
@@ -7,7 +7,7 @@ order: 1
 description: "Understand what Pyric is and what you get, in one short read."
 ---
 
-# Firebase that runs in your browser
+# Run Firebase locally, ship unchanged
 
 Pyric runs supported Firebase application code against a local backend during development. The application keeps its ordinary `firebase/*` imports and Firebase configuration. A normal production build resolves those imports to Firebase again. The source does not branch between local development and production.
 
@@ -33,11 +33,11 @@ Development moves back and forth between writing Firebase code and inspecting wh
 
 Conformance sits underneath the workflow as separate evidence. It records which Pyric behaviors have been compared with production Firebase, which differ, and which remain unsupported or unverified.
 
-## Your agent works the same backend
+## Give coding agents the same local backend
 
 The backend is local state with a tool surface, so a coding agent can work on it the way you do. Point Claude Code, Cursor, or any MCP client at the sandbox and the agent can seed data, run queries, simulate a rules verdict before writing, and check its own work. Nothing it does leaves your machine. Everything it does is inspectable, live, in the same event stream you watch.
 
-## It focuses on the hard parts
+## Inspect the difficult parts locally
 
 Firebase development has hard parts, and they are not the parts the manuals dwell on. Rules that pass locally and fail in production. A denial with no explanation. Query shapes that quietly demand indexes. Limits that are real but written down nowhere.
 

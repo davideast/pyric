@@ -1,11 +1,11 @@
 ---
-title: Firestore rules limits, measured
+title: Firestore Rules compiler and evaluator limits
 navLabel: Rules limits
-outcome: Know the measured limits of the production rules compiler and evaluator, with exact numbers, so your rules compile the first time.
+outcome: Use measured production compiler and evaluator limits before a ruleset reaches Firebase.
 status: draft
 ---
 
-# Firestore rules limits, measured
+# Firestore Rules compiler and evaluator limits
 
 A ruleset can be syntactically perfect and still fail two ways: a 400 at deploy with no useful message, or a silent 403 at runtime that looks exactly like a denial you wrote. Both come from real limits in the production compiler and evaluator. The numbers below are researched and observed behavior: Pyric's tooling probed production Firestore directly, isolating one variable at a time, and recorded what it measured. They ship inside Pyric's linter as thresholds, so you do not have to remember them. It helps to know they exist.
 
@@ -25,7 +25,7 @@ Eleven `let` bindings in a function compile. Twelve fail, with the same unexplai
 
 This limit is in Firebase's own documentation. What matters in practice is the caching: results are cached per unique path, so a shared `config()` helper called from six functions costs one read, while six different paths cost six. The linter warns past 5 distinct calls and errors at the documented 10.
 
-## The runtime budget, and its flaky zone
+## The runtime evaluation budget
 
 The compile-time limits fail loudly at deploy. This one does not. A rule whose evaluation is too expensive returns 403 PERMISSION_DENIED at runtime, indistinguishable from a denial you intended.
 
@@ -49,7 +49,7 @@ The config-document pattern has a ceiling on the data side. A 129 KB config docu
 
 The runtime expression budget is shared across all the allow rules of a match block, evaluated in order. Non-matching rules spend from the same account as the rule that will eventually match, and the evidence was unambiguous: with sixteen checkers rules, reordering them changed which category of move failed. The structural fix, a unique first expression per rule, is covered in [rules patterns](../secure/rules-patterns.md). The linter flags the hazard as SHARED_GATE.
 
-## The linter remembers so you don't
+## Use the measured limits in the linter
 
 `pyric firestore rules lint` carries every number above as a threshold and reports the specific function, chain, or rule that crosses it, with a fix. It runs in-process, without a deploy, so the first time production sees your rules they already fit. From an agent, the same check is `firestore_lint_rules`.
 
