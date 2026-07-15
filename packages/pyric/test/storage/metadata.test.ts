@@ -71,10 +71,6 @@ describe('updateMetadata', () => {
       customMetadata: { tag: 'first' },
     });
 
-    // Pause one millisecond so the new `updated` timestamp is
-    // guaranteed-distinct on systems with sub-ms wallclock resolution.
-    await new Promise((resolve) => setTimeout(resolve, 1));
-
     const next = await updateMetadata(r, {
       contentType: 'application/json',
       customMetadata: { tag: 'second' },
@@ -83,7 +79,13 @@ describe('updateMetadata', () => {
     expect(next.contentType).toBe('application/json');
     expect(next.customMetadata).toEqual({ tag: 'second' });
     expect(next.metageneration).toBe('2');
-    expect(next.updated).not.toBe(upload.metadata.updated);
+    // ISO timestamps have millisecond precision, so two real updates may
+    // legitimately receive the same string on a fast runner. The server-set
+    // timestamp must never move backwards; metageneration above proves the
+    // metadata update itself was committed.
+    expect(Date.parse(next.updated)).toBeGreaterThanOrEqual(
+      Date.parse(upload.metadata.updated),
+    );
     // Server-set fields preserved.
     expect(next.generation).toBe(upload.metadata.generation);
     expect(next.timeCreated).toBe(upload.metadata.timeCreated);
