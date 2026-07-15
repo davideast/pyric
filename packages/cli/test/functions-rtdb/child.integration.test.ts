@@ -57,7 +57,7 @@ beforeAll(async () => {
     JSON.stringify({ name: 'unchanged-functions', private: true, type: 'commonjs' }),
   );
   writeFileSync(
-    join(fixtureDir, 'functions/index.cjs'),
+    join(fixtureDir, 'functions/index.js'),
     `const { onValueCreated, onValueUpdated } = require('firebase-functions/v2/database');
 exports.makeUppercase = onValueCreated(
   '/messages/{pushId}/original',
@@ -150,7 +150,7 @@ describe('isolated Functions RTDB child', () => {
     const events: FunctionsRtdbChildEvent[] = [];
     child = spawnFunctionsRtdbChild({
       cwd: join(fixtureDir, 'functions'),
-      entry: join(fixtureDir, 'functions/index.cjs'),
+      entry: join(fixtureDir, 'functions/index.js'),
       childModuleUrl: pathToFileURL(childModule),
       env: buildChildEnv(process.env, {
         serveUrl: runtime.handle.url,

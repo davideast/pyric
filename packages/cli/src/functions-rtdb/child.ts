@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { RemoteSandbox } from '../remote/index.js';
 import {
@@ -203,21 +204,32 @@ function send(message: FunctionsRtdbChildMessage): void {
   process.send?.(message);
 }
 
-/** Load either module format with ESM semantics and recover exact CJS exports. */
-async function loadFunctionsExports(entry: string): Promise<Record<string, unknown>> {
-  const namespace = await import(pathToFileURL(entry).href) as Record<string, unknown>;
-  // Node >=22.12 exposes the exact CommonJS module.exports value under this
-  // marker. Using it avoids walking both synthetic named exports and `default`,
-  // which would discover every CJS trigger twice. ESM has no marker and its
-  // namespace is already the Firebase loader shape we need.
-  const commonJsExports = namespace['module.exports'];
-  if (
-    (typeof commonJsExports === 'object' && commonJsExports !== null) ||
-    typeof commonJsExports === 'function'
-  ) {
-    return commonJsExports as Record<string, unknown>;
+function usesCommonJs(entry: string): boolean {
+  const extension = extname(entry);
+  if (extension === '.cjs') return true;
+  if (extension === '.mjs') return false;
+
+  let directory = dirname(entry);
+  while (true) {
+    const packageJsonPath = join(directory, 'package.json');
+    if (existsSync(packageJsonPath)) {
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+        type?: unknown;
+      };
+      return packageJson.type !== 'module';
+    }
+    const parent = dirname(directory);
+    if (parent === directory) return true;
+    directory = parent;
   }
-  return namespace;
+}
+
+/** Load the entry with the semantics selected by its extension and package scope. */
+async function loadFunctionsExports(entry: string): Promise<Record<string, unknown>> {
+  if (usesCommonJs(entry)) {
+    return createRequire(entry)(entry) as Record<string, unknown>;
+  }
+  return await import(pathToFileURL(entry).href) as Record<string, unknown>;
 }
 
 async function runFunctionsRtdbChild(): Promise<void> {
