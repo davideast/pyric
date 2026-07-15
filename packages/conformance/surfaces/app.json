@@ -1,0 +1,31 @@
+{
+  "schema": "pyric.conformance.surface.v1",
+  "order": 1,
+  "kind": "mirror",
+  "censusSurface": "app",
+  "upstream": "firebase/app",
+  "mirrors": [
+    "pyric/app"
+  ],
+  "observationPrefixes": [
+    "app-registry-",
+    "app-production-"
+  ],
+  "coverage": true,
+  "scopeNote": "Firebase-internal underscore plumbing is private and excluded from public coverage by rule. Public gap: initializeServerApp and its server-app types (SSR request state has no decided sandbox mirror). Client app handles, settings, named registries, and per-app service containers are mirrored. Intentional limit: one FirebaseOptions configuration per runtime because every app container connects to one sandbox backend.",
+  "conformanceSuite": "packages/pyric/test/app/oracle-conformance.test.ts",
+  "captureRigs": [
+    "app-registry",
+    "app-production"
+  ],
+  "registry": "app",
+  "dispositions": [
+    {
+      "tier": "deferred",
+      "reason": "Server-app (SSR) initialization: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet. Deferred, not out of scope — tracked as an unsupported registry row (registry/app.ts app#15).",
+      "symbols": [
+        "initializeServerApp"
+      ]
+    }
+  ]
+}

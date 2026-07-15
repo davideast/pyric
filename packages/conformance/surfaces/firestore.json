@@ -1,0 +1,43 @@
+{
+  "schema": "pyric.conformance.surface.v1",
+  "order": 3,
+  "kind": "mirror",
+  "censusSurface": "firestore",
+  "upstream": "firebase/firestore",
+  "mirrors": [
+    "pyric/firestore"
+  ],
+  "observationPrefixes": [
+    "firestore-"
+  ],
+  "coverage": true,
+  "scopeNote": "Firebase-internal underscore plumbing is private and excluded from public coverage by rule. Public gaps include bundle-loading, cache index-tuning knobs, and exported types that are not yet mirrored.",
+  "captureRigs": [
+    "oracle-run"
+  ],
+  "registry": "firestore",
+  "dispositions": [
+    {
+      "tier": "deferred",
+      "reason": "Index-tuning / GC-policy APIs have no real knob to turn in an in-memory sandbox today, but sibling cache-factory tokens are already honest inert tokens; these are buildable the same way and not genuinely out of scope.",
+      "symbols": [
+        "CACHE_SIZE_UNLIMITED",
+        "PersistentCacheIndexManager",
+        "getPersistentCacheIndexManager",
+        "deleteAllPersistentCacheIndexes",
+        "enablePersistentCacheIndexAutoCreation",
+        "disablePersistentCacheIndexAutoCreation",
+        "setIndexConfiguration"
+      ]
+    },
+    {
+      "tier": "deferred",
+      "reason": "Bundle-loading depends on a protobuf packaging format not modeled in the sandbox yet — a data/parsing problem, not external infrastructure, so it is buildable rather than genuinely un-modelable.",
+      "symbols": [
+        "loadBundle",
+        "namedQuery",
+        "LoadBundleTask"
+      ]
+    }
+  ]
+}

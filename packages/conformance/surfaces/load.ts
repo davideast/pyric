@@ -1,159 +1,160 @@
 /**
- * Surface descriptor loader.
+ * Schema-validated loader for the authored machine-readable surface contracts.
  *
- * `surfaces/` is the index: one authored `SurfaceDescriptorRecord` per file,
- * named `<surface-key>.ts`. This loader reads the directory, requires every
- * descriptor file, derives each surface key from its filename, resolves the
- * record's `registry` key string to the registry object, and returns the typed
- * array sorted by `order`. Adding a surface is adding a file.
- *
- * Loading is synchronous (Bun's `require` handles `.ts`): consumers use the
- * descriptor list at module-evaluation time (coverage's SERVICES, the doc
- * generator's climb header), which a synchronous loader keeps simple. It throws
- * with every problem found rather than silently dropping a malformed file, on
- * the same fail-loud contract as `rigs/load.ts`.
+ * The JSON files are the only authored source for surface identity, census
+ * pairs, scope, observation ownership, and public-runtime dispositions.
+ * Callers consume resolved descriptors, census pairs, or dispositions through
+ * this module and never parse policy data independently.
  */
-import { createRequire } from 'node:module';
-import { readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registriesByKey } from '../registry/index.ts';
 import type { Surface } from '../registry/types.ts';
-import { censusOnlySurfaces } from './census-only.ts';
-import type { CensusMirrorPair, SurfaceDescriptor, SurfaceDescriptorRecord } from './types.ts';
+import {
+  surfaceContractSchema,
+  type CensusMirrorPair,
+  type CensusOnlySurfaceContract,
+  type CensusSurface,
+  type DispositionTier,
+  type SurfaceContract,
+  type SurfaceDescriptor,
+  type SurfaceDescriptorRecord,
+  type SurfaceDisposition,
+} from './types.ts';
 
-const require = createRequire(import.meta.url);
 const HERE = dirname(fileURLToPath(import.meta.url));
-const NON_RECORD_FILES = new Set(['load.ts', 'types.ts', 'census-only.ts']);
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+function zodProblems(file: string, value: unknown): string[] {
+  const result = surfaceContractSchema.safeParse(value);
+  if (result.success) return [];
+  return result.error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? ` at '${issue.path.join('.')}'` : '';
+    return `surfaces/${file}: ${issue.message}${path}`;
+  });
 }
 
-/** Structural validation for one authored record. Returns problems found (empty = valid). */
+/** Structural/schema validation for one authored contract. */
 export function surfaceRecordProblems(file: string, value: unknown): string[] {
-  const problems: string[] = [];
-  const fail = (message: string) => problems.push(`surfaces/${file}: ${message}`);
-
-  if (typeof value !== 'object' || value === null) {
-    fail("does not export a 'surface' record object");
-    return problems;
+  const problems = zodProblems(file, value);
+  if (problems.length > 0) return problems;
+  const record = value as SurfaceContract;
+  if (record.kind !== 'census-only' && !registriesByKey[record.registry]) {
+    problems.push(`surfaces/${file}: 'registry' key '${record.registry}' resolves to no registry`);
   }
-  const record = value as Record<string, unknown>;
-
-  if (typeof record.order !== 'number') fail("missing numeric 'order'");
-  if (typeof record.registry !== 'string' || !record.registry.trim()) fail("missing 'registry' key string");
-  else if (!registriesByKey[record.registry]) fail(`'registry' key '${record.registry}' resolves to no registry`);
-  if (!isStringArray(record.observationPrefixes) || record.observationPrefixes.length === 0) {
-    fail("'observationPrefixes' must be a non-empty string array");
-  }
-  if (typeof record.coverage !== 'boolean') fail("missing boolean 'coverage'");
-  if (typeof record.scopeNote !== 'string' || !record.scopeNote.trim()) fail("missing 'scopeNote'");
-  if (!isStringArray(record.captureRigs)) fail("'captureRigs' must be a string array");
-  if (record.conformanceSuite !== undefined && typeof record.conformanceSuite !== 'string') {
-    fail("'conformanceSuite' must be a string");
-  }
-  if (record.climb !== undefined && typeof record.climb !== 'boolean') fail("'climb' must be a boolean");
-
-  // ── Descriptor-kind integrity ─────────────────────────────────────────────
-  // The `kind` discriminant decides which axis fields a descriptor carries. A
-  // mirror descriptor asserts an upstream exists (census fields); a native
-  // descriptor asserts it does not (a declared symbolSource instead, and NONE
-  // of the census fields). Nothing string-matches the surface name to decide.
-  if (record.kind !== 'mirror' && record.kind !== 'native' && record.kind !== 'integration') {
-    fail("missing 'kind' — must be 'mirror', 'native', or 'integration'");
-  } else if (record.kind === 'mirror') {
-    if (typeof record.censusSurface !== 'string' || !record.censusSurface.trim()) fail("mirror descriptor missing 'censusSurface'");
-    if (typeof record.upstream !== 'string' || !record.upstream.trim()) fail("mirror descriptor missing 'upstream'");
-    if (!isStringArray(record.mirrors) || record.mirrors.length === 0) fail("mirror descriptor 'mirrors' must be a non-empty string array");
-    if (record.symbolSource !== undefined) fail("mirror descriptor must not declare 'symbolSource'");
-    if (record.contractSource !== undefined) fail("mirror descriptor must not declare 'contractSource'");
-  } else if (record.kind === 'native') {
-    if (typeof record.symbolSource !== 'string' || !record.symbolSource.trim()) fail("native descriptor missing 'symbolSource'");
-    if (record.censusSurface !== undefined) fail("native descriptor must not declare 'censusSurface' (no upstream to census)");
-    if (record.upstream !== undefined) fail("native descriptor must not declare 'upstream' (no upstream to census)");
-    if (record.mirrors !== undefined) fail("native descriptor must not declare 'mirrors' (no upstream to census)");
-    if (record.contractSource !== undefined) fail("native descriptor must not declare 'contractSource'");
-  } else {
-    if (typeof record.contractSource !== 'string' || !record.contractSource.trim()) {
-      fail("integration descriptor missing 'contractSource'");
-    }
-    if (record.censusSurface !== undefined) fail("integration descriptor must not declare 'censusSurface'");
-    if (record.upstream !== undefined) fail("integration descriptor must not declare 'upstream'");
-    if (record.mirrors !== undefined) fail("integration descriptor must not declare 'mirrors'");
-    if (record.symbolSource !== undefined) fail("integration descriptor must not declare 'symbolSource'");
-  }
-
   return problems;
 }
 
-/**
- * Loads every surface descriptor in this directory, resolving each record's
- * registry key to the registry object and deriving the surface key from the
- * filename. Throws with every problem found.
- */
-export function loadSurfaceDescriptors(): SurfaceDescriptor[] {
-  const files = readdirSync(HERE)
-    .filter((file) => file.endsWith('.ts') && !NON_RECORD_FILES.has(file))
-    .sort();
-
+function loadContracts(): { key: string; file: string; record: SurfaceContract }[] {
+  const files = readdirSync(HERE).filter((file) => file.endsWith('.json')).sort();
+  const loaded: { key: string; file: string; record: SurfaceContract }[] = [];
   const problems: string[] = [];
-  const descriptors: SurfaceDescriptor[] = [];
 
   for (const file of files) {
-    const surface = file.slice(0, -'.ts'.length) as Surface;
-    const mod = require(join(HERE, file)) as { surface?: SurfaceDescriptorRecord; default?: SurfaceDescriptorRecord };
-    const record = mod.surface ?? mod.default;
-    const recordFailures = surfaceRecordProblems(file, record);
-    if (recordFailures.length > 0) {
-      problems.push(...recordFailures);
+    const key = file.slice(0, -'.json'.length);
+    let value: unknown;
+    try {
+      value = JSON.parse(readFileSync(join(HERE, file), 'utf8'));
+    } catch (error) {
+      problems.push(`surfaces/${file}: invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
-    const rec = record as SurfaceDescriptorRecord;
-    const registry = registriesByKey[rec.registry]!;
-    const { registry: _registryKey, ...rest } = rec;
-    descriptors.push({
+    const recordProblems = surfaceRecordProblems(file, value);
+    if (recordProblems.length > 0) {
+      problems.push(...recordProblems);
+      continue;
+    }
+    loaded.push({ key, file, record: surfaceContractSchema.parse(value) });
+  }
+
+  const dispositions = new Map<string, string>();
+  const censusPairs = new Map<string, string>();
+  for (const { file, record } of loaded) {
+    if (record.kind !== 'mirror' && record.kind !== 'census-only') continue;
+    const pairValue = JSON.stringify([record.upstream, record.mirrors]);
+    const priorPair = censusPairs.get(record.censusSurface);
+    if (priorPair && priorPair !== pairValue) {
+      problems.push(`surfaces/${file}: census surface '${record.censusSurface}' conflicts with another upstream/mirror pair`);
+    } else {
+      censusPairs.set(record.censusSurface, pairValue);
+    }
+    for (const group of record.dispositions) {
+      for (const symbol of group.symbols) {
+        const key = `${record.censusSurface}\0${symbol}`;
+        const prior = dispositions.get(key);
+        if (prior) {
+          problems.push(`surfaces/${file}: duplicate disposition for ${record.censusSurface} runtime symbol '${symbol}' (also in ${prior})`);
+        } else {
+          dispositions.set(key, file);
+        }
+      }
+    }
+  }
+
+  if (files.length === 0) problems.push('surfaces/: no JSON surface contracts found');
+  if (problems.length > 0) {
+    throw new Error(`Surface contract loading failed:\n${problems.map((problem) => `  - ${problem}`).join('\n')}`);
+  }
+  return loaded.sort((a, b) => a.record.order - b.record.order || a.key.localeCompare(b.key));
+}
+
+const loadedContracts = loadContracts();
+export const surfaceContracts: ReadonlyArray<{ key: string; record: SurfaceContract }> =
+  loadedContracts.map(({ key, record }) => ({ key, record }));
+
+export function loadSurfaceDescriptors(): SurfaceDescriptor[] {
+  return loadedContracts.flatMap(({ key, record }) => {
+    if (record.kind === 'census-only') return [];
+    const registry = registriesByKey[record.registry]!;
+    const { registry: registryKey, ...rest } = record;
+    return [{
       ...rest,
-      surface,
-      registryKey: rec.registry,
+      surface: key as Surface,
+      registryKey,
       registry,
       compatPath: registry.compatPath,
-    });
-  }
-
-  if (problems.length > 0) {
-    throw new Error(`Surface descriptor loading failed:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
-  }
-
-  return descriptors.sort((a, b) => a.order - b.order);
+    } as SurfaceDescriptor];
+  });
 }
 
-/** The loaded descriptors, evaluated once. Consumers iterate this in place of a hand-maintained list. */
 export const surfaceDescriptors: SurfaceDescriptor[] = loadSurfaceDescriptors();
 
-/**
- * The export-census mirror pairs surface-census.ts diffs. Derived from the
- * descriptors (deduped by census surface — `rtdb` and `rtdb-modular` share the
- * `database` census, counted once) and merged with the census-only surfaces
- * (`app`, `messaging-sw`). Ordered by the union of descriptor `order` and
- * census-only `order` so the census output is stable.
- */
 export function loadCensusPairs(): CensusMirrorPair[] {
-  const seen = new Set<string>();
-  const ordered: { order: number; pair: CensusMirrorPair }[] = [];
-
-  for (const c of censusOnlySurfaces) {
-    if (seen.has(c.censusSurface)) continue;
-    seen.add(c.censusSurface);
-    ordered.push({ order: c.order, pair: { surface: c.censusSurface, upstream: c.upstream, mirrors: c.mirrors } });
+  const seen = new Set<CensusSurface>();
+  const result: CensusMirrorPair[] = [];
+  for (const { record } of loadedContracts) {
+    if (record.kind !== 'mirror' && record.kind !== 'census-only') continue;
+    if (seen.has(record.censusSurface)) continue;
+    seen.add(record.censusSurface);
+    result.push({ surface: record.censusSurface, upstream: record.upstream, mirrors: [...record.mirrors] });
   }
-  for (const d of surfaceDescriptors) {
-    // Native surfaces have no upstream to census — they contribute no pair.
-    if (d.kind !== 'mirror') continue;
-    if (seen.has(d.censusSurface)) continue;
-    seen.add(d.censusSurface);
-    ordered.push({ order: d.order, pair: { surface: d.censusSurface, upstream: d.upstream, mirrors: d.mirrors } });
-  }
-
-  return ordered.sort((a, b) => a.order - b.order).map((o) => o.pair);
+  return result;
 }
+
+export function loadSurfaceDispositions(): SurfaceDisposition[] {
+  return loadedContracts.flatMap(({ record }) => {
+    if (record.kind !== 'mirror' && record.kind !== 'census-only') return [];
+    return record.dispositions.flatMap((group) =>
+      group.symbols.map((symbol) => ({
+        surface: record.censusSurface,
+        symbol,
+        reason: group.reason,
+        tier: group.tier,
+      })),
+    );
+  });
+}
+
+export function dispositionsFor(surface: CensusSurface): Map<string, string> {
+  return new Map(loadSurfaceDispositions()
+    .filter((entry) => entry.surface === surface)
+    .map((entry) => [entry.symbol, entry.reason]));
+}
+
+export function dispositionTiersFor(surface: CensusSurface): Map<string, DispositionTier> {
+  return new Map(loadSurfaceDispositions()
+    .filter((entry) => entry.surface === surface)
+    .map((entry) => [entry.symbol, entry.tier]));
+}
+
+export type { CensusOnlySurfaceContract, SurfaceDescriptorRecord };

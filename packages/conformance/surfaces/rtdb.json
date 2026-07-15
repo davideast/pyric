@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v1",
+  "order": 4,
+  "kind": "native",
+  "symbolSource": "pyric/rules/internal/rtdb",
+  "observationPrefixes": [
+    "rtdb-"
+  ],
+  "coverage": true,
+  "scopeNote": "native (no upstream): pure RTDB rules engine under the unstable rules-internal seam. Production data access and deployment are intentionally absent.",
+  "captureRigs": [
+    "oracle-run"
+  ],
+  "registry": "rtdb"
+}

@@ -11,15 +11,15 @@
  * They remain visible in the raw diagnostic but never enter public coverage
  * and never require a product-scope disposition.
  */
-import { denyTierFor, denylistFor, type CensusSurface, type DenyTier } from './surface-denylist.ts';
+import { dispositionTiersFor, dispositionsFor, loadCensusPairs } from '../surfaces/load.ts';
+import type { CensusSurface, DispositionTier } from '../surfaces/types.ts';
 import { isPublicExportName, publicTypeExportNames } from './public-exports.ts';
-import { loadCensusPairs } from '../surfaces/load.ts';
 import type { CensusMirrorPair as MirrorPair } from '../surfaces/types.ts';
 
 export interface DispositionedSymbol {
   symbol: string;
   reason: string;
-  tier: DenyTier;
+  tier: DispositionTier;
 }
 
 export interface PublicRuntimeCensus {
@@ -78,8 +78,8 @@ export async function censusForPair(pair: MirrorPair): Promise<SurfaceCensus> {
   const publicMirror = [...rawMirror].filter(isPublicExportName).sort();
   const publicUpstreamSet = new Set(publicUpstream);
   const publicMirrorSet = new Set(publicMirror);
-  const dispositions = denylistFor(pair.surface);
-  const tiers = denyTierFor(pair.surface);
+  const dispositions = dispositionsFor(pair.surface);
+  const tiers = dispositionTiersFor(pair.surface);
 
   const mapped: string[] = [];
   const dispositioned: DispositionedSymbol[] = [];

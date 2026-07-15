@@ -40,7 +40,7 @@ order, cheapest and most specific first:
 | # | Gate | Fails when |
 |---|------|-----------|
 | 1 | `compat:validate` | A link in the evidence graph is broken: a row cites a missing observation, an observation sits in the wrong surface directory, a probe has no observation twin, a rules-corpus scenario is orphaned, or an entry-path expected-failure cites a gap that does not exist. |
-| 2 | `compat:census-gate` | A change introduced a NEW unmapped upstream symbol, or left a stale/redundant deny-list entry behind. Ratchets against `baselines/census-baseline.json`. |
+| 2 | `compat:census-gate` | A change introduced a NEW unmapped upstream symbol, or left a stale/redundant surface disposition behind. Ratchets against `baselines/census-baseline.json`. |
 | 3 | `compat:entry-path` | A canonical initialization program went red without a cited, currently-real gap. This is a CLIFF, not a ratchet. |
 | 4 | `generate-docs.ts --check` | A `COMPAT.md` on disk no longer matches what the registry generates. Someone hand-edited a generated file, or edited the registry and forgot to regenerate. |
 | 5 | `compat:conformance:check` | The ignored runtime node-verdict lookup is missing or no longer matches the conformance graph. Run the CLI prebuild or `compat:conformance`. |
@@ -112,7 +112,7 @@ current unmapped runtime and type sets against
 `baselines/census-baseline.json`. Passing means "no NEW debt". It does not mean
 "no debt": today it tolerates 34 unmapped runtime symbols and 159 unmapped
 type names. A failure names the new symbol. Mirror it, give a missing public
-runtime export an honest disposition in `src/surface-denylist.ts`, or record
+runtime export an honest disposition in its `surfaces/<surface>.json` contract, or record
 the known gap with `bun run compat:census-gate --update`. The baseline prevents
 new gaps from arriving silently. It never gives an existing gap coverage
 credit.
@@ -223,7 +223,7 @@ per mirror pair. It exits non-zero whenever ANY upstream export is unmapped,
 which is true today (53 of them). It is a REPORT, not the gate:
 `compat:census-gate` is the gate, and it passes. Do not wire `compat:census`
 into a pipeline expecting 0. `-- --report` adds the full per-surface inventory,
-including every deny-list entry with its written reason.
+including every reviewed disposition with its written reason.
 
 **`oracle:plan`** (exit 0) is the rig fleet: every capture rig, its automation
 tier, its credential contract, and whether it is runnable right now. See
@@ -516,8 +516,8 @@ messaging-sw       4      4      0        0     1
 - database (4): DataSnapshot, Database, QueryConstraint, TransactionResult
 - storage (2): StorageErrorCode, StringFormat
 
-✗ 53 unmapped upstream symbol(s). Mirror them, or add a deny-list entry with a reason
-  in packages/conformance/src/surface-denylist.ts.
+✗ Unmapped public runtime or type exports remain. Mirror them, add a reviewed
+  runtime disposition to the owning surface contract, or ratchet known debt.
 ```
 
 Exit code 1, by design. That list is the complete, by-name answer to "what is
@@ -525,7 +525,7 @@ not mirrored": these 53 symbols ARE the surface-coverage deficit, spelled out.
 
 ### Which exports are deliberately NOT mirrored, and why?
 
-The unmapped list above is untriaged debt. The deny-list is triaged debt, and
+The unmapped list above is untriaged debt. Surface dispositions are triaged debt, and
 every entry carries a written reason:
 
 ```sh
@@ -960,13 +960,14 @@ A surface becomes real to every gate at once, because the gates iterate the
 descriptors instead of hardcoding a list. Admission is two authored files plus
 one registry-barrel import:
 
-1. **One descriptor file**, `surfaces/<name>.ts`, exporting a
-   `SurfaceDescriptorRecord`. The filename is the key. The record names the
+1. **One contract file**, `surfaces/<name>.json`, conforming to
+   `pyric.conformance.surface.v1`. The filename is the key. The contract names the
    registry it hosts rows in, the observation filename prefixes it owns, and the
    capture rigs that produce them. Its `kind` is `mirror` for a Pyric package
    measured against an upstream export census, `native` for a Pyric-owned API,
    or `integration` for unchanged upstream source executed through a Pyric
-   runtime seam.
+   runtime seam. Mirror and census-only contracts also own reviewed runtime
+   dispositions, grouped by reason and tier.
 2. **One registry file**, `registry/<name>.ts`, exporting a
    `CompatibilitySurfaceRegistry` with its `compatPath` and its rows.
 3. **One import in `registry/index.ts`**, adding that registry to
@@ -1034,8 +1035,8 @@ The ritual, in order:
    vouches for the installed SDK. Re-capture before trusting any conformance
    result.
 2. `bun run compat:census -- --report` diffs the export surface. Every new
-   unmapped symbol gets triaged into exactly one of: mirror it, deny it with an
-   honest reason in `src/surface-denylist.ts`, or add it to the census baseline
+   unmapped symbol gets triaged into exactly one of: mirror it, give it an
+   honest disposition in the owning `surfaces/<surface>.json`, or add it to the census baseline
    as tracked debt.
 3. Read the upstream changelog between the two versions and annotate the census
    diff with intent. The census sees symbols, not meaning: a symbol that looks

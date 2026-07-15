@@ -132,7 +132,7 @@ Do not make live GitHub state part of the runtime contract. Derive `knownGap` fr
 
 - `getDownloadURL` landed in [PR #231](https://github.com/davideast/pyric/pull/231). It should still answer “partial” because the registry now records its page-local `blob:` URL identity/lifetime divergence, not because it is denylisted.
 - `getAfter()` remains a documented rules-engine divergence (`firestore-rules#164`) and is a valid partial/unsafe-to-assure example.
-- `onDisconnect` remains deferred in [`surface-denylist.ts`](../packages/conformance/src/surface-denylist.ts), so it is a valid unavailable/deferred example.
+- `onDisconnect` remains deferred in the [`rtdb-modular.json`](../packages/conformance/surfaces/rtdb-modular.json) contract, so it is a valid unavailable/deferred example.
 - #201 and #205 must not be returned as open known issues.
 
 ### 5. One `support` value would undo the current three-axis trust model

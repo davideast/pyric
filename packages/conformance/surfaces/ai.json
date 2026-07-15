@@ -1,0 +1,81 @@
+{
+  "schema": "pyric.conformance.surface.v1",
+  "order": 1,
+  "kind": "mirror",
+  "censusSurface": "ai",
+  "upstream": "firebase/ai",
+  "mirrors": [
+    "pyric/ai"
+  ],
+  "observationPrefixes": [
+    "ai-"
+  ],
+  "coverage": true,
+  "scopeNote": "The core REST plane is mirrored. Deprecated Imagen exports, the Live API, server-side templates, hybrid/on-device inference, and their public types remain visible public-surface gaps; dispositions explain why each runtime symbol is absent without removing it from the denominator.",
+  "conformanceSuite": "packages/pyric/test/ai",
+  "captureRigs": [
+    "ai-logic"
+  ],
+  "registry": "ai",
+  "dispositions": [
+    {
+      "tier": "out-of-scope",
+      "reason": "Imagen is deprecated upstream; all Imagen models shut down as early as June 2026 (upstream 2.11.0 deprecation). Mirroring an API whose production counterpart is retiring would freeze dead behavior.",
+      "symbols": [
+        "getImagenModel",
+        "ImagenModel",
+        "ImagenImageFormat",
+        "ImagenAspectRatio",
+        "ImagenPersonFilterLevel",
+        "ImagenSafetyFilterLevel"
+      ]
+    },
+    {
+      "tier": "out-of-scope",
+      "reason": "Template-served Imagen models retire with the rest of Imagen (deprecated upstream, June 2026 shutdown); the template transport does not outlive the model family it serves.",
+      "symbols": [
+        "getTemplateImagenModel",
+        "TemplateImagenModel"
+      ]
+    },
+    {
+      "tier": "deferred",
+      "reason": "Live API is deferred, not out of scope — it is a bidirectional websocket protocol the sandbox can model with a scripted session engine, the same seam pattern the REST plane already uses; the work has not happened yet.",
+      "symbols": [
+        "getLiveGenerativeModel",
+        "LiveGenerativeModel",
+        "LiveSession",
+        "LiveResponseType"
+      ]
+    },
+    {
+      "tier": "deferred",
+      "reason": "Deferred with the rest of the Live API family — the browser audio helper rides the Live session seam once that lands.",
+      "symbols": [
+        "startAudioConversation"
+      ]
+    },
+    {
+      "tier": "deferred",
+      "reason": "Server-side templates are deferred, not out of scope — hosting template state is exactly the kind of server infrastructure the sandbox exists to model; the template store has not been built yet.",
+      "symbols": [
+        "getTemplateGenerativeModel",
+        "TemplateGenerativeModel"
+      ]
+    },
+    {
+      "tier": "deferred",
+      "reason": "Hybrid/on-device inference is deferred, not out of scope — the sandbox runs in the browser and can model the on-device path through the answer-engine seam; the mode has not been wired yet.",
+      "symbols": [
+        "InferenceMode"
+      ]
+    },
+    {
+      "tier": "deferred",
+      "reason": "Deferred with hybrid/on-device inference — the source marker is meaningful once the hybrid mode lands.",
+      "symbols": [
+        "InferenceSource"
+      ]
+    }
+  ]
+}

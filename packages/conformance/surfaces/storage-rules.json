@@ -1,0 +1,16 @@
+{
+  "schema": "pyric.conformance.surface.v1",
+  "order": 10,
+  "kind": "native",
+  "symbolSource": "pyric/storage",
+  "observationPrefixes": [
+    "rules-storage-"
+  ],
+  "coverage": true,
+  "scopeNote": "native (no upstream): the Storage rules engine (parseStorageRules / evaluateStorageRules), measured against the production Rules Test API engine.",
+  "conformanceSuite": "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
+  "captureRigs": [
+    "rules-storage"
+  ],
+  "registry": "rules"
+}

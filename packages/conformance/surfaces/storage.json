@@ -1,0 +1,42 @@
+{
+  "schema": "pyric.conformance.surface.v1",
+  "order": 6,
+  "kind": "mirror",
+  "censusSurface": "storage",
+  "upstream": "firebase/storage",
+  "mirrors": [
+    "pyric/storage"
+  ],
+  "observationPrefixes": [
+    "storage-"
+  ],
+  "coverage": true,
+  "scopeNote": "Firebase-internal underscore plumbing is private and excluded from public coverage by rule. Public gaps include uploadBytesResumable, getStream, list, and their associated exported types.",
+  "captureRigs": [
+    "oracle-run"
+  ],
+  "registry": "storage",
+  "dispositions": [
+    {
+      "tier": "deferred",
+      "reason": "The UploadTask and observer surface is deferred — v1 shipped the one-shot uploadBytes driver first; the resumable/observable variant is unbuilt, not unbuildable.",
+      "symbols": [
+        "uploadBytesResumable"
+      ]
+    },
+    {
+      "tier": "deferred",
+      "reason": "The Node-stream variant is deferred — not part of the browser-shaped v1 scope yet, but not genuinely un-modelable.",
+      "symbols": [
+        "getStream"
+      ]
+    },
+    {
+      "tier": "deferred",
+      "reason": "Paginated listing is deferred — listAll covers the v1 scope; pagination needs a stable pageToken shape, which is unbuilt design work rather than a sandbox limitation.",
+      "symbols": [
+        "list"
+      ]
+    }
+  ]
+}

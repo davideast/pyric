@@ -2,8 +2,10 @@ import { describe, expect, it } from 'bun:test';
 import { functionsRtdbRegistry, functionsRtdbRows } from '../registry/functions-rtdb.ts';
 import { scoreBlock } from './generate-docs.ts';
 import { surfaceRecordProblems } from '../surfaces/load.ts';
+import { SURFACE_CONTRACT_SCHEMA } from '../surfaces/types.ts';
 
 const integrationRecord = {
+  schema: SURFACE_CONTRACT_SCHEMA,
   order: 1,
   kind: 'integration',
   registry: 'functions-rtdb',
@@ -16,11 +18,11 @@ const integrationRecord = {
 
 describe('integration surface descriptors', () => {
   it('accepts a contract source without pretending there is a mirror census', () => {
-    expect(surfaceRecordProblems('fixture.ts', integrationRecord)).toEqual([]);
+    expect(surfaceRecordProblems('fixture.json', integrationRecord)).toEqual([]);
   });
 
   it('requires contractSource and rejects every mirror/native breadth field', () => {
-    const problems = surfaceRecordProblems('fixture.ts', {
+    const problems = surfaceRecordProblems('fixture.json', {
       ...integrationRecord,
       contractSource: undefined,
       censusSurface: 'database',
@@ -28,30 +30,28 @@ describe('integration surface descriptors', () => {
       mirrors: ['pyric-functions'],
       symbolSource: 'src/index.ts',
     });
-    expect(problems).toEqual([
-      "surfaces/fixture.ts: integration descriptor missing 'contractSource'",
-      "surfaces/fixture.ts: integration descriptor must not declare 'censusSurface'",
-      "surfaces/fixture.ts: integration descriptor must not declare 'upstream'",
-      "surfaces/fixture.ts: integration descriptor must not declare 'mirrors'",
-      "surfaces/fixture.ts: integration descriptor must not declare 'symbolSource'",
-    ]);
+    expect(problems.some((problem) => problem.includes('contractSource'))).toBe(true);
+    for (const field of ['censusSurface', 'upstream', 'mirrors', 'symbolSource']) {
+      expect(problems.some((problem) => problem.includes(field))).toBe(true);
+    }
   });
 
   it('does not let mirror/native descriptors smuggle in an integration contract', () => {
-    const mirror = surfaceRecordProblems('mirror.ts', {
+    const mirror = surfaceRecordProblems('mirror.json', {
       ...integrationRecord,
       kind: 'mirror',
       censusSurface: 'database',
       upstream: 'firebase/database',
       mirrors: ['pyric/database'],
+      dispositions: [],
     });
-    const native = surfaceRecordProblems('native.ts', {
+    const native = surfaceRecordProblems('native.json', {
       ...integrationRecord,
       kind: 'native',
       symbolSource: 'src/index.ts',
     });
-    expect(mirror).toContain("surfaces/mirror.ts: mirror descriptor must not declare 'contractSource'");
-    expect(native).toContain("surfaces/native.ts: native descriptor must not declare 'contractSource'");
+    expect(mirror.some((problem) => problem.includes('contractSource'))).toBe(true);
+    expect(native.some((problem) => problem.includes('contractSource'))).toBe(true);
   });
 });
 

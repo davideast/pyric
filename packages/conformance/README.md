@@ -12,11 +12,13 @@ root `package.json` `compat:*` / `oracle:plan` scripts and by CI
 
 ```
 packages/conformance/
-  surfaces/          one SurfaceDescriptorRecord per compatibility surface (ai,
+  surfaces/          one schema-validated JSON contract per compatibility surface (ai,
                      auth, firestore, rtdb, rtdb-modular, storage, messaging,
-                     messaging-admin). Filename is the key. The record names the
+                     messaging-admin), plus census-only surfaces. Filename is the key. The contract names the
                      registry it hosts rows in, the observation filename
-                     prefixes it owns, and the capture rigs that produce them.
+                     prefixes it owns, the capture rigs that produce them, and
+                     any reviewed public-runtime dispositions. load.ts is the
+                     single typed seam; policy data is never authored in code.
   registry/          one CompatibilitySurfaceRegistry per COMPAT.md doc (ai,
                      auth, firestore, rtdb, storage, messaging) plus index.ts.
                      Every compatibility row lives here; this is the single
@@ -85,7 +87,7 @@ packages/conformance/
 ## How a claim gets proven
 
 A COMPAT.md row is not evidence by itself; it is a pointer into this tree.
-Start from a surface: `surfaces/auth.ts` names the `auth` registry and the
+Start from a surface: `surfaces/auth.json` names the `auth` registry and the
 `auth-` / `admin-app-` observation prefixes it owns. `registry/auth.ts` hosts
 the actual row (`auth#21`, say), which cites an observation name in its
 `oracleObservations` or `conformanceChecks`. That name resolves to a file under
@@ -110,7 +112,7 @@ exception. Initialization failing is total and immediate for a user, so
 `src/entry-path-gate.ts` runs every `entry-path/<name>.ts` program in-process
 with no baseline: a program either passes, or its failure is cited by an
 `entry-path/expected-failures.ts` record naming a real, currently-existing gap
-(an unmapped census symbol, a deferred deny-list entry, or an unverified
+(an unmapped census symbol, a deferred surface disposition, or an unverified
 registry row), or the gate fails the build. `src/entry-path-validate.ts`
 (wired into `compat:validate`) is what keeps a citation honest: it fails if
 the cited gap does not actually exist right now, so a record can never be

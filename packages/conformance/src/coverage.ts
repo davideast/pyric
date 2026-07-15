@@ -38,7 +38,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CensusSurface } from './surface-denylist.ts';
+import type { CensusSurface } from '../surfaces/types.ts';
 import { type Surface } from '../registry/index.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, type RegistryEntry } from './ledger.ts';
@@ -280,7 +280,7 @@ function buildReport(): CoverageReport {
 /**
  * One-line scope statement per surface. Public gaps stay visible regardless
  * of their reviewed disposition. Authored per-surface as each descriptor's
- * `scopeNote`; see surface-denylist.ts for the full reasoning behind each entry.
+ * `scopeNote`; each mirror contract carries the full disposition reasoning.
  */
 const SCOPE_NOTES: Record<Surface, string> = Object.fromEntries(
   surfaceDescriptors.map((d) => [d.surface, d.scopeNote]),

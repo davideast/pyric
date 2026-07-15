@@ -5,7 +5,7 @@
  * One record per known-red corpus program. Every entry MUST cite an
  * ALREADY-EXISTING gap (see `GapCitation` in `types.ts`) — `compat:validate`
  * (`../src/entry-path-validate.ts`) re-derives the citation from the live
- * surface census, the deny-list, or the registry ledger and fails the build
+ * surface census, the surface contracts, or the registry ledger and fails the build
  * if the cited gap does not currently, actually exist. That is what makes
  * this safe to be the one ratified exception to the ratchet philosophy: an
  * expected-failure record cannot be added speculatively or left stale — it

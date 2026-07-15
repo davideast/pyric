@@ -1,0 +1,16 @@
+{
+  "schema": "pyric.conformance.surface.v1",
+  "order": 9,
+  "kind": "native",
+  "symbolSource": "pyric/rules",
+  "observationPrefixes": [
+    "rules-firestore-"
+  ],
+  "coverage": true,
+  "scopeNote": "native (no upstream): the Firestore rules simulator, measured against the production Rules Test API engine. Seven documented simulator divergences are the founding diverged-documented rows of this surface.",
+  "conformanceSuite": "packages/pyric/test/rules/oracle-conformance.test.ts",
+  "captureRigs": [
+    "rules-firestore"
+  ],
+  "registry": "rules"
+}

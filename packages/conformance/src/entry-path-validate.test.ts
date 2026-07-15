@@ -97,26 +97,25 @@ describe('validateEntryPath — expected-failure citation validity', () => {
     expect(problems.some((p) => p.includes('stale citation'))).toBe(true);
   });
 
-  test('a denylist-deferred citation naming a real deferred deny-list entry is valid', () => {
+  test('a disposition-deferred citation naming a real deferred disposition is valid', () => {
     const input = baseInput();
-    // 'multiFactor' is a real, currently-deferred auth deny-list entry
-    // (surface-denylist.ts) — see the MFA / phone / reCAPTCHA group.
+    // 'multiFactor' is a real, currently-deferred Auth surface disposition.
     //
     // This fixture used to name 'linkWithCredential'. The auth resolver climb
     // MIRRORED account linking, so that symbol is no longer deferred and the
     // citation went stale — which is exactly the failure this suite exists to
-    // catch, caught on itself. Any symbol used here must be one the deny-list
+    // catch, caught on itself. Any symbol used here must be one the contract
     // still actually defers.
     input.expectedFailures = [
-      { program: 'auth', reason: 'r', fixedBy: 'f', gap: { kind: 'denylist-deferred', surface: 'auth', symbol: 'multiFactor' } },
+      { program: 'auth', reason: 'r', fixedBy: 'f', gap: { kind: 'disposition-deferred', surface: 'auth', symbol: 'multiFactor' } },
     ];
     expect(validateEntryPath(input).some((p) => p.includes('multiFactor'))).toBe(false);
   });
 
-  test('a denylist-deferred citation naming a symbol that is NOT deferred is stale (fatal)', () => {
+  test('a disposition-deferred citation naming a symbol that is NOT deferred is stale (fatal)', () => {
     const input = baseInput();
     input.expectedFailures = [
-      { program: 'auth', reason: 'r', fixedBy: 'f', gap: { kind: 'denylist-deferred', surface: 'auth', symbol: 'signInWithPopup' } },
+      { program: 'auth', reason: 'r', fixedBy: 'f', gap: { kind: 'disposition-deferred', surface: 'auth', symbol: 'signInWithPopup' } },
     ];
     const problems = validateEntryPath(input);
     expect(problems.some((p) => p.includes('stale citation'))).toBe(true);

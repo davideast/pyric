@@ -85,7 +85,7 @@ const NOT_APPLICABLE: Record<string, string> = {
   'auth-reauthenticate-with-credential.json':
     'BLOCKED: same disabled Email/Password provider — the probe could not create the two accounts it needs. Reauth rows are unit-backed.',
   'auth-fetchsigninmethodsforemail-deprecated.json':
-    'BLOCKED: same disabled Email/Password provider. The out-of-scope disposition for this symbol rests on the shipped @firebase/auth type declaration (a primary source: "returns an empty list when Email Enumeration Protection is enabled" + "migrating off of this method is recommended as a security best-practice"), NOT on this capture. See surface-denylist.ts.',
+    'BLOCKED: same disabled Email/Password provider. The out-of-scope disposition for this symbol rests on the shipped @firebase/auth type declaration (a primary source: "returns an empty list when Email Enumeration Protection is enabled" + "migrating off of this method is recommended as a security best-practice"), NOT on this capture. See packages/conformance/surfaces/auth.json.',
   'auth-verifybeforeupdateemail-shape.json':
     'BLOCKED: same disabled Email/Password provider — the probe could not create the user whose email it would change.',
 };

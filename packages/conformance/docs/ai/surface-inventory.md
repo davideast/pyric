@@ -271,9 +271,9 @@ Behavior caveat for the whole group: the sandbox cannot perform live Google Sear
 
 171 exports in the installed 2.12.0 universe (170 declared names plus the `Date` alias). 112 marked v1. 59 denied.
 
-Of the 55 runtime value exports: 38 are v1, 17 are denied (`getImagenModel`, `getTemplateImagenModel`, `ImagenAspectRatio`, `ImagenImageFormat`, `ImagenModel`, `ImagenPersonFilterLevel`, `ImagenSafetyFilterLevel`, `TemplateImagenModel`, `getLiveGenerativeModel`, `LiveGenerativeModel`, `LiveResponseType`, `LiveSession`, `startAudioConversation`, `getTemplateGenerativeModel`, `TemplateGenerativeModel`, `InferenceMode`, `InferenceSource`). The tier-1 census in `packages/conformance/src/surface-denylist.ts` only sees runtime exports, so those 17 are the entries the census gate needs; the remaining 42 denied names are type-only and matter to the typings mirror, not the runtime census.
+Of the 55 runtime value exports: 38 are v1 and 17 carry reviewed dispositions (`getImagenModel`, `getTemplateImagenModel`, `ImagenAspectRatio`, `ImagenImageFormat`, `ImagenModel`, `ImagenPersonFilterLevel`, `ImagenSafetyFilterLevel`, `TemplateImagenModel`, `getLiveGenerativeModel`, `LiveGenerativeModel`, `LiveResponseType`, `LiveSession`, `startAudioConversation`, `getTemplateGenerativeModel`, `TemplateGenerativeModel`, `InferenceMode`, `InferenceSource`). The machine-readable `packages/conformance/surfaces/ai.json` contract owns those runtime dispositions; type-only gaps are measured independently by the type census.
 
-## Draft denylist (ready to translate into packages/conformance/src/surface-denylist.ts groups)
+## Historical disposition inventory
 
 | Export | Reason |
 | --- | --- |
