@@ -71,7 +71,7 @@ function collaborationCampaign(): AuthorizationCampaignSpec {
         },
         storage: [
           {
-            path: "b/pyric-default/o/rooms/r1/alice/private.json",
+            path: "rooms/r1/alice/private.json",
             dataBase64: "YWxpY2Utc2VjcmV0",
             contentType: "application/json",
             customMetadata: { owner: "alice" },
@@ -176,7 +176,7 @@ function collaborationCampaign(): AuthorizationCampaignSpec {
         control: {
           service: "storage",
           method: "upload",
-          path: "b/pyric-default/o/rooms/r1/mallory/note.json",
+          path: "rooms/r1/mallory/note.json",
           dataBase64: "bWFsbG9yeS1ub3Rl",
           contentType: "application/json",
           customMetadata: { owner: "mallory" },
@@ -188,7 +188,7 @@ function collaborationCampaign(): AuthorizationCampaignSpec {
           operation: {
             service: "storage",
             method: "upload",
-            path: "b/pyric-default/o/rooms/r1/alice/private.json",
+            path: "rooms/r1/alice/private.json",
             dataBase64: "bWFsbG9yeS1ub3Rl",
             contentType: "application/json",
             customMetadata: { owner: "mallory" },

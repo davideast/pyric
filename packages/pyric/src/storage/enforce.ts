@@ -76,13 +76,36 @@ export function enforceRules(
     emitOperation(target, input, 'allow', undefined, 'user', false, boundProvenance);
     return;
   }
-  const result = evaluateStorageRules(service.rules, input, undefined, firestoreLookupFor(target));
+  const evaluationInput = target ? withCanonicalRulesPath(input, target.bucket) : input;
+  const result = evaluateStorageRules(
+    service.rules,
+    evaluationInput,
+    undefined,
+    firestoreLookupFor(target),
+  );
   if (!result.allowed) {
     emitOperation(target, input, 'deny', result.reasons, 'user', true, boundProvenance);
     const detail = result.reasons.length > 0 ? ` — ${result.reasons.join('; ')}` : '';
     throw unauthorized(input.request.method, input.request.path, detail);
   }
   emitOperation(target, input, 'allow', result.reasons, 'user', true, boundProvenance);
+}
+
+/**
+ * Firebase's modular Storage SDK exposes object-relative references, while
+ * Storage Rules match those objects below `/b/{bucket}/o`. Keep the public
+ * reference, persistence key, errors, and emitted Traffic path object-relative;
+ * canonicalize only the evaluator input at this boundary.
+ */
+function withCanonicalRulesPath(input: EvaluationInput, bucket: string): EvaluationInput {
+  const objectPath = input.request.path.replace(/^\/+/, '');
+  return {
+    ...input,
+    request: {
+      ...input.request,
+      path: objectPath === '' ? `b/${bucket}/o` : `b/${bucket}/o/${objectPath}`,
+    },
+  };
 }
 
 /**

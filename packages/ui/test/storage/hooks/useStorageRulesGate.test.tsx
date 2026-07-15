@@ -26,11 +26,13 @@ function uniqueDbName(label: string): string {
 /** Owner-only tree: each uid owns `users/<uid>/**`; public read tree. */
 const OWNER_RULES = `
 service firebase.storage {
-  match /users/{uid}/{allPaths=**} {
-    allow read, write: if request.auth != null && request.auth.uid == uid;
-  }
-  match /public/{allPaths=**} {
-    allow read: if true;
+  match /b/{bucket}/o {
+    match /users/{uid}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /public/{allPaths=**} {
+      allow read: if true;
+    }
   }
 }`;
 
@@ -192,8 +194,10 @@ describe('useStorageRulesGate', () => {
       options: {
         rules: `
 service firebase.storage {
-  match /{allPaths=**} {
-    allow read: if true;
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read: if true;
+    }
   }
 }`,
       },
@@ -220,9 +224,11 @@ service firebase.storage {
       dbName: uniqueDbName('payload'),
       rules: `
 service firebase.storage {
-  match /uploads/{allPaths=**} {
-    allow read: if true;
-    allow write: if request.resource == null || request.resource.size < 100;
+  match /b/{bucket}/o {
+    match /uploads/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.resource == null || request.resource.size < 100;
+    }
   }
 }`,
     });

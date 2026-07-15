@@ -11,7 +11,7 @@ order: 8006
 
 > **Surface coverage:** 48.1% of Firebase's public exports · 72.2% of what pyric intends to mirror
 >
-> **Fidelity:** 85.9% (85 of 99 tracked claims match production)
+> **Fidelity:** 86% (86 of 100 tracked claims match production)
 >
 > Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
@@ -543,6 +543,10 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>deleteObject</code> against a denied path throws <code>storage/unauthorized</code></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Ordinary SDK object paths are evaluated under Firebase Storage's canonical <code>/b/{bucket}/o/{object}</code> rules namespace while metadata preserves the ordinary object path</span></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("maps ordinary SDK object paths into the canonical bucket rules namespace"). Production's canonical <code>/b/{bucket}/o/...</code> namespace is independently captured on the <code>storage-rules</code> surface; this adapter mapping seam is unit-backed rather than presented as a production observation.</div></div>
 </details>
 </div>
 

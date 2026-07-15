@@ -18,46 +18,8 @@ import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
 import { contentTypeFor, pipeFileToResponse, resolveStaticFile } from './server.js';
 import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
-
-/** Mirrors the runtime entry's `InitPayload` — keep in lockstep with
- *  `entries/runtime.ts`. */
-export interface InitPayload {
-  rules: string | null;
-  rulesHash: string | null;
-  databaseRules?: { rules: Record<string, unknown> } | null;
-  databaseRulesHash?: string | null;
-  databaseUrl?: string | null;
-  /** Storage rules source (plain storage-rules language), or null when the
-   *  project has no storage.rules configured/present. Deployed ONCE at
-   *  sandbox boot — `pyric/storage` only honors rules on the FIRST
-   *  storage call per `Sandbox` (a documented invariant, not an
-   *  oversight: a later, differing rules source would otherwise be a
-   *  silent rules wipe). Unlike firestore/database rules, storage rules
-   *  do NOT hot-reload — editing storage.rules while `pyric dev` is
-   *  running requires a restart to take effect. */
-  storageRules?: string | null;
-  storageRulesHash?: string | null;
-  bridgeUrl: string | null;
-  /** `--seed` documents (path → fields), applied admin-style at page init.
-   *  Null in persist mode once a state file exists — the lived state wins. */
-  seed: Record<string, Record<string, unknown>> | null;
-  /** `--persist`: the page enables sandbox persistence over /__pyric/state. */
-  persist?: boolean;
-  /** Ephemeral fixture restore (`--seed <state-file>` without --persist):
-   *  the controller blob, restored in-page via a read-only backend so
-   *  wrapper types re-hydrate. Null otherwise. */
-  seedState?: unknown | null;
-  /** Persisted auth users (sandbox.exportUsers shape), seeded at page init
-   *  before any session restore. Null when none / persist off. */
-  authUsers?: ReadonlyArray<Record<string, unknown>> | null;
-  /** `--capture`: the page pushes its session fixture to /__pyric/capture
-   *  so `pyric verify` can replay it. Default-on; suppressed by --no-capture. */
-  capture?: boolean;
-  /** Enables the SharedWorker's Messaging broker. All serve producers set
-   *  this because firebase/messaging is part of the canonical SDK swap;
-   *  absent/false remains useful for isolated worker-host tests. */
-  messaging?: boolean;
-}
+import type { InitPayload } from './init-payload.js';
+export type { InitPayload } from './init-payload.js';
 
 /**
  * Server-sent-events hub for `/__pyric/events` — the hot-reload channel

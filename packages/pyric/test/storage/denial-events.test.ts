@@ -33,15 +33,19 @@ function operations(events: SandboxEvent[]): SandboxOperationEvent[] {
 
 const DENY_ALL = `
 service firebase.storage {
-  match /{allPaths=**} {
-    allow read, write: if false;
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
   }
 }`;
 
 const ALICE_ONLY = `
 service firebase.storage {
-  match /{allPaths=**} {
-    allow read, write: if request.auth != null && request.auth.uid == 'alice';
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == 'alice';
+    }
   }
 }`;
 

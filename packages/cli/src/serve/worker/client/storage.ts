@@ -6,7 +6,7 @@
 
 import { bytesToBase64, base64ToBytes, storagePayloadTooLarge, MAX_STORAGE_OP_BYTES } from '../protocol.js';
 import type { FullMetadata } from 'pyric/storage';
-import { nextId, rpc, wirePort } from './core.js';
+import { dataRpc, nextId, wirePort } from './core.js';
 import { lastSegment } from './handles.js';
 import type { ClientDb, ClientPort } from './handles.js';
 
@@ -82,7 +82,7 @@ export function ref(
 export async function listAll(
   reference: ClientStorageReference,
 ): Promise<{ items: ClientStorageReference[]; prefixes: ClientStorageReference[] }> {
-  const r = (await rpc(reference.port, {
+  const r = (await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.listAll', path: reference.fullPath,
   })) as { items: Array<{ fullPath: string; name: string }>; prefixes: Array<{ fullPath: string; name: string }> };
   const mk = (e: { fullPath: string; name: string }): ClientStorageReference => ({
@@ -93,7 +93,7 @@ export async function listAll(
 
 /** Read an object's metadata (Pyric Studio inspector). */
 export async function getMetadata(reference: ClientStorageReference): Promise<FullMetadata> {
-  return (await rpc(reference.port, {
+  return (await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.getMetadata', path: reference.fullPath,
   })) as FullMetadata;
 }
@@ -101,7 +101,7 @@ export async function getMetadata(reference: ClientStorageReference): Promise<Fu
 /** Read an object's bytes as a Blob (Pyric Studio inspector preview).
  *  MessagePort-only — a Blob cannot cross the JSON bridge relay. */
 export async function getBlob(reference: ClientStorageReference): Promise<Blob> {
-  return (await rpc(reference.port, {
+  return (await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.getBlob', path: reference.fullPath,
   })) as Blob;
 }
@@ -113,9 +113,9 @@ export async function getDownloadURL(reference: ClientStorageReference): Promise
 
 // ─── Storage mutations + JSON-safe reads (worker-mode byte ops) ───────────
 // Backed by the base64 `storage.putBytes` / `storage.getBytes` /
-// `storage.deleteObject` ops (remote sandbox, slice 2). No `actAs` lens is
-// attached: page callers run under the worker's page storage handle (same
-// model as `listAll`/`getMetadata` above). Storage rules apply when the
+// `storage.deleteObject` ops (remote sandbox, slice 2). Studio's data lens is
+// attached by `dataRpc`; ordinary served-app bundles have no default lens and
+// therefore remain app-session operations. Storage rules apply when the
 // HOST configured them on the sandbox's storage service — the served
 // worker's `applyServeInit` (serve-init.ts) does this at boot, before any op
 // can reach the host, so worker-mode storage enforces the project's
@@ -153,7 +153,7 @@ export async function uploadBytes(
   // contentType precedence mirrors pyric/storage: caller metadata → Blob.type.
   const contentType =
     metadata?.contentType ?? (data instanceof Blob && data.type ? data.type : undefined);
-  const stored = (await rpc(reference.port, {
+  const stored = (await dataRpc(reference.port, {
     t: 'op',
     id: nextId(),
     method: 'storage.putBytes',
@@ -171,7 +171,7 @@ export async function getBytes(
   reference: ClientStorageReference,
   maxDownloadSizeBytes?: number,
 ): Promise<ArrayBuffer> {
-  const res = (await rpc(reference.port, {
+  const res = (await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.getBytes', path: reference.fullPath,
   })) as { dataB64: string; size: number };
   if (typeof maxDownloadSizeBytes === 'number' && res.size > maxDownloadSizeBytes) {
@@ -189,7 +189,7 @@ export async function getBytes(
 /** Delete the object at the reference's path (idempotent — missing = no-op,
  *  matching the sandbox backend's delete semantics). */
 export async function deleteObject(reference: ClientStorageReference): Promise<void> {
-  await rpc(reference.port, {
+  await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.deleteObject', path: reference.fullPath,
   });
 }

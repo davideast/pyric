@@ -43,20 +43,21 @@ import {
 
 // ─── Harness ────────────────────────────────────────────────────────────────
 
-// NOTE: rules are written WITHOUT the /b/{bucket}/o wrapper — pyric/storage's
-// evaluator matches rules against the reference's raw fullPath (the existing
-// pyric rules tests embed the wrapper INTO their object paths instead).
 const DENY_ALL_RULES = `
 service firebase.storage {
-  match /{allPaths=**} {
-    allow read, write: if false;
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
   }
 }`;
 
 const OWNER_ONLY_RULES = `
 service firebase.storage {
-  match /users/{uid}/{file} {
-    allow read, write: if request.auth.uid == uid;
+  match /b/{bucket}/o {
+    match /users/{uid}/{file} {
+      allow read, write: if request.auth.uid == uid;
+    }
   }
 }`;
 

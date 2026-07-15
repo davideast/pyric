@@ -210,11 +210,13 @@ describe('ObjectBrowser', () => {
     // pyric storage rules test deploys it: first factory call wins.
     const OWNER_RULES = `
 service firebase.storage {
-  match /users/{uid}/{allPaths=**} {
-    allow read, write: if request.auth != null && request.auth.uid == uid;
-  }
-  match /public/{allPaths=**} {
-    allow read: if true;
+  match /b/{bucket}/o {
+    match /users/{uid}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /public/{allPaths=**} {
+      allow read: if true;
+    }
   }
 }`;
 

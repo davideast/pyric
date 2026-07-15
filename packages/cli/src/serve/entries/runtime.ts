@@ -21,6 +21,7 @@ import {
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
+import { getStorageSandbox } from 'pyric/storage';
 import { getAuth, onAuthStateChanged, signOut, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
   callTool as workerCallTool,
@@ -31,6 +32,7 @@ import { useWorker, workerDb } from './worker-runtime.js';
 import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
+import type { InitPayload } from '../init-payload.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
 
@@ -56,43 +58,14 @@ import { sandbox } from './app-backend.js';
  * backend.
  */
 
-/** Shape served by `/__pyric/init.json`. */
-interface InitPayload {
-  /** Plain-v2 rules source (server resolves `2+modules` before embedding),
-   *  or null when the project has no rules file. */
-  rules: string | null;
-  /** sha256 prefix of the rules source — diagnostics + hot-reload diffing. */
-  rulesHash: string | null;
-  /** Firebase RTDB rules JSON, when firebase.json has database.rules. */
-  databaseRules?: { rules: Record<string, unknown> } | null;
-  databaseRulesHash?: string | null;
-  databaseUrl?: string | null;
-  /** Bridge WS URL when `--bridge` is on (P2); null otherwise. */
-  bridgeUrl: string | null;
-  /** `--seed` documents (path → fields), applied admin-style before app code runs.
-   *  Null in persist mode once a state file exists — the lived state wins. */
-  seed: Record<string, Record<string, unknown>> | null;
-  /** `--persist`: enable sandbox persistence over /__pyric/state. */
-  persist?: boolean;
-  /** Ephemeral fixture restore: a state-file's controller blob, restored
-   *  via a read-only backend (wrapper re-hydration without durability). */
-  seedState?: unknown | null;
-  /** Persisted/fixture auth users, seeded before app code runs. */
-  authUsers?: SeedUser[] | null;
-  /** `--capture`: push the session fixture to /__pyric/capture so
-   *  `pyric verify` can replay the session without extra args. Default-on;
-   *  suppressed by --no-capture. */
-  capture?: boolean;
-  /** Enables the worker Messaging broker; consumed by worker serve-init. */
-  messaging?: boolean;
-}
-
 interface ServeDiagnostics {
   sandboxReady: boolean;
   rulesDeployed: boolean;
   databaseRulesDeployed: boolean;
+  storageRulesDeployed: boolean;
   rulesHash: string | null;
   databaseRulesHash: string | null;
+  storageRulesHash: string | null;
   initError: string | null;
   bridgeConnected: boolean;
   seededDocs: number;
@@ -115,8 +88,10 @@ const diagnostics: ServeDiagnostics = {
   sandboxReady: true,
   rulesDeployed: false,
   databaseRulesDeployed: false,
+  storageRulesDeployed: false,
   rulesHash: null,
   databaseRulesHash: null,
+  storageRulesHash: null,
   initError: null,
   bridgeConnected: false,
   seededDocs: 0,
@@ -161,11 +136,16 @@ if (!useWorker) try {
     diagnostics.databaseRulesDeployed = true;
     diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
   }
+  if (payload.storageRules) {
+    getStorageSandbox(sandbox, { rules: payload.storageRules });
+    diagnostics.storageRulesDeployed = true;
+    diagnostics.storageRulesHash = payload.storageRulesHash;
+  }
   // Auth users land first in either mode (persist restore or state-file
   // fixture) so restored docs' owner uids resolve in rules and the session
   // restore below has a DB to restore into.
   if (payload.authUsers && payload.authUsers.length > 0) {
-    authOps.seedUsers(getAuth(sandbox), payload.authUsers);
+    authOps.seedUsers(getAuth(sandbox), payload.authUsers as unknown as SeedUser[]);
   }
   if (!payload.persist && payload.seedState) {
     // ── ephemeral fixture (`--seed <state-file>`): restore the blob through
@@ -382,8 +362,8 @@ console.info(
   `[pyric dev] firebase/* on this page is served by the pyric sandbox` +
     (useWorker
       ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
-      : diagnostics.rulesHash
-        ? ` (rules ${diagnostics.rulesHash})`
+      : diagnostics.rulesHash || diagnostics.databaseRulesHash || diagnostics.storageRulesHash
+        ? ' (project rules loaded)'
         : ' (no project rules)') +
     ` — diagnostics: globalThis.__pyricServe`,
 );
