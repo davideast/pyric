@@ -120,6 +120,7 @@ const MCP_CONTRIBUTIONS = [
     gates: { firestore_test_rules: 'in-process, scope-gated' },
   },
   { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
+  { file: `${TOOLS}/conformance/tools.ts`, factory: 'createConformanceTools', gate: 'in-process' },
 ];
 
 /**

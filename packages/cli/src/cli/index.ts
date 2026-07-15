@@ -65,6 +65,7 @@ USAGE
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
+  pyric verify can-i-use <feature> [--json]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
   pyric firestore rules lint <path>
   pyric firestore rules validate <path>
@@ -116,6 +117,10 @@ COMMANDS
                              and uses --project plus the configured Google credentials.
                              --rules service=path overrides firebase.json resolution
                              (repeat for mixed captures). --json. Exit 1 on divergence.
+  verify can-i-use <feature> Report Pyric availability, behavior fidelity, and assurance
+                             eligibility from the canonical conformance model. A surface
+                             prefix such as firestore-rules/getAfter disambiguates names.
+                             Exact and fuzzy queries use the same model as MCP. --json.
   verify cases [fixture]     Derive Firestore Rules Test API cases from a captured
                              fixture and print JSON, or write with --out FILE.
   firestore rules lint       Run the Firestore rules linter against a file.

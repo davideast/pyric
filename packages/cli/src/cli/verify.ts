@@ -19,6 +19,7 @@ import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from './scope.js';
 import { parseRtdbRulesJson } from '../rtdb/rules-json.js';
+import { canIUse, type FeatureSupport } from '../conformance/index.js';
 
 export type Fixture = PyricVerifyFixture;
 
@@ -98,6 +99,9 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
 
   if (parsed.positional[0] === 'cases') {
     return runVerifyCases(parsed, cwd);
+  }
+  if (parsed.positional[0] === 'can-i-use') {
+    return runVerifyCanIUse(parsed);
   }
 
   const target = parsed.positional[0];
@@ -211,6 +215,35 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     }
   }
   return allOk ? 0 : 1;
+}
+
+function runVerifyCanIUse(parsed: ParsedArgs): number {
+  const feature = parsed.positional.slice(1).join(' ').trim();
+  if (!feature) {
+    process.stderr.write('pyric verify can-i-use: provide a developer feature name\n');
+    return 2;
+  }
+  const result = canIUse(feature);
+  if (parsed.flags.get('json') === true) {
+    process.stdout.write(JSON.stringify(result) + '\n');
+    return 0;
+  }
+  const results: readonly FeatureSupport[] = Array.isArray(result) ? result : [result];
+  if (results.length === 0) {
+    process.stdout.write(`No conformance feature matched "${feature}".\n`);
+    return 1;
+  }
+  for (const support of results) {
+    process.stdout.write(
+      `${support.feature} (${support.surface})\n` +
+        `  availability: ${support.availability}\n` +
+        `  fidelity: ${support.fidelity}\n` +
+        `  assurance: ${support.assurance}\n` +
+        `  ${support.summary}\n`,
+    );
+    for (const caveat of support.caveats) process.stdout.write(`  caveat: ${caveat}\n`);
+  }
+  return 0;
 }
 
 function runVerifyCases(parsed: ParsedArgs, cwd: string): number {

@@ -47,3 +47,4 @@ docs/design/
 .claude/worktrees/
 .pyric-worktrees/
 packages/cli/src/assurance/.generated/
+packages/cli/src/conformance/.generated/

@@ -53,6 +53,9 @@ export interface CompatibilityRow {
   id: string;
   surface: Surface;
   aliases: string[];
+  /** Canonical developer-facing feature names when display prose cannot be
+   *  parsed without ambiguity. Most SDK rows derive these from `api`. */
+  featureKeys?: string[];
   rowRef: string;
   rowNumber: number | null;
   section: string;

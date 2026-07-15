@@ -1,6 +1,6 @@
 import type { ToolHandler } from '@inbrowser/agent';
 import {
-  getRulesToolHandlers,
+  getInProcessToolHandlers,
   getSandboxToolMetadata,
   type ToolMetadata,
 } from './tool-metadata.js';
@@ -40,6 +40,7 @@ export const DEFAULT_MCP_IN_PROCESS_TOOL_NAMES = [
   'firestore_rules_stdlib_get',
   'firestore_lint_rules',
   'firestore_resolve_modules',
+  'pyric_can_i_use',
 ] as const;
 
 export const DEFAULT_MCP_TOOL_NAMES = [
@@ -77,14 +78,14 @@ function assertExactNames(
  */
 export function getDefaultMcpToolSurface(): DefaultMcpToolSurface {
   const forwarded = getSandboxToolMetadata();
-  const inProcess = getRulesToolHandlers();
+  const inProcess = getInProcessToolHandlers();
   assertExactNames(
     'forwarded sandbox tools',
     forwarded.map((tool) => tool.name),
     DEFAULT_MCP_FORWARDED_TOOL_NAMES,
   );
   assertExactNames(
-    'in-process rules tools',
+    'in-process tools',
     inProcess.map((tool) => tool.name),
     DEFAULT_MCP_IN_PROCESS_TOOL_NAMES,
   );

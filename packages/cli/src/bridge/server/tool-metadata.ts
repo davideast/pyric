@@ -20,6 +20,7 @@ import {
 } from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
+import { createConformanceTools } from '../../conformance/tools.js';
 
 export interface ToolMetadata {
   name: string;
@@ -79,18 +80,20 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
 }
 
 /**
- * Rules tooling factories that execute in-process on the bridge
+ * Tooling factories that execute in-process on the bridge
  * (no browser needed). Returned as live ToolHandlers — the bridge
  * registers each handler's `execute` directly.
  *
  * `scope` is forwarded so the hosted Rules Test API verification tool can
  * authenticate without changing the bridge's sandbox-only execution model.
  */
-export function getRulesToolHandlers(scope?: unknown): ToolHandler[] {
+export function getInProcessToolHandlers(scope?: unknown): ToolHandler[] {
   // Factory accepts { scope } per packages/pyric/src/rules/tools.ts.
   // The bridge does not need to own the structurally compatible type.
-  // Includes simulate / lint / resolve_modules / stdlib_list /
-  // stdlib_get + (when scope is supplied) Rules Test API verification —
-  // the full in-process rules tooling surface. No browser needed.
-  return createFirestoreRulesTools({ scope } as never);
+  // Includes the rules tool surface plus the Node-only conformance query.
+  // No browser is needed.
+  return [
+    ...createFirestoreRulesTools({ scope } as never),
+    ...createConformanceTools(),
+  ];
 }
