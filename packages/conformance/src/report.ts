@@ -1,16 +1,17 @@
 #!/usr/bin/env bun
-import { surfaceDescriptors } from '../surfaces/load.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, summarizeLedger } from './ledger.ts';
+import { deriveConformanceModel } from './conformance-model.ts';
 
-const ledger = buildCompatibilityLedger();
-const summary = summarizeLedger(ledger);
+const model = await deriveConformanceModel();
+const ledger = buildCompatibilityLedger(model);
+const summary = summarizeLedger(ledger, model);
 const highRiskUnverified = highRiskUnverifiedRows(ledger);
 
 // Climb section (cdd.md Step 7): per climb-marked surface, derived from
 // registry row statuses ALONE. This informs; it never fails the run — the only
 // climb-related exit-code behavior in the system is the lane's regression rule.
 const CLIMB_STATUS_ORDER = ['unverified', 'diverged-documented', 'bug', 'unsupported', 'conforms'] as const;
-const climbSurfaces = surfaceDescriptors
+const climbSurfaces = model.documentation.descriptors
   .filter((descriptor) => descriptor.climb)
   .map((descriptor) => {
     const rows = ledger.entries.filter((entry) => entry.surface === descriptor.surface);
@@ -40,7 +41,7 @@ if (wantJson) {
 
 console.log('# Compatibility coverage report\n');
 console.log(`Rows: ${summary.totalRows}`);
-for (const descriptor of surfaceDescriptors) console.log(`  ${descriptor.surface}: ${summary.bySurface[descriptor.surface]}`);
+for (const descriptor of model.documentation.descriptors) console.log(`  ${descriptor.surface}: ${summary.bySurface[descriptor.surface]}`);
 console.log('');
 console.log(`Conforming rows: ${summary.conformingRows}`);
 console.log(`Oracle-backed rows: ${summary.oracleBackedRows}`);

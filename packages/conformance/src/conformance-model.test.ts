@@ -17,6 +17,10 @@ describe('multi-axis conformance model', () => {
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);
+    expect(model.documentation.rows.length).toBeGreaterThan(600);
+    expect(model.documentation.coverageBaseline.overall.publicSurface.runtime.denominator).toBeGreaterThan(0);
+    expect(model.evidence.observations.length).toBeGreaterThan(0);
+    expect(Object.keys(model.evidence.observationExceptions).length).toBeGreaterThan(0);
   });
 
   it('reports getAfter as available, diverged, and assurance-ineligible', () => {

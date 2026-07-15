@@ -51,6 +51,7 @@ import { fileURLToPath } from 'node:url';
 import GithubSlugger from 'github-slugger';
 import { SUPERSEDED } from './superseded';
 import { renderAllCompatibilityMarkdown } from '../../conformance/src/generate-docs';
+import { deriveConformanceModel } from '../../conformance/src/conformance-model';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const siteRoot = resolve(here, '..');
@@ -509,7 +510,7 @@ const COMPAT_PAGES: { pkg: string; file: string; label: string; slugPrefix?: str
     slugPrefix: 'pyric-cli',
   },
 ];
-const renderedCompatibility = renderAllCompatibilityMarkdown();
+const renderedCompatibility = renderAllCompatibilityMarkdown(await deriveConformanceModel());
 for (const c of COMPAT_PAGES) {
   const src = join(docsRoot(c.pkg), c.file);
   const rel = relative(repoRoot, src).split(sep).join('/');

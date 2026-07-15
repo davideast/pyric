@@ -1,30 +1,13 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow, type Surface } from '../registry/index.ts';
-import { surfaceDescriptors } from '../surfaces/load.ts';
-import { observationExceptions } from '../exceptions/load.ts';
+import { type CompatibilityRow, type Surface } from '../registry/index.ts';
 import { generatedRowLineNumbers } from './generate-docs.ts';
+import type { ConformanceModel } from './conformance-model.ts';
+export { loadObservations, type Observation } from '../observations/load.ts';
+import type { Observation } from '../observations/load.ts';
 
 export type { Automation, CompatibilityRow, CompatStatus, OracleConformanceCheck, Surface } from '../registry/index.ts';
 export type { SurfaceDescriptor } from '../surfaces/types.ts';
-
-export interface Observation {
-  file: string;
-  /** The surface subdirectory this observation was actually found under
-   *  (`observations/<surfaceDir>/<file>`) — compared against the
-   *  prefix-mapped expected surface by the directory-drift validator rule. */
-  surfaceDir: string;
-  name: string;
-  matrixRow: string;
-  rowIds: string[];
-  observedAt?: string;
-  fbSdkVersion?: string;
-  adminSdkVersion?: string;
-  functionsSdkVersion?: string;
-  behavior: Record<string, unknown>;
-  raw: Record<string, unknown>;
-}
 
 export interface RegistryEntry extends CompatibilityRow {
   matrix: Surface;
@@ -44,62 +27,25 @@ export interface CompatibilityLedger {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
-export const OBS_DIR = join(HERE, '..', 'observations');
 
 export function repoRel(path: string): string {
   return relative(REPO_ROOT, path).replace(/\\/g, '/');
 }
 
-/** `observations/` is grouped one subdirectory per surface
- *  (`observations/<surface>/<name>.json`) — this walks every immediate
- *  subdirectory and returns `{ surfaceDir, file }` for each `.json` file
- *  found, sorted by surfaceDir then file so load order stays deterministic. */
-function listObservationFiles(): { surfaceDir: string; file: string }[] {
-  const entries: { surfaceDir: string; file: string }[] = [];
-  for (const surfaceDir of readdirSync(OBS_DIR).sort()) {
-    const dirPath = join(OBS_DIR, surfaceDir);
-    if (!statSync(dirPath).isDirectory()) continue;
-    for (const file of readdirSync(dirPath).filter((f) => f.endsWith('.json')).sort()) {
-      entries.push({ surfaceDir, file });
-    }
-  }
-  return entries;
-}
-
-export function loadObservations(): Observation[] {
-  return listObservationFiles().map(({ surfaceDir, file }) => {
-    const raw = JSON.parse(readFileSync(join(OBS_DIR, surfaceDir, file), 'utf8')) as Record<string, unknown>;
-    const name = String(raw.name ?? file.replace(/\.json$/, ''));
-    const matrixRow = String(raw.matrixRow ?? '');
-    return {
-      file,
-      surfaceDir,
-      name,
-      matrixRow,
-      rowIds: Array.isArray(raw.rowIds) ? raw.rowIds.map(String) : [],
-      observedAt: typeof raw.observedAt === 'string' ? raw.observedAt : undefined,
-      fbSdkVersion: typeof raw.fbSdkVersion === 'string' ? raw.fbSdkVersion : undefined,
-      adminSdkVersion: typeof raw.adminSdkVersion === 'string' ? raw.adminSdkVersion : undefined,
-      functionsSdkVersion: typeof raw.functionsSdkVersion === 'string' ? raw.functionsSdkVersion : undefined,
-      behavior: (raw.behavior && typeof raw.behavior === 'object' ? raw.behavior : {}) as Record<string, unknown>,
-      raw,
-    } satisfies Observation;
-  });
-}
-
-function generatedLocations(): Map<string, { file: string; line: number }> {
+function generatedLocations(model: ConformanceModel): Map<string, { file: string; line: number }> {
   const out = new Map<string, { file: string; line: number }>();
-  for (const surface of surfaceRegistries) {
-    const lines = generatedRowLineNumbers(surface);
+  for (const surface of model.documentation.registries) {
+    const lines = generatedRowLineNumbers(surface, model.documentation);
     for (const [id, line] of lines) out.set(id, { file: surface.compatPath, line });
   }
   return out;
 }
 
-export function buildCompatibilityLedger(): CompatibilityLedger {
-  const observations = loadObservations();
-  const locations = generatedLocations();
-  const entries = allCompatibilityRows.map((row) => {
+export function buildCompatibilityLedger(model: ConformanceModel): CompatibilityLedger {
+  const observations = [...model.evidence.observations];
+  const observationExceptions = { ...model.evidence.observationExceptions };
+  const locations = generatedLocations(model);
+  const entries = model.documentation.rows.map((row) => {
     const location = locations.get(row.id) ?? { file: '', line: 0 };
     return {
       ...row,
@@ -134,10 +80,10 @@ export function highRiskUnverifiedRows(ledger: CompatibilityLedger): RegistryEnt
     .sort((a, b) => b.riskScore - a.riskScore || a.id.localeCompare(b.id));
 }
 
-export function summarizeLedger(ledger: CompatibilityLedger) {
+export function summarizeLedger(ledger: CompatibilityLedger, model: ConformanceModel) {
   const entries = ledger.entries;
   const bySurface = Object.fromEntries(
-    surfaceDescriptors.map((d) => [d.surface, entries.filter((e) => e.surface === d.surface).length]),
+    model.documentation.descriptors.map((d) => [d.surface, entries.filter((e) => e.surface === d.surface).length]),
   ) as Record<Surface, number>;
   const explicitExceptions = entries.filter((e) => ['sandbox-only', 'playground-only', 'type-backed', 'unsupported'].includes(e.automation));
   const conformanceChecks = entries.reduce((sum, row) => sum + (row.conformanceChecks?.length ?? 0), 0);

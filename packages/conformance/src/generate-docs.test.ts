@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { beforeAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { appRegistry } from '../registry/app.ts';
 import { authRegistry } from '../registry/auth.ts';
@@ -12,6 +12,10 @@ import {
   scoreBlock,
   statBar,
 } from './generate-docs.ts';
+import { deriveConformanceModel, type ConformanceModel } from './conformance-model.ts';
+
+let projection: ConformanceModel['documentation'];
+beforeAll(async () => { projection = (await deriveConformanceModel()).documentation; }, 20_000);
 
 describe('generated fidelity scores', () => {
   it('uses the live registry rather than the stale coverage baseline', () => {
@@ -36,13 +40,13 @@ describe('generated fidelity scores', () => {
       rowStatuses: {},
     };
 
-    const block = scoreBlock(appRegistry, staleBaseline)!;
+    const block = scoreBlock(appRegistry, { ...projection, coverageBaseline: staleBaseline })!;
     expect(block).toContain(`<span class="compat-stat-pct">${pct}%</span>`);
     expect(block).toContain(`<p class="compat-stat-denom">${conforms} of ${rows.length} tracked behaviors</p>`);
   });
 
   it('publishes App against Firebase public runtime and type exports', () => {
-    const block = scoreBlock(appRegistry)!;
+    const block = scoreBlock(appRegistry, projection)!;
     expect(block).toContain('<strong>Public surface:</strong> runtime 90% (9/10)');
     expect(block).toContain('types 66.7% (4/6)');
     expect(block).not.toContain('intended');
@@ -70,7 +74,7 @@ describe('generated fidelity scores', () => {
   });
 
   it('keeps zero-count states visible in the key without assigning fake bar width', () => {
-    const block = scoreBlock(appRegistry)!;
+    const block = scoreBlock(appRegistry, projection)!;
 
     expect(block).toContain('<strong>0</strong> bugs');
     expect(block).toContain('data-status="bug" aria-hidden="true"');
@@ -78,7 +82,7 @@ describe('generated fidelity scores', () => {
   });
 
   it('renders API-first matrices and generated non-conforming summaries', () => {
-    const markdown = renderSurfaceMarkdown(authRegistry);
+    const markdown = renderSurfaceMarkdown(authRegistry, projection);
     const gaps = consolidatedGapSections(rowsForSurface(authRegistry));
 
     expect(markdown).toContain('| API | Category | Behavior | Status | Probe | # |');
@@ -116,7 +120,7 @@ describe('generated fidelity scores', () => {
     const conforms = clientRows.filter((row) => row.status === 'conforms').length;
     const pct = Math.round((conforms / clientRows.length) * 1000) / 10;
 
-    const scoreboard = renderScoreboardMarkdown();
+    const scoreboard = renderScoreboardMarkdown(projection);
     expect(scoreboard).toContain('<span class="compat-score-name">Messaging</span>');
     expect(scoreboard).toContain('<span class="compat-score-axis">Runtime</span>100% (5/5)');
     expect(scoreboard).toContain('<span class="compat-score-axis">Types</span>100% (8/8)');
@@ -125,7 +129,7 @@ describe('generated fidelity scores', () => {
   });
 
   it('keeps Functions with RTDB visible as an integration row', () => {
-    const scoreboard = renderScoreboardMarkdown();
+    const scoreboard = renderScoreboardMarkdown(projection);
 
     expect(scoreboard).toContain('href="../pyric-cli-functions-rtdb-compat/"');
     expect(scoreboard).toContain('<span class="compat-score-name">Functions · RTDB</span>');
@@ -134,7 +138,7 @@ describe('generated fidelity scores', () => {
   });
 
   it('separates client and admin Messaging populations in the climb header', () => {
-    const header = climbHeaderLines(messagingRegistry).join('\n');
+    const header = climbHeaderLines(messagingRegistry, projection).join('\n');
 
     expect(header).toContain('Client + service-worker mirror: 17 of 17 rows conforming.');
     expect(header).toContain('Separately tracked Admin send plane: 39 of 39 rows conforming.');

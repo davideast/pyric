@@ -2,11 +2,9 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { allCompatibilityRows, type Automation, type CompatibilityRow, type CompatStatus } from '../registry/index.ts';
-import { surfaceDescriptors } from '../surfaces/load.ts';
-import { observationExceptions } from '../exceptions/load.ts';
+import { type Automation, type CompatibilityRow, type CompatStatus } from '../registry/index.ts';
 import type { SurfaceDescriptor } from '../surfaces/types.ts';
-import { buildCompatibilityLedger, loadObservations, REPO_ROOT, summarizeLedger, type Observation } from './ledger.ts';
+import { buildCompatibilityLedger, REPO_ROOT, summarizeLedger, type Observation } from './ledger.ts';
 import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../rules-corpus/firestore/index.ts';
@@ -18,6 +16,7 @@ import { computeCriticalSymbols } from './entry-path-symbols.ts';
 import { validateEntryPath, type EntryPathCensusRow } from './entry-path-validate.ts';
 import { expectedFailures as entryPathExpectedFailures } from '../entry-path/expected-failures.ts';
 import { listEntryPathProgramFiles } from '../entry-path/load.ts';
+import { deriveConformanceModel } from './conformance-model.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -361,14 +360,15 @@ function runEntryPathCensus(): EntryPathCensusRow[] {
 }
 
 if (import.meta.main) {
-  const ledger = buildCompatibilityLedger();
-  const summary = summarizeLedger(ledger);
+  const model = await deriveConformanceModel();
+  const ledger = buildCompatibilityLedger(model);
+  const summary = summarizeLedger(ledger, model);
   const rigManifests = await loadRigManifests();
   const problems = validateCompatibilityRegistry({
-    rows: allCompatibilityRows,
-    descriptors: surfaceDescriptors,
-    observations: loadObservations(),
-    observationExceptions,
+    rows: [...model.documentation.rows],
+    descriptors: [...model.documentation.descriptors],
+    observations: [...model.evidence.observations],
+    observationExceptions: { ...model.evidence.observationExceptions },
     rigManifests,
     probeFiles: listProbeFiles(),
     rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id),

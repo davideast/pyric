@@ -2,8 +2,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from '../registry/index.ts';
-import { surfaceDescriptors } from '../surfaces/load.ts';
+import { type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from '../registry/index.ts';
+import {
+  deriveConformanceModel,
+  type ConformanceModel,
+  type CoverageBaseline,
+} from './conformance-model.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
@@ -12,7 +16,7 @@ export const GENERATED_HEADER = '<!-- Generated from packages/conformance/regist
 /** The generated central scoreboard, ported into the Compatibility nav group. */
 export const SCOREBOARD_PATH = 'packages/pyric/docs/conformance/SCORES.md';
 
-const COVERAGE_BASELINE_PATH = 'packages/conformance/baselines/coverage-baseline.json';
+export type DocumentationProjection = ConformanceModel['documentation'];
 
 /** Display glyphs for the typed status enum — rendering only, never parsed. */
 export const STATUS_GLYPHS: Record<CompatStatus, string> = {
@@ -33,28 +37,6 @@ function escapeCell(value: string): string {
 // Surface breadth is read from the committed census baseline. Fidelity is
 // read from the live typed registry: a newly added behavior row must affect
 // generated scores immediately, before the coverage ratchet is refreshed.
-
-interface CoverageBaseline {
-  services: Record<string, {
-    publicSurface?: {
-      runtime: { mapped: number; denominator: number; pct: number };
-      types: { mapped: number; denominator: number; pct: number };
-    };
-    native?: boolean;
-    integration?: boolean;
-  }>;
-  overall: {
-    publicSurface: {
-      runtime: { mapped: number; denominator: number; pct: number };
-      types: { mapped: number; denominator: number; pct: number };
-    };
-  };
-  rowStatuses: Record<string, string>;
-}
-
-function readBaseline(): CoverageBaseline {
-  return JSON.parse(readFileSync(join(REPO_ROOT, COVERAGE_BASELINE_PATH), 'utf8')) as CoverageBaseline;
-}
 
 /** One surface's mapping onto the behavior ledger + surface census. */
 interface SurfaceScoreSpec {
@@ -109,14 +91,14 @@ interface SurfaceScore {
   types: { mapped: number; denominator: number; pct: number } | null;
 }
 
-function computeBehavior(spec: SurfaceScoreSpec): BehaviorScore {
+function computeBehavior(spec: SurfaceScoreSpec, rows: readonly CompatibilityRow[]): BehaviorScore {
   let conforms = 0;
   let diverged = 0;
   let bugs = 0;
   let unsupported = 0;
   let unverified = 0;
   let total = 0;
-  for (const row of allCompatibilityRows) {
+  for (const row of rows) {
     if (!spec.rowServices.includes(row.surface)) continue;
     total += 1;
     if (row.status === 'conforms') conforms += 1;
@@ -185,11 +167,11 @@ function computeSurface(spec: SurfaceScoreSpec, base: CoverageBaseline): Surface
  * Score block each COMPAT doc leads with: surface coverage (breadth) and
  * fidelity (tracked claims that match production). Separate on purpose.
  */
-export function scoreBlock(surface: CompatibilitySurfaceRegistry, base = readBaseline()): string | null {
+export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string | null {
   const spec = SCORE_SPECS[surface.surface];
   if (!spec) return null;
-  const behavior = computeBehavior(spec);
-  const coverage = computeSurface(spec, base);
+  const behavior = computeBehavior(spec, projection.rows);
+  const coverage = computeSurface(spec, projection.coverageBaseline);
   const coverageLine = coverage.runtime === null || coverage.types === null
     ? spec.noCensusKind === 'integration'
       ? '<p class="compat-stat-surface"><strong>Surface:</strong> integration contract <span>(unchanged upstream source; breadth is the signed row inventory)</span></p>'
@@ -262,7 +244,7 @@ function scoreRow(
 }
 
 /** Central scoreboard across every scored COMPAT surface. */
-export function renderScoreboardMarkdown(base = readBaseline()): string {
+export function renderScoreboardMarkdown(projection: DocumentationProjection): string {
   const lines: string[] = [
     GENERATED_HEADER,
     '',
@@ -280,11 +262,11 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     '',
     '<div class="compat-scoreboard">',
   ];
-  for (const surface of surfaceRegistries) {
+  for (const surface of projection.registries) {
     const spec = SCORE_SPECS[surface.surface];
     if (!spec) continue;
-    const behavior = computeBehavior(spec);
-    const coverage = computeSurface(spec, base);
+    const behavior = computeBehavior(spec, projection.rows);
+    const coverage = computeSurface(spec, projection.coverageBaseline);
     lines.push(...scoreRow(
       spec.label,
       scoreboardHref(surface.compatPath),
@@ -300,10 +282,10 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
       rowServices: [...scored],
       censusServices: [],
     };
-    return computeBehavior(overallSpec);
+    return computeBehavior(overallSpec, projection.rows);
   })();
-  const overallRuntime = base.overall.publicSurface.runtime;
-  const overallTypes = base.overall.publicSurface.types;
+  const overallRuntime = projection.coverageBaseline.overall.publicSurface.runtime;
+  const overallTypes = projection.coverageBaseline.overall.publicSurface.types;
   lines.push(...scoreRow(
     'Overall',
     null,
@@ -388,8 +370,8 @@ const CLIMB_STATUS_ORDER: CompatStatus[] = ['unverified', 'diverged-documented',
  * Kept identical between renderSurfaceMarkdown and generatedRowLineNumbers so
  * row line numbers stay accurate.
  */
-export function climbHeaderLines(surface: CompatibilitySurfaceRegistry): string[] {
-  const climbing = surfaceDescriptors.some((d) => d.registry === surface && d.climb === true);
+export function climbHeaderLines(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string[] {
+  const climbing = projection.descriptors.some((d) => d.registry === surface && d.climb === true);
   if (!climbing) return [];
   const rows = surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows : []));
   const summary = (population: CompatibilityRow[], label?: string): string => {
@@ -424,8 +406,8 @@ export function climbHeaderLines(surface: CompatibilitySurfaceRegistry): string[
 }
 
 /** Inject the two-number score block under the H1 of the first markdown block. */
-function scoredBlocks(surface: CompatibilitySurfaceRegistry): CompatibilitySurfaceRegistry['blocks'] {
-  const score = scoreBlock(surface);
+function scoredBlocks(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): CompatibilitySurfaceRegistry['blocks'] {
+  const score = scoreBlock(surface, projection);
   if (score === null) return surface.blocks;
   return surface.blocks.map((block, index) => {
     if (index !== 0 || block.kind !== 'markdown') return block;
@@ -438,9 +420,9 @@ function scoredBlocks(surface: CompatibilitySurfaceRegistry): CompatibilitySurfa
   });
 }
 
-export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): string {
-  const blocks = scoredBlocks(surface);
-  const parts: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface)];
+export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string {
+  const blocks = scoredBlocks(surface, projection);
+  const parts: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface, projection)];
   const rows = blocks.flatMap((block) => block.kind === 'table' ? block.rows : []);
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
@@ -459,9 +441,9 @@ export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): st
   return parts.join('\n').replace(/\s+$/, '') + '\n';
 }
 
-export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): Map<string, number> {
-  const blocks = scoredBlocks(surface);
-  const lines: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface)];
+export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): Map<string, number> {
+  const blocks = scoredBlocks(surface, projection);
+  const lines: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface, projection)];
   const out = new Map<string, number>();
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
@@ -486,15 +468,16 @@ export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): 
   return out;
 }
 
-export function renderAllCompatibilityMarkdown(): Map<string, string> {
-  const out = new Map(surfaceRegistries.map((surface) => [surface.compatPath, renderSurfaceMarkdown(surface)]));
-  out.set(SCOREBOARD_PATH, renderScoreboardMarkdown());
+export function renderAllCompatibilityMarkdown(model: ConformanceModel): Map<string, string> {
+  const projection = model.documentation;
+  const out = new Map(projection.registries.map((surface) => [surface.compatPath, renderSurfaceMarkdown(surface, projection)]));
+  out.set(SCOREBOARD_PATH, renderScoreboardMarkdown(projection));
   return out;
 }
 
-export function checkGeneratedMarkdown(): string[] {
+export function checkGeneratedMarkdown(model: ConformanceModel): string[] {
   const problems: string[] = [];
-  for (const [rel, generated] of renderAllCompatibilityMarkdown()) {
+  for (const [rel, generated] of renderAllCompatibilityMarkdown(model)) {
     const path = join(REPO_ROOT, rel);
     let current: string;
     try {
@@ -509,18 +492,19 @@ export function checkGeneratedMarkdown(): string[] {
 }
 
 if (import.meta.main) {
+  const model = await deriveConformanceModel();
   const write = process.argv.includes('--write');
   const check = process.argv.includes('--check') || !write;
   if (write) {
-    for (const [rel, generated] of renderAllCompatibilityMarkdown()) {
+    for (const [rel, generated] of renderAllCompatibilityMarkdown(model)) {
       const path = join(REPO_ROOT, rel);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, generated);
     }
-    console.log(`Generated ${surfaceRegistries.length} compatibility document(s) + scoreboard.`);
+    console.log(`Generated ${model.documentation.registries.length} compatibility document(s) + scoreboard.`);
   }
   if (check) {
-    const problems = checkGeneratedMarkdown();
+    const problems = checkGeneratedMarkdown(model);
     if (problems.length > 0) {
       for (const problem of problems) console.error(`- ${problem}`);
       process.exit(1);

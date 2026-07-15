@@ -5,6 +5,7 @@ import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow } from '
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { observationExceptions } from '../exceptions/load.ts';
 import { renderAllCompatibilityMarkdown, SCOREBOARD_PATH } from './generate-docs.ts';
+import { deriveConformanceModel } from './conformance-model.ts';
 import { loadObservations, REPO_ROOT } from './ledger.ts';
 import { validateCompatibilityRegistry } from './validate-registry.ts';
 import { loadRigManifests } from '../rigs/load.ts';
@@ -121,8 +122,8 @@ describe('single-source compatibility registry', () => {
     expect(problems.some((problem) => problem.includes('packages/pyric/test/missing.test.ts'))).toBe(true);
   });
 
-  test('generated markdown covers every checked-in compat document', () => {
-    const docs = renderAllCompatibilityMarkdown();
+  test('generated markdown covers every published compat document', async () => {
+    const docs = renderAllCompatibilityMarkdown(await deriveConformanceModel());
     // One doc per registry surface, plus the central scoreboard.
     expect(docs.size).toBe(surfaceRegistries.length + 1);
     for (const surface of surfaceRegistries) {
@@ -130,7 +131,7 @@ describe('single-source compatibility registry', () => {
     }
     expect(docs.get(SCOREBOARD_PATH)).toContain('Generated from packages/conformance/registry/*.ts');
     expect(docs.get('packages/pyric/docs/auth/COMPAT.md')).toContain('Generated from packages/conformance/registry/*.ts');
-  });
+  }, 20_000);
 
   test('every observation internal name matches its filename minus .json', () => {
     const observations = loadObservations();

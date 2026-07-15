@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'bun:test';
+import { beforeAll, describe, expect, it } from 'bun:test';
 import { functionsRtdbRegistry, functionsRtdbRows } from '../registry/functions-rtdb.ts';
 import { scoreBlock } from './generate-docs.ts';
 import { surfaceRecordProblems } from '../surfaces/load.ts';
 import { SURFACE_CONTRACT_SCHEMA } from '../surfaces/types.ts';
+import { deriveConformanceModel, type ConformanceModel } from './conformance-model.ts';
+
+let projection: ConformanceModel['documentation'];
+beforeAll(async () => { projection = (await deriveConformanceModel()).documentation; }, 20_000);
 
 const integrationRecord = {
   schema: SURFACE_CONTRACT_SCHEMA,
@@ -58,7 +62,7 @@ describe('integration surface descriptors', () => {
 describe('integration compatibility score', () => {
   it('uses the signed row inventory and the cross-package scoreboard link', () => {
     const rowStatuses = Object.fromEntries(functionsRtdbRows.map((row) => [row.id, row.status]));
-    const block = scoreBlock(functionsRtdbRegistry, {
+    const block = scoreBlock(functionsRtdbRegistry, { ...projection, coverageBaseline: {
       generatedAt: 'test',
       services: { 'functions-rtdb': { integration: true } },
       overall: {
@@ -71,7 +75,7 @@ describe('integration compatibility score', () => {
       highRiskUnverified: [],
       orphanObservations: [],
       entryPathVerdicts: {},
-    });
+    } });
     expect(block).toContain('<strong>Surface:</strong> integration contract <span>(unchanged upstream source; breadth is the signed row inventory)</span>');
     expect(block).toContain('<span class="compat-stat-pct">92.3%</span>');
     expect(block).toContain('<p class="compat-stat-denom">12 of 13 tracked behaviors</p>');

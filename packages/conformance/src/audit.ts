@@ -13,9 +13,11 @@
  *   bun run packages/conformance/src/audit.ts --json
  */
 import { buildCompatibilityLedger, highRiskUnverifiedRows, summarizeLedger } from './ledger.ts';
+import { deriveConformanceModel } from './conformance-model.ts';
 
-const ledger = buildCompatibilityLedger();
-const summary = summarizeLedger(ledger);
+const model = await deriveConformanceModel();
+const ledger = buildCompatibilityLedger(model);
+const summary = summarizeLedger(ledger, model);
 
 const candidates = highRiskUnverifiedRows(ledger);
 

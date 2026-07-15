@@ -25,6 +25,9 @@ import type { CapabilityReport } from './rules-language-capability.ts';
 import type { CoverageReport } from './rules-language-analyzer.ts';
 import type { SurfaceDescriptor } from '../surfaces/types.ts';
 import type { CompatibilitySurfaceRegistry } from '../registry/types.ts';
+import coverageBaselineJson from '../baselines/coverage-baseline.json' with { type: 'json' };
+import { loadObservations, type Observation } from '../observations/load.ts';
+import { observationExceptions } from '../exceptions/load.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const CLI_QUERY_PATH = join(HERE, '..', '..', 'cli', 'src', 'conformance', '.generated', 'can-i-use.ts');
@@ -69,7 +72,31 @@ export interface ConformanceModel {
   documentation: {
     registries: readonly CompatibilitySurfaceRegistry[];
     descriptors: readonly SurfaceDescriptor[];
+    coverageBaseline: CoverageBaseline;
+    rows: readonly CompatibilityRow[];
   };
+  evidence: {
+    observations: readonly Observation[];
+    observationExceptions: Readonly<Record<string, string>>;
+  };
+}
+
+export interface CoverageBaseline {
+  services: Record<string, {
+    publicSurface?: {
+      runtime: { mapped: number; denominator: number; pct: number };
+      types: { mapped: number; denominator: number; pct: number };
+    };
+    native?: boolean;
+    integration?: boolean;
+  }>;
+  overall: {
+    publicSurface: {
+      runtime: { mapped: number; denominator: number; pct: number };
+      types: { mapped: number; denominator: number; pct: number };
+    };
+  };
+  rowStatuses: Record<string, string>;
 }
 
 interface MutableFeature {
@@ -258,6 +285,12 @@ export async function deriveConformanceModel(): Promise<ConformanceModel> {
     documentation: {
       registries: surfaceRegistries,
       descriptors: surfaceDescriptors,
+      coverageBaseline: coverageBaselineJson as CoverageBaseline,
+      rows: rows(),
+    },
+    evidence: {
+      observations: loadObservations(),
+      observationExceptions,
     },
   };
 }
