@@ -30,5 +30,5 @@ names and lifecycle errors.
 
 ## Where to go next
 
-- [API reference](../pyric-admin-app-reference-api/)
+- [`pyric-admin/app` API reference](https://pyric.dev/docs/pyric-admin-app-reference-api/)
 - [Package resolution](../pyric-cli-reference-package-and-resolution/)

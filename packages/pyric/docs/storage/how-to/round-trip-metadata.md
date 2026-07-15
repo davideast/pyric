@@ -108,5 +108,5 @@ A rule that gates `write` (matching `updateMetadata` calls) can deny the patch. 
 
 ## Where to look next
 
-- For the field-by-field metadata shapes, see [Public API: Metadata](../reference/api.md#metadata).
+- For the field-by-field metadata shapes, see [`FullMetadata`](https://pyric.dev/docs/pyric-storage-reference-api/#fullmetadata) and [`SettableMetadata`](https://pyric.dev/docs/pyric-storage-reference-api/#settablemetadata).
 - For metadata in rules, see [Storage rules subset: Resource bindings](../reference/rules-subset.md#resource-bindings).

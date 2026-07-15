@@ -2,7 +2,7 @@
 title: "Divergence"
 group: "pyric / sandbox"
 section: "Reference"
-order: 13012
+order: 13011
 ---
 # `Divergence`
 

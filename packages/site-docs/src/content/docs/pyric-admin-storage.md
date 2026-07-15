@@ -34,4 +34,4 @@ console.log(bytes.toString());
 
 ## Where to go next
 
-- [API reference](../pyric-admin-storage-reference-api/) for the full `Bucket` and `File` surface, including the byte cap and deferred list.
+- [`pyric-admin/storage` API reference](https://pyric.dev/docs/pyric-admin-storage-reference-api/) for the published `Bucket` and `File` declarations.

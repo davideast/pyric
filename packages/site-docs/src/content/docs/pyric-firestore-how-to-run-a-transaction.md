@@ -63,4 +63,4 @@ For multi-doc writes without read dependency, `writeBatch(db)` is cheaper and re
 ## Where to look next
 
 - For batch writes, see [`writeBatch`](https://firebase.google.com/docs/reference/js/firestore_#writebatch) in the upstream Web SDK reference.
-- For read-after-write enforcement on the sandbox, see [Public API](../pyric-firestore-reference-api/#batches-and-transactions).
+- For the complete signature, see [`runTransaction`](https://pyric.dev/docs/pyric-firestore-reference-api/#runtransaction).

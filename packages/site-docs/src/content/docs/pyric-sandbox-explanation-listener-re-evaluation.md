@@ -3,7 +3,7 @@ title: "Listener re-evaluation on deployRules"
 navLabel: "Listener re-evaluation"
 group: "pyric / sandbox"
 section: "Explanation"
-order: 13021
+order: 13020
 ---
 # Listener re-evaluation on `deployRules`
 
