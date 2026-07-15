@@ -140,13 +140,13 @@ jobs:
         # The other workspace suites run concurrently in library-tests.
         run: bun run test:ci:cli
 
-      - name: Report timing and enforce five-minute job budget
+      - name: Report timing and enforce three-minute job budget
         if: always()
         run: |
           elapsed=$(( $(date +%s) - PYRIC_CI_JOB_STARTED_AT ))
-          echo "### Build + unit/conformance tests: ${elapsed}s / 300s" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed > 300 )); then
-            echo "Build + unit/conformance tests exceeded the 300s CI budget (${elapsed}s)." >&2
+          echo "### Build + unit/conformance tests: ${elapsed}s / 180s" >> "$GITHUB_STEP_SUMMARY"
+          if (( elapsed > 180 )); then
+            echo "Build + unit/conformance tests exceeded the 180s CI budget (${elapsed}s)." >&2
             exit 1
           fi
 
@@ -172,13 +172,13 @@ jobs:
       - name: Run library, UI, Studio, and conformance tests
         run: bun run test:ci:libraries
 
-      - name: Report timing and enforce five-minute job budget
+      - name: Report timing and enforce three-minute job budget
         if: always()
         run: |
           elapsed=$(( $(date +%s) - PYRIC_CI_JOB_STARTED_AT ))
-          echo "### Library + UI tests: ${elapsed}s / 300s" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed > 300 )); then
-            echo "Library + UI tests exceeded the 300s CI budget (${elapsed}s)." >&2
+          echo "### Library + UI tests: ${elapsed}s / 180s" >> "$GITHUB_STEP_SUMMARY"
+          if (( elapsed > 180 )); then
+            echo "Library + UI tests exceeded the 180s CI budget (${elapsed}s)." >&2
             exit 1
           fi
 
@@ -221,13 +221,13 @@ jobs:
         # and the worker-owned AI boundary. These are blocking oracle claims.
         run: bun run --cwd packages/cli test:app-conformance
 
-      - name: Report timing and enforce five-minute job budget
+      - name: Report timing and enforce three-minute job budget
         if: always()
         run: |
           elapsed=$(( $(date +%s) - PYRIC_CI_JOB_STARTED_AT ))
-          echo "### Browser conformance: ${elapsed}s / 300s" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed > 300 )); then
-            echo "Browser conformance exceeded the 300s CI budget (${elapsed}s)." >&2
+          echo "### Browser conformance: ${elapsed}s / 180s" >> "$GITHUB_STEP_SUMMARY"
+          if (( elapsed > 180 )); then
+            echo "Browser conformance exceeded the 180s CI budget (${elapsed}s)." >&2
             exit 1
           fi
 
