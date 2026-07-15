@@ -59,50 +59,6 @@ jobs:
         # CI and local can't drift.
         run: bash scripts/build.sh --skip-docs
 
-      - name: Oracle audit gate (no NEW uncited ✓ COMPAT rows)
-        # Runs the shared conformance model after workspace packages exist and
-        # ratchets its high-risk unprobed-✓ worklist against audit-baseline.json.
-        # Existing debt is tolerated; a new uncited conforming row is not.
-        run: bun run packages/conformance/src/audit-gate.ts
-
-      - name: Oracle conformance gate (observations × probes)
-        # Loads every observations/*.json (structural floor), asserts each
-        # registry entry's captured prod values are intact (so the prod record
-        # can't be edited to cheat), then RUNS each entry's conformance probe
-        # (bun test) and derives pass/fail. A probe that fails is a LIVE
-        # contradiction and fails the build. Status is derived from the probe,
-        # never a hand-maintained field — see the script header (INF-3).
-        # Runs AFTER the build: the probes import the built packages
-        # (pyric/* → dist), so dist must exist first.
-        run: bun run packages/conformance/src/check-observations.ts
-
-      - name: Conformance graph integrity
-        # Validates the compat registry, ratchets surface-census.ts's UNMAPPED
-        # gaps against packages/conformance/baselines/census-baseline.json (failing on any NEW
-        # gap or any stale/redundant disposition — see census-gate.ts). The
-        # disposable COMPAT pages are tested through deterministic rendering
-        # and the docs build, not compared against deleted committed copies.
-        run: bun run compat:validate && bun run compat:census-gate
-
-      - name: Entry-path conformance gate (CLIFF, not a ratchet)
-        # Runs packages/conformance/entry-path/*.ts in-process: one canonical
-        # initialization program per service (app+auth, app+firestore,
-        # app+database, app+storage), each adapted from Firebase's official
-        # web quickstart shape. No baseline, no tolerance — a program either
-        # passes, or its failure is cited by an entry-path/expected-failures.ts
-        # record naming a real, currently-existing gap (compat:validate above
-        # already checked every citation is valid), or the build fails.
-        # Runs after the build: the programs import the built pyric/*
-        # packages, so dist must exist first.
-        run: bun run compat:entry-path
-
-      - name: Runtime conformance verdict projection
-        # Re-derives every addressable graph node from the authoritative
-        # snapshots, reports, corpus, and registries. The runtime projection is
-        # ignored and produced by the CLI prebuild, so this checks the build's
-        # generated copy rather than policing a second committed source.
-        run: bun run compat:conformance:check
-
       - name: Agent tool exposure contract
         # Every tool visible through the default MCP bridge, Playground agent,
         # or composed CLI registry must have an explicit exposure decision.
@@ -110,23 +66,75 @@ jobs:
         # their annotations stale until the contract is updated deliberately.
         run: bun run tool:parity:check
 
-      - name: Compat coverage gate (surface + behavior %, regression-only)
-        # Runs packages/conformance/src/coverage.ts, which combines surface-census.ts
-        # (mirrored SDK exports / SDK exports) and the compat ledger
-        # (`conforms` rows / evaluated rows) per service and overall, then
-        # diffs the result against the committed coverage-baseline.json.
-        # Fails ONLY on regression (a conforms row demoted, a coverage %
-        # dropping, a new orphan observation, more high-risk-unverified rows)
-        # — never on an absolute percentage, which would invite relabeling
-        # rows `conforms` just to clear a bar. Publishes the table to the job
-        # summary so every PR shows the number.
-        # Runs after the build: surface-census imports the built pyric/*
-        # packages, so dist must exist first.
-        run: set -o pipefail; bun run compat:coverage | tee -a "$GITHUB_STEP_SUMMARY"
-
       - name: Run CLI tests
         # The other workspace suites run concurrently in library-tests.
         run: bun run test:ci:cli
+
+      - name: Upload built workspace for conformance gates
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-build-${{ github.sha }}
+          retention-days: 1
+          include-hidden-files: true
+          path: |
+            packages/pyric/dist
+            packages/pyric-admin/dist
+            packages/create-pyric/dist
+            packages/cli/dist
+            packages/ui/dist
+            packages/cli/src/assurance/.generated
+            packages/cli/src/conformance/.generated
+
+  conformance-gates:
+    name: Derive and verify trust model
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+
+      - name: Download built workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-build-${{ github.sha }}
+          # upload-artifact strips the common `packages/` ancestor.
+          path: packages
+
+      - name: Oracle audit gate (no NEW uncited ✓ COMPAT rows)
+        # Runs the shared conformance model after workspace packages exist and
+        # ratchets its high-risk unprobed-✓ worklist against audit-baseline.json.
+        # Existing debt is tolerated; a new uncited conforming row is not.
+        run: bun run packages/conformance/src/audit-gate.ts
+
+      - name: Oracle conformance gate (observations × probes)
+        # Loads every observations/*.json, protects their captured values, then
+        # runs each live probe. A contradiction fails the build.
+        run: bun run packages/conformance/src/check-observations.ts
+
+      - name: Conformance graph integrity
+        # Validates the registry and ratchets unmapped surface gaps without
+        # comparing disposable generated documentation.
+        run: bun run compat:validate && bun run compat:census-gate
+
+      - name: Entry-path conformance gate (CLIFF, not a ratchet)
+        # Runs one canonical initialization program per supported service. Each
+        # must pass or cite a real, currently-existing expected failure.
+        run: bun run compat:entry-path
+
+      - name: Runtime conformance verdict projection
+        # Re-derives the model and checks the ignored build-time CLI projection.
+        run: bun run compat:conformance:check
+
+      - name: Compat coverage gate (surface + behavior %, regression-only)
+        # Publishes current trust numbers and fails only when their evidence
+        # regresses against the committed baseline.
+        run: set -o pipefail; bun run compat:coverage | tee -a "$GITHUB_STEP_SUMMARY"
 
   library-tests:
     name: Run library + UI tests
@@ -186,7 +194,7 @@ jobs:
   packaging:
     name: Packaging gate (pack + install + subpath resolution)
     runs-on: ubuntu-latest
-    needs: [build-and-test, library-tests, browser-conformance]
+    needs: [build-and-test, conformance-gates, library-tests, browser-conformance]
     # Cost: the publish-shape gate runs only when the PR carries the
     # `ci-packaging` label (apply it on release PRs or ones touching package
     # manifests / exports / dist layout). Most code PRs do not need it.
@@ -230,7 +238,7 @@ jobs:
   install-matrix:
     name: Install matrix (${{ matrix.pm }})
     runs-on: ubuntu-latest
-    needs: [build-and-test, library-tests, browser-conformance]
+    needs: [build-and-test, conformance-gates, library-tests, browser-conformance]
     # Cost: same as `packaging`, only runs under the `ci-packaging` label.
     if: contains(github.event.pull_request.labels.*.name, 'ci-packaging')
     # Package managers resolve exports / scoped names / local tarballs differently;
