@@ -204,46 +204,6 @@
     "github_create_pull_request": {
       "decision": "deliberate",
       "reason": "session-workspace publish flow, playground-only — external agents use real git/GitHub directly"
-    },
-    "firebase_assurance_attach": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
-    },
-    "firebase_assurance_start": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
-    },
-    "firebase_assurance_map": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
-    },
-    "firebase_assurance_define": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
-    },
-    "firebase_assurance_propose": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
-    },
-    "firebase_assurance_run": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
-    },
-    "firebase_assurance_inspect": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
-    },
-    "firebase_assurance_minimize": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
-    },
-    "firebase_assurance_verify": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
-    },
-    "firebase_assurance_export": {
-      "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — MCP bridge only; Studio is the visualization client"
     }
   }
 }

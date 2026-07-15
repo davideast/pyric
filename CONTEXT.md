@@ -193,7 +193,7 @@ the same sandbox as the open application and Studio. `pyric bridge` provides a
 standalone sandbox bridge. `pyric mcp` is the stdio editor front: it attaches to
 a running development bridge when possible or hosts a headless sandbox.
 
-The default bridge contract is exactly 35 tool names in
+The default bridge contract is exactly 25 tool names in
 `packages/cli/src/bridge/server/mcp-contract.ts`. `scripts/tool-parity.mjs`
 checks that exposed tool registries stay explicit.
 

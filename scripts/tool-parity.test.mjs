@@ -43,8 +43,6 @@ describe('tool-parity extraction against the real codebase', () => {
       'firestore_lint_rules',
       'firestore_rules_stdlib_list',
       'firestore_test_rules',
-      'firebase_assurance_attach',
-      'firebase_assurance_verify',
     ]) {
       expect(mcp.has(name)).toBe(true);
     }

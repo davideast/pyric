@@ -110,7 +110,6 @@ const MCP_CONTRIBUTIONS = [
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools', gate: 'forwarded' },
   { file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools', gate: 'forwarded' },
-  { file: `${TOOLS}/assurance/tools.ts`, factory: 'createAssuranceTools', gate: 'forwarded, local-only' },
   // getRulesToolHandlers → createFirestoreRulesTools, which spreads the
   // stdlib factory and adds firestore_test_rules only when a scope is
   // supplied (the default sandbox bridge supplies none).
