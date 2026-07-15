@@ -7,13 +7,24 @@
  * they never become inputs to another derivation.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { surfaceRegistries, type CompatibilityRow, type CompatStatus, type Surface } from '../registry/index.ts';
 import { loadAllSnapshots } from '../rules-language/load.ts';
-import { buildSurfaceCensus } from './surface-census.ts';
-import { deriveAllNodeVerdicts, loadConformanceGraph, type ConformanceVerdict } from './conformance-verdicts.ts';
+import { buildSurfaceCensus, type SurfaceCensus } from './surface-census.ts';
+import {
+  RUNTIME_TS_PATH,
+  deriveAllNodeVerdicts,
+  deriveConformanceEvidence,
+  renderConformanceVerdicts,
+  type ConformanceVerdict,
+} from './conformance-verdicts.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
+import type { CapabilityReport } from './rules-language-capability.ts';
+import type { CoverageReport } from './rules-language-analyzer.ts';
+import type { SurfaceDescriptor } from '../surfaces/types.ts';
+import type { CompatibilitySurfaceRegistry } from '../registry/types.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const CLI_QUERY_PATH = join(HERE, '..', '..', 'cli', 'src', 'conformance', '.generated', 'can-i-use.ts');
@@ -49,6 +60,16 @@ export interface FeatureSupport {
 
 export interface ConformanceModel {
   supports: readonly FeatureSupport[];
+  nodeVerdicts: Readonly<Record<string, ConformanceVerdict>>;
+  census: readonly SurfaceCensus[];
+  rulesLanguage: {
+    capability: CapabilityReport;
+    coverage: CoverageReport;
+  };
+  documentation: {
+    registries: readonly CompatibilitySurfaceRegistry[];
+    descriptors: readonly SurfaceDescriptor[];
+  };
 }
 
 interface MutableFeature {
@@ -117,7 +138,8 @@ function summarize(feature: MutableFeature, fidelity: Fidelity, assurance: Assur
 
 export async function deriveConformanceModel(): Promise<ConformanceModel> {
   const census = await buildSurfaceCensus();
-  const verdicts = deriveAllNodeVerdicts(await loadConformanceGraph());
+  const evidence = await deriveConformanceEvidence();
+  const verdicts = deriveAllNodeVerdicts(evidence.graph);
   const features = new Map<string, MutableFeature>();
   const censusOwner = new Map(surfaceDescriptors.flatMap((descriptor) =>
     descriptor.kind === 'mirror' ? [[descriptor.censusSurface, developerSurface(descriptor.surface)] as const] : [],
@@ -225,7 +247,19 @@ export async function deriveConformanceModel(): Promise<ConformanceModel> {
       claims: feature.claims.sort((a, b) => a.id.localeCompare(b.id)),
     };
   }).sort((a, b) => normalizeFeature(a.feature).localeCompare(normalizeFeature(b.feature)) || a.surface.localeCompare(b.surface));
-  return { supports };
+  return {
+    supports,
+    nodeVerdicts: verdicts,
+    census,
+    rulesLanguage: {
+      capability: evidence.capabilityReport,
+      coverage: evidence.coverageReport,
+    },
+    documentation: {
+      registries: surfaceRegistries,
+      descriptors: surfaceDescriptors,
+    },
+  };
 }
 
 function distance(left: string, right: string): number {
@@ -284,7 +318,7 @@ export function renderCliQuery(model: ConformanceModel): string {
     'export interface FeatureClaim { id: string; kind: string; surface: string; behavior: string; status: string; evidence: readonly string[]; assurance: Assurance; }',
     'export interface FeatureSupport { feature: string; surface: DeveloperSurface; availability: Availability; fidelity: Fidelity; assurance: Assurance; summary: string; caveats: readonly string[]; claims: readonly FeatureClaim[]; }',
     'interface ConformanceModel { supports: readonly FeatureSupport[]; }',
-    `const CONFORMANCE_MODEL: ConformanceModel = ${JSON.stringify(model)};`,
+    `const CONFORMANCE_MODEL: ConformanceModel = ${JSON.stringify({ supports: model.supports })};`,
     'export function normalizeFeature(value: string): string { return value.trim().replace(/\\(.*\\)$/, "").replace(/[\\s_-]+/g, "").toLowerCase(); }',
     pureFunctions,
     '',
@@ -294,10 +328,27 @@ export function renderCliQuery(model: ConformanceModel): string {
 if (import.meta.main) {
   const model = await deriveConformanceModel();
   const rendered = renderCliQuery(model);
+  const verdicts = renderConformanceVerdicts(model.nodeVerdicts);
   if (process.argv.includes('--write')) {
     mkdirSync(dirname(CLI_QUERY_PATH), { recursive: true });
+    mkdirSync(dirname(RUNTIME_TS_PATH), { recursive: true });
     writeFileSync(CLI_QUERY_PATH, rendered);
+    writeFileSync(RUNTIME_TS_PATH, verdicts);
     console.log(`Wrote ${CLI_QUERY_PATH}`);
+    console.log(`Wrote ${RUNTIME_TS_PATH}`);
+  } else if (process.argv.includes('--check')) {
+    for (const [path, source] of [[CLI_QUERY_PATH, rendered], [RUNTIME_TS_PATH, verdicts]] as const) {
+      let current = '';
+      try { current = readFileSync(path, 'utf8'); } catch { /* reported below */ }
+      if (current !== source) {
+        console.error(`Generated conformance projection is missing or stale: ${path}`);
+        process.exitCode = 1;
+      }
+    }
   }
   console.log(`Conformance model: ${model.supports.length} developer feature result(s), ${Buffer.byteLength(rendered)} bytes`);
+  const counts = { supported: 0, qualified: 0, unsupported: 0 };
+  for (const verdict of Object.values(model.nodeVerdicts)) counts[verdict]++;
+  console.log(`Conformance verdicts: ${Object.keys(model.nodeVerdicts).length} nodes (${counts.supported} supported, ${counts.qualified} qualified, ${counts.unsupported} unsupported)`);
+  console.log(`Generated verdict lookup: ${Buffer.byteLength(verdicts)} bytes raw, ${gzipSync(verdicts).byteLength} bytes gzip`);
 }

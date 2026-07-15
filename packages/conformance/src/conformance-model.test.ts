@@ -11,6 +11,14 @@ function one(query: string): FeatureSupport {
 }
 
 describe('multi-axis conformance model', () => {
+  it('supplies the shared assurance and rules-report projections in memory', () => {
+    expect(Object.keys(model.nodeVerdicts)).toHaveLength(1067);
+    expect(model.rulesLanguage.capability.engines).toHaveLength(3);
+    expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
+    expect(model.documentation.registries.length).toBeGreaterThan(0);
+    expect(model.documentation.descriptors.length).toBeGreaterThan(0);
+  });
+
   it('reports getAfter as available, diverged, and assurance-ineligible', () => {
     const result = one('getAfter');
     expect(result).toMatchObject({

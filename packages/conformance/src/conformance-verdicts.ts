@@ -8,8 +8,6 @@
  * so graph evidence remains the only source of truth and PRs contain no
  * mechanically regenerated data.
  */
-import { gzipSync } from 'node:zlib';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { surfaceRegistries, type CompatibilityRow } from '../registry/index.ts';
@@ -19,8 +17,8 @@ import {
   deriveConformanceGraph,
   indexConstructScopes,
 } from './production-verification.ts';
-import { computeCapabilityReport } from './rules-language-capability.ts';
-import { computeCoverageReport } from './rules-language-analyzer.ts';
+import { computeCapabilityReport, type CapabilityReport } from './rules-language-capability.ts';
+import { computeCoverageReport, type CoverageReport } from './rules-language-analyzer.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const RUNTIME_TS_PATH = join(
@@ -50,7 +48,13 @@ export interface ConformanceGraph {
   oracleProvedBy: Map<string, string[]>;
 }
 
-export async function loadConformanceGraph(): Promise<ConformanceGraph> {
+export interface ConformanceEvidence {
+  graph: ConformanceGraph;
+  capabilityReport: CapabilityReport;
+  coverageReport: CoverageReport;
+}
+
+export async function deriveConformanceEvidence(): Promise<ConformanceEvidence> {
   const snapshotStatus = new Map<string, string>();
   for (const snapshot of Object.values(loadAllSnapshots())) {
     for (const construct of snapshot.constructs) snapshotStatus.set(construct.id, construct.status);
@@ -76,7 +80,7 @@ export async function loadConformanceGraph(): Promise<ConformanceGraph> {
     }
   }
   const { provingRows, divergingRows } = indexConstructScopes(surfaceRegistries);
-  return {
+  const graph = {
     snapshotStatus,
     probeClass,
     verifiedBy,
@@ -84,6 +88,11 @@ export async function loadConformanceGraph(): Promise<ConformanceGraph> {
     divergedBy: divergingRows,
     oracleProvedBy: provingRows,
   };
+  return { graph, capabilityReport, coverageReport };
+}
+
+export async function loadConformanceGraph(): Promise<ConformanceGraph> {
+  return (await deriveConformanceEvidence()).graph;
 }
 
 export function validationProblems(graph: ConformanceGraph): string[] {
@@ -162,30 +171,4 @@ export function renderConformanceVerdicts(verdicts: Readonly<Record<string, Conf
   for (const id of Object.keys(verdicts).sort()) lines.push(`  ${JSON.stringify(id)}: ${JSON.stringify(verdicts[id])},`);
   lines.push('} as const satisfies Readonly<Record<string, ConformanceVerdict>>;', '');
   return lines.join('\n');
-}
-
-function report(source: string, verdicts: Readonly<Record<string, ConformanceVerdict>>): void {
-  const counts = { supported: 0, qualified: 0, unsupported: 0 };
-  for (const verdict of Object.values(verdicts)) counts[verdict]++;
-  console.log(`Conformance verdicts: ${Object.keys(verdicts).length} nodes (${counts.supported} supported, ${counts.qualified} qualified, ${counts.unsupported} unsupported)`);
-  console.log(`Generated lookup: ${Buffer.byteLength(source)} bytes raw, ${gzipSync(source).byteLength} bytes gzip`);
-}
-
-if (import.meta.main) {
-  const verdicts = deriveAllNodeVerdicts(await loadConformanceGraph());
-  const source = renderConformanceVerdicts(verdicts);
-  if (process.argv.includes('--write')) {
-    mkdirSync(dirname(RUNTIME_TS_PATH), { recursive: true });
-    writeFileSync(RUNTIME_TS_PATH, source);
-    console.log(`Wrote ${RUNTIME_TS_PATH}`);
-  } else if (process.argv.includes('--check')) {
-    let current = '';
-    try { current = readFileSync(RUNTIME_TS_PATH, 'utf8'); } catch { /* reported below */ }
-    if (current !== source) {
-      console.error(`Generated conformance verdicts are missing or stale: ${RUNTIME_TS_PATH}`);
-      console.error('Run: bun run compat:conformance');
-      process.exitCode = 1;
-    }
-  }
-  report(source, verdicts);
 }
