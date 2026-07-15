@@ -15,6 +15,24 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+BUILD_STUDIO=true
+BUILD_DOCS=true
+for arg in "$@"; do
+  case "$arg" in
+    --skip-docs)
+      BUILD_DOCS=false
+      ;;
+    --packages-only)
+      BUILD_STUDIO=false
+      BUILD_DOCS=false
+      ;;
+    *)
+      echo "Unknown build option: $arg" >&2
+      exit 2
+      ;;
+  esac
+done
+
 # ── Helpers ─────────────────────────────────────────────────────────────
 
 build_pkg() {
@@ -69,13 +87,17 @@ build_pkg "ui"
 # target lives inside the already-built @pyric/cli dist.
 echo ""
 echo "━━━ Phase 3: Studio app ━━━"
-echo "▸ Building packages/studio (base /__pyric/ui/)"
-rm -rf packages/studio/dist
-STUDIO_BASE=/__pyric/ui/ bun run --cwd packages/studio build
-echo "▸ Embedding studio app → packages/cli/dist/serve/studio-ui/"
-rm -rf packages/cli/dist/serve/studio-ui
-mkdir -p packages/cli/dist/serve/studio-ui
-cp -R packages/studio/dist/app/. packages/cli/dist/serve/studio-ui/
+if $BUILD_STUDIO; then
+  echo "▸ Building packages/studio (base /__pyric/ui/)"
+  rm -rf packages/studio/dist
+  STUDIO_BASE=/__pyric/ui/ bun run --cwd packages/studio build
+  echo "▸ Embedding studio app → packages/cli/dist/serve/studio-ui/"
+  rm -rf packages/cli/dist/serve/studio-ui
+  mkdir -p packages/cli/dist/serve/studio-ui
+  cp -R packages/studio/dist/app/. packages/cli/dist/serve/studio-ui/
+else
+  echo "▸ Skipped for packages-only build"
+fi
 
 echo ""
 echo "━━━ Phase 4: Docs site ━━━"
@@ -84,13 +106,17 @@ echo "━━━ Phase 4: Docs site ━━━"
 # /__pyric/ui/docs/<slug>/, assets at /__pyric/ui/_astro/*, the search index at
 # /__pyric/ui/docs/index.json, and tabs back at /__pyric/ui/<tab>. The default
 # (no DOCS_BASE) build the hosted site uses is unaffected — base stays `/`.
-echo "▸ Building packages/site-docs (base /__pyric/ui/)"
-rm -rf packages/site-docs/dist
-DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build
-echo "▸ Embedding docs site → packages/cli/dist/serve/docs-ui/"
-rm -rf packages/cli/dist/serve/docs-ui
-mkdir -p packages/cli/dist/serve/docs-ui
-cp -R packages/site-docs/dist/. packages/cli/dist/serve/docs-ui/
+if $BUILD_DOCS; then
+  echo "▸ Building packages/site-docs (base /__pyric/ui/)"
+  rm -rf packages/site-docs/dist
+  DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build
+  echo "▸ Embedding docs site → packages/cli/dist/serve/docs-ui/"
+  rm -rf packages/cli/dist/serve/docs-ui
+  mkdir -p packages/cli/dist/serve/docs-ui
+  cp -R packages/site-docs/dist/. packages/cli/dist/serve/docs-ui/
+else
+  echo "▸ Skipped for CI build profile"
+fi
 
 echo ""
 echo "✅ All packages built successfully"
