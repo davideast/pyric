@@ -748,7 +748,7 @@ https://v8.dev/docs/stack-trace-api#customizing-stack-traces
 
 ##### service
 
-> **service**: `"auth"` \| [`AssuranceService`](#assuranceservice) \| `"attachment"`
+> **service**: [`AssuranceService`](#assuranceservice) \| `"auth"` \| `"attachment"`
 
 ***
 
@@ -1307,35 +1307,6 @@ How an unsupported qualification must be classified. Absent when the
 
 ***
 
-### GeneratedAssuranceCapability
-
-#### Properties
-
-##### dependencies
-
-> **dependencies**: `GeneratedCapabilityDependency`[]
-
-Everything the status rests on. The ones that pinned it are the ones whose
- verdict equals the status; `capabilityReasons` selects and renders them.
-
-##### description
-
-> **description**: `string`
-
-##### id
-
-> **id**: `string`
-
-##### service
-
-> **service**: `AssuranceCapabilityService`
-
-##### status
-
-> **status**: `AssuranceCapabilityStatus`
-
-***
-
 ### LocalFirebaseTarget
 
 #### Properties
@@ -1434,7 +1405,7 @@ Everything the status rests on. The ones that pinned it are the ones whose
 
 ###### Inherited from
 
-[`ProbeMutation`](#probemutation).[`description`](#description-3)
+[`ProbeMutation`](#probemutation).[`description`](#description-2)
 
 ##### dimension
 
@@ -1878,12 +1849,6 @@ Everything the status rests on. The ones that pinned it are the ones whose
 
 ***
 
-### ASSURANCE\_ENGINE\_CAPABILITIES
-
-> `const` **ASSURANCE\_ENGINE\_CAPABILITIES**: readonly [`GeneratedAssuranceCapability`](#generatedassurancecapability)[]
-
-***
-
 ### ASSURANCE\_REPORT\_SCHEMA
 
 > `const` **ASSURANCE\_REPORT\_SCHEMA**: `"pyric.assurance.report.v1"`
@@ -1901,25 +1866,6 @@ Everything the status rests on. The ones that pinned it are the ones whose
 > `const` **defaultAssuranceCampaignStore**: [`AssuranceCampaignStore`](#assurancecampaignstore)
 
 ## Functions
-
-### capabilityReasons()
-
-> **capabilityReasons**(`capability`): `string`[]
-
-The reasons a probe cites when it abstains: the dependencies whose verdict
- pinned the capability's status, each rendered as a sentence.
-
-#### Parameters
-
-##### capability
-
-[`GeneratedAssuranceCapability`](#generatedassurancecapability)
-
-#### Returns
-
-`string`[]
-
-***
 
 ### createAssuranceTools()
 
@@ -1974,22 +1920,6 @@ contacted and the returned campaign target itself keeps networking forbidden.
 #### Returns
 
 [`AssuranceAttachmentProvider`](#assuranceattachmentprovider)
-
-***
-
-### listAssuranceCapabilities()
-
-> **listAssuranceCapabilities**(`services?`): [`GeneratedAssuranceCapability`](#generatedassurancecapability)[]
-
-#### Parameters
-
-##### services?
-
-readonly `AssuranceCapabilityService`[]
-
-#### Returns
-
-[`GeneratedAssuranceCapability`](#generatedassurancecapability)[]
 
 ***
 
@@ -2082,9 +2012,3 @@ change must preserve the application workflow and reject the boundary case.
 ##### Returns
 
 `void`
-
-## References
-
-### AssuranceEngineCapability
-
-Renames and re-exports [GeneratedAssuranceCapability](#generatedassurancecapability)

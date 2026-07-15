@@ -43,7 +43,7 @@ order, cheapest and most specific first:
 | 2 | `compat:census-gate` | A change introduced a NEW unmapped upstream symbol, or left a stale/redundant deny-list entry behind. Ratchets against `baselines/census-baseline.json`. |
 | 3 | `compat:entry-path` | A canonical initialization program went red without a cited, currently-real gap. This is a CLIFF, not a ratchet. |
 | 4 | `generate-docs.ts --check` | A `COMPAT.md` on disk no longer matches what the registry generates. Someone hand-edited a generated file, or edited the registry and forgot to regenerate. |
-| 5 | `compat:assurance:check` | `assurance-capabilities/capabilities.json` or `generated.ts` no longer matches what the conformance graph derives. Same cause: a generated artifact went stale. |
+| 5 | `compat:conformance:check` | The ignored runtime node-verdict lookup is missing or no longer matches the conformance graph. Run the CLI prebuild or `compat:conformance`. |
 | 6 | `compat:coverage` | A published number regressed: a `conforms` row flipped or vanished, surface coverage dropped, a new orphan observation appeared, or the high-risk-unverified count went up. Never fails for being low, only for going down. |
 
 Green looks like this (trimmed):
@@ -69,19 +69,19 @@ Current unmapped total: 53. Baseline tolerates 53.
 ✓ Entry-path gate clean (every program green or red-known-with-citation).
 
 Compatibility markdown is generated from the registry.
-assurance capabilities: 16 derived, artifact up to date
+Conformance verdicts: 1067 nodes (851 supported, 135 qualified, 81 unsupported)
+Generated lookup: 38511 bytes raw, 5090 bytes gzip
 
 # Compatibility coverage
 [… the coverage table …]
 ✓ No regressions vs. coverage-baseline.json.
 ```
 
-Exit code 0. Gates 4 and 5 have the same fix when they fail, and it is never
-"edit the file":
+Exit code 0. Generated outputs are always rebuilt from their source:
 
 ```sh
 bun run compat:generate     # rewrites generated COMPAT pages + the scoreboard from the registry
-bun run compat:assurance    # rewrites assurance-capabilities/{capabilities.json,generated.ts}
+bun run compat:conformance  # rewrites the ignored CLI runtime verdict lookup
 git diff                    # the diff IS the report: it shows exactly what changed
 ```
 
@@ -126,9 +126,9 @@ failure is cited by an `entry-path/expected-failures.ts` record naming a real,
 currently-existing gap, or the gate fails the build. `expected-failures.ts` is
 empty today: all four programs are green.
 
-**`compat:assurance:check`** (exit 0) verifies the generated assurance
-artifacts still match what the conformance graph derives. See
-`compat:assurance` below.
+**`compat:conformance:check`** (exit 0) verifies the ignored runtime lookup
+still matches what the conformance graph derives. The CLI prebuild normally
+creates it; see `compat:conformance` below.
 
 **`compat:coverage`** (exit 0) is the published compatibility number and the
 regression gate that protects it. See [Read the reports](#read-the-reports).
@@ -167,18 +167,17 @@ $ bun run compat:generate
 Generated 9 compatibility document(s) + scoreboard.
 ```
 
-**`compat:assurance`** (exit 0) derives, from the conformance graph, which
-assurance-engine capabilities are actually backed by evidence, and writes
-`assurance-capabilities/capabilities.json` and `generated.ts`. A capability's
-status is DERIVED from its declared dependencies, never asserted: each
-`assurance-capabilities/<id>.ts` declares what it depends on (language
-constructs, registry rows), and the generator resolves every dependency against
-the snapshots, the capability probe, the rules corpus, and the registry.
+**`compat:conformance`** (exit 0) derives a verdict for every addressable
+construct and registry row. It writes a deterministic, ignored TypeScript
+lookup consumed by the CLI. The graph remains the only source of truth; this
+projection exists only for a filesystem-free runtime lookup and is regenerated
+before every CLI build.
 
 ```
-$ bun run compat:assurance
-Wrote …/assurance-capabilities/capabilities.json
-Wrote …/assurance-capabilities/generated.ts
+$ bun run compat:conformance
+Wrote …/packages/cli/src/assurance/.generated/conformance-verdicts.ts
+Conformance verdicts: 1067 nodes (851 supported, 135 qualified, 81 unsupported)
+Generated lookup: 38511 bytes raw, 5090 bytes gzip
 ```
 
 **The rules-language reports** have no `compat:*` alias; run them by path.
@@ -796,78 +795,14 @@ with a written justification. `error` marks a malformed micro-scenario, which is
 a bug in the probe, not in the simulator. `unprobeable` means the probe shape
 cannot isolate the construct, so no verdict is claimed either way.
 
-### What will the assurance engine refuse to back, and why?
+### What will the assurance engine refuse to back?
 
-The assurance capabilities table is the sharpest gap report in the system,
-because it is entirely derived. Nothing in it is asserted, and a capability
-that is not `supported` means an assurance probe depending on it must ABSTAIN
-rather than report a result it cannot stand behind.
-
-```sh
-python3 -c "
-import json
-d = json.load(open('packages/conformance/assurance-capabilities/capabilities.json'))
-for c in d['capabilities']:
-    if c['status'] == 'supported': continue
-    print(f\"{c['status']:12} {c['id']}\")
-    for r in c['reasons'][:1]: print(f'             {r[:140]}')
-"
-```
-
-```
-qualified    auth.password-anonymous-fixture
-unsupported  auth.provider-token-flows
-unsupported  firestore.batch-get-after
-unsupported  firestore.batch-transaction
-unsupported  firestore.collection-group-listener
-unsupported  firestore.overlapping-match-or
-unsupported  firestore.query-equality
-unsupported  rtdb.atomic-multipath
-unsupported  rtdb.query
-             query constraints (orderBy/startAt/endAt/equalTo/limit) visible to a `.read` expression, and
-             index enforcement rejecting an unindexed query: the conformance graph does not model this
-             behavior: the RTDB language snapshot enumerates no query bindings …
-qualified    rtdb.read-write
-unsupported  rtdb.rule-location-data
-unsupported  rtdb.transaction-listener
-unsupported  storage.resumable-pagination
-```
-
-Sixteen capabilities are derived. Three are `supported` (`firestore.crud`,
-`storage.coarse-rules`, `storage.advanced-rules`), two are `qualified`, eleven
-are `unsupported`.
-
-To see the dependency that sank any one of them, read its `dependencies` array:
-each entry carries a `verdict` and an `evidence` list, and the evidence line
-"no production-captured scenario and no conforming oracle-backed row verifies
-it" is the phrase that means "uncredited".
-
-```sh
-python3 -c "
-import json
-d = json.load(open('packages/conformance/assurance-capabilities/capabilities.json'))
-c = [x for x in d['capabilities'] if x['id'] == 'rtdb.query'][0]
-for dep in c['dependencies'][:2]:
-    print(f\"{dep['verdict']:12} {dep['kind']:10} {dep['id']}\")
-    for e in dep['evidence']: print(f'             - {e}')
-"
-```
-
-```
-qualified    construct  rtdb.rule-kind.read
-             - snapshot status "unprobed"
-             - capability probe "implemented"
-             - production-verified by 8 captured scenario(s)
-qualified    construct  rtdb.rule-kind.indexOn
-             - snapshot status "unprobed"
-             - capability probe "implemented"
-             - no production-captured scenario and no conforming oracle-backed row verifies it
-```
-
-The chain is complete and auditable: capability, then dependency, then
-construct, then snapshot status plus capability probe plus production
-scenarios. Fixing `rtdb.query` means capturing corpus scenarios that exercise
-`rtdb.rule-kind.indexOn`. It does not mean arguing about it.
+Run `bun run compat:conformance` to see the population and generated lookup
+size. Assurance probes name graph nodes directly; only a `supported` verdict
+proceeds. `qualified`, `unsupported`, or an unknown node makes the engine
+abstain rather than report a security conclusion it cannot support. The query
+API reports the underlying snapshot, probe, production-verification, and
+registry evidence without introducing another authored capability catalog.
 
 ### Which initialization programs are red?
 
@@ -1010,7 +945,7 @@ reading what changed.
 - `packages/pyric/docs/*/COMPAT.md` and integration-owned COMPAT pages such as
   `packages/cli/docs/functions-rtdb/COMPAT.md` (from the registry, via
   `compat:generate`)
-- `packages/conformance/assurance-capabilities/{capabilities.json,generated.ts}` (via `compat:assurance`)
+- `packages/cli/src/assurance/.generated/conformance-verdicts.ts` (ignored; via CLI prebuild or `compat:conformance`)
 - `packages/conformance/rules-language/{coverage,capability,acceptance}-report.json` (via the three report scripts)
 - `packages/conformance/baselines/*.json` (each via its own gate's `--update`)
 - `packages/site-docs/src/content/docs/*` (via the docs-site port)
@@ -1125,11 +1060,11 @@ Documented so nobody has to rediscover them:
 - **The three rules-language reports have no aliases and NO FRESHNESS GATE.**
   Run the generators by path (see
   [Generators](#generators-they-write-files-never-edit-their-output)). Unlike
-  `COMPAT.md` and the assurance artifacts, nothing checks that a committed
+  `COMPAT.md`, nothing checks that a committed
   report still matches what its generator produces. A change that fixes the
   simulator without regenerating leaves the report UNDERSTATING the truth, and
-  because `compat:assurance` reads these reports, the understatement propagates
-  into the capabilities table. This is not hypothetical: it has happened.
+  because `compat:conformance` reads these reports, the understatement propagates
+  into runtime verdicts. This is not hypothetical: it has happened.
   Regenerate after ANY change to the corpus, the snapshots, or the simulator,
   and commit the result:
 

@@ -100,17 +100,12 @@ jobs:
         # packages, so dist must exist first.
         run: bun run compat:entry-path
 
-      - name: Assurance capability artifact (generated, must not drift)
-        # Re-derives the assurance-engine capability table from the conformance
-        # graph (authored dependency records + the rules-language snapshots,
-        # capability report, rules corpus, and registry) and fails if the
-        # committed assurance-capabilities/{capabilities.json,generated.ts}
-        # disagree. Without this step a stale artifact can land on main while
-        # CI stays green, which is exactly what happened before it was added:
-        # `compat:check` chains this gate locally, but CI ran the other five
-        # individually and never this one.
-        # Runs after the build: the derivation loads the built pyric/* packages.
-        run: bun run compat:assurance:check
+      - name: Runtime conformance verdict projection
+        # Re-derives every addressable graph node from the authoritative
+        # snapshots, reports, corpus, and registries. The runtime projection is
+        # ignored and produced by the CLI prebuild, so this checks the build's
+        # generated copy rather than policing a second committed source.
+        run: bun run compat:conformance:check
 
       - name: Agent tool exposure contract
         # Every tool visible through the default MCP bridge, Playground agent,

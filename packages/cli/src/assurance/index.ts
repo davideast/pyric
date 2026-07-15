@@ -6,16 +6,7 @@ export {
   type SandboxAttachmentProviderOptions,
 } from "./attachment.js";
 export {
-  ASSURANCE_ENGINE_CAPABILITIES,
-  capabilityReasons,
-  listAssuranceCapabilities,
   qualifyProbe,
-} from "./capabilities.js";
-// The capability shape is defined by the generated module, not authored here.
-// `AssuranceEngineCapability` is kept as the public name for it.
-export type {
-  GeneratedAssuranceCapability,
-  GeneratedAssuranceCapability as AssuranceEngineCapability,
 } from "./capabilities.js";
 export { runSecurityCases, type RunSecurityCasesInput } from "./cases.js";
 export {

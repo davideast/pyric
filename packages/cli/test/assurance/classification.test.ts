@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
-  ASSURANCE_ENGINE_CAPABILITIES,
   AssuranceInputError,
   runAuthorizationCampaign,
   type AuthorizationCampaignSpec,
 } from "../../src/assurance/index.js";
+import { CONFORMANCE_VERDICTS } from "../../src/assurance/.generated/conformance-verdicts.js";
 
 const OPEN_FIRESTORE = `rules_version = '2';
 service cloud.firestore {
@@ -218,16 +218,15 @@ describe("campaign classification integrity", () => {
     // conformance graph does not derive as `supported`, so the engine cannot
     // treat its own verdict as evidence. Silence from a simulator that cannot
     // see the behavior is not evidence of safety.
-    const weakNode = ASSURANCE_ENGINE_CAPABILITIES.flatMap(
-      (capability) => capability.dependencies,
-    ).find(
-      (dependency) =>
-        (dependency.kind === "construct" || dependency.kind === "registry-row") &&
-        dependency.verdict !== "supported",
-    );
-    if (!weakNode || (weakNode.kind !== "construct" && weakNode.kind !== "registry-row")) {
+    const weakEntry = Object.entries(CONFORMANCE_VERDICTS).find(([, verdict]) => verdict !== "supported");
+    if (!weakEntry) {
       throw new Error("expected a non-supported graph node");
     }
+    const weakNode = {
+      id: weakEntry[0],
+      verdict: weakEntry[1],
+      kind: weakEntry[0].includes("#") ? "registry-row" as const : "construct" as const,
+    };
 
     const campaign = firestoreCampaign();
     campaign.probes[0]!.requires = [{ kind: weakNode.kind, id: weakNode.id }];

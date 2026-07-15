@@ -85,6 +85,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "prebuild": "bun run ../../packages/conformance/src/conformance-verdicts.ts --write",
     "build": "tsc && bun run scripts/postbuild.ts",
     "test": "bun test",
     "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts --config test/e2e/playwright.config.ts",

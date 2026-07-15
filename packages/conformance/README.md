@@ -61,12 +61,10 @@ packages/conformance/
                      (the production Rules Test API acceptance probe). The reports
                      are written by src/rules-language-{analyzer,capability,
                      acceptance}.ts and are never hand-edited.
-  assurance-capabilities/  the assurance-engine capability graph. One authored
-                     dependency record per capability (<capability-id>.ts) plus
-                     two GENERATED artifacts, capabilities.json and generated.ts,
-                     written by src/assurance-capabilities.ts. A capability's
-                     status is DERIVED from its dependencies, never asserted:
-                     what the graph will and will not back, and why.
+  src/conformance-verdicts.ts  derives a verdict for every addressable graph
+                     node. The CLI prebuild writes one ignored runtime lookup;
+                     no authored capability catalog or committed projection is
+                     maintained beside the graph.
   entry-path/        one canonical initialization program per service
                      (entry-path/<service>.ts: app+auth, app+firestore,
                      app+database, app+storage), each adapted from Firebase's
