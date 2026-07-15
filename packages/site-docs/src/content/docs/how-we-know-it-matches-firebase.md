@@ -1,64 +1,163 @@
 ---
-title: "How we know it matches Firebase"
+title: "How does Pyric know it works like Firebase?"
 navLabel: "Conformance"
 group: "Trust"
 section: ""
 order: 7001
-description: "Understand the evidence behind \"it behaves like the real one,\" and what a divergence means when you hit one."
+description: "See the production evidence behind Pyric's conformance claims, the gaps those claims leave open, and the checks to make before shipping."
 ---
 
-# How we know it matches Firebase
+# How does Pyric know it works like Firebase?
 
-"Behaves like Firebase" is a claim anyone can make. Pyric's version is tested, not asserted, and this page shows you the machinery so you can decide how much to trust it.
+If Pyric is a mirror of Firebase, how does it know it actually behaves like Firebase?
 
-## Recorded from production, replayed on every change
+Documentation describes intent. TypeScript declarations describe shape. Neither records what a deployed Firebase project actually did. The strongest available evidence is Firebase itself, so Pyric captures production behavior, compares the local result, and publishes where the two agree and where they do not. That is what it means to conform.
 
-Probes run against a real Firebase project and record what actually happens: the error code a bad password returns, the shape a server timestamp resolves to, the way a query orders missing fields. The loop:
-
-1. Each recording is committed as an observation.
-2. CI replays every committed observation against the sandbox on every change.
-3. If a change makes the sandbox answer differently than production did, the build fails before the change lands.
-
-The observations are re-capturable, and the git diff of a re-capture is the drift report. An unchanged file means production still behaves as pinned. A changed file means the behavior moved, and the affected claims get reviewed.
-
-When Pyric tells you how Firebase behaves, it is citing a recording, not repeating documentation.
-
-## The matrices are the contract
-
-Each service publishes a compatibility matrix: one row per behavior, each row carrying a status and the evidence that locks it. The rule that governs the whole system is short. **A documented divergence is a row. An undocumented divergence is a bug.**
-
-There is no third category. A row marked diverged states both sides, the reason, and the test that pins both behaviors, so the difference cannot silently widen.
-
-A mismatch with no row is a defect to report, and the fix's regression test already half-exists, because recording the divergence pinned both sides.
-
-The matrices are generated from the evidence registry, never edited by hand, and the counts in them move as rows land, so read them directly rather than trusting a number quoted anywhere else:
-
-- [Firestore](../pyric-firestore-compat/)
-- [Auth](../pyric-auth-compat/)
-- [Realtime Database](../pyric-database-compat/)
-- [Storage](../pyric-storage-compat/)
-
-## The rules engine has its own harness
-
-Rules are where local-versus-production differences hurt most, so the rules simulator does not lean on the matrices alone. It keeps a corpus of rulesets, valid, invalid, and edge cases, each saved with its known outcome.
-
-A parity harness runs that corpus against Google's hosted Rules Test API in CI. The same source goes to both engines, and the verdicts are compared. Building that corpus is also where much of Pyric's rules knowledge came from: you cannot save every variant with its known outcome without first discovering the outcomes.
-
-You can run the same cross-check on your own traffic:
-```bash
-pyric verify --engine both --project my-app --rules firestore=firestore.rules
+The application call stays the same:
+```ts
+import { signInWithEmailAndPassword } from 'firebase/auth';
 ```
-It sends your captured session through the local engine and the hosted one and flags any disagreement. See [Ship to production](../ship-to-production/).
+During Vite development, supported `firebase/*` imports resolve to Pyric. A production build resolves them to Firebase. Conformance asks whether the two implementations return the same value, error, state transition, or Rules verdict for a defined behavior.
 
-## What a divergence means for you
+## The conformance system
 
-If you hit behavior that differs from production, check the service's matrix first.
+One behavior moves through five connected steps:
 
-- A row means the difference is intentional, explained, and stable. Read the reason and decide whether it affects you.
-- No row means you found a bug, and reporting it comes with a built-in guarantee: the fix will be pinned by an observation, so it cannot regress silently.
+<div class="conformance-flow">
+<div class="flow-step">Production Firebase</div>
+<div class="flow-arrow" aria-hidden="true">→</div>
+<div class="flow-step">Capture evidence<span class="flow-sub">observation or Rules corpus</span></div>
+<div class="flow-arrow" aria-hidden="true">→</div>
+<div class="flow-step">Register the claim<span class="flow-sub">status and evidence</span></div>
+<div class="flow-arrow" aria-hidden="true">→</div>
+<div class="flow-step">Check Pyric<span class="flow-sub">tests and conformance gates</span></div>
+<div class="flow-arrow" aria-hidden="true">→</div>
+<div class="flow-step">Publish the result<span class="flow-sub">generated matrices</span></div>
+</div>
 
-One honest boundary: this level of proof currently holds for Auth, Firestore, and Rules. Realtime Database and Storage work and are documented, but most of their behavior is not yet pinned to production observations. That difference has its own page: [What's experimental](../whats-experimental/).
+The observation records what Firebase did. The registry states the claim Pyric makes about that behavior. A local check determines whether Pyric matches the recorded result. Generated matrices expose the status and its evidence without letting the published result drift away from the source.
 
-## Where to go next
+## Follow one behavior from Firebase to the matrix
 
-Read [What's experimental](../whats-experimental/) for the exact boundary, or put the claim under load yourself: run the app, break a rule, and compare the verdict against production's.
+Consider a failed password sign-in. A probe signs into a real Firebase project with the wrong password and records the result, including the Firebase SDK version and project used for the capture:
+```json
+{
+  "name": "auth-wrong-password-error-code",
+  "rowIds": ["auth#15"],
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "code": "auth/wrong-password",
+    "messageContains": {
+      "wrongPassword": true,
+      "invalidCredential": false
+    }
+  }
+}
+```
+That committed [observation](https://github.com/davideast/pyric/blob/main/packages/conformance/observations/auth/auth-wrong-password-error-code.json) is a captured fact, not a summary of Firebase documentation. It is then attached to a specific registry row:
+```ts
+{
+  id: 'auth#15',
+  api: 'signInWithEmailAndPassword(auth, email, password)',
+  behavior: 'Throws auth/wrong-password when the password does not match',
+  status: 'conforms',
+  oracleObservations: ['auth-wrong-password-error-code'],
+  conformanceTests: ['packages/pyric/test/auth/sandbox-email-password.test.ts'],
+  automation: 'oracle-backed',
+}
+```
+The [registry row](https://github.com/davideast/pyric/blob/main/packages/conformance/registry/auth.ts) is the published claim. It names the production evidence, the broader local behavior test, the current status, and the strength of the automation behind it.
+
+Separately, an [oracle conformance test](https://github.com/davideast/pyric/blob/main/packages/pyric/test/auth/oracle-conformance.test.ts) reads the observation and requires Pyric to return the recorded error code:
+```ts
+const observation = load('auth-wrong-password-error-code.json');
+
+await expectCode(
+  signInWithEmailAndPassword(auth, 'wp@example.com', 'wrong9999'),
+  observation.code,
+);
+```
+CI checks this chain in layers. Registry validation rejects missing or inconsistent evidence references. The library tests exercise local behavior, including observation-backed comparisons like this one. Selected production observations also have dedicated replay checks. The generated matrices are rebuilt from the registry and current public-surface census, then checked for drift.
+
+This distinction matters. `compat:check` validates the conformance model and generated results, but it does not replay every production observation by itself. The full CI suite combines those gates with the tests that exercise Pyric.
+
+## Security Rules require a corpus
+
+A single API result can be captured as one observation. Security Rules need a broader method because a ruleset is a program. The relevant question is whether Firebase allows or denies a request under a particular ruleset, data state, identity, and operation.
+
+The [Rules corpus](https://github.com/davideast/pyric/tree/main/packages/conformance/rules-corpus) stores those inputs as scenarios. For example, Firestore treats direct access to a missing map field as a runtime error. Comparing that field with `null` denies the request, while the `in` operator performs an actual absence check:
+```rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /typoEqNullDeny/{id} {
+      allow create: if request.resource.data.typo == null;
+    }
+
+    match /notInAllow/{id} {
+      allow create: if !('typo' in request.resource.data);
+    }
+  }
+}
+```
+The corpus expects the first request to be denied and the second to be allowed. Firebase supplies the authoritative verdict. Pyric's simulator must reach the same result.
+
+Firestore and Storage expose hosted Rules Test APIs, so their capture runners can ask Firebase for each verdict directly. Realtime Database has no equivalent API. Its runner deploys each scenario's rules to a dedicated oracle database, executes the live operations in an isolated namespace, records the results, restores the previous rules, and verifies cleanup. The acquisition paths differ, but the contract is the same: production decides the expected verdict.
+
+Committed Rules observations are replayed locally against the matching corpus scenarios. A mismatch remains visible as a documented divergence or bug until the simulator agrees.
+
+## Public surface and behavior answer different questions
+
+Behavior evidence cannot show whether an API is missing. A perfect match on a small set of calls would still leave a poor mirror if Firebase exposed much more.
+
+The public-surface census therefore reads Firebase's public exports and compares them with Pyric. Runtime values and exported type names are measured separately. Names beginning with `_` remain available as a raw diagnostic but do not count as public Firebase surface. Unsupported or deprecated public APIs stay in the denominator, and Pyric-only helpers receive no credit.
+
+The census proves name presence, not signature equivalence or runtime behavior. Those questions belong to types, tests, and registry evidence. Keeping the axes separate prevents a strong result on one axis from hiding a weak result on another.
+
+The current [conformance scoreboard](../pyric-conformance-scores/) publishes public runtime surface, public type surface, and behavior fidelity separately.
+
+## Five states keep the gaps visible
+
+Every tracked behavior has one of five states:
+
+| State | Meaning |
+|---|---|
+| **Conforms** | The tracked behavior matches Firebase at the stated level of evidence. |
+| **Documented divergence** | Firebase and Pyric intentionally differ, with both behaviors and the reason recorded. |
+| **Bug** | Pyric should match Firebase but currently does not. |
+| **Unsupported** | The behavior is outside the current implementation. |
+| **Unverified** | The behavior is tracked, but the available evidence does not yet establish the result. |
+
+Status and evidence strength are separate. A conforming row may be backed by a production observation, a shape capture, a local test, or a narrower source of evidence. The matrix shows that distinction rather than treating every green row as equally proven.
+
+The registry is also a tracked behavior set, not an inventory of every behavior Firebase could exhibit. Missing from the registry does not mean passed. It means no claim is being published for that behavior yet.
+
+## What this proves, and what it does not
+
+Conformance is a floor, not a guarantee of total equivalence.
+
+- **Evidence covers defined claims.** A production observation supports the rows connected to it. It does not generalize to adjacent behavior that was never captured.
+- **Observations are snapshots.** Each records an SDK version and project configuration. Configuration-dependent behavior can remain unknown until the right project and probe exercise it.
+- **The behavior registry is incomplete by design.** It contains the claims currently tracked. Firebase behavior outside that set is not silently counted as conforming.
+- **Evidence is uneven.** Some rows are pinned directly to production. Others have local, type-level, or sandbox-only evidence. The matrices expose that strength row by row.
+- **Surface evidence is name-level.** The census can establish that a public runtime or type name exists. It does not prove the full signature, semantics, or interaction with other APIs.
+- **A local mirror cannot remove the production boundary.** Project configuration, deployed Rules, credentials, service state, and Firebase changes still require controlled verification before release.
+
+No published result is typed into this page. Registry state and the live public-surface census generate the matrices and scoreboard. A generated page that drifts from those sources fails its check.
+
+## Verify the boundary before shipping
+
+Pyric is designed for local development, where operations have no production consequences. Before deployment, replay the captured development session against the candidate Rules:
+```bash
+npx pyric verify
+```
+The default engine runs locally and requires no cloud credentials. For Firestore, the hosted Rules Test API can provide a second verdict from Google in a controlled project:
+```bash
+npx pyric verify --engine both --project staging-project
+```
+Hosted verification evaluates derived cases. It does not deploy Rules or modify production data. It does require Firebase credentials and a project configured for that check.
+
+This is the final boundary of the conformance claim. Pyric supplies evidence that local behavior matches the cases it tracks. A staging or hosted verification step checks the application-specific configuration that a general conformance suite cannot know. Then the same `firebase/*` application code can proceed through the normal Firebase deployment path described in [Ship to production](../ship-to-production/).
+
+The generated matrices contain the current evidence for [App](../pyric-app-compat/), [Auth](../pyric-auth-compat/), [Firestore](../pyric-firestore-compat/), [Realtime Database](../pyric-database-compat/), [Storage](../pyric-storage-compat/), [Messaging](../pyric-messaging-compat/), [AI Logic](../pyric-ai-compat/), [Security Rules](../pyric-rules-compat/), and [Functions with Realtime Database](../pyric-cli-functions-rtdb-compat/).

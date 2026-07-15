@@ -736,6 +736,63 @@ a.external-link::after {
   border-top: 1px solid var(--line);
 }
 
+/* Conformance evidence moves from production capture to a published
+   matrix. Keep the sequence readable as one line on wide screens and
+   as a vertical path on narrow screens. */
+.prose .conformance-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 var(--space-6);
+}
+
+.prose .flow-step {
+  flex: 1 1 0;
+  min-width: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 550;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.prose .flow-sub {
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.prose .flow-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--faint);
+  font-size: 1.1rem;
+}
+
+@media (max-width: 640px) {
+  .prose .conformance-flow {
+    flex-direction: column;
+  }
+
+  .prose .flow-step {
+    width: 100%;
+  }
+
+  .prose .flow-arrow {
+    justify-content: center;
+    transform: rotate(90deg);
+  }
+}
+
 /* Wide tables scroll inside their own wrapper (rehype-docs.mjs wraps
    every table at build time), never the page body. The table itself
    stays a real table — the old `display: block` hack degraded column
