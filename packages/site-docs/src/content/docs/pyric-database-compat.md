@@ -9,11 +9,29 @@ order: 8005
 
 # `pyric/database` compatibility matrix
 
-> **Public surface:** runtime 79.5% (35/44) · types 53.3% (8/15)
->
-> **Fidelity:** 76.6% (154 of 201 tracked claims match production)
->
-> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
+<div class="compat-stat">
+<p class="compat-stat-surface"><strong>Public surface:</strong> runtime 79.5% (35/44) <span aria-hidden="true">·</span> types 53.3% (8/15)</p>
+<p class="compat-stat-figure">
+<span class="compat-stat-pct">76.6%</span>
+<span class="compat-stat-label">of tracked behaviors conform</span>
+</p>
+<p class="compat-stat-denom">154 of 201 tracked behaviors</p>
+<div class="compat-stat-bar" role="img" aria-label="Behavior distribution: 154 conform, 9 documented divergences, 0 bugs, 26 unsupported, 12 unverified.">
+<span class="compat-stat-seg" data-status="ok" style="flex-grow: 154" aria-hidden="true"></span>
+<span class="compat-stat-seg" data-status="diverged" style="flex-grow: 9" aria-hidden="true"></span>
+<span class="compat-stat-seg" data-status="unsupported" style="flex-grow: 26" aria-hidden="true"></span>
+<span class="compat-stat-seg" data-status="unverified" style="flex-grow: 12" aria-hidden="true"></span>
+</div>
+<ul class="compat-stat-key" aria-label="Behavior state counts">
+<li class="compat-stat-item"><span class="compat-dot" data-status="ok" aria-hidden="true"></span><span><strong>154</strong> conform</span></li>
+<li class="compat-stat-item"><span class="compat-dot" data-status="diverged" aria-hidden="true"></span><span><strong>9</strong> documented divergences</span></li>
+<li class="compat-stat-item"><span class="compat-dot" data-status="bug" aria-hidden="true"></span><span><strong>0</strong> bugs</span></li>
+<li class="compat-stat-item"><span class="compat-dot" data-status="unsupported" aria-hidden="true"></span><span><strong>26</strong> unsupported</span></li>
+<li class="compat-stat-item"><span class="compat-dot" data-status="unverified" aria-hidden="true"></span><span><strong>12</strong> unverified</span></li>
+</ul>
+<p class="compat-stat-note">Public surface measures whether exports exist. Fidelity measures whether tracked behavior matches production.</p>
+</div>
+[Read how the axes differ.](../pyric-conformance-scores/)
 
 > ⚠ **EXPERIMENTAL — not v1-supported.** The v1-supported, conformance-held surface is **auth + firestore + rules**. The modular `firebase/database` mirror rows below are verified sandbox-side by unit probes, but most are not yet captured against a live production project. Do not depend on RTDB parity for a production swap yet.
 
@@ -41,67 +59,67 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 
 <div class="compat-list">
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical <code>.json</code> REST transport contract for the removed production host.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed REST host</code><span class="compat-sub"><span class="compat-behavior">Historical <code>.json</code> REST transport contract for the removed production host.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical admin read and set/get behavior for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical admin read and set/get behavior for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observations; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical user read return shape for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical user read return shape for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical rules-denial normalization for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical rules-denial normalization for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observations; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical rules-denied read behavior for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical rules-denied read behavior for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical set/get round trip for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical set/get round trip for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical set-null removal behavior for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical set-null removal behavior for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical rules-denied write behavior for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical rules-denied write behavior for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical multi-path update behavior for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical multi-path update behavior for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical push key behavior for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical push key behavior for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical push auto-ID format for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical push auto-ID format for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical remove-versus-set-null behavior for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical remove-versus-set-null behavior for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical idempotent removal behavior for the removed production data handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub"><span class="compat-behavior">Historical idempotent removal behavior for the removed production data handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical deployed-rules JSON round trip for the removed production fetch handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed rules fetch handler</code><span class="compat-sub"><span class="compat-behavior">Historical deployed-rules JSON round trip for the removed production fetch handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical rules deployment propagation timing for the removed production deploy handler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed rules deployment handler</code><span class="compat-sub"><span class="compat-behavior">Historical rules deployment propagation timing for the removed production deploy handler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Historical shallow REST response shape for the removed production crawler.</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">Removed REST crawler</code><span class="compat-sub"><span class="compat-behavior">Historical shallow REST response shape for the removed production crawler.</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Archived oracle observation; implementation removed.</div></div>
 </details>
 </div>
@@ -110,55 +128,55 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 
 <div class="compat-list">
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">The removed stateful simulator returned a generate-before-simulate error when no IR had been generated</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">The removed stateful simulator returned a generate-before-simulate error when no IR had been generated</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">The stateless <code>simulateRtdbRules(compiled, input)</code> API requires a compiled rules tree and has no generate-before-simulate lifecycle.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returns <code>{ success: false, error: { code: 'INVALID_INPUT' } }</code> when input doesn't parse against <code>SimulationInputSchema</code> (e.g. path missing leading slash, operation not in read / write / validate)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">Returns <code>{ success: false, error: { code: 'INVALID_INPUT' } }</code> when input doesn't parse against <code>SimulationInputSchema</code> (e.g. path missing leading slash, operation not in read / write / validate)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Walks ancestors from root → target; the first ancestor whose rule expression evaluates to <code>true</code> grants access — matches RTDB's documented "rules cascade from root, true at any ancestor grants" semantics</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">Walks ancestors from root → target; the first ancestor whose rule expression evaluates to <code>true</code> grants access — matches RTDB's documented "rules cascade from root, true at any ancestor grants" semantics</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Path variables (<code>$userId</code>) are bound from the URL path and exposed in <code>pathVariableBindings</code> (also without the <code>$</code> prefix for ergonomic access in expressions)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">Path variables (<code>$userId</code>) are bound from the URL path and exposed in <code>pathVariableBindings</code> (also without the <code>$</code> prefix for ergonomic access in expressions)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>auth</code> context: when <code>null</code>, <code>auth</code> is null inside expressions; when present, <code>auth.uid</code> and <code>auth.token.*</code> are bound</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior"><code>auth</code> context: when <code>null</code>, <code>auth</code> is null inside expressions; when present, <code>auth.uid</code> and <code>auth.token.*</code> are bound</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code>, <code>unit:grammar/simulator.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>mockData</code> becomes the value of <code>data</code> at every path during evaluation; <code>newData</code> is the proposed value for write/validate</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior"><code>mockData</code> becomes the value of <code>data</code> at every path during evaluation; <code>newData</code> is the proposed value for write/validate</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>data.child("…")</code>, <code>data.parent()</code>, <code>data.exists()</code>, <code>data.val()</code> evaluate against the in-process snapshot — matches the documented <code>DataSnapshot</code> rule-context surface</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior"><code>data.child("…")</code>, <code>data.parent()</code>, <code>data.exists()</code>, <code>data.val()</code> evaluate against the in-process snapshot — matches the documented <code>DataSnapshot</code> rule-context surface</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:grammar/simulator.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior">Cross-path <code>root.child(…).val()</code> reads return <code>null</code> for paths NOT present in <code>mockData</code> — divergence from real prod rules where the engine reads the live database</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">Cross-path <code>root.child(…).val()</code> reads return <code>null</code> for paths NOT present in <code>mockData</code> — divergence from real prod rules where the engine reads the live database</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">divergence: the simulator uses ONLY what's in <code>mockData</code>. Real rules engine reads from the live RTDB. Documented in <code>validated.ts</code> ("simulation uses empty mockData, so cross-path rule lookups … will evaluate as false")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">An expression that fails to parse (<code>parsed.valid === false</code>) produces an unsupported result rather than silently granting or fabricating a deny</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">An expression that fails to parse (<code>parsed.valid === false</code>) produces an unsupported result rather than silently granting or fabricating a deny</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">When no ancestor rule allows, the result is <code>{ allowed: false }</code> with <code>matchedPath</code> set to the deepest matched node</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">When no ancestor rule allows, the result is <code>{ allowed: false }</code> with <code>matchedPath</code> set to the deepest matched node</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">When NO ancestor has a rule for the operation at all, returns <code>{ success: false, error: { code: 'NO_MATCHING_RULE' } }</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">When NO ancestor has a rule for the operation at all, returns <code>{ success: false, error: { code: 'NO_MATCHING_RULE' } }</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Evaluation errors (grammar mismatch, unknown identifier) surface as <code>EVALUATION_ERROR</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">Evaluation errors (grammar mismatch, unknown identifier) surface as <code>EVALUATION_ERROR</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Simulator's allow/deny decision matches the real RTDB rules engine for the same <code>{ rules, mockData, auth, operation, path, newData }</code> tuple, modulo the documented cross-path divergence on row #66</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub"><span class="compat-behavior">Simulator's allow/deny decision matches the real RTDB rules engine for the same <code>{ rules, mockData, auth, operation, path, newData }</code> tuple, modulo the documented cross-path divergence on row #66</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-simulator-vs-prod-agreement.json</code> — 8 test rules × 29 (rule, op) tuples; 28 agreements, 1 disagreement at capture time (<code>r4-validate-structure</code>: the simulator did not evaluate <code>.validate</code> on writes). The <code>.validate</code> walk is now implemented (<code>src/rules/rtdb/simulation/handler.ts</code>, reached from all backend write sites; grammar array-literals + <code>hasChildren(keys)</code> fixed alongside), closing the recorded disagreement — replayed as prod-conforming denial in <code>oracle-conformance.test.ts</code>. The frozen capture documents the historical divergence</div></div>
 </details>
 </div>
@@ -192,23 +210,23 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>compileRtdbRules(rulesJson)</code> produces an environment-independent tree where each node carries its path, parsed expressions, and child nodes</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">compileRtdbRules</code><span class="compat-sub"><span class="compat-behavior"><code>compileRtdbRules(rulesJson)</code> produces an environment-independent tree where each node carries its path, parsed expressions, and child nodes</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>serializeRtdbRules(compiled)</code> produces the Firebase rules-JSON payload for the compiled tree</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">serializeRtdbRules</code><span class="compat-sub"><span class="compat-behavior"><code>serializeRtdbRules(compiled)</code> produces the Firebase rules-JSON payload for the compiled tree</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Round-trip <code>compileRtdbRules(serializeRtdbRules(compiled))</code> produces an equivalent rules tree (locked path/expression-text equality, not object identity)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">compileRtdbRules / serializeRtdbRules</code><span class="compat-sub"><span class="compat-behavior">Round-trip <code>compileRtdbRules(serializeRtdbRules(compiled))</code> produces an equivalent rules tree (locked path/expression-text equality, not object identity)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Path-variable segments (<code>$userId</code>, <code>$gameId</code>) preserved across the round-trip</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">compileRtdbRules / serializeRtdbRules</code><span class="compat-sub"><span class="compat-behavior">Path-variable segments (<code>$userId</code>, <code>$gameId</code>) preserved across the round-trip</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>.indexOn</code> arrays preserved across the round-trip</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">compileRtdbRules / serializeRtdbRules</code><span class="compat-sub"><span class="compat-behavior"><code>.indexOn</code> arrays preserved across the round-trip</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 </div>
@@ -830,7 +848,7 @@ Simulation and structure crawling are sandbox/CLI operations; rules authoring an
 <div class="compat-evidence"><div class="compat-probe">Sandbox aligned (M48); oracle: <code>packages/conformance/observations/rtdb/rtdb-onvalue-unsub-equivalence.json</code> — <code>unsubReturnType: 'function'</code>, <code>unsubReturnedFnStopsListener: true</code> (the captured return value halted fires on write), <code>offRefValueCbStopsListener: true</code> (the same effect via <code>off(ref, 'value', cb)</code>), <code>bothFormsEquivalent: true</code>.</div></div>
 </details>
 <details class="compat-row" data-status="unverified">
-<summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><span class="compat-behavior">When the same callback is registered more than once, each <code>off(ref, eventType, callback)</code> removes one registration without orphaning the others</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><code class="compat-api">off(ref, eventType, callback)</code><span class="compat-sub"><span class="compat-behavior">When the same callback is registered more than once, each <code>off(ref, eventType, callback)</code> removes one registration without orphaning the others</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Pyric behavior is locked by <code>packages/pyric/test/app/multi-app-listener-auth.test.ts</code>; a production duplicate-registration oracle capture is still needed</div></div>
 </details>
 </div>
@@ -1106,3 +1124,169 @@ rule modifications.
 ## Historical simulator-vs-production capture
 
 The frozen `rtdb-simulator-vs-prod-agreement.json` observation recorded 28 agreements and one historical `.validate` disagreement. The current in-process RTDB rules engine evaluates descendant validation rules on writes; row #71 and the simulator tests cover the repaired behavior without editing the frozen observation.
+
+
+
+## Current gaps
+
+### Documented divergences
+
+Known differences between Pyric and production Firebase. Each remains tracked as a non-conforming row.
+
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub">Cross-path <code>root.child(…).val()</code> reads return <code>null</code> for paths NOT present in <code>mockData</code> — divergence from real prod rules where the engine reads the live database</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><strong>Divergence (DB-B12, honest doc):</strong> the onChild<em> callbacks do NOT receive the <code>previousChildName</code> second argument; <code>onValue</code>/<code>onChild</em></code> do NOT accept a <code>cancelCallback</code>; <code>onChildAdded</code>/<code>Changed</code>/<code>Removed</code>/<code>Moved</code> accept only plain refs (not <code>Query</code>); <code>child_moved</code> never fires (ordered-query move detection unmodeled). These listener-surface holes are out of scope for the current phase — consumers needing them use <code>firebase/database</code> directly.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>onChildMoved</code> under an ordered query. Prod: fires when a child's <code>orderByChild</code>/<code>orderByValue</code> priority changes — emitted only on ordered queries. Sandbox: <strong>never fires on reorder</strong> — <code>onChildMoved</code> supports the plain-ref (no-fire) case only; the ordered-query overload is unimplemented</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>goOffline(db)</code> — accepted no-op: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and <code>get()</code> keep working)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>goOnline(db)</code> — accepted no-op: there is no connection to reopen (see <code>goOffline</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>forceLongPolling()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>forceWebSockets()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see <code>forceLongPolling</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>enableLogging(logger?, persistent?)</code> — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level <code>console</code> logging directly, matching <code>pyric/firestore</code>'s <code>setLogLevel</code>). Accepted so init code that calls it compiles + runs</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>refFromURL(db, url)</code> — real alias: parses the path out of the absolute database URL and delegates to <code>ref(db, path)</code>, so the returned ref resolves + reads exactly like <code>ref(db, path)</code>. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored</span></span></div>
+</div>
+</div>
+
+### Unsupported
+
+Tracked behavior that is not implemented in the current contract.
+
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed REST host</code><span class="compat-sub">Historical <code>.json</code> REST transport contract for the removed production host.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical admin read and set/get behavior for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical user read return shape for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical rules-denial normalization for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical rules-denied read behavior for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical set/get round trip for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical set-null removal behavior for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical rules-denied write behavior for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical multi-path update behavior for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical push key behavior for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical push auto-ID format for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical remove-versus-set-null behavior for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed data handler</code><span class="compat-sub">Historical idempotent removal behavior for the removed production data handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed rules fetch handler</code><span class="compat-sub">Historical deployed-rules JSON round trip for the removed production fetch handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed rules deployment handler</code><span class="compat-sub">Historical rules deployment propagation timing for the removed production deploy handler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Removed REST crawler</code><span class="compat-sub">Historical shallow REST response shape for the removed production crawler.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">simulateRtdbRules(compiled, input)</code><span class="compat-sub">The removed stateful simulator returned a generate-before-simulate error when no IR had been generated</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">An in-module production target is intentionally absent; direct calls with a real <code>FirebaseApp</code> reject with package-resolution guidance</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Concurrent contention / retry-on-conflict — single-client sandbox doesn't model real concurrency; the documented "up to 25 retries" contract is degenerate (the fn is invoked once)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>getDatabase(ctx)</code> returns a tagged sandbox-target handle (frozen identity)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>getDatabase(sandbox)</code> returns a tagged sandbox-live handle (per-op identity)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Two <code>getDatabase(sandbox)</code> calls share state (same underlying <code>LocalEnvironment</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Handle dispatch by <code>TARGET_SYMBOL</code> brand — refs route to their owning target via a <code>refToTarget</code> WeakMap (mirror of firestore's pattern)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Unknown ref (not produced by this package) → <code>TypeError</code> in shim ops</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">No-op on sandbox-target handles (the sandbox IS the local emulator)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">A production target is intentionally absent; production code continues to use <code>connectDatabaseEmulator</code> from the unchanged <code>firebase/database</code> package</span></span></div>
+</div>
+</div>
+
+### Unverified
+
+Tracked behavior whose available evidence does not yet establish the production result.
+
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Inactive canonical <code>firebase/database</code> imports remain the upstream package; the mirror does not create tagged production targets</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>ref(db, path)</code> returns a tagged <code>DatabaseReference</code> carrying <code>key</code>, <code>parent</code>, <code>root</code>, <code>toString()</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>ref(db)</code> with no path returns the root ref (<code>key === null</code>, <code>parent === null</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>child(ref, 'a/b')</code> joins a relative path, including embedded slashes</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>ref.parent</code> is <code>null</code> at root, otherwise the parent ref</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior"><code>ref.key</code> is the final path segment, <code>null</code> for root</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Replaces the value at the path entirely; resolves to <code>undefined</code> (unlike <code>setDoc</code> which resolves to <code>void</code>, RTDB's <code>set</code> is documented as <code>Promise&lt;void&gt;</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Update path validation — overlapping paths (e.g. <code>'/a'</code> and <code>'/a/x'</code> in the same call) throws synchronously before any write</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">The returned value from <code>onValue(ref, cb)</code> is the unsubscribe function (NOT an object); calling it removes the listener</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">off(ref, eventType, callback)</code><span class="compat-sub">When the same callback is registered more than once, each <code>off(ref, eventType, callback)</code> removes one registration without orphaning the others</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Two concurrent <code>increment</code> calls interleave correctly (last-write-wins is NOT the contract — both deltas accumulate)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Concurrent contention — if another client writes between the read and write, the update fn is retried with the new current value (typically up to 25 retries by default)</span></span></div>
+</div>
+</div>

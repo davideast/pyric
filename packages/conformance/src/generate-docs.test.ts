@@ -4,7 +4,14 @@ import { appRegistry } from '../registry/app.ts';
 import { authRegistry } from '../registry/auth.ts';
 import { messagingRegistry } from '../registry/messaging.ts';
 import { allCompatibilityRows, rowsForSurface } from '../registry/index.ts';
-import { climbHeaderLines, renderScoreboardMarkdown, scoreBlock } from './generate-docs.ts';
+import {
+  climbHeaderLines,
+  consolidatedGapSections,
+  renderScoreboardMarkdown,
+  renderSurfaceMarkdown,
+  scoreBlock,
+  statBar,
+} from './generate-docs.ts';
 
 describe('generated fidelity scores', () => {
   it('uses the live registry rather than the stale coverage baseline', () => {
@@ -29,16 +36,58 @@ describe('generated fidelity scores', () => {
       rowStatuses: {},
     };
 
-    expect(scoreBlock(appRegistry, staleBaseline)).toContain(
-      `**Fidelity:** ${pct}% (${conforms} of ${rows.length} tracked claims match production)`,
-    );
+    const block = scoreBlock(appRegistry, staleBaseline)!;
+    expect(block).toContain(`<span class="compat-stat-pct">${pct}%</span>`);
+    expect(block).toContain(`<p class="compat-stat-denom">${conforms} of ${rows.length} tracked behaviors</p>`);
   });
 
   it('publishes App against Firebase public runtime and type exports', () => {
     const block = scoreBlock(appRegistry)!;
-    expect(block).toContain('**Public surface:** runtime 90% (9/10) · types 66.7% (4/6)');
+    expect(block).toContain('<strong>Public surface:</strong> runtime 90% (9/10)');
+    expect(block).toContain('types 66.7% (4/6)');
     expect(block).not.toContain('intended');
     expect(block).not.toContain('39.1%');
+  });
+
+  it('renders a proportional bar with an accessible five-state text equivalent', () => {
+    const bar = statBar({
+      conforms: 5,
+      diverged: 4,
+      bugs: 3,
+      unsupported: 2,
+      unverified: 1,
+      total: 15,
+      pct: 33.3,
+    });
+
+    expect(bar).toContain('role="img"');
+    expect(bar).toContain('aria-label="Behavior distribution: 5 conform, 4 documented divergences, 3 bugs, 2 unsupported, 1 unverified."');
+    expect(bar).toContain('data-status="ok" style="flex-grow: 5"');
+    expect(bar).toContain('data-status="diverged" style="flex-grow: 4"');
+    expect(bar).toContain('data-status="bug" style="flex-grow: 3"');
+    expect(bar).toContain('data-status="unsupported" style="flex-grow: 2"');
+    expect(bar).toContain('data-status="unverified" style="flex-grow: 1"');
+  });
+
+  it('keeps zero-count states visible in the key without assigning fake bar width', () => {
+    const block = scoreBlock(appRegistry)!;
+
+    expect(block).toContain('<strong>0</strong> bugs');
+    expect(block).toContain('data-status="bug" aria-hidden="true"');
+    expect(block).not.toContain('data-status="bug" style="flex-grow:');
+  });
+
+  it('renders API-first matrices and generated non-conforming summaries', () => {
+    const markdown = renderSurfaceMarkdown(authRegistry);
+    const gaps = consolidatedGapSections(rowsForSurface(authRegistry));
+
+    expect(markdown).toContain('| API | Category | Behavior | Status | Probe | # |');
+    expect(markdown).toContain('| signInWithEmailAndPassword(auth, email, password) |');
+    expect(gaps).toContain('## Current gaps');
+    expect(gaps).toContain('### Documented divergences');
+    expect(gaps).toContain('### Unsupported');
+    expect(gaps).toContain('### Unverified');
+    expect(gaps).not.toContain('### Bugs');
   });
 
   it('ratchets every oracle-backed conforming row in the coverage baseline', () => {
@@ -67,9 +116,21 @@ describe('generated fidelity scores', () => {
     const conforms = clientRows.filter((row) => row.status === 'conforms').length;
     const pct = Math.round((conforms / clientRows.length) * 1000) / 10;
 
-    expect(renderScoreboardMarkdown()).toContain(
-      `| Messaging | 100% (5/5) | 100% (8/8) | ${pct}% (${conforms}/${clientRows.length}) |`,
-    );
+    const scoreboard = renderScoreboardMarkdown();
+    expect(scoreboard).toContain('<span class="compat-score-name">Messaging</span>');
+    expect(scoreboard).toContain('<span class="compat-score-axis">Runtime</span>100% (5/5)');
+    expect(scoreboard).toContain('<span class="compat-score-axis">Types</span>100% (8/8)');
+    expect(scoreboard).toContain(`<strong class="compat-score-pct">${pct}%</strong>`);
+    expect(scoreboard).toContain(`<span>${conforms}/${clientRows.length} conform</span>`);
+  });
+
+  it('keeps Functions with RTDB visible as an integration row', () => {
+    const scoreboard = renderScoreboardMarkdown();
+
+    expect(scoreboard).toContain('href="../pyric-cli-functions-rtdb-compat/"');
+    expect(scoreboard).toContain('<span class="compat-score-name">Functions · RTDB</span>');
+    expect(scoreboard).toContain('<span class="compat-score-axis">Runtime</span>integration');
+    expect(scoreboard).toContain('<span class="compat-score-axis">Types</span>integration');
   });
 
   it('separates client and admin Messaging populations in the climb header', () => {

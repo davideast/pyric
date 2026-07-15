@@ -72,9 +72,10 @@ describe('integration compatibility score', () => {
       orphanObservations: [],
       entryPathVerdicts: {},
     });
-    expect(block).toContain('integration contract (unchanged upstream source; breadth is the signed row inventory)');
-    expect(block).toContain('92.3% (12 of 13 tracked claims match production)');
+    expect(block).toContain('<strong>Surface:</strong> integration contract <span>(unchanged upstream source; breadth is the signed row inventory)</span>');
+    expect(block).toContain('<span class="compat-stat-pct">92.3%</span>');
+    expect(block).toContain('<p class="compat-stat-denom">12 of 13 tracked behaviors</p>');
     expect(block).toContain('../../../pyric/docs/conformance/SCORES.md');
-    expect(block).not.toContain('Coverage is about whether the export exists');
+    expect(block).not.toContain('Public surface measures whether exports exist');
   });
 });
