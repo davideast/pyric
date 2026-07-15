@@ -12,6 +12,6 @@ export const surface: SurfaceDescriptorRecord = {
   // the SDK export census and its own SDK-behavior rows.
   observationPrefixes: ['firestore-'],
   coverage: true,
-  scopeNote: 'out of scope: internal plumbing only. Deferred: bundle-loading, cache index-tuning knobs.',
+  scopeNote: 'Firebase-internal underscore plumbing is private and excluded from public coverage by rule. Public gaps include bundle-loading, cache index-tuning knobs, and exported types that are not yet mirrored.',
   captureRigs: ['oracle-run'],
 };

@@ -2,7 +2,7 @@
 
 # `pyric/firestore` compatibility matrix
 
-> **Surface coverage:** 55.5% of Firebase's public exports · 63.5% of what pyric intends to mirror
+> **Public surface:** runtime 63.5% (66/104) · types 38.5% (30/78)
 >
 > **Fidelity:** 87.6% (141 of 161 tracked claims match production)
 >

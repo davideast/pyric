@@ -61,7 +61,12 @@ describe('integration compatibility score', () => {
     const block = scoreBlock(functionsRtdbRegistry, {
       generatedAt: 'test',
       services: { 'functions-rtdb': { integration: true } },
-      overall: { surfaceCoveragePct: { total: 0, intended: 0 } },
+      overall: {
+        publicSurface: {
+          runtime: { mapped: 0, denominator: 0, pct: 0 },
+          types: { mapped: 0, denominator: 0, pct: 0 },
+        },
+      },
       rowStatuses,
       highRiskUnverified: [],
       orphanObservations: [],

@@ -14,6 +14,6 @@ export const surface: SurfaceDescriptorRecord = {
   mirrors: ['pyric/database'],
   observationPrefixes: ['rtdb-modular-'],
   coverage: true,
-  scopeNote: 'out of scope: internal plumbing only. Sole owner of the `database` export census (the `firebase/database` modular mirror).',
+  scopeNote: 'Firebase-internal underscore plumbing is private and excluded from public coverage by rule. Public runtime and type gaps stay in the denominator. This surface is the sole owner of the `database` census.',
   captureRigs: ['oracle-run'],
 };

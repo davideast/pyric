@@ -8,15 +8,16 @@
  *
  * ── Two-tier policy ─────────────────────────────────────────────────────────
  *
+ * This file classifies missing PUBLIC runtime exports only. Leading-underscore
+ * Firebase implementation exports are private by the structural rule in
+ * `public-exports.ts`; they never enter this list or a public denominator.
+ *
  * `OUT_OF_SCOPE` and `DEFERRED` are NOT interchangeable, and conflating them
  * is exactly the dishonesty this split exists to prevent. `OUT_OF_SCOPE`
- * holds what the sandbox genuinely cannot or should not model: the internal
- * `_`-prefixed plumbing symbols firebase/* happens to export (not part of the
- * public modular surface pyric mirrors at all), plus a public API that is
- * deprecated and being retired upstream (mirroring an API whose production
- * counterpart is shutting down would freeze dead behavior). Every other
- * denied symbol is intended and buildable; it belongs in `DEFERRED`, which
- * stays IN the `intended` denominator in coverage.ts as an honest gap. Two
+ * holds public APIs that the sandbox genuinely should not model because they
+ * are deprecated and being retired upstream. Every other
+ * denied symbol is intended and buildable; it belongs in `DEFERRED`. Both
+ * tiers stay IN the public denominator in coverage.ts as honest gaps. Two
  * reasons are explicitly INVALID for treating something as out of scope:
  *
  *   - "needs external infrastructure" (SMTP / SMS / reCAPTCHA / an OAuth
@@ -28,35 +29,29 @@
  *     write the API off.
  *   - "v0 scope" / "not yet" / "deferred" / "not in v0". These are honest
  *     admissions that the work hasn't happened — which makes them GAPS
- *     against `intended`, not exclusions from it. An item pyric fully intends
- *     to build stays in the `intended` denominator so the coverage number
- *     stays honest about what's actually done.
+ *     admissions that the work has not happened. They remain public gaps, not
+ *     exclusions from coverage.
  *
  * `DEFERRED` entries are excluded from `mapped`/`unmapped` (same as
  * `OUT_OF_SCOPE` — the census still needs an explanation for every symbol so
- * the gate doesn't flag them as accidental gaps) but are NOT subtracted from
- * `intended` in coverage.ts. They count as coverage debt.
+ * the gate doesn't flag them as accidental gaps). Neither tier is subtracted
+ * from public coverage. They count as coverage debt.
  *
  * Reasons are grounded, not invented. Where a registry doc already carries a
  * deny-list table (`packages/conformance/registry/{auth,firestore,storage}.ts`, in
  * the "## Deny-list (intentionally NOT shimmed)" markdown blocks) the reason
  * quotes / paraphrases that table.
  *
- * House style: this is pure data. The census matches symbols against these
- * entries with exact string (Set) equality — no regex, no prefix heuristics in
- * the trust path. Internal `_`-prefixed symbols are enumerated explicitly below
- * rather than matched by a `startsWith` rule, so the trust path stays a lookup.
+ * House style: this is pure data. The census matches public symbols against
+ * these entries with exact string equality. Private classification is a
+ * separate, tested structural rule and cannot be used to hide a public gap.
  */
 
 export type CensusSurface = 'app' | 'auth' | 'ai' | 'firestore' | 'database' | 'storage' | 'messaging' | 'messaging-sw';
 
 /**
- * `out-of-scope`  — genuinely cannot or should not be modeled: internal
- *                    plumbing symbols not part of the public surface, plus
- *                    APIs deprecated and retiring upstream. Subtracted from
- *                    `intended`.
- * `deferred`      — intended, buildable, just not built yet. Stays IN the
- *                    `intended` denominator as a gap.
+ * `out-of-scope`  — public APIs deprecated and retiring upstream.
+ * `deferred`      — intended, buildable, just not built yet.
  */
 export type DenyTier = 'out-of-scope' | 'deferred';
 
@@ -76,22 +71,14 @@ function deny(surface: CensusSurface, tier: DenyTier, reason: string, symbols: s
   return symbols.map((symbol) => ({ surface, symbol, reason, tier }));
 }
 
-const INTERNAL = 'Firebase-internal symbol (leading underscore); firebase/* exports it as plumbing, it is not part of the public modular surface pyric mirrors.';
-
 // ── firebase/app → pyric/app ──────────────────────────────────────────────
 // The public app-management surface (initializeApp/getApp/getApps/deleteApp,
 // FirebaseError/SDK_VERSION, onLog/setLogLevel/registerVersion) is MIRRORED and
-// tracked in registry/app.ts. Only the internal underscore plumbing is
-// out-of-scope; `initializeServerApp` is DEFERRED (kept as coverage debt, not
-// scoped out) because its SSR server-app semantics have no decided sandbox
+// tracked in registry/app.ts. Internal underscore plumbing is private and
+// excluded structurally; `initializeServerApp` is DEFERRED and remains public
+// coverage debt because its SSR server-app semantics have no decided sandbox
 // mirror pattern yet.
 const appDenials: DenyEntry[] = [
-  ...deny('app', 'out-of-scope', INTERNAL, [
-    '_DEFAULT_ENTRY_NAME', '_addComponent', '_addOrOverwriteComponent', '_apps',
-    '_clearComponents', '_components', '_getProvider', '_isFirebaseApp',
-    '_isFirebaseServerApp', '_isFirebaseServerAppSettings', '_registerComponent',
-    '_removeServiceInstance', '_serverApps',
-  ]),
   ...deny('app', 'deferred', 'Server-app (SSR) initialization: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet. Deferred, not out of scope — tracked as an unsupported registry row (registry/app.ts app#15).', [
     'initializeServerApp',
   ]),
@@ -205,13 +192,6 @@ const aiDenials: DenyEntry[] = [
 // Grounded in the firestore registry deny-list table (registry/firestore.ts,
 // "## Deny-list (intentionally NOT shimmed)").
 const firestoreDenials: DenyEntry[] = [
-  ...deny('firestore', 'out-of-scope', INTERNAL, [
-    '_AutoId', '_ByteString', '_DatabaseId', '_DocumentKey', '_EmptyAppCheckTokenProvider',
-    '_EmptyAuthCredentialsProvider', '_FieldPath', '_TestingHooks', '_cast', '_debugAssert',
-    '_internalAggregationQueryToProtoRunAggregationQueryRequest',
-    '_internalQueryToProtoQueryTarget', '_isBase64Available', '_logWarn',
-    '_validateIsNotUsedTogether',
-  ]),
   // `terminate` is now mirrored by the honest no-op export batch — see
   // registry/firestore.ts. It is intentionally NOT deny-listed here.
   ...deny('firestore', 'deferred', 'Index-tuning / GC-policy admin surface has no real knob to turn in an in-memory sandbox today, but the sibling cache-factory tokens (persistentLocalCache/memoryLocalCache/tab-managers/GC-collectors) were already mirrored as honest inert tokens under the same rationale — buildable the same way, not genuinely out of scope (firestore deny-list: index-tuning APIs).', [
@@ -229,11 +209,6 @@ const firestoreDenials: DenyEntry[] = [
 // The rtdb registry has no dedicated deny-list table; these reasons follow from
 // the in-memory sandbox model documented throughout registry/rtdb.ts.
 const databaseDenials: DenyEntry[] = [
-  ...deny('database', 'out-of-scope', INTERNAL, [
-    '_QueryImpl', '_QueryParams', '_ReferenceImpl', '_TEST_ACCESS_forceRestClient',
-    '_TEST_ACCESS_hijackHash', '_initStandalone', '_repoManagerDatabaseFromApp',
-    '_setSDKVersion', '_validatePathString', '_validateWritablePath',
-  ]),
   // goOffline / goOnline / forceLongPolling / forceWebSockets / enableLogging /
   // refFromURL are now mirrored (honest no-ops or a real alias) and are not
   // deny-listed here.
@@ -249,10 +224,6 @@ const databaseDenials: DenyEntry[] = [
 // Grounded in the storage registry deny-list table (registry/storage.ts,
 // "## Deny-list (intentionally NOT shimmed)").
 const storageDenials: DenyEntry[] = [
-  ...deny('storage', 'out-of-scope', INTERNAL, [
-    '_FbsBlob', '_Location', '_TaskEvent', '_TaskState', '_UploadTask',
-    '_dataFromString', '_getChild', '_invalidArgument', '_invalidRootOperation',
-  ]),
   // `connectStorageEmulator` is now mirrored — see registry/storage.ts. It is
   // intentionally NOT deny-listed here.
   ...deny('storage', 'deferred', 'The UploadTask + observer surface is deferred — v1 shipped the one-shot uploadBytes driver first; the resumable/observable variant is unbuilt, not unbuildable (storage deny-list: uploadBytesResumable).', [
@@ -280,7 +251,7 @@ export function denylistFor(surface: CensusSurface): Map<string, string> {
   return new Map(surfaceDenylist.filter((e) => e.surface === surface).map((e) => [e.symbol, e.reason]));
 }
 
-/** Tier lookup for one surface, keyed by symbol — lets coverage.ts subtract only genuinely out-of-scope symbols from `intended`. */
+/** Tier lookup for one surface, keyed by symbol, so reports preserve the reviewed disposition without changing public coverage. */
 export function denyTierFor(surface: CensusSurface): Map<string, DenyTier> {
   return new Map(surfaceDenylist.filter((e) => e.surface === surface).map((e) => [e.symbol, e.tier]));
 }

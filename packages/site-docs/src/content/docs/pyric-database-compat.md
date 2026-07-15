@@ -9,7 +9,7 @@ order: 8005
 
 # `pyric/database` compatibility matrix
 
-> **Surface coverage:** 64.8% of Firebase's public exports · 79.5% of what pyric intends to mirror
+> **Public surface:** runtime 79.5% (35/44) · types 53.3% (8/15)
 >
 > **Fidelity:** 76.6% (154 of 201 tracked claims match production)
 >

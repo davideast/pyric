@@ -54,7 +54,7 @@ interface SurfaceDescriptorRecordBase {
    * upstream denominator), see coverage.ts.
    */
   coverage: boolean;
-  /** One-line coverage scope statement (what is genuinely out of scope vs deferred). */
+  /** One-line public-surface scope statement. Dispositions never alter the denominator. */
   scopeNote: string;
   /** Repo-relative conformance suite path, if any. */
   conformanceSuite?: string;

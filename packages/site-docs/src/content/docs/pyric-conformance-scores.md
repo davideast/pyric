@@ -8,19 +8,19 @@ order: 8001
 
 # Conformance scores
 
-Pyric claims to mirror Firebase's observable behavior so you can develop against a sandbox and trust the swap. Conformance is the open receipt for that claim — not a parity badge. Three numbers answer three different questions. Do not fold them together.
+Pyric claims to mirror Firebase's observable behavior so you can develop against a sandbox and trust the swap. Conformance is the open receipt for that claim — not a parity badge. Public runtime surface, public type surface, and fidelity answer different questions. Do not fold them together.
 
-## Surface coverage (total)
+## Public runtime surface
 
 **Question:** How much of this Firebase package is here at all?
 
-Numerator: runtime exports pyric re-exports. Denominator: every public runtime export of the upstream package (e.g. `firebase/auth`), including APIs pyric has written off and ones not built yet. If a call exists in the Firebase docs, this number says whether pyric even has a symbol for it.
+Numerator: public Firebase runtime exports Pyric mirrors. Denominator: every non-underscore runtime export of the upstream package, including deprecated, unsupported, and not-yet-built APIs. Leading-underscore Firebase plumbing is private and is shown only in the raw diagnostic. Pyric-only helpers receive no credit.
 
-## Surface coverage (intended)
+## Public type surface
 
-**Question:** Against the contract pyric claims, how complete is the mirror?
+**Question:** How much of the exported TypeScript contract is present?
 
-Same numerator. Denominator drops only genuine `out-of-scope` symbols (Firebase-internal `_` plumbing, APIs pyric will not model). Deferred work — intended, not yet built — stays in the denominator as a gap, so planned-but-missing still lowers this number. Always ≥ total. This is the headline breadth number.
+The TypeScript compiler reads the package declaration barrels and compares exported type names. Classes and enums participate in both namespaces because TypeScript exposes them as runtime values and types. This measures name presence, not structural assignability. Missing public types stay visible as gaps.
 
 ## Fidelity
 
@@ -45,15 +45,15 @@ Read the matrix below the score on each COMPAT page for the concrete rows behind
 
 ## Scores
 
-| Surface | Surface coverage (total) | Surface coverage (intended) | Fidelity |
+| Surface | Public runtime surface | Public type surface | Fidelity |
 |---|---|---|---|
-| App | 39.1% | 90% | 85.2% (23/27) |
-| AI Logic | 69.1% | 80.9% | 92.3% (72/78) |
-| Auth | 82.4% | 83.3% | 81.8% (99/121) |
-| Firestore | 55.5% | 63.5% | 87.6% (141/161) |
-| Realtime Database | 64.8% | 79.5% | 76.6% (154/201) |
-| Storage | 48.1% | 72.2% | 86% (86/100) |
-| Messaging | 100% | 100% | 100% (17/17) |
+| App | 90% (9/10) | 66.7% (4/6) | 85.2% (23/27) |
+| AI Logic | 69.1% (38/55) | 66.5% (109/164) | 92.3% (72/78) |
+| Auth | 82.4% (70/85) | 39.1% (25/64) | 81.8% (99/121) |
+| Firestore | 63.5% (66/104) | 38.5% (30/78) | 87.6% (141/161) |
+| Realtime Database | 79.5% (35/44) | 53.3% (8/15) | 76.6% (154/201) |
+| Storage | 72.2% (13/18) | 52.9% (9/17) | 86% (86/100) |
+| Messaging | 100% (5/5) | 100% (8/8) | 100% (17/17) |
 | Functions · RTDB | integration | integration | 92.3% (12/13) |
 | Rules | native | native | 86.2% (50/58) |
-| **Overall** | **64.1%** | **75.6%** | **84.3%** (654/776) |
+| **Overall** | **73.5% (236/321)** | **54.8% (193/352)** | **84.3%** (654/776) |

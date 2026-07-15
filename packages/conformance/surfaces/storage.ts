@@ -14,6 +14,6 @@ export const surface: SurfaceDescriptorRecord = {
   observationPrefixes: ['storage-'],
   coverage: true,
   scopeNote:
-    'out of scope: internal plumbing only. Deferred: uploadBytesResumable, getStream, list.',
+    'Firebase-internal underscore plumbing is private and excluded from public coverage by rule. Public gaps include uploadBytesResumable, getStream, list, and their associated exported types.',
   captureRigs: ['oracle-run'],
 };

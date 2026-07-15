@@ -201,9 +201,13 @@ checks that exposed tool registries stay explicit.
 
 Conformance is evidence, not a parity badge. The system separates:
 
-- total surface coverage;
-- intended surface coverage; and
+- public runtime surface coverage;
+- public exported-type surface coverage; and
 - fidelity across tracked behaviour rows.
+
+Public surface is every non-underscore Firebase export. Deprecated,
+unsupported, and deferred public APIs remain in the denominator. Private
+Firebase `_` plumbing and Pyric-only helpers receive no coverage credit.
 
 Authoritative inputs live under `packages/conformance/`:
 

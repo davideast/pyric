@@ -12,14 +12,33 @@ describe('generated fidelity scores', () => {
     const conforms = rows.filter((row) => row.status === 'conforms').length;
     const pct = Math.round((conforms / rows.length) * 1000) / 10;
     const staleBaseline = {
-      services: { app: { surfaceCoveragePct: { total: 100, intended: 100 } } },
-      overall: { surfaceCoveragePct: { total: 100, intended: 100 } },
+      services: {
+        app: {
+          publicSurface: {
+            runtime: { mapped: 10, denominator: 10, pct: 100 },
+            types: { mapped: 6, denominator: 6, pct: 100 },
+          },
+        },
+      },
+      overall: {
+        publicSurface: {
+          runtime: { mapped: 10, denominator: 10, pct: 100 },
+          types: { mapped: 6, denominator: 6, pct: 100 },
+        },
+      },
       rowStatuses: {},
     };
 
     expect(scoreBlock(appRegistry, staleBaseline)).toContain(
       `**Fidelity:** ${pct}% (${conforms} of ${rows.length} tracked claims match production)`,
     );
+  });
+
+  it('publishes App against Firebase public runtime and type exports', () => {
+    const block = scoreBlock(appRegistry)!;
+    expect(block).toContain('**Public surface:** runtime 90% (9/10) · types 66.7% (4/6)');
+    expect(block).not.toContain('intended');
+    expect(block).not.toContain('39.1%');
   });
 
   it('ratchets every oracle-backed conforming row in the coverage baseline', () => {
@@ -49,7 +68,7 @@ describe('generated fidelity scores', () => {
     const pct = Math.round((conforms / clientRows.length) * 1000) / 10;
 
     expect(renderScoreboardMarkdown()).toContain(
-      `| Messaging | 100% | 100% | ${pct}% (${conforms}/${clientRows.length}) |`,
+      `| Messaging | 100% (5/5) | 100% (8/8) | ${pct}% (${conforms}/${clientRows.length}) |`,
     );
   });
 

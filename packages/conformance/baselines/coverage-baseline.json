@@ -1,49 +1,105 @@
 {
-  "generatedAt": "2026-07-14T17:49:17.905Z",
+  "generatedAt": "2026-07-15T06:59:09.363Z",
   "services": {
     "ai": {
-      "surfaceCoveragePct": {
-        "total": 69.1,
-        "intended": 80.9
+      "publicSurface": {
+        "runtime": {
+          "mapped": 38,
+          "denominator": 55,
+          "pct": 69.1
+        },
+        "types": {
+          "mapped": 109,
+          "denominator": 164,
+          "pct": 66.5
+        }
       }
     },
     "app": {
-      "surfaceCoveragePct": {
-        "total": 39.1,
-        "intended": 90
+      "publicSurface": {
+        "runtime": {
+          "mapped": 9,
+          "denominator": 10,
+          "pct": 90
+        },
+        "types": {
+          "mapped": 4,
+          "denominator": 6,
+          "pct": 66.7
+        }
       }
     },
     "auth": {
-      "surfaceCoveragePct": {
-        "total": 82.4,
-        "intended": 83.3
+      "publicSurface": {
+        "runtime": {
+          "mapped": 70,
+          "denominator": 85,
+          "pct": 82.4
+        },
+        "types": {
+          "mapped": 25,
+          "denominator": 64,
+          "pct": 39.1
+        }
       }
     },
     "firestore": {
-      "surfaceCoveragePct": {
-        "total": 55.5,
-        "intended": 63.5
+      "publicSurface": {
+        "runtime": {
+          "mapped": 66,
+          "denominator": 104,
+          "pct": 63.5
+        },
+        "types": {
+          "mapped": 30,
+          "denominator": 78,
+          "pct": 38.5
+        }
       }
     },
     "rtdb": {
       "native": true
     },
     "rtdb-modular": {
-      "surfaceCoveragePct": {
-        "total": 64.8,
-        "intended": 79.5
+      "publicSurface": {
+        "runtime": {
+          "mapped": 35,
+          "denominator": 44,
+          "pct": 79.5
+        },
+        "types": {
+          "mapped": 8,
+          "denominator": 15,
+          "pct": 53.3
+        }
       }
     },
     "storage": {
-      "surfaceCoveragePct": {
-        "total": 48.1,
-        "intended": 72.2
+      "publicSurface": {
+        "runtime": {
+          "mapped": 13,
+          "denominator": 18,
+          "pct": 72.2
+        },
+        "types": {
+          "mapped": 9,
+          "denominator": 17,
+          "pct": 52.9
+        }
       }
     },
     "messaging": {
-      "surfaceCoveragePct": {
-        "total": 100,
-        "intended": 100
+      "publicSurface": {
+        "runtime": {
+          "mapped": 5,
+          "denominator": 5,
+          "pct": 100
+        },
+        "types": {
+          "mapped": 8,
+          "denominator": 8,
+          "pct": 100
+        }
       }
     },
     "functions-rtdb": {
@@ -60,9 +116,17 @@
     }
   },
   "overall": {
-    "surfaceCoveragePct": {
-      "total": 64.1,
-      "intended": 75.6
+    "publicSurface": {
+      "runtime": {
+        "mapped": 236,
+        "denominator": 321,
+        "pct": 73.5
+      },
+      "types": {
+        "mapped": 193,
+        "denominator": 352,
+        "pct": 54.8
+      }
     }
   },
   "rowStatuses": {
@@ -753,6 +817,7 @@
     "storage#106": "conforms",
     "storage#107": "conforms",
     "storage#108": "conforms",
+    "storage#109": "conforms",
     "messaging#1": "conforms",
     "messaging#2": "conforms",
     "messaging#3": "conforms",
