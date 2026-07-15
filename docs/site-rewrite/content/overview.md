@@ -7,22 +7,29 @@ status: draft
 
 # Firebase that runs in your browser
 
-Pyric is Firestore, Auth, Realtime Database, Storage, and the Security Rules engine, implemented in TypeScript and running inside your app. In the browser, that means the page itself. The whole backend executes in the tab. In Node, it is the process your tests run in. Your code keeps its ordinary `firebase/*` imports. During development they resolve to Pyric. In production they resolve to Firebase. Nothing in your source changes.
+Pyric runs supported Firebase application code against a local backend during development. The application keeps its ordinary `firebase/*` imports and Firebase configuration. A normal production build resolves those imports to Firebase again. The source does not branch between local development and production.
 
-That is the whole trick, and it starts with one command.
+Start a new application with one command:
 
 ```bash
-npm install -D @pyric/cli
-npx pyric dev
+npx create-pyric my-app
 ```
 
-No account. No cloud project. No emulator, no Java, no port to babysit. You have a full Firebase stack before your coffee is warm, and it behaves like the real one because that claim is tested, not assumed. Pyric runs probes against production Firebase, records what actually happens, and replays every recorded behavior against itself in CI. When it diverges from Firebase, that is a documented row or a bug, never a surprise.
+Local development needs no Firebase account, cloud project, emulator, or Java runtime. The mirrored services do not connect to production. Local writes cannot delete production data or create Firebase usage charges, and local rules changes do not deploy.
 
-## Build the app, prove the rules, ship the same code
+## Follow the application from local development to production
 
-You build your app. Sign users in with the auth calls you already know. Write documents, run queries, keep the UI live with snapshots. Write security rules and find out, before you deploy, exactly what they allow and deny, because every operation in Pyric produces a verdict you can read, and a denial tells you which rule said no and what data it saw.
+The documentation follows one workflow:
 
-Then you ship. With the development resolver inactive, the same canonical imports load real Firebase. Your rules leave development already exercised against your app's real behaviour. Your composite indexes come from your actual queries instead of a hand-kept file. Before anything goes live, you can replay a captured session against the new rules and learn which operations would change verdict. Pyric produces and verifies those artifacts; `firebase-tools` or the Firebase Console deploys them.
+1. **Run locally.** Start the sandbox and connect the application, tests, or coding agent.
+2. **Develop with Firebase APIs.** Keep writing normal Auth, Firestore, Realtime Database, Storage, Messaging, and AI Logic code.
+3. **Inspect and correct.** Read local operations and rules verdicts, then adjust application code, data, or Security Rules.
+4. **Verify the boundary.** Replay captured behavior and test candidate rules before production.
+5. **Ship unchanged.** Build with real Firebase and deploy through `firebase-tools` or the Firebase Console.
+
+Development moves back and forth between writing Firebase code and inspecting what happened. The boundary check comes after that loop, before the production build.
+
+Conformance sits underneath the workflow as separate evidence. It records which Pyric behaviors have been compared with production Firebase, which differ, and which remain unsupported or unverified.
 
 ## Your agent works the same backend
 
@@ -36,4 +43,4 @@ Pyric was built by working those parts until they gave, and what was learned is 
 
 ## Where to go next
 
-Start with [the quickstart](./get-started/start-building.md). If you came here for rules, go straight to [prove your rules protect the app](./secure/secure-it-with-rules.md).
+Start with [Run Firebase locally](./get-started/start-building.md). The [conformance explanation](./trust/how-we-know-it-matches-firebase.md) documents the evidence and its limits.

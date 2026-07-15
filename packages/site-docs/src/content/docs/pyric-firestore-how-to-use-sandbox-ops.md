@@ -9,6 +9,7 @@ order: 11008
 
 Load rules, seed data, snapshot documents, and inspect Firestore state in one
 local sandbox.
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import {
@@ -20,7 +21,9 @@ import {
 
 const sandbox = initializeSandbox();
 ```
+
 ## Deploy rules
+
 ```ts
 const lint = setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
@@ -35,37 +38,45 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
   throw new Error('rules failed to lint');
 }
 ```
+
 `setRules` returns the `LintResult` from `pyric/rules`. Source with parse errors is not swapped, so check the warnings.
 
 ## Seed data
+
 ```ts
 seedDocuments(sandbox, {
   'notes/n1': { ownerId: 'alice', title: 'first' },
   'notes/n2': { ownerId: 'bob', title: 'second' },
 });
 ```
+
 Bulk-loads documents, bypassing rules. Active ruleset is preserved.
 
 ## Dump state
+
 ```ts
 const state = snapshotDocuments(sandbox);
 console.log(state);  // { 'notes/n1': {...}, 'notes/n2': {...} }
 ```
+
 Reads every stored document. Independent of rules. The returned object is a structural clone, so mutating it does not affect the sandbox.
 
 ## Inspect the service
+
 ```ts
 const report = inspect(sandbox, { recentEventLimit: 5 });
 console.log(report.rules.lint);
 console.log(report.documents.byCollection);
 console.log(report.events.recentDenials);
 ```
+
 The report is stable and JSON-serialisable, so it can be displayed by tools or
 stored as test output.
 
 ## Keep the owner and handle separate
 
 Pass the `Sandbox` to controls and the Firestore handle to data-plane functions:
+
 ```ts
 import { doc, getDoc, getFirestore } from 'pyric/firestore';
 
@@ -73,6 +84,7 @@ const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
 setRules(sandbox, RULES);
 const note = await getDoc(doc(db, 'notes', 'n1'));
 ```
+
 This separation is intentional. Sandbox controls own service lifecycle and
 diagnostics; `getDoc`, `setDoc`, and the rest retain the
 `firebase/firestore`-compatible shape.

@@ -8,11 +8,13 @@ order: 11016
 # The `TARGET_SYMBOL` opacity contract
 
 The public `Firestore` type has exactly one property:
+
 ```ts
 interface Firestore {
   readonly [TARGET_SYMBOL]: Target;
 }
 ```
+
 `TARGET_SYMBOL` is a `unique symbol`. No string keys, no methods. This page explains the choice.
 
 ## What it accomplishes
@@ -28,11 +30,13 @@ The handle's contents are an internal detail. Consumers never read `db.target` o
 Any property the package exposes becomes part of the public API. Removing or renaming it later is a breaking change. By exposing only `TARGET_SYMBOL`, the package keeps the freedom to restructure internals without affecting consumers.
 
 The package's *free functions* take `db: Firestore` as an argument and read the symbol internally:
+
 ```ts
 function targetOf(handle: Firestore): Target {
   return handle[TARGET_SYMBOL];
 }
 ```
+
 Consumers don't import `TARGET_SYMBOL`. They pass handles to functions that know how to use it.
 
 ## Why a `unique symbol`
@@ -54,6 +58,7 @@ The symbol is `Symbol('pyric/firestore/target')`. The string description is for 
 ## What consumers can do with the handle
 
 Pass it to functions. That's it. The intended usage:
+
 ```ts
 const db = getFirestore(target);
 doc(db, 'notes/n1');                // valid
@@ -62,6 +67,7 @@ db.doc;                              // type error
 db.collection;                       // type error
 db.toString();                       // works (inherited from Object), useless
 ```
+
 Consumers that need to inspect the backend (debug logs, instrumentation) can:
 
 - Track which path produced the handle and remember externally.

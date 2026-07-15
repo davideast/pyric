@@ -1,9 +1,9 @@
 ---
 title: "Find the holes before someone else does"
 navLabel: "Audit your rules and data"
-group: "Secure & debug"
+group: "Verify the boundary"
 section: ""
-order: 3009
+order: 4003
 description: "Get an evidence-backed answer to who can access what, with every serious finding proven by a simulation."
 ---
 

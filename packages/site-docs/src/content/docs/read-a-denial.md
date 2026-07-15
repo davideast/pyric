@@ -1,9 +1,9 @@
 ---
 title: "Never debug a bare permission-denied again"
 navLabel: "Read a denial and understand it"
-group: "Secure & debug"
-section: ""
-order: 3004
+group: "Inspect and correct"
+section: "Inspect the sandbox"
+order: 3002
 description: "See which rule denied an operation, on what path, with what data, the moment it happens."
 ---
 
@@ -16,6 +16,7 @@ In Pyric, every operation the backend evaluates produces a verdict you can read,
 ## Every operation carries a verdict
 
 While your app runs against the sandbox, every read, write, and query passes through the rules engine, and each evaluation emits a typed event. Denials are not a separate channel. They are the same stream, filtered:
+
 ```ts
 sandbox.onEvent((e) => {
   if (e.kind === 'request' && e.result === 'deny') {
@@ -23,6 +24,7 @@ sandbox.onEvent((e) => {
   }
 });
 ```
+
 A denial event tells you the story in one object:
 
 - **`method` and `path`**: what was attempted, and where. `update` on `notes/n1`.
@@ -41,12 +43,14 @@ If you are running `pyric dev --ui`, you do not have to write the subscription. 
 A denial that should not happen is one failure mode. The quieter one is its opposite: an operation that should be denied and no longer is, because a rules edit removed a predicate somewhere. This usually happens while making a failing test pass.
 
 Pyric catches it by diffing rulesets. Lint the candidate with the previously deployed source:
+
 ```ts
 import { lintFirestoreRules } from 'pyric/rules';
 
 const result = lintFirestoreRules(newSource, { previousSource: oldSource });
 const weakened = result.warnings.filter((w) => w.rule === 'RULES_WEAKENED');
 ```
+
 The linter normalizes every match path and diffs the predicates conjunct by conjunct. It reports three shapes of weakening:
 
 - a match block that had `allow` rules and is gone

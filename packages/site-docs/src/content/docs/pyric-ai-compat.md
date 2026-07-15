@@ -3,7 +3,7 @@ title: "pyric/ai compatibility matrix"
 navLabel: "AI Logic"
 group: "Conformance"
 section: ""
-order: 8009
+order: 6011
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

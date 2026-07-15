@@ -16,9 +16,11 @@ The engine is small (a hand-written lexer, parser, evaluator) and intentionally 
 ## The shape
 
 A wrapper is an object whose *only* key is `$expr` and whose value is a string:
+
 ```ts
 { count: { $expr: 'doc.count + 1' } }
 ```
+
 Anything else (extra keys alongside `$expr`, non-string `$expr` values, nested wrappers without proper shape) is rejected with `ExpressionWalkError`. The strict shape is deliberate: it makes the wrapper instantly recognisable when scanning a payload, and it prevents accidental collisions with field names.
 
 ## The walker
@@ -66,12 +68,14 @@ The four types let tool authors translate each failure into a precise diagnostic
 ## When to reach for `$expr`
 
 The sandbox layer uses `$expr` in its declarative transaction API:
+
 ```ts
 await sandbox.firestore('/notes/n1').set({
   count: { $expr: 'doc.count + 1' },
   lastSeen: { $expr: 'now' },
 }, { merge: true });
 ```
+
 Outside the sandbox, you generally don't need it. The production Firestore data plane has `FieldValue.increment` and `FieldValue.serverTimestamp` for the common cases. The engine exists because the sandbox needs a way to express *any* depends-on-current-state write without each write becoming a four-step transaction.
 
 If you're building tooling that operates on `$expr`-bearing payloads (for example, a UI that displays pending writes), you'll want `resolveExpressionsInData` and `tokenize` / `parse` to inspect the expressions before they resolve. Both are exported for that reason.

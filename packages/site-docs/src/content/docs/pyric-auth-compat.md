@@ -3,7 +3,7 @@ title: "pyric/auth compatibility matrix"
 navLabel: "Auth"
 group: "Conformance"
 section: ""
-order: 8004
+order: 6006
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

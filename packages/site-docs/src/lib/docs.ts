@@ -116,13 +116,11 @@ export async function navGroups(): Promise<NavGroup[]> {
  */
 export const GUIDE_GROUP_LABELS: ReadonlySet<string> = new Set([
   'Overview',
-  'Get started',
-  'Build',
-  'Secure & debug',
-  'Observe & shape',
-  'Ship & test',
-  'Work with an agent',
-  'Trust',
+  'Run locally',
+  'Develop with Firebase APIs',
+  'Inspect and correct',
+  'Verify the boundary',
+  'Ship unchanged',
   'Conformance',
 ]);
 

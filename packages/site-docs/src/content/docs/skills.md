@@ -1,9 +1,9 @@
 ---
 title: "Teach your agent the hard Firebase things"
 navLabel: "Skills"
-group: "Work with an agent"
-section: ""
-order: 6003
+group: "Inspect and correct"
+section: "Work with an agent"
+order: 3013
 description: "Packaged expert procedures for the problems that need a method, not more tools."
 ---
 

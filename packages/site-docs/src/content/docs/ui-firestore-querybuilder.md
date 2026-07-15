@@ -7,10 +7,13 @@ order: 23014
 # `<QueryBuilder>`
 
 Single-level where/orderBy/limit query builder. Composes state into a real Firestore `Query` via the hook's `buildQuery(base)`.
+
 ```ts
 import { QueryBuilder } from '@pyric/ui/firestore';
 ```
+
 ## Example
+
 ```tsx
 import { useState } from 'react';
 import { collection } from 'pyric/firestore';
@@ -37,6 +40,7 @@ function FilteredDocs({ firestore }) {
   );
 }
 ```
+
 ## Props
 
 | Prop | Type | Description |
@@ -58,6 +62,7 @@ The value input is JSON-parsed on every change. So:
 For non-JSON Firestore values (Timestamp, GeoPoint, Reference, Bytes), the bundled component isn't enough — use `useQueryBuilder` directly with your own value editor.
 
 ## Direct hook access
+
 ```tsx
 import {
   useQueryBuilder,
@@ -72,12 +77,14 @@ const builder = useQueryBuilder({ initial: { conditions: [...] } });
 //   setOrderBy, setLimit, reset, buildQuery,
 // }
 ```
+
 ## What's not in v1
 
 - **Compound `and()` / `or()` groups.** Single-level only — every condition is implicitly AND-joined. Compound groups deferred.
 - **Cursor-based pagination (`startAfter`).** Use `useDocumentList` with the composed query — pagination is its job.
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="query-builder"]
 [data-pyric-query-conditions]
@@ -94,6 +101,7 @@ const builder = useQueryBuilder({ initial: { conditions: [...] } });
 [data-pyric-query-limit]
 [data-pyric-query-limit-input]
 ```
+
 ## Notes
 
 - **Empty-field conditions are dropped** silently in `buildQuery`. The UI lets users add a row and fill it in over multiple keystrokes; passing a `where('', '==', '')` to Firestore would throw.

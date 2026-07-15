@@ -3,7 +3,7 @@ title: "Firebase Functions RTDB integration compatibility"
 navLabel: "Functions · RTDB"
 group: "Conformance"
 section: ""
-order: 8010
+order: 6012
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

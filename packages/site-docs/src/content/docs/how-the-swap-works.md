@@ -1,6 +1,6 @@
 ---
 title: "How the swap works"
-group: "Get started"
+group: "Run locally"
 section: ""
 order: 1002
 description: "Understand how your firebase imports reached a local backend, and why production is untouched."

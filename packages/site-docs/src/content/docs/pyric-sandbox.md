@@ -18,17 +18,22 @@ Three concepts:
 The sandbox does *not* ship the data-plane API itself. The Admin-SDK-shaped surface lives in `pyric-admin`; the modular Web-SDK surface lives in `pyric/firestore`. This package is the substrate they share.
 
 ## Install
+
 ```bash
 bun add pyric/sandbox
 # or
 npm install pyric/sandbox
 ```
+
 You will usually install one of the service-adapter packages alongside it:
+
 ```bash
 bun add pyric/sandbox pyric-admin       # admin-SDK-shaped
 bun add pyric/sandbox pyric/firestore   # modular Web-SDK-shaped
 ```
+
 ## A 30-second example
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric-admin';
@@ -42,6 +47,7 @@ const anonDb = getFirestore(sandbox.withAuth(null));
 const snap = await anonDb.collection('notes').doc('n1').get();
 console.log(snap.exists, snap.data());
 ```
+
 Two contexts, one sandbox, shared data. The rules engine evaluates `aliceDb`'s write under `request.auth.uid == 'alice'`; the same writes are visible to `anonDb`'s read with `request.auth == null`.
 
 ## Where to go next

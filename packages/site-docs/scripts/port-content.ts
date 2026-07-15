@@ -12,7 +12,7 @@
  * For each markdown file this writes src/content/docs/<slug>.md:
  * generated front matter (title from the doc's h1, nav group = package /
  * subtree, section = the tree's existing subdir, an order scoped to the
- * doc's nav group — see GROUP_ORDER below) plus the source body VERBATIM
+ * doc's nav group — see groupRank below) plus the source body VERBATIM
  * except intra-doc links:
  *
  *   - a relative link that resolves to another ported file is rewritten
@@ -160,70 +160,91 @@ const supersededByAbs = new Map<string, string>(
 interface GuideGroupSpec {
   /** Nav group label (disclosure summary). */
   label: string;
-  /** Dir relative to guideRoot ('' = the root itself). */
-  dir: string;
-  /** Files in nav order — explicit, never readdir order. */
-  files: string[];
+  /** Pages in nav order. Most live in the authored guide tree. A page
+   *  may instead name an existing package-doc source so useful depth can
+   *  move into the workflow without creating a second copy. */
+  pages: Array<{
+    dir?: string;
+    file?: string;
+    source?: string;
+    section?: string;
+    slug?: string;
+    navLabel?: string;
+  }>;
 }
 
 const GUIDE_GROUPS: GuideGroupSpec[] = [
-  { label: 'Overview', dir: '', files: ['overview.md'] },
+  { label: 'Overview', pages: [{ file: 'overview.md' }] },
   {
-    label: 'Get started',
-    dir: 'get-started',
-    files: ['start-building.md', 'how-the-swap-works.md'],
-  },
-  {
-    label: 'Build',
-    dir: 'build',
-    files: [
-      'sign-in-and-manage-users.md',
-      'store-and-query-data.md',
-      'sync-realtime-data.md',
-      'store-files.md',
-      'which-data-service.md',
+    label: 'Run locally',
+    pages: [
+      { dir: 'get-started', file: 'start-building.md' },
+      { dir: 'get-started', file: 'how-the-swap-works.md' },
+      { dir: 'agent', file: 'set-up-your-agent.md' },
+      { dir: 'ship', file: 'test-in-node.md' },
     ],
   },
   {
-    label: 'Secure & debug',
-    dir: 'secure',
-    files: [
-      'secure-it-with-rules.md',
-      'simulate-and-lint.md',
-      'write-a-rules-test-suite.md',
-      'read-a-denial.md',
-      'rules-standard-library.md',
-      'rules-patterns.md',
-      'rtdb-rules-in-typescript.md',
-      'limits-that-bite.md',
-      'audit-your-rules.md',
-      'whats-possible.md',
+    label: 'Develop with Firebase APIs',
+    pages: [
+      { dir: 'build', file: 'sign-in-and-manage-users.md' },
+      { dir: 'build', file: 'store-and-query-data.md' },
+      { dir: 'build', file: 'sync-realtime-data.md' },
+      { dir: 'build', file: 'store-files.md' },
+      { dir: 'build', file: 'receive-messages.md' },
+      { dir: 'build', file: 'run-ai-logic-locally.md' },
+      {
+        source: 'packages/cli/docs/how-to/run-rtdb-onvaluecreated.md',
+        slug: 'pyric-cli-how-to-run-rtdb-onvaluecreated',
+        navLabel: 'Run an RTDB function locally',
+      },
+      { dir: 'build', file: 'which-data-service.md' },
     ],
   },
   {
-    label: 'Observe & shape',
-    dir: 'observe',
-    files: ['see-whats-happening.md', 'shape-your-data.md'],
-  },
-  {
-    label: 'Ship & test',
-    dir: 'ship',
-    files: ['ship-to-production.md', 'set-up-the-project.md', 'test-in-node.md'],
-  },
-  {
-    label: 'Work with an agent',
-    dir: 'agent',
-    files: [
-      'set-up-your-agent.md',
-      'what-your-agent-can-do.md',
-      'skills.md',
-      'watch-and-review.md',
+    label: 'Inspect and correct',
+    pages: [
+      { dir: 'observe', file: 'see-whats-happening.md', section: 'Inspect the sandbox' },
+      { dir: 'secure', file: 'read-a-denial.md', section: 'Inspect the sandbox' },
+      { dir: 'observe', file: 'shape-your-data.md', section: 'Inspect the sandbox' },
+      { dir: 'agent', file: 'watch-and-review.md', section: 'Inspect the sandbox' },
+      { dir: 'secure', file: 'secure-it-with-rules.md', section: 'Correct Security Rules' },
+      { dir: 'secure', file: 'simulate-and-lint.md', section: 'Correct Security Rules' },
+      { dir: 'secure', file: 'rules-patterns.md', section: 'Correct Security Rules' },
+      { dir: 'secure', file: 'rules-standard-library.md', section: 'Correct Security Rules' },
+      { dir: 'secure', file: 'rtdb-rules-in-typescript.md', section: 'Correct Security Rules' },
+      { dir: 'secure', file: 'limits-that-bite.md', section: 'Correct Security Rules' },
+      { dir: 'secure', file: 'whats-possible.md', section: 'Correct Security Rules' },
+      { dir: 'agent', file: 'what-your-agent-can-do.md', section: 'Work with an agent' },
+      { dir: 'agent', file: 'skills.md', section: 'Work with an agent' },
     ],
   },
   {
-    label: 'Trust',
-    dir: 'trust',
-    files: ['how-we-know-it-matches-firebase.md', 'whats-experimental.md'],
+    label: 'Verify the boundary',
+    pages: [
+      {
+        source: 'packages/cli/docs/how-to/verify-against-a-captured-session.md',
+        section: '',
+        slug: 'pyric-cli-how-to-verify-against-a-captured-session',
+        navLabel: 'Verify a captured session',
+      },
+      { dir: 'secure', file: 'write-a-rules-test-suite.md' },
+      { dir: 'secure', file: 'audit-your-rules.md' },
+    ],
+  },
+  {
+    label: 'Ship unchanged',
+    pages: [
+      { dir: 'ship', file: 'ship-to-production.md' },
+      { dir: 'ship', file: 'set-up-the-project.md' },
+    ],
+  },
+  {
+    label: 'Conformance',
+    pages: [
+      { dir: 'trust', file: 'how-we-know-it-matches-firebase.md' },
+      { dir: 'trust', file: 'whats-experimental.md' },
+    ],
   },
 ];
 
@@ -398,28 +419,29 @@ const bySlug = new Map<string, Page>();
 
 /**
  * Order is scoped per nav group instead of one counter across the whole
- * tree: each group gets a rank (its index among GROUP_ORDER, spaced by
- * 1000 — comfortably above the largest group's page count) and each
- * page an offset from 1 within its group, assigned in the same
- * traversal order the old global counter used. `order = groupRank +
- * offset`. Adding a doc then renumbers at most the trailing pages of
- * its own group; adding a group renumbers nothing before it. GROUP_ORDER
- * must list every group label the port ever assigns (GUIDE_GROUPS, the
- * synthetic 'Conformance' group, then GROUPS) in the exact order the
- * nav renders them — that order is what the rendered sidebar sequence
- * depends on, not the numeric order values.
+ * tree: each group gets a rank spaced by 1000, comfortably above the
+ * largest group's page count, and each page an offset from 1 within its
+ * group. `order = groupRank + offset`. Adding a doc then renumbers at
+ * most the trailing pages of its own group. Workflow groups follow
+ * GUIDE_GROUPS order. Reference group ranks stay fixed below them.
  */
-const GROUP_ORDER: string[] = [
-  ...GUIDE_GROUPS.map((g) => g.label),
-  'Conformance',
-  ...GROUPS.map((g) => g.label),
-];
 const GROUP_RANK_SPACING = 1000;
-const groupRank = new Map(GROUP_ORDER.map((label, i) => [label, i * GROUP_RANK_SPACING]));
+// Reference groups began at rank 9 in the previous hierarchy. Keep that
+// stable so changing the primary workflow does not rewrite front matter for
+// every generated reference page. Guide ranks may change with the workflow;
+// reference ranks are a durable shelf below it.
+const REFERENCE_GROUP_START_RANK = 9;
+const groupRank = new Map([
+  ...GUIDE_GROUPS.map((group, i) => [group.label, i * GROUP_RANK_SPACING] as const),
+  ...GROUPS.map((group, i) => [
+    group.label,
+    (REFERENCE_GROUP_START_RANK + i) * GROUP_RANK_SPACING,
+  ] as const),
+]);
 const groupPosition = new Map<string, number>();
 function nextOrder(group: string): number {
   const rank = groupRank.get(group);
-  if (rank === undefined) throw new Error(`group not in GROUP_ORDER: ${group}`);
+  if (rank === undefined) throw new Error(`group has no rank: ${group}`);
   const position = (groupPosition.get(group) ?? 0) + 1;
   groupPosition.set(group, position);
   if (position >= GROUP_RANK_SPACING) {
@@ -429,7 +451,7 @@ function nextOrder(group: string): number {
 }
 
 function addPage(src: string, group: GroupSpec, section: string) {
-  if (supersededByAbs.has(src)) return; // replaced by a guide page
+  if (supersededByAbs.has(src) || bySrc.has(src)) return; // replaced or promoted into the guide
   const slug = slugFor(group.pkg, src, group.slugPrefix);
   const title = titleOf(src);
   const clash = bySlug.get(slug);
@@ -450,21 +472,26 @@ function addPage(src: string, group: GroupSpec, section: string) {
 
 /** Add one guide page: slug from the bare file name, title/navLabel/
  *  description from its own front matter (title falls back to the h1). */
-function addGuidePage(src: string, groupLabel: string) {
+function addGuidePage(
+  src: string,
+  groupLabel: string,
+  section = '',
+  options: { slug?: string; navLabel?: string } = {},
+) {
   const { fm } = parseFrontmatter(readFileSync(src, 'utf8'));
-  const slug = posix.basename(src, '.md').toLowerCase();
+  const slug = options.slug ?? posix.basename(src, '.md').toLowerCase();
   const clash = bySlug.get(slug);
   if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
   const page: Page = {
     src,
     slug,
     group: groupLabel,
-    section: '',
+    section,
     order: nextOrder(groupLabel),
     title: fm.title ?? titleOf(src),
-    navLabel: fm.navLabel,
+    navLabel: options.navLabel ?? fm.navLabel,
     description: fm.outcome,
-    stripFm: true,
+    stripFm: Object.keys(fm).length > 0,
   };
   pages.push(page);
   bySrc.set(src, page);
@@ -474,10 +501,15 @@ function addGuidePage(src: string, groupLabel: string) {
 // Guide first: the nav renders groups in `order` order, so the
 // outcome-first sections sit above the package reference groups.
 for (const group of GUIDE_GROUPS) {
-  for (const file of group.files) {
-    const p = resolve(guideRoot, group.dir, file);
+  for (const page of group.pages) {
+    const p = page.source
+      ? resolve(repoRoot, page.source)
+      : resolve(guideRoot, page.dir ?? '', page.file ?? '');
     if (!existsSync(p)) throw new Error(`guide page missing: ${p}`);
-    addGuidePage(p, group.label);
+    addGuidePage(p, group.label, page.section ?? '', {
+      slug: page.slug,
+      navLabel: page.navLabel,
+    });
   }
 }
 
@@ -736,7 +768,7 @@ function rewriteLinks(page: Page, body: string): string {
         },
       );
     })
-    .join('');
+    .join('\n');
 }
 
 /* ── Conformance row lists ─────────────────────────────────────────── */
@@ -926,7 +958,7 @@ function transformCompatTables(body: string): string {
       }
       return out.join('\n');
     })
-    .join('');
+    .join('\n');
 }
 
 /* ── Emit ──────────────────────────────────────────────────────────── */

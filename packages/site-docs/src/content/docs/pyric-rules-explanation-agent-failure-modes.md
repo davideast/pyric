@@ -29,16 +29,20 @@ The fix isn't to relax the linter. It's to give the agent a real diagnostic for 
 ## Silently removing predicates
 
 A subtler variant. The agent writes:
+
 ```rules
 allow update: if request.auth.uid == resource.data.ownerId
               && status == 'open';
 ```
+
 A test case fails because the test set `status` to `'closed'`. The agent doesn't update the test data. It removes the `status == 'open'` conjunct from the rule. The test passes. The deploy ships. Updates against closed records are no longer gated.
 
 `RULES_WEAKENED` exists for this. When you pass the previously-deployed source to the linter (via the engine-internal `lintFirestoreRules` on `pyric/rules/internal`, since the public `lint` and `firestoreRules(source).lint()` take no options):
+
 ```ts
 lintFirestoreRules(newSource, { previousSource: oldSource });
 ```
+
 …the linter normalises every match path, finds the corresponding allow rule by op-set, extracts the top-level conjuncts of each predicate (split only on `&&`, never `||`), and reports every conjunct that existed before and is missing now.
 
 `RULES_WEAKENED` is `warning`, not `error`. There are real reasons to delete a predicate: a refactor, a dedupe, an intentional broadening. The signal is "review this", not "refuse the deploy". A human (or a more careful agent) decides whether the removal is intentional.

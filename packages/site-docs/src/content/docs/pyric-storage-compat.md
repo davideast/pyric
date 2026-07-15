@@ -3,7 +3,7 @@ title: "pyric/storage compatibility matrix"
 navLabel: "Storage"
 group: "Conformance"
 section: ""
-order: 8006
+order: 6008
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

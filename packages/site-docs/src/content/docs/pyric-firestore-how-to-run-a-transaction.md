@@ -10,6 +10,7 @@ order: 11006
 Read a document and write based on its current value, atomically, with `runTransaction`. It works the same against either backend.
 
 ## The shape
+
 ```ts
 import { runTransaction, doc } from 'pyric/firestore';
 
@@ -23,6 +24,7 @@ const result = await runTransaction(db, async (tx) => {
 
 console.log('Counter is now:', result);
 ```
+
 `runTransaction` is a free function in the modular SDK shape; the admin shape puts it on the handle as `db.runTransaction(...)`. The first argument is the `Firestore` handle, the second is your async callback.
 
 ## All reads before any writes
@@ -32,6 +34,7 @@ Inside the callback, every read must come before every write. Read-after-write t
 ## Aborts
 
 If the callback throws, the transaction aborts: no writes apply, the original error re-throws.
+
 ```ts
 try {
   await runTransaction(db, async (tx) => {
@@ -43,6 +46,7 @@ try {
   console.error('Aborted:', e.message);
 }
 ```
+
 On sandbox, aborts are not undoable: they had no effect, so popping them as undo steps would skip a real prior write.
 
 ## Denied operations inside

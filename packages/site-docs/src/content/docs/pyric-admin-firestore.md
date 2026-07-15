@@ -12,12 +12,15 @@ Admin-SDK-shaped Firestore adapter for the Pyric sandbox. Mirrors `firebase-admi
 Use this package when your production code uses `firebase-admin/firestore` (Node services, Cloud Functions). For the modular Web SDK shape, use [`pyric/firestore`](../pyric-admin-firestore/) instead.
 
 ## Install
+
 ```bash
 bun add pyric-admin pyric/sandbox
 # or
 npm install pyric-admin pyric/sandbox
 ```
+
 ## A 30-second example
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric-admin';
@@ -38,6 +41,7 @@ await db.collection('notes').doc('n1').set({ title: 'hello' });
 const snap = await db.collection('notes').doc('n1').get();
 console.log(snap.exists, snap.data());
 ```
+
 Alongside the production-shaped surface, the `db` handle carries three sandbox-only methods: `setRules(src)`, `seed({ documents })`, and `snapshot()`. The package also re-exports the foundation and production-shaped types (`SandboxError`, `FieldValue`, `Timestamp`, the snapshot types) so consumers can import everything from `pyric-admin`.
 
 ## Where to go next

@@ -45,6 +45,7 @@ The existing document, if any. Becomes `resource.data` for the rule evaluation. 
 ### `functionMocks: FunctionMock[]`
 
 Mock results for `get()` and `exists()` calls the rule makes:
+
 ```ts
 interface FunctionMock {
   function: 'get' | 'exists';
@@ -52,11 +53,13 @@ interface FunctionMock {
   result: Record<string, unknown> | boolean;          // doc data for get; boolean for exists
 }
 ```
+
 For `get`, supply the document data. For `exists`, supply `true` (the mock will produce a document) or `false` (no result, the rule will see absence). Paths are relative. The simulator handles the `/databases/(default)/documents/` prefix.
 
 ### `query: ListQuery`
 
 Only honoured for `method: 'list'`. Populates `request.query`:
+
 ```ts
 interface ListQuery {
   limit?: number;
@@ -64,6 +67,7 @@ interface ListQuery {
   orderBy?: string;
 }
 ```
+
 Unset fields read as `null` from rules. If your rule reads `request.query.limit`, set it. Otherwise `null < 100` evaluates to `false` and the rule silently denies.
 
 ### `requestTime: string`
@@ -73,6 +77,7 @@ ISO-8601 timestamp used as `request.time`. Defaults to the wallclock at simulati
 ### `writeMode`
 
 Explicit write-mode discriminator. When set, the simulator runs `projectAfterState(writeMode, resource, data)` to derive both `request.resource.data` and the value `getAfter(path)` returns. When unset, the simulator falls back to "`tc.data` IS the after-state", which is correct for shallow `create` but wrong for nested-map updates.
+
 ```ts
 type WriteMode =
   | { kind: 'create' }
@@ -80,6 +85,7 @@ type WriteMode =
   | { kind: 'update' }
   | { kind: 'delete' };
 ```
+
 | Mode | After-state |
 |---|---|
 | `{ kind: 'create' }` | `data` (asserts the doc did not exist) |
@@ -91,6 +97,7 @@ type WriteMode =
 ## Server-timestamp sentinels in `data`
 
 When your write payload contains a server-timestamp sentinel (exactly `{ __type: 'serverTimestamp' }`), the simulator resolves every occurrence to the same `Timestamp` instance (matching `request.time`). Use the `serverTimestamp()` value helper for clarity:
+
 ```ts
 import { serverTimestamp, type FirestoreCase } from 'pyric/rules';
 
@@ -104,14 +111,17 @@ const tc: FirestoreCase = {
   requestTime: '2026-04-15T12:00:00Z',
 };
 ```
+
 The single-instance invariant matters because `data.createdAt == request.time` succeeds via field-compare on the `Timestamp` wrapper.
 
 ## Validation
 
 `TestCaseSchema`, the Zod schema behind `FirestoreCase`, lives on `pyric/rules/internal` (an internal, unstable surface):
+
 ```ts
 import { TestCaseSchema } from 'pyric/rules/internal';
 
 const parsed = TestCaseSchema.parse(input);  // throws on schema mismatch
 ```
+
 `TestCaseSchema` is a Zod schema, so you can also `safeParse` it or compose it into your own validators.

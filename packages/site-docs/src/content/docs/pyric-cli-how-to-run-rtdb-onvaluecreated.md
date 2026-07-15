@@ -1,8 +1,9 @@
 ---
 title: "Run an RTDB onValueCreated function locally"
-group: "@pyric/cli"
-section: "How-to"
-order: 9006
+navLabel: "Run an RTDB function locally"
+group: "Develop with Firebase APIs"
+section: ""
+order: 2007
 ---
 # Run an RTDB `onValueCreated` function locally
 
@@ -12,16 +13,19 @@ Realtime Database as your app and Pyric Studio. The function source keeps its
 production imports and needs no credentials or deployment.
 
 Your `firebase.json` must declare one Functions source:
+
 ```json
 {
   "hosting": { "public": "public" },
   "functions": { "source": "functions" }
 }
 ```
+
 The source package's `main` field selects the built CommonJS JavaScript entry.
 It defaults to `index.js`. Native ESM Functions entries are not supported in
 this first slice; compile an ESM or TypeScript source package to CommonJS and
 point `main` at that output:
+
 ```json
 {
   "name": "my-functions",
@@ -32,7 +36,9 @@ point `main` at that output:
   }
 }
 ```
+
 Keep the production function unchanged:
+
 ```js
 const { onValueCreated } = require('firebase-functions/v2/database');
 
@@ -43,27 +49,36 @@ exports.makeUppercase = onValueCreated(
     .set(event.data.val().toUpperCase()),
 );
 ```
+
 Build the Functions package if its `main` points at generated JavaScript, then
 start the project:
+
 ```bash
 npx pyric dev
 ```
+
 Keep the browser tab that opens running. Pyric discovers the Functions entry,
 starts it in an isolated Node child, and reports its supported exports:
+
 ```text
 • functions waiting for the browser tab to connect the sandbox…
 ✔ functions 1 onValueCreated trigger from functions/lib/index.js
 ```
+
 Create the matching value through your ordinary client code:
+
 ```js
 import { getDatabase, ref, set } from 'firebase/database';
 
 await set(ref(getDatabase(), 'messages/id/original'), 'hello');
 ```
+
 The terminal reports the execution:
+
 ```text
 ✔ function  makeUppercase ← /messages/id/original (pushId=id)
 ```
+
 The app and Studio now read `messages/id/uppercase` as `"HELLO"` from that
 same sandbox. Press Ctrl-C to stop both `pyric dev` and the Functions child.
 

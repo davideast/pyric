@@ -49,6 +49,9 @@ interface SourcePage {
   file: string;
   slug: string;
   internal: boolean;
+  group: string;
+  section: string;
+  order: number;
   body: string;
 }
 
@@ -66,13 +69,78 @@ const sources: SourcePage[] = readdirSync(contentDir)
     const { fm, body } = splitFrontmatter(raw);
     const slug = fm.match(/^slug:\s*(\S+)/m)?.[1] ?? file.replace(/\.md$/, '');
     const internal = /^internal:\s*true/m.test(fm);
-    return { file, slug, internal, body };
+    const group = fm.match(/^group:\s*"?([^"\n]+)"?/m)?.[1] ?? '';
+    const section = fm.match(/^section:\s*"?([^"\n]*)"?/m)?.[1] ?? '';
+    const order = Number(fm.match(/^order:\s*(\d+)/m)?.[1] ?? Number.MAX_SAFE_INTEGER);
+    return { file, slug, internal, group, section, order, body };
   });
 
 const publicPages = sources.filter((s) => !s.internal);
 const internalPages = sources.filter((s) => s.internal);
 check(publicPages.length >= 150, `content: ${publicPages.length} public pages`);
 check(internalPages.length >= 1, 'content: has an internal rhythm page');
+const fusedFencePages = sources.filter((page) =>
+  page.body.split('\n').some(
+    (line) => line.includes('```') && !/^\s*```[A-Za-z0-9_-]*\s*$/.test(line),
+  ),
+);
+check(
+  fusedFencePages.length === 0,
+  'content: porter keeps fenced blocks on their own lines',
+  fusedFencePages.map((page) => page.slug).join(', '),
+);
+
+const expectedWorkflowGroups = [
+  'Overview',
+  'Run locally',
+  'Develop with Firebase APIs',
+  'Inspect and correct',
+  'Verify the boundary',
+  'Ship unchanged',
+  'Conformance',
+];
+const orderedGroups = [...new Set(
+  [...publicPages]
+    .sort((a, b) => a.order - b.order)
+    .map((page) => page.group),
+)];
+check(
+  JSON.stringify(orderedGroups.slice(0, expectedWorkflowGroups.length)) ===
+    JSON.stringify(expectedWorkflowGroups),
+  'content: primary navigation follows the local-to-production workflow',
+  `found ${orderedGroups.slice(0, expectedWorkflowGroups.length).join(' -> ')}`,
+);
+const promotedVerify = publicPages.find(
+  (page) => page.slug === 'pyric-cli-how-to-verify-against-a-captured-session',
+);
+check(
+  promotedVerify?.group === 'Verify the boundary',
+  'content: existing captured-session guide is promoted without changing route',
+  `group ${promotedVerify?.group ?? 'missing'}`,
+);
+const promotedFunction = publicPages.find(
+  (page) => page.slug === 'pyric-cli-how-to-run-rtdb-onvaluecreated',
+);
+check(
+  promotedFunction?.group === 'Develop with Firebase APIs',
+  'content: existing Functions guide is promoted without changing route',
+  `group ${promotedFunction?.group ?? 'missing'}`,
+);
+for (const slug of [
+  'sign-in-and-manage-users',
+  'store-and-query-data',
+  'sync-realtime-data',
+  'store-files',
+  'receive-messages',
+  'run-ai-logic-locally',
+]) {
+  const page = publicPages.find((candidate) => candidate.slug === slug);
+  check(
+    page?.group === 'Develop with Firebase APIs',
+    `content: ${slug} is discoverable while developing`,
+    `group ${page?.group ?? 'missing'}`,
+  );
+}
 
 // ── 0. Multi-package coverage: every packages/<pkg>/docs markdown file
 //       is ported (same slug mapping as scripts/port-content.ts) and

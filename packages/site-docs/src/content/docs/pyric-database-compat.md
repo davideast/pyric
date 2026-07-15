@@ -3,7 +3,7 @@ title: "pyric/database compatibility matrix"
 navLabel: "Realtime Database"
 group: "Conformance"
 section: ""
-order: 8005
+order: 6007
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
@@ -1096,7 +1096,9 @@ The sandbox implementation has landed (`packages/pyric/src/database/modular.ts` 
 
 `packages/conformance/src/run.ts` now deploys an RTDB rules namespace
 analogous to `ensureOracleRules` / `ensureOracleStorageRules`. The
-JSON shape:```json
+JSON shape:
+
+```json
 {
   "rules": {
     ".read": false,
@@ -1108,7 +1110,9 @@ JSON shape:```json
     }
   }
 }
-```The harness mints a separate OAuth token scoped to
+```
+
+The harness mints a separate OAuth token scoped to
 `https://www.googleapis.com/auth/firebase.database` (the broader
 `firebase` scope used by Firestore + Storage + Management APIs is
 NOT accepted by the per-database rules endpoint) and `PUT`s to

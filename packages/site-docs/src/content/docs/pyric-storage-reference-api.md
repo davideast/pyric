@@ -13,9 +13,11 @@ Every symbol exported from `pyric/storage`.
 ## Entry points
 
 ### `getStorage(app?, bucketUrl?): FirebaseStorage`
+
 ```ts
 function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStorage
 ```
+
 Firebase-shaped sandbox entry point. Package resolution selects this mirror
 before it loads, and the app's private association resolves the shared sandbox
 plus its app-local Auth session. `bucketUrl` is accepted for call-site
@@ -37,14 +39,17 @@ The private brand carrying the handle's sandbox service, identity, bucket, and a
 ## Errors
 
 ### `class StorageError extends Error`
+
 ```ts
 class StorageError extends Error {
   readonly code: `storage/${StorageErrorCode}`;
 }
 ```
+
 Every sandbox operation that fails throws one of these, so consumer code can branch on `err.code === 'storage/...'`. Production code receives Firebase's own errors because it imports `firebase/storage` directly. See [Error codes](../pyric-storage-reference-error-codes/).
 
 ### `StorageErrorCode`
+
 ```ts
 type StorageErrorCode =
   | 'unknown'
@@ -56,6 +61,7 @@ type StorageErrorCode =
   | 'invalid-format'
   | 'invalid-argument';
 ```
+
 ## Reference construction
 
 ### `ref(storage)` / `ref(storage, path)` / `ref(parent, path)`
@@ -63,12 +69,15 @@ type StorageErrorCode =
 Build a `StorageReference`. Two overloads matching `firebase/storage`.
 
 Path normalisation: leading/trailing slashes stripped, repeated internal slashes collapsed. Empty path = root reference (no parent).
+
 ```ts
 const root = ref(storage);                           // root
 const sessions = ref(storage, 'sessions');           // 'sessions/'
 const one = ref(sessions, 'gen-123');                // 'sessions/gen-123'
 ```
+
 ### `StorageReference`
+
 ```ts
 interface StorageReference {
   readonly name: string;
@@ -79,15 +88,18 @@ interface StorageReference {
   readonly storage: FirebaseStorage;
 }
 ```
+
 ## Upload
 
 ### `uploadBytes(ref, data, metadata?): Promise<UploadResult>`
+
 ```ts
 await uploadBytes(ref(storage, 'sessions/n1'), bytes, {
   contentType: 'application/json',
   customMetadata: { sessionId: 'n1' },
 });
 ```
+
 `data` is `Blob | Uint8Array | ArrayBuffer`. Returns `{ ref, metadata: FullMetadata }`. Throws `storage/invalid-root-operation` when `ref` targets the root.
 
 ### `uploadString(ref, value, format?, metadata?): Promise<UploadResult>`
@@ -95,9 +107,11 @@ await uploadBytes(ref(storage, 'sessions/n1'), bytes, {
 `format` is a `StringFormat` (default `'raw'`). Delegates to `uploadBytes` after decoding.
 
 ### `StringFormat`
+
 ```ts
 type StringFormat = 'raw' | 'base64' | 'data_url';
 ```
+
 `raw` defaults `contentType` to `text/plain;charset=utf-8` when nothing else supplies one. `data_url` reads the MIME prefix before the comma unless the caller's metadata overrides `contentType`. `base64` is standard base64.
 
 ## Download
@@ -110,10 +124,12 @@ Throws `storage/object-not-found` on missing path. When `maxDownloadSizeBytes` i
 ### `getDownloadURL(ref): Promise<string>`
 
 Returns a page-owned `blob:` URL that fetches the stored sandbox object:
+
 ```ts
 const url = await getDownloadURL(ref(storage, 'avatars/ada.png'));
 image.src = url;
 ```
+
 The sandbox URL is a snapshot of the bytes at call time. It cannot be shared outside the page and remains alive until `URL.revokeObjectURL(url)` or page unload. Missing objects and rules denials use the same `storage/object-not-found` and `storage/unauthorized` errors as `getBlob`.
 
 ### `deleteObject(ref): Promise<void>`
@@ -131,6 +147,7 @@ Read every metadata field, both client-settable and server-set.
 Replace the client-settable fields. Bumps `metageneration` and refreshes `updated`. Server-set fields (`generation`, `timeCreated`, `bucket`, `size`, `md5Hash`) stay pinned. Blob content untouched. Passing `undefined` for a field leaves the previous value; there's no `null`-to-clear support in the v1 scope.
 
 ### `SettableMetadata`
+
 ```ts
 interface SettableMetadata {
   contentType?: string;
@@ -141,7 +158,9 @@ interface SettableMetadata {
   customMetadata?: { [key: string]: string };
 }
 ```
+
 ### `FullMetadata`
+
 ```ts
 interface FullMetadata extends SettableMetadata {
   bucket: string;
@@ -155,13 +174,16 @@ interface FullMetadata extends SettableMetadata {
   md5Hash?: string;
 }
 ```
+
 ### `UploadResult`
+
 ```ts
 interface UploadResult {
   metadata: FullMetadata;
   ref: StorageReference;
 }
 ```
+
 ## Listing
 
 ### `listAll(ref): Promise<ListResult>`
@@ -169,6 +191,7 @@ interface UploadResult {
 Returns `{ items, prefixes }`. Items are direct children; sub-folders surface in `prefixes` (deduplicated). `listAll(ref(storage))` scans the entire bucket. Enforces `read` on the scanned path: Storage's `read` permission governs both download and list, so `listAll` on an unauthorized tree throws `storage/unauthorized`.
 
 ### `ListResult`
+
 ```ts
 interface ListResult {
   items: StorageReference[];
@@ -176,6 +199,7 @@ interface ListResult {
   nextPageToken?: string;
 }
 ```
+
 `nextPageToken` is always absent (`undefined`) from `listAll`; the field exists for forward compatibility with paginated `list`, which is deferred. See [Boundaries](#boundaries).
 
 Paginated `list(ref, { maxResults, pageToken })` is deferred. `listAll` covers every v1 scope scenario.
@@ -195,6 +219,7 @@ Typically you don't call these directly. Pass the source to `getStorageSandbox(t
 See [Storage rules subset](../pyric-storage-reference-rules-subset/) for the grammar these functions accept.
 
 ### Rules types
+
 ```ts
 type StorageMethod = 'read' | 'write';
 
@@ -230,6 +255,7 @@ interface StorageRules {
   readonly _root: unknown; // opaque
 }
 ```
+
 `StorageRules` is opaque outside the package; only `parseStorageRules` produces one and only `evaluateStorageRules` (or `getStorageSandbox(target, { rules })` internally) consumes one.
 
 ## Service types
@@ -239,6 +265,7 @@ interface StorageRules {
 The opaque handle. Carries the target via `TARGET_SYMBOL`; consumed by free functions only.
 
 ### `StorageOptions`
+
 ```ts
 interface StorageOptions {
   bucket?: string;
@@ -246,6 +273,7 @@ interface StorageOptions {
   rules?: string;
 }
 ```
+
 See [`StorageOptions`](../pyric-storage-reference-storage-options/).
 
 ### `Target`, `SandboxTarget`
@@ -259,9 +287,11 @@ Beyond the data-plane adapter above, `pyric/storage` exports a control plane for
 ### `getStorageServiceState(accessToken, projectId): Promise<ServiceEnableState>`
 
 Probe whether the `firebasestorage.googleapis.com` service is enabled on the project. Cheap read; requires `serviceusage.services.get`. Returns `'unknown'` on permission failure rather than throwing, so callers can downgrade to "try the operation, observe `SERVICE_DISABLED`" instead of blocking.
+
 ```ts
 type ServiceEnableState = 'enabled' | 'disabled' | 'unknown';
 ```
+
 ### `enableStorageService(accessToken, projectId): Promise<void>`
 
 Enable `firebasestorage.googleapis.com` on the project. Requires `serviceusage.services.enable`, part of `roles/owner` or `roles/serviceusage.serviceUsageAdmin`. The default Firebase Admin SDK service account does not have this. Throws `StorageProvisioningError` on failure.
@@ -277,6 +307,7 @@ Set the project's default GCP resources location. **Irreversible**: once set, th
 ### `listFirebaseBuckets(accessToken, projectId): Promise<FirebaseStorageBucket[]>`
 
 List Firebase-linked Storage buckets on the project. Returns an empty list when none exist yet. Throws when the underlying service is disabled; call `getStorageServiceState` first to distinguish that case.
+
 ```ts
 interface FirebaseStorageBucket {
   name: string;       // projects/{p}/buckets/{bucketId}
@@ -284,6 +315,7 @@ interface FirebaseStorageBucket {
   reconciling?: boolean;
 }
 ```
+
 ### `addFirebaseToBucket(accessToken, projectId, bucketId): Promise<FirebaseStorageBucket>`
 
 Link a Cloud Storage bucket to Firebase Storage. Idempotent: if the bucket is already Firebase-linked, the call returns the existing record. For the default bucket name (`{projectId}.firebasestorage.app`), Firebase auto-creates the underlying GCS bucket on first call.
@@ -299,6 +331,7 @@ Read the current CORS configuration for a bucket. Requires `storage.buckets.get`
 ### `setBucketCors(accessToken, bucketId, cors): Promise<void>`
 
 Replace the bucket's CORS configuration wholesale (the GCS API replaces, not merges, the `cors` field on `PATCH`). Pass an empty array to clear all rules. Requires `storage.buckets.update`, granted by `roles/storage.admin` or the default Firebase Admin SDK service-agent role bundle in modern projects.
+
 ```ts
 interface CorsRule {
   origin: string[];
@@ -307,6 +340,7 @@ interface CorsRule {
   maxAgeSeconds?: number;
 }
 ```
+
 ### `defaultPlaygroundCors(hostingOrigin): CorsRule[]`
 
 A starter CORS rule for a browser playground hosted on Firebase Hosting: allows `GET/POST/PUT/DELETE/HEAD/OPTIONS` from the hosting origin plus common localhost dev ports, with the response headers the Firebase Storage Web SDK needs.
@@ -314,6 +348,7 @@ A starter CORS rule for a browser playground hosted on Firebase Hosting: allows 
 ### `provisionStorage(accessToken, projectId, options?): Promise<ProvisionStorageResult>`
 
 End-to-end Storage enablement: enable the service if needed, finalize the default location if unset, link the default bucket if not already linked, optionally deploy rules, optionally apply CORS. Each step probes state before mutating, so repeat calls are safe. Throws `StorageProvisioningError` carrying a `reason` (e.g. `AUTH_PERMISSION_DENIED`, `SERVICE_DISABLED`) the caller can route on.
+
 ```ts
 interface ProvisionStorageOptions {
   locationId?: string;   // default: 'us-central'. Irreversible once set.
@@ -335,9 +370,11 @@ interface ProvisionStorageResult {
   corsApplied: boolean;
 }
 ```
+
 The `onProgress` callback's shape (named `ProvisionProgress` internally) is not itself an exported type; annotate inline or let it infer from `ProvisionStorageOptions['onProgress']`.
 
 ### `class StorageProvisioningError extends Error`
+
 ```ts
 class StorageProvisioningError extends Error {
   readonly status: number;
@@ -345,6 +382,7 @@ class StorageProvisioningError extends Error {
   readonly reason: string | undefined;
 }
 ```
+
 Thrown by every admin function above on a non-2xx response. `reason` is the Google API's structured error reason when present (e.g. `SERVICE_DISABLED`, `AUTH_PERMISSION_DENIED`); `body` is the raw response text, truncated to 400 characters in the surfaced message.
 
 ## Agent tools
@@ -352,12 +390,15 @@ Thrown by every admin function above on a non-2xx response. `reason` is the Goog
 Wraps the admin surface above behind a `ProjectScope` (`{ projectId, resolveToken(): Promise<string> }`) contract, the same credential shape the deploy tooling's factories accept.
 
 ### `class InspectStorageHandler`
+
 ```ts
 class InspectStorageHandler {
   execute(scope: ProjectScope): Promise<InspectStorageResult>;
 }
 ```
+
 Resolves a token from `scope`, then reads service state, default location, and (when the service is enabled) the linked bucket list, in parallel. Never throws for a normal probe: a bucket-list failure with the service otherwise enabled degrades to an empty `buckets` array rather than surfacing an error.
+
 ```ts
 interface InspectStorageResult {
   serviceState: 'enabled' | 'disabled' | 'unknown';
@@ -365,7 +406,9 @@ interface InspectStorageResult {
   buckets: Array<{ name: string; bucketId: string }>;
 }
 ```
+
 ### `class ProvisionStorageHandler`
+
 ```ts
 class ProvisionStorageHandler {
   execute(
@@ -375,7 +418,9 @@ class ProvisionStorageHandler {
   ): Promise<ProvisionStorageOutcome>;
 }
 ```
+
 Calls `provisionStorage` with a token resolved from `scope`, and maps a thrown `StorageProvisioningError` onto a typed `ProvisionStorageOutcome` failure (via its `reason` and message, pattern-matched to a `ProvisionStorageErrorCode`) instead of letting it propagate. Callers branch on `outcome.success` rather than catching.
+
 ```ts
 interface ProvisionStorageInput {
   locationId?: string;
@@ -414,7 +459,9 @@ type ProvisionStorageOutcome =
       };
     };
 ```
+
 ### `createStorageAdminTools(deps): ToolHandler[]`
+
 ```ts
 function createStorageAdminTools(deps: StorageAdminToolDeps): ToolHandler[];
 
@@ -422,6 +469,7 @@ interface StorageAdminToolDeps {
   scope: ProjectScope;
 }
 ```
+
 Returns two `@inbrowser/agent` `ToolHandler`s built on the handlers above: `storage_get_status` (wraps `InspectStorageHandler`) and `storage_provision` (wraps `ProvisionStorageHandler`, JSON-Schema-typed against `ProvisionStorageInput`). Mirrors the shape of the Firestore rules and deploy tool factories elsewhere in Pyric, so a registry can compose them uniformly.
 
 ## Boundaries

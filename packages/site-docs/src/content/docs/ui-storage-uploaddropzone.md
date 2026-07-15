@@ -7,10 +7,13 @@ order: 23021
 # `<UploadDropzone>`
 
 Headless drop target for file **and folder** uploads. Slot-based — the children render the chrome; the component owns the drag wiring, flattens the drop (folders traverse recursively via `webkitGetAsEntry`), and emits `DroppedFile { file, relativePath }[]` ready for `useObjectUpload`.
+
 ```ts
 import { UploadDropzone } from '@pyric/ui/storage';
 ```
+
 ## Example
+
 ```tsx
 import { useObjectUpload, useStorageList, usePathState } from '@pyric/ui/storage/hooks';
 
@@ -39,6 +42,7 @@ function Uploader({ storage }) {
   );
 }
 ```
+
 ## Props
 
 | Prop | Type | Description |
@@ -50,12 +54,14 @@ function Uploader({ storage }) {
 | `className` | `string` | Forwarded to the root. |
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="upload-dropzone"]                 /* root */
 [data-pyric-ui="upload-dropzone"][data-dragging]  /* a drag is hovering */
 [data-pyric-ui="upload-dropzone"][data-disabled]
 [data-pyric-ui="upload-dropzone"][data-disabled-reason]  /* why (rules gate) */
 ```
+
 ## Notes
 
 - **Folder drops** traverse the `webkitGetAsEntry` tree (batched

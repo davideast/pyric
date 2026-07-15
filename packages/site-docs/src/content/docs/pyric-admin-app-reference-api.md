@@ -10,12 +10,14 @@ order: 18002
 Exact public surface of the sandbox-only admin app registry.
 
 ## `initializeApp(config?, name?)`
+
 ```ts
 function initializeApp(
   config?: { sandbox: Sandbox },
   name?: string,
 ): PyricAdminApp;
 ```
+
 The default name is `'[DEFAULT]'`.
 
 - `initializeApp({ sandbox })` binds an in-process or remote sandbox.
@@ -34,33 +36,42 @@ the same binding: bare after bare, or the same `Sandbox` reference. A different
 binding throws a Firebase-shaped duplicate/options error.
 
 ## `getApp(name?)`
+
 ```ts
 function getApp(name?: string): PyricAdminApp;
 ```
+
 Return the registered app. The default name is `'[DEFAULT]'`. A missing app
 throws `app/no-app`; an empty or non-string name throws
 `app/invalid-app-name`.
 
 ## `getApps()`
+
 ```ts
 function getApps(): PyricAdminApp[];
 ```
+
 Return a copy of the registered app list.
 
 ## `deleteApp(app)`
+
 ```ts
 function deleteApp(app: PyricAdminApp): Promise<void>;
 ```
+
 Remove the app from the registry. The sandbox lifetime remains owned by its
 creator. An invalid value throws `app/invalid-argument`.
 
 ## `isSandboxAdminApp(app)`
+
 ```ts
 function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp;
 ```
+
 Test the package brand without inspecting the object structurally.
 
 ## Types and constants
+
 ```ts
 const ADMIN_APP_TARGET: unique symbol;
 const DEFAULT_APP_NAME = '[DEFAULT]';
@@ -75,6 +86,7 @@ interface SandboxAdminApp {
   readonly name: string;
 }
 ```
+
 `ADMIN_APP_TARGET` uses `Symbol.for('pyric.admin.app.target')` so the brand is
 stable across module instances.
 

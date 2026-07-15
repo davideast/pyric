@@ -9,10 +9,13 @@ order: 23026
 The drill-in panel for one traffic event — header, a consumer classification
 slot, then JSON sections for auth / request / resource before+after, the
 reasons list, `triggeredBy`, and `groupId`.
+
 ```ts
 import { TrafficDetail } from '@pyric/ui/traffic';
 ```
+
 ## Example
+
 ```tsx
 <TrafficDetail
   event={selectedEvent}
@@ -22,6 +25,7 @@ import { TrafficDetail } from '@pyric/ui/traffic';
   }
 />
 ```
+
 ## Props
 
 | Prop | Type | Required | Description |
@@ -40,6 +44,7 @@ import { TrafficDetail } from '@pyric/ui/traffic';
 [`<JsonView>`](../ui-primitives-jsonview/).
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="traffic-detail"]
 [data-pyric-traffic-detail-header] / -meta / -title
@@ -51,6 +56,7 @@ import { TrafficDetail } from '@pyric/ui/traffic';
 [data-pyric-traffic-eval-ms]
 [data-pyric-traffic-triggered-by] / [data-pyric-traffic-group]
 ```
+
 ## Notes
 
 - `evalMs` appears here as a minor header field — it is not a log column

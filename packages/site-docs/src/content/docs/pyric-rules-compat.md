@@ -3,7 +3,7 @@ title: "pyric/rules compatibility matrix"
 navLabel: "Rules"
 group: "Conformance"
 section: ""
-order: 8007
+order: 6009
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

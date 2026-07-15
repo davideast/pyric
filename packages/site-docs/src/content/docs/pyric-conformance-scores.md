@@ -2,7 +2,7 @@
 title: "Conformance scores"
 group: "Conformance"
 section: ""
-order: 8001
+order: 6003
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

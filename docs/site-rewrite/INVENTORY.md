@@ -1,212 +1,56 @@
-# INVENTORY
+# Workflow documentation inventory
 
-The factual capability surface of Pyric, grounded in the code at latest `main`. This is raw material for the docs rewrite: what the system can actually do, what is mature, what is experimental, and what the current docs already cover. Verified against the packages `pyric`, `pyric-admin`, and `@pyric/cli` (not `@pyric/ui`). Every claim traces to a file; a writer can open it and confirm.
+This inventory records the disposition of every authored guide page for issue #312. Package documentation remains authoritative for API depth. The porter proves that every package source is either published, promoted into the workflow, or explicitly superseded.
 
-This document names nouns on purpose. It is the parts bin. OUTCOMES.md turns it into verbs.
+## Authored guide pages
 
----
-
-## 0. One system, three packages
-
-Pyric is one system. The packages are how it ships, not how it is taught.
-
-| Package | Runs where | Is the mirror of | Carries |
-|---|---|---|---|
-| `pyric` | the app process (browser page or Node) | `firebase` (Web SDK) | the SDK mirror, the sandbox runtime, the rules engine |
-| `pyric-admin` | Node development | `firebase-admin` | the admin-shape sandbox mirror selected by activated package resolution |
-| `@pyric/cli` | Node CLI + Vite + editors | development tooling | the `pyric` CLI, the Vite plugin, the MCP surface, artifact generation, verification, Studio |
-
-The whole point of the mirror: application code keeps its `firebase/*` imports and calls unchanged. During development they resolve to a local sandbox. In production they resolve to real Firebase. The seam is one setup line (or zero, in ambient Node mode).
-
-Versions: all three at `0.1.0-alpha.8`. ESM-only, Node 22+.
-
----
-
-## 1. Maturity tiers (this shapes everything)
-
-The single most important fact for the hierarchy. The services are not equal.
-
-**Conformance-held, v1-supported: Auth, Firestore, Rules.** These are proven against recorded production behavior and are the surfaces a user should trust today.
-
-**Experimental, explicitly not v1: Realtime Database, Storage.** They work, they are documented, but most of their behavior is not yet pinned to a production observation. Their COMPAT headers say so out loud (`packages/pyric/docs/database/COMPAT.md:6-13`, `packages/pyric/docs/storage/COMPAT.md:6-11`).
-
-**Not present: Messaging.** The README says "soon"; there is no Messaging service in the code.
-
-Conformance numbers today (rows / conforming):
-
-| Service | Rows | Conforming | Tier |
-|---|---|---|---|
-| Firestore | 139 | 131 | v1 |
-| Auth | 74 | 63 | v1 |
-| Realtime Database | 170 | 144 | experimental |
-| Storage | 111 | 92 | experimental |
-
-Sandbox has no COMPAT matrix (it is the harness). Rules is NOT unverified, though. Correction to an earlier draft of this doc: the rules simulator has its own conformance, just not centralized in a COMPAT.md. It runs a parity harness (`packages/pyric/test/rules/parity/`) and a corpus (`packages/pyric/test/rules/corpus/`, with `valid`/`invalid`/`edge-cases`) against the live Firebase Rules Test API in CI (`.github/workflows/simulator-parity.yml`, the `parity-stress` job, gated on a service-account secret). The corpus and the game-rules fixtures (`test/fixtures/firestore-game-rules`) double as both a conformance gate and a driver of new rules knowledge. See NOVELTY.md.
-
----
-
-## 2. The Web SDK mirror (`pyric`)
-
-Runs inside the app process. In the browser, the process is the page: the whole backend executes in the tab. In Node, it is the Node process, so tests and scripts get the same backend with no browser.
-
-Every service handle is branded (`TARGET_SYMBOL`) and routes to a sandbox backend or a real Firebase backend. Same call sites either way.
-
-### Firestore (`pyric/firestore`, v1)
-`firestore/index.ts` (2270 lines) mirrors the `firebase/firestore` modular SDK.
-- Init: `getFirestore`, `actingAs(sandbox, identity)`, `getAdminFirestore` (rule-bypass).
-- Reads: `doc`, `collection`, `collectionGroup`, `getDoc`, `getDocs`.
-- Writes: `setDoc` (with merge), `updateDoc`, `deleteDoc`, `addDoc`.
-- Queries: `query`, `where`, `or`, `and`, `orderBy`, `limit`, `limitToLast`, cursors `startAt`/`startAfter`/`endAt`/`endBefore`.
-- Aggregations: `count`, `sum`, `average`, `getCountFromServer`, `getAggregateFromServer`.
-- Realtime: `onSnapshot` (doc + query).
-- Transactions/batches: `runTransaction`, `writeBatch`.
-- Field values: `serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, `deleteField`; `FieldValue`, `Timestamp`.
-- Converters/equality: `withConverter`, `refEqual`, `queryEqual`, `snapshotEqual`.
-- Sandbox-only: `getFirestore(...).setRules()`, `.seed()`, `.snapshot()`; `sandbox` namespace; `SandboxInspect`.
-- Deny-listed (`docs/firestore/reference/feature-matrix.md`): all IndexedDB persistence/cache APIs, `getDocFromCache`/`getDocFromServer`, `loadBundle`/`namedQuery`, `findNearest` vector search, `disableNetwork`/`enableNetwork`, `waitForPendingWrites`, `initializeFirestore`, `terminate`, `connectFirestoreEmulator`.
-
-### Auth (`pyric/auth`, v1)
-Mirrors `firebase/auth` modular SDK.
-- Sign-in: `signInAnonymously`, `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `signInWithPopup`, `signInWithRedirect`, `getRedirectResult`, `signInWithCredential`, `signOut`.
-- Session/token/profile: `setPersistence`, `onAuthStateChanged`, `onIdTokenChanged`, `getIdToken`, `getIdTokenResult`, `updateProfile`.
-- Providers: `EmailAuthProvider`, `Google/Facebook/Github/OAuthProvider`.
-- Sandbox-only driver: `sandbox.setUser`, `seedUsers`, `setAuthFlowResolver`, `listIdentities`, `createSignInCredential`, `mockSignInResult`, `exportUsers`, `restoreSession`, per-connection session minting.
-- Deny-listed: `signInWithCustomToken`, `signInWithPhoneNumber`, `signInWithEmailLink`, MFA, `SAML/PhoneAuthProvider`, `sendPasswordResetEmail`, `linkWithCredential`, `reauthenticateWithCredential`, `user.delete()`.
-
-### Realtime Database (`pyric/database`, experimental)
-Two surfaces in one package.
-- Modular SDK (`database/modular.ts`): `getDatabase`, `ref`, `child`, `get`, `set`, `update`, `remove`, `push`, `onValue`, `onChildAdded/Changed/Removed/Moved`, `off`, `runTransaction`, `serverTimestamp`, `increment`; query builder `orderByChild/Key/Value`, `startAt`, `equalTo`, `limitToFirst/Last`.
-- Agent-tool + rules toolkit: `getRtdbTools`, factories for the 11 RTDB agent tools, IR generator, simulator, validated write, structure crawl.
-- Rules constraint DSL (`rules/rtdb/constraints`): `expr`, `all`, `any`, `not`, `deny`, `allow`, `turnGuard`, `schemaRules`, `defineRtdbRules`.
-
-### Storage (`pyric/storage`, experimental)
-Mirrors `firebase/storage` plus a control plane.
-- Object API: `ref`, `uploadBytes`, `uploadString`, `getBytes`, `getBlob`, `deleteObject`, `getMetadata`, `updateMetadata`, `listAll`.
-- Rules (in-process): `parseStorageRules`, `evaluateStorageRules`.
-- Admin/control plane (`storage/admin/`): `provisionStorage`, `enableStorageService`, `deployStorageRules`, bucket CORS, `createStorageAdminTools`.
-- Out of scope for v1: `getDownloadURL`, paginated `list`, `uploadBytesResumable`, Storage emulator parity, image transforms, Functions triggers.
-
-### The sandbox runtime (`pyric/sandbox`)
-The engine under every service. `initializeSandbox(config?)` returns a `Sandbox`.
-- Identity: `withAuth(auth)` binds an identity to a `SandboxContext`; `null` is anonymous.
-- Observability: `onEvent(cb)` is one typed event stream. Members (`sandbox/types.ts`): `request` (per-op rules verdict allow/deny), `write` (committed, with sentinel info), `snapshot_delivery`/`snapshot_suppressed`, `listener_attach/detach/errored`, `session_boundary` (reset/dispose), `service_mutation` (before/after), `operation`, `commit`. Every event carries provenance.
-- Replay: `history()` returns the full event array; `replay(events, rules?)` re-issues captured writes against a fresh sandbox and reports divergence.
-- State: `reset()`, `snapshot()`, `loadSnapshot()`, `admin` (rule-bypass reads), `currentUser` + `onCurrentUserChanged`.
-- Branches (`sandbox/branches/`): `fork`, `apply`, `diff`, `promote`, `discard` from a snapshot.
-- Persistence backends: `createMemoryBackend`, `createIndexedDBBackend`, `attachPersistence`; serialization + rehydration.
-- Cross-tab: `attachTabSync` (BroadcastChannel).
-- Remote: `REMOTE_SANDBOX`, `isRemoteSandbox` — a Node handle onto a browser-hosted worker sandbox.
-
-### The rules engine (`pyric/rules`)
-Firestore and RTDB rules as a library. Browser-safe core; Node-only disk pieces split to `pyric/rules/node`, TS-compiler-heavy extractor to `pyric/rules/extract`.
-- Parse/AST: `parseToAST`, `parseFunctions`, `assembleRules`, `validateFirestoreRules`.
-- Lint: `lintFirestoreRules` → warnings + metrics.
-- Modules stdlib (a 2+ modules extension): browser + Node resolvers, `STDLIB_MODULES`.
-- Simulate (local, no network): `SimulateFirestoreRulesHandler`, `evaluate`, trace recorder, value wrappers (Timestamp, Path, Reference, Bytes, Duration, LatLng), sentinel-expression engine used by the sandbox for `$expr` resolution.
-- Test (hosted): `TestFirestoreRulesHandler` against the Firebase Rules Test API (needs a `ProjectScope`).
-- Deploy/inspect over REST: `WriteFirestoreRulesHandler`, `InspectFirestoreRulesHandler`.
-- Index extraction: `extractIndexes` — static analysis of `query(collection, where, orderBy)` in source.
-- RTDB rules: `pyric/rules/rtdb` + the constraint DSL.
-
----
-
-## 3. The admin mirror (`pyric-admin`)
-
-Mirrors the useful `firebase-admin` shape against a sandbox. Canonical imports
-select it only during activated development; inactive production resolution
-loads Firebase Admin directly.
-
-`initializeApp` binds the sandbox explicitly with `{ sandbox }` or obtains the
-remote sandbox from activated `@pyric/cli/register` on a bare call. A guard
-refuses sandbox routing when `NODE_ENV=production` unless forced.
-
-Services (`pyric-admin/{firestore,auth,database,storage}`) use a local sandbox
-backend and, where implemented, a remote backend relaying to the browser
-SharedWorker.
-
-Remote is the interesting one. A remote-branded sandbox carries a worker-relay channel; each service relays ops over the bridge to the browser-hosted sandbox, pinned to `actAs:{mode:'admin'}` for the admin rules-bypass. That is how a Node script, the browser app, and an agent all see one shared pool of data and users.
-
-Sandbox-backend gaps: local auth has no tenancy/MFA/bulk-ops/updateUser; local database has no listeners/transactions/queries; storage has no streaming/resumable, and remote storage is single-bucket with an 8 MiB per-op cap. Everything unimplemented throws an explicit remediation error, never bad data.
-
----
-
-## 4. The toolchain (`@pyric/cli`)
-
-The `pyric` CLI plus everything around it. Dispatcher `src/cli/index.ts:440`.
-
-### CLI commands
-- **`pyric dev`** — serve the app against the in-process sandbox. Unmodified `firebase/*` imports resolve through a served import map to a SharedWorker sandbox (one backend shared across tabs, durable in IndexedDB; falls back to per-tab). `firestore.rules` deployed at load and hot-reloaded over SSE. Runs your own dev command too (`-- <cmd>` or the package's `dev` script) with `PYRIC_SANDBOX` set. Flags: `--ui` (Studio at `/__pyric/ui/`), `--bridge` (MCP at `/__pyric/mcp`), `--persist`, `--fresh`, `--seed <file>`, `--no-capture`, `--no-watch`, `--port`, `--host`, `--allowed-host`, `--no-run`, `--json`.
-- **`pyric init [dir]`** — scaffold a project. `--template web|node`, `--name`, `--force`.
-- **`pyric vendor [dir]`** — retrofit pyric into an existing project (standalone binary).
-- **`pyric snapshot`** — promote lived sandbox state to a committable fixture that `dev --seed` re-serves. `--out`, `--force`, `--include-passwords`.
-- **`pyric verify [fixture]`** — replay a captured session against a candidate ruleset for Firestore/RTDB. Engines `--engine sandbox|rules-test-api|both`. `--service`, `--rules service=path`. Exit 1 on divergence. Also `pyric verify cases`.
-- **`pyric bridge`** — standalone sandbox HTTP+WS MCP bridge that relays tool calls to the connected browser.
-- **`pyric mcp`** — stdio MCP server for editors; attaches to a running `dev --bridge` or hosts a headless sandbox.
-- **Service CLI**: `firestore rules lint|validate|simulate|resolve`; `firestore indexes generate`; `database rules lint|validate|simulate|generate`; `storage rules lint|simulate`.
-- **Production shipping**: use `firebase-tools` / Console (`firebase deploy --only …`), not pyric.
-
-### The Vite plugin `pyricSandbox()`
-The same `firebase/*` → sandbox swap for a source-driven Vite app, at module-resolution time, inside the normal `vite dev` loop (HMR, source maps). Options: `rules`, `root`, `persist`, `fresh`, `seed`, `capture`, `bridge`, `swapInBuild`.
-- `vite dev` always swaps.
-- `vite build` (production) ships real firebase with the same config — no graduation step.
-- `vite build --mode development` (or `swapInBuild:true`) makes a sandbox build (marked in `index.html`); `pyric dev` serves it. Production hosting deploys should use an unmarked production build via `firebase-tools`.
-
-### The MCP tool surface
-The sandbox and its services exposed as agent-callable tools over MCP. The default bridge pins **25** tool names in `mcp-contract.ts` (Firestore data + inspect, rules lint/simulate/stdlib, simulator session, and RTDB inspection). Library-only factories (not on the default bridge) include assurance, index extraction, RTDB generate, Storage admin, and `@pyric/cli/discover`. Unique differentiators: `firestore_simulate_rules`, the stateful `firestore_simulator_*` session, `sandbox_inspect`, `rtdb_simulate_access`, `rtdb_crawl_structure`. Production shipping is `firebase-tools` / Console.
-
-### Credentials for verify
-`@pyric/cli/credentials/node` — `fromServiceAccount` / `fromAdc` → `ProjectScope` for `pyric verify --engine rules-test-api|both` and the Rules Test API handler. CLI env: `FIREBASE_SA_BASE64` → `GOOGLE_APPLICATION_CREDENTIALS` → ADC.
-
-### Studio (`@pyric/studio`, behind `pyric dev --ui`)
-Local console at `/__pyric/ui/`. Eight tabs (`packages/studio/src/shell/routes.ts`): Home, Firestore, Auth, RTDB, Storage, Traffic, Prototype, Settings. No in-app Docs tab (the composed static site mounts `/docs`; a spec-named Rules tab is intentionally not mounted yet). Prototype is the embedded playground (an agent working against the shared sandbox).
-
----
-
-## 5. What proves it matches Firebase
-
-The claim "it behaves like Firebase" is tested, not asserted. Probes run against a real Firebase project and record its behavior as observations (`packages/conformance/`). CI replays every observation against the sandbox on every change. The public contract is the COMPAT matrix per service (section 1). Firestore and Auth distinguish three targets: sandbox (frozen context), sandbox-live (per-op identity, what the playground uses), and prod. A documented divergence is a row; an undocumented one is a bug.
-
----
-
-## 6. The existing docs (what we are replacing)
-
-184 generated pages. Everything except one hand-written QA page is generated by `packages/site-docs/scripts/port-content.ts` from the per-package `docs/` trees. The rewrite target is those source trees plus the nav plan in `port-content.ts`, not the generated collection.
-
-Current shape: **package-and-noun first**. Slug = `<pkg>-<service>-<diataxis>-<topic>` (for example `pyric-firestore-how-to-build-queries`). Nav is one disclosure per package subtree, Diataxis (Tutorials / How-to / Reference / Explanation) as the inner axis.
-
-Coverage by group:
-
-| Group | Pages | Notes |
+| Source | Classification | Navigation disposition |
 |---|---|---|
-| `pyric/firestore` | 19 | full Diataxis + COMPAT |
-| `pyric/rules` | 28 | deep; no COMPAT (tooling) |
-| `pyric/sandbox` | 26 | deep; no COMPAT (harness) |
-| `pyric/storage` | 15 | experimental |
-| `pyric/auth` | 5 | reference + compat only, no how-to/explanation |
-| `pyric/database` | 5 | experimental |
-| `pyric-admin/firestore` | 14 | only admin service documented |
-| `@pyric/cli` (root) | 14 | dev, init, verify, Vite, adoption |
-| `@pyric/ui` | 30 | not Diátaxis; out of scope for this rewrite |
+| `content/overview.md` | Pyric-specific workflow help | Overview |
+| `content/get-started/start-building.md` | Pyric-specific workflow help | Run locally |
+| `content/get-started/how-the-swap-works.md` | Pyric-specific workflow help | Run locally |
+| `content/agent/set-up-your-agent.md` | Pyric-specific workflow help | Run locally |
+| `content/ship/test-in-node.md` | Pyric-specific workflow help | Run locally |
+| `content/build/sign-in-and-manage-users.md` | Firebase API task with Pyric-specific local behavior | Develop with Firebase APIs |
+| `content/build/store-and-query-data.md` | Firebase API task with Pyric-specific local behavior | Develop with Firebase APIs |
+| `content/build/sync-realtime-data.md` | Firebase API task with Pyric-specific local behavior | Develop with Firebase APIs |
+| `content/build/store-files.md` | Firebase API task with Pyric-specific local behavior | Develop with Firebase APIs |
+| `content/build/receive-messages.md` | Firebase API task with Pyric-specific local delivery behavior | Develop with Firebase APIs |
+| `content/build/run-ai-logic-locally.md` | Firebase API task with Pyric-specific local answer engines | Develop with Firebase APIs |
+| `packages/cli/docs/how-to/run-rtdb-onvaluecreated.md` | Pyric-specific local Functions workflow | Promoted in place to Develop with Firebase APIs; existing route and source retained |
+| `content/build/which-data-service.md` | Ordinary Firebase product choice | Develop with Firebase APIs, retained as a short decision page that points to Firebase product documentation |
+| `content/observe/see-whats-happening.md` | Pyric-specific inspection workflow | Inspect and correct, Inspect the sandbox |
+| `content/secure/read-a-denial.md` | Pyric-specific inspection workflow | Inspect and correct, Inspect the sandbox |
+| `content/observe/shape-your-data.md` | Pyric-specific correction workflow | Inspect and correct, Inspect the sandbox |
+| `content/agent/watch-and-review.md` | Pyric-specific inspection workflow | Inspect and correct, Inspect the sandbox |
+| `content/secure/secure-it-with-rules.md` | Firebase task with Pyric-specific local behavior | Inspect and correct, Correct Security Rules |
+| `content/secure/simulate-and-lint.md` | Pyric-specific correction workflow | Inspect and correct, Correct Security Rules |
+| `content/secure/rules-patterns.md` | Pyric-specific rules guidance | Inspect and correct, Correct Security Rules |
+| `content/secure/rules-standard-library.md` | Pyric-specific rules guidance | Inspect and correct, Correct Security Rules |
+| `content/secure/rtdb-rules-in-typescript.md` | Pyric-specific rules guidance | Inspect and correct, Correct Security Rules |
+| `content/secure/limits-that-bite.md` | Production-measured rules guidance | Inspect and correct, Correct Security Rules; route retained pending the final heading pass |
+| `content/secure/whats-possible.md` | Rules case studies | Inspect and correct, Correct Security Rules |
+| `content/agent/what-your-agent-can-do.md` | Pyric-specific workflow help | Inspect and correct, Work with an agent |
+| `content/agent/skills.md` | Pyric-specific workflow help | Inspect and correct, Work with an agent |
+| `packages/cli/docs/how-to/verify-against-a-captured-session.md` | Pyric-specific boundary verification | Promoted in place to Verify the boundary; existing route and source retained |
+| `content/secure/write-a-rules-test-suite.md` | Boundary verification | Verify the boundary |
+| `content/secure/audit-your-rules.md` | Boundary verification | Verify the boundary |
+| `content/ship/ship-to-production.md` | Pyric-specific production handoff | Ship unchanged |
+| `content/ship/set-up-the-project.md` | Ordinary Firebase production setup | Ship unchanged, reduced to the Pyric boundary and links to official Firebase guidance |
+| `content/trust/how-we-know-it-matches-firebase.md` | Conformance explanation | Conformance |
+| `content/trust/whats-experimental.md` | Conformance limitation | Conformance |
 
-Examples (`examples/`): `vite-sandbox-app` (the flagship, the shape `pyric init --template web` scaffolds) and `admin-playground` (a `@pyric/ui` showcase).
+## Generated and package-owned documentation
 
-### Staleness and imbalance to fix
-- **Coverage is inverted from importance.** Auth is v1 and load-bearing but has 5 pages and no how-to or explanation. RTDB and Storage are experimental yet carry equal nav weight to v1 surfaces.
-- **The hierarchy is nouns.** Package → service → Diataxis. A reader who wants to "let a signed-in user save a document safely" has nowhere to land; they must already know it spans auth + firestore + rules.
-- **Emulator-connector rows persist** (`connectFirestoreEmulator`, `connectStorageEmulator`) despite the firm no-emulator position. Retire candidates.
-- **The tool count is grep-derived** and the README itself flags consolidation is ongoing. Do not hard-code "51".
-- **`@pyric/ui` is not Diataxis** and is out of scope here; it becomes the only package-named section (API reference), per the nav philosophy.
+| Material | Classification | Disposition |
+|---|---|---|
+| Product `COMPAT.md` files and `conformance/SCORES.md` | Conformance evidence | Remain generated, itemized under Conformance, and linked from the authored explanation |
+| TypeDoc API pages | Generated reference | Remain generated and searchable; never enter the primary workflow navigation |
+| Package tutorials, how-to pages, explanations, and hand-authored references | Product-specific depth | Remain built and searchable beneath Reference unless promoted or superseded explicitly |
+| `@pyric/ui` component pages | Generated implementation reference for component consumers | Remain beneath Reference; not used to teach the Pyric workflow |
 
----
+## Obsolete navigation concepts
 
-## 7. The seams that make good outcomes possible
+The following groupings are superseded: Get started, Build, Secure & debug, Observe & shape, Ship & test, Work with an agent, and Trust. Their pages remain useful, but their former taxonomy does not describe the local-to-production lifecycle.
 
-A short list of the load-bearing behaviors, because these are what the outcomes will be built from.
-
-1. **The same code runs against a sandbox in dev and real Firebase in prod.** No rewrite, no graduation. One import map or one Vite plugin.
-2. **The backend is local state.** Seed it, snapshot it, reset it, fork it, replay it, the way you edit a file.
-3. **Every operation is an observable event** with its rules verdict, including denials with the rule and data that produced them.
-4. **Rules are a library**, not a deploy target. Lint, simulate, and test them in-process, in CI, and from an agent.
-5. **The whole thing is an agent tool surface.** One MCP bridge exposes the sandbox so an agent drives the same backend the app and Studio see.
-6. **Work carries to production.** Rules exercised against real behavior, indexes extracted from query shapes, and a replay that tells you which operations change verdict before prod finds out.
-7. **One identity model across web and Node.** `withAuth` in the sandbox, the admin lens for privileged reads, the same shared pool over the remote bridge.
+No route changes are required for this reclassification. The final heading pass in #313 may rename a route only when the benefit justifies complete inbound-link handling.

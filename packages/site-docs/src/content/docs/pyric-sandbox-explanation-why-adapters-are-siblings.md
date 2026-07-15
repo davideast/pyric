@@ -39,6 +39,7 @@ Keeping the split visible at the package level makes the dependency direction ob
 ## What the adapters do
 
 Both adapters are thin. The pattern, abstracted:
+
 ```
 User call (getDoc, db.collection.get, etc.)
   ↓
@@ -52,6 +53,7 @@ OperationResult { allowed, data?, debugMessages, event }
   ↓
 Adapter translates back to user-facing types (QuerySnapshot, DocumentSnapshot, etc.)
 ```
+
 The adapter is mostly translation. Each one does a few extra things to match its upstream SDK's idiosyncrasies (`pyric-admin` constructs a per-call compatibility implementation to keep reference semantics right; `pyric/firestore` adapts the modular Web SDK shape), but the core flow is the same.
 
 This is what makes "the substrate is shared" workable. Both adapters bottom out at the same `LocalEnvironment` methods. Two contexts derived from one sandbox, one through `pyric-admin` and one through `pyric/firestore`, see the same data.
