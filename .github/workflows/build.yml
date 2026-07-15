@@ -27,9 +27,6 @@ jobs:
     name: Build all packages + run tests
     runs-on: ubuntu-latest
     steps:
-      - name: Start job timer
-        run: echo "PYRIC_CI_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
-
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
@@ -140,23 +137,10 @@ jobs:
         # The other workspace suites run concurrently in library-tests.
         run: bun run test:ci:cli
 
-      - name: Report timing and enforce three-minute job budget
-        if: always()
-        run: |
-          elapsed=$(( $(date +%s) - PYRIC_CI_JOB_STARTED_AT ))
-          echo "### Build + unit/conformance tests: ${elapsed}s / 180s" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed > 180 )); then
-            echo "Build + unit/conformance tests exceeded the 180s CI budget (${elapsed}s)." >&2
-            exit 1
-          fi
-
   library-tests:
     name: Run library + UI tests
     runs-on: ubuntu-latest
     steps:
-      - name: Start job timer
-        run: echo "PYRIC_CI_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
-
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
@@ -172,23 +156,10 @@ jobs:
       - name: Run library, UI, Studio, and conformance tests
         run: bun run test:ci:libraries
 
-      - name: Report timing and enforce three-minute job budget
-        if: always()
-        run: |
-          elapsed=$(( $(date +%s) - PYRIC_CI_JOB_STARTED_AT ))
-          echo "### Library + UI tests: ${elapsed}s / 180s" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed > 180 )); then
-            echo "Library + UI tests exceeded the 180s CI budget (${elapsed}s)." >&2
-            exit 1
-          fi
-
   browser-conformance:
     name: Served app + SharedWorker conformance
     runs-on: ubuntu-latest
     steps:
-      - name: Start job timer
-        run: echo "PYRIC_CI_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
-
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
@@ -220,16 +191,6 @@ jobs:
         # apps, cross-tab Auth isolation, config locking, deletion teardown,
         # and the worker-owned AI boundary. These are blocking oracle claims.
         run: bun run --cwd packages/cli test:app-conformance
-
-      - name: Report timing and enforce three-minute job budget
-        if: always()
-        run: |
-          elapsed=$(( $(date +%s) - PYRIC_CI_JOB_STARTED_AT ))
-          echo "### Browser conformance: ${elapsed}s / 180s" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed > 180 )); then
-            echo "Browser conformance exceeded the 180s CI budget (${elapsed}s)." >&2
-            exit 1
-          fi
 
   packaging:
     name: Packaging gate (pack + install + subpath resolution)

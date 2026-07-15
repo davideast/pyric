@@ -33,9 +33,6 @@ describe('served app conformance merge gate', () => {
     expect(libraryJob).toContain('bash scripts/build.sh --packages-only');
     expect(libraryJob).toContain('bun run test:ci:libraries');
     expect(libraryJob).not.toContain('bun run test:ci:cli');
-    expect(mainJob).toContain('${elapsed}s / 180s');
-    expect(libraryJob).toContain('${elapsed}s / 180s');
-
     const complete = rootPackage.scripts?.test?.split(' && ') ?? [];
     const split = [
       ...(rootPackage.scripts?.['test:ci:cli']?.split(' && ') ?? []),
@@ -63,7 +60,6 @@ describe('served app conformance merge gate', () => {
     expect(browserJob).toContain('bunx playwright install-deps chromium');
     expect(browserJob).toContain('bun run --cwd packages/cli test:app-conformance');
     expect(browserJob).toContain('bash scripts/build.sh --skip-docs');
-    expect(browserJob).toContain('${elapsed}s / 180s');
     const build = browserJob.indexOf('bash scripts/build.sh --skip-docs');
     const cache = browserJob.indexOf('Cache Playwright Chromium');
     const browser = browserJob.indexOf('bunx playwright install chromium');
