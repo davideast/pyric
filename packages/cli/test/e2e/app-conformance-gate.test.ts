@@ -7,6 +7,9 @@ const cliPackage = JSON.parse(
   readFileSync(resolve(root, 'packages/cli/package.json'), 'utf8'),
 ) as { scripts?: Record<string, string> };
 const workflow = readFileSync(resolve(root, '.github/workflows/build.yml'), 'utf8');
+const browserJobStart = workflow.indexOf('  browser-conformance:');
+const browserJobEnd = workflow.indexOf('\n  packaging:', browserJobStart);
+const browserJob = workflow.slice(browserJobStart, browserJobEnd);
 
 describe('served app conformance merge gate', () => {
   test('the CLI script runs every SharedWorker topology proof', () => {
@@ -20,10 +23,20 @@ describe('served app conformance merge gate', () => {
   });
 
   test('required CI installs Chromium and runs the proof after building', () => {
-    expect(workflow).toContain('bunx playwright install --with-deps chromium');
-    expect(workflow).toContain('bun run --cwd packages/cli test:app-conformance');
-    expect(workflow.indexOf('bash scripts/build.sh')).toBeLessThan(
-      workflow.indexOf('bun run --cwd packages/cli test:app-conformance'),
-    );
+    expect(browserJobStart).toBeGreaterThanOrEqual(0);
+    expect(browserJobEnd).toBeGreaterThan(browserJobStart);
+    expect(browserJob).toContain('Cache Playwright Chromium');
+    expect(browserJob).toContain('bunx playwright install chromium');
+    expect(browserJob).toContain('bunx playwright install-deps chromium');
+    expect(browserJob).toContain('bun run --cwd packages/cli test:app-conformance');
+    const build = browserJob.indexOf('bash scripts/build.sh');
+    const cache = browserJob.indexOf('Cache Playwright Chromium');
+    const browser = browserJob.indexOf('bunx playwright install chromium');
+    const dependencies = browserJob.indexOf('bunx playwright install-deps chromium');
+    const proof = browserJob.indexOf('bun run --cwd packages/cli test:app-conformance');
+    expect(build).toBeLessThan(cache);
+    expect(cache).toBeLessThan(browser);
+    expect(browser).toBeLessThan(dependencies);
+    expect(dependencies).toBeLessThan(proof);
   });
 });
