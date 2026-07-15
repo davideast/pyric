@@ -14,7 +14,7 @@ order: 8008
 
 # `pyric` messaging compatibility matrix
 
-> **Surface coverage:** 100% of Firebase's public exports · 100% of what pyric intends to mirror
+> **Public surface:** runtime 100% (5/5) · types 100% (8/8)
 >
 > **Fidelity:** 100% (17 of 17 tracked claims match production)
 >

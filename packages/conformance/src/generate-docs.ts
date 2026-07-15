@@ -36,11 +36,19 @@ function escapeCell(value: string): string {
 
 interface CoverageBaseline {
   services: Record<string, {
-    surfaceCoveragePct?: { total: number; intended: number };
+    publicSurface?: {
+      runtime: { mapped: number; denominator: number; pct: number };
+      types: { mapped: number; denominator: number; pct: number };
+    };
     native?: boolean;
     integration?: boolean;
   }>;
-  overall: { surfaceCoveragePct: { total: number; intended: number } };
+  overall: {
+    publicSurface: {
+      runtime: { mapped: number; denominator: number; pct: number };
+      types: { mapped: number; denominator: number; pct: number };
+    };
+  };
   rowStatuses: Record<string, string>;
 }
 
@@ -93,8 +101,8 @@ interface BehaviorScore {
 
 interface SurfaceScore {
   /** null when the page has no upstream Firebase public surface to measure. */
-  intendedPct: number | null;
-  totalPct: number | null;
+  runtime: { mapped: number; denominator: number; pct: number } | null;
+  types: { mapped: number; denominator: number; pct: number } | null;
 }
 
 function computeBehavior(spec: SurfaceScoreSpec): BehaviorScore {
@@ -110,20 +118,20 @@ function computeBehavior(spec: SurfaceScoreSpec): BehaviorScore {
 }
 
 function computeSurface(spec: SurfaceScoreSpec, base: CoverageBaseline): SurfaceScore {
-  if (spec.censusServices.length === 0) return { intendedPct: null, totalPct: null };
-  // Today every scored page maps to at most one census service; if that ever
-  // changes, average the stored percentages equally.
-  const pcts: { total: number; intended: number }[] = [];
+  if (spec.censusServices.length === 0) return { runtime: null, types: null };
+  const surfaces: NonNullable<CoverageBaseline['services'][string]['publicSurface']>[] = [];
   for (const key of spec.censusServices) {
     const svc = base.services[key];
-    if (!svc?.surfaceCoveragePct) continue;
-    pcts.push(svc.surfaceCoveragePct);
+    if (!svc?.publicSurface) continue;
+    surfaces.push(svc.publicSurface);
   }
-  if (pcts.length === 0) return { intendedPct: null, totalPct: null };
-  if (pcts.length === 1) return { intendedPct: pcts[0].intended, totalPct: pcts[0].total };
-  const totalPct = Math.round((pcts.reduce((s, p) => s + p.total, 0) / pcts.length) * 10) / 10;
-  const intendedPct = Math.round((pcts.reduce((s, p) => s + p.intended, 0) / pcts.length) * 10) / 10;
-  return { intendedPct, totalPct };
+  if (surfaces.length === 0) return { runtime: null, types: null };
+  const combine = (axis: 'runtime' | 'types') => {
+    const mapped = surfaces.reduce((sum, surface) => sum + surface[axis].mapped, 0);
+    const denominator = surfaces.reduce((sum, surface) => sum + surface[axis].denominator, 0);
+    return { mapped, denominator, pct: denominator === 0 ? 0 : Math.round((mapped / denominator) * 1000) / 10 };
+  };
+  return { runtime: combine('runtime'), types: combine('types') };
 }
 
 /**
@@ -136,11 +144,11 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, base = readBas
   const behavior = computeBehavior(spec);
   const coverage = computeSurface(spec, base);
   const fidelityLine = `**Fidelity:** ${behavior.pct}% (${behavior.conforms} of ${behavior.total} tracked claims match production)`;
-  const coverageLine = coverage.intendedPct === null
+  const coverageLine = coverage.runtime === null || coverage.types === null
     ? spec.noCensusKind === 'integration'
       ? '**Surface coverage:** integration contract (unchanged upstream source; breadth is the signed row inventory)'
       : '**Surface coverage:** native (no upstream Firebase public API — measured against pyric\'s own surface)'
-    : `**Surface coverage:** ${coverage.totalPct}% of Firebase's public exports · ${coverage.intendedPct}% of what pyric intends to mirror`;
+    : `**Public surface:** runtime ${coverage.runtime.pct}% (${coverage.runtime.mapped}/${coverage.runtime.denominator}) · types ${coverage.types.pct}% (${coverage.types.mapped}/${coverage.types.denominator})`;
   const explanation = spec.noCensusKind === 'integration'
     ? `The signed row inventory defines this integration contract. Fidelity shows how many of those tracked behaviors match production — see the [scoreboard](${spec.scoreboardHref ?? '../conformance/SCORES.md'}) for what that percentage does and does not mean.`
     : `Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](${spec.scoreboardHref ?? '../conformance/SCORES.md'}) for what that percentage does and does not mean.`;
@@ -161,19 +169,19 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     '',
     '# Conformance scores',
     '',
-    'Pyric claims to mirror Firebase\'s observable behavior so you can develop against a sandbox and trust the swap. Conformance is the open receipt for that claim — not a parity badge. Three numbers answer three different questions. Do not fold them together.',
+    'Pyric claims to mirror Firebase\'s observable behavior so you can develop against a sandbox and trust the swap. Conformance is the open receipt for that claim — not a parity badge. Public runtime surface, public type surface, and fidelity answer different questions. Do not fold them together.',
     '',
-    '## Surface coverage (total)',
+    '## Public runtime surface',
     '',
     '**Question:** How much of this Firebase package is here at all?',
     '',
-    'Numerator: runtime exports pyric re-exports. Denominator: every public runtime export of the upstream package (e.g. `firebase/auth`), including APIs pyric has written off and ones not built yet. If a call exists in the Firebase docs, this number says whether pyric even has a symbol for it.',
+    'Numerator: public Firebase runtime exports Pyric mirrors. Denominator: every non-underscore runtime export of the upstream package, including deprecated, unsupported, and not-yet-built APIs. Leading-underscore Firebase plumbing is private and is shown only in the raw diagnostic. Pyric-only helpers receive no credit.',
     '',
-    '## Surface coverage (intended)',
+    '## Public type surface',
     '',
-    '**Question:** Against the contract pyric claims, how complete is the mirror?',
+    '**Question:** How much of the exported TypeScript contract is present?',
     '',
-    'Same numerator. Denominator drops only genuine `out-of-scope` symbols (Firebase-internal `_` plumbing, APIs pyric will not model). Deferred work — intended, not yet built — stays in the denominator as a gap, so planned-but-missing still lowers this number. Always ≥ total. This is the headline breadth number.',
+    'The TypeScript compiler reads the package declaration barrels and compares exported type names. Classes and enums participate in both namespaces because TypeScript exposes them as runtime values and types. This measures name presence, not structural assignability. Missing public types stay visible as gaps.',
     '',
     '## Fidelity',
     '',
@@ -203,7 +211,7 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     '',
     '## Scores',
     '',
-    '| Surface | Surface coverage (total) | Surface coverage (intended) | Fidelity |',
+    '| Surface | Public runtime surface | Public type surface | Fidelity |',
     '|---|---|---|---|',
   ];
   for (const surface of surfaceRegistries) {
@@ -212,9 +220,9 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     const behavior = computeBehavior(spec);
     const coverage = computeSurface(spec, base);
     const noCensusLabel = spec.noCensusKind === 'integration' ? 'integration' : 'native';
-    const totalCell = coverage.totalPct === null ? noCensusLabel : `${coverage.totalPct}%`;
-    const intendedCell = coverage.intendedPct === null ? noCensusLabel : `${coverage.intendedPct}%`;
-    lines.push(`| ${spec.label} | ${totalCell} | ${intendedCell} | ${behavior.pct}% (${behavior.conforms}/${behavior.total}) |`);
+    const runtimeCell = coverage.runtime === null ? noCensusLabel : `${coverage.runtime.pct}% (${coverage.runtime.mapped}/${coverage.runtime.denominator})`;
+    const typeCell = coverage.types === null ? noCensusLabel : `${coverage.types.pct}% (${coverage.types.mapped}/${coverage.types.denominator})`;
+    lines.push(`| ${spec.label} | ${runtimeCell} | ${typeCell} | ${behavior.pct}% (${behavior.conforms}/${behavior.total}) |`);
   }
   const overallBehavior = (() => {
     let conforms = 0;
@@ -227,7 +235,9 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     }
     return { conforms, total, pct: total > 0 ? Math.round((conforms / total) * 1000) / 10 : 0 };
   })();
-  lines.push(`| **Overall** | **${base.overall.surfaceCoveragePct.total}%** | **${base.overall.surfaceCoveragePct.intended}%** | **${overallBehavior.pct}%** (${overallBehavior.conforms}/${overallBehavior.total}) |`);
+  const overallRuntime = base.overall.publicSurface.runtime;
+  const overallTypes = base.overall.publicSurface.types;
+  lines.push(`| **Overall** | **${overallRuntime.pct}% (${overallRuntime.mapped}/${overallRuntime.denominator})** | **${overallTypes.pct}% (${overallTypes.mapped}/${overallTypes.denominator})** | **${overallBehavior.pct}%** (${overallBehavior.conforms}/${overallBehavior.total}) |`);
   lines.push('');
   return lines.join('\n');
 }

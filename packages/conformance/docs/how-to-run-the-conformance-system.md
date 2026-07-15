@@ -108,12 +108,14 @@ there. Run it after any edit to `registry/`, `observations/`, `probes/`,
 `rules-corpus/`, or `exceptions/`.
 
 **`compat:census-gate`** (exit 0) is the surface ratchet. It compares the
-current unmapped set against `baselines/census-baseline.json`. Passing means
-"no NEW debt". It does not mean "no debt": today it tolerates 53 unmapped
-symbols. A failure names the new symbol. Triage it into exactly one of: mirror
-it, deny it with an honest reason in `src/surface-denylist.ts`, or (only if it
-is genuinely intended and not yet built) add it to the baseline with
-`bun run compat:census-gate --update`.
+current unmapped runtime and type sets against
+`baselines/census-baseline.json`. Passing means "no NEW debt". It does not mean
+"no debt": today it tolerates 34 unmapped runtime symbols and 159 unmapped
+type names. A failure names the new symbol. Mirror it, give a missing public
+runtime export an honest disposition in `src/surface-denylist.ts`, or record
+the known gap with `bun run compat:census-gate --update`. The baseline prevents
+new gaps from arriving silently. It never gives an existing gap coverage
+credit.
 
 **`compat:entry-path`** (exit 0) is the one cliff in a system of ratchets. It
 runs each `entry-path/<service>.ts` program in-process: import from `pyric/*`
@@ -305,21 +307,22 @@ which is the whole point.
 
 ```
 $ bun run compat:coverage
-service         surface(total)  surface(intended)  behavior(total)  behavior(intended)  diverged  unverified
-------------------------------------------------------------------------------------------------------------
-ai                        69.1%               80.9%             92.5%                92.5%          6            0
-app                       39.1%                 90%             93.3%                 100%          0            0
-auth                      37.6%               37.6%             83.2%                87.5%         11            1
-firestore                 55.5%               63.5%               88%                  88%         20            0
-rtdb                     native              native             98.9%                98.9%          1            0
-rtdb-modular              64.8%               79.5%               80%                86.8%          9           11
-storage                   44.4%               66.7%             82.5%                92.4%          6            1
-messaging                  100%                100%              100%                 100%          0            0
-firestore-rules          native              native             69.6%                69.6%          7            0
-storage-rules            native              native              100%                 100%          0            0
-rtdb-rules               native              native              100%                 100%          0            0
-------------------------------------------------------------------------------------------------------------
-OVERALL                   53.5%               62.9%               87%                90.4%         60           13
+service         runtime(public)  types(public)  behavior(total)  behavior(intended)  diverged  unverified
+---------------------------------------------------------------------------------------------------------
+ai                         69.1%          66.5%             92.3%                92.3%          6            0
+app                          90%          66.7%             85.2%                88.5%          2            1
+auth                       82.4%          39.1%             81.8%                85.3%         16            1
+firestore                  63.5%          38.5%             87.6%                87.6%         20            0
+rtdb                      native         native             53.8%                95.5%          1            0
+rtdb-modular               79.5%          53.3%             82.1%                86.9%          8           12
+storage                    72.2%          52.9%               86%                93.5%          6            0
+messaging                   100%           100%              100%                 100%          0            0
+functions-rtdb       integration    integration             92.3%                92.3%          0            1
+firestore-rules           native         native               72%                  72%          7            0
+storage-rules             native         native             94.4%                94.4%          1            0
+rtdb-rules                native         native              100%                 100%          0            0
+---------------------------------------------------------------------------------------------------------
+OVERALL                    73.5%          54.8%             84.3%                88.9%         67           15
 
 High-risk unverified conforms rows: 5
 Orphan observations: 0
@@ -333,10 +336,22 @@ Entry-path (compat:entry-path — CLIFF, not a ratchet):
 ✓ No regressions vs. coverage-baseline.json.
 ```
 
-**Surface coverage** is mirrored SDK exports over SDK exports, computed by
-`src/surface-census.ts` from the BUILT packages. It is the headline trust
-number, and it measures BREADTH: "will my app's calls exist against the
-mirror." It says nothing about behavior.
+**Public runtime surface** is mirrored public runtime exports over Firebase
+public runtime exports. **Public type surface** applies the same name-presence
+test to exported types. Both are computed by `src/surface-census.ts` from the
+built packages. Together they measure breadth: whether the Firebase names an
+application imports exist against the mirror. They say nothing about behavior,
+and type-name presence does not prove structural assignability or signature
+equivalence.
+
+Public means the Firebase module's non-underscore exports. Leading-underscore
+implementation plumbing is excluded by one structural rule, never by a
+Pyric-maintained exception list. Deprecated, unsupported, and not-yet-built
+public APIs stay in the denominator. Pyric-only exports receive no credit. For
+example, `firebase/app` currently has 10 public runtime exports. Pyric mirrors
+9, with only `initializeServerApp` missing, so App runtime surface is 90%.
+Firebase's 13 leading-underscore runtime exports remain visible in the raw
+census diagnostic, but they cannot lower or raise public coverage.
 
 **Behavior conformance** is `conforms` rows over evaluated rows, from the
 ledger in `src/ledger.ts`. It measures FIDELITY of the already-implemented
@@ -347,24 +362,18 @@ rows that exist in the registry. `diverged-documented` and `unverified` rows
 get their own columns and are never folded into `conforms`; folding them in
 would inflate the number without changing what is true.
 
-**`total` versus `intended`.** `total` is over every export or row, no
-exclusions. `intended` is `total` minus what is *genuinely out of scope*:
-exports the deny-list tags `out-of-scope` (surface axis), and rows with
-`status: 'unsupported'` (behavior axis). `intended` is the honest denominator
-for "of what Pyric claims to support, how much works."
+**Surface has no intended axis.** A public Firebase export is part of the
+contract whether Pyric plans to implement it, has deferred it, or has an honest
+reason not to mirror it. Runtime dispositions explain missing symbols and keep
+the census exhaustive, but never remove public names from coverage. The type
+axis records every missing public type name directly.
 
-The load-bearing detail: **`intended` does NOT subtract `deferred` deny-list
-entries.** Deferred means intended-but-not-yet-built (account linking,
-reauthentication, MFA, email-link flows, the AI Live API, resumable uploads),
-and those stay IN the denominator as coverage debt. Excluding deferred work
-from `intended` would inflate the number by treating a to-do item as a decision
-never to build it. `src/surface-denylist.ts` carries the policy header,
-including the reasons that do NOT qualify as `out-of-scope`: "needs external
-infrastructure" and "v0 scope" are both deferred, not out of scope. That is why
-auth's `intended` (37.6%) equals its `total` (37.6%): auth has no out-of-scope
-exports at all, only deferred ones.
+Behavior retains total and intended views. Behavior intended excludes rows
+whose five-state status is `unsupported`; all other tracked rows stay in its
+denominator. This behavior-only distinction cannot alter either public-surface
+number.
 
-**`native` in the surface column** is not a missing number. It means the
+**`native` in the public-surface columns** is not a missing number. It means the
 surface has no upstream module to be measured against: the RTDB agent-tools
 host surface and the three rules engines are Pyric's own APIs. Their
 completeness is measured against their own public API, not against a Firebase
@@ -372,7 +381,9 @@ export set, so a breadth percentage would be meaningless. They still carry a
 behavior number, because they still have registry rows adjudicated against
 production evidence: the Firestore and Storage rules engines against the
 production Rules Test API, `rtdb-rules` against production itself. `OVERALL`
-surface coverage sums the mirror surfaces only.
+public-surface coverage sums the mirror surfaces only. `integration` marks an
+unchanged upstream API run through a Pyric runtime seam, such as Functions with
+Realtime Database. It also has no Firebase mirror denominator.
 
 **Entry-path verdicts** are `green`, `red-known`, or `red`. Coverage publishes
 them and applies cliff semantics: a green program turning red or red-known is a
@@ -381,7 +392,7 @@ tolerate.
 
 **The regression gate.** `compat:coverage` diffs against
 `baselines/coverage-baseline.json` and fails ONLY on regression: a `conforms`
-row flipping or disappearing, a surface percentage dropping, a new orphan
+row flipping or disappearing, a public runtime or type percentage dropping, a new orphan
 observation, or the high-risk-unverified count increasing. It never fails for
 being below an absolute percentage. A threshold gate would invite relabeling
 rows `conforms` to clear the bar, which is the exact dishonesty this system
@@ -389,7 +400,7 @@ exists to prevent. The gate protects a number that was true from silently
 stopping being true; it does not police how high the number is.
 
 When a change makes a legitimate, evidence-backed difference to coverage (a real
-new divergence, a newly-scoped-out export, a fixed row moving to `conforms`),
+new divergence, a newly mirrored public export or type, a fixed row moving to `conforms`),
 update the baseline alongside it:
 
 ```sh
@@ -1095,9 +1106,9 @@ The ritual, in order:
    diff with intent. The census sees symbols, not meaning: a symbol that looks
    like plumbing may be a headline feature.
 
-Instance methods, option-object fields, and signature changes are invisible to
-the runtime census. Those are the tier-2 assignability census's job, once it
-exists.
+The census now sees both runtime export names and exported type names. Instance
+methods, option-object fields, signature changes, and structural assignability
+remain outside its proof. Those require a later assignability gate.
 
 ## Known rough edges
 

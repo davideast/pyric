@@ -2,7 +2,7 @@
 
 # `pyric/ai` compatibility matrix
 
-> **Surface coverage:** 69.1% of Firebase's public exports · 80.9% of what pyric intends to mirror
+> **Public surface:** runtime 69.1% (38/55) · types 66.5% (109/164)
 >
 > **Fidelity:** 92.3% (72 of 78 tracked claims match production)
 >

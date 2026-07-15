@@ -5,24 +5,18 @@
  * Combines two axes that packages/conformance/src/surface-census.ts and
  * packages/conformance/src/ledger.ts already compute, per COMPAT service:
  *
- *   SURFACE coverage   = mirrored SDK exports / SDK exports (surface-census).
+ *   PUBLIC RUNTIME surface = mirrored public runtime exports / Firebase public runtime exports.
+ *   PUBLIC TYPE surface    = mirrored public type exports / Firebase public type exports.
  *   BEHAVIOR conformance = `conforms` registry rows / evaluated rows (ledger).
  *
- * Each axis is reported on two scopes:
- *   total    — over every export / row, no exclusions.
- *   intended — total minus what is GENUINELY OUT OF SCOPE (surface
- *              deny-list entries tagged `out-of-scope` — the sandbox truly
- *              cannot model them — for surface coverage; `status:
- *              'unsupported'` rows for behavior conformance). Deny-list
- *              entries tagged `deferred` (intended, not yet built) are NOT
- *              subtracted — they stay in `intended` as coverage debt. See
- *              surface-denylist.ts for the two-tier policy this encodes; the
- *              previous version of this script subtracted both tiers, which
- *              inflated the published number by counting planned work as if
- *              it had been scoped out.
+ * Public surface has one scope. Leading-underscore Firebase implementation
+ * exports are private and never enter it. Deprecated, dispositioned,
+ * unsupported, and not-yet-built public APIs remain in the denominator.
+ * Behavior retains its total/intended views for now; its five statuses remain
+ * visible independently in the registry and generated matrices.
  *
- * The HEADLINE metric is total-INTENDED SURFACE coverage per service — "will
- * my app's calls exist against the mirror" (breadth). Behavior conformance is
+ * Public runtime and type surface answer "will my app's symbol exist against
+ * the mirror". Behavior conformance is
  * the FIDELITY of the already-implemented slice — "of the calls that exist,
  * do they behave like prod" — and is never a standalone completeness grade;
  * it says nothing about the calls that don't exist yet.
@@ -44,7 +38,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { denyTierFor, type CensusSurface } from './surface-denylist.ts';
+import type { CensusSurface } from './surface-denylist.ts';
 import { type Surface } from '../registry/index.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, type RegistryEntry } from './ledger.ts';
@@ -61,12 +55,8 @@ interface CensusRow {
   surface: CensusSurface;
   upstream: string;
   mirrors: string[];
-  upstreamCount: number;
-  mirrorCount: number;
-  mapped: string[];
-  denied: { symbol: string; reason: string }[];
-  unmapped: string[];
-  extra: string[];
+  runtime: { upstreamCount: number; mapped: string[] };
+  types: { upstreamCount: number; mapped: string[] };
 }
 
 function runCensus(): CensusRow[] {
@@ -134,25 +124,25 @@ const CENSUS_SURFACE_FOR: Map<Surface, CensusSurface> = new Map(
   surfaceDescriptors.flatMap((d) => (d.kind === 'mirror' ? [[d.surface, d.censusSurface] as const] : [])),
 );
 
-interface SurfaceCoverage {
+interface NamespaceCoverage {
   mapped: number;
-  total: { denominator: number; pct: number };
-  intended: { denominator: number; pct: number };
+  denominator: number;
+  pct: number;
+}
+
+interface SurfaceCoverage {
+  runtime: NamespaceCoverage;
+  types: NamespaceCoverage;
+}
+
+function namespaceCoverage(mapped: number, denominator: number): NamespaceCoverage {
+  return { mapped, denominator, pct: pct(mapped, denominator) };
 }
 
 function surfaceCoverageFor(census: CensusRow): SurfaceCoverage {
-  const mapped = census.mapped.length;
-  const totalDenominator = census.upstreamCount;
-  // `intended` subtracts ONLY genuinely out-of-scope symbols — deferred
-  // (intended-but-unbuilt) symbols stay in the denominator as coverage debt.
-  // See surface-denylist.ts's header for the policy this encodes.
-  const tiers = denyTierFor(census.surface);
-  const outOfScopeCount = census.denied.filter((d) => tiers.get(d.symbol) === 'out-of-scope').length;
-  const intendedDenominator = census.upstreamCount - outOfScopeCount;
   return {
-    mapped,
-    total: { denominator: totalDenominator, pct: pct(mapped, totalDenominator) },
-    intended: { denominator: intendedDenominator, pct: pct(mapped, intendedDenominator) },
+    runtime: namespaceCoverage(census.runtime.mapped.length, census.runtime.upstreamCount),
+    types: namespaceCoverage(census.types.mapped.length, census.types.upstreamCount),
   };
 }
 
@@ -250,18 +240,18 @@ function buildReport(): CoverageReport {
   const uniqueCensusSurfaces = new Set(
     SERVICES.map((s) => CENSUS_SURFACE_FOR.get(s)).filter((cs): cs is CensusSurface => cs !== undefined),
   );
-  let mapped = 0, totalDen = 0, intendedDen = 0;
+  let runtimeMapped = 0, runtimeDenominator = 0, typeMapped = 0, typeDenominator = 0;
   for (const cs of uniqueCensusSurfaces) {
     const census = censusBySurface.get(cs)!;
     const c = surfaceCoverageFor(census);
-    mapped += c.mapped;
-    totalDen += c.total.denominator;
-    intendedDen += c.intended.denominator;
+    runtimeMapped += c.runtime.mapped;
+    runtimeDenominator += c.runtime.denominator;
+    typeMapped += c.types.mapped;
+    typeDenominator += c.types.denominator;
   }
   const overallSurface: SurfaceCoverage = {
-    mapped,
-    total: { denominator: totalDen, pct: pct(mapped, totalDen) },
-    intended: { denominator: intendedDen, pct: pct(mapped, intendedDen) },
+    runtime: namespaceCoverage(runtimeMapped, runtimeDenominator),
+    types: namespaceCoverage(typeMapped, typeDenominator),
   };
 
   // Overall behavior: every row across the five services (no double counting — rtdb and rtdb-modular are distinct row sets).
@@ -288,9 +278,8 @@ function buildReport(): CoverageReport {
 // ── Human table ──────────────────────────────────────────────────────────
 
 /**
- * One-line scope statement per surface — what's genuinely out of scope (the
- * sandbox cannot model it) vs. deferred (intended, not yet built, counted as a
- * gap against `intended`). Authored per-surface as each descriptor's
+ * One-line scope statement per surface. Public gaps stay visible regardless
+ * of their reviewed disposition. Authored per-surface as each descriptor's
  * `scopeNote`; see surface-denylist.ts for the full reasoning behind each entry.
  */
 const SCOPE_NOTES: Record<Surface, string> = Object.fromEntries(
@@ -299,15 +288,16 @@ const SCOPE_NOTES: Record<Surface, string> = Object.fromEntries(
 
 function printTable(report: CoverageReport): void {
   console.log('# Compatibility coverage\n');
-  console.log('SURFACE coverage (mirrored SDK exports / SDK exports) is the headline TRUST number — breadth: "will my call exist against the mirror."');
+  console.log('PUBLIC RUNTIME surface counts non-underscore Firebase runtime exports. PUBLIC TYPE surface counts Firebase exported types.');
+  console.log('Deprecated, unsupported, and not-yet-built public APIs stay in their denominator. Pyric-only exports receive no credit.');
   console.log('BEHAVIOR conformance (`conforms` rows / evaluated rows) is the FIDELITY of the already-implemented slice — "of the calls that exist, do they behave like prod." It is never a standalone completeness grade.');
-  console.log('`intended` excludes ONLY what is genuinely out of scope (the sandbox cannot model it). Deferred (intended, not yet built) stays IN `intended` as a gap.\n');
+  console.log('Behavior `intended` excludes unsupported rows only; every five-state count remains available in the registry.\n');
   for (const s of report.services) {
     console.log(`  ${s.surface}: ${SCOPE_NOTES[s.surface]}`);
   }
   console.log('');
 
-  const header = 'service         surface(total)  surface(intended)  behavior(total)  behavior(intended)  diverged  unverified';
+  const header = 'service         runtime(public)  types(public)  behavior(total)  behavior(intended)  diverged  unverified';
   console.log(header);
   console.log('-'.repeat(header.length));
   for (const s of report.services) {
@@ -315,13 +305,13 @@ function printTable(report: CoverageReport): void {
     // read 'native', never a percentage, so a reader can never confuse "N% of
     // my own exports claimed" with "N% of upstream mirrored".
     const noCensusLabel = s.kind === 'integration' ? 'integration' : 'native';
-    const surfaceTotal = s.surfaceCoverage ? `${s.surfaceCoverage.total.pct}%` : noCensusLabel;
-    const surfaceIntended = s.surfaceCoverage ? `${s.surfaceCoverage.intended.pct}%` : noCensusLabel;
+    const runtimePublic = s.surfaceCoverage ? `${s.surfaceCoverage.runtime.pct}%` : noCensusLabel;
+    const typesPublic = s.surfaceCoverage ? `${s.surfaceCoverage.types.pct}%` : noCensusLabel;
     console.log(
       [
         s.surface.padEnd(15),
-        surfaceTotal.padStart(14),
-        surfaceIntended.padStart(18),
+        runtimePublic.padStart(15),
+        typesPublic.padStart(13),
         `${s.behavior.total.pct}%`.padStart(16),
         `${s.behavior.intended.pct}%`.padStart(19),
         String(s.behavior.divergedDocumented).padStart(9),
@@ -333,15 +323,15 @@ function printTable(report: CoverageReport): void {
   console.log(
     [
       'OVERALL'.padEnd(15),
-      `${report.overall.surfaceCoverage.total.pct}%`.padStart(14),
-      `${report.overall.surfaceCoverage.intended.pct}%`.padStart(18),
+      `${report.overall.surfaceCoverage.runtime.pct}%`.padStart(15),
+      `${report.overall.surfaceCoverage.types.pct}%`.padStart(13),
       `${report.overall.behavior.total.pct}%`.padStart(16),
       `${report.overall.behavior.intended.pct}%`.padStart(19),
       String(report.overall.behavior.divergedDocumented).padStart(9),
       String(report.overall.behavior.unverified).padStart(11),
     ].join('  '),
   );
-  console.log('\nSURFACE reads `native` for a Pyric-owned API and `integration` for unchanged upstream code run through a Pyric runtime seam; neither has an export-census denominator. OVERALL surface coverage sums mirror surfaces only.');
+  console.log('\nPUBLIC surface reads `native` for a Pyric-owned API and `integration` for unchanged upstream code run through a Pyric runtime seam; neither has a Firebase denominator. OVERALL public surface sums mirror surfaces only.');
   console.log(`\nHigh-risk unverified conforms rows: ${report.highRiskUnverified.length}`);
   console.log(`Orphan observations: ${report.orphanObservations.length}`);
 
@@ -355,7 +345,7 @@ function printTable(report: CoverageReport): void {
 
 interface BaselineService {
   /** Absent for a native surface (no upstream breadth to ratchet). */
-  surfaceCoveragePct?: { total: number; intended: number };
+  publicSurface?: SurfaceCoverage;
   /** Marks a native surface so the regression gate skips its (absent) breadth. */
   native?: boolean;
   /** Marks an unchanged-upstream integration surface with no export census. */
@@ -365,7 +355,7 @@ interface BaselineService {
 interface Baseline {
   generatedAt: string;
   services: Record<string, BaselineService>;
-  overall: { surfaceCoveragePct: { total: number; intended: number } };
+  overall: { publicSurface: SurfaceCoverage };
   rowStatuses: Record<string, string>;
   highRiskUnverified: string[];
   orphanObservations: string[];
@@ -382,11 +372,11 @@ function toBaseline(report: CoverageReport): Baseline {
       report.services.map((s): [string, BaselineService] => [
         s.surface,
         s.surfaceCoverage
-          ? { surfaceCoveragePct: { total: s.surfaceCoverage.total.pct, intended: s.surfaceCoverage.intended.pct } }
+          ? { publicSurface: s.surfaceCoverage }
           : s.kind === 'integration' ? { integration: true } : { native: true },
       ]),
     ),
-    overall: { surfaceCoveragePct: { total: report.overall.surfaceCoverage.total.pct, intended: report.overall.surfaceCoverage.intended.pct } },
+    overall: { publicSurface: report.overall.surfaceCoverage },
     rowStatuses: report.rowStatuses,
     highRiskUnverified: report.highRiskUnverified,
     orphanObservations: report.orphanObservations,
@@ -411,19 +401,19 @@ function findRegressions(baseline: Baseline, report: CoverageReport): string[] {
     const base = baseline.services[s.surface];
     // A native surface has no breadth percentage to ratchet — skip. (Both the
     // report side and the baseline side are absent for native.)
-    if (!base || !base.surfaceCoveragePct || !s.surfaceCoverage) continue;
-    if (s.surfaceCoverage.total.pct < base.surfaceCoveragePct.total) {
-      problems.push(`${s.surface}: surface coverage (total) dropped ${base.surfaceCoveragePct.total}% -> ${s.surfaceCoverage.total.pct}%`);
+    if (!base || !base.publicSurface || !s.surfaceCoverage) continue;
+    if (s.surfaceCoverage.runtime.pct < base.publicSurface.runtime.pct) {
+      problems.push(`${s.surface}: public runtime surface dropped ${base.publicSurface.runtime.pct}% -> ${s.surfaceCoverage.runtime.pct}%`);
     }
-    if (s.surfaceCoverage.intended.pct < base.surfaceCoveragePct.intended) {
-      problems.push(`${s.surface}: surface coverage (intended) dropped ${base.surfaceCoveragePct.intended}% -> ${s.surfaceCoverage.intended.pct}%`);
+    if (s.surfaceCoverage.types.pct < base.publicSurface.types.pct) {
+      problems.push(`${s.surface}: public type surface dropped ${base.publicSurface.types.pct}% -> ${s.surfaceCoverage.types.pct}%`);
     }
   }
-  if (report.overall.surfaceCoverage.total.pct < baseline.overall.surfaceCoveragePct.total) {
-    problems.push(`overall: surface coverage (total) dropped ${baseline.overall.surfaceCoveragePct.total}% -> ${report.overall.surfaceCoverage.total.pct}%`);
+  if (report.overall.surfaceCoverage.runtime.pct < baseline.overall.publicSurface.runtime.pct) {
+    problems.push(`overall: public runtime surface dropped ${baseline.overall.publicSurface.runtime.pct}% -> ${report.overall.surfaceCoverage.runtime.pct}%`);
   }
-  if (report.overall.surfaceCoverage.intended.pct < baseline.overall.surfaceCoveragePct.intended) {
-    problems.push(`overall: surface coverage (intended) dropped ${baseline.overall.surfaceCoveragePct.intended}% -> ${report.overall.surfaceCoverage.intended.pct}%`);
+  if (report.overall.surfaceCoverage.types.pct < baseline.overall.publicSurface.types.pct) {
+    problems.push(`overall: public type surface dropped ${baseline.overall.publicSurface.types.pct}% -> ${report.overall.surfaceCoverage.types.pct}%`);
   }
 
   const CONFORMING_DEMOTION = new Set(['bug', 'diverged-documented', 'unverified', 'unsupported']);
@@ -475,7 +465,7 @@ async function main(): Promise<void> {
   if (updateBaseline) {
     writeFileSync(BASELINE_PATH, JSON.stringify(toBaseline(report), null, 2) + '\n');
     console.log(`Baseline updated: ${BASELINE_PATH.replace(REPO_ROOT + '/', '')}`);
-    console.log(`  overall surface coverage: total ${report.overall.surfaceCoverage.total.pct}%, intended ${report.overall.surfaceCoverage.intended.pct}%`);
+    console.log(`  overall public surface: runtime ${report.overall.surfaceCoverage.runtime.pct}%, types ${report.overall.surfaceCoverage.types.pct}%`);
     console.log(`  overall behavior conformance: total ${report.overall.behavior.total.pct}%, intended ${report.overall.behavior.intended.pct}%`);
     process.exit(0);
   }

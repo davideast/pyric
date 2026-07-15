@@ -20,7 +20,7 @@ export const surface: SurfaceDescriptorRecord = {
   observationPrefixes: ['app-registry-', 'app-production-'],
   coverage: true,
   scopeNote:
-    'out of scope: firebase-internal underscore plumbing (deny-listed). Deferred: initializeServerApp (SSR server-app semantics, no decided sandbox mirror). Client app handles, settings, named registries, and per-app service containers are mirrored. Intentional limit: one FirebaseOptions configuration per runtime because every app container connects to one sandbox backend.',
+    'Firebase-internal underscore plumbing is private and excluded from public coverage by rule. Public gap: initializeServerApp and its server-app types (SSR request state has no decided sandbox mirror). Client app handles, settings, named registries, and per-app service containers are mirrored. Intentional limit: one FirebaseOptions configuration per runtime because every app container connects to one sandbox backend.',
   conformanceSuite: 'packages/pyric/test/app/oracle-conformance.test.ts',
   captureRigs: ['app-registry', 'app-production'],
 };

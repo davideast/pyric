@@ -2,7 +2,7 @@
 
 # `pyric/auth` compatibility matrix
 
-> **Surface coverage:** 82.4% of Firebase's public exports · 83.3% of what pyric intends to mirror
+> **Public surface:** runtime 82.4% (70/85) · types 39.1% (25/64)
 >
 > **Fidelity:** 81.8% (99 of 121 tracked claims match production)
 >

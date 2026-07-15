@@ -6,8 +6,8 @@ import type { ExpectedFailureRecord } from '../entry-path/types.ts';
 /** A minimal, valid base input every test tweaks — keeps each case's diff small. */
 function baseInput(): EntryPathValidationInput {
   const census: EntryPathCensusRow[] = [
-    { surface: 'auth', mapped: ['getAuth', 'onAuthStateChanged', 'signInWithPopup'], unmapped: ['getApps'] },
-    { surface: 'app', mapped: ['initializeApp'], unmapped: ['getApps'] },
+    { surface: 'auth', runtime: { mapped: ['getAuth', 'onAuthStateChanged', 'signInWithPopup'], unmapped: ['getApps'] } },
+    { surface: 'app', runtime: { mapped: ['initializeApp'], unmapped: ['getApps'] } },
   ];
   const criticalSymbols: CriticalSymbolsReport = {
     generatedAt: new Date().toISOString(),

@@ -33,8 +33,10 @@ import type { CriticalSymbolsReport } from './entry-path-symbols.ts';
 
 export interface EntryPathCensusRow {
   surface: CensusSurface;
-  mapped: string[];
-  unmapped: string[];
+  runtime: {
+    mapped: string[];
+    unmapped: string[];
+  };
 }
 
 export interface EntryPathValidationInput {
@@ -91,7 +93,7 @@ export function validateEntryPath(input: EntryPathValidationInput): string[] {
       const census = censusBySurface.get(gap.surface);
       if (!census) {
         problems.push(`${where}: cites unknown census surface '${gap.surface}'`);
-      } else if (!census.unmapped.includes(gap.symbol)) {
+      } else if (!census.runtime.unmapped.includes(gap.symbol)) {
         problems.push(
           `${where}: cites '${gap.symbol}' as UNMAPPED on surface '${gap.surface}', but it is not currently unmapped — stale citation, delete this record`,
         );
@@ -125,7 +127,7 @@ export function validateEntryPath(input: EntryPathValidationInput): string[] {
       continue;
     }
     for (const symbol of entry.symbols) {
-      if (census.mapped.includes(symbol)) continue;
+      if (census.runtime.mapped.includes(symbol)) continue;
       const citingRecord = input.expectedFailures.find(
         (r) =>
           entry.programs.includes(r.program) &&
