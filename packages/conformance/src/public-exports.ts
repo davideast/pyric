@@ -1,6 +1,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { workspaceSourceEntry } from './workspace-entry.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TYPE_CENSUS_ENTRY = join(HERE, '__public-surface-census__.ts');
@@ -26,9 +27,11 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
 };
 
 function resolveDeclaration(specifier: string): string {
+  const source = workspaceSourceEntry(specifier);
+  if (source) return source;
   const resolved = ts.resolveModuleName(specifier, TYPE_CENSUS_ENTRY, COMPILER_OPTIONS, ts.sys).resolvedModule;
-  if (!resolved) throw new Error(`Cannot resolve public declaration entry for '${specifier}'`);
-  return resolved.resolvedFileName;
+  if (resolved) return resolved.resolvedFileName;
+  throw new Error(`Cannot resolve public declaration entry for '${specifier}'`);
 }
 
 /**
@@ -60,4 +63,26 @@ export function publicTypeExportNames(specifiers: string[]): string[] {
   }
 
   return [...names].sort();
+}
+
+/** Enumerate the runtime namespace of a workspace source barrel without
+ * evaluating it. This keeps clean-checkout conformance generation independent
+ * of package `dist/` while still following TypeScript re-exports. */
+export function publicRuntimeExportNamesFromSource(sourcePath: string): string[] {
+  const program = ts.createProgram([sourcePath], COMPILER_OPTIONS);
+  const checker = program.getTypeChecker();
+  const source = program.getSourceFile(sourcePath);
+  if (!source) throw new Error(`TypeScript did not load source entry '${sourcePath}'`);
+  const moduleSymbol = checker.getSymbolAtLocation(source);
+  if (!moduleSymbol) throw new Error(`TypeScript found no module symbol for source entry '${sourcePath}'`);
+
+  return checker.getExportsOfModule(moduleSymbol)
+    .filter((exported) => {
+      const target = (exported.flags & ts.SymbolFlags.Alias) !== 0
+        ? checker.getAliasedSymbol(exported)
+        : exported;
+      return (target.flags & ts.SymbolFlags.Value) !== 0;
+    })
+    .map((exported) => exported.name)
+    .sort();
 }

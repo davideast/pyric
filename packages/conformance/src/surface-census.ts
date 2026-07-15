@@ -13,8 +13,9 @@
  */
 import { dispositionTiersFor, dispositionsFor, loadCensusPairs } from '../surfaces/load.ts';
 import type { CensusSurface, DispositionTier } from '../surfaces/types.ts';
-import { isPublicExportName, publicTypeExportNames } from './public-exports.ts';
+import { isPublicExportName, publicRuntimeExportNamesFromSource, publicTypeExportNames } from './public-exports.ts';
 import type { CensusMirrorPair as MirrorPair } from '../surfaces/types.ts';
+import { workspaceSourceEntry } from './workspace-entry.ts';
 
 export interface DispositionedSymbol {
   symbol: string;
@@ -63,7 +64,9 @@ export interface SurfaceCensus {
 }
 
 async function runtimeExportNames(specifier: string): Promise<string[]> {
-  const mod = await import(specifier);
+  const source = workspaceSourceEntry(specifier);
+  if (source) return publicRuntimeExportNamesFromSource(source);
+  const mod = await import(specifier) as Record<string, unknown>;
   return Object.keys(mod).sort();
 }
 
