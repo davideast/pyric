@@ -2,7 +2,7 @@
 
 Exact signatures of every public export, grouped by purpose. Sandbox-only behavior is called out per function.
 
-> **Experimental.** Realtime Database is not part of Pyric's v1-supported surface (that is auth, Firestore, and rules). The modular functions below are verified sandbox-side by unit probes, and the semantics marked with an oracle observation are pinned to recorded production behavior, but most rows are not yet captured against a live project. See the [compatibility matrix](../COMPAT.md) before depending on parity.
+> **Experimental.** Realtime Database is not part of Pyric's v1-supported surface (that is auth, Firestore, and rules). The modular functions below are verified sandbox-side by unit probes, and the semantics marked with an oracle observation are pinned to recorded production behavior, but most rows are not yet captured against a live project. See the [compatibility matrix](https://pyric.dev/docs/pyric-database-compat/) before depending on parity.
 
 `pyric/database` is the canonical sandbox-only mirror of
 `firebase/database`. It never imports or dispatches to the production SDK.
@@ -377,7 +377,7 @@ returns a reference owned by the supplied sandbox database.
 
 - **The whole service is experimental.** Sandbox behavior is verified by unit
   probes; only semantics with an oracle citation are pinned to recorded
-  production behavior. See the [compatibility matrix](../COMPAT.md).
+  production behavior. See the [compatibility matrix](https://pyric.dev/docs/pyric-database-compat/).
 - Production selection happens at package resolution. Direct
   `pyric/database` calls reject real Firebase apps and foreign references.
 - `onChildMoved` registers but does not yet fire on reorder.
@@ -393,4 +393,4 @@ returns a reference owned by the supplied sandbox database.
 
 For the RTDB rules workflow, see
 [rules-tooling.md](./rules-tooling.md). For row-by-row Firebase compatibility,
-see the [compatibility matrix](../COMPAT.md).
+see the [compatibility matrix](https://pyric.dev/docs/pyric-database-compat/).

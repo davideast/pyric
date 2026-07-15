@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
-import { buildSurfaceCensus, type SurfaceCensus } from './surface-census.ts';
+import { loadCensusPairs } from '../../surfaces/load.ts';
+import { buildSurfaceCensus, censusForPair, runtimeExportNames, type SurfaceCensus } from '../../src/surface-census.ts';
 
 let census: SurfaceCensus[];
 
@@ -23,15 +24,15 @@ describe('Firebase public-surface census', () => {
     expect(census.map(({ surface }) => surface).sort()).toEqual(Object.keys(expectedCounts).sort());
 
     for (const surface of census) {
-      const expected = expectedCounts[surface.surface];
+      const expected = expectedCounts[surface.surface as keyof typeof expectedCounts];
       expect(
         [surface.runtime.upstreamCount, surface.runtime.mapped.length, surface.runtime.privateUpstream.length],
         `${surface.surface} runtime public/mapped/private`,
-      ).toEqual(expected.runtime);
+      ).toEqual([...expected.runtime]);
       expect(
         [surface.types.upstreamCount, surface.types.mapped.length],
         `${surface.surface} types public/mapped`,
-      ).toEqual(expected.types);
+      ).toEqual([...expected.types]);
     }
   });
 
@@ -72,6 +73,17 @@ describe('Firebase public-surface census', () => {
     expect(app.runtime.upstreamCount + app.runtime.privateUpstream.length).toBe(app.rawRuntime.upstreamCount);
   });
 
+  it('fails closed on a new underscore export until its exact private classification is reviewed', async () => {
+    const pair = loadCensusPairs().find(({ surface }) => surface === 'app')!;
+    const result = await censusForPair(pair, async (specifier) =>
+      specifier === pair.upstream
+        ? [...pair.privateRuntimeExports, '_newInternalExport']
+        : ['_newInternalExport']);
+    expect(result.runtime.privateUpstream).toEqual(pair.privateRuntimeExports.slice().sort());
+    expect(result.runtime.mapped).not.toContain('_newInternalExport');
+    expect(result.runtime.unmapped).toContain('_newInternalExport');
+  });
+
   it('tracks the public App type surface independently', async () => {
     const app = census.find((surface) => surface.surface === 'app')!;
     expect(app.types.upstreamCount).toBe(6);
@@ -84,5 +96,24 @@ describe('Firebase public-surface census', () => {
     expect(firestore.runtime.extra.length).toBeGreaterThan(0);
     expect(firestore.runtime.mapped.some((name) => firestore.runtime.extra.includes(name))).toBe(false);
     expect(firestore.types.mapped.some((name) => firestore.types.extra.includes(name))).toBe(false);
+  });
+});
+
+describe('deterministic workspace runtime export census', () => {
+  it('uses workspace source even when stale built output can be imported', async () => {
+    const names = await runtimeExportNames(
+      'pyric/app',
+      async () => ({ staleBuiltExport: true }),
+    );
+    expect(names).toContain('initializeApp');
+    expect(names).not.toContain('staleBuiltExport');
+  });
+
+  it('propagates import failures for external packages', async () => {
+    const failure = new Error('broken external entry');
+    await expect(runtimeExportNames(
+      'external-package',
+      async () => { throw failure; },
+    )).rejects.toBe(failure);
   });
 });

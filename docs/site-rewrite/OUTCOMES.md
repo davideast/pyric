@@ -1,6 +1,6 @@
 # OUTCOMES
 
-INVENTORY.md is the parts bin. This is the reason anyone opens it.
+The conformance model is the parts bin. This is the reason anyone opens the docs.
 
 We are not going to teach the parts. We are going to teach what people came to do. Firebase is old enough that we already know what they came to do. They want to build an app. They want their users to be safe. They want the data to behave. They want to ship without breaking the thing that is already live. And now they have an agent doing a lot of the typing, so they also want a place that agent can work without lighting production on fire.
 

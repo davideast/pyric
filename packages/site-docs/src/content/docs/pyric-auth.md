@@ -48,24 +48,14 @@ const auth = getAuth(app);
 
 await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 ```
-## What's in v0
+## Check feature support
 
-The deliberately-minimal surface covers everything an `appSource` likely needs:
-
-- `getAuth(target)`: default `FirebaseApp`, explicit `FirebaseApp`, and direct `Sandbox` overloads
-- `connectAuthEmulator(auth, url, options?)`: accepted no-op because the mirror is already a sandbox
-- `signInAnonymously` / `signInWithEmailAndPassword` / `createUserWithEmailAndPassword` / `signOut`
-- `signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential)`: sandbox returns pre-staged mock results
-- `setPersistence` + `inMemoryPersistence` / `browserSessionPersistence` / `browserLocalPersistence`
-- `onAuthStateChanged` / `onIdTokenChanged`
-- Provider classes: `GoogleAuthProvider`, `EmailAuthProvider`, `FacebookAuthProvider`, `GithubAuthProvider`, `OAuthProvider`
-- Sandbox-only test driver: `sandbox.setUser`, `sandbox.mockSignInResult`, `sandbox.seedUsers`
-
-See [`docs/reference/feature-matrix.md`](../pyric-auth-reference-feature-matrix/) for the full feature matrix and the explicit v0 deny-list.
-
-## What's out (v0)
-
-Unsupported symbols fail to resolve only in sandbox builds where package resolution selects this mirror. Production remains on the complete `firebase/auth` package. The current list is maintained in the feature matrix.
+Auth support changes as the mirror grows, so this documentation does not maintain a second allow-list or deny-list. Query the central conformance model for the current availability, fidelity, assurance, caveats, and evidence:
+```bash
+pyric can-i-use auth/signInWithEmailLink
+pyric can-i-use auth/linkWithCredential
+```
+Unsupported symbols fail to resolve only in sandbox builds where package resolution selects this mirror. Production remains on the complete `firebase/auth` package.
 
 ## State model: sandbox-wide `currentUser`
 
@@ -76,7 +66,7 @@ Today, `pyric/auth` writes to the field; reading from other service handles is t
 ## What's next (deferred follow-ups)
 
 - **`getFirestore(sandbox)` per-call identity read.** Add a `(sandbox)` overload on `pyric/firestore`'s `getFirestore` that reads `sandbox.currentUser` for each op. Lets agent code call `getFirestore(sandbox)` once and have Firestore see auth changes from `pyric/auth`'s sign-in flows automatically.
-- **Agent system-prompt update.** Drop the "no `firebase/auth` in `appSource`" rule and document the v0 deny-list as the new boundary.
+- **Agent system-prompt update.** Drop the "no `firebase/auth` in `appSource`" rule and query the conformance model before selecting a feature.
 
 ## Position in the Pyric stack
 

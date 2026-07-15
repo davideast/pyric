@@ -35,7 +35,7 @@ One behavior moves through five connected steps:
 <div class="flow-step">Publish the result<span class="flow-sub">generated matrices</span></div>
 </div>
 
-The observation records what Firebase did. The registry states the claim Pyric makes about that behavior. A local check determines whether Pyric matches the recorded result. Generated matrices expose the status and its evidence without letting the published result drift away from the source.
+The observation records what Firebase did. The registry states the claim Pyric makes about that behavior. A local check determines whether Pyric matches the recorded result. Generated matrices expose the status and its evidence directly from those sources.
 
 ## Follow one behavior from Firebase to the matrix
 
@@ -78,7 +78,7 @@ await expectCode(
   observation.code,
 );
 ```
-CI checks this chain in layers. Registry validation rejects missing or inconsistent evidence references. The library tests exercise local behavior, including observation-backed comparisons like this one. Selected production observations also have dedicated replay checks. The generated matrices are rebuilt from the registry and current public-surface census, then checked for drift.
+CI checks this chain in layers. Registry validation rejects missing or inconsistent evidence references. The library tests exercise local behavior, including observation-backed comparisons like this one. Selected production observations also have dedicated replay checks. The generated matrices are rendered from the model on a clean checkout; the docs build renders them twice and verifies deterministic output, routes, Markdown/HTML twins, and links.
 
 This distinction matters. `compat:check` validates the conformance model and generated results, but it does not replay every production observation by itself. The full CI suite combines those gates with the tests that exercise Pyric.
 
@@ -111,11 +111,11 @@ Committed Rules observations are replayed locally against the matching corpus sc
 
 Behavior evidence cannot show whether an API is missing. A perfect match on a small set of calls would still leave a poor mirror if Firebase exposed much more.
 
-The public-surface census therefore reads Firebase's public exports and compares them with Pyric. Runtime values and exported type names are measured separately. Names beginning with `_` remain available as a raw diagnostic but do not count as public Firebase surface. Unsupported or deprecated public APIs stay in the denominator, and Pyric-only helpers receive no credit.
+The public-surface census therefore reads Firebase's public exports and compares them with Pyric. Runtime values and exported type names are measured separately. A runtime export counts unless its exact name is reviewed as private in that surface's authored contract; a leading `_` never classifies it automatically, so a new name fails closed as an unmapped gap. The type-name census still excludes leading-underscore names by its structural rule while type classification remains future work. Unsupported or deprecated public APIs stay in the denominator, and Pyric-only helpers receive no credit.
 
 The census proves name presence, not signature equivalence or runtime behavior. Those questions belong to types, tests, and registry evidence. Keeping the axes separate prevents a strong result on one axis from hiding a weak result on another.
 
-The current [conformance scoreboard](../pyric-conformance-scores/) publishes public runtime surface, public type surface, and behavior fidelity separately.
+The current [conformance scoreboard](https://pyric.dev/docs/pyric-conformance-scores/) publishes public runtime surface, public type surface, and behavior fidelity separately.
 
 ## Five states keep the gaps visible
 
@@ -144,7 +144,7 @@ Conformance is a floor, not a guarantee of total equivalence.
 - **Surface evidence is name-level.** The census can establish that a public runtime or type name exists. It does not prove the full signature, semantics, or interaction with other APIs.
 - **A local mirror cannot remove the production boundary.** Project configuration, deployed Rules, credentials, service state, and Firebase changes still require controlled verification before release.
 
-No published result is typed into this page. Registry state and the live public-surface census generate the matrices and scoreboard. A generated page that drifts from those sources fails its check.
+No published result is typed into this page. Registry state and the live public-surface census generate the matrices and scoreboard. CI verifies the model gates and proves those pages render deterministically from a clean checkout with valid routes, twins, and links.
 
 ## Verify the boundary before shipping
 
@@ -160,4 +160,4 @@ Hosted verification evaluates derived cases. It does not deploy Rules or modify 
 
 This is the final boundary of the conformance claim. Pyric supplies evidence that local behavior matches the cases it tracks. A staging or hosted verification step checks the application-specific configuration that a general conformance suite cannot know. Then the same `firebase/*` application code can proceed through the normal Firebase deployment path described in [Ship to production](../ship-to-production/).
 
-The generated matrices contain the current evidence for [App](../pyric-app-compat/), [Auth](../pyric-auth-compat/), [Firestore](../pyric-firestore-compat/), [Realtime Database](../pyric-database-compat/), [Storage](../pyric-storage-compat/), [Messaging](../pyric-messaging-compat/), [AI Logic](../pyric-ai-compat/), [Security Rules](../pyric-rules-compat/), and [Functions with Realtime Database](../pyric-cli-functions-rtdb-compat/).
+The generated matrices contain the current evidence for [App](https://pyric.dev/docs/pyric-app-compat/), [Auth](https://pyric.dev/docs/pyric-auth-compat/), [Firestore](https://pyric.dev/docs/pyric-firestore-compat/), [Realtime Database](https://pyric.dev/docs/pyric-database-compat/), [Storage](https://pyric.dev/docs/pyric-storage-compat/), [Messaging](https://pyric.dev/docs/pyric-messaging-compat/), [AI Logic](https://pyric.dev/docs/pyric-ai-compat/), [Security Rules](https://pyric.dev/docs/pyric-rules-compat/), and [Functions with Realtime Database](https://pyric.dev/docs/pyric-cli-functions-rtdb-compat/).

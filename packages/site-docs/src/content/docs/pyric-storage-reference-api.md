@@ -8,7 +8,7 @@ order: 14006
 
 Every symbol exported from `pyric/storage`.
 
-> **Experimental.** Storage is built, documented, and usable, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. See [`COMPAT.md`](../pyric-storage-compat/) for the row-by-row conformance state.
+> **Experimental.** Storage is built, documented, and usable, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. See the [compatibility matrix](https://pyric.dev/docs/pyric-storage-compat/) for the row-by-row conformance state.
 
 ## Entry points
 
@@ -176,9 +176,9 @@ interface ListResult {
   nextPageToken?: string;
 }
 ```
-`nextPageToken` is always absent (`undefined`) from `listAll`; the field exists for forward compatibility with paginated `list`, which is deferred. See [Boundaries](#boundaries).
+`nextPageToken` is always absent (`undefined`) from `listAll`; the optional field preserves the Firebase-shaped result for consumer code that handles pagination. See [Boundaries](#boundaries).
 
-Paginated `list(ref, { maxResults, pageToken })` is deferred. `listAll` covers every v1 scope scenario.
+For the current availability and evidence for paginated `list(ref, { maxResults, pageToken })`, run `pyric can-i-use storage/list`. `listAll` covers every currently implemented listing scenario.
 
 ## Rules
 
@@ -426,11 +426,4 @@ Returns two `@inbrowser/agent` `ToolHandler`s built on the handlers above: `stor
 
 ## Boundaries
 
-Out of scope for v1:
-
-- Paginated `list`. Only `listAll` ships. `ListResult.nextPageToken` stays in the shape for forward compatibility but is always `undefined`.
-- `uploadBytesResumable`. No pause/resume/progress uploads; `uploadBytes` is synchronous only.
-- Image transformations. Not modeled; production-only via Firebase Extensions.
-- Cloud Functions Storage triggers. Not data-plane concerns; no sandbox-side event channel for them today.
-
-See [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) for the full deferred list, including granular rule verbs, `request.time`, and cross-bucket isolation.
+Feature availability is owned by the central conformance model, not this API reference. Run `pyric can-i-use storage/<symbol>` to see whether a Firebase Storage export is available and, independently, what fidelity and assurance its evidence supports. The generated Storage conformance page contains the underlying rows and caveats.

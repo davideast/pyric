@@ -26,16 +26,17 @@
  * their own beyond what callers pass in) so tests can exercise the citation
  * rules without shelling out to the census or touching the real ledger.
  */
-import { dispositionTiersFor, loadCensusPairs } from '../surfaces/load.ts';
 import type { CensusSurface } from '../surfaces/types.ts';
 import type { ExpectedFailureRecord } from '../entry-path/types.ts';
 import type { CriticalSymbolsReport } from './entry-path-symbols.ts';
 
 export interface EntryPathCensusRow {
   surface: CensusSurface;
+  mirrors: string[];
   runtime: {
     mapped: string[];
     unmapped: string[];
+    dispositioned: Array<{ symbol: string; availability: string }>;
   };
 }
 
@@ -52,21 +53,20 @@ export interface EntryPathValidationInput {
 
 /**
  * `pyric/*` package specifier -> census surface, derived from the surface
- * descriptors' own `mirrors` lists (`surfaces/load.ts`'s `loadCensusPairs`) —
- * never hardcoded, so a descriptor change can never silently desync this
- * mapping from the one the census itself uses.
+ * central model census' own `mirrors` lists — never hardcoded and never
+ * reloaded from the authored contracts by this consumer.
  */
-export function packageToCensusSurface(): Map<string, CensusSurface> {
+export function packageToCensusSurface(census: readonly EntryPathCensusRow[]): Map<string, CensusSurface> {
   const map = new Map<string, CensusSurface>();
-  for (const pair of loadCensusPairs()) {
-    for (const mirror of pair.mirrors) map.set(mirror, pair.surface);
+  for (const entry of census) {
+    for (const mirror of entry.mirrors) map.set(mirror, entry.surface);
   }
   return map;
 }
 
 export function validateEntryPath(input: EntryPathValidationInput): string[] {
   const problems: string[] = [];
-  const packageSurface = packageToCensusSurface();
+  const packageSurface = packageToCensusSurface(input.census);
   const censusBySurface = new Map(input.census.map((c) => [c.surface, c]));
 
   // ── Expected-failure structural integrity + citation validity ─────────
@@ -99,7 +99,8 @@ export function validateEntryPath(input: EntryPathValidationInput): string[] {
         );
       }
     } else if (gap.kind === 'disposition-deferred') {
-      const tier = dispositionTiersFor(gap.surface).get(gap.symbol);
+      const tier = censusBySurface.get(gap.surface)?.runtime.dispositioned
+        .find(({ symbol }) => symbol === gap.symbol)?.availability;
       if (tier !== 'deferred') {
         problems.push(
           `${where}: cites '${gap.symbol}' on surface '${gap.surface}' as deferred, but no such surface disposition currently exists — stale citation, delete this record`,

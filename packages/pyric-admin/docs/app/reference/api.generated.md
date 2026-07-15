@@ -62,6 +62,22 @@ firebase-admin's default app name.
 
 ## Functions
 
+### applicationDefault()
+
+> **applicationDefault**(): `never`
+
+Firebase Functions' ESM runtime statically imports this credential factory
+while linking its database provider. Pyric initializes the sandbox app
+before that provider executes, so the factory is not used by supported
+Functions flows. Keep the named export link-compatible, but fail clearly if
+application code asks the development sandbox for production credentials.
+
+#### Returns
+
+`never`
+
+***
+
 ### deleteApp()
 
 > **deleteApp**(`app`): `Promise`\<`void`\>

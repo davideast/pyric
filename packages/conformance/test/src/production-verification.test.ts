@@ -16,10 +16,10 @@ import {
   describeProductionFact,
   describeProductionEvidence,
   indexConstructScopes,
-} from './production-verification.ts';
-import { surfaceRegistries } from '../registry/index.ts';
-import type { CompatibilityRow, CompatibilitySurfaceRegistry } from '../registry/types.ts';
-import { computeCoverageReport, type CoverageReport } from './rules-language-analyzer.ts';
+} from '../../src/production-verification.ts';
+import { surfaceRegistries } from '../../registry/index.ts';
+import type { CompatibilityRow, CompatibilitySurfaceRegistry } from '../../registry/types.ts';
+import { computeCoverageReport, type CoverageReport } from '../../src/rules-language-analyzer.ts';
 
 let coverageReport: CoverageReport;
 beforeAll(async () => { coverageReport = await computeCoverageReport(); }, 20_000);
@@ -29,6 +29,7 @@ function row(id: string, over: Partial<CompatibilityRow> = {}): CompatibilityRow
     id,
     surface: 'rtdb-rules',
     aliases: [],
+    featureKeys: [],
     rowRef: id,
     rowNumber: 1,
     section: 's',

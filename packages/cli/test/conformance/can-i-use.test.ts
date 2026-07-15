@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'bun:test';
-import { canIUse, createConformanceTools, type FeatureSupport } from '../../src/conformance/index.js';
+import * as conformance from '../../src/conformance/index.js';
+import { canIUse, canIUseImport, type FeatureSupport } from '../../src/conformance/index.js';
 
 function one(query: string): FeatureSupport {
   const result = canIUse(query);
-  if (Array.isArray(result)) throw new Error(`expected one result for ${query}`);
-  return result;
+  if (result.match !== 'exact' || result.supports.length !== 1) throw new Error(`expected one exact result for ${query}`);
+  return result.supports[0]!;
 }
 
 describe('packaged conformance query', () => {
+  it('keeps generated tables and MCP machinery behind the two-function facade', () => {
+    expect(Object.keys(conformance).sort()).toEqual(['canIUse', 'canIUseImport']);
+  });
+
   it('preserves the three trust axes in the generated Node projection', () => {
     expect(one('getAfter')).toMatchObject({
       availability: 'available',
@@ -21,10 +26,37 @@ describe('packaged conformance query', () => {
     });
   });
 
-  it('exposes the exact same result through MCP', async () => {
-    const tool = createConformanceTools()[0]!;
-    const response = await tool.execute({ feature: 'getDownloadURL' });
-    expect(response.ok).toBe(true);
-    expect(response.data).toEqual(canIUse('getDownloadURL'));
+  it('lets documentation consumers scope symbols by published import path', () => {
+    expect(canIUse('getDownloadURL', { importPath: 'pyric/storage' })).toMatchObject({
+      match: 'exact',
+      supports: [expect.objectContaining({
+        importPaths: ['pyric/storage'],
+        evidenceSlug: 'pyric-storage-compat',
+      })],
+    });
+    expect(canIUse('getDownloadURL', { importPath: 'pyric/firestore' }).match).toBe('none');
+    const appGetAuth = canIUse('getAuth', { importPath: 'pyric/app' });
+    expect(appGetAuth.match).not.toBe('exact');
+    expect(appGetAuth.supports.map(({ feature }) => feature)).not.toContain('getAuth');
+  });
+
+  it('scopes native package exports without treating rules constructs as exports', () => {
+    expect(canIUse('evaluateStorageRules', { importPath: 'pyric/storage' })).toMatchObject({
+      match: 'exact',
+      supports: [expect.objectContaining({
+        feature: 'evaluateStorageRules',
+        surface: 'storage-rules',
+      })],
+    });
+    expect(canIUse('getAfter', { importPath: 'pyric/rules' }).match).toBe('none');
+  });
+
+  it('gives docs generators one canonical import-to-evidence lookup', () => {
+    expect(canIUseImport('pyric/rules')).toEqual({
+      importPath: 'pyric/rules',
+      surface: 'firestore-rules',
+      evidenceSlug: 'pyric-rules-compat',
+    });
+    expect(canIUseImport('pyric/unknown')).toBeUndefined();
   });
 });

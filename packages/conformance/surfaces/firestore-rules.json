@@ -1,8 +1,11 @@
 {
-  "schema": "pyric.conformance.surface.v1",
-  "order": 9,
+  "schema": "pyric.conformance.surface.v2",
   "kind": "native",
+  "developerSurface": "firestore-rules",
   "symbolSource": "pyric/rules",
+  "evidenceImports": [
+    "pyric/rules"
+  ],
   "observationPrefixes": [
     "rules-firestore-"
   ],

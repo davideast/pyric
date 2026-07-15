@@ -4,9 +4,11 @@ Private workspace package (not published to npm). It holds the compatibility
 registry, the per-surface descriptors, the oracle capture rigs and their frozen
 observations, and the gates and reports that turn them into the published compat
 coverage number. This package is the project's trust proof: every "matches prod"
-claim in the mirror traces back to a file in this tree. Consumed only by the
-root `package.json` `compat:*` / `oracle:plan` scripts and by CI
-(`.github/workflows/build.yml`).
+claim in the mirror traces back to a file in this tree. Root `package.json`
+`compat:*` / `oracle:plan` scripts and CI consume the private package directly.
+The docs build has one additional narrow consumer: `@pyric/conformance/docs`
+renders virtual compatibility pages for `@pyric/site-docs`. Published runtime
+packages use generated projections and never import this workspace package.
 
 ## Layout
 

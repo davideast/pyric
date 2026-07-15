@@ -1,5 +1,5 @@
 /**
- * Shared measurement helper for the admin-app-* probes.
+ * Shared thrown-value measurement for the admin-app-* probes.
  *
  * Not itself a probe (the runner's directory scan filters to files matching
  * the `admin-app-` observation prefix, which this filename does not), just
@@ -9,6 +9,7 @@
  */
 
 export interface CapturedThrow {
+  [key: string]: unknown;
   threw: boolean;
   code?: string;
   errorName?: string;

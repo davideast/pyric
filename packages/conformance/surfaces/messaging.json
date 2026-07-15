@@ -1,12 +1,13 @@
 {
-  "schema": "pyric.conformance.surface.v1",
-  "order": 7,
+  "schema": "pyric.conformance.surface.v2",
   "kind": "mirror",
+  "developerSurface": "messaging",
   "censusSurface": "messaging",
   "upstream": "firebase/messaging",
   "mirrors": [
     "pyric/messaging"
   ],
+  "privateRuntimeExports": [],
   "observationPrefixes": [
     "messaging-web-"
   ],

@@ -1,7 +1,7 @@
 {
-  "schema": "pyric.conformance.surface.v1",
-  "order": 10,
+  "schema": "pyric.conformance.surface.v2",
   "kind": "native",
+  "developerSurface": "storage-rules",
   "symbolSource": "pyric/storage",
   "observationPrefixes": [
     "rules-storage-"

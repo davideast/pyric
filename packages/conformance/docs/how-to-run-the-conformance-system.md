@@ -30,34 +30,35 @@ claims. Nothing edits a generated file by hand, ever.
 One command answers "is the conformance graph coherent right now":
 
 ```sh
-bash scripts/build.sh    # first, if src/ changed: the census imports the BUILT packages
-bun run compat:check
+bun run compat:check     # workspace census resolves manifest exports to source
 ```
 
-`compat:check` is not a script of its own. It chains five gates, in this
+`compat:check` is not a script of its own. It chains six gates, in this
 order, cheapest and most specific first:
 
 | # | Gate | Fails when |
 |---|------|-----------|
-| 1 | `compat:validate` | A link in the evidence graph is broken: a row cites a missing observation, an observation sits in the wrong surface directory, a probe has no observation twin, a rules-corpus scenario is orphaned, or an entry-path expected-failure cites a gap that does not exist. |
-| 2 | `compat:census-gate` | A change introduced a NEW unmapped upstream symbol, or left a stale/redundant surface disposition behind. Ratchets against `baselines/census-baseline.json`. |
-| 3 | `compat:entry-path` | A canonical initialization program went red without a cited, currently-real gap. This is a CLIFF, not a ratchet. |
-| 4 | `compat:conformance:check` | The ignored runtime node-verdict lookup is missing or no longer matches the conformance graph. Run the CLI prebuild or `compat:conformance`. |
-| 5 | `compat:coverage` | A published number regressed: a `conforms` row flipped or vanished, surface coverage dropped, a new orphan observation appeared, or the high-risk-unverified count went up. Never fails for being low, only for going down. |
+| 1 | conformance `typecheck` | The central model, registry, surface contracts, or trust adapters do not typecheck. |
+| 2 | `compat:validate` | A link in the evidence graph is broken: a row cites a missing observation, an observation sits in the wrong surface directory, a probe has no observation twin, a rules-corpus scenario is orphaned, or an entry-path expected-failure cites a gap that does not exist. |
+| 3 | `compat:census-gate` | A runtime export lacks a reviewed disposition, a NEW type gap appears, or a stale/redundant disposition remains. |
+| 4 | `compat:entry-path` | A canonical initialization program went red without a cited, currently-real gap. This is a CLIFF, not a ratchet. |
+| 5 | `compat:conformance:check` | Any ignored runtime projection—the Node developer-feature query, compact browser query, or assurance node-verdict lookup—is missing or no longer matches the central model. Run the CLI prebuild or `compat:conformance`. |
+| 6 | `compat:coverage` | A published number regressed: a `conforms` row flipped or vanished, surface coverage dropped, a new orphan observation appeared, or the high-risk-unverified count went up. Never fails for being low, only for going down. |
 
 Green looks like this (trimmed):
 
 ```
 $ bun run compat:check
 # Compatibility registry validation
-Rows: 827
-Observations: 225
-Conformance checks: 5
+Rows: 815
+Observations: 267
+Conformance checks: 4
 Problems: 0
 
 # Compat census gate
-Current unmapped total: 53. Baseline tolerates 53.
-✓ No new unmapped symbols, no stale/redundant denials. Gate clean.
+Current public gaps: 0 runtime, 159 types.
+Baseline tolerates: 0 runtime, 159 types.
+✓ No new public gaps or disposition decay.
 
 # Entry-path conformance (CLIFF gate)
   GREEN       auth
@@ -67,9 +68,10 @@ Current unmapped total: 53. Baseline tolerates 53.
 4 green, 0 red-known, 0 red, 0 stale-expected-failure — 4 program(s) total.
 ✓ Entry-path gate clean (every program green or red-known-with-citation).
 
-Compatibility markdown is generated from the registry.
-Conformance verdicts: 1067 nodes (851 supported, 135 qualified, 81 unsupported)
-Generated lookup: 38511 bytes raw, 5090 bytes gzip
+Conformance model: 953 developer feature result(s), … bytes
+Browser query projection: … bytes raw, … bytes gzip
+Assurance verdicts: 1067 nodes (851 supported, 135 qualified, 81 unsupported)
+Generated verdict lookup: … bytes raw, … bytes gzip
 
 # Compatibility coverage
 [… the coverage table …]
@@ -79,13 +81,18 @@ Generated lookup: 38511 bytes raw, 5090 bytes gzip
 Exit code 0. Generated outputs are always rebuilt from their source:
 
 ```sh
-bun run compat:generate     # rewrites generated COMPAT pages + the scoreboard from the registry
-bun run compat:conformance  # rewrites the ignored CLI runtime verdict lookup
-git diff                    # the diff IS the report: it shows exactly what changed
+bun run compat:generate     # rewrites generated COMPAT pages + the scoreboard from the model
+bun run compat:conformance  # rewrites the ignored Node query, browser query, and verdict lookup
+sed -n '1,160p' packages/pyric/docs/conformance/SCORES.md
+rg 'getAfter|request.query' packages/cli/src/{assurance,conformance}/.generated/
+git diff -- packages/conformance/observations packages/conformance/registry \
+  packages/conformance/surfaces packages/conformance/baselines
 ```
 
-If the diff shows something you did not intend, the registry is wrong, not the
-generated file.
+Inspect ignored projections directly; `git diff` intentionally shows only
+changes to committed canonical evidence and policy. If a projection shows
+something you did not intend, fix the registry row, surface contract, evidence,
+or baseline rather than the generated file.
 
 CI runs these same gates in `.github/workflows/build.yml`, plus
 `compat:lint-terms` and the audit gate, and publishes the coverage table to the
@@ -108,13 +115,13 @@ there. Run it after any edit to `registry/`, `observations/`, `probes/`,
 
 **`compat:census-gate`** (exit 0) is the surface ratchet. It compares the
 current unmapped runtime and type sets against
-`baselines/census-baseline.json`. Passing means "no NEW debt". It does not mean
-"no debt": today it tolerates 34 unmapped runtime symbols and 159 unmapped
-type names. A failure names the new symbol. Mirror it, give a missing public
-runtime export an honest disposition in its `surfaces/<surface>.json` contract, or record
-the known gap with `bun run compat:census-gate --update`. The baseline prevents
-new gaps from arriving silently. It never gives an existing gap coverage
-credit.
+`baselines/census-baseline.json`. Runtime is a cliff: all absent public runtime
+exports require a reviewed disposition, and the baseline tolerates zero
+unmapped runtime symbols. The independently measured type namespace currently
+ratchets 159 historical gaps. A failure names the symbol. Mirror a missing
+runtime export or classify it in `surfaces/<surface>.json`; update the type
+baseline only after reviewing an upstream dependency change. Neither a
+disposition nor the baseline grants coverage credit.
 
 **`compat:entry-path`** (exit 0) is the one cliff in a system of ratchets. It
 runs each `entry-path/<service>.ts` program in-process: import from `pyric/*`
@@ -125,9 +132,10 @@ failure is cited by an `entry-path/expected-failures.ts` record naming a real,
 currently-existing gap, or the gate fails the build. `expected-failures.ts` is
 empty today: all four programs are green.
 
-**`compat:conformance:check`** (exit 0) verifies the ignored runtime lookup
-still matches what the conformance graph derives. The CLI prebuild normally
-creates it; see `compat:conformance` below.
+**`compat:conformance:check`** (exit 0) verifies all three ignored runtime
+projections still match the central model: the full Node developer-feature
+query, compact browser query, and assurance node-verdict lookup. The CLI
+prebuild normally creates them; see `compat:conformance` below.
 
 **`compat:coverage`** (exit 0) is the published compatibility number and the
 regression gate that protects it. See [Read the reports](#read-the-reports).
@@ -158,7 +166,7 @@ Current high-risk unverified ✓ rows: 5 (baseline tolerates 5).
 ### Generators (their output is disposable; never edit or commit it)
 
 **`compat:generate`** (exit 0) regenerates the ignored nine `COMPAT.md` docs and
-scoreboard from the registry for local inspection. The docs-site porter renders
+scoreboard from the central model for local inspection. The docs-site porter renders
 the same pages in memory, so a clean checkout needs no package-side Markdown
 projection.
 
@@ -167,17 +175,22 @@ $ bun run compat:generate
 Generated 9 compatibility document(s) + scoreboard.
 ```
 
-**`compat:conformance`** (exit 0) derives a verdict for every addressable
-construct and registry row. It writes a deterministic, ignored TypeScript
-lookup consumed by the CLI. The graph remains the only source of truth; this
-projection exists only for a filesystem-free runtime lookup and is regenerated
-before every CLI build.
+**`compat:conformance`** (exit 0) derives the developer-feature results and a
+verdict for every addressable construct and registry row. It writes three
+deterministic, ignored TypeScript projections consumed by the CLI and the
+Playground's compact browser query. The graph remains the only source of truth;
+these projections exist only for filesystem-free runtime lookup and are
+regenerated before every CLI build.
 
 ```
 $ bun run compat:conformance
+Wrote …/packages/cli/src/conformance/.generated/can-i-use.ts
+Wrote …/packages/cli/src/conformance/.generated/can-i-use-browser.ts
 Wrote …/packages/cli/src/assurance/.generated/conformance-verdicts.ts
-Conformance verdicts: 1067 nodes (851 supported, 135 qualified, 81 unsupported)
-Generated lookup: 38511 bytes raw, 5090 bytes gzip
+Conformance model: 953 developer feature result(s), … bytes
+Browser query projection: … bytes raw, … bytes gzip
+Assurance verdicts: 1067 nodes (851 supported, 135 qualified, 81 unsupported)
+Generated verdict lookup: … bytes raw, … bytes gzip
 ```
 
 **The rules-language reports** have no `compat:*` alias; run them by path when
@@ -220,9 +233,9 @@ summary.
 code or a specific value scores higher than a row asserting a shape. This is
 the "what should we capture next" list.
 
-**`compat:census`** (**exit 1**, by design) is the tier-1 runtime export diff
-per mirror pair. It exits non-zero whenever ANY upstream export is unmapped,
-which is true today (53 of them). It is a REPORT, not the gate:
+**`compat:census`** (**exit 1**, by design) is the public runtime and type export
+diff per mirror pair. Runtime has zero unreviewed gaps; the independently
+measured type namespace still has 159. It is a REPORT, not the gate:
 `compat:census-gate` is the gate, and it passes. Do not wire `compat:census`
 into a pipeline expecting 0. `-- --report` adds the full per-surface inventory,
 including every reviewed disposition with its written reason.
@@ -345,14 +358,16 @@ application imports exist against the mirror. They say nothing about behavior,
 and type-name presence does not prove structural assignability or signature
 equivalence.
 
-Public means the Firebase module's non-underscore exports. Leading-underscore
-implementation plumbing is excluded by one structural rule, never by a
-Pyric-maintained exception list. Deprecated, unsupported, and not-yet-built
-public APIs stay in the denominator. Pyric-only exports receive no credit. For
-example, `firebase/app` currently has 10 public runtime exports. Pyric mirrors
-9, with only `initializeServerApp` missing, so App runtime surface is 90%.
-Firebase's 13 leading-underscore runtime exports remain visible in the raw
-census diagnostic, but they cannot lower or raise public coverage.
+Runtime visibility is reviewed by exact name in each machine-readable surface
+contract. Known Firebase implementation exports are excluded there; a newly
+exported name, including a leading-underscore name, remains unmapped and fatal
+until reviewed. Type visibility still uses the non-underscore rule while its
+classification project remains future work. Deprecated, unsupported, and
+not-yet-built public APIs stay in the denominator. Pyric-only exports receive
+no credit. For example, `firebase/app` currently has 10 public runtime exports.
+Pyric mirrors 9, with only `initializeServerApp` missing, so App runtime surface
+is 90%. Its 13 exactly classified private runtime exports remain visible in the
+raw census diagnostic, but they cannot lower or raise public coverage.
 
 **Behavior conformance** is `conforms` rows over evaluated rows, from the
 ledger in `src/ledger.ts`. It measures FIDELITY of the already-implemented
@@ -489,94 +504,38 @@ shown under it.
 bun run compat:census
 ```
 
-```
-surface     upstream  mapped  denied  unmapped  extra
-ai               55     38     17        0     1
-app              23      9     14        0     4
-auth             85     32     34       19     3
-firestore       119     66     25       28     8
-database         54     35     15        4    33
-storage          27     12     13        2    20
-messaging         5      5      0        0     1
-messaging-sw       4      4      0        0     1
-
-## UNMAPPED gaps
-
-- auth (19): AuthCredential, AuthErrorCodes, EmailAuthCredential, OAuthCredential,
-  OperationType, ProviderId, SAMLAuthProvider, SignInMethod, TwitterAuthProvider,
-  browserCookiePersistence, browserPopupRedirectResolver, debugErrorMap,
-  fetchSignInMethodsForEmail, getAdditionalUserInfo, indexedDBLocalPersistence,
-  prodErrorMap, revokeAccessToken, signInWithCustomToken, validatePassword
-- firestore (28): AbstractUserDataWriter, AggregateField, AggregateQuerySnapshot,
-  CollectionReference, DocumentReference, DocumentSnapshot, Firestore, FirestoreError,
-  Query, QueryCompositeFilterConstraint, QueryConstraint, QueryDocumentSnapshot,
-  QueryEndAtConstraint, QueryFieldFilterConstraint, QueryLimitConstraint,
-  QueryOrderByConstraint, QuerySnapshot, QueryStartAtConstraint, SnapshotMetadata,
-  Transaction, WriteBatch, aggregateFieldEqual, aggregateQuerySnapshotEqual,
-  documentSnapshotFromJSON, ensureFirestoreConfigured, executeWrite, onSnapshotResume,
-  querySnapshotFromJSON
-- database (4): DataSnapshot, Database, QueryConstraint, TransactionResult
-- storage (2): StorageErrorCode, StringFormat
-
-✗ Unmapped public runtime or type exports remain. Mirror them, add a reviewed
-  runtime disposition to the owning surface contract, or ratchet known debt.
-```
-
-Exit code 1, by design. That list is the complete, by-name answer to "what is
-not mirrored": these 53 symbols ARE the surface-coverage deficit, spelled out.
+The report prints every surface's mapped, dispositioned, and unreviewed runtime
+sets, followed by all 159 unmapped public type names. Exit code 1 reflects the
+type gaps; an unmapped runtime export is a model error and cannot be baselined.
 
 ### Which exports are deliberately NOT mirrored, and why?
 
-The unmapped list above is untriaged debt. Surface dispositions are triaged debt, and
-every entry carries a written reason:
+An unmapped runtime export is untriaged debt and fails the model. Surface
+dispositions are reviewed classifications authored in
+`packages/conformance/surfaces/*.json`; every entry has a stable id, an
+availability tier, a reason code, evidence references, and its exact symbols:
 
 ```sh
 bun run compat:census -- --report
 ```
 
-```
-## firebase/ai → pyric/ai
-upstream 55 · mirror 39 · mapped 38 · denied 17 · unmapped 0 · extra 1
-
-  DENIED (17):
-    - ImagenAspectRatio: Imagen is deprecated upstream; all Imagen models shut down as
-      early as June 2026 (upstream 2.11.0 deprecation). Mirroring an API whose production
-      counterpart is retiring would freeze dead behavior.
-    - InferenceMode: Hybrid/on-device inference is deferred, not out of scope — the sandbox
-      runs in the browser and can model the on-device path through the answer-engine seam;
-      the mode has not been wired yet.
-    - LiveGenerativeModel: Live API is deferred, not out of scope — it is a bidirectional
-      websocket protocol the sandbox can model with a scripted session engine, the same
-      seam pattern the REST plane already uses; the work has not happened yet.
-    …
-```
-
-Read the `deferred` versus `out-of-scope` framing in each reason: that
-distinction is what decides whether the symbol leaves the `intended`
-denominator.
+The report labels these symbols `dispositioned` and prints the structured
+availability and disposition id. Neither `deferred` nor `out-of-scope` earns
+public-surface coverage credit: every absent public export remains in the
+runtime denominator. The `intended` denominator shown by `compat:coverage` is a
+separate behavior-row view that excludes `unsupported` registry rows only.
 
 ### Which unmapped symbols does the ratchet currently tolerate?
 
 ```sh
-python3 -c "import json;d=json.load(open('packages/conformance/baselines/census-baseline.json'))['surfaces'];[print(f'{s}: {len(v)}') or [print('   ',x) for x in v] for s,v in d.items() if v]"
+python3 -c "import json; d=json.load(open('packages/conformance/baselines/census-baseline.json')); [print(f'{axis}/{surface}: {len(symbols)}') for axis, surfaces in d.items() for surface, symbols in surfaces.items() if symbols]"
 ```
 
-```
-auth: 19
-    AuthCredential
-    AuthErrorCodes
-    EmailAuthCredential
-    …
-firestore: 28
-    AbstractUserDataWriter
-    …
-database: 4
-storage: 2
-```
-
-Anything in this file is pre-existing debt the gate lets through. Anything NOT
-in it fails `compat:census-gate` the moment it appears. To pay debt down:
-mirror the symbol or deny it with a reason, then remove it from the baseline.
+The runtime map is empty by policy: a missing public runtime export must be
+mirrored or receive a reviewed JSON disposition. The type map currently
+ratchets 159 pre-existing type-only gaps. A new type gap fails
+`compat:census-gate`; paying one down means mirroring the type and removing its
+name from `types.<surface>` in the baseline.
 
 ### Which registry rows are NOT conforming, by id?
 
@@ -823,7 +782,7 @@ bun run compat:entry-path
 
 A `red-known` program names the gap it is blocked on in
 `entry-path/expected-failures.ts`, and `compat:validate` re-derives that
-citation against the live census, deny-list, and registry: a record cannot be
+citation against the live census, surface contracts, and registry: a record cannot be
 added speculatively, and cannot be left behind once the gap it names has closed.
 
 ## Capture new evidence
@@ -948,6 +907,8 @@ reading what changed.
   `packages/cli/docs/functions-rtdb/COMPAT.md` (from the registry, via
   `compat:generate`)
 - `packages/cli/src/assurance/.generated/conformance-verdicts.ts` (ignored; via CLI prebuild or `compat:conformance`)
+- `packages/cli/src/conformance/.generated/can-i-use.ts` (ignored; via CLI prebuild or `compat:conformance`)
+- `packages/cli/src/conformance/.generated/can-i-use-browser.ts` (ignored; compact Playground query via CLI prebuild or `compat:conformance`)
 - `packages/conformance/rules-language/{coverage,capability,acceptance}-report.json` (via the three report scripts)
 - the ten conformance pages under `packages/site-docs/src/content/docs/`
   (via the docs-site port, which consumes the renderer in memory)
@@ -966,13 +927,15 @@ descriptors instead of hardcoding a list. Admission is two authored files plus
 one registry-barrel import:
 
 1. **One contract file**, `surfaces/<name>.json`, conforming to
-   `pyric.conformance.surface.v1`. The filename is the key. The contract names the
+   `pyric.conformance.surface.v2` (published as
+   `schemas/surface-contract.v2.schema.json`). The filename is the key. The contract names the
    registry it hosts rows in, the observation filename prefixes it owns, and the
    capture rigs that produce them. Its `kind` is `mirror` for a Pyric package
    measured against an upstream export census, `native` for a Pyric-owned API,
    or `integration` for unchanged upstream source executed through a Pyric
    runtime seam. Mirror and census-only contracts also own reviewed runtime
-   dispositions, grouped by reason and tier.
+   dispositions, grouped under stable ids with structured availability, reason
+   codes and summaries, evidence references, and exact symbol lists.
 2. **One registry file**, `registry/<name>.ts`, exporting a
    `CompatibilitySurfaceRegistry` with its `compatPath` and its rows.
 3. **One import in `registry/index.ts`**, adding that registry to
@@ -1040,9 +1003,9 @@ The ritual, in order:
    vouches for the installed SDK. Re-capture before trusting any conformance
    result.
 2. `bun run compat:census -- --report` diffs the export surface. Every new
-   unmapped symbol gets triaged into exactly one of: mirror it, give it an
-   honest disposition in the owning `surfaces/<surface>.json`, or add it to the census baseline
-   as tracked debt.
+   runtime symbol must be mirrored or receive an honest disposition in the
+   owning `surfaces/<surface>.json`. A type-only gap may enter the type census
+   baseline as tracked debt; runtime gaps may not.
 3. Read the upstream changelog between the two versions and annotate the census
    diff with intent. The census sees symbols, not meaning: a symbol that looks
    like plumbing may be a headline feature.
@@ -1063,21 +1026,18 @@ Documented so nobody has to rediscover them:
   (`bun run packages/conformance/src/audit-gate.ts`), and so must you. Its
   ratchet overlaps `compat:coverage`'s high-risk-unverified regression check, so
   a new uncited high-risk row fails two gates rather than one.
-- **The three rules-language reports have no aliases and NO FRESHNESS GATE.**
-  Run the generators by path (see
-  [Generators](#generators-they-write-files-never-edit-their-output)). Unlike
-  `COMPAT.md`, nothing checks that a committed
-  report still matches what its generator produces. A change that fixes the
-  simulator without regenerating leaves the report UNDERSTATING the truth, and
-  because `compat:conformance` reads these reports, the understatement propagates
-  into runtime verdicts. This is not hypothetical: it has happened.
-  Regenerate after ANY change to the corpus, the snapshots, or the simulator,
-  and commit the result:
+- **The three rules-language reports are disposable diagnostics, not inputs.**
+  The conformance model computes capability and coverage directly in memory
+  from the corpus, snapshots, registry, and simulator. The report commands may
+  still be run by path when a human wants JSON or Markdown to inspect (see
+  [Generators](#generators-they-write-files-never-edit-their-output)), but their
+  outputs are ignored and must not be committed. A stale report cannot affect
+  `compat:conformance`; the gate derives fresh evidence on every run:
 
   ```sh
   bun run packages/conformance/src/rules-language-analyzer.ts
   bun run packages/conformance/src/rules-language-capability.ts
-  git diff packages/conformance/rules-language/   # the diff is the report
+  # Inspect the ignored outputs locally; do not git-add them.
   ```
 - **`compat:coverage --json` prints its `bun run` banner to stderr**, so piping
   stdout straight into a JSON parser works with no redirection. The one-liners

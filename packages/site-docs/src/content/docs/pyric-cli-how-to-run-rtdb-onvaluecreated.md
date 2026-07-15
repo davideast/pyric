@@ -88,5 +88,5 @@ reported as unsupported because Pyric cannot resolve its deployment value.
 Native ESM entries, other RTDB trigger types, other Firebase products, retries,
 deployed concurrency, multiple Functions codebases or database instances,
 durable delivery across restarts, secrets, and deployment emulation remain
-outside the slice. See the [Functions RTDB compatibility matrix](../pyric-cli-functions-rtdb-compat/)
+outside the slice. See the [Functions RTDB compatibility matrix](https://pyric.dev/docs/pyric-cli-functions-rtdb-compat/)
 for the production-observed behaviour Pyric replays.

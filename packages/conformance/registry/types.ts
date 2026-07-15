@@ -1,23 +1,9 @@
-export type Surface =
-  | 'app'
-  | 'ai'
-  | 'auth'
-  | 'firestore'
-  | 'rtdb'
-  | 'rtdb-modular'
-  | 'storage'
-  | 'messaging'
-  | 'messaging-admin'
-  | 'functions-rtdb'
-  // Native surfaces (no upstream module to mirror; conformance is measured
-  // against their own public API and the production Rules Test API engine).
-  // `firestore-rules` and `storage-rules` are descriptor surfaces; `rules` is
-  // the shared registry key both resolve to (the one COMPAT doc they share),
-  // on the `rtdb`/`rtdb-modular` -> `rtdb` registry precedent.
-  | 'firestore-rules'
-  | 'storage-rules'
-  | 'rtdb-rules'
-  | 'rules';
+/** Surface identities are authored one-record-per-file under `surfaces/` and
+ * validated at runtime. The public generated can-i-use projection publishes
+ * the exact literal union; internal registry code deliberately has no master
+ * list that every new surface must edit. */
+export type DeveloperSurface = string;
+export type Surface = string;
 
 /**
  * Typed conformance status. Rendering (the ✓/⚠/✗/—/? glyphs in the
@@ -53,9 +39,13 @@ export interface CompatibilityRow {
   id: string;
   surface: Surface;
   aliases: string[];
-  /** Canonical developer-facing feature names when display prose cannot be
-   *  parsed without ambiguity. Most SDK rows derive these from `api`. */
-  featureKeys?: string[];
+  /** Canonical developer-facing feature names when this row narrows or
+   * overrides its table's feature family. Display prose is never parsed. */
+  featureKeys: string[];
+  /** Explicitly marks an internal, historical, or narrative row that must not
+   * participate in developer feature queries. Required when neither
+   * featureKeys nor rules constructs provide an identity. */
+  queryable?: false;
   rowRef: string;
   rowNumber: number | null;
   section: string;
@@ -114,6 +104,8 @@ export type CompatibilityDocBlock = MarkdownBlock | CompatibilityTableBlock;
 
 export interface CompatibilitySurfaceRegistry {
   surface: Surface;
+  /** Human-facing name for this generated compatibility document. */
+  label: string;
   compatPath: string;
   blocks: CompatibilityDocBlock[];
 }

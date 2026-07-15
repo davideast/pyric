@@ -113,7 +113,8 @@ export async function run(): Promise<void> {
     ['getDocFromCache', await getDocFromCache(docRef)],
   ] as const;
   for (const [label, snap] of reads) {
-    if (!snap.exists() || snap.data()?.first !== 'Ada') {
+    const exists = typeof snap.exists === 'function' ? snap.exists() : snap.exists;
+    if (!exists || snap.data()?.first !== 'Ada') {
       throw new Error(`${label} did not read back the written document`);
     }
   }

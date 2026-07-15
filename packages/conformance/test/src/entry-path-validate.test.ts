@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test';
-import { validateEntryPath, packageToCensusSurface, type EntryPathCensusRow, type EntryPathValidationInput } from './entry-path-validate.ts';
-import type { CriticalSymbolsReport } from './entry-path-symbols.ts';
-import type { ExpectedFailureRecord } from '../entry-path/types.ts';
+import { validateEntryPath, packageToCensusSurface, type EntryPathCensusRow, type EntryPathValidationInput } from '../../src/entry-path-validate.ts';
+import type { CriticalSymbolsReport } from '../../src/entry-path-symbols.ts';
+import type { ExpectedFailureRecord } from '../../entry-path/types.ts';
 
 /** A minimal, valid base input every test tweaks — keeps each case's diff small. */
 function baseInput(): EntryPathValidationInput {
   const census: EntryPathCensusRow[] = [
-    { surface: 'auth', runtime: { mapped: ['getAuth', 'onAuthStateChanged', 'signInWithPopup'], unmapped: ['getApps'] } },
-    { surface: 'app', runtime: { mapped: ['initializeApp'], unmapped: ['getApps'] } },
+    { surface: 'auth', mirrors: ['pyric/auth'], runtime: { mapped: ['getAuth', 'onAuthStateChanged', 'signInWithPopup'], unmapped: ['getApps'], dispositioned: [{ symbol: 'multiFactor', availability: 'deferred' }] } },
+    { surface: 'app', mirrors: ['pyric/app'], runtime: { mapped: ['initializeApp'], unmapped: ['getApps'], dispositioned: [] } },
+    { surface: 'custom', mirrors: ['pyric/custom'], runtime: { mapped: [], unmapped: [], dispositioned: [{ symbol: 'customDeferred', availability: 'deferred' }] } },
   ];
   const criticalSymbols: CriticalSymbolsReport = {
-    generatedAt: new Date().toISOString(),
     packages: {
       'pyric/auth': { symbols: ['getAuth', 'onAuthStateChanged'], programs: ['auth'] },
       'pyric/app': { symbols: ['initializeApp'], programs: ['auth'] },
@@ -29,13 +29,11 @@ function baseInput(): EntryPathValidationInput {
 }
 
 describe('packageToCensusSurface', () => {
-  test('derives package -> census surface from the real surface descriptors', () => {
-    const map = packageToCensusSurface();
+  test('derives package -> census surface from the supplied central-model census', () => {
+    const map = packageToCensusSurface(baseInput().census);
     expect(map.get('pyric/auth')).toBe('auth');
-    expect(map.get('pyric/firestore')).toBe('firestore');
-    expect(map.get('pyric/database')).toBe('database');
-    expect(map.get('pyric/storage')).toBe('storage');
     expect(map.get('pyric/app')).toBe('app');
+    expect(map.get('pyric/custom')).toBe('custom');
     // pyric/sandbox has no upstream firebase module — no census surface.
     expect(map.has('pyric/sandbox')).toBe(false);
   });
@@ -110,6 +108,14 @@ describe('validateEntryPath — expected-failure citation validity', () => {
       { program: 'auth', reason: 'r', fixedBy: 'f', gap: { kind: 'disposition-deferred', surface: 'auth', symbol: 'multiFactor' } },
     ];
     expect(validateEntryPath(input).some((p) => p.includes('multiFactor'))).toBe(false);
+  });
+
+  test('a deferred citation is resolved from the supplied model census, not reloaded contracts', () => {
+    const input = baseInput();
+    input.expectedFailures = [
+      { program: 'auth', reason: 'r', fixedBy: 'f', gap: { kind: 'disposition-deferred', surface: 'custom', symbol: 'customDeferred' } },
+    ];
+    expect(validateEntryPath(input)).toEqual([]);
   });
 
   test('a disposition-deferred citation naming a symbol that is NOT deferred is stale (fatal)', () => {

@@ -27,6 +27,7 @@ import { buildSeedFirestoreDataHandler } from '../diagnostics/seed-firestore-dat
 
 import { runWorkspaceTestsHandler } from './runWorkspaceTests';
 import { bashHandler } from './bash';
+import { canIUseHandler } from './can-i-use';
 
 export const CORE_TOOLS: readonly ToolHandler[] = [
   // File-based authoring surface, paths under /workspace/.
@@ -42,6 +43,7 @@ export const CORE_TOOLS: readonly ToolHandler[] = [
   ...buildFirestoreRulesStdlibHandlers(),
   inspectDenialHandler,
   buildSeedFirestoreDataHandler(),
+  canIUseHandler,
   // W1 dev loop: one call runs the whole /workspace/tests suite.
   runWorkspaceTestsHandler as ToolHandler,
   // W2.1 bash action surface: persistent workspace shell + builtins.

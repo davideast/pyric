@@ -84,17 +84,15 @@ Notice the `request.resource == null` carve-out. `deleteObject` carries no paylo
 
 One rule-shape gotcha carried over faithfully from production: `listAll` requires `read` on the listed folder itself. A rule scoped to `match /sessions/{id}` grants nothing on `/sessions`, so give the folder its own read rule.
 
-## The boundaries, plainly
+## Check support before choosing an operation
 
-The v1 scope is deliberate. What is not in it:
-
-- **No `getDownloadURL`.** For a renderable URL in dev, use `getBlob` and `URL.createObjectURL`. In production the upstream `firebase/storage` has the real one.
-- **No resumable uploads.** `uploadBytesResumable`, with its pause and progress machinery, is deferred. `uploadBytes` and `uploadString` are the write path.
-- **No paginated `list`.** `listAll` only.
-- **`resource.timeCreated` / `resource.updated` aren't exposed on `resource`.** Everything else on `resource` and `request` — including `request.time`, `matches()`, rule functions, and the granular verbs (`get`, `list`, `create`, `update`, `delete`) — works.
-- **One implicit bucket.** The `bucket` option round-trips through metadata but does not partition data.
-
-Each of these fails loudly at the call site instead of drifting quietly.
+Storage support changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
+```bash
+pyric can-i-use storage/getDownloadURL
+pyric can-i-use storage/uploadBytesResumable
+pyric can-i-use storage/list
+```
+The answer separates availability from fidelity and assurance, and points to the evidence behind the result.
 
 ## Where to go next
 

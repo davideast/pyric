@@ -1,18 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow } from '../registry/index.ts';
-import { surfaceDescriptors } from '../surfaces/load.ts';
-import { observationExceptions } from '../exceptions/load.ts';
-import { renderAllCompatibilityMarkdown, SCOREBOARD_PATH } from './generate-docs.ts';
-import { deriveConformanceModel } from './conformance-model.ts';
-import { loadObservations, REPO_ROOT } from './ledger.ts';
-import { validateCompatibilityRegistry } from './validate-registry.ts';
-import { loadRigManifests } from '../rigs/load.ts';
-import type { RigManifest } from '../rigs/types.ts';
-import { ALL_RULES_FIRESTORE_SCENARIOS } from '../rules-corpus/firestore/index.ts';
-import { ALL_RULES_STORAGE_SCENARIOS } from '../rules-corpus/storage/index.ts';
-import { listProbeFiles } from '../probes/load.ts';
+import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow } from '../../registry/index.ts';
+import { surfaceDescriptors } from '../../surfaces/load.ts';
+import { observationExceptions } from '../../exceptions/load.ts';
+import { compatibilityPageCatalog, renderAllCompatibilityMarkdown, SCOREBOARD_PATH } from '../../src/generate-docs.ts';
+import { deriveConformanceModel } from '../../src/conformance-model.ts';
+import { loadObservations, REPO_ROOT } from '../../src/ledger.ts';
+import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
+import { loadRigManifests } from '../../rigs/load.ts';
+import type { RigManifest } from '../../rigs/types.ts';
+import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
+import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
+import { listProbeFiles } from '../../probes/load.ts';
 
 describe('single-source compatibility registry', () => {
   test('contains explicit rows for all major surfaces', () => {
@@ -122,15 +122,35 @@ describe('single-source compatibility registry', () => {
     expect(problems.some((problem) => problem.includes('packages/pyric/test/missing.test.ts'))).toBe(true);
   });
 
+  test('rejects blank and duplicate normalized feature identities', () => {
+    const row = allCompatibilityRows.find((entry) => entry.featureKeys.length > 0)!;
+    const broken: CompatibilityRow = { ...row, featureKeys: ['  ', 'get_auth', 'getAuth'] };
+    const problems = validateCompatibilityRegistry({
+      rows: [broken, ...allCompatibilityRows.filter((entry) => entry.id !== row.id)],
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+    });
+    expect(problems).toContain(`${row.id}: featureKeys must not contain blank identities`);
+    expect(problems).toContain(`${row.id}: duplicate normalized featureKey 'getAuth'`);
+  });
+
   test('generated markdown covers every published compat document', async () => {
-    const docs = renderAllCompatibilityMarkdown(await deriveConformanceModel());
+    const model = await deriveConformanceModel();
+    const docs = renderAllCompatibilityMarkdown(model);
     // One doc per registry surface, plus the central scoreboard.
     expect(docs.size).toBe(surfaceRegistries.length + 1);
     for (const surface of surfaceRegistries) {
       expect(docs.has(surface.compatPath)).toBe(true);
     }
-    expect(docs.get(SCOREBOARD_PATH)).toContain('Generated from packages/conformance/registry/*.ts');
-    expect(docs.get('packages/pyric/docs/auth/COMPAT.md')).toContain('Generated from packages/conformance/registry/*.ts');
+    expect(docs.get(SCOREBOARD_PATH)).toContain(
+      'Generated from the conformance model (registry rows + surface contracts)',
+    );
+    expect(docs.get('packages/pyric/docs/auth/COMPAT.md')).toContain(
+      'Generated from the conformance model (registry rows + surface contracts)',
+    );
+    expect(new Set(compatibilityPageCatalog(model).map(({ path }) => path))).toEqual(new Set(docs.keys()));
+    expect(docs.get(SCOREBOARD_PATH)).toContain('17/17 conform');
   }, 20_000);
 
   test('every observation internal name matches its filename minus .json', () => {
@@ -245,7 +265,7 @@ describe('oracle rig manifests', () => {
       observationExceptions,
       rigManifests: broken,
     });
-    expect(problems.some((p) => p.includes("observation prefix 'not-a-real-prefix-' is not a recognized surface descriptor prefix"))).toBe(true);
+    expect(problems.some((p) => p.includes("observation prefix 'not-a-real-prefix-' is not a recognized surface contract prefix"))).toBe(true);
   });
 
   test('surfaces a rig manifest prefix with zero matching observations', async () => {

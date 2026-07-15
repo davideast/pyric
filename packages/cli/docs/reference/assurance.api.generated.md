@@ -1233,9 +1233,9 @@ Credential-free projection safe to hand to Studio visualization code.
 
 How an unsupported qualification must be classified. Absent when the
  qualification is supported. `engine-gap` is the default abstention (a
- target-specific check failed, or a declared capability is derived
- non-supported); `invalid-probe` overrides it when the campaign declared a
- capability the engine does not define.
+ target-specific check failed, or a required graph node is derived
+ non-supported); `invalid-probe` overrides it when the campaign names a
+ graph node the engine does not know.
 
 ##### engine
 

@@ -873,7 +873,7 @@ const SURFACE_OWNERS = surfaceDescriptors.map((d) => ({ id: d.surface, observati
 /** This rig (oracle-run) spans five surfaces (auth, firestore, rtdb,
  *  rtdb-modular, storage) — every observation it writes must land in ITS
  *  surface subdirectory, resolved by the same longest-prefix rule
- *  surfaces/*.ts's observationPrefixes define everywhere else. */
+ *  validated surfaces/*.json observationPrefixes define everywhere else. */
 function writeObservation(obs: Observation): void {
   const surface = soleLongestPrefixOwner(obs.name, SURFACE_OWNERS);
   if (!surface) throw new Error(`observation '${obs.name}' does not match a known surface observation prefix`);
@@ -4253,9 +4253,9 @@ const probes: Probe[] = [
   },
   {
     name: 'rtdb-onvalue-fires-on-set',
-    matrixRow: 'rtdb #(listeners — currently deny-listed; oracle locks the upstream SDK shape)',
+    matrixRow: 'rtdb #(listener behavior — oracle locks the upstream SDK shape)',
     rowIds: ['rtdb-modular#130'],
-    description: 'Register an onValue listener at a path, perform a set(), observe the fire count. Locks the upstream firebase/database onValue semantics so the deny-list rationale (long-lived listeners) is informed by real behavior.',
+    description: 'Register an onValue listener at a path, perform a set(), observe the fire count. Locks the upstream firebase/database onValue semantics with real behavior evidence.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
       await signInAnonymously(auth);
@@ -4386,7 +4386,7 @@ const probes: Probe[] = [
   },
   {
     name: 'rtdb-servertimestamp-resolves',
-    matrixRow: 'rtdb #(sentinels — currently deny-listed; oracle locks the upstream SDK shape)',
+    matrixRow: 'rtdb #(sentinel behavior — oracle locks the upstream SDK shape)',
     rowIds: ['rtdb-modular#M21', 'rtdb-modular#153', 'rtdb-modular#154'],
     description: 'Write a value containing serverTimestamp() as a field, read back, observe that the field resolved to a numeric millisecond timestamp (not the {".sv":"timestamp"} sentinel placeholder).',
     async observe() {
@@ -8144,6 +8144,7 @@ const probes: Probe[] = [
         await deleteUser(auth.currentUser!);
       })) !== null;
       await dropCurrentUser();
+      const knownMethods = forKnownAccount as string[] | null;
       return {
         code,
         forKnownAccountWithPassword: forKnownAccount,
@@ -8151,7 +8152,7 @@ const probes: Probe[] = [
         // The tell: an account we JUST created with a password comes back
         // with an empty list => Email Enumeration Protection is on and the
         // API is functionally dead against a modern project.
-        emptyForAccountThatHasAPasswordMethod: forKnownAccount !== null && forKnownAccount.length === 0,
+        emptyForAccountThatHasAPasswordMethod: knownMethods !== null && knownMethods.length === 0,
         cleanupLeaked,
       };
     },

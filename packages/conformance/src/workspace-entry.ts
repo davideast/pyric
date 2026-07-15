@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -6,7 +6,39 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..'
 
 interface PackageManifest {
   name: string;
-  exports?: Record<string, { import?: string }>;
+  private?: boolean;
+  exports?: Record<string, string | ExportConditions>;
+  pyricUnreleasedExports?: string[];
+}
+
+interface ExportConditions {
+  import?: string;
+  node?: string | ExportConditions;
+  default?: string | ExportConditions;
+}
+
+export interface WorkspaceEntryPaths {
+  source: string;
+  built: string;
+}
+
+function importTarget(value: string | ExportConditions | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (!value) return undefined;
+  if (value.import) return value.import;
+  return importTarget(value.node) ?? importTarget(value.default);
+}
+
+function workspacePackages(): Array<{ directory: string; manifest: PackageManifest }> {
+  const packagesRoot = join(REPO_ROOT, 'packages');
+  return readdirSync(packagesRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(packagesRoot, entry.name, 'package.json')))
+    .map((entry) => ({
+      directory: join(packagesRoot, entry.name),
+      manifest: JSON.parse(readFileSync(join(packagesRoot, entry.name, 'package.json'), 'utf8')) as PackageManifest,
+    }))
+    .filter(({ manifest }) => typeof manifest.name === 'string' && manifest.private !== true)
+    .sort((left, right) => right.manifest.name.length - left.manifest.name.length);
 }
 
 /**
@@ -17,20 +49,22 @@ interface PackageManifest {
  * remain the canonical contract; this maps their manifest export target back
  * to the corresponding source barrel instead of maintaining a second list.
  */
-export function workspaceSourceEntry(specifier: string): string | null {
-  const packageDir = specifier === 'pyric' || specifier.startsWith('pyric/')
-    ? 'pyric'
-    : specifier === 'pyric-admin' || specifier.startsWith('pyric-admin/')
-      ? 'pyric-admin'
-      : null;
-  if (!packageDir) return null;
-
-  const manifestPath = join(REPO_ROOT, 'packages', packageDir, 'package.json');
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as PackageManifest;
+export function workspaceEntryPaths(specifier: string): WorkspaceEntryPaths | null {
+  const pkg = workspacePackages().find(({ manifest }) =>
+    specifier === manifest.name || specifier.startsWith(`${manifest.name}/`),
+  );
+  if (!pkg) return null;
+  const { directory, manifest } = pkg;
   const subpath = specifier === manifest.name ? '.' : `.${specifier.slice(manifest.name.length)}`;
-  const published = manifest.exports?.[subpath]?.import;
+  if (manifest.pyricUnreleasedExports?.includes(subpath)) return null;
+  const published = importTarget(manifest.exports?.[subpath]);
   if (!published?.startsWith('./dist/') || !published.endsWith('.js')) return null;
 
-  const source = join(REPO_ROOT, 'packages', packageDir, published.replace('./dist/', 'src/').replace(/\.js$/, '.ts'));
-  return existsSync(source) ? source : null;
+  const sourceBase = join(directory, published.replace('./dist/', 'src/').replace(/\.js$/, ''));
+  const source = ['.ts', '.tsx'].map((extension) => `${sourceBase}${extension}`).find(existsSync);
+  return source ? { source, built: join(directory, published) } : null;
+}
+
+export function workspaceSourceEntry(specifier: string): string | null {
+  return workspaceEntryPaths(specifier)?.source ?? null;
 }

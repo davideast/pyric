@@ -25,6 +25,8 @@ interface AiRowDef {
   section: string;
   api: string;
   behavior: string;
+  featureKeys: string[];
+  queryable?: false;
   /** Defaults to 'conforms'; set only on diverged-documented rows. */
   status?: CompatStatus;
   statusNote?: string;
@@ -46,6 +48,8 @@ function row(def: AiRowDef): CompatibilityRow {
     id: `ai#${def.rowRef}`,
     surface: 'ai',
     aliases: [],
+    featureKeys: def.featureKeys,
+    ...(def.queryable === false ? { queryable: false as const } : {}),
     rowRef: def.rowRef,
     rowNumber: null,
     section: def.section,
@@ -75,6 +79,7 @@ const SEC_INIT = '`getAI(target)` and dispatch';
 const initRows: CompatibilityRow[] = [
   row({
     rowRef: 'getai-sandbox-dispatch',
+    featureKeys: ["getAI"],
     section: SEC_INIT,
     api: 'getAI(target)',
     behavior: '`getAI(sandbox)` returns an AI handle bound to the sandbox target; a model minted from it answers through the in-process answer engine',
@@ -84,6 +89,7 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'getai-app-dispatch',
+    featureKeys: ["getAI"],
     section: SEC_INIT,
     api: 'getAI(target)',
     behavior: 'After package resolution selects the mirror, `getAI(app)` uses the app\'s sandbox and the returned handle carries the app',
@@ -94,6 +100,7 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'getai-default-backend',
+    featureKeys: ["getAI"],
     section: SEC_INIT,
     api: 'getAI(target)',
     behavior: 'With no options the backend defaults to `GoogleAIBackend`, `backendType` is `GOOGLE_AI`, and the AI handle location is the empty string',
@@ -103,6 +110,7 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'getai-idempotent',
+    featureKeys: ["getAI"],
     section: SEC_INIT,
     api: 'getAI(target)',
     behavior: 'Repeat `getAI` calls with the same target return a stable handle',
@@ -112,6 +120,7 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'getai-engine-option',
+    featureKeys: ["getAI"],
     section: SEC_INIT,
     api: 'getAI(target, options)',
     behavior: '`getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })` selects the scripted engine explicitly and behaves identically to the zero-config default',
@@ -123,6 +132,7 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'backend-vertex',
+    featureKeys: ["VertexAIBackend"],
     section: SEC_INIT,
     api: 'VertexAIBackend',
     behavior: '`VertexAIBackend` carries `backendType` `VERTEX_AI`; its location and the resulting AI handle location default to `us-central1`',
@@ -132,6 +142,7 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'model-name-short',
+    featureKeys: ["getGenerativeModel"],
     section: SEC_INIT,
     api: 'getGenerativeModel(ai, modelParams)',
     behavior: 'A short model name such as `gemini-flash-lite-latest` normalizes to the `models/` resource name on `GenerativeModel.model`',
@@ -141,6 +152,7 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'model-name-prefixed',
+    featureKeys: ["getGenerativeModel"],
     section: SEC_INIT,
     api: 'getGenerativeModel(ai, modelParams)',
     behavior: 'A `models/`-prefixed name is accepted without double prefixing',
@@ -153,6 +165,7 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'model-name-required',
+    featureKeys: ["getGenerativeModel"],
     section: SEC_INIT,
     api: 'getGenerativeModel(ai, modelParams)',
     behavior: '`getGenerativeModel` without `modelParams.model` throws an `AIError` with code `no-model`',
@@ -162,6 +175,7 @@ const initRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'getai-sandbox-no-network',
+    featureKeys: ["getAI"],
     section: SEC_INIT,
     api: 'getAI(sandbox)',
     behavior: 'The sandbox target with the scripted engine performs no network I/O for generateContent',
@@ -179,6 +193,7 @@ const SEC_GENERATE = '`GenerativeModel.generateContent` envelope';
 const generateRows: CompatibilityRow[] = [
   row({
     rowRef: 'generate-envelope-keys',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent()',
     behavior: 'The response envelope top-level key set is exactly `candidates`, `modelVersion`, `responseId`, `usageMetadata`',
@@ -189,6 +204,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-candidate-keys',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent()',
     behavior: 'The candidate key set is `content`, `finishReason`, `index`, and `index` is present on the wire (0 for the single candidate)',
@@ -199,6 +215,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-role-model',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent()',
     behavior: 'Candidate content carries role `model` and the content key set is `parts`, `role`',
@@ -209,6 +226,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-finish-stop',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent()',
     behavior: 'A normal completion finishes with `finishReason` `STOP`',
@@ -219,6 +237,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-usage-key-set',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent()',
     behavior: 'The usageMetadata key set on a minimal text call is `candidatesTokenCount`, `promptTokenCount`, `promptTokensDetails`, `serviceTier`, `totalTokenCount`',
@@ -229,6 +248,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-usage-service-tier',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent()',
     behavior: '`usageMetadata.serviceTier` rides the wire even though the 2.12.0 SDK typings do not declare it',
@@ -239,6 +259,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-modelversion-responseid',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent()',
     behavior: '`modelVersion` and `responseId` are present nonempty strings; the sandbox mints them deterministically',
@@ -250,6 +271,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-string-request',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent(request)',
     behavior: 'A plain string request is wrapped as a single user turn before it reaches the engine',
@@ -259,6 +281,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-system-instruction',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent(request)',
     behavior: 'A top-level `systemInstruction` is accepted and the response envelope shape is unaffected',
@@ -269,6 +292,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-structured-output',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent(request)',
     behavior: '`responseMimeType` `application/json` plus a `responseSchema` yields a text part that parses as JSON with the schema key set',
@@ -280,6 +304,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-thinking-signature',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent(request)',
     behavior: 'With `thinkingConfig` on the probe model, text parts carry `thoughtSignature` and no part is flagged `thought: true`',
@@ -291,6 +316,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-abort-signal',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent(request, singleRequestOptions)',
     behavior: 'A pre-aborted `SingleRequestOptions.signal` rejects the call',
@@ -300,6 +326,7 @@ const generateRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'generate-decoration-synthesized',
+    featureKeys: ["generateContent"],
     section: SEC_GENERATE,
     api: 'generateContent()',
     behavior: 'Token counts are minted without a tokenizer, and the minimal envelope omits `safetyRatings`, matching the captured candidate key set',
@@ -317,6 +344,7 @@ const SEC_STREAM = '`generateContentStream` framing and aggregation';
 const streamRows: CompatibilityRow[] = [
   row({
     rowRef: 'stream-async-iterable',
+    featureKeys: ["generateContentStream"],
     section: SEC_STREAM,
     api: 'generateContentStream()',
     behavior: '`result.stream` async-iterates response chunks via `for await`; each chunk is a complete GenerateContentResponse',
@@ -327,6 +355,7 @@ const streamRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'stream-data-prefixed',
+    featureKeys: ["generateContentStream"],
     section: SEC_STREAM,
     api: 'generateContentStream() wire framing',
     behavior: 'Every SSE event is `data: ` prefixed and its payload parses as a complete JSON document',
@@ -338,6 +367,7 @@ const streamRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'stream-separator-crlf',
+    featureKeys: ["generateContentStream"],
     section: SEC_STREAM,
     api: 'generateContentStream() wire framing',
     behavior: 'SSE events are separated by CRLF CRLF',
@@ -349,6 +379,7 @@ const streamRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'stream-finish-last-chunk',
+    featureKeys: ["generateContentStream"],
     section: SEC_STREAM,
     api: 'generateContentStream()',
     behavior: '`finishReason` appears only on the last chunk of a stream',
@@ -359,6 +390,7 @@ const streamRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'stream-usage-every-chunk',
+    featureKeys: ["generateContentStream"],
     section: SEC_STREAM,
     api: 'generateContentStream()',
     behavior: '`usageMetadata` rides every chunk, not only the last one',
@@ -369,6 +401,7 @@ const streamRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'stream-chunk-envelope',
+    featureKeys: ["generateContentStream"],
     section: SEC_STREAM,
     api: 'generateContentStream()',
     behavior: 'Every chunk carries `candidates` or `usageMetadata`',
@@ -379,6 +412,7 @@ const streamRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'stream-response-aggregate',
+    featureKeys: ["generateContentStream"],
     section: SEC_STREAM,
     api: 'generateContentStream()',
     behavior: '`result.response` resolves to an aggregated response whose text is the concatenation of the streamed text parts',
@@ -389,6 +423,7 @@ const streamRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'stream-aggregate-final-meta',
+    featureKeys: ["generateContentStream"],
     section: SEC_STREAM,
     api: 'generateContentStream()',
     behavior: 'The aggregated response carries the final chunk `finishReason` and `usageMetadata`',
@@ -407,6 +442,7 @@ const SEC_CHAT = '`ChatSession` history and streaming turns';
 const chatRows: CompatibilityRow[] = [
   row({
     rowRef: 'chat-startchat',
+    featureKeys: ["startChat"],
     section: SEC_CHAT,
     api: 'GenerativeModel.startChat()',
     behavior: '`startChat` returns a `ChatSession` seeded with `StartChatParams.history`',
@@ -416,6 +452,7 @@ const chatRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'chat-history-threads',
+    featureKeys: ["sendMessage","getHistory"],
     section: SEC_CHAT,
     api: 'ChatSession.sendMessage() / getHistory()',
     behavior: '`sendMessage` appends the user turn and the model turn; `getHistory()` returns the ordered `Content[]` with alternating roles',
@@ -428,6 +465,7 @@ const chatRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'chat-history-excludes-blocked',
+    featureKeys: ["getHistory"],
     section: SEC_CHAT,
     api: 'ChatSession.getHistory()',
     behavior: 'Blocked prompts and blocked candidates are excluded from `getHistory()`',
@@ -440,6 +478,7 @@ const chatRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'chat-sendmessage-envelope',
+    featureKeys: ["sendMessage"],
     section: SEC_CHAT,
     api: 'ChatSession.sendMessage()',
     behavior: 'A `sendMessage` result carries the same envelope facts as `generateContent`: the four top-level keys and role `model`',
@@ -450,6 +489,7 @@ const chatRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'chat-sendmessagestream',
+    featureKeys: ["sendMessageStream"],
     section: SEC_CHAT,
     api: 'ChatSession.sendMessageStream()',
     behavior: '`sendMessageStream` returns a stream plus a response promise; history updates after aggregation completes',
@@ -459,6 +499,7 @@ const chatRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'chat-stream-single-user-turn',
+    featureKeys: ["sendMessageStream"],
     section: SEC_CHAT,
     api: 'ChatSession.sendMessageStream()',
     behavior: 'Exactly one user turn is recorded per `sendMessageStream` call; the mirror implements the 2.13.0 fixed semantics, not the installed 2.12.0 duplicate-user-turn bug',
@@ -471,6 +512,7 @@ const chatRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'chat-role-vocabulary',
+    featureKeys: ["POSSIBLE_ROLES"],
     section: SEC_CHAT,
     api: 'POSSIBLE_ROLES',
     behavior: '`POSSIBLE_ROLES` is exactly `["user", "model", "function", "system"]`',
@@ -486,6 +528,7 @@ const SEC_FNCALL = 'Function calling';
 const fncallRows: CompatibilityRow[] = [
   row({
     rowRef: 'fncall-part-shape',
+    featureKeys: ["functionCall"],
     section: SEC_FNCALL,
     api: 'functionCall parts',
     behavior: 'A functionCall part carries the key set `args`, `id`, `name`, and `args` arrives as a parsed JSON object, not a string',
@@ -497,6 +540,7 @@ const fncallRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'fncall-mode-any',
+    featureKeys: ["functionCall"],
     section: SEC_FNCALL,
     api: 'toolConfig.functionCallingConfig',
     behavior: 'Mode `ANY` forces a functionCall part in the response and the candidate finishes `STOP`',
@@ -507,6 +551,7 @@ const fncallRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'fncall-id-present',
+    featureKeys: ["functionCall"],
     section: SEC_FNCALL,
     api: 'functionCall parts',
     behavior: '`functionCall.id` is present on the GoogleAI wire; the mirror emits an id on synthesized calls',
@@ -518,6 +563,7 @@ const fncallRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'fncall-round-trip',
+    featureKeys: ["functionCall"],
     section: SEC_FNCALL,
     api: 'functionResponse round trip',
     behavior: 'A round trip that threads the model functionCall turn back verbatim, thoughtSignature preserved, is accepted: the answer has a text part and no further functionCall part',
@@ -528,6 +574,7 @@ const fncallRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'fncall-thought-signature-required',
+    featureKeys: ["functionCall"],
     section: SEC_FNCALL,
     api: 'functionResponse round trip',
     behavior: 'A replayed model functionCall turn lacking `thoughtSignature` is rejected 400 INVALID_ARGUMENT with the thought-signature message',
@@ -542,6 +589,7 @@ const fncallRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'fncall-signature-minted',
+    featureKeys: ["functionCall"],
     section: SEC_FNCALL,
     api: 'scripted engine synthesis',
     behavior: 'The engine mints a `thoughtSignature` on every functionCall part it synthesizes, so scripted tool round trips replay cleanly',
@@ -560,6 +608,7 @@ const SEC_COUNT = '`countTokens`';
 const countRows: CompatibilityRow[] = [
   row({
     rowRef: 'counttokens-envelope',
+    featureKeys: ["countTokens"],
     section: SEC_COUNT,
     api: 'countTokens()',
     behavior: 'The countTokens envelope key set is exactly `promptTokensDetails`, `totalTokens`',
@@ -570,6 +619,7 @@ const countRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'counttokens-deterministic',
+    featureKeys: ["countTokens"],
     section: SEC_COUNT,
     api: 'countTokens()',
     behavior: 'An identical payload returns an identical `totalTokens` across calls',
@@ -592,6 +642,7 @@ const ERROR_RISK = {
 const errorRows: CompatibilityRow[] = [
   row({
     rowRef: 'error-unknown-model',
+    featureKeys: ["generateContent", "generateContentStream", "countTokens"],
     section: SEC_ERRORS,
     api: 'error envelope',
     behavior: 'A model name production has never served fails 404 NOT_FOUND with the error key set `code`, `message`, `status` and no details',
@@ -603,6 +654,7 @@ const errorRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'error-retired-model',
+    featureKeys: ["generateContent", "generateContentStream", "countTokens"],
     section: SEC_ERRORS,
     api: 'error envelope',
     behavior: 'A retired model family (Gemini 1.5) fails 404 NOT_FOUND with an ErrorInfo detail and a retirement message distinct from unknown-model',
@@ -615,6 +667,7 @@ const errorRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'error-bad-api-key',
+    featureKeys: ["generateContent", "generateContentStream", "countTokens"],
     section: SEC_ERRORS,
     api: 'error envelope',
     behavior: 'An invalid API key fails 400 INVALID_ARGUMENT, not 401, with ErrorInfo plus LocalizedMessage details and the message `API key not valid. Please pass a valid API key.`',
@@ -627,6 +680,7 @@ const errorRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'error-empty-contents',
+    featureKeys: ["generateContent", "generateContentStream"],
     section: SEC_ERRORS,
     api: 'error envelope',
     behavior: 'An empty `contents` array fails 400 INVALID_ARGUMENT with the message `contents is not specified`',
@@ -638,6 +692,7 @@ const errorRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'error-bad-role',
+    featureKeys: ["generateContent", "generateContentStream"],
     section: SEC_ERRORS,
     api: 'error envelope',
     behavior: 'An invalid content role fails 400 INVALID_ARGUMENT and the message lists the production role vocabulary: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER',
@@ -650,6 +705,7 @@ const errorRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'error-aierror-shape',
+    featureKeys: ["AIError","AIErrorCode"],
     section: SEC_ERRORS,
     api: 'AIError',
     behavior: 'HTTP failures surface as `AIError` with an `AIErrorCode` code and `customErrorData` carrying `status`, `statusText`, and `errorDetails`',
@@ -661,6 +717,7 @@ const errorRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'error-code-vocabulary',
+    featureKeys: ["AIErrorCode"],
     section: SEC_ERRORS,
     api: 'AIErrorCode',
     behavior: '`AIErrorCode` exposes the 14 documented codes, from `error` through `unsupported`',
@@ -676,6 +733,7 @@ const SEC_HELPERS = 'Response helpers (`EnhancedGenerateContentResponse`)';
 const helperRows: CompatibilityRow[] = [
   row({
     rowRef: 'helper-text',
+    featureKeys: ["text"],
     section: SEC_HELPERS,
     api: 'response.text()',
     behavior: '`text()` concatenates the text parts of the first candidate',
@@ -685,6 +743,7 @@ const helperRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'helper-text-throws',
+    featureKeys: ["text"],
     section: SEC_HELPERS,
     api: 'response.text()',
     behavior: '`text()` throws on bad finish reasons such as `SAFETY` and on a blocked prompt',
@@ -694,6 +753,7 @@ const helperRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'helper-functioncalls',
+    featureKeys: ["functionCalls"],
     section: SEC_HELPERS,
     api: 'response.functionCalls()',
     behavior: '`functionCalls()` returns the `FunctionCall` array from the functionCall parts, args as parsed objects',
@@ -704,6 +764,7 @@ const helperRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'helper-thoughtsummary',
+    featureKeys: ["thoughtSummary"],
     section: SEC_HELPERS,
     api: 'response.thoughtSummary()',
     behavior: '`thoughtSummary()` returns undefined when no part is flagged `thought: true`, the captured lite-model case',
@@ -714,6 +775,7 @@ const helperRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'helper-inlinedataparts',
+    featureKeys: ["inlineDataParts"],
     section: SEC_HELPERS,
     api: 'response.inlineDataParts()',
     behavior: '`inlineDataParts()` returns the `InlineDataPart` array when inlineData parts exist and undefined when none do',
@@ -723,6 +785,7 @@ const helperRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'helper-tolerates-missing-decor',
+    featureKeys: ["text"],
     section: SEC_HELPERS,
     api: 'response helpers',
     behavior: 'Helpers tolerate omitted decoration: an envelope without `usageMetadata`, `finishReason`, or `safetyRatings` still serves `text()` without throwing',
@@ -738,6 +801,7 @@ const SEC_SCHEMA = '`Schema` builders';
 const schemaRows: CompatibilityRow[] = [
   row({
     rowRef: 'schema-object-tojson',
+    featureKeys: ["Schema"],
     section: SEC_SCHEMA,
     api: 'Schema.object()',
     behavior: '`Schema.object` serializes to type `object` with `properties`, and `required` is derived by excluding `optionalProperties`',
@@ -747,6 +811,7 @@ const schemaRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'schema-string-enum',
+    featureKeys: ["Schema"],
     section: SEC_SCHEMA,
     api: 'Schema.enumString()',
     behavior: '`Schema.enumString` serializes the enum values with type `string` and format `enum`',
@@ -759,6 +824,7 @@ const schemaRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'schema-primitives',
+    featureKeys: ["Schema"],
     section: SEC_SCHEMA,
     api: 'Schema.string()/integer()/number()/boolean()/array()',
     behavior: 'Each primitive builder serializes its `SchemaType`, and `array` carries `items`',
@@ -768,6 +834,7 @@ const schemaRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'schema-anyof',
+    featureKeys: ["Schema"],
     section: SEC_SCHEMA,
     api: 'Schema.anyOf()',
     behavior: '`Schema.anyOf` returns an `AnyOfSchema` whose JSON carries an `anyOf` array of sub-schemas and no top-level type',
@@ -777,6 +844,7 @@ const schemaRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'schema-rides-request',
+    featureKeys: ["Schema"],
     section: SEC_SCHEMA,
     api: 'generationConfig.responseSchema',
     behavior: 'A built `Schema` serializes into `generationConfig.responseSchema` on the request and drives JSON output',
@@ -793,6 +861,7 @@ const SEC_SCRIPTED = 'Sandbox answer engine: scripted';
 const scriptedRows: CompatibilityRow[] = [
   row({
     rowRef: 'scripted-zero-config',
+    featureKeys: ["script"],
     section: SEC_SCRIPTED,
     api: 'scripted engine',
     behavior: 'With no script the engine returns a deterministic synthesized response derived from the request, wire-true in shape: the captured envelope key sets hold',
@@ -805,6 +874,7 @@ const scriptedRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'scripted-deterministic',
+    featureKeys: ["script"],
     section: SEC_SCRIPTED,
     api: 'scripted engine',
     behavior: 'The same unscripted request twice yields an identical envelope, candidates and usage included',
@@ -816,6 +886,7 @@ const scriptedRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'scripted-queue-order',
+    featureKeys: ["script"],
     section: SEC_SCRIPTED,
     api: 'script(ai, entries)',
     behavior: 'Script entries without matchers are consumed in FIFO queue order',
@@ -827,6 +898,7 @@ const scriptedRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'scripted-matchers',
+    featureKeys: ["script"],
     section: SEC_SCRIPTED,
     api: 'script(ai, entries)',
     behavior: 'Entries match by substring, regex, or predicate on the request; a matching entry wins over the plain queue',
@@ -838,6 +910,7 @@ const scriptedRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'scripted-raw-envelope',
+    featureKeys: ["script"],
     section: SEC_SCRIPTED,
     api: 'script(ai, entries)',
     behavior: 'A raw Gemini envelope entry is returned verbatim, so an observation `behavior.raw` pastes in directly and captures are the corpus',
@@ -849,6 +922,7 @@ const scriptedRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'scripted-shorthand-text',
+    featureKeys: ["script"],
     section: SEC_SCRIPTED,
     api: 'script(ai, entries)',
     behavior: 'A `text` shorthand expands to a wire-true envelope: finishReason STOP, usageMetadata with serviceTier, modelVersion, responseId',
@@ -861,6 +935,7 @@ const scriptedRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'scripted-shorthand-functioncall',
+    featureKeys: ["script"],
     section: SEC_SCRIPTED,
     api: 'script(ai, entries)',
     behavior: 'A `functionCall` shorthand expands to a model turn whose functionCall part carries a minted `thoughtSignature`',
@@ -873,6 +948,7 @@ const scriptedRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'scripted-stream-chunks',
+    featureKeys: ["script"],
     section: SEC_SCRIPTED,
     api: 'script(ai, entries)',
     behavior: 'A chunk-array shorthand declares chunk boundaries and the engine applies the captured framing, so authors never hand-write SSE',
@@ -885,6 +961,7 @@ const scriptedRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'scripted-text-assertable',
+    featureKeys: ["script"],
     section: SEC_SCRIPTED,
     api: 'script(ai, entries)',
     behavior: 'Scripted text is the one place generated text values may be asserted: `response.text()` returns the scripted string exactly',
@@ -902,6 +979,8 @@ const SEC_OPENAI = 'Sandbox answer engine: openai translation';
 const openaiRows: CompatibilityRow[] = [
   row({
     rowRef: 'openai-request-translation',
+    featureKeys: [],
+    queryable: false,
     section: SEC_OPENAI,
     api: 'openai engine',
     behavior: 'Gemini `contents` and `systemInstruction` translate to OpenAI chat messages, and the OpenAI response translates back to a Gemini envelope with role `model`',
@@ -913,6 +992,8 @@ const openaiRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'openai-fifo-tool-ids',
+    featureKeys: [],
+    queryable: false,
     section: SEC_OPENAI,
     api: 'openai engine',
     behavior: 'OpenAI `tool_call` ids are matched FIFO against Gemini functionResponse parts when replaying tool history',
@@ -924,6 +1005,8 @@ const openaiRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'openai-buffered-fncalls',
+    featureKeys: [],
+    queryable: false,
     section: SEC_OPENAI,
     api: 'openai engine',
     behavior: 'Streamed OpenAI tool_call deltas are buffered; the Gemini stream emits whole functionCall parts with parsed args, never partial fragments',
@@ -935,6 +1018,8 @@ const openaiRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'openai-done-not-forwarded',
+    featureKeys: [],
+    queryable: false,
     section: SEC_OPENAI,
     api: 'openai engine',
     behavior: 'The OpenAI `[DONE]` sentinel is never forwarded as a Gemini chunk; every emitted chunk is a parseable Gemini envelope',
@@ -946,6 +1031,8 @@ const openaiRows: CompatibilityRow[] = [
   }),
   row({
     rowRef: 'openai-thought-parts-skipped',
+    featureKeys: [],
+    queryable: false,
     section: SEC_OPENAI,
     api: 'openai engine',
     behavior: 'Parts flagged `thought: true` in history are skipped when replaying to an OpenAI upstream',
@@ -1014,6 +1101,7 @@ function table(title: string, rows: CompatibilityRow[]): CompatibilityDocBlock {
 
 export const aiRegistry: CompatibilitySurfaceRegistry = {
   surface: 'ai',
+  label: 'AI Logic',
   compatPath: 'packages/pyric/docs/ai/COMPAT.md',
   blocks: [
     { kind: 'markdown', markdown: header },

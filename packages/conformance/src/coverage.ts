@@ -206,6 +206,9 @@ function buildReport(model: ConformanceModel): CoverageReport {
     // that does not exist.
     if (censusSurface === undefined) {
       const descriptor = descriptorFor.get(surface)!;
+      if (descriptor.kind === 'registry-only') {
+        throw new Error(`Registry-only surface '${surface}' cannot opt into coverage`);
+      }
       return { surface, kind: descriptor.kind, censusSurface: null, surfaceCoverage: null, behavior };
     }
     const census = censusBySurface.get(censusSurface);
@@ -256,16 +259,22 @@ function buildReport(model: ConformanceModel): CoverageReport {
 // ── Human table ──────────────────────────────────────────────────────────
 
 /**
- * One-line scope statement per surface. Public gaps stay visible regardless
- * of their reviewed disposition. Authored per-surface as each descriptor's
- * `scopeNote`; each mirror contract carries the full disposition reasoning.
+ * One-line scope statement per surface. Mirror summaries are derived from the
+ * census/dispositions; native and integration boundaries remain authored.
  */
 function printTable(report: CoverageReport, model: ConformanceModel): void {
-  const scopeNotes = Object.fromEntries(
-    model.documentation.descriptors.map((d) => [d.surface, d.scopeNote]),
-  ) as Record<Surface, string>;
+  const scopeNotes = Object.fromEntries(model.documentation.descriptors.map((descriptor) => {
+    if (descriptor.scopeNote) return [descriptor.surface, descriptor.scopeNote];
+    if (descriptor.kind !== 'mirror') throw new Error(`Missing scope note for ${descriptor.surface}`);
+    const census = model.census.find(({ surface }) => surface === descriptor.censusSurface);
+    if (!census) throw new Error(`Missing census for ${descriptor.surface}`);
+    const runtime = census.runtime.dispositioned.length === 0
+      ? 'all public runtime exports are mapped'
+      : `${census.runtime.dispositioned.length} absent runtime export(s) have reviewed dispositions`;
+    return [descriptor.surface, `${runtime}; ${census.types.unmapped.length} public type gap(s) remain visible in the denominator.`];
+  })) as Record<Surface, string>;
   console.log('# Compatibility coverage\n');
-  console.log('PUBLIC RUNTIME surface counts non-underscore Firebase runtime exports. PUBLIC TYPE surface counts Firebase exported types.');
+  console.log('PUBLIC RUNTIME surface counts Firebase exports not exactly reviewed as private in a surface contract. PUBLIC TYPE surface counts non-underscore Firebase exported types.');
   console.log('Deprecated, unsupported, and not-yet-built public APIs stay in their denominator. Pyric-only exports receive no credit.');
   console.log('BEHAVIOR conformance (`conforms` rows / evaluated rows) is the FIDELITY of the already-implemented slice — "of the calls that exist, do they behave like prod." It is never a standalone completeness grade.');
   console.log('Behavior `intended` excludes unsupported rows only; every five-state count remains available in the registry.\n');

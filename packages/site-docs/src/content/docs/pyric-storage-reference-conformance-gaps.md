@@ -166,7 +166,7 @@ out a capture bug in the harness.
 
 - [Storage rules subset](../pyric-storage-reference-rules-subset/) for the grammar the evaluator
   supports.
-- [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/).
-- [Compatibility matrix](../pyric-storage-compat/) for the row-by-row registry.
+- Run `pyric can-i-use storage/<symbol>` for current feature availability and evidence.
+- [Compatibility matrix](https://pyric.dev/docs/pyric-storage-compat/) for the row-by-row registry.
 - [Firestore rules gaps](../pyric-rules-reference-conformance-gaps/) for the
   same page on the Firestore side.

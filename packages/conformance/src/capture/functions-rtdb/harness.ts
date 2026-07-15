@@ -242,8 +242,13 @@ const deployEnv = {
   PYRIC_FUNCTIONS_RTDB_INSTANCE: instance,
   PYRIC_FUNCTIONS_RTDB_REGION: REGION,
 };
+const adminServiceAccount = {
+  projectId: serviceAccount.project_id,
+  clientEmail: serviceAccount.client_email,
+  privateKey: serviceAccount.private_key,
+};
 
-const app = initializeApp({ credential: cert(serviceAccount), databaseURL: databaseUrl });
+const app = initializeApp({ credential: cert(adminServiceAccount), databaseURL: databaseUrl });
 const database = getDatabase(app);
 let deployed = skipDeploy;
 let completed = false;
@@ -436,7 +441,7 @@ try {
   await deleteApp(app).catch(() => undefined);
   if (!deployOnly) {
     const cleanupApp = initializeApp(
-      { credential: cert(serviceAccount), databaseURL: databaseUrl },
+      { credential: cert(adminServiceAccount), databaseURL: databaseUrl },
       'functions-rtdb-cleanup',
     );
     await getDatabase(cleanupApp).ref(basePath).remove().catch(() => undefined);

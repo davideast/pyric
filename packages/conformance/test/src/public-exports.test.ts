@@ -1,14 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import { isPublicExportName, publicTypeExportNames } from './public-exports.ts';
-import { workspaceSourceEntry } from './workspace-entry.ts';
+import { isPublicExportName, publicTypeExportNames, resolvePublicTypeEntry } from '../../src/public-exports.ts';
+import { workspaceEntryPaths } from '../../src/workspace-entry.ts';
 
 describe('Firebase public export classification', () => {
-  it('maps published workspace exports back to source for clean-checkout generation', () => {
-    expect(workspaceSourceEntry('pyric/ai')).toEndWith('packages/pyric/src/ai/index.ts');
-    expect(workspaceSourceEntry('pyric/messaging/sw')).toEndWith('packages/pyric/src/messaging/sw.ts');
-    expect(workspaceSourceEntry('firebase/ai')).toBeNull();
-  });
-  it('classifies leading-underscore exports as private by rule', () => {
+  it('classifies leading-underscore type exports as private by rule', () => {
     expect(isPublicExportName('_apps')).toBe(false);
     expect(isPublicExportName('_isFirebaseServerApp')).toBe(false);
     expect(isPublicExportName('initializeApp')).toBe(true);
@@ -30,5 +25,13 @@ describe('Firebase public export classification', () => {
     const appTypes = publicTypeExportNames(['pyric/app']);
     expect(appTypes).toContain('FirebaseApp');
     expect(appTypes).toContain('FirebaseOptions');
+  });
+
+  it('resolves workspace type census entries from source before generated declarations', () => {
+    const entry = workspaceEntryPaths('pyric/storage');
+    expect(entry).not.toBeNull();
+    if (!entry) throw new Error('expected pyric/storage workspace entry');
+    expect(resolvePublicTypeEntry('pyric/storage')).toBe(entry.source);
+    expect(resolvePublicTypeEntry('pyric/storage')).not.toBe(entry.built.replace(/\.js$/, '.d.ts'));
   });
 });

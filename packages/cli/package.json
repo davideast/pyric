@@ -26,6 +26,10 @@
       "types": "./dist/conformance/index.d.ts",
       "import": "./dist/conformance/index.js"
     },
+    "./conformance/browser": {
+      "types": "./dist/conformance/browser.d.ts",
+      "import": "./dist/conformance/browser.js"
+    },
     "./assurance": {
       "types": "./dist/assurance/index.d.ts",
       "import": "./dist/assurance/index.js"
@@ -91,9 +95,11 @@
   "scripts": {
     "prebuild": "test \"${PYRIC_CONFORMANCE_READY:-0}\" = \"1\" || bun run ../../packages/conformance/src/conformance-model.ts --write",
     "build": "tsc && bun run scripts/postbuild.ts",
+    "pretest": "bash ../../scripts/build.sh --packages-only",
     "test": "bun test",
     "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts --config test/e2e/playwright.config.ts",
     "test:soak": "playwright test --config test/e2e/soak/playwright.config.ts",
+    "pretypecheck": "bash ../../scripts/build.sh --packages-only",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit",
     "compile": "bun scripts/compile.ts",
     "release": "bun scripts/release.ts",

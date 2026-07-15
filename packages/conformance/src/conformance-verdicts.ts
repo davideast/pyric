@@ -163,6 +163,7 @@ export function deriveAllNodeVerdicts(
 export function renderConformanceVerdicts(verdicts: Readonly<Record<string, ConformanceVerdict>>): string {
   const lines = [
     '// GENERATED FILE. Do not edit or commit.',
+    '// Regenerate: bun run compat:conformance',
     '// Source: packages/conformance/src/conformance-verdicts.ts',
     "export type ConformanceVerdict = 'supported' | 'qualified' | 'unsupported';",
     '',

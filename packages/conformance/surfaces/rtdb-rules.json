@@ -1,7 +1,7 @@
 {
-  "schema": "pyric.conformance.surface.v1",
-  "order": 11,
+  "schema": "pyric.conformance.surface.v2",
   "kind": "native",
+  "developerSurface": "rtdb-rules",
   "symbolSource": "pyric/database",
   "observationPrefixes": [
     "rules-rtdb-"

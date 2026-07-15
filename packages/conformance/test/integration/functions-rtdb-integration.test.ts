@@ -1,17 +1,17 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
-import { functionsRtdbRegistry, functionsRtdbRows } from '../registry/functions-rtdb.ts';
-import { scoreBlock } from './generate-docs.ts';
-import { surfaceRecordProblems } from '../surfaces/load.ts';
-import { SURFACE_CONTRACT_SCHEMA } from '../surfaces/types.ts';
-import { deriveConformanceModel, type ConformanceModel } from './conformance-model.ts';
+import { functionsRtdbRegistry, functionsRtdbRows } from '../../registry/functions-rtdb.ts';
+import { scoreBlock } from '../../src/generate-docs.ts';
+import { surfaceRecordProblems } from '../../surfaces/load.ts';
+import { SURFACE_CONTRACT_SCHEMA } from '../../surfaces/types.ts';
+import { deriveConformanceModel, type ConformanceModel } from '../../src/conformance-model.ts';
 
 let projection: ConformanceModel['documentation'];
 beforeAll(async () => { projection = (await deriveConformanceModel()).documentation; }, 20_000);
 
 const integrationRecord = {
   schema: SURFACE_CONTRACT_SCHEMA,
-  order: 1,
   kind: 'integration',
+  developerSurface: 'functions-rtdb',
   registry: 'functions-rtdb',
   contractSource: 'firebase-functions/v2/database#onValueCreated',
   observationPrefixes: ['functions-rtdb-'],
@@ -22,11 +22,11 @@ const integrationRecord = {
 
 describe('integration surface descriptors', () => {
   it('accepts a contract source without pretending there is a mirror census', () => {
-    expect(surfaceRecordProblems('fixture.json', integrationRecord)).toEqual([]);
+    expect(surfaceRecordProblems('functions-rtdb.json', integrationRecord)).toEqual([]);
   });
 
   it('requires contractSource and rejects every mirror/native breadth field', () => {
-    const problems = surfaceRecordProblems('fixture.json', {
+    const problems = surfaceRecordProblems('functions-rtdb.json', {
       ...integrationRecord,
       contractSource: undefined,
       censusSurface: 'database',
@@ -41,7 +41,7 @@ describe('integration surface descriptors', () => {
   });
 
   it('does not let mirror/native descriptors smuggle in an integration contract', () => {
-    const mirror = surfaceRecordProblems('mirror.json', {
+    const mirror = surfaceRecordProblems('functions-rtdb.json', {
       ...integrationRecord,
       kind: 'mirror',
       censusSurface: 'database',
@@ -49,7 +49,7 @@ describe('integration surface descriptors', () => {
       mirrors: ['pyric/database'],
       dispositions: [],
     });
-    const native = surfaceRecordProblems('native.json', {
+    const native = surfaceRecordProblems('functions-rtdb.json', {
       ...integrationRecord,
       kind: 'native',
       symbolSource: 'src/index.ts',
@@ -63,7 +63,6 @@ describe('integration compatibility score', () => {
   it('uses the signed row inventory and the cross-package scoreboard link', () => {
     const rowStatuses = Object.fromEntries(functionsRtdbRows.map((row) => [row.id, row.status]));
     const block = scoreBlock(functionsRtdbRegistry, { ...projection, coverageBaseline: {
-      generatedAt: 'test',
       services: { 'functions-rtdb': { integration: true } },
       overall: {
         publicSurface: {
@@ -72,9 +71,6 @@ describe('integration compatibility score', () => {
         },
       },
       rowStatuses,
-      highRiskUnverified: [],
-      orphanObservations: [],
-      entryPathVerdicts: {},
     } });
     expect(block).toContain('<strong>Surface:</strong> integration contract <span>(unchanged upstream source; breadth is the signed row inventory)</span>');
     expect(block).toContain('<span class="compat-stat-pct">92.3%</span>');

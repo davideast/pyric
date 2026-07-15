@@ -86,7 +86,7 @@ Lightweight `DataSnapshot` — matches the subset of
 > `readonly` **priority**: `string` \| `number`
 
 The node's priority, or `null`. The sandbox does not model RTDB's
-priority (deny-listed — see COMPAT) so this is always `null`, matching
+priority values, so this is always `null`, matching
 the common case (no `.priority` set). Mirrors `api/Reference_impl.ts:312`.
 
 ##### ref

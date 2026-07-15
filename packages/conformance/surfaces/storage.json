@@ -1,41 +1,71 @@
 {
-  "schema": "pyric.conformance.surface.v1",
-  "order": 6,
+  "schema": "pyric.conformance.surface.v2",
   "kind": "mirror",
+  "developerSurface": "storage",
   "censusSurface": "storage",
   "upstream": "firebase/storage",
   "mirrors": [
     "pyric/storage"
   ],
+  "privateRuntimeExports": [
+    "_FbsBlob",
+    "_Location",
+    "_TaskEvent",
+    "_TaskState",
+    "_UploadTask",
+    "_dataFromString",
+    "_getChild",
+    "_invalidArgument",
+    "_invalidRootOperation"
+  ],
   "observationPrefixes": [
     "storage-"
   ],
   "coverage": true,
-  "scopeNote": "Firebase-internal underscore plumbing is private and excluded from public coverage by rule. Public gaps include uploadBytesResumable, getStream, list, and their associated exported types.",
   "captureRigs": [
     "oracle-run"
   ],
   "registry": "storage",
   "dispositions": [
     {
-      "tier": "deferred",
-      "reason": "The UploadTask and observer surface is deferred — v1 shipped the one-shot uploadBytes driver first; the resumable/observable variant is unbuilt, not unbuildable.",
+      "id": "storage.resumable-upload",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "The UploadTask and observer surface is deferred — v1 shipped the one-shot uploadBytes driver first; the resumable/observable variant is unbuilt, not unbuildable.",
+      "evidenceRefs": ["registry:storage#47"],
       "symbols": [
         "uploadBytesResumable"
       ]
     },
     {
-      "tier": "deferred",
-      "reason": "The Node-stream variant is deferred — not part of the browser-shaped v1 scope yet, but not genuinely un-modelable.",
+      "id": "storage.node-stream",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "The Node-stream variant is deferred — not part of the browser-shaped v1 scope yet, but not genuinely un-modelable.",
+      "evidenceRefs": ["registry:storage#62"],
       "symbols": [
         "getStream"
       ]
     },
     {
-      "tier": "deferred",
-      "reason": "Paginated listing is deferred — listAll covers the v1 scope; pagination needs a stable pageToken shape, which is unbuilt design work rather than a sandbox limitation.",
+      "id": "storage.paginated-listing",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "Paginated listing is deferred — listAll covers the v1 scope; pagination needs a stable pageToken shape, which is unbuilt design work rather than a sandbox limitation.",
+      "evidenceRefs": ["registry:storage#78"],
       "symbols": [
         "list"
+      ]
+    },
+    {
+      "id": "storage.runtime-enum-values",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "StorageErrorCode and StringFormat are mirrored as TypeScript types but not as Firebase-compatible runtime enum objects, so value imports remain unavailable.",
+      "evidenceRefs": ["upstream:firebase/storage"],
+      "symbols": [
+        "StorageErrorCode",
+        "StringFormat"
       ]
     }
   ]

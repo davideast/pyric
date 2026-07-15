@@ -23,6 +23,7 @@ Console to ship rules, indexes, hosting, and functions to a real project.
 | `pyric dev` | Local dev server with the pyric sandbox standing in for Firebase: serves `hosting.public`, resolves unmodified `firebase/*` imports to a pyric sandbox via a served import map, deploys + hot-reloads `firestore.rules` (SSE), opens an emulator-style sign-in helper for `signInWithPopup`/`signInWithRedirect`. The sandbox runs in a **SharedWorker by default** — one backend shared by every tab of the origin (live cross-tab sync), kept in the browser's IndexedDB so **your sandbox data — Firestore docs, auth users, RTDB, storage objects, and the traffic history — survives a refresh/restart by default** (see the persistence guide's coverage matrix for the exact tiers); a per-tab in-page sandbox is the fallback when SharedWorker is unavailable. Flags + exit codes: [CLI reference](docs/reference/cli.md#pyric-dev); persistence, ephemeral runs, clearing data, and SharedWorker tips: [persistence & multi-tab](docs/how-to/serve-persistence-and-multi-tab.md) |
 | `pyric snapshot` | Promote lived sandbox state (live `dev --persist`, else `.pyric/state/state.json`) to a committable fixture; `pyric dev --seed <fixture>` re-serves it (docs + users). `--out`, `--port`, `--force`, `--json` |
 | `pyric verify` | Replay a captured sandbox session against candidate rules (`--engine sandbox\|rules-test-api\|both`). Hosted Rules Test API needs SA/ADC via `FIREBASE_SA_BASE64` / `GOOGLE_APPLICATION_CREDENTIALS` |
+| `pyric can-i-use <feature>` | Query the canonical conformance model for availability, behaviour fidelity, assurance eligibility, caveats, and evidence. Only an exact canonical feature name exits 0; ambiguous names, spelling suggestions, and missing features exit 1. Accepts `--json`. |
 | `pyric mcp` | Start the stdio MCP server; attach to `pyric dev --bridge` when available or host a headless sandbox |
 | `pyric firestore rules lint <path>` | Lint a Firestore rules file |
 | `pyric firestore rules validate <path>` | Validate Firestore rules structure |
@@ -81,6 +82,8 @@ rulesHash}`.
 |---|---|
 | `@pyric/cli/credentials/node` | `fromServiceAccount`, `fromAdc` — build a `ProjectScope` for the Rules Test API (`pyric verify --engine rules-test-api\|both`) |
 | `@pyric/cli/verify` | Captured-session replay for Firestore and RTDB rules |
+| `@pyric/cli/conformance` | Node query surface: `canIUse` returns full claims and evidence; `canIUseImport` resolves a published import to its canonical compatibility page. |
+| `@pyric/cli/conformance/browser` | Compact browser query surface: `canIUse` returns availability, fidelity, assurance, summary, caveats, and the evidence slug without the full claim graph. |
 | `@pyric/cli/assurance` | Assurance campaign types and tools |
 | `@pyric/cli/assurance/browser` | Browser attachment for assurance campaigns |
 | `@pyric/cli/bridge` | `createBridge`, `startServer` (Node) / `connectBridge` (browser via conditional export). Vite integration is `pyricSandbox({ bridge })` in `@pyric/cli/vite`. |

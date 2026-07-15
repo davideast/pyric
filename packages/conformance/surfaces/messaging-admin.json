@@ -1,22 +1,16 @@
 {
-  "schema": "pyric.conformance.surface.v1",
-  "order": 8,
-  "kind": "mirror",
-  "censusSurface": "messaging",
-  "upstream": "firebase/messaging",
-  "mirrors": [
-    "pyric/messaging"
-  ],
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "registry-only",
+  "developerSurface": "messaging-admin",
   "observationPrefixes": [
     "messaging-send-"
   ],
   "coverage": false,
-  "scopeNote": "not published here — the admin send plane mirrors firebase-admin, which has no runtime export census in this report; its rows are born unverified (behavior ~0). This entry is inert (messaging-admin is not in SERVICES).",
+  "scopeNote": "The admin send plane mirrors firebase-admin; its behavior is tracked by the registry and conformance suite without a Firebase client runtime census.",
   "conformanceSuite": "packages/pyric-admin/test/messaging/oracle-conformance.test.ts",
   "captureRigs": [
     "messaging-send"
   ],
   "climb": true,
-  "registry": "messaging",
-  "dispositions": []
+  "registry": "messaging"
 }

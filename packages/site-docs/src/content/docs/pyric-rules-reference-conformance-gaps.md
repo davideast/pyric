@@ -344,4 +344,4 @@ asserted against production.
 
 - [Storage rules gaps](../pyric-storage-reference-conformance-gaps/) for the
   same page on the storage side.
-- [Compatibility matrix](../pyric-rules-compat/) for the row-by-row registry.
+- [Compatibility matrix](https://pyric.dev/docs/pyric-rules-compat/) for the row-by-row registry.

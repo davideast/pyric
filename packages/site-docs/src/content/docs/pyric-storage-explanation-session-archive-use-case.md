@@ -2,7 +2,7 @@
 title: "The session-archive driver"
 group: "pyric / storage"
 section: "Explanation"
-order: 14012
+order: 14011
 ---
 # The session-archive driver
 
@@ -77,10 +77,10 @@ A few things we explicitly didn't build because the session archive doesn't need
 - **Cloud Functions triggers on upload.** No server-side logic to invoke.
 - **Granular allow verbs.** Read vs write is the only distinction sessions need.
 
-Each is a real Storage feature; each is deferred. The deferral list lives in [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/).
+Each is a real Storage feature that the original session-archive use case did not require. Their current status is intentionally not frozen in this design history; query `pyric can-i-use storage/<symbol>` for today's result.
 
 ## Why this matters
 
 The v1 scope wasn't picked from a feature wishlist. It was driven by one concrete consumer. Every line in this package serves the session-archive flow. When a future consumer comes along with a different use case (large files, server-side triggers, real multi-bucket), the package will grow to absorb their needs *because* they're real, not speculative.
 
-This is the pattern: build what's needed, document what's deferred, expand on demand.
+This is the pattern: build what's needed, record status in the conformance model, and expand on demand.

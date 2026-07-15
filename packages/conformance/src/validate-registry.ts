@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { type Automation, type CompatibilityRow, type CompatStatus } from '../registry/index.ts';
 import type { SurfaceDescriptor } from '../surfaces/types.ts';
 import { buildCompatibilityLedger, REPO_ROOT, summarizeLedger, type Observation } from './ledger.ts';
@@ -17,6 +16,7 @@ import { validateEntryPath, type EntryPathCensusRow } from './entry-path-validat
 import { expectedFailures as entryPathExpectedFailures } from '../entry-path/expected-failures.ts';
 import { listEntryPathProgramFiles } from '../entry-path/load.ts';
 import { deriveConformanceModel } from './conformance-model.ts';
+import { normalizeFeature } from './can-i-use-query.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -61,11 +61,10 @@ export interface ValidationInput {
    *  entry point always passes it, so the twin-path check below (a probe's
    *  surface directory must match its paired observation's) is CI-enforced. */
   probeFiles?: ProbeFile[];
-  /** The live surface census (surface-census.ts --json), for the entry-path
+  /** The live surface census from the central model, for the entry-path
    *  critical-symbol + expected-failure citation checks below. Optional for
    *  the same reason as `rigManifests`; the real compat:validate entry point
-   *  always passes it (a subprocess call, same pattern as coverage.ts /
-   *  census-gate.ts), so the entry-path CLIFF's citation integrity is
+   *  always passes it, so the entry-path CLIFF's citation integrity is
    *  CI-enforced. */
   entryPathCensus?: EntryPathCensusRow[];
 }
@@ -83,6 +82,27 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     if (!row.section.trim()) problems.push(`${row.id}: missing section`);
     if (!row.api.trim()) problems.push(`${row.id}: missing api`);
     if (!row.behavior.trim()) problems.push(`${row.id}: missing behavior`);
+    const normalizedFeatureKeys = new Set<string>();
+    for (const key of row.featureKeys) {
+      if (!key.trim()) {
+        problems.push(`${row.id}: featureKeys must not contain blank identities`);
+        continue;
+      }
+      const normalized = normalizeFeature(key);
+      if (!normalized) {
+        problems.push(`${row.id}: featureKey '${key}' has no canonical identity`);
+      } else if (normalizedFeatureKeys.has(normalized)) {
+        problems.push(`${row.id}: duplicate normalized featureKey '${key}'`);
+      }
+      normalizedFeatureKeys.add(normalized);
+    }
+    const hasQueryIdentity = row.featureKeys.length > 0 || (row.constructs?.length ?? 0) > 0;
+    if (!hasQueryIdentity && row.queryable !== false) {
+      problems.push(`${row.id}: row has no featureKeys or constructs; set queryable: false only for internal, historical, or narrative rows`);
+    }
+    if (hasQueryIdentity && row.queryable === false) {
+      problems.push(`${row.id}: queryable: false conflicts with declared featureKeys or constructs`);
+    }
     if (!allowedStatus.has(row.status)) problems.push(`${row.id}: invalid status '${row.status}'`);
     if (row.statusNote !== undefined && !row.statusNote.trim()) problems.push(`${row.id}: statusNote must not be blank`);
     if (!allowedAutomation.has(row.automation)) problems.push(`${row.id}: invalid automation '${row.automation}'`);
@@ -132,7 +152,7 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     if (!input.rows.some((row) => row.surface === descriptor.surface)) problems.push(`${descriptor.surface}: surface has no rows`);
   }
 
-  // ── Surface descriptor integrity (surfaces/*.ts) ──────────────────────────
+  // ── Surface contract integrity (surfaces/*.json) ──────────────────────────
   // Each observation filename prefix is owned by exactly one surface; a prefix
   // claimed by two surfaces makes ownership (and the coverage/report split)
   // ambiguous. `rtdb-` / `rtdb-modular-` are DIFFERENT prefixes owned by
@@ -173,7 +193,7 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     const expectedName = obs.file.replace(/\.json$/, '');
     if (obs.name !== expectedName) problems.push(`${obs.file}: internal name '${obs.name}' does not match filename ('${expectedName}')`);
     // The observation must live in the surface subdirectory its own filename
-    // prefix maps to (longest-prefix match, same rule surfaces/*.ts's
+    // prefix maps to (longest-prefix match, same rule the validated surface contracts'
     // observationPrefixes define everywhere else) — a file parked under the
     // wrong surface directory is a silent structural drift, fatal here.
     const expectedSurface = soleLongestPrefixOwner(
@@ -214,11 +234,11 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
         problems.push(`rig '${manifest.id}': script '${manifest.script}' is missing`);
       }
       for (const prefix of manifest.observationPrefixes) {
-        // The surface descriptors (surfaces/*.ts) stay the authority on which
+        // The validated surface contracts (surfaces/*.json) stay the authority on which
         // prefixes are recognized surface observation prefixes; a rig manifest
         // cannot invent one no descriptor declares.
         if (!descriptorPrefixes.has(prefix)) {
-          problems.push(`rig '${manifest.id}': observation prefix '${prefix}' is not a recognized surface descriptor prefix (surfaces/*.ts)`);
+          problems.push(`rig '${manifest.id}': observation prefix '${prefix}' is not a recognized surface contract prefix (surfaces/*.json)`);
         }
         // Every declared observation prefix must actually produce something.
         // A prefix a rig WILL produce but hasn't captured yet belongs in
@@ -235,7 +255,7 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
       // a permanently-pending prefix and dodge the ownership/twin checks.
       for (const prefix of manifest.pendingPrefixes ?? []) {
         if (!descriptorPrefixes.has(prefix)) {
-          problems.push(`rig '${manifest.id}': pending prefix '${prefix}' is not a recognized surface descriptor prefix (surfaces/*.ts)`);
+          problems.push(`rig '${manifest.id}': pending prefix '${prefix}' is not a recognized surface contract prefix (surfaces/*.json)`);
         }
         if (observationFiles.some((file) => file.startsWith(prefix))) {
           problems.push(`rig '${manifest.id}': pending prefix '${prefix}' now matches a captured observation — promote it into observationPrefixes`);
@@ -339,26 +359,6 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
   return problems;
 }
 
-/**
- * Runs surface-census.ts as a subprocess (same pattern as coverage.ts /
- * census-gate.ts's own `runCensus()`) so the entry-path checks above see the
- * live mapped/unmapped sets, not a stale in-process snapshot. The census
- * exits 1 on any UNMAPPED gap — expected steady state, not a validate-
- * registry failure in itself — so a non-zero exit is tolerated as long as
- * stdout parses.
- */
-function runEntryPathCensus(): EntryPathCensusRow[] {
-  const script = join(REPO_ROOT, 'packages', 'conformance', 'src', 'surface-census.ts');
-  try {
-    const out = execFileSync('bun', ['run', script, '--json'], { encoding: 'utf8', cwd: REPO_ROOT });
-    return (JSON.parse(out) as { surfaces: EntryPathCensusRow[] }).surfaces;
-  } catch (err) {
-    const e = err as { stdout?: string };
-    if (!e.stdout) throw err;
-    return (JSON.parse(e.stdout) as { surfaces: EntryPathCensusRow[] }).surfaces;
-  }
-}
-
 if (import.meta.main) {
   const model = await deriveConformanceModel();
   const ledger = buildCompatibilityLedger(model);
@@ -374,7 +374,7 @@ if (import.meta.main) {
     rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id),
     rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((scenario) => scenario.id),
     rulesRtdbScenarioIds: ALL_RULES_RTDB_SCENARIOS.map((scenario) => scenario.id),
-    entryPathCensus: runEntryPathCensus(),
+    entryPathCensus: [...model.census],
   });
 
   const wantJson = process.argv.includes('--json');

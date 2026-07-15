@@ -62,18 +62,6 @@ async function runDispatch(args: string[]): Promise<{ code: number; stdout: stri
 }
 
 describe('retained pyric command surface', () => {
-  it('reports conformance from verify using the same three trust axes', () => {
-    const result = runCli(['verify', 'can-i-use', 'getAfter', '--json']);
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      feature: 'getAfter',
-      availability: 'available',
-      fidelity: 'diverged',
-      assurance: 'ineligible',
-    });
-  });
-
   it('advertises every local-development workflow through the CLI entry', () => {
     const { code, stdout, stderr } = runCli(['--help']);
 

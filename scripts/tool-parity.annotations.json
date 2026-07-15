@@ -3,7 +3,7 @@
   "tools": {
     "pyric_can_i_use": {
       "decision": "deliberate",
-      "reason": "Node-only conformance query belongs in MCP and the verify CLI; keeping the richer model out of the browser preserves the small browser assurance payload"
+      "reason": "Shared MCP and Playground trust query; the CLI/MCP retain full claims while the browser receives only the measured compact projection"
     },
     "build_game_rules": {
       "decision": "deliberate",

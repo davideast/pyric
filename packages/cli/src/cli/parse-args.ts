@@ -19,6 +19,11 @@ export interface ParsedArgs {
 
 export type FlagValue = string | boolean | Array<string | boolean>;
 
+// Flags whose command contract is boolean must not consume a following
+// positional. Value-bearing flags retain the Firebase-style `--flag value`
+// form, while explicit boolean values remain available as `--json=true`.
+const BOOLEAN_FLAGS = new Set(['json']);
+
 export function parseArgs(argv: string[]): ParsedArgs {
   const flags = new Map<string, FlagValue>();
   const positional: string[] = [];
@@ -42,12 +47,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
       if (eq !== -1) {
         setFlag(flags, arg.slice(2, eq), arg.slice(eq + 1));
       } else {
+        const key = arg.slice(2);
         const next = argv[i + 1];
-        if (next && !next.startsWith('-')) {
-          setFlag(flags, arg.slice(2), next);
+        if (!BOOLEAN_FLAGS.has(key) && next && !next.startsWith('-')) {
+          setFlag(flags, key, next);
           i += 1;
         } else {
-          setFlag(flags, arg.slice(2), true);
+          setFlag(flags, key, true);
         }
       }
     } else if (arg.startsWith('-')) {

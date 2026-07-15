@@ -121,4 +121,4 @@ Useful when iterating on rule logic. See [Test rule expressions independently](.
 ## Where to look next
 
 - For the supported rule grammar, see [Storage rules subset](../pyric-storage-reference-rules-subset/).
-- For the carve-out and other production patterns, see the [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) page.
+- For current construct support and evidence, run `pyric can-i-use storage-rules/<construct>`.

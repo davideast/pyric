@@ -120,8 +120,9 @@ let buildProblem: string | null = null;
 let outcomes: ProbeOutcome[] = [];
 if (foundationOk) {
   buildProblem = ensureWorkspaceBuild();
-  outcomes = buildProblem
-    ? checks.map((entry) => ({ entry, kind: 'infrastructure' as const, detail: buildProblem }))
+  const buildFailure = buildProblem ?? undefined;
+  outcomes = buildFailure
+    ? checks.map((entry) => ({ entry, kind: 'infrastructure' as const, detail: buildFailure }))
     : checks.map(runProbe);
 }
 

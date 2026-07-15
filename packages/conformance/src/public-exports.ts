@@ -7,13 +7,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const TYPE_CENSUS_ENTRY = join(HERE, '__public-surface-census__.ts');
 
 /**
- * Firebase uses a leading underscore for implementation exports that happen to
- * escape through a runtime barrel. They are not part of the documented modular
- * API and therefore never belong in a public-surface denominator.
- *
- * This is deliberately structural rather than a hand-maintained exclusion
- * list. A newly added `_privateThing` is private immediately, while every
- * non-underscore export remains public until Firebase removes it.
+ * Type-surface visibility remains structural because the type census does not
+ * yet have reviewed per-symbol classifications. Runtime visibility is stricter:
+ * exact private names live in the owning surface contract, and this helper must
+ * not be used to let a new runtime export bypass review.
  */
 export function isPublicExportName(name: string): boolean {
   return !name.startsWith('_');
@@ -26,11 +23,11 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
   skipLibCheck: true,
 };
 
-function resolveDeclaration(specifier: string): string {
-  const resolved = ts.resolveModuleName(specifier, TYPE_CENSUS_ENTRY, COMPILER_OPTIONS, ts.sys).resolvedModule;
-  if (resolved) return resolved.resolvedFileName;
+export function resolvePublicTypeEntry(specifier: string): string {
   const source = workspaceSourceEntry(specifier);
   if (source) return source;
+  const resolved = ts.resolveModuleName(specifier, TYPE_CENSUS_ENTRY, COMPILER_OPTIONS, ts.sys).resolvedModule;
+  if (resolved) return resolved.resolvedFileName;
   throw new Error(`Cannot resolve public declaration entry for '${specifier}'`);
 }
 
@@ -42,7 +39,7 @@ function resolveDeclaration(specifier: string): string {
  * coverage because TypeScript exposes them in both namespaces.
  */
 export function publicTypeExportNames(specifiers: string[]): string[] {
-  const roots = [...new Set(specifiers.map(resolveDeclaration))];
+  const roots = [...new Set(specifiers.map(resolvePublicTypeEntry))];
   const program = ts.createProgram(roots, COMPILER_OPTIONS);
   const checker = program.getTypeChecker();
   const names = new Set<string>();

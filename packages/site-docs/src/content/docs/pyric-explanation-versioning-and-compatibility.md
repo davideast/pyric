@@ -47,13 +47,13 @@ A user who never runs `npm dist-tag ls` still sees the claim, and sees the same 
 
 ## The claim links to numbers anyone can read
 
-"Tested against Firebase 12.16" is only honest if the result of that testing is inspectable. Pyric publishes three numbers openly, per service and overall, on the [conformance scoreboard](../pyric-conformance-scores/) and each COMPAT matrix:
+"Tested against Firebase 12.16" is only honest if the result of that testing is inspectable. Pyric publishes three numbers openly, per service and overall, on the [conformance scoreboard](https://pyric.dev/docs/pyric-conformance-scores/) and each compatibility matrix:
 
 - **Public runtime surface** — mirrored public runtime exports / Firebase public runtime exports.
 - **Public type surface** — mirrored public exported type names / Firebase public exported type names.
 - **Fidelity** — of the discrete claims in the matrix, how many match production.
 
-They are different questions. Public surface is about whether an export name exists. Leading-underscore Firebase implementation exports are private and excluded by rule. Every public export stays in the denominator, including deprecated, unsupported, and deferred APIs. Type-name presence does not prove structural assignability or signature equivalence. Fidelity is about whether each tracked interaction matches Firebase. It is not "percent of Firebase that works," and missing exports do not move it. The scoreboard explains the statuses behind the fidelity percentage in full. A reader following the tag reaches those numbers, not a slogan. "Tested against" is a link, never a vibe.
+They are different questions. Public surface is about whether an export name exists. A runtime export is private only when its exact name is reviewed in the authored surface contract; a leading underscore alone does not exclude it, and a new name fails closed until reviewed. The type-name census still excludes leading-underscore names by its structural rule. Every public export stays in the denominator, including deprecated, unsupported, and deferred APIs. Type-name presence does not prove structural assignability or signature equivalence. Fidelity is about whether each tracked interaction matches Firebase. It is not "percent of Firebase that works," and missing exports do not move it. The scoreboard explains the statuses behind the fidelity percentage in full. A reader following the tag reaches those numbers, not a slogan. "Tested against" is a link, never a vibe.
 
 ## Where the numbers stand today
 

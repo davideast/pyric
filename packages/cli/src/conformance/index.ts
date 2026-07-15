@@ -4,14 +4,17 @@
  * separate trust axes.
  */
 export {
-  canIUse,
-  normalizeFeature,
   type Assurance,
   type Availability,
   type DeveloperSurface,
   type FeatureClaim,
+  type FeatureClaimKind,
   type FeatureSupport,
   type Fidelity,
+  type ImportEvidence,
+  type CanIUseMatch,
+  type CanIUseOptions,
+  type CanIUseResult,
 } from './.generated/can-i-use.js';
 
-export { createConformanceTools } from './tools.js';
+export { canIUse, canIUseImport } from './can-i-use.js';

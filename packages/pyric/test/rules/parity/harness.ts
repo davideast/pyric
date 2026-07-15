@@ -34,7 +34,8 @@ import type { TestCase, TestFirestoreRulesResult } from '../../../src/rules/test
 // existing parity importers keep resolving `Scenario` from the harness while the
 // definition has a single home shared with the capture runner and replay suite.
 
-export type { Scenario } from '../../../../../packages/conformance/rules-corpus/firestore/index.ts';
+import type { Scenario } from '../../../../../packages/conformance/rules-corpus/firestore/index.ts';
+export type { Scenario };
 
 export type Decision = 'ALLOW' | 'DENY';
 /**

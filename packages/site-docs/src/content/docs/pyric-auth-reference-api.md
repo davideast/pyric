@@ -9,7 +9,7 @@ order: 15002
 
 Exact signatures of every public export, grouped by purpose. Sandbox-only behavior is called out per function.
 
-For coverage against `firebase/auth`'s full surface, see [feature-matrix.md](../pyric-auth-reference-feature-matrix/).
+For current coverage against `firebase/auth`, query the central model with `pyric can-i-use auth/<symbol>`.
 
 ---
 
@@ -159,7 +159,7 @@ Registers a BLOCKING gate that runs before a real sign-in/sign-out transition co
 
 Fires for both directions — a real sign-in (`nextUser` non-null) and a real sign-out (`nextUser === null`). Covers every sign-in path `pyric/auth` has: `signInAnonymously`, `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `signInWithPopup`, `signInWithRedirect`, `signInWithCredential`, and `signOut`.
 
-Does NOT gate the `sandbox.setUser` test driver — that bypass has no production analogue (it already skips provider enforcement the same way). Over the served-worker path (`@pyric/cli`'s SharedWorker-backed auth), registering throws immediately rather than silently accepting a callback that could never run — see COMPAT.md.
+Does NOT gate the `sandbox.setUser` test driver — that bypass has no production analogue (it already skips provider enforcement the same way). Over the served-worker path (`@pyric/cli`'s SharedWorker-backed auth), registering throws immediately rather than silently accepting a callback that could never run. Query `pyric can-i-use auth/beforeAuthStateChanged` for the current fidelity, caveats, and evidence.
 
 ---
 
@@ -318,16 +318,4 @@ Mirrors the Authentication → Sign-in method toggles. `password` and `anonymous
 
 **Sandbox driver calls are mirror-only.** Every `sandbox.*` method requires a mirror-produced `Auth` handle and routes only to its owning sandbox. Production code never loads this namespace because its canonical imports remain on `firebase/auth`.
 
-**v0 deny list.** The exports below are deliberately absent. Full detail, including the exact reasoning per symbol, lives in [feature-matrix.md](../pyric-auth-reference-feature-matrix/); the shape:
-
-- **Sign-in methods**: `signInWithCustomToken`, `signInWithPhoneNumber`, `signInWithEmailLink` (and `isSignInWithEmailLink` / `sendSignInLinkToEmail`).
-- **Multi-factor**: `multiFactor`, `MultiFactorSession`, `getMultiFactorResolver`, `PhoneMultiFactorGenerator`, `TotpMultiFactorGenerator`, `TotpSecret`.
-- **Link / unlink / re-authenticate**: `linkWithCredential`, `linkWithPopup`, `linkWithRedirect`, `unlink`, `reauthenticateWithCredential`, `reauthenticateWithPopup`, `reauthenticateWithRedirect`, `reauthenticateWithPhoneNumber`.
-- **Client-side profile mutation**: `updateEmail`, `updatePassword`, `verifyBeforeUpdateEmail`, `deleteUser(user)` (a client-side `User` cannot delete itself; the sandbox admin surface is `sandbox.deleteUser(auth, uid)`), `user.reload()`, `user.delete()`.
-- **Password reset & email verification**: `sendPasswordResetEmail`, `confirmPasswordReset`, `sendEmailVerification`, `applyActionCode`, `verifyPasswordResetCode`, `checkActionCode`, `revokeAccessToken`, `validatePassword(auth, password)`.
-- **Providers**: `TwitterAuthProvider` (use `new OAuthProvider('twitter.com')`), `SAMLAuthProvider`, `PhoneAuthProvider`, `RecaptchaVerifier`.
-- **Lifecycle / config**: `initializeAuth` (no custom dependency injection on the sandbox backend), `indexedDBLocalPersistence`, `useDeviceLanguage`, `auth.languageCode`, `auth.tenantId`.
-- **User fields**: `user.metadata`, `user.refreshToken`, `user.tenantId`, `user.toJSON()`.
-- **Error constants**: the `AuthErrorCodes` module. Use the string literal (`'auth/user-not-found'`, etc.) directly.
-
-None of this is a Firebase gap. It's the v0 scope line: everything above is real, documented `firebase/auth` surface that `pyric/auth` hasn't mirrored yet. Code that imports any of it fails to resolve once the sandbox-preview build aliases `firebase/auth` → `pyric/auth`; it works unmodified against real `firebase/auth` at deploy.
+**Feature availability is data, not an authored list.** Run `pyric can-i-use auth/<symbol>` for any Firebase Auth export before relying on it. The result distinguishes availability from behavioral fidelity and assurance, names caveats, and points to the generated evidence page. Code that imports an unavailable symbol fails to resolve when the sandbox-preview build aliases `firebase/auth` to `pyric/auth`; an unswapped production build still uses Firebase's package.

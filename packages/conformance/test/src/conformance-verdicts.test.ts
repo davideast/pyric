@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { CompatibilityRow } from '../registry/types.ts';
+import type { CompatibilityRow } from '../../registry/types.ts';
 import {
   deriveAllNodeVerdicts,
   deriveConstructVerdict,
@@ -8,7 +8,7 @@ import {
   renderConformanceVerdicts,
   validationProblems,
   type ConformanceGraph,
-} from './conformance-verdicts.ts';
+} from '../../src/conformance-verdicts.ts';
 
 function fakeGraph(overrides: Partial<ConformanceGraph> = {}): ConformanceGraph {
   return {
@@ -19,7 +19,7 @@ function fakeGraph(overrides: Partial<ConformanceGraph> = {}): ConformanceGraph 
 
 function row(id: string, over: Partial<CompatibilityRow> = {}): CompatibilityRow {
   return {
-    id, surface: 'firestore-rules', aliases: [], rowRef: id, rowNumber: null,
+    id, surface: 'firestore-rules', aliases: [], featureKeys: [], rowRef: id, rowNumber: null,
     section: 'test', api: 'test', behavior: 'test', status: 'conforms', evidence: 'test',
     risk: [], riskScore: 0, riskReasons: [], automation: 'oracle-backed',
     oracleObservations: [], conformanceTests: [], ...over,

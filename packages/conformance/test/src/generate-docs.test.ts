@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { appRegistry } from '../registry/app.ts';
-import { authRegistry } from '../registry/auth.ts';
-import { messagingRegistry } from '../registry/messaging.ts';
-import { allCompatibilityRows, rowsForSurface } from '../registry/index.ts';
+import { appRegistry } from '../../registry/app.ts';
+import { authRegistry } from '../../registry/auth.ts';
+import { messagingRegistry } from '../../registry/messaging.ts';
+import { allCompatibilityRows, rowsForSurface } from '../../registry/index.ts';
 import {
   climbHeaderLines,
   consolidatedGapSections,
@@ -11,8 +11,8 @@ import {
   renderSurfaceMarkdown,
   scoreBlock,
   statBar,
-} from './generate-docs.ts';
-import { deriveConformanceModel, type ConformanceModel } from './conformance-model.ts';
+} from '../../src/generate-docs.ts';
+import { deriveConformanceModel, type ConformanceModel } from '../../src/conformance-model.ts';
 
 let projection: ConformanceModel['documentation'];
 beforeAll(async () => { projection = (await deriveConformanceModel()).documentation; }, 20_000);
@@ -51,6 +51,17 @@ describe('generated fidelity scores', () => {
     expect(block).toContain('types 66.7% (4/6)');
     expect(block).not.toContain('intended');
     expect(block).not.toContain('39.1%');
+  });
+
+  it('publishes public-surface scores from the live census, not the ratchet baseline', () => {
+    const liveCensus = projection.census.map((entry) => entry.surface === 'app' ? {
+      ...entry,
+      runtime: { ...entry.runtime, mapped: ['one'], upstreamCount: 4 },
+      types: { ...entry.types, mapped: ['One', 'Two'], upstreamCount: 5 },
+    } : entry);
+    const block = scoreBlock(appRegistry, { ...projection, census: liveCensus })!;
+    expect(block).toContain('<strong>Public surface:</strong> runtime 25% (1/4)');
+    expect(block).toContain('types 40% (2/5)');
   });
 
   it('renders a proportional bar with an accessible five-state text equivalent', () => {
@@ -92,11 +103,14 @@ describe('generated fidelity scores', () => {
     expect(gaps).toContain('### Unsupported');
     expect(gaps).toContain('### Unverified');
     expect(gaps).not.toContain('### Bugs');
+    expect(markdown).toContain('## Reviewed public-runtime gaps');
+    expect(markdown).toContain('| auth.mfa-phone-recaptcha | deferred |');
+    expect(markdown).not.toContain('## Deny-list');
   });
 
   it('ratchets every oracle-backed conforming row in the coverage baseline', () => {
     const baseline = JSON.parse(readFileSync(
-      new URL('../baselines/coverage-baseline.json', import.meta.url),
+      new URL('../../baselines/coverage-baseline.json', import.meta.url),
       'utf8',
     )) as { rowStatuses: Record<string, string> };
     const unprotected = allCompatibilityRows
@@ -126,6 +140,14 @@ describe('generated fidelity scores', () => {
     expect(scoreboard).toContain('<span class="compat-score-axis">Types</span>100% (8/8)');
     expect(scoreboard).toContain(`<strong class="compat-score-pct">${pct}%</strong>`);
     expect(scoreboard).toContain(`<span>${conforms}/${clientRows.length} conform</span>`);
+  });
+
+  it('keeps the Overall public surface scoped to coverage mirror contracts', () => {
+    const scoreboard = renderScoreboardMarkdown(projection);
+    const overall = scoreboard.slice(scoreboard.indexOf('<span class="compat-score-name">Overall</span>'));
+    expect(overall).toContain('<span class="compat-score-axis">Runtime</span>73.5% (236/321)');
+    expect(overall).toContain('<span class="compat-score-axis">Types</span>54.8% (193/352)');
+    expect(overall).not.toContain('73.8% (240/325)');
   });
 
   it('keeps Functions with RTDB visible as an integration row', () => {

@@ -1,79 +1,88 @@
-import { z } from 'zod';
-import type { CompatibilitySurfaceRegistry, Surface } from '../registry/types.ts';
+import type { CompatibilitySurfaceRegistry, DeveloperSurface, Surface } from '../registry/types.ts';
 
-export const SURFACE_CONTRACT_SCHEMA = 'pyric.conformance.surface.v1' as const;
+export const SURFACE_CONTRACT_SCHEMA = 'pyric.conformance.surface.v2' as const;
 export type CensusSurface = string;
-export type DispositionTier = 'out-of-scope' | 'deferred';
+export type DispositionState =
+  | { availability: 'out-of-scope'; reasonCode: 'upstream-deprecated' }
+  | { availability: 'deferred'; reasonCode: 'implementation-deferred' };
+export type DispositionAvailability = DispositionState['availability'];
 
-export const dispositionGroupSchema = z.object({
-  tier: z.enum(['out-of-scope', 'deferred']),
-  reason: z.string().trim().min(1),
-  symbols: z.array(z.string().trim().min(1)).min(1),
-}).strict();
+interface DispositionGroupBase {
+  id: string;
+  summary: string;
+  evidenceRefs: string[];
+  symbols: string[];
+}
+export type DispositionGroup = DispositionGroupBase & DispositionState;
 
-const contractBase = {
-  schema: z.literal(SURFACE_CONTRACT_SCHEMA),
-  order: z.number().finite(),
-};
+interface ContractBase {
+  schema: typeof SURFACE_CONTRACT_SCHEMA;
+  developerSurface: DeveloperSurface;
+}
 
-const descriptorBase = {
-  ...contractBase,
-  registry: z.string().trim().min(1),
-  observationPrefixes: z.array(z.string().trim().min(1)).min(1),
-  coverage: z.boolean(),
-  scopeNote: z.string().trim().min(1),
-  conformanceSuite: z.string().trim().min(1).optional(),
-  captureRigs: z.array(z.string().trim().min(1)),
-  climb: z.boolean().optional(),
-};
+interface EvidenceRoutedContract {
+  /** Published imports whose API-reference pages should link to this
+   * compatibility surface. Mirror contracts derive routing from `mirrors`, so
+   * only non-mirror descriptors may author associations that cannot be inferred. */
+  evidenceImports?: string[];
+}
 
-export const mirrorSurfaceContractSchema = z.object({
-  ...descriptorBase,
-  kind: z.literal('mirror'),
-  censusSurface: z.string().trim().min(1),
-  upstream: z.string().trim().min(1),
-  mirrors: z.array(z.string().trim().min(1)).min(1),
-  dispositions: z.array(dispositionGroupSchema).default([]),
-}).strict();
+interface DescriptorBase extends ContractBase {
+  registry: string;
+  observationPrefixes: string[];
+  coverage: boolean;
+  scopeNote?: string;
+  conformanceSuite?: string;
+  captureRigs: string[];
+  climb?: boolean;
+}
 
-export const nativeSurfaceContractSchema = z.object({
-  ...descriptorBase,
-  kind: z.literal('native'),
-  symbolSource: z.string().trim().min(1),
-}).strict();
+export interface MirrorSurfaceContract extends DescriptorBase {
+  kind: 'mirror';
+  censusSurface: CensusSurface;
+  upstream: string;
+  mirrors: string[];
+  privateRuntimeExports: string[];
+  dispositions: DispositionGroup[];
+}
 
-export const integrationSurfaceContractSchema = z.object({
-  ...descriptorBase,
-  kind: z.literal('integration'),
-  contractSource: z.string().trim().min(1),
-}).strict();
+export interface NativeSurfaceContract extends DescriptorBase, EvidenceRoutedContract {
+  kind: 'native';
+  scopeNote: string;
+  symbolSource: string;
+}
 
-export const censusOnlySurfaceContractSchema = z.object({
-  ...contractBase,
-  kind: z.literal('census-only'),
-  censusSurface: z.string().trim().min(1),
-  upstream: z.string().trim().min(1),
-  mirrors: z.array(z.string().trim().min(1)).min(1),
-  dispositions: z.array(dispositionGroupSchema).default([]),
-}).strict();
+export interface IntegrationSurfaceContract extends DescriptorBase, EvidenceRoutedContract {
+  kind: 'integration';
+  scopeNote: string;
+  contractSource: string;
+}
 
-export const surfaceContractSchema = z.discriminatedUnion('kind', [
-  mirrorSurfaceContractSchema,
-  nativeSurfaceContractSchema,
-  integrationSurfaceContractSchema,
-  censusOnlySurfaceContractSchema,
-]);
+export interface RegistryOnlySurfaceContract extends DescriptorBase, EvidenceRoutedContract {
+  kind: 'registry-only';
+  scopeNote: string;
+}
 
-export type DispositionGroup = z.infer<typeof dispositionGroupSchema>;
-export type MirrorSurfaceContract = z.infer<typeof mirrorSurfaceContractSchema>;
-export type NativeSurfaceContract = z.infer<typeof nativeSurfaceContractSchema>;
-export type IntegrationSurfaceContract = z.infer<typeof integrationSurfaceContractSchema>;
-export type CensusOnlySurfaceContract = z.infer<typeof censusOnlySurfaceContractSchema>;
-export type SurfaceContract = z.infer<typeof surfaceContractSchema>;
+export interface CensusOnlySurfaceContract extends ContractBase {
+  kind: 'census-only';
+  censusSurface: CensusSurface;
+  upstream: string;
+  mirrors: string[];
+  privateRuntimeExports: string[];
+  dispositions: DispositionGroup[];
+}
+
+export type SurfaceContract =
+  | MirrorSurfaceContract
+  | NativeSurfaceContract
+  | IntegrationSurfaceContract
+  | RegistryOnlySurfaceContract
+  | CensusOnlySurfaceContract;
 export type SurfaceDescriptorRecord =
   | MirrorSurfaceContract
   | NativeSurfaceContract
-  | IntegrationSurfaceContract;
+  | IntegrationSurfaceContract
+  | RegistryOnlySurfaceContract;
 
 interface SurfaceDescriptorResolved {
   surface: Surface;
@@ -88,20 +97,26 @@ export type NativeSurfaceDescriptor =
   Omit<NativeSurfaceContract, 'registry'> & SurfaceDescriptorResolved;
 export type IntegrationSurfaceDescriptor =
   Omit<IntegrationSurfaceContract, 'registry'> & SurfaceDescriptorResolved;
+export type RegistryOnlySurfaceDescriptor =
+  Omit<RegistryOnlySurfaceContract, 'registry'> & SurfaceDescriptorResolved;
 export type SurfaceDescriptor =
   | MirrorSurfaceDescriptor
   | NativeSurfaceDescriptor
-  | IntegrationSurfaceDescriptor;
+  | IntegrationSurfaceDescriptor
+  | RegistryOnlySurfaceDescriptor;
 
 export interface CensusMirrorPair {
   surface: CensusSurface;
   upstream: string;
   mirrors: string[];
+  privateRuntimeExports: string[];
 }
 
-export interface SurfaceDisposition {
+interface SurfaceDispositionBase {
   surface: CensusSurface;
   symbol: string;
-  reason: string;
-  tier: DispositionTier;
+  dispositionId: string;
+  summary: string;
+  evidenceRefs: string[];
 }
+export type SurfaceDisposition = SurfaceDispositionBase & DispositionState;

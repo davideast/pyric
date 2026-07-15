@@ -1,37 +1,67 @@
 {
-  "schema": "pyric.conformance.surface.v1",
-  "order": 5,
+  "schema": "pyric.conformance.surface.v2",
   "kind": "mirror",
+  "developerSurface": "rtdb",
   "censusSurface": "database",
   "upstream": "firebase/database",
   "mirrors": [
     "pyric/database"
   ],
+  "privateRuntimeExports": [
+    "_QueryImpl",
+    "_QueryParams",
+    "_ReferenceImpl",
+    "_TEST_ACCESS_forceRestClient",
+    "_TEST_ACCESS_hijackHash",
+    "_initStandalone",
+    "_repoManagerDatabaseFromApp",
+    "_setSDKVersion",
+    "_validatePathString",
+    "_validateWritablePath"
+  ],
   "observationPrefixes": [
     "rtdb-modular-"
   ],
   "coverage": true,
-  "scopeNote": "Firebase-internal underscore plumbing is private and excluded from public coverage by rule. Public runtime and type gaps stay in the denominator. This surface is the sole owner of the `database` census.",
   "captureRigs": [
     "oracle-run"
   ],
   "registry": "rtdb",
   "dispositions": [
     {
-      "tier": "deferred",
-      "reason": "onDisconnect requires a live connection lifecycle the in-memory sandbox has no equivalent for today — buildable as an honest no-op or inert token like the connection-management APIs, not genuinely un-modelable.",
+      "id": "database.connection-lifecycle",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "onDisconnect requires a live connection lifecycle the in-memory sandbox has no equivalent for today — buildable as an honest no-op or inert token like the connection-management APIs, not genuinely un-modelable.",
+      "evidenceRefs": ["registry:rtdb-modular#163"],
       "symbols": [
         "onDisconnect",
         "OnDisconnect"
       ]
     },
     {
-      "tier": "deferred",
-      "reason": "Firebase's legacy priority ordering system is absent; the sandbox exposes orderByChild/Key/Value only today. Priority ordering is data-modelable as a sort key, so this is revisitable scope rather than a hard sandbox limitation.",
+      "id": "database.priority-ordering",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "Firebase's legacy priority ordering system is absent; the sandbox exposes orderByChild/Key/Value only today. Priority ordering is data-modelable as a sort key, so this is revisitable scope rather than a hard sandbox limitation.",
+      "evidenceRefs": ["upstream:firebase/database"],
       "symbols": [
         "setPriority",
         "setWithPriority",
         "orderByPriority"
+      ]
+    },
+    {
+      "id": "database.runtime-class-values",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "These Firebase classes are mirrored structurally in Pyric's type surface but are not exported as runtime constructor values; runtime identity remains unbuilt.",
+      "evidenceRefs": ["upstream:firebase/database"],
+      "symbols": [
+        "DataSnapshot",
+        "Database",
+        "QueryConstraint",
+        "TransactionResult"
       ]
     }
   ]

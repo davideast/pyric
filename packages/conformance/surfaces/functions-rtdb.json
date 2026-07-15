@@ -1,7 +1,7 @@
 {
-  "schema": "pyric.conformance.surface.v1",
-  "order": 8.5,
+  "schema": "pyric.conformance.surface.v2",
   "kind": "integration",
+  "developerSurface": "functions-rtdb",
   "contractSource": "firebase-functions/v2/database#onValueCreated",
   "observationPrefixes": [
     "functions-rtdb-"

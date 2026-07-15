@@ -43,7 +43,7 @@ The revised epic defines two outcomes and five ordered sub-issues:
 | 2 | [#215](https://github.com/davideast/pyric/issues/215) | Derive the central model, migrate surface descriptors/dispositions to machine-readable contracts, and build a one-to-many feature index. | Open; depends on #214. Rewritten after this investigation to address the live registry and hard-coded denylist. |
 | 3a | [#303](https://github.com/davideast/pyric/issues/303) | Stop committing disposable COMPAT/SCORES, site ports, reports, and runtime projections. | Open; depends on #215 and may proceed alongside #216. |
 | 3b | [#216](https://github.com/davideast/pyric/issues/216) | Implement a pure `canIUse(feature)` translation that preserves availability, fidelity, and assurance separately. | Open; depends on #215 and may proceed alongside #303. |
-| 4 | [#217](https://github.com/davideast/pyric/issues/217) | Expose the query through MCP and at the `pyric verify` decision point. | Open; depends on #216 and is related to Trust item [#133](https://github.com/davideast/pyric/issues/133), which remains open. |
+| 4 | [#217](https://github.com/davideast/pyric/issues/217) | Expose the query through MCP and the top-level `pyric can-i-use` command, separate from rules-fixture verification. | Open; depends on #216 and is related to Trust item [#133](https://github.com/davideast/pyric/issues/133), which remains open. |
 
 At investigation time, #214–#217 were body checkboxes rather than GitHub `subIssues`. The planning pass registered #214, #215, #216, #217, and new projection-cleanup issue #303 as native sub-issues and reclassified them under Trust. There are no implementation PRs attached to them. The epic is also cross-referenced by merged [PR #220](https://github.com/davideast/pyric/pull/220) and the later Trust-repair epic [#261](https://github.com/davideast/pyric/issues/261). #261 explicitly keeps #218 independent and says its stale examples must be refreshed before implementation.
 
@@ -53,7 +53,7 @@ The dependency order is now: land the assurance reduction (#214), complete the c
 
 The repository already describes the registry as the source for generated compatibility docs and observations as the production evidence behind claims ([conformance map](../packages/conformance/README.md)). Rules-language snapshots enumerate constructs, and a small shared production graph gives divergences precedence over positive evidence ([`production-verification.ts`](../packages/conformance/src/production-verification.ts#L95-L160)).
 
-The assurance path is less direct than the epic's “graph” shorthand suggests. [`loadConformanceGraph()`](../packages/conformance/src/assurance-capabilities.ts#L235-L273) reads:
+The assurance path is less direct than the epic's “graph” shorthand suggests. At the investigation commit, [`loadConformanceGraph()`](https://github.com/davideast/pyric/blob/10cb37e03f32fe3bf295beaad1935f74b3bb8bfd/packages/conformance/src/assurance-capabilities.ts#L235-L273) reads:
 
 - construct statuses from the three rules-language snapshots;
 - simulator classifications from committed generated `capability-report.json`;
@@ -61,7 +61,7 @@ The assurance path is less direct than the epic's “graph” shorthand suggests
 - compatibility rows from the registries; and
 - construct-scoped proving/diverging rows from those registries.
 
-It then combines those facts with 16 authored capability grouping records and writes three copies: `capabilities.json`, a conformance-side TypeScript module, and a CLI runtime TypeScript module ([generator outputs](../packages/conformance/src/assurance-capabilities.ts#L177-L193), [write path](../packages/conformance/src/assurance-capabilities.ts#L740-L778)). The live runtime is now under `packages/cli`, not the `pyric-tools` paths named throughout #218–#217.
+It then combines those facts with 16 authored capability grouping records and writes three copies: `capabilities.json`, a conformance-side TypeScript module, and a CLI runtime TypeScript module ([generator outputs](https://github.com/davideast/pyric/blob/10cb37e03f32fe3bf295beaad1935f74b3bb8bfd/packages/conformance/src/assurance-capabilities.ts#L177-L193), [write path](https://github.com/davideast/pyric/blob/10cb37e03f32fe3bf295beaad1935f74b3bb8bfd/packages/conformance/src/assurance-capabilities.ts#L740-L778)). The live runtime is now under `packages/cli`, not the `pyric-tools` paths named throughout #218–#217.
 
 The generated footprint relevant to this work is:
 
@@ -145,8 +145,8 @@ The public facade can stay small, but it must preserve the distinction:
 interface FeatureSupport {
   feature: string;
   surface: DeveloperSurface;
-  availability: 'available' | 'deferred' | 'out-of-scope';
-  fidelity: 'conforms' | 'diverged' | 'bug' | 'unverified' | 'not-applicable';
+  availability: 'available' | 'unavailable' | 'deferred' | 'out-of-scope';
+  fidelity: 'conforms' | 'diverged' | 'bug' | 'unsupported' | 'unverified' | 'not-applicable';
   assurance: 'eligible' | 'qualified' | 'ineligible' | 'not-applicable';
   summary: string;
   claims: readonly {
@@ -158,7 +158,7 @@ interface FeatureSupport {
 }
 ```
 
-`canIUse('getDownloadURL')` then says “available; fidelity diverges in URL identity/lifetime,” while `canIUse('onDisconnect')` says “deferred; fidelity not applicable.” That is more trustworthy than calling both “partial” or “unsupported.” A compact presentation may derive a headline, but the underlying API must not destroy the axes.
+`canIUse('getDownloadURL')` then says “available; fidelity diverges in URL identity/lifetime,” while `canIUse('onDisconnect')` says “deferred; fidelity not applicable.” A known public type that Pyric does not mirror says “unavailable; fidelity not applicable” instead of disappearing from the query. That is more trustworthy than calling these states “partial” or conflating them with behavior support. A compact presentation may derive a headline, but the underlying API must not destroy the axes.
 
 ### 6. The proposed surface union is already incomplete
 
@@ -215,7 +215,14 @@ For a transitional release, it is reasonable to keep only the runtime-generated 
 
 ### Delivery 5: expose the public consumer
 
-Expose the pure query to MCP and `pyric verify` discovery as #217/#133 require.
+Expose the pure query to MCP and the top-level `pyric can-i-use` command as #217/#133 require. Keep feature discovery independent of `pyric verify`, which replays captured rules fixtures.
+
+Generated API references must use this consumer too. Feature results carry only
+census-proven package exports; registry ownership cannot manufacture an export.
+The same generated projection exposes `canIUseImport(importPath)` for the
+distinct import-to-COMPAT-page join. A docs generator uses those two exact
+lookups instead of maintaining a surface or evidence map. This is the
+integration seam for the stacked API-reference work in PR #328.
 
 ## Proposed acceptance criteria for the rewritten epic
 
@@ -228,6 +235,7 @@ Expose the pure query to MCP and `pyric verify` discovery as #217/#133 require.
 - The docs build publishes the same ten conformance pages and Markdown twins from the model.
 - Assurance abstentions still name the required node, derived state, and plain reason.
 - `canIUse` resolves one feature to all relevant claims, handles ambiguous names deterministically, and returns availability, fidelity, and assurance separately.
+- Generated API docs can scope a symbol by census-proven published import and resolve the import's canonical evidence page, with no hand-maintained surface or evidence-link map.
 - `getAfter`, `getDownloadURL`, and `onDisconnect` exercise respectively diverged rules behavior, available-but-diverged SDK behavior, and deferred availability.
 - No runtime result depends on live GitHub issue state.
 

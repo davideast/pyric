@@ -100,15 +100,17 @@ match /posts/{postId} {
 
 When a rule denies, the verdict names the rule and the data it saw. [Prove your rules protect the app](../secure/secure-it-with-rules.md) picks up from here.
 
-## The boundaries, plainly
+## Check support before choosing a flow
 
-Not in v1, and loud about it:
+Auth changes too quickly for a hand-maintained deny-list to stay trustworthy. Ask the same central model that builds the conformance pages:
 
-- Phone auth and email-link sign-in.
-- Multi-factor auth and account linking.
-- Password-reset emails.
+```bash
+pyric can-i-use auth/signInWithEmailLink
+pyric can-i-use auth/linkWithCredential
+pyric can-i-use auth/sendPasswordResetEmail
+```
 
-Code that reaches for these fails with a remediation message instead of returning bad data. The full deny list lives in the reference.
+Each result reports availability separately from behavioral fidelity and assurance, with caveats and a link to its evidence.
 
 ## And from an agent
 
