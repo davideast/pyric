@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { RemoteSandbox } from '../remote/index.js';
 import {
   startOnValueCreatedExecution,
@@ -203,6 +203,23 @@ function send(message: FunctionsRtdbChildMessage): void {
   process.send?.(message);
 }
 
+/** Load either module format with ESM semantics and recover exact CJS exports. */
+async function loadFunctionsExports(entry: string): Promise<Record<string, unknown>> {
+  const namespace = await import(pathToFileURL(entry).href) as Record<string, unknown>;
+  // Node >=22.12 exposes the exact CommonJS module.exports value under this
+  // marker. Using it avoids walking both synthetic named exports and `default`,
+  // which would discover every CJS trigger twice. ESM has no marker and its
+  // namespace is already the Firebase loader shape we need.
+  const commonJsExports = namespace['module.exports'];
+  if (
+    (typeof commonJsExports === 'object' && commonJsExports !== null) ||
+    typeof commonJsExports === 'function'
+  ) {
+    return commonJsExports as Record<string, unknown>;
+  }
+  return namespace;
+}
+
 async function runFunctionsRtdbChild(): Promise<void> {
   const entry = process.env.PYRIC_FUNCTIONS_ENTRY;
   const instance = process.env.PYRIC_FUNCTIONS_INSTANCE;
@@ -252,7 +269,7 @@ async function runFunctionsRtdbChild(): Promise<void> {
     // The real database provider asks firebase-admin/app for its default app
     // when it wraps a raw CloudEvent. Initializing that app before loading the
     // user's module avoids importing the broad firebase-functions/v2 barrel.
-    const exported = requireFromEntry(entry) as Record<string, unknown>;
+    const exported = await loadFunctionsExports(entry);
     const effectiveInstances = [...new Set(
       inspectOnValueCreated(exported).triggers.map((trigger) =>
         trigger.instance === '*' ? instance : trigger.instance,

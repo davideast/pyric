@@ -93,6 +93,30 @@ exports.unsupportedInstance = onValueCreated(
     join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
     join(fixtureDir, 'functions/node_modules/firebase-functions'),
   );
+  mkdirSync(join(fixtureDir, 'functions-esm/node_modules'), { recursive: true });
+  writeFileSync(
+    join(fixtureDir, 'functions-esm/package.json'),
+    JSON.stringify({
+      name: 'unchanged-functions-esm',
+      private: true,
+      type: 'module',
+      main: 'index.js',
+    }),
+  );
+  writeFileSync(
+    join(fixtureDir, 'functions-esm/index.js'),
+    `import { onValueCreated } from 'firebase-functions/v2/database';
+await Promise.resolve();
+export const makeUppercase = onValueCreated(
+  '/esm-messages/{pushId}/original',
+  event => event.data.ref.parent.child('uppercase').set(event.data.val().toUpperCase()),
+);
+`,
+  );
+  symlinkSync(
+    join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+    join(fixtureDir, 'functions-esm/node_modules/firebase-functions'),
+  );
 
   runtime = await startServe({
     cwd: fixtureDir,
@@ -171,6 +195,41 @@ describe('isolated Functions RTDB child', () => {
       params: { pushId: 'id' },
       status: 'fulfilled',
     });
+    expect(await child.stop()).toBe(0);
+  }, 15_000);
+
+  test('loads unchanged ESM source and writes back into the same remote sandbox', async () => {
+    const events: FunctionsRtdbChildEvent[] = [];
+    child = spawnFunctionsRtdbChild({
+      cwd: join(fixtureDir, 'functions-esm'),
+      entry: join(fixtureDir, 'functions-esm/index.js'),
+      childModuleUrl: pathToFileURL(childModule),
+      env: buildChildEnv(process.env, {
+        serveUrl: runtime.handle.url,
+        registerUrl: registerModuleUrl(),
+      }),
+      instance: 'demo-project-default-rtdb',
+      location: 'us-central1',
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(await child.ready).toEqual({
+      triggerCount: 1,
+      unsupportedTriggers: [],
+    });
+    await observer.rtdb.set('esm-messages/id/original', 'hello');
+    const eventDeadline = Date.now() + 5_000;
+    while (events.length === 0 && Date.now() < eventDeadline) {
+      await new Promise((resolveSleep) => setTimeout(resolveSleep, 20));
+    }
+    expect(events).toContainEqual({
+      type: 'execution',
+      exportName: 'makeUppercase',
+      ref: 'esm-messages/id/original',
+      params: { pushId: 'id' },
+      status: 'fulfilled',
+    });
+    await waitForValue('esm-messages/id/uppercase', 'HELLO');
     expect(await child.stop()).toBe(0);
   }, 15_000);
 
