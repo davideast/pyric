@@ -409,7 +409,7 @@ export function createAssuranceTools(
         try {
           if (!deps.attachmentProvider) {
             throw new AssuranceInputError(
-              "localhost attachment is unavailable in this runtime. Connect through the running Pyric instance MCP endpoint or use firebase_assurance_start with an explicit target.",
+              "localhost attachment is unavailable in this runtime. Provide an attachmentProvider or use firebase_assurance_start with an explicit target.",
             );
           }
           const attached = await deps.attachmentProvider({ url: input.url });

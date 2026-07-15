@@ -152,7 +152,7 @@ The same `firebase/*` → sandbox swap for a source-driven Vite app, at module-r
 - `vite build --mode development` (or `swapInBuild:true`) makes a sandbox build (marked in `index.html`); `pyric dev` serves it. Production hosting deploys should use an unmarked production build via `firebase-tools`.
 
 ### The MCP tool surface
-The sandbox and its services exposed as agent-callable tools over MCP. The default bridge pins **35** tool names in `mcp-contract.ts` (Firestore data + inspect, rules lint/simulate/stdlib, simulator session, RTDB inspection, assurance). Library-only factories (not on the default bridge) include index extraction, RTDB generate, Storage admin, and `@pyric/cli/discover`. Unique differentiators: `firestore_simulate_rules`, the stateful `firestore_simulator_*` session, `sandbox_inspect`, `rtdb_simulate_access`, `rtdb_crawl_structure`. Production shipping is `firebase-tools` / Console.
+The sandbox and its services exposed as agent-callable tools over MCP. The default bridge pins **25** tool names in `mcp-contract.ts` (Firestore data + inspect, rules lint/simulate/stdlib, simulator session, and RTDB inspection). Library-only factories (not on the default bridge) include assurance, index extraction, RTDB generate, Storage admin, and `@pyric/cli/discover`. Unique differentiators: `firestore_simulate_rules`, the stateful `firestore_simulator_*` session, `sandbox_inspect`, `rtdb_simulate_access`, `rtdb_crawl_structure`. Production shipping is `firebase-tools` / Console.
 
 ### Credentials for verify
 `@pyric/cli/credentials/node` — `fromServiceAccount` / `fromAdc` → `ProjectScope` for `pyric verify --engine rules-test-api|both` and the Rules Test API handler. CLI env: `FIREBASE_SA_BASE64` → `GOOGLE_APPLICATION_CREDENTIALS` → ADC.

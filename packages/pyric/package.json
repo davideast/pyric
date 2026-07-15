@@ -155,12 +155,5 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "pyricUnreleasedExports": [
-    "./ai",
-    "./ai/scripting",
-    "./messaging",
-    "./messaging/internal",
-    "./messaging/sw"
-  ]
+  }
 }

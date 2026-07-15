@@ -31,16 +31,6 @@ export const DEFAULT_MCP_FORWARDED_TOOL_NAMES = [
   'sandbox_inspect',
   'rtdb_simulate_access',
   'rtdb_crawl_structure',
-  'firebase_assurance_attach',
-  'firebase_assurance_start',
-  'firebase_assurance_map',
-  'firebase_assurance_define',
-  'firebase_assurance_propose',
-  'firebase_assurance_run',
-  'firebase_assurance_inspect',
-  'firebase_assurance_minimize',
-  'firebase_assurance_verify',
-  'firebase_assurance_export',
 ] as const;
 
 /** Local rules tools that run in the MCP process without a browser peer. */

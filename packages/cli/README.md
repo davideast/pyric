@@ -100,7 +100,7 @@ always-current list is the
 
 **Sandbox-routed** — dispatched against the connected browser sandbox
 (`createFirestoreDataTools` + `createFirestoreSimulatorTools` +
-`createFirestoreInspectTools` + local RTDB inspection + assurance):
+`createFirestoreInspectTools` + local RTDB inspection):
 
 - data: `firestore_get_document` / `_list_documents` / `_create_document` / `_add_document` / `_update_document` / `_delete_document` / `_batch_write` / `_query_where` / `firestore_create_with_auto_id`
 - stateful simulator session: `firestore_simulator_create` / `_execute` / `_read` / `_batch` / `_undo` / `_redo` / `_events` / `_transaction`
@@ -109,7 +109,9 @@ always-current list is the
   the rules and data currently installed in the connected sandbox
 - RTDB structure: `rtdb_crawl_structure` — returns a bounded structural view of
   current sandbox data without leaf values
-- assurance: `firebase_assurance_*` campaign tools
+
+Assurance campaign tools remain available programmatically from
+`@pyric/cli/assurance`, but are not registered on the default MCP bridge.
 
 **In-process** — run on the bridge process itself (`createFirestoreRulesTools`
 without a live `ProjectScope`, so no Rules Test API tool):
