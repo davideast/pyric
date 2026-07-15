@@ -50,76 +50,103 @@ afterAll(async () => {
 });
 
 describe('pyric dev Functions RTDB integration', () => {
-  test('discovers unchanged source, executes it in one sandbox, and stops cleanly', async () => {
+  test('executes unchanged CommonJS and ESM sources in one sandbox and stops cleanly', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build the CLI first: ${cliEntry}`);
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-functions-dev-'));
-    mkdirSync(join(cwd, 'public'));
-    mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
-    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
-    writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
-    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({
-      hosting: { public: 'public' },
-      functions: { source: 'functions' },
-    }));
-    writeFileSync(join(cwd, 'functions/package.json'), JSON.stringify({
-      name: 'unchanged-functions',
-      private: true,
-      type: 'commonjs',
-      main: 'index.cjs',
-    }));
-    writeFileSync(join(cwd, 'functions/index.cjs'), `
-const { onValueCreated } = require('firebase-functions/v2/database');
+    for (const format of ['commonjs', 'module'] as const) {
+      const esm = format === 'module';
+      const cwd = mkdtempSync(join(tmpdir(), `pyric-functions-dev-${format}-`));
+      const entry = esm ? 'index.js' : 'index.cjs';
+      mkdirSync(join(cwd, 'public'));
+      mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
+      writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
+      writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({
+        projects: { default: 'demo-project' },
+      }));
+      writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({
+        hosting: { public: 'public' },
+        functions: { source: 'functions' },
+      }));
+      writeFileSync(join(cwd, 'functions/package.json'), JSON.stringify({
+        name: `unchanged-functions-${format}`,
+        private: true,
+        type: format,
+        main: entry,
+      }));
+      writeFileSync(join(cwd, 'functions', entry), esm
+        ? `import { onValueCreated } from 'firebase-functions/v2/database';
+await Promise.resolve();
+export const makeUppercase = onValueCreated(
+  '/messages/{pushId}/original',
+  event => event.data.ref.parent.child('uppercase')
+    .set(event.data.val().toUpperCase()),
+);
+`
+        : `const { onValueCreated } = require('firebase-functions/v2/database');
 exports.makeUppercase = onValueCreated(
   '/messages/{pushId}/original',
   event => event.data.ref.parent.child('uppercase')
     .set(event.data.val().toUpperCase()),
 );
 `);
-    symlinkSync(
-      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
-      join(cwd, 'functions/node_modules/firebase-functions'),
-    );
+      symlinkSync(
+        join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+        join(cwd, 'functions/node_modules/firebase-functions'),
+      );
 
-    let stdout = '';
-    let stderr = '';
-    command = spawn('node', [
-      cliEntry,
-      'dev',
-      '--port=0',
-      '--host=127.0.0.1',
-      '--no-open',
-      '--no-capture',
-    ], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    command.stdout?.setEncoding('utf8');
-    command.stderr?.setEncoding('utf8');
-    command.stdout?.on('data', (chunk: string) => { stdout += chunk; });
-    command.stderr?.on('data', (chunk: string) => { stderr += chunk; });
+      let stdout = '';
+      let stderr = '';
+      command = spawn('node', [
+        cliEntry,
+        'dev',
+        '--port=0',
+        '--host=127.0.0.1',
+        '--no-open',
+        '--no-capture',
+      ], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      command.stdout?.setEncoding('utf8');
+      command.stderr?.setEncoding('utf8');
+      command.stdout?.on('data', (chunk: string) => { stdout += chunk; });
+      command.stderr?.on('data', (chunk: string) => { stderr += chunk; });
 
-    const pointer = await waitFor(() => {
-      const path = join(cwd, '.pyric/serve.json');
-      return existsSync(path)
-        ? JSON.parse(readFileSync(path, 'utf8')) as { url: string }
-        : null;
-    });
-    peer = await connectWorkerPeer(`${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`);
-    observer = await connectRemoteSandbox({ url: pointer.url });
-    await waitFor(() => stdout.includes('✔ functions 1 onValueCreated trigger') ? true : null);
+      try {
+        const pointer = await waitFor(() => {
+          const path = join(cwd, '.pyric/serve.json');
+          return existsSync(path)
+            ? JSON.parse(readFileSync(path, 'utf8')) as { url: string }
+            : null;
+        });
+        peer = await connectWorkerPeer(
+          `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
+        );
+        observer = await connectRemoteSandbox({ url: pointer.url });
+        await waitFor(() =>
+          stdout.includes('✔ functions 1 onValueCreated trigger') ? true : null);
 
-    await observer.rtdb.set('messages/id/original', 'hello');
-    await waitFor(async () =>
-      (await observer!.rtdb.get('messages/id/uppercase')) === 'HELLO' ? true : null);
-    await waitFor(() =>
-      stdout.includes('✔ function  makeUppercase ← /messages/id/original') ? true : null);
+        await observer.rtdb.set('messages/id/original', 'hello');
+        await waitFor(async () =>
+          (await observer!.rtdb.get('messages/id/uppercase')) === 'HELLO' ? true : null);
+        await waitFor(() =>
+          stdout.includes('✔ function  makeUppercase ← /messages/id/original') ? true : null);
 
-    command.kill('SIGTERM');
-    const code = await Promise.race([
-      new Promise<number>((resolveExit) => command!.once('exit', (exit) => resolveExit(exit ?? 1))),
-      Bun.sleep(5_000).then(() => -1),
-    ]);
-    expect(code).toBe(0);
-    expect(stdout).toContain('Shutting down...');
-    expect(stderr).not.toContain('Functions child exited unexpectedly');
-  }, 20_000);
+        command.kill('SIGTERM');
+        const code = await Promise.race([
+          new Promise<number>((resolveExit) =>
+            command!.once('exit', (exit) => resolveExit(exit ?? 1))),
+          Bun.sleep(5_000).then(() => -1),
+        ]);
+        expect(code).toBe(0);
+        expect(stdout).toContain('Shutting down...');
+        expect(stderr).not.toContain('Functions child exited unexpectedly');
+      } finally {
+        observer?.close();
+        observer = undefined;
+        await peer?.close().catch(() => {});
+        peer = undefined;
+        if (command?.exitCode === null) command.kill('SIGKILL');
+        command = undefined;
+      }
+    }
+  }, 30_000);
 
   test('SIGTERM during Functions module evaluation stops the isolated child', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build the CLI first: ${cliEntry}`);

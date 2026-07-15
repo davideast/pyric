@@ -29,6 +29,20 @@ export interface SandboxAdminApp {
 export type PyricAdminApp = SandboxAdminApp;
 export type InitializeAdminAppConfig = { sandbox: Sandbox };
 
+/**
+ * Firebase Functions' ESM runtime statically imports this credential factory
+ * while linking its database provider. Pyric initializes the sandbox app
+ * before that provider executes, so the factory is not used by supported
+ * Functions flows. Keep the named export link-compatible, but fail clearly if
+ * application code asks the development sandbox for production credentials.
+ */
+export function applicationDefault(): never {
+  throw new Error(
+    'pyric-admin/app: applicationDefault() is unavailable in the sandbox. ' +
+      'Pyric development does not use production credentials.',
+  );
+}
+
 /** Local error with the observable firebase-admin app-error shape. */
 class FirebaseAppError extends Error {
   readonly code: string;
@@ -40,8 +54,20 @@ class FirebaseAppError extends Error {
   }
 }
 
-const appRegistry = new Map<string, PyricAdminApp>();
-const ambientApps = new WeakSet<PyricAdminApp>();
+// Node may evaluate this ESM-only mirror through distinct require(esm) and
+// import module records when the register hook rewrites both CJS and ESM
+// Firebase consumers. Firebase Admin's app registry is process-wide, so keep
+// the mirror registry behind Symbol.for as well: both module records must see
+// the same default app and sandbox handle.
+const APP_REGISTRY = Symbol.for('pyric.admin.app.registry');
+const AMBIENT_APPS = Symbol.for('pyric.admin.app.ambientApps');
+interface GlobalAppRegistry {
+  [APP_REGISTRY]?: Map<string, PyricAdminApp>;
+  [AMBIENT_APPS]?: WeakSet<PyricAdminApp>;
+}
+const globalRegistry = globalThis as GlobalAppRegistry;
+const appRegistry = globalRegistry[APP_REGISTRY] ??= new Map<string, PyricAdminApp>();
+const ambientApps = globalRegistry[AMBIENT_APPS] ??= new WeakSet<PyricAdminApp>();
 
 function validateAppName(name: unknown): asserts name is string {
   if (typeof name !== 'string' || name === '') {
