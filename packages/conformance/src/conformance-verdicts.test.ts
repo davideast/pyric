@@ -27,8 +27,8 @@ function row(id: string, over: Partial<CompatibilityRow> = {}): CompatibilityRow
 }
 
 describe('conformance verdict projection', () => {
-  it('resolves every shipped construct and registry row exactly once', () => {
-    const graph = loadConformanceGraph();
+  it('resolves every shipped construct and registry row exactly once', async () => {
+    const graph = await loadConformanceGraph();
     expect(validationProblems(graph)).toEqual([]);
     const verdicts = deriveAllNodeVerdicts(graph);
     expect(Object.keys(verdicts)).toHaveLength(graph.snapshotStatus.size + graph.rows.size);

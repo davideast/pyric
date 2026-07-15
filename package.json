@@ -37,7 +37,7 @@
     "compat:entry-path": "bun run packages/conformance/src/entry-path-gate.ts",
     "compat:conformance": "bun run packages/conformance/src/conformance-verdicts.ts --write",
     "compat:conformance:check": "bun run packages/conformance/src/conformance-verdicts.ts --check",
-    "compat:check": "bun run compat:validate && bun run compat:census-gate && bun run compat:entry-path && bun run packages/conformance/src/generate-docs.ts --check && bun run compat:conformance:check && bun run compat:coverage",
+    "compat:check": "bun run compat:validate && bun run compat:census-gate && bun run compat:entry-path && bun run compat:conformance:check && bun run compat:coverage",
     "compat:climb": "bun run --cwd packages/cli build && bun run packages/conformance/src/climb.ts",
     "compat:audit": "bun run packages/conformance/src/audit.ts",
     "compat:oracle-versions": "bun run packages/conformance/src/check-observation-versions.ts",

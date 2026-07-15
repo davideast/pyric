@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { surfaceRegistries, type CompatibilityRow, type CompatStatus, type Surface } from '../registry/index.ts';
 import { loadAllSnapshots } from '../rules-language/load.ts';
 import { buildSurfaceCensus } from './surface-census.ts';
-import { deriveAllNodeVerdicts, type ConformanceVerdict } from './conformance-verdicts.ts';
+import { deriveAllNodeVerdicts, loadConformanceGraph, type ConformanceVerdict } from './conformance-verdicts.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -117,7 +117,7 @@ function summarize(feature: MutableFeature, fidelity: Fidelity, assurance: Assur
 
 export async function deriveConformanceModel(): Promise<ConformanceModel> {
   const census = await buildSurfaceCensus();
-  const verdicts = deriveAllNodeVerdicts();
+  const verdicts = deriveAllNodeVerdicts(await loadConformanceGraph());
   const features = new Map<string, MutableFeature>();
   const censusOwner = new Map(surfaceDescriptors.flatMap((descriptor) =>
     descriptor.kind === 'mirror' ? [[descriptor.censusSurface, developerSurface(descriptor.surface)] as const] : [],

@@ -34,7 +34,7 @@ bash scripts/build.sh    # first, if src/ changed: the census imports the BUILT 
 bun run compat:check
 ```
 
-`compat:check` is not a script of its own. It chains six gates, in this
+`compat:check` is not a script of its own. It chains five gates, in this
 order, cheapest and most specific first:
 
 | # | Gate | Fails when |
@@ -42,9 +42,8 @@ order, cheapest and most specific first:
 | 1 | `compat:validate` | A link in the evidence graph is broken: a row cites a missing observation, an observation sits in the wrong surface directory, a probe has no observation twin, a rules-corpus scenario is orphaned, or an entry-path expected-failure cites a gap that does not exist. |
 | 2 | `compat:census-gate` | A change introduced a NEW unmapped upstream symbol, or left a stale/redundant surface disposition behind. Ratchets against `baselines/census-baseline.json`. |
 | 3 | `compat:entry-path` | A canonical initialization program went red without a cited, currently-real gap. This is a CLIFF, not a ratchet. |
-| 4 | `generate-docs.ts --check` | A `COMPAT.md` on disk no longer matches what the registry generates. Someone hand-edited a generated file, or edited the registry and forgot to regenerate. |
-| 5 | `compat:conformance:check` | The ignored runtime node-verdict lookup is missing or no longer matches the conformance graph. Run the CLI prebuild or `compat:conformance`. |
-| 6 | `compat:coverage` | A published number regressed: a `conforms` row flipped or vanished, surface coverage dropped, a new orphan observation appeared, or the high-risk-unverified count went up. Never fails for being low, only for going down. |
+| 4 | `compat:conformance:check` | The ignored runtime node-verdict lookup is missing or no longer matches the conformance graph. Run the CLI prebuild or `compat:conformance`. |
+| 5 | `compat:coverage` | A published number regressed: a `conforms` row flipped or vanished, surface coverage dropped, a new orphan observation appeared, or the high-risk-unverified count went up. Never fails for being low, only for going down. |
 
 Green looks like this (trimmed):
 
@@ -156,11 +155,11 @@ Current high-risk unverified ✓ rows: 5 (baseline tolerates 5).
 ✓ No new uncited ✓ rows. Gate clean.
 ```
 
-### Generators (they write files; never edit their output)
+### Generators (their output is disposable; never edit or commit it)
 
-**`compat:generate`** (exit 0) regenerates the nine `COMPAT.md` docs and the
-scoreboard from the registry. `--check` (what `compat:check` chains) verifies
-instead of writing.
+**`compat:generate`** (exit 0) regenerates the ignored nine `COMPAT.md` docs and
+scoreboard from the registry. The docs-site build runs it immediately before
+porting content, so a clean checkout needs no pre-existing Markdown projection.
 
 ```
 $ bun run compat:generate
@@ -180,7 +179,9 @@ Conformance verdicts: 1067 nodes (851 supported, 135 qualified, 81 unsupported)
 Generated lookup: 38511 bytes raw, 5090 bytes gzip
 ```
 
-**The rules-language reports** have no `compat:*` alias; run them by path.
+**The rules-language reports** have no `compat:*` alias; run them by path when
+you want an ignored local JSON artifact. Runtime consumers call the same
+derivations in memory and never read these files.
 
 ```sh
 bun run packages/conformance/src/rules-language-analyzer.ts    # -> coverage-report.json
@@ -425,14 +426,14 @@ carries a `status`, one of four:
 | `unprobeable` | No single-expression micro-scenario can isolate this construct. `probeNote` says why: a resource limit, a meta-semantic, a multi-node relationship, or a module-resolution form. |
 | `unprobed` | Not probed. All 56 RTDB constructs are `unprobed`, because RTDB has no server-side rules test API that can accept or reject a ruleset. RTDB is verified a different way, by deploying to a live database (the `rtdb-rules` rig). |
 
-Two derived reports sit on top.
+Two derived views sit on top. Their JSON forms are optional ignored artifacts.
 
-**`capability-report.json`** answers "does OUR simulator evaluate this
+**The capability report** answers "does OUR simulator evaluate this
 construct?" `languageCoverage` is implemented over probeable (implemented plus
 unsupported): firestore 97.8%, storage 100%, RTDB 100%. This is a claim about
 Pyric's simulator, not about production.
 
-**`coverage-report.json`** answers "is this construct backed by PRODUCTION
+**The coverage report** answers "is this construct backed by PRODUCTION
 evidence?" A construct is verified when at least one corpus scenario that has an
 observation twin exercises it. `verifiedCoverage` is verified over total:
 firestore 91.4%, storage 100%, RTDB 94.5%. This is the honest trust number for
@@ -940,19 +941,22 @@ reading what changed.
 
 ### The rule that outranks the rest
 
-**Never edit a generated file.** They are:
+**Never edit or commit a generated file.** The disposable projections are:
 
 - `packages/pyric/docs/*/COMPAT.md` and integration-owned COMPAT pages such as
   `packages/cli/docs/functions-rtdb/COMPAT.md` (from the registry, via
   `compat:generate`)
 - `packages/cli/src/assurance/.generated/conformance-verdicts.ts` (ignored; via CLI prebuild or `compat:conformance`)
 - `packages/conformance/rules-language/{coverage,capability,acceptance}-report.json` (via the three report scripts)
-- `packages/conformance/baselines/*.json` (each via its own gate's `--update`)
-- `packages/site-docs/src/content/docs/*` (via the docs-site port)
+- the ten conformance pages under `packages/site-docs/src/content/docs/`
+  (via the docs-site port, which consumes the renderer in memory)
 
-Each one has a gate that catches a hand edit. Editing one to make a gate pass is
-the exact dishonesty this system exists to prevent: it changes the claim without
-changing what is true.
+Committed `packages/conformance/baselines/*.json` files are different: they
+are reviewed ratchet state, updated only through each gate's `--update` path.
+
+Editing a projection changes no source fact and will be overwritten. Editing a
+baseline to make a gate pass is the exact dishonesty this system exists to
+prevent: it changes the accepted threshold without changing what is true.
 
 ### Admit a surface
 

@@ -9,7 +9,7 @@
  * rules-engine surface, the row's scope omits the construct, nothing mentions it
  * at all — is driven separately.
  */
-import { describe, expect, it } from 'bun:test';
+import { beforeAll, describe, expect, it } from 'bun:test';
 import {
   RULES_ENGINE_SURFACES,
   deriveConformanceGraph,
@@ -19,7 +19,10 @@ import {
 } from './production-verification.ts';
 import { surfaceRegistries } from '../registry/index.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from '../registry/types.ts';
-import coverageReport from '../rules-language/coverage-report.json' with { type: 'json' };
+import { computeCoverageReport, type CoverageReport } from './rules-language-analyzer.ts';
+
+let coverageReport: CoverageReport;
+beforeAll(async () => { coverageReport = await computeCoverageReport(); }, 20_000);
 
 function row(id: string, over: Partial<CompatibilityRow> = {}): CompatibilityRow {
   return {

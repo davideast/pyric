@@ -57,16 +57,16 @@ packages/conformance/
                      hand-edited.
   rules-language/    the per-engine Rules-language axis. One hand-enumerated
                      construct snapshot per engine (firestore.json, storage.json,
-                     rtdb.json) plus three GENERATED reports: coverage-report.json
-                     (production-verified coverage), capability-report.json (which
-                     constructs the simulator evaluates), acceptance-report.json
-                     (the production Rules Test API acceptance probe). The reports
-                     are written by src/rules-language-{analyzer,capability,
-                     acceptance}.ts and are never hand-edited.
+                     rtdb.json). Coverage and simulator capability are derived in
+                     memory; the three report scripts may write ignored JSON for
+                     local inspection or CI artifacts, never as another input.
   src/conformance-verdicts.ts  derives a verdict for every addressable graph
                      node. The CLI prebuild writes one ignored runtime lookup;
                      no authored capability catalog or committed projection is
                      maintained beside the graph.
+  src/conformance-model.ts  joins the census, registries, rules snapshots,
+                     production evidence, and simulator capability into the
+                     shared read model used by canIUse and runtime projections.
   entry-path/        one canonical initialization program per service
                      (entry-path/<service>.ts: app+auth, app+firestore,
                      app+database, app+storage), each adapted from Firebase's

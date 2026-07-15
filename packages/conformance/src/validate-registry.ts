@@ -7,7 +7,6 @@ import { surfaceDescriptors } from '../surfaces/load.ts';
 import { observationExceptions } from '../exceptions/load.ts';
 import type { SurfaceDescriptor } from '../surfaces/types.ts';
 import { buildCompatibilityLedger, loadObservations, REPO_ROOT, summarizeLedger, type Observation } from './ledger.ts';
-import { checkGeneratedMarkdown } from './generate-docs.ts';
 import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../rules-corpus/firestore/index.ts';
@@ -44,7 +43,6 @@ export interface ValidationInput {
   descriptors: SurfaceDescriptor[];
   observations: Observation[];
   observationExceptions: Record<string, string>;
-  checkMarkdown?: boolean;
   /** Oracle rig manifests (rigs/*.ts, loaded via load.ts). Optional
    *  so existing tests that don't exercise rig-manifest wiring don't need to
    *  thread it through; the real compat:validate entry point always passes it. */
@@ -338,7 +336,6 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     );
   }
 
-  if (input.checkMarkdown) problems.push(...checkGeneratedMarkdown());
 
   return problems;
 }
@@ -372,7 +369,6 @@ if (import.meta.main) {
     descriptors: surfaceDescriptors,
     observations: loadObservations(),
     observationExceptions,
-    checkMarkdown: true,
     rigManifests,
     probeFiles: listProbeFiles(),
     rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id),

@@ -136,7 +136,7 @@ The built application contains the real Firebase SDK and uses the Firebase confi
 
 Pyric is an independent implementation of observable Firebase behavior. Conformance evidence records what has been compared with Firebase and keeps five outcomes distinct: conforms, documented divergence, bug, unsupported, and unverified. The evidence is a floor, not a claim that every Firebase behavior has been measured.
 
-Read the generated matrices for [App](packages/pyric/docs/app/COMPAT.md), [Auth](packages/pyric/docs/auth/COMPAT.md), [Firestore](packages/pyric/docs/firestore/COMPAT.md), [Realtime Database](packages/pyric/docs/database/COMPAT.md), [Storage](packages/pyric/docs/storage/COMPAT.md), [Messaging](packages/pyric/docs/messaging/COMPAT.md), [AI Logic](packages/pyric/docs/ai/COMPAT.md), [Security Rules](packages/pyric/docs/rules/COMPAT.md), and [Functions with Realtime Database](packages/cli/docs/functions-rtdb/COMPAT.md). The [versioning and compatibility policy](packages/pyric/docs/explanation/versioning-and-compatibility.md) explains the release boundary.
+Read the generated [conformance scores](https://pyric.dev/docs/pyric-conformance-scores/) and the service matrices in the site's Conformance section. They are built from the same canonical registry used by assurance and `canIUse`, without committing duplicate Markdown. The [versioning and compatibility policy](packages/pyric/docs/explanation/versioning-and-compatibility.md) explains the release boundary.
 
 ## Stability
 

@@ -48,3 +48,12 @@ docs/design/
 .pyric-worktrees/
 packages/cli/src/assurance/.generated/
 packages/cli/src/conformance/.generated/
+packages/conformance/rules-language/*-report.json
+
+# Disposable conformance documentation projections. The site build derives
+# these from the registry immediately before porting them.
+packages/pyric/docs/*/COMPAT.md
+packages/pyric/docs/conformance/SCORES.md
+packages/cli/docs/functions-rtdb/COMPAT.md
+packages/site-docs/src/content/docs/pyric-*-compat.md
+packages/site-docs/src/content/docs/pyric-conformance-scores.md

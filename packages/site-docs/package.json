@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "astro dev",
     "port": "bun scripts/port-content.ts",
-    "build": "bun scripts/port-content.ts && astro build",
+    "build": "bun run port && astro build",
     "preview": "astro preview",
     "verify": "bun scripts/verify-dist.ts",
     "audit:rhythm": "bun scripts/audit-rhythm.ts",

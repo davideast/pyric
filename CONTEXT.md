@@ -216,14 +216,14 @@ Authoritative inputs live under `packages/conformance/`:
 - `observations/` stores frozen Firebase behaviour;
 - `probes/` replays observations against Pyric;
 - `rules-language/` tracks rules constructs;
-- `assurance-capabilities/` derives what the evidence can support;
+- `src/conformance-verdicts.ts` derives what the evidence can support;
 - `baselines/` ratchets regressions without turning an absolute percentage
   into an incentive to relabel gaps.
 
-Generated outputs include service `COMPAT.md` files and
-`packages/pyric/docs/conformance/SCORES.md`. Never hand-edit generated
-conformance files. Run `bun run compat:generate` and then `bun run
-compat:check`.
+Service `COMPAT.md`, `SCORES.md`, site ports, runtime lookups, and optional
+rules-language reports are ignored disposable projections. The CLI and docs
+builds derive them from the canonical model on a clean checkout; `compat:check`
+validates the authored graph and committed ratchet baselines.
 
 Any PR that changes a published number, status, denominator, snapshot, or
 assurance capability needs an adversarial coverage review.

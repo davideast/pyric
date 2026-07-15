@@ -19,9 +19,10 @@ import {
   deriveConformanceGraph,
   indexConstructScopes,
 } from './production-verification.ts';
+import { computeCapabilityReport } from './rules-language-capability.ts';
+import { computeCoverageReport } from './rules-language-analyzer.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const LANGUAGE_DIR = join(HERE, '..', 'rules-language');
 export const RUNTIME_TS_PATH = join(
   HERE,
   '..',
@@ -40,11 +41,6 @@ interface ConstructReportEntry {
   classification: 'implemented' | 'unsupported' | 'error' | 'unprobeable';
 }
 
-interface CoverageReportEntry {
-  id: string;
-  verifiedBy?: string[];
-}
-
 export interface ConformanceGraph {
   snapshotStatus: Map<string, string>;
   probeClass: Map<string, ConstructReportEntry['classification']>;
@@ -54,24 +50,20 @@ export interface ConformanceGraph {
   oracleProvedBy: Map<string, string[]>;
 }
 
-export function loadConformanceGraph(): ConformanceGraph {
+export async function loadConformanceGraph(): Promise<ConformanceGraph> {
   const snapshotStatus = new Map<string, string>();
   for (const snapshot of Object.values(loadAllSnapshots())) {
     for (const construct of snapshot.constructs) snapshotStatus.set(construct.id, construct.status);
   }
 
   const probeClass = new Map<string, ConstructReportEntry['classification']>();
-  const capabilityReport = JSON.parse(readFileSync(join(LANGUAGE_DIR, 'capability-report.json'), 'utf8')) as {
-    engines: { constructs: ConstructReportEntry[] }[];
-  };
+  const capabilityReport = computeCapabilityReport();
   for (const engine of capabilityReport.engines) {
     for (const construct of engine.constructs) probeClass.set(construct.id, construct.classification);
   }
 
   const verifiedBy = new Map<string, string[]>();
-  const coverageReport = JSON.parse(readFileSync(join(LANGUAGE_DIR, 'coverage-report.json'), 'utf8')) as {
-    engines: { constructs: CoverageReportEntry[] }[];
-  };
+  const coverageReport = await computeCoverageReport();
   for (const engine of coverageReport.engines) {
     for (const construct of engine.constructs) verifiedBy.set(construct.id, construct.verifiedBy ?? []);
   }
@@ -148,7 +140,7 @@ export function deriveRegistryRowVerdict(graph: ConformanceGraph, id: string): C
 }
 
 export function deriveAllNodeVerdicts(
-  graph: ConformanceGraph = loadConformanceGraph(),
+  graph: ConformanceGraph,
 ): Readonly<Record<string, ConformanceVerdict>> {
   const problems = validationProblems(graph);
   if (problems.length > 0) throw new Error(`conformance graph is not resolvable:\n  - ${problems.join('\n  - ')}`);
@@ -180,7 +172,7 @@ function report(source: string, verdicts: Readonly<Record<string, ConformanceVer
 }
 
 if (import.meta.main) {
-  const verdicts = deriveAllNodeVerdicts();
+  const verdicts = deriveAllNodeVerdicts(await loadConformanceGraph());
   const source = renderConformanceVerdicts(verdicts);
   if (process.argv.includes('--write')) {
     mkdirSync(dirname(RUNTIME_TS_PATH), { recursive: true });

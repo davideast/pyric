@@ -8,6 +8,7 @@
  *   packages/pyric-admin/docs
  *   packages/cli/docs   (root tree + bridge)
  *   packages/ui/docs            (per-category component pages)
+ *   the in-memory conformance renderer (ten virtual COMPAT/SCORES pages)
  *
  * For each markdown file this writes src/content/docs/<slug>.md:
  * generated front matter (title from the doc's h1, nav group = package /
@@ -49,11 +50,17 @@ import { join, resolve, dirname, relative, posix, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import GithubSlugger from 'github-slugger';
 import { SUPERSEDED } from './superseded';
+import { renderAllCompatibilityMarkdown } from '../../conformance/src/generate-docs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const siteRoot = resolve(here, '..');
 const repoRoot = resolve(siteRoot, '..', '..');
 const outDir = join(siteRoot, 'src', 'content', 'docs');
+const virtualSources = new Map<string, string>();
+
+function readSource(src: string): string {
+  return virtualSources.get(src) ?? readFileSync(src, 'utf8');
+}
 
 /** Hand-written pages the port never touches. */
 const KEEP = new Set(['rhythm.md']);
@@ -502,9 +509,13 @@ const COMPAT_PAGES: { pkg: string; file: string; label: string; slugPrefix?: str
     slugPrefix: 'pyric-cli',
   },
 ];
+const renderedCompatibility = renderAllCompatibilityMarkdown();
 for (const c of COMPAT_PAGES) {
   const src = join(docsRoot(c.pkg), c.file);
-  if (!existsSync(src)) throw new Error(`compat matrix missing: ${src}`);
+  const rel = relative(repoRoot, src).split(sep).join('/');
+  const rendered = renderedCompatibility.get(rel);
+  if (rendered === undefined) throw new Error(`compat renderer did not produce: ${rel}`);
+  virtualSources.set(src, rendered);
   const slug = slugFor(c.pkg, src, c.slugPrefix);
   const clash = bySlug.get(slug);
   if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
@@ -603,7 +614,7 @@ function inlineText(md: string): string {
 /** ATX headings of a file, outside code fences. */
 function headingsOf(src: string): string[] {
   const out: string[] = [];
-  for (const part of splitFences(readFileSync(src, 'utf8'))) {
+  for (const part of splitFences(readSource(src))) {
     if (part.isFence) continue;
     for (const line of part.text.split('\n')) {
       const m = line.match(/^#{1,6}\s+(.*)$/);
@@ -615,7 +626,7 @@ function headingsOf(src: string): string[] {
 
 /** The doc's title: its first h1 (rendered text), else the file name. */
 function titleOf(src: string): string {
-  for (const part of splitFences(readFileSync(src, 'utf8'))) {
+  for (const part of splitFences(readSource(src))) {
     if (part.isFence) continue;
     for (const line of part.text.split('\n')) {
       const m = line.match(/^#\s+(.*)$/);
@@ -940,7 +951,7 @@ for (const stale of readdirSync(outDir)) {
 }
 
 for (const page of pages) {
-  const raw = readFileSync(page.src, 'utf8');
+  const raw = readSource(page.src);
   const source = page.stripFm ? parseFrontmatter(raw).body : raw;
   let body = rewriteLinks(page, source);
   if (page.group === 'Conformance') body = transformCompatTables(body);
