@@ -95,6 +95,10 @@ const SCORE_SPECS: Record<string, SurfaceScoreSpec> = {
 
 interface BehaviorScore {
   conforms: number;
+  diverged: number;
+  bugs: number;
+  unsupported: number;
+  unverified: number;
   total: number;
   pct: number;
 }
@@ -107,14 +111,57 @@ interface SurfaceScore {
 
 function computeBehavior(spec: SurfaceScoreSpec): BehaviorScore {
   let conforms = 0;
+  let diverged = 0;
+  let bugs = 0;
+  let unsupported = 0;
+  let unverified = 0;
   let total = 0;
   for (const row of allCompatibilityRows) {
     if (!spec.rowServices.includes(row.surface)) continue;
     total += 1;
     if (row.status === 'conforms') conforms += 1;
+    else if (row.status === 'diverged-documented') diverged += 1;
+    else if (row.status === 'bug') bugs += 1;
+    else if (row.status === 'unsupported') unsupported += 1;
+    else if (row.status === 'unverified') unverified += 1;
   }
   const pct = total > 0 ? Math.round((conforms / total) * 1000) / 10 : 0;
-  return { conforms, total, pct };
+  return { conforms, diverged, bugs, unsupported, unverified, total, pct };
+}
+
+const BEHAVIOR_BUCKETS = [
+  { field: 'conforms', status: 'ok', label: 'conform' },
+  { field: 'diverged', status: 'diverged', label: 'documented divergences' },
+  { field: 'bugs', status: 'bug', label: 'bugs' },
+  { field: 'unsupported', status: 'unsupported', label: 'unsupported' },
+  { field: 'unverified', status: 'unverified', label: 'unverified' },
+] as const;
+
+function behaviorDistributionLabel(score: BehaviorScore): string {
+  return `Behavior distribution: ${BEHAVIOR_BUCKETS.map(({ field, label }) => `${score[field]} ${label}`).join(', ')}.`;
+}
+
+/** Proportional five-state bar. Empty buckets remain in the visible key rather
+ * than receiving fake width in the bar. */
+export function statBar(score: BehaviorScore, extraClass = ''): string {
+  const className = extraClass ? `compat-stat-bar ${extraClass}` : 'compat-stat-bar';
+  return [
+    `<div class="${className}" role="img" aria-label="${behaviorDistributionLabel(score)}">`,
+    ...BEHAVIOR_BUCKETS
+      .filter(({ field }) => score[field] > 0)
+      .map(({ field, status }) => `<span class="compat-stat-seg" data-status="${status}" style="flex-grow: ${score[field]}" aria-hidden="true"></span>`),
+    '</div>',
+  ].join('\n');
+}
+
+function statKey(score: BehaviorScore, extraClass = ''): string {
+  const className = extraClass ? `compat-stat-key ${extraClass}` : 'compat-stat-key';
+  return [
+    `<ul class="${className}" aria-label="Behavior state counts">`,
+    ...BEHAVIOR_BUCKETS.map(({ field, status, label }) =>
+      `<li class="compat-stat-item"><span class="compat-dot" data-status="${status}" aria-hidden="true"></span><span><strong>${score[field]}</strong> ${label}</span></li>`),
+    '</ul>',
+  ].join('\n');
 }
 
 function computeSurface(spec: SurfaceScoreSpec, base: CoverageBaseline): SurfaceScore {
@@ -143,23 +190,75 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, base = readBas
   if (!spec) return null;
   const behavior = computeBehavior(spec);
   const coverage = computeSurface(spec, base);
-  const fidelityLine = `**Fidelity:** ${behavior.pct}% (${behavior.conforms} of ${behavior.total} tracked claims match production)`;
   const coverageLine = coverage.runtime === null || coverage.types === null
     ? spec.noCensusKind === 'integration'
-      ? '**Surface coverage:** integration contract (unchanged upstream source; breadth is the signed row inventory)'
-      : '**Surface coverage:** native (no upstream Firebase public API — measured against pyric\'s own surface)'
-    : `**Public surface:** runtime ${coverage.runtime.pct}% (${coverage.runtime.mapped}/${coverage.runtime.denominator}) · types ${coverage.types.pct}% (${coverage.types.mapped}/${coverage.types.denominator})`;
+      ? '<p class="compat-stat-surface"><strong>Surface:</strong> integration contract <span>(unchanged upstream source; breadth is the signed row inventory)</span></p>'
+      : '<p class="compat-stat-surface"><strong>Surface:</strong> native <span>(no upstream Firebase public API; measured against Pyric\'s own surface)</span></p>'
+    : `<p class="compat-stat-surface"><strong>Public surface:</strong> runtime ${coverage.runtime.pct}% (${coverage.runtime.mapped}/${coverage.runtime.denominator}) <span aria-hidden="true">·</span> types ${coverage.types.pct}% (${coverage.types.mapped}/${coverage.types.denominator})</p>`;
   const explanation = spec.noCensusKind === 'integration'
-    ? `The signed row inventory defines this integration contract. Fidelity shows how many of those tracked behaviors match production — see the [scoreboard](${spec.scoreboardHref ?? '../conformance/SCORES.md'}) for what that percentage does and does not mean.`
-    : `Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](${spec.scoreboardHref ?? '../conformance/SCORES.md'}) for what that percentage does and does not mean.`;
+    ? 'The signed row inventory defines this integration contract. Fidelity measures how many tracked behaviors match production.'
+    : 'Public surface measures whether exports exist. Fidelity measures whether tracked behavior matches production.';
+  const scoreboardHref = spec.scoreboardHref ?? '../conformance/SCORES.md';
   return [
-    '> ' + coverageLine,
-    '>',
-    '> ' + fidelityLine,
-    '>',
-    '> ' + explanation,
+    '<div class="compat-stat">',
+    coverageLine,
+    '<p class="compat-stat-figure">',
+    `<span class="compat-stat-pct">${behavior.pct}%</span>`,
+    '<span class="compat-stat-label">of tracked behaviors conform</span>',
+    '</p>',
+    `<p class="compat-stat-denom">${behavior.conforms} of ${behavior.total} tracked behaviors</p>`,
+    statBar(behavior),
+    statKey(behavior),
+    `<p class="compat-stat-note">${explanation}</p>`,
+    '</div>',
+    `[Read how the axes differ.](${scoreboardHref})`,
     '',
   ].join('\n');
+}
+
+function scoreboardHref(compatPath: string): string {
+  const pyric = compatPath.match(/^packages\/pyric\/docs\/(.+)\/COMPAT\.md$/)?.[1];
+  if (pyric) return `../pyric-${pyric.replaceAll('/', '-')}-compat/`;
+  const cli = compatPath.match(/^packages\/cli\/docs\/(.+)\/COMPAT\.md$/)?.[1];
+  if (cli) return `../pyric-cli-${cli.replaceAll('/', '-')}-compat/`;
+  throw new Error(`No docs route for compatibility path: ${compatPath}`);
+}
+
+function scoreRow(
+  label: string,
+  href: string | null,
+  behavior: BehaviorScore,
+  coverage: SurfaceScore,
+  noCensusKind: SurfaceScoreSpec['noCensusKind'],
+  overall = false,
+): string[] {
+  const noCensusLabel = noCensusKind === 'integration' ? 'integration' : 'native';
+  const runtime = coverage.runtime === null
+    ? noCensusLabel
+    : `${coverage.runtime.pct}% (${coverage.runtime.mapped}/${coverage.runtime.denominator})`;
+  const types = coverage.types === null
+    ? noCensusLabel
+    : `${coverage.types.pct}% (${coverage.types.mapped}/${coverage.types.denominator})`;
+  const tag = href === null ? 'div' : 'a';
+  const attrs = [
+    `class="compat-score-row${overall ? ' compat-score-row--overall' : ''}"`,
+    href === null ? '' : `href="${href}"`,
+  ].filter(Boolean).join(' ');
+  return [
+    `<${tag} ${attrs}>`,
+    `<span class="compat-score-name">${label}</span>`,
+    '<span class="compat-score-surface">',
+    `<span><span class="compat-score-axis">Runtime</span>${runtime}</span>`,
+    `<span><span class="compat-score-axis">Types</span>${types}</span>`,
+    '</span>',
+    '<span class="compat-score-fidelity">',
+    `<strong class="compat-score-pct">${behavior.pct}%</strong>`,
+    `<span>${behavior.conforms}/${behavior.total} conform</span>`,
+    '</span>',
+    statBar(behavior, 'compat-stat-bar--mini'),
+    `<span class="compat-score-breakdown">${BEHAVIOR_BUCKETS.map(({ field, label: bucketLabel }) => `${behavior[field]} ${bucketLabel}`).join(' · ')}</span>`,
+    `</${tag}>`,
+  ];
 }
 
 /** Central scoreboard across every scored COMPAT surface. */
@@ -169,76 +268,51 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     '',
     '# Conformance scores',
     '',
-    'Pyric claims to mirror Firebase\'s observable behavior so you can develop against a sandbox and trust the swap. Conformance is the open receipt for that claim — not a parity badge. Public runtime surface, public type surface, and fidelity answer different questions. Do not fold them together.',
+    'Public runtime surface, public type surface, and behavior fidelity answer different questions. [How does Pyric know it works like Firebase?](../../../../docs/site-rewrite/content/trust/how-we-know-it-matches-firebase.md) explains the evidence and its limits.',
     '',
-    '## Public runtime surface',
+    '- **Public runtime surface:** mirrored non-underscore Firebase runtime exports divided by all public runtime exports. Unsupported, deprecated, and deferred public APIs remain in the denominator.',
+    '- **Public type surface:** mirrored exported type names divided by all Firebase exported type names. This measures name presence, not structural assignability.',
+    '- **Behavior fidelity:** conforming registry rows divided by all tracked rows. Documented divergences, bugs, unsupported behavior, and unverified behavior remain in the denominator.',
     '',
-    '**Question:** How much of this Firebase package is here at all?',
-    '',
-    'Numerator: public Firebase runtime exports Pyric mirrors. Denominator: every non-underscore runtime export of the upstream package, including deprecated, unsupported, and not-yet-built APIs. Leading-underscore Firebase plumbing is private and is shown only in the raw diagnostic. Pyric-only helpers receive no credit.',
-    '',
-    '## Public type surface',
-    '',
-    '**Question:** How much of the exported TypeScript contract is present?',
-    '',
-    'The TypeScript compiler reads the package declaration barrels and compares exported type names. Classes and enums participate in both namespaces because TypeScript exposes them as runtime values and types. This measures name presence, not structural assignability. Missing public types stay visible as gaps.',
-    '',
-    '## Fidelity',
-    '',
-    '**Question:** Of the claims pyric tracks in the compatibility matrix, how many match production Firebase?',
-    '',
-    'This is the fidelity number, and it is the easiest to misread.',
-    '',
-    'It is **not** "percent of Firebase that works." It is **not** surface coverage restated. It only scores rows that already appear in the per-service COMPAT matrix — discrete, named claims such as "sign-in with a wrong password throws `auth/wrong-password`" or "`getDocs` returns documents the signed-in user can read." Each row has a status:',
-    '',
-    '| Status | Glyph | Counts as | Meaning |',
-    '|---|---|---|---|',
-    '| Conforms | ✓ | match | Sandbox matches production; locked by a probe or oracle observation |',
-    '| Diverged (documented) | ⚠ | miss | Intentional, written difference from production |',
-    '| Bug | ✗ | miss | Should match production and does not |',
-    '| Unsupported | — | miss | Tracked but not implemented yet |',
-    '| Unverified | ? | miss | Claimed, not yet checked against production |',
-    '',
-    '**Numerator:** rows with status `conforms`. **Denominator:** every tracked row for that surface. Documented divergences, bugs, unsupported gaps, and unverified claims all lower the percentage — none are relabeled as success.',
-    '',
-    'What a high or low number means:',
-    '',
-    '- **High fidelity, low surface coverage** — a small slice is mirrored, and that slice mostly matches production. Breadth is the remaining risk.',
-    '- **High surface coverage, low fidelity** — many exports exist, but the matrix still carries divergences, unverified rows, or unfinished claims. Presence is not fidelity.',
-    '- **Fidelity never credits missing exports** — an API that is not in the matrix does not help or hurt this number. That gap belongs to surface coverage.',
-    '',
-    'Read the matrix below the score on each COMPAT page for the concrete rows behind the percentage.',
+    'Every fidelity bar shows the full five-state distribution. Public surface values stay outside the bar so breadth cannot be mistaken for behavior.',
     '',
     '## Scores',
     '',
-    '| Surface | Public runtime surface | Public type surface | Fidelity |',
-    '|---|---|---|---|',
+    '<div class="compat-scoreboard">',
   ];
   for (const surface of surfaceRegistries) {
     const spec = SCORE_SPECS[surface.surface];
     if (!spec) continue;
     const behavior = computeBehavior(spec);
     const coverage = computeSurface(spec, base);
-    const noCensusLabel = spec.noCensusKind === 'integration' ? 'integration' : 'native';
-    const runtimeCell = coverage.runtime === null ? noCensusLabel : `${coverage.runtime.pct}% (${coverage.runtime.mapped}/${coverage.runtime.denominator})`;
-    const typeCell = coverage.types === null ? noCensusLabel : `${coverage.types.pct}% (${coverage.types.mapped}/${coverage.types.denominator})`;
-    lines.push(`| ${spec.label} | ${runtimeCell} | ${typeCell} | ${behavior.pct}% (${behavior.conforms}/${behavior.total}) |`);
+    lines.push(...scoreRow(
+      spec.label,
+      scoreboardHref(surface.compatPath),
+      behavior,
+      coverage,
+      spec.noCensusKind,
+    ));
   }
   const overallBehavior = (() => {
-    let conforms = 0;
-    let total = 0;
     const scored = new Set(Object.values(SCORE_SPECS).flatMap((s) => s.rowServices));
-    for (const row of allCompatibilityRows) {
-      if (!scored.has(row.surface)) continue;
-      total += 1;
-      if (row.status === 'conforms') conforms += 1;
-    }
-    return { conforms, total, pct: total > 0 ? Math.round((conforms / total) * 1000) / 10 : 0 };
+    const overallSpec: SurfaceScoreSpec = {
+      label: 'Overall',
+      rowServices: [...scored],
+      censusServices: [],
+    };
+    return computeBehavior(overallSpec);
   })();
   const overallRuntime = base.overall.publicSurface.runtime;
   const overallTypes = base.overall.publicSurface.types;
-  lines.push(`| **Overall** | **${overallRuntime.pct}% (${overallRuntime.mapped}/${overallRuntime.denominator})** | **${overallTypes.pct}% (${overallTypes.mapped}/${overallTypes.denominator})** | **${overallBehavior.pct}%** (${overallBehavior.conforms}/${overallBehavior.total}) |`);
-  lines.push('');
+  lines.push(...scoreRow(
+    'Overall',
+    null,
+    overallBehavior,
+    { runtime: overallRuntime, types: overallTypes },
+    undefined,
+    true,
+  ));
+  lines.push('</div>', '');
   return lines.join('\n');
 }
 
@@ -247,8 +321,61 @@ function renderStatus(row: CompatibilityRow): string {
   return row.statusNote ? `${glyph} ${row.statusNote}` : glyph;
 }
 
+function apiParts(row: CompatibilityRow): { name: string; category: string } {
+  const raw = row.api.trim();
+  if (raw === '' || raw.toLowerCase() === row.section.trim().toLowerCase()) {
+    return { name: '', category: '' };
+  }
+  const at = raw.indexOf(' — ');
+  if (at === -1) return { name: raw, category: '' };
+  return { name: raw.slice(0, at).trim(), category: raw.slice(at + 3).trim() };
+}
+
 function renderRow(row: CompatibilityRow): string {
-  return `| ${escapeCell(row.rowRef)} | ${escapeCell(row.behavior)} | ${escapeCell(renderStatus(row))} | ${escapeCell(row.evidence)} |`;
+  const { name, category } = apiParts(row);
+  return `| ${escapeCell(name)} | ${escapeCell(category)} | ${escapeCell(row.behavior)} | ${escapeCell(renderStatus(row))} | ${escapeCell(row.evidence)} | ${escapeCell(row.rowRef)} |`;
+}
+
+const GAP_SECTIONS: Array<{ status: Exclude<CompatStatus, 'conforms'>; title: string; intro: string }> = [
+  {
+    status: 'diverged-documented',
+    title: 'Documented divergences',
+    intro: 'Known differences between Pyric and production Firebase. Each remains tracked as a non-conforming row.',
+  },
+  {
+    status: 'bug',
+    title: 'Bugs',
+    intro: 'Behavior that should match production Firebase but currently does not.',
+  },
+  {
+    status: 'unsupported',
+    title: 'Unsupported',
+    intro: 'Tracked behavior that is not implemented in the current contract.',
+  },
+  {
+    status: 'unverified',
+    title: 'Unverified',
+    intro: 'Tracked behavior whose available evidence does not yet establish the production result.',
+  },
+];
+
+export function consolidatedGapSections(rows: CompatibilityRow[]): string {
+  const sections = GAP_SECTIONS.flatMap(({ status, title, intro }) => {
+    const matches = rows.filter((row) => row.status === status);
+    if (matches.length === 0) return [];
+    return [[
+      `### ${title}`,
+      '',
+      intro,
+      '',
+      '| API | Behavior |',
+      '|---|---|',
+      ...matches.map((row) => `| ${escapeCell(apiParts(row).name)} | ${escapeCell(row.behavior)} |`),
+      '',
+    ].join('\n')];
+  });
+  if (sections.length === 0) return '';
+  return ['## Current gaps', '', ...sections].join('\n').replace(/\s+$/, '');
 }
 
 /** Non-conforming statuses, in the order the climb header lists them. */
@@ -314,18 +441,21 @@ function scoredBlocks(surface: CompatibilitySurfaceRegistry): CompatibilitySurfa
 export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): string {
   const blocks = scoredBlocks(surface);
   const parts: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface)];
+  const rows = blocks.flatMap((block) => block.kind === 'table' ? block.rows : []);
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
       parts.push(block.markdown);
       continue;
     }
     parts.push(block.prefix);
-    parts.push('| # | Behavior | Status | Probe |');
-    parts.push('|---|---|---|---|');
+    parts.push('| API | Category | Behavior | Status | Probe | # |');
+    parts.push('|---|---|---|---|---|---|');
     for (const row of block.rows) parts.push(renderRow(row));
     const next = blocks[index + 1];
     if (next?.kind === 'table' || (next?.kind === 'markdown' && !next.markdown.startsWith('\n'))) parts.push('');
   }
+  const gaps = consolidatedGapSections(rows);
+  if (gaps) parts.push('', gaps);
   return parts.join('\n').replace(/\s+$/, '') + '\n';
 }
 
@@ -341,8 +471,8 @@ export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): 
     }
     const prefix = block.prefix;
     if (prefix) lines.push(...prefix.split('\n'));
-    lines.push('| # | Behavior | Status | Probe |');
-    lines.push('|---|---|---|---|');
+    lines.push('| API | Category | Behavior | Status | Probe | # |');
+    lines.push('|---|---|---|---|---|---|');
     for (const row of block.rows) {
       lines.push(renderRow(row));
       out.set(row.id, lines.length);
@@ -350,6 +480,9 @@ export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): 
     const next = blocks[index + 1];
     if (next?.kind === 'table' || (next?.kind === 'markdown' && !next.markdown.startsWith('\n'))) lines.push('');
   }
+  const rows = blocks.flatMap((block) => block.kind === 'table' ? block.rows : []);
+  const gaps = consolidatedGapSections(rows);
+  if (gaps) lines.push('', ...gaps.split('\n'));
   return out;
 }
 

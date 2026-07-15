@@ -9,11 +9,28 @@ order: 8006
 
 # `pyric/storage` compatibility matrix
 
-> **Public surface:** runtime 72.2% (13/18) · types 52.9% (9/17)
->
-> **Fidelity:** 86% (86 of 100 tracked claims match production)
->
-> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
+<div class="compat-stat">
+<p class="compat-stat-surface"><strong>Public surface:</strong> runtime 72.2% (13/18) <span aria-hidden="true">·</span> types 52.9% (9/17)</p>
+<p class="compat-stat-figure">
+<span class="compat-stat-pct">86%</span>
+<span class="compat-stat-label">of tracked behaviors conform</span>
+</p>
+<p class="compat-stat-denom">86 of 100 tracked behaviors</p>
+<div class="compat-stat-bar" role="img" aria-label="Behavior distribution: 86 conform, 6 documented divergences, 0 bugs, 8 unsupported, 0 unverified.">
+<span class="compat-stat-seg" data-status="ok" style="flex-grow: 86" aria-hidden="true"></span>
+<span class="compat-stat-seg" data-status="diverged" style="flex-grow: 6" aria-hidden="true"></span>
+<span class="compat-stat-seg" data-status="unsupported" style="flex-grow: 8" aria-hidden="true"></span>
+</div>
+<ul class="compat-stat-key" aria-label="Behavior state counts">
+<li class="compat-stat-item"><span class="compat-dot" data-status="ok" aria-hidden="true"></span><span><strong>86</strong> conform</span></li>
+<li class="compat-stat-item"><span class="compat-dot" data-status="diverged" aria-hidden="true"></span><span><strong>6</strong> documented divergences</span></li>
+<li class="compat-stat-item"><span class="compat-dot" data-status="bug" aria-hidden="true"></span><span><strong>0</strong> bugs</span></li>
+<li class="compat-stat-item"><span class="compat-dot" data-status="unsupported" aria-hidden="true"></span><span><strong>8</strong> unsupported</span></li>
+<li class="compat-stat-item"><span class="compat-dot" data-status="unverified" aria-hidden="true"></span><span><strong>0</strong> unverified</span></li>
+</ul>
+<p class="compat-stat-note">Public surface measures whether exports exist. Fidelity measures whether tracked behavior matches production.</p>
+</div>
+[Read how the axes differ.](../pyric-conformance-scores/)
 
 > ⚠ **EXPERIMENTAL — not v1-supported.** `pyric/storage` is functional but
 > work-in-progress. The v1-supported, conformance-held surface is **auth +
@@ -69,55 +86,55 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>getStorageSandbox(ctx)</code> returns a tagged sandbox-target handle (frozen identity)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior"><code>getStorageSandbox(ctx)</code> returns a tagged sandbox-target handle (frozen identity)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>getStorageSandbox(sandbox)</code> wraps a bare Sandbox with an anonymous context (<code>auth: null</code>)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior"><code>getStorageSandbox(sandbox)</code> wraps a bare Sandbox with an anonymous context (<code>auth: null</code>)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>getStorage(app)</code> returns the sandbox handle selected by package resolution</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior"><code>getStorage(app)</code> returns the sandbox handle selected by package resolution</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>entry-path:storage</code> runs the canonical <code>initializeApp</code> → <code>getStorage(app)</code> → <code>ref</code> → <code>uploadBytes</code> flow</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Two <code>getStorageSandbox(ctx)</code> calls on the same context return the SAME wrapper (identity-stable)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior">Two <code>getStorageSandbox(ctx)</code> calls on the same context return the SAME wrapper (identity-stable)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("returns the same handle for repeated calls on the same context")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Two <code>getStorageSandbox(sandbox)</code> calls on a bare <code>Sandbox</code> return the SAME wrapper (identity-stable)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior">Two <code>getStorageSandbox(sandbox)</code> calls on a bare <code>Sandbox</code> return the SAME wrapper (identity-stable)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">ST-B3 fixed: <code>withAuth(null)</code> mints a fresh context per call, so the per-context cache missed and bare-Sandbox calls returned different handles. A <code>Sandbox</code>-keyed cache makes the convenience path stable, matching the docstring. Probe: <code>unit:service.test.ts</code> ("ST-B3: returns the same handle for repeated bare-Sandbox calls").</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Two different <code>SandboxContext</code>s on the same <code>Sandbox</code> get DIFFERENT handles but share the underlying <code>StorageService</code> (IDB)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior">Two different <code>SandboxContext</code>s on the same <code>Sandbox</code> get DIFFERENT handles but share the underlying <code>StorageService</code> (IDB)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("shares the underlying StorageService across contexts on the same sandbox")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>options.bucket</code> round-trips on metadata records; v1 has a single implicit bucket but the field is preserved</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior"><code>options.bucket</code> round-trips on metadata records; v1 has a single implicit bucket but the field is preserved</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("records the bucket value on the handle")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>options.dbName</code> honored on the FIRST call per <code>Sandbox</code>; second-call overrides ignored</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior"><code>options.dbName</code> honored on the FIRST call per <code>Sandbox</code>; second-call overrides ignored</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("dbName only takes effect on the sandbox's first getStorage call")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>options.rules</code> parsed eagerly — malformed rules throw <code>SyntaxError</code> at config time</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior"><code>options.rules</code> parsed eagerly — malformed rules throw <code>SyntaxError</code> at config time</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (parse errors propagate from <code>parseStorageRules</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">The <code>TARGET_SYMBOL</code> brand keeps each handle bound to its owning sandbox service and identity</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior">The <code>TARGET_SYMBOL</code> brand keeps each handle bound to its owning sandbox service and identity</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> (distinct contexts share one service while retaining distinct handles)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Unrecognized handle (not produced by a factory) → <code>TypeError</code> "not a FirebaseStorage handle"</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior">Unrecognized handle (not produced by a factory) → <code>TypeError</code> "not a FirebaseStorage handle"</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("rejects an object that was not produced by a factory")</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior"><code>getStorage(app, bucketUrl?)</code> accepts Firebase's bucket argument; the sandbox remains bound to its configured single bucket</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior"><code>getStorage(app, bucketUrl?)</code> accepts Firebase's bucket argument; the sandbox remains bound to its configured single bucket</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Package resolution owns production selection. The sandbox accepts the canonical argument but does not model production multi-bucket routing; <code>unit:service.test.ts</code> pins the configured <code>pyric-default</code> bucket.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">The served <code>firebase/storage</code> entry accepts bare <code>getStorage()</code> and returns the page's shared sandbox handle</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><span class="compat-behavior">The served <code>firebase/storage</code> entry accepts bare <code>getStorage()</code> and returns the page's shared sandbox handle</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">The canonical served entry supplies the page sandbox when the app argument is omitted; the entry-path and bundler suites execute the public package shape.</div></div>
 </details>
 </div>
@@ -126,47 +143,47 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>ref(storage)</code> returns the root ref — <code>fullPath === ''</code>, <code>name === ''</code>, <code>parent === null</code>, <code>root === self</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior"><code>ref(storage)</code> returns the root ref — <code>fullPath === ''</code>, <code>name === ''</code>, <code>parent === null</code>, <code>root === self</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("root reference has empty fullPath, null parent, and equal root")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>ref(storage, 'sessions/s1.json')</code> populates <code>fullPath</code>, <code>name</code> (last segment), <code>parent</code> (path without last segment)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior"><code>ref(storage, 'sessions/s1.json')</code> populates <code>fullPath</code>, <code>name</code> (last segment), <code>parent</code> (path without last segment)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("ref(storage, path) populates fullPath and name from the last segment")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Path normalization: leading slashes stripped (<code>/sessions/s1</code> → <code>sessions/s1</code>)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior">Path normalization: leading slashes stripped (<code>/sessions/s1</code> → <code>sessions/s1</code>)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("normalizes leading/trailing/double slashes")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Path normalization: trailing slashes stripped</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior">Path normalization: trailing slashes stripped</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Path normalization: repeated internal slashes collapsed (<code>a//b</code> → <code>a/b</code>)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior">Path normalization: repeated internal slashes collapsed (<code>a//b</code> → <code>a/b</code>)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>ref(parent, child)</code> joins relative to parent's <code>fullPath</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior"><code>ref(parent, child)</code> joins relative to parent's <code>fullPath</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("ref(parent, child) joins relative to the parent")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>parent</code> chain walks back to root (each <code>.parent</code> strips one segment until empty, then <code>null</code>)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior"><code>parent</code> chain walks back to root (each <code>.parent</code> strips one segment until empty, then <code>null</code>)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("parent traversal walks back to root")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>root</code> accessor returns the bucket-root ref regardless of starting depth</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior"><code>root</code> accessor returns the bucket-root ref regardless of starting depth</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>toString()</code> returns <code>gs://&lt;bucket&gt;/&lt;fullPath&gt;</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior"><code>toString()</code> returns <code>gs://&lt;bucket&gt;/&lt;fullPath&gt;</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("toString returns gs://bucket/path")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Reference identity: two <code>ref(s, 'a/b')</code> calls are equal-by-<code>toString</code> but NOT <code>===</code> (value objects, not interned)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior">Reference identity: two <code>ref(s, 'a/b')</code> calls are equal-by-<code>toString</code> but NOT <code>===</code> (value objects, not interned)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">(implicit in <code>unit:reference.test.ts</code> parent-chain test — each <code>.parent</code> returns a fresh object)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">References are mirror-owned value objects; <code>parent</code> and <code>root</code> preserve the same storage handle and path semantics</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ref(storage[, path])<code> / </code>ref(parent, path)</code><span class="compat-sub"><span class="compat-behavior">References are mirror-owned value objects; <code>parent</code> and <code>root</code> preserve the same storage handle and path semantics</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> pins parent traversal, root identity, bucket, and path behavior through the public reference interface.</div></div>
 </details>
 </div>
@@ -175,64 +192,64 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Accepts <code>Blob</code> payload; returns <code>UploadResult</code> with populated <code>metadata</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Accepts <code>Blob</code> payload; returns <code>UploadResult</code> with populated <code>metadata</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts a Blob and round-trips through getBlob")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Accepts <code>Uint8Array</code> payload</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Accepts <code>Uint8Array</code> payload</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts a Uint8Array")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Accepts <code>ArrayBuffer</code> payload</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Accepts <code>ArrayBuffer</code> payload</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts an ArrayBuffer")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">ContentType precedence: caller's <code>metadata.contentType</code> &gt; <code>Blob.type</code> &gt; <code>application/octet-stream</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">ContentType precedence: caller's <code>metadata.contentType</code> &gt; <code>Blob.type</code> &gt; <code>application/octet-stream</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("metadata.contentType overrides the Blob's intrinsic type" + "falls back to application/octet-stream when no type is supplied")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>Blob.type === ''</code> (no intrinsic type) falls through to <code>application/octet-stream</code>, NOT to <code>''</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior"><code>Blob.type === ''</code> (no intrinsic type) falls through to <code>application/octet-stream</code>, NOT to <code>''</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("falls back to application/octet-stream when no type is supplied")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>customMetadata</code> round-trips through the upload pipeline</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior"><code>customMetadata</code> round-trips through the upload pipeline</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("round-trips customMetadata") + <code>unit:metadata.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Empty <code>Blob.type</code> rewrap: when caller hint differs from <code>Blob.type</code>, the blob is re-wrapped with the caller's type (same bytes)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Empty <code>Blob.type</code> rewrap: when caller hint differs from <code>Blob.type</code>, the blob is re-wrapped with the caller's type (same bytes)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">implicit in <code>unit:reference.test.ts</code> ("metadata.contentType overrides the Blob's intrinsic type")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> when called on the root reference</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> when called on the root reference</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws on root reference")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returned <code>metadata.fullPath</code> matches the ref's <code>fullPath</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Returned <code>metadata.fullPath</code> matches the ref's <code>fullPath</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returned <code>metadata.size</code> matches the input blob's byte length</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Returned <code>metadata.size</code> matches the input blob's byte length</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returned <code>metadata.bucket</code> matches the storage handle's bucket</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Returned <code>metadata.bucket</code> matches the storage handle's bucket</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Replaces any existing object at the path (overwrite, not append)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Replaces any existing object at the path (overwrite, not append)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("second uploadBytes at the same path replaces bytes and metadata")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Prod: round-trips uploaded bytes through <code>getDownloadURL</code> + fetch (byte-for-byte equality)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Prod: round-trips uploaded bytes through <code>getDownloadURL</code> + fetch (byte-for-byte equality)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-upload-bytes-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → <code>bytesMatch: true</code>, <code>urlIsHttps: true</code>, <code>bodyLen === payloadLen === 6</code>). This row records the production answer key; row #51 compares the sandbox's page-local URL behavior against it.</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returned <code>metadata.contentType</code> matches what the caller hinted (when set)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Returned <code>metadata.contentType</code> matches what the caller hinted (when set)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> + oracle: <code>packages/conformance/observations/storage/storage-upload-then-getmetadata.json</code> (<code>contentType: 'application/octet-stream'</code> round-trip against blockingfun, fb-js-sdk 12.13.0; <code>contentTypeMatches: true</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returned <code>metadata.generation</code> / <code>metageneration</code> are stringified counters (<code>'1'</code> after fresh upload)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Returned <code>metadata.generation</code> / <code>metageneration</code> are stringified counters (<code>'1'</code> after fresh upload)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code></div></div>
 </details>
 </div>
@@ -241,35 +258,35 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>format='raw'</code> (default): UTF-8 encodes the string; <code>contentType</code> defaults to <code>text/plain;charset=utf-8</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub"><span class="compat-behavior"><code>format='raw'</code> (default): UTF-8 encodes the string; <code>contentType</code> defaults to <code>text/plain;charset=utf-8</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("raw format encodes UTF-8 and defaults contentType to text/plain")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>format='base64'</code>: decodes payload bytes from standard base64</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub"><span class="compat-behavior"><code>format='base64'</code>: decodes payload bytes from standard base64</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("base64 format decodes payload bytes")</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior">Sandbox: <code>format='base64url'</code> (or any unknown format) rejected with <code>storage/invalid-format</code> naming the bad format. Prod: <code>base64url</code> is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws <code>storage/unknown</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Sandbox: <code>format='base64url'</code> (or any unknown format) rejected with <code>storage/invalid-format</code> naming the bad format. Prod: <code>base64url</code> is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws <code>storage/unknown</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">divergence, both halves oracle-locked by <code>packages/conformance/observations/storage/storage-uploadstring-unknown-format.json</code>: prod accepts <code>base64url</code> (<code>base64urlOk: true</code>) and throws <code>storage/unknown</code> for an unrecognized format — not <code>storage/invalid-format</code>. The v1 sandbox ships only <code>raw</code>/<code>base64</code>/<code>data_url</code> (matches <code>StringFormat</code>) and throws <code>storage/invalid-format</code> for anything else (ST-B3 replaced the old mis-parse-as-data_url behavior). Both sides pinned in <code>oracle-conformance.test.ts</code>; sandbox code path documented in <code>upload.ts</code>'s <code>decodeString</code>. Implementing base64url decoding is still one line in <code>decodeString</code>.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>format='data_url'</code>: parses <code>data:&lt;mime&gt;;base64,&lt;payload&gt;</code>, infers <code>contentType</code> from prefix</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub"><span class="compat-behavior"><code>format='data_url'</code>: parses <code>data:&lt;mime&gt;;base64,&lt;payload&gt;</code>, infers <code>contentType</code> from prefix</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("data_url format infers contentType from the prefix")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>format='data_url'</code> with non-base64 payload: percent-decodes the body</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub"><span class="compat-behavior"><code>format='data_url'</code> with non-base64 payload: percent-decodes the body</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("non-base64 data_url percent-decodes the body"; malformed <code>%%0</code> → <code>storage/invalid-format</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Caller's <code>metadata.contentType</code> beats data_url inference</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Caller's <code>metadata.contentType</code> beats data_url inference</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("caller metadata.contentType beats data_url inference")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Malformed <code>data_url</code> (no comma / doesn't start with <code>data:</code>) throws <code>TypeError</code> with "data_url format" message</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Malformed <code>data_url</code> (no comma / doesn't start with <code>data:</code>) throws <code>TypeError</code> with "data_url format" message</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws on malformed data_url")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Prod: <code>uploadString(ref, value, 'base64')</code> round-trips via <code>getDownloadURL</code> + fetch</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Prod: <code>uploadString(ref, value, 'base64')</code> round-trips via <code>getDownloadURL</code> + fetch</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-uploadstring-base64-roundtrip.json</code> (<code>'aGVsbG8='</code> → <code>'hello'</code> against blockingfun, fb-js-sdk 12.13.0; <code>textMatches: true</code>)</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
@@ -279,19 +296,19 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Exported by <code>firebase/storage</code>; returns an <code>UploadTask</code> with <code>pause()</code> / <code>resume()</code> / <code>cancel()</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior">Exported by <code>firebase/storage</code>; returns an <code>UploadTask</code> with <code>pause()</code> / <code>resume()</code> / <code>cancel()</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — out of scope for the v1 v1 scope per <code>index.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior"><code>task.on('state_changed', next, error, complete)</code> fires <code>next</code> with <code>{bytesTransferred, totalBytes, state}</code> snapshots</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior"><code>task.on('state_changed', next, error, complete)</code> fires <code>next</code> with <code>{bytesTransferred, totalBytes, state}</code> snapshots</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">not implemented</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior"><code>task.pause()</code> flips <code>state</code> to <code>'paused'</code>; <code>task.resume()</code> continues</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior"><code>task.pause()</code> flips <code>state</code> to <code>'paused'</code>; <code>task.resume()</code> continues</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">not implemented</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior"><code>task.cancel()</code> rejects the upload with <code>storage/canceled</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><span class="compat-behavior"><code>task.cancel()</code> rejects the upload with <code>storage/canceled</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">not implemented</div></div>
 </details>
 </div>
@@ -300,11 +317,11 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior">Exported by <code>firebase/storage</code>; returns a token-signed HTTPS URL that fetches the blob</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><code class="compat-api">getDownloadURL(ref)</code><span class="compat-sub"><span class="compat-behavior">Exported by <code>firebase/storage</code>; returns a token-signed HTTPS URL that fetches the blob</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Implemented with a two-sided pin. Production observation <code>storage-upload-bytes-roundtrip</code> records <code>urlIsHttps: true</code> and a byte-identical fetch. The sandbox oracle replay now calls the same public <code>getDownloadURL</code> + <code>fetch</code> path and proves byte-identical content, while explicitly asserting its URL starts with <code>blob:</code>. The client↔host integration proves SharedWorker mode creates that URL in the calling page after the rules-checked Blob crosses the port. The remaining divergence is URL identity and lifetime: the sandbox URL is a page-local snapshot, not token-signed HTTPS and not shareable outside that page.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Throws <code>storage/object-not-found</code> for missing objects</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getDownloadURL(ref)</code><span class="compat-sub"><span class="compat-behavior">Throws <code>storage/object-not-found</code> for missing objects</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">Production observation <code>storage-delete-then-get-throws</code> records <code>getDownloadURL</code> throwing <code>storage/object-not-found</code> after deletion. The sandbox oracle replay now invokes <code>getDownloadURL</code> itself and matches that code; the public error-code suite also pins the never-existing-object case.</div></div>
 </details>
 </div>
@@ -313,23 +330,23 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returns the blob's contents as an <code>ArrayBuffer</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getBytes(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">Returns the blob's contents as an <code>ArrayBuffer</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts a Uint8Array" round-trip via <code>getBytes</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Throws <code>storage/object-not-found</code> when no object exists at the path</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getBytes(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">Throws <code>storage/object-not-found</code> when no object exists at the path</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws storage/object-not-found for missing paths") + oracle: <code>packages/conformance/observations/storage/storage-delete-then-get-throws.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload → delete → <code>getDownloadURL</code> on the deleted ref throws <code>FirebaseError</code> with <code>code: 'storage/object-not-found'</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">When the object exceeds <code>maxDownloadSize</code>, returns a truncated prefix of that byte length (does not throw)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getBytes(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">When the object exceeds <code>maxDownloadSize</code>, returns a truncated prefix of that byte length (does not throw)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("getBytes / getBlob return a truncated prefix when the object exceeds the cap"). Matches upstream <code>getBytesInternal</code> / <code>getBlobInternal</code> post-fetch slice (GCS may ignore Range on small files). Prior COMPAT claim that the cap throws was wrong.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Just-under-cap reads succeed and return the full byte length</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getBytes(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">Just-under-cap reads succeed and return the full byte length</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("just-under-cap reads return the full object") + <code>unit:reference.test.ts</code> ("honors maxDownloadSizeBytes when the blob is too large")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> when called on the root reference</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getBytes(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> when called on the root reference</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws invalid-root-operation on root reads")</div></div>
 </details>
 </div>
@@ -338,19 +355,19 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returns the stored bytes wrapped as a <code>Blob</code> (with <code>.type</code> from metadata)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getBlob(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">Returns the stored bytes wrapped as a <code>Blob</code> (with <code>.type</code> from metadata)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts a Blob and round-trips through getBlob")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Throws <code>storage/object-not-found</code> for missing paths</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getBlob(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">Throws <code>storage/object-not-found</code> for missing paths</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws storage/object-not-found for missing paths")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Honors <code>maxDownloadSize</code> same as <code>getBytes</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getBlob(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">Honors <code>maxDownloadSize</code> same as <code>getBytes</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:upstream-storage-probes.test.ts</code> ("getBytes / getBlob return a truncated prefix when the object exceeds the cap"; shared <code>fetchBlob</code> helper in <code>download.ts</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Root-ref read throws <code>storage/invalid-root-operation</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getBlob(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">Root-ref read throws <code>storage/invalid-root-operation</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">shared via <code>guardNonRoot</code> in <code>download.ts</code></div></div>
 </details>
 </div>
@@ -359,7 +376,7 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Exported by <code>firebase/storage</code> (Node entry only); returns a Node <code>Readable</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">getStream(ref, maxDownloadSize?)</code><span class="compat-sub"><span class="compat-behavior">Exported by <code>firebase/storage</code> (Node entry only); returns a Node <code>Readable</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — browser-shaped v1 scope, no Node-stream variant</div></div>
 </details>
 </div>
@@ -368,24 +385,24 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Removes both the blob AND the metadata atomically (post-delete <code>getBlob</code> throws <code>object-not-found</code>)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">deleteObject(ref)</code><span class="compat-sub"><span class="compat-behavior">Removes both the blob AND the metadata atomically (post-delete <code>getBlob</code> throws <code>object-not-found</code>)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("removes both blob and metadata")</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior">Sandbox: no-op on missing path (does NOT throw)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><code class="compat-api">deleteObject(ref)</code><span class="compat-sub"><span class="compat-behavior">Sandbox: no-op on missing path (does NOT throw)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">divergence: sandbox is no-op via <code>persistence.ts</code>'s <code>delete</code>. Prod's <code>deleteObject</code> on a missing path throws <code>storage/object-not-found</code>. Oracle-locked: <code>packages/conformance/observations/storage/storage-delete-missing-throws.json</code> (<code>code: 'storage/object-not-found'</code>, <code>name: 'FirebaseError'</code> against blockingfun, fb-js-sdk 12.13.0). Both sides pinned in <code>oracle-conformance.test.ts</code>; documented in <code>download.ts</code>.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> on the root reference</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">deleteObject(ref)</code><span class="compat-sub"><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> on the root reference</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws invalid-root-operation on root")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Prod: a successful <code>deleteObject</code> followed by <code>getDownloadURL</code> on the same ref throws <code>storage/object-not-found</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">deleteObject(ref)</code><span class="compat-sub"><span class="compat-behavior">Prod: a successful <code>deleteObject</code> followed by <code>getDownloadURL</code> on the same ref throws <code>storage/object-not-found</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-delete-then-get-throws.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload + delete succeed, then <code>getDownloadURL</code> throws <code>code: 'storage/object-not-found'</code>, message <code>"Firebase Storage: Object '…' does not exist."</code>, <code>isFirebaseError: true</code>)</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Sandbox: writes-then-delete leaves no metadata (post-delete <code>getMetadata</code> throws <code>object-not-found</code>)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">deleteObject(ref)</code><span class="compat-sub"><span class="compat-behavior">Sandbox: writes-then-delete leaves no metadata (post-delete <code>getMetadata</code> throws <code>object-not-found</code>)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">follows from #63 + <code>getMetadata</code></div></div>
 </details>
 </div>
@@ -394,47 +411,47 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Returns <code>ListResult</code> with <code>items</code> (direct child files) + <code>prefixes</code> (sub-folder refs) + <code>nextPageToken: undefined</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior">Returns <code>ListResult</code> with <code>items</code> (direct child files) + <code>prefixes</code> (sub-folder refs) + <code>nextPageToken: undefined</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Empty bucket → both arrays empty, <code>nextPageToken: undefined</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior">Empty bucket → both arrays empty, <code>nextPageToken: undefined</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("returns empty arrays on an empty bucket")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Direct children only — does NOT recurse into grandchildren as items</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior">Direct children only — does NOT recurse into grandchildren as items</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("does not recurse into grandchildren as items")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Sub-folders surface as <code>prefixes</code> and are deduplicated (many files under one folder → ONE prefix entry)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior">Sub-folders surface as <code>prefixes</code> and are deduplicated (many files under one folder → ONE prefix entry)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("promotes sub-folders into prefixes (deduplicated)")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>items</code> sorted by path (IDB key order, lexicographic)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior"><code>items</code> sorted by path (IDB key order, lexicographic)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("lists direct children of a folder")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>prefixes</code> sorted lexicographically by <code>fullPath</code> (for determinism)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior"><code>prefixes</code> sorted lexicographically by <code>fullPath</code> (for determinism)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> (root-scan example asserts <code>configs</code> &lt; <code>sessions</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">The scanned ref itself is NEVER included in <code>items</code> (even when an object exists at the exact prefix path)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior">The scanned ref itself is NEVER included in <code>items</code> (even when an object exists at the exact prefix path)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("does not include the scanned ref itself")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>listAll(ref(storage))</code> (root) scans the entire bucket</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior"><code>listAll(ref(storage))</code> (root) scans the entire bucket</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("listAll on the root scans the entire bucket")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Items expose the full <code>StorageReference</code> shape (storage, bucket, name, parent)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior">Items expose the full <code>StorageReference</code> shape (storage, bucket, name, parent)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("items expose the StorageReference shape")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Prod: items + prefixes shape matches sandbox after <code>N</code> uploads under a directory</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior">Prod: items + prefixes shape matches sandbox after <code>N</code> uploads under a directory</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-listall-shape.json</code> (against blockingfun, fb-js-sdk 12.13.0: 3 direct children + 1 grandchild → <code>items</code> has all 3 direct children sorted, <code>prefixes</code> has the single sub-folder, <code>itemCount: 3</code>, <code>prefixCount: 1</code>, <code>threeDirectChildren: true</code>, <code>oneSubPrefix: true</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>listAll</code> enforces rules: <code>read</code> permission on the scanned prefix path governs list (Firebase: <code>read</code> covers download AND list), denied prefix → <code>storage/unauthorized</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">listAll(ref)</code><span class="compat-sub"><span class="compat-behavior"><code>listAll</code> enforces rules: <code>read</code> permission on the scanned prefix path governs list (Firebase: <code>read</code> covers download AND list), denied prefix → <code>storage/unauthorized</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">ST-B2 fixed: <code>list.ts</code> now calls <code>enforceRules</code> with <code>method: 'read'</code> on the listed prefix (was a silent bypass — a denied tree was still fully enumerable). With no rules configured the check is a no-op. Probe: <code>unit:list-rules.test.ts</code> ("denies an anonymous listAll of a tree the rules protect" / "allows an authed listAll"). Note: a <code>read</code> rule scoped to <code>match /sessions/{id}</code> does NOT grant list on <code>/sessions</code> — the folder needs its own read rule, matching prod; the session-archive demo ruleset adds <code>match /sessions { allow read }</code>.</div></div>
 </details>
 </div>
@@ -443,7 +460,7 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Exported by <code>firebase/storage</code>; accepts <code>{ maxResults, pageToken }</code>, returns a <code>ListResult</code> with <code>nextPageToken</code> set when more pages remain</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">list(ref, options?)</code><span class="compat-sub"><span class="compat-behavior">Exported by <code>firebase/storage</code>; accepts <code>{ maxResults, pageToken }</code>, returns a <code>ListResult</code> with <code>nextPageToken</code> set when more pages remain</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — pagination deferred per <code>list.ts</code> (the <code>ListResult.nextPageToken</code> field is kept optional so consumer code that handles pagination doesn't have to special-case the sandbox)</div></div>
 </details>
 </div>
@@ -452,61 +469,61 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>getMetadata(ref)</code> returns the same <code>FullMetadata</code> shape <code>uploadBytes</code> produced</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>getMetadata(ref)</code> returns the same <code>FullMetadata</code> shape <code>uploadBytes</code> produced</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("returns the FullMetadata uploadBytes wrote")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>getMetadata(ref)</code> throws <code>storage/object-not-found</code> for missing paths</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>getMetadata(ref)</code> throws <code>storage/object-not-found</code> for missing paths</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("throws object-not-found for missing paths")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>getMetadata(ref)</code> throws <code>storage/invalid-root-operation</code> on the root</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>getMetadata(ref)</code> throws <code>storage/invalid-root-operation</code> on the root</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("throws invalid-root-operation on the root reference")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>updateMetadata(ref, patch)</code> replaces the listed client-settable fields wholesale (per Firebase semantics)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>updateMetadata(ref, patch)</code> replaces the listed client-settable fields wholesale (per Firebase semantics)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("replaces settable fields, bumps metageneration, refreshes updated")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>updateMetadata</code> bumps <code>metageneration</code> by 1 on each call</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>updateMetadata</code> bumps <code>metageneration</code> by 1 on each call</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>updateMetadata</code> refreshes <code>updated</code> to the call moment; <code>timeCreated</code> and <code>generation</code> stay pinned</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>updateMetadata</code> refreshes <code>updated</code> to the call moment; <code>timeCreated</code> and <code>generation</code> stay pinned</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>updateMetadata</code> preserves the blob bytes (only metadata changes)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>updateMetadata</code> preserves the blob bytes (only metadata changes)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("leaves the blob content untouched")</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior"><code>updateMetadata</code> with <code>undefined</code> field values preserves the prior value (does NOT clear it)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>updateMetadata</code> with <code>undefined</code> field values preserves the prior value (does NOT clear it)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">divergence: prod accepts <code>null</code> to explicitly clear a field. Sandbox doesn't model <code>null</code>-clear (per <code>metadata.ts</code> doc comment). Documented; not probe-locked.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>updateMetadata</code> throws <code>storage/object-not-found</code> for missing paths</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>updateMetadata</code> throws <code>storage/object-not-found</code> for missing paths</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("throws object-not-found when the path is missing")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>updateMetadata</code> throws <code>storage/invalid-root-operation</code> on the root</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>updateMetadata</code> throws <code>storage/invalid-root-operation</code> on the root</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("throws invalid-root-operation on the root reference")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Prod: <code>getMetadata</code> after <code>uploadBytes</code> returns <code>contentType</code> and <code>size</code> matching what was uploaded</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior">Prod: <code>getMetadata</code> after <code>uploadBytes</code> returns <code>contentType</code> and <code>size</code> matching what was uploaded</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-upload-then-getmetadata.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload 128-byte payload with <code>contentType: 'application/octet-stream'</code>, getMetadata returns <code>metadataSize: 128</code>, <code>metadataContentType: 'application/octet-stream'</code>, <code>metadataBucket: 'blockingfun.firebasestorage.app'</code>, <code>metadataMetageneration: '1'</code>, <code>fullPathMatches: true</code>)</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Prod: <code>updateMetadata({customMetadata: {...}})</code> round-trips through a follow-up <code>getMetadata</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior">Prod: <code>updateMetadata({customMetadata: {...}})</code> round-trips through a follow-up <code>getMetadata</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-update-metadata-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: post-update <code>getMetadata</code> returns the exact <code>customMetadata</code> object, <code>metageneration</code> bumps <code>'1'</code> → <code>'2'</code>, <code>customSurvived: true</code>, <code>metagenerationBumped: true</code>)</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><span class="compat-behavior"><code>FullMetadata.md5Hash</code> populated on uploads</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>FullMetadata.md5Hash</code> populated on uploads</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">divergence: sandbox does NOT compute <code>md5Hash</code>. Oracle-locked: <code>packages/conformance/observations/storage/storage-upload-then-getmetadata.json</code> confirms prod sets <code>md5Hash</code> (<code>hasMd5Hash: true</code> after a vanilla <code>uploadBytes</code>). Both sides pinned in <code>oracle-conformance.test.ts</code>. Aligning the sandbox is a one-spot fix in <code>upload.ts</code>'s <code>buildStoredMetadata</code>.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior"><code>FullMetadata.ref</code> lazy population (prod populates lazily)</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><span class="compat-behavior"><code>FullMetadata.ref</code> lazy population (prod populates lazily)</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">not modeled in <code>pyric/storage</code> — <code>metadata.ts</code> explicitly omits <code>ref</code> from <code>FullMetadata</code></div></div>
 </details>
 </div>
@@ -515,7 +532,7 @@ matrix has to cover:
 
 <div class="compat-list">
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Exported by <code>firebase/storage</code>; reroutes a <code>FirebaseStorage</code> handle to a local emulator</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">connectStorageEmulator(storage, host, port)</code><span class="compat-sub"><span class="compat-behavior">Exported by <code>firebase/storage</code>; reroutes a <code>FirebaseStorage</code> handle to a local emulator</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — the sandbox IS the local-target alternative; emulator parity is out of scope per <code>index.ts</code></div></div>
 </details>
 </div>
@@ -529,23 +546,23 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Op-level enforcement: <code>uploadBytes</code> against a denied path throws <code>storage/unauthorized</code> on sandbox / <code>storage/unauthorized</code> on prod, <code>.code</code> exposed on both</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">Rules enforcement</code><span class="compat-sub"><span class="compat-behavior">Op-level enforcement: <code>uploadBytes</code> against a denied path throws <code>storage/unauthorized</code> on sandbox / <code>storage/unauthorized</code> on prod, <code>.code</code> exposed on both</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">ST-B1 fixed: sandbox now throws a <code>StorageError</code> (see <code>src/storage/errors.ts</code>) whose <code>.code === 'storage/unauthorized'</code> — matching prod's <code>FirebaseError.code</code>. Probe: <code>unit:error-codes.test.ts</code> ("unauthorized when rules deny the operation"). Residual divergence (documented, not a <code>.code</code> gap): the sandbox <code>StorageError.name</code> is <code>'StorageError'</code> (plain <code>Error</code> subclass, same shape as Firestore's <code>SandboxError</code>) where prod reports <code>name: 'FirebaseError'</code> / <code>isFirebaseError: true</code>, and the message wording differs (sandbox embeds the matched-rule reason chain). Oracle-locked: <code>packages/conformance/observations/storage/storage-rules-denied-error-code.json</code> (against blockingfun, fb-js-sdk 12.13.0: <code>code: 'storage/unauthorized'</code>, message <code>"Firebase Storage: User does not have permission to access '&lt;path&gt;'."</code>, <code>name: 'FirebaseError'</code>, <code>isFirebaseError: true</code>).</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>getMetadata</code> against a denied path throws <code>storage/unauthorized</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">Rules enforcement</code><span class="compat-sub"><span class="compat-behavior"><code>getMetadata</code> against a denied path throws <code>storage/unauthorized</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (operation-integration section)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>updateMetadata</code> against a denied path throws <code>storage/unauthorized</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">Rules enforcement</code><span class="compat-sub"><span class="compat-behavior"><code>updateMetadata</code> against a denied path throws <code>storage/unauthorized</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>deleteObject</code> against a denied path throws <code>storage/unauthorized</code></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">Rules enforcement</code><span class="compat-sub"><span class="compat-behavior"><code>deleteObject</code> against a denied path throws <code>storage/unauthorized</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Ordinary SDK object paths are evaluated under Firebase Storage's canonical <code>/b/{bucket}/o/{object}</code> rules namespace while metadata preserves the ordinary object path</span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">Rules enforcement</code><span class="compat-sub"><span class="compat-behavior">Ordinary SDK object paths are evaluated under Firebase Storage's canonical <code>/b/{bucket}/o/{object}</code> rules namespace while metadata preserves the ordinary object path</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("maps ordinary SDK object paths into the canonical bucket rules namespace"). Production's canonical <code>/b/{bucket}/o/...</code> namespace is independently captured on the <code>storage-rules</code> surface; this adapter mapping seam is unit-backed rather than presented as a production observation.</div></div>
 </details>
 </div>
@@ -628,3 +645,62 @@ a follow-up driver decision.
 | Cloud Functions Storage triggers (`onFinalize`, `onArchive`, …) | Server-side surface — not the Web SDK |
 | Image transformation URLs (Firebase Image extension) | Extension surface, not core Storage |
 | `StorageObserver` advanced shapes (progress milestones, error subclasses) | Tied to `UploadTask`; out of scope until resumable ships |
+
+
+## Current gaps
+
+### Documented divergences
+
+Known differences between Pyric and production Firebase. Each remains tracked as a non-conforming row.
+
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getStorage(app, bucketUrl?)<code> / </code>getStorageSandbox(target, options?)</code><span class="compat-sub"><code>getStorage(app, bucketUrl?)</code> accepts Firebase's bucket argument; the sandbox remains bound to its configured single bucket</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub">Sandbox: <code>format='base64url'</code> (or any unknown format) rejected with <code>storage/invalid-format</code> naming the bad format. Prod: <code>base64url</code> is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws <code>storage/unknown</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getDownloadURL(ref)</code><span class="compat-sub">Exported by <code>firebase/storage</code>; returns a token-signed HTTPS URL that fetches the blob</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">deleteObject(ref)</code><span class="compat-sub">Sandbox: no-op on missing path (does NOT throw)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><code>updateMetadata</code> with <code>undefined</code> field values preserves the prior value (does NOT clear it)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><code>FullMetadata.md5Hash</code> populated on uploads</span></span></div>
+</div>
+</div>
+
+### Unsupported
+
+Tracked behavior that is not implemented in the current contract.
+
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub">Exported by <code>firebase/storage</code>; returns an <code>UploadTask</code> with <code>pause()</code> / <code>resume()</code> / <code>cancel()</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><code>task.on('state_changed', next, error, complete)</code> fires <code>next</code> with <code>{bytesTransferred, totalBytes, state}</code> snapshots</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><code>task.pause()</code> flips <code>state</code> to <code>'paused'</code>; <code>task.resume()</code> continues</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><code>task.cancel()</code> rejects the upload with <code>storage/canceled</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getStream(ref, maxDownloadSize?)</code><span class="compat-sub">Exported by <code>firebase/storage</code> (Node entry only); returns a Node <code>Readable</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">list(ref, options?)</code><span class="compat-sub">Exported by <code>firebase/storage</code>; accepts <code>{ maxResults, pageToken }</code>, returns a <code>ListResult</code> with <code>nextPageToken</code> set when more pages remain</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><code>FullMetadata.ref</code> lazy population (prod populates lazily)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">connectStorageEmulator(storage, host, port)</code><span class="compat-sub">Exported by <code>firebase/storage</code>; reroutes a <code>FirebaseStorage</code> handle to a local emulator</span></span></div>
+</div>
+</div>
