@@ -26,6 +26,12 @@ describe('packaged conformance query', () => {
     });
   });
 
+  it('fails closed when the programmatic query has no feature identity', () => {
+    for (const query of ['', ' ', 'firestore-rules/']) {
+      expect(canIUse(query)).toEqual({ query, match: 'none', supports: [] });
+    }
+  });
+
   it('lets documentation consumers scope symbols by published import path', () => {
     expect(canIUse('getDownloadURL', { importPath: 'pyric/storage' })).toMatchObject({
       match: 'exact',
@@ -35,6 +41,9 @@ describe('packaged conformance query', () => {
       })],
     });
     expect(canIUse('getDownloadURL', { importPath: 'pyric/firestore' }).match).toBe('none');
+    for (const importPath of ['', ' pyric/storage ', 'PYRIC/STORAGE', 'pyric_storage']) {
+      expect(canIUse('getDownloadURL', { importPath }).match).toBe('none');
+    }
     const appGetAuth = canIUse('getAuth', { importPath: 'pyric/app' });
     expect(appGetAuth.match).not.toBe('exact');
     expect(appGetAuth.supports.map(({ feature }) => feature)).not.toContain('getAuth');
@@ -57,6 +66,7 @@ describe('packaged conformance query', () => {
       surface: 'firestore-rules',
       evidenceSlug: 'pyric-rules-compat',
     });
+    expect(canIUseImport(' pyric/rules ')).toBeUndefined();
     expect(canIUseImport('pyric/unknown')).toBeUndefined();
   });
 });

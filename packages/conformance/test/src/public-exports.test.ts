@@ -34,4 +34,14 @@ describe('Firebase public export classification', () => {
     expect(resolvePublicTypeEntry('pyric/storage')).toBe(entry.source);
     expect(resolvePublicTypeEntry('pyric/storage')).not.toBe(entry.built.replace(/\.js$/, '.d.ts'));
   });
+
+  it('resolves transitive workspace type aliases without generated declarations', () => {
+    const firestoreTypes = publicTypeExportNames(['pyric/firestore']);
+    expect(firestoreTypes).toEqual(expect.arrayContaining([
+      'DocumentData',
+      'FieldValue',
+      'Timestamp',
+      'WhereFilterOp',
+    ]));
+  });
 });

@@ -28,8 +28,7 @@ export function resolveImportEvidence<T extends QueryableImportEvidence>(
   evidence: readonly T[],
   importPath: string,
 ): T | undefined {
-  const normalized = importPath.trim();
-  return evidence.find((entry) => entry.importPath === normalized);
+  return evidence.find((entry) => entry.importPath === importPath);
 }
 
 export function normalizeFeature(value: string): string {
@@ -37,7 +36,11 @@ export function normalizeFeature(value: string): string {
 }
 
 export function featureIdentity(value: string): string {
-  return value.trim().replace(/\(.*\)$/, '');
+  return value;
+}
+
+function normalizeSurface(value: string): string {
+  return value.trim().replace(/[\s_-]+/g, '-').toLowerCase();
 }
 
 function distance(left: string, right: string): number {
@@ -62,28 +65,35 @@ export function resolveCanIUse<T extends QueryableFeatureSupport>(
   query: string,
   options: CanIUseOptions = {},
 ): CanIUseResult<T> {
-  const trimmed = query.trim();
-  const importPath = options.importPath?.trim();
-  const scopedSupports = importPath
+  const importPath = options.importPath;
+  const scopedSupports = importPath !== undefined
     ? supports.filter((support) => support.importPaths?.includes(importPath))
     : supports;
-  const separator = Math.max(trimmed.indexOf('/'), trimmed.indexOf(':'));
-  const requestedSurface = separator > 0 ? trimmed.slice(0, separator).toLowerCase() : undefined;
-  const requestedFeature = separator > 0 ? trimmed.slice(separator + 1) : trimmed;
+  const slash = query.indexOf('/');
+  const colon = query.indexOf(':');
+  const separator = slash > 0 ? slash : colon > 0 ? colon : -1;
+  const delimiter = separator > 0 ? query[separator] : undefined;
+  const requestedSurfaceIdentity = separator > 0 ? query.slice(0, separator) : undefined;
+  const requestedSurface = requestedSurfaceIdentity ? normalizeSurface(requestedSurfaceIdentity) : undefined;
+  const requestedFeature = separator > 0 ? query.slice(separator + 1) : query;
   const normalized = normalizeFeature(requestedFeature);
+  if (!normalized) return { query, match: 'none', supports: [] };
   const candidates = scopedSupports.filter((support) =>
-    (!requestedSurface || support.surface === requestedSurface) && normalizeFeature(support.feature) === normalized,
+    (!requestedSurface || normalizeSurface(support.surface) === requestedSurface) && normalizeFeature(support.feature) === normalized,
   );
-  const exactCandidates = candidates.filter((support) => featureIdentity(support.feature) === featureIdentity(requestedFeature));
+  const exactCandidates = candidates.filter((support) =>
+    featureIdentity(support.feature) === featureIdentity(requestedFeature)
+    && (!requestedSurfaceIdentity || (delimiter === '/' && support.surface === requestedSurfaceIdentity)),
+  );
   if (exactCandidates.length > 0) {
-    return { query: trimmed, match: exactCandidates.length === 1 ? 'exact' : 'ambiguous', supports: exactCandidates };
+    return { query, match: exactCandidates.length === 1 ? 'exact' : 'ambiguous', supports: exactCandidates };
   }
   if (candidates.length > 0) {
-    return { query: trimmed, match: candidates.length === 1 ? 'suggestions' : 'ambiguous', supports: candidates };
+    return { query, match: 'suggestions', supports: candidates };
   }
 
   const suggestions = scopedSupports
-    .filter((support) => !requestedSurface || support.surface === requestedSurface)
+    .filter((support) => !requestedSurface || normalizeSurface(support.surface) === requestedSurface)
     .map((support) => {
       const name = normalizeFeature(support.feature);
       const score = name.startsWith(normalized) ? 0 : name.includes(normalized) ? 1 : 2 + distance(normalized, name);
@@ -93,5 +103,5 @@ export function resolveCanIUse<T extends QueryableFeatureSupport>(
     .sort((a, b) => a.score - b.score || a.support.feature.localeCompare(b.support.feature) || a.support.surface.localeCompare(b.support.surface))
     .slice(0, 8)
     .map(({ support }) => support);
-  return { query: trimmed, match: suggestions.length > 0 ? 'suggestions' : 'none', supports: suggestions };
+  return { query, match: suggestions.length > 0 ? 'suggestions' : 'none', supports: suggestions };
 }

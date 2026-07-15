@@ -73,4 +73,3 @@ export function anchorsOf(src: string, readSource: SourceReader): Set<string> {
   const slugger = new GithubSlugger();
   return new Set(headingsOf(src, readSource).map((heading) => slugger.slug(heading)));
 }
-

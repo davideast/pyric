@@ -23,6 +23,26 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
   skipLibCheck: true,
 };
 
+/** Resolve every workspace import in a source census back to authored source,
+ * including transitive self-imports such as `pyric/sandbox/admin-firestore`.
+ * Without this host, a dirty checkout follows `dist` while a clean checkout
+ * leaves those aliases unresolved and silently loses their type symbols. */
+function sourceFirstCompilerHost(): ts.CompilerHost {
+  const host = ts.createCompilerHost(COMPILER_OPTIONS);
+  host.resolveModuleNames = (moduleNames, containingFile) => moduleNames.map((specifier) => {
+    const source = workspaceSourceEntry(specifier);
+    if (source) {
+      return {
+        resolvedFileName: source,
+        extension: source.endsWith('.tsx') ? ts.Extension.Tsx : ts.Extension.Ts,
+        isExternalLibraryImport: false,
+      };
+    }
+    return ts.resolveModuleName(specifier, containingFile, COMPILER_OPTIONS, host).resolvedModule;
+  });
+  return host;
+}
+
 export function resolvePublicTypeEntry(specifier: string): string {
   const source = workspaceSourceEntry(specifier);
   if (source) return source;
@@ -40,7 +60,7 @@ export function resolvePublicTypeEntry(specifier: string): string {
  */
 export function publicTypeExportNames(specifiers: string[]): string[] {
   const roots = [...new Set(specifiers.map(resolvePublicTypeEntry))];
-  const program = ts.createProgram(roots, COMPILER_OPTIONS);
+  const program = ts.createProgram(roots, COMPILER_OPTIONS, sourceFirstCompilerHost());
   const checker = program.getTypeChecker();
   const names = new Set<string>();
 
@@ -66,7 +86,7 @@ export function publicTypeExportNames(specifiers: string[]): string[] {
  * evaluating it. This keeps clean-checkout conformance generation independent
  * of package `dist/` while still following TypeScript re-exports. */
 export function publicRuntimeExportNamesFromSource(sourcePath: string): string[] {
-  const program = ts.createProgram([sourcePath], COMPILER_OPTIONS);
+  const program = ts.createProgram([sourcePath], COMPILER_OPTIONS, sourceFirstCompilerHost());
   const checker = program.getTypeChecker();
   const source = program.getSourceFile(sourcePath);
   if (!source) throw new Error(`TypeScript did not load source entry '${sourcePath}'`);

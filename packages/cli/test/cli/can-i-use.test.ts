@@ -91,7 +91,20 @@ describe('can-i-use command', () => {
   });
 
   it('rejects noncanonical spelling instead of returning a trust answer', () => {
-    for (const query of ['getafter', 'GETAFTER', 'get-after', 'get_after']) {
+    for (const query of [
+      'getafter',
+      'GETAFTER',
+      'get-after',
+      'get_after',
+      'getAfter(not canonical)',
+      'Firestore-Rules/getAfter',
+      'firestore_rules/getAfter',
+      'firestore-rules:getAfter',
+      ' getAfter',
+      'getAfter ',
+      'firestore-rules/ getAfter',
+      'firestore-rules/getAfter ',
+    ]) {
       const result = runCli(['can-i-use', query, '--json']);
       expect(result.code).toBe(1);
       expect(JSON.parse(result.stdout)).toMatchObject({
@@ -110,6 +123,13 @@ describe('can-i-use command', () => {
       expect(result.code).toBe(1);
       expect(result.stdout).toContain(marker);
     }
+  });
+
+  it('keeps normalized multi-matches in discovery mode', () => {
+    const result = runCli(['can-i-use', 'GET']);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain('No exact conformance feature matched');
+    expect(result.stdout).not.toContain('availability:');
   });
 
   it('keeps feature discovery out of rules-fixture verification', () => {

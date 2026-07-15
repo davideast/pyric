@@ -189,4 +189,3 @@ export function transformCompatTables(body: string): string {
     })
     .join('');
 }
-

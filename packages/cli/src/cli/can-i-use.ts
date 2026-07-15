@@ -12,8 +12,8 @@ export function runCanIUse(parsed: ParsedArgs): number {
       return 1;
     }
   }
-  const feature = parsed.positional.join(' ').trim();
-  if (!feature) {
+  const feature = parsed.positional.join(' ');
+  if (!feature.trim()) {
     process.stderr.write('pyric can-i-use: provide a developer feature name\n');
     return 1;
   }
