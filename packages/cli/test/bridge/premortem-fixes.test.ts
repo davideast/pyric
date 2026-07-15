@@ -9,7 +9,6 @@
 import { describe, expect, test } from 'bun:test';
 import { startServer } from '../../src/bridge/server.js';
 import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
-import { ASSURANCE_TOOL_NAMES } from '../../src/assurance/tool-names.js';
 
 function withServer<T>(
   startPort: number,
@@ -129,8 +128,6 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       // local RTDB inspection
       'rtdb_simulate_access',
       'rtdb_crawl_structure',
-      // local-only authorization assurance
-      ...ASSURANCE_TOOL_NAMES,
     ]);
   });
 });

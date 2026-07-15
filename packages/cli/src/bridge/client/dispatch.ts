@@ -25,47 +25,12 @@ import {
 } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
-import { ASSURANCE_TOOL_NAMES } from '../../assurance/tool-names.js';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
 
 export interface DispatchResult {
   ok: boolean;
   summary: string;
   data?: unknown;
-}
-
-/**
- * The assurance family, loaded on first call. The runtime pulls in the local
- * sandboxes for every service, so it stays out of the dispatcher's load path
- * until a campaign tool is actually invoked. The store is created once per
- * sandbox so a campaign built by one call is visible to the next.
- */
-function createLazyAssuranceHandlers(sandbox: LocalSandbox) {
-  let handlersPromise:
-    | Promise<Map<string, import('@inbrowser/agent').ToolHandler>>
-    | undefined;
-  const handlers = () => {
-    handlersPromise ??= import('../../assurance/index.js').then((runtime) => {
-      const store = new runtime.AssuranceCampaignStore();
-      return new Map(
-        runtime
-          .createAssuranceTools({
-            store,
-            attachmentProvider: runtime.createSandboxAttachmentProvider(sandbox),
-          })
-          .map((handler) => [handler.name, handler]),
-      );
-    });
-    return handlersPromise;
-  };
-  return ASSURANCE_TOOL_NAMES.map((name) => ({
-    name,
-    async execute(args: Record<string, unknown>, context: unknown) {
-      const handler = (await handlers()).get(name);
-      if (!handler) throw new UnknownToolError(name);
-      return handler.execute(args, context as never);
-    },
-  }));
 }
 
 /**
@@ -92,7 +57,6 @@ function buildSandboxHandlers(sandbox: LocalSandbox) {
     ...createFirestoreDataTools({ resolveDb }),
     ...createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
     ...createRtdbInspectionTools({ resolveSandbox: () => sandbox }),
-    ...createLazyAssuranceHandlers(sandbox),
   ];
 }
 
@@ -126,8 +90,8 @@ export function buildSandboxDispatcher(
  * Convenience: build a dispatcher and immediately invoke it. Same shape
  * `connectBridge` expects as its `dispatcher` option.
  *
- * Dispatchers are cached per sandbox so stateful campaign calls reuse the same
- * assurance store across separate bridge requests.
+ * Dispatchers are cached per sandbox so repeated bridge requests reuse the
+ * same bound handler set.
  */
 const sandboxDispatchers = new WeakMap<
   LocalSandbox,
@@ -162,7 +126,6 @@ export const SANDBOX_TOOL_NAMES: string[] = (() => {
     ...createFirestoreDataTools({ resolveDb: stub as never }),
     ...createFirestoreInspectTools({ resolveSandbox: stub as never }),
     ...createRtdbInspectionTools({ resolveSandbox: stub as never }),
-    ...ASSURANCE_TOOL_NAMES.map((name) => ({ name })),
   ].map((h) => h.name);
 })();
 

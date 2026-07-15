@@ -94,7 +94,8 @@ These exist in `@pyric/cli/discover` but are **not** registered on the default
 
 ## Assurance — `createAssuranceTools` (`@pyric/cli/assurance`)
 
-Registered on the default MCP bridge:
+Available for applications that compose their own tool registry, but **not**
+registered on the default `pyric bridge` / `pyric dev --bridge` surface:
 
 `firebase_assurance_attach` · `firebase_assurance_start` ·
 `firebase_assurance_map` · `firebase_assurance_define` ·
@@ -104,6 +105,6 @@ Registered on the default MCP bridge:
 
 ---
 
-**Default MCP bridge: 35 unique tool names** (see `DEFAULT_MCP_TOOL_NAMES` in
+**Default MCP bridge: 25 unique tool names** (see `DEFAULT_MCP_TOOL_NAMES` in
 `mcp-contract.ts`). Production shipping (rules, indexes, hosting, functions) is
 owned by `firebase-tools` or the Firebase Console.
