@@ -20,7 +20,9 @@ describe('served app conformance merge gate', () => {
   });
 
   test('required CI installs Chromium and runs the proof after building', () => {
-    expect(workflow).toContain('bunx playwright install --with-deps chromium');
+    expect(workflow).toContain('Cache Playwright Chromium');
+    expect(workflow).toContain('bunx playwright install chromium');
+    expect(workflow).toContain('bunx playwright install-deps chromium');
     expect(workflow).toContain('bun run --cwd packages/cli test:app-conformance');
     expect(workflow.indexOf('bash scripts/build.sh')).toBeLessThan(
       workflow.indexOf('bun run --cwd packages/cli test:app-conformance'),

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { FIREBASE_TESTED_AGAINST } from '../../src/version/compat-target.js';
+import { dispatch, parseArgs } from '../../src/cli/index.js';
 
 const PACKAGE_ROOT = join(import.meta.dir, '..', '..');
 const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'cli', 'index.ts');
@@ -39,6 +40,27 @@ function runCli(args: string[], input?: string): { code: number; stdout: string;
   };
 }
 
+async function runDispatch(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  let stdout = '';
+  let stderr = '';
+  const stdoutWrite = process.stdout.write;
+  const stderrWrite = process.stderr.write;
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    return { code: await dispatch(parseArgs(args)), stdout, stderr };
+  } finally {
+    process.stdout.write = stdoutWrite;
+    process.stderr.write = stderrWrite;
+  }
+}
+
 describe('retained pyric command surface', () => {
   it('advertises every local-development workflow through the CLI entry', () => {
     const { code, stdout, stderr } = runCli(['--help']);
@@ -50,21 +72,21 @@ describe('retained pyric command surface', () => {
     }
   });
 
-  it('does not expose production deployment commands', () => {
-    const help = runCli(['--help']);
+  it('does not expose production deployment commands', async () => {
+    const help = await runDispatch(['--help']);
     expect(help.code).toBe(0);
     expect(help.stdout).not.toMatch(/\bpyric deploy\b/);
     expect(help.stdout).not.toContain('hosting:channel:deploy');
 
     for (const command of ['deploy', 'hosting:channel:deploy']) {
-      const removed = runCli([command]);
+      const removed = await runDispatch([command]);
       expect(removed.code).toBe(1);
       expect(removed.stderr).toContain(`unknown command '${command}'`);
     }
   });
 
-  it('does not advertise production project or credential commands', () => {
-    const help = runCli(['--help']);
+  it('does not advertise production project or credential commands', async () => {
+    const help = await runDispatch(['--help']);
     expect(help.code).toBe(0);
 
     for (const command of REMOVED_PROJECT_COMMANDS) {
@@ -73,16 +95,16 @@ describe('retained pyric command surface', () => {
   });
 
   for (const command of REMOVED_PROJECT_COMMANDS) {
-    it(`rejects removed command ${command}`, () => {
-      const removed = runCli([command]);
+    it(`rejects removed command ${command}`, async () => {
+      const removed = await runDispatch([command]);
       expect(removed.code).toBe(1);
       expect(removed.stderr).toContain(`unknown command '${command}'`);
     });
   }
 
   for (const [flag, value] of REMOVED_BRIDGE_FLAGS) {
-    it(`rejects removed bridge option ${flag}`, () => {
-      const result = runCli(['bridge', flag, ...(value === undefined ? [] : [value])]);
+    it(`rejects removed bridge option ${flag}`, async () => {
+      const result = await runDispatch(['bridge', flag, ...(value === undefined ? [] : [value])]);
       expect(result.code).toBe(1);
       expect(result.stderr).toContain(`unknown option '${flag}' for pyric bridge`);
     });
@@ -91,8 +113,8 @@ describe('retained pyric command surface', () => {
 });
 
 describe('service command hierarchy', () => {
-  it('advertises every service artifact operation with space-delimited names', () => {
-    const help = runCli(['--help']);
+  it('advertises every service artifact operation with space-delimited names', async () => {
+    const help = await runDispatch(['--help']);
 
     expect(help.code).toBe(0);
     for (const command of [
@@ -112,18 +134,18 @@ describe('service command hierarchy', () => {
     }
   });
 
-  it('routes Firestore rules lint through the namespaced command', () => {
+  it('routes Firestore rules lint through the namespaced command', async () => {
     const rulesPath = join(PACKAGE_ROOT, 'test', 'e2e', 'fixture', 'firestore.rules');
-    const result = runCli(['firestore', 'rules', 'lint', rulesPath]);
+    const result = await runDispatch(['firestore', 'rules', 'lint', rulesPath]);
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
     expect(JSON.parse(result.stdout)).toHaveProperty('warnings');
   });
 
-  it('routes Firestore rules validate through the namespaced command', () => {
+  it('routes Firestore rules validate through the namespaced command', async () => {
     const rulesPath = join(PACKAGE_ROOT, 'test', 'e2e', 'fixture', 'firestore.rules');
-    const result = runCli(['firestore', 'rules', 'validate', rulesPath]);
+    const result = await runDispatch(['firestore', 'rules', 'validate', rulesPath]);
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
@@ -152,9 +174,9 @@ describe('service command hierarchy', () => {
     expect(JSON.parse(result.stdout)).toHaveProperty('success', true);
   });
 
-  it('resolves Firestore rules modules through the namespaced command', () => {
+  it('resolves Firestore rules modules through the namespaced command', async () => {
     const sourcePath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'firestore.modules.rules');
-    const result = runCli(['firestore', 'rules', 'resolve', sourcePath]);
+    const result = await runDispatch(['firestore', 'rules', 'resolve', sourcePath]);
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
@@ -162,13 +184,13 @@ describe('service command hierarchy', () => {
     expect(result.stdout).toContain('function isAuthenticated()');
   });
 
-  it('generates Firestore indexes through the namespaced command', () => {
+  it('generates Firestore indexes through the namespaced command', async () => {
     const outputDir = mkdtempSync(join(tmpdir(), 'pyric-firestore-indexes-'));
     const sourcePath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'firestore-queries.ts');
     const outputPath = join(outputDir, 'firestore.indexes.json');
 
     try {
-      const result = runCli([
+      const result = await runDispatch([
         'firestore',
         'indexes',
         'generate',
@@ -185,9 +207,9 @@ describe('service command hierarchy', () => {
     }
   });
 
-  it('routes Storage rules lint through the namespaced command', () => {
+  it('routes Storage rules lint through the namespaced command', async () => {
     const rulesPath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'storage.rules');
-    const result = runCli(['storage', 'rules', 'lint', rulesPath]);
+    const result = await runDispatch(['storage', 'rules', 'lint', rulesPath]);
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
@@ -214,18 +236,18 @@ describe('service command hierarchy', () => {
     expect(JSON.parse(result.stdout)).toHaveProperty('data.allowed', false);
   });
 
-  it('routes Database rules lint through the namespaced command', () => {
+  it('routes Database rules lint through the namespaced command', async () => {
     const rulesPath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'database.rules.json');
-    const result = runCli(['database', 'rules', 'lint', rulesPath]);
+    const result = await runDispatch(['database', 'rules', 'lint', rulesPath]);
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
     expect(JSON.parse(result.stdout)).toHaveProperty('warnings');
   });
 
-  it('routes Database rules validate through the namespaced command', () => {
+  it('routes Database rules validate through the namespaced command', async () => {
     const rulesPath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'database.rules.json');
-    const result = runCli(['database', 'rules', 'validate', rulesPath]);
+    const result = await runDispatch(['database', 'rules', 'validate', rulesPath]);
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
@@ -249,13 +271,13 @@ describe('service command hierarchy', () => {
     expect(JSON.parse(result.stdout)).toHaveProperty('data.allowed', true);
   });
 
-  it('routes Database rules generate through the namespaced command', () => {
+  it('routes Database rules generate through the namespaced command', async () => {
     const outputDir = mkdtempSync(join(tmpdir(), 'pyric-database-rules-'));
     const configPath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'database.rules.ts');
     const outputPath = join(outputDir, 'database.rules.json');
 
     try {
-      const result = runCli([
+      const result = await runDispatch([
         'database',
         'rules',
         'generate',
@@ -283,8 +305,8 @@ describe('service command hierarchy', () => {
       'database:rules:simulate',
       'database:rules:generate',
     ]) {
-      it(`rejects ${command} without an alias`, () => {
-        const result = runCli([command]);
+      it(`rejects ${command} without an alias`, async () => {
+        const result = await runDispatch([command]);
         expect(result.code).toBe(1);
         expect(result.stderr).toContain(`unknown command '${command}'`);
       });
@@ -293,12 +315,12 @@ describe('service command hierarchy', () => {
 });
 
 describe('pyric dev command surface', () => {
-  it('rejects the removed serve spelling instead of retaining an alias', () => {
-    expect(runCli(['serve']).code).toBe(1);
+  it('rejects the removed serve spelling instead of retaining an alias', async () => {
+    expect((await runDispatch(['serve'])).code).toBe(1);
   });
 
-  it('advertises dev and never serve', () => {
-    const { code, stdout } = runCli(['--help']);
+  it('advertises dev and never serve', async () => {
+    const { code, stdout } = await runDispatch(['--help']);
     expect(code).toBe(0);
     expect(stdout).toContain('pyric dev [flags]');
     expect(stdout).not.toContain('pyric serve');
@@ -311,8 +333,8 @@ const ownVersion = (
 
 describe('pyric version output', () => {
   for (const flag of ['--version', '-v']) {
-    it(`${flag} names the package and tested-against Firebase versions`, () => {
-      const { code, stdout } = runCli([flag]);
+    it(`${flag} names the package and tested-against Firebase versions`, async () => {
+      const { code, stdout } = await runDispatch([flag]);
       expect(code).toBe(0);
       expect(stdout).toContain(ownVersion);
       expect(stdout).toContain(FIREBASE_TESTED_AGAINST);

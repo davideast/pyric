@@ -12,7 +12,7 @@
  * plumbing follows the public package contract instead of a second list of
  * source paths.
  */
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -24,9 +24,12 @@ import {
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..');
+const execFileAsync = promisify(execFile);
+const DEFAULT_RENDER_CONCURRENCY = 4;
 
 export const GENERATED_HEADER =
   '<!-- Generated from the package export declaration via TypeDoc. Do not edit by hand; run bun run docs:api:generate. -->';
@@ -127,7 +130,7 @@ function publicName(descriptor: ApiDescriptor): string {
   return `${packageName}/${descriptor.subpath}`;
 }
 
-export function renderApiMarkdown(descriptor: ApiDescriptor): string {
+export async function renderApiMarkdown(descriptor: ApiDescriptor): Promise<string> {
   const entry = entryDtsPath(descriptor);
   if (!existsSync(entry)) {
     throw new Error(`missing declaration entry: ${entry}\n  Build first: bun run build`);
@@ -159,15 +162,33 @@ export function renderApiMarkdown(descriptor: ApiDescriptor): string {
     };
     const optionsPath = join(tmp, 'typedoc.json');
     writeFileSync(optionsPath, JSON.stringify(options, null, 2));
-    execFileSync('bunx', ['typedoc', '--options', optionsPath], {
+    await execFileAsync('bunx', ['typedoc', '--options', optionsPath], {
       cwd: REPO_ROOT,
-      stdio: ['ignore', 'ignore', 'inherit'],
     });
     const body = readFileSync(join(tmp, 'README.md'), 'utf8').replace(/\s+$/, '');
     return `${GENERATED_HEADER}\n\n${body}\n`;
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+async function renderDescriptors(
+  descriptors: ApiDescriptor[],
+  concurrency = DEFAULT_RENDER_CONCURRENCY,
+): Promise<string[]> {
+  const rendered = new Array<string>(descriptors.length);
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), descriptors.length) },
+    async () => {
+      while (next < descriptors.length) {
+        const index = next++;
+        rendered[index] = await renderApiMarkdown(descriptors[index]);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return rendered;
 }
 
 function parseArgs(argv: string[]): { write: boolean; check: boolean; only: Set<string> | null } {
@@ -199,21 +220,23 @@ if (import.meta.main) {
     process.exit(1);
   }
 
+  const rendered = await renderDescriptors(descriptors);
+
   if (write) {
-    for (const descriptor of descriptors) {
+    for (const [index, descriptor] of descriptors.entries()) {
       const out = outputPath(descriptor);
       mkdirSync(dirname(out), { recursive: true });
-      writeFileSync(out, renderApiMarkdown(descriptor));
+      writeFileSync(out, rendered[index]);
       console.log(`Generated ${out.replace(`${REPO_ROOT}/`, '')}`);
     }
   }
 
   if (check) {
     const problems: string[] = [];
-    for (const descriptor of descriptors) {
+    for (const [index, descriptor] of descriptors.entries()) {
       const out = outputPath(descriptor);
       const rel = out.replace(`${REPO_ROOT}/`, '');
-      const generated = renderApiMarkdown(descriptor);
+      const generated = rendered[index];
       if (!existsSync(out)) problems.push(`${rel}: missing`);
       else if (readFileSync(out, 'utf8') !== generated) problems.push(`${rel}: drifted`);
     }

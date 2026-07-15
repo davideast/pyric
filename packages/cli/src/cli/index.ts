@@ -37,6 +37,8 @@
  */
 
 import { startServer } from '@pyric/cli/bridge';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { parseArgs, type ParsedArgs } from './parse-args.js';
 import { runInit, runVendor } from './init.js';
 import { runServe } from './serve.js';
@@ -354,24 +356,36 @@ async function main(): Promise<number> {
 // Re-export parseArgs so the bin script + tests can share the parser.
 export { parseArgs } from './parse-args.js';
 
-// Always run `main()` — this file IS the bin entry. Tests in
-// `cli.test.ts` import individual helpers (`./parse-args.js`,
-// `./init.js`, `./rules.js`, etc.) and never touch this module, so
-// there's nothing to gate against. The previous `isDirectRun` check
-// matched `process.argv[1]` against a `/cli/index.js` regex — on Linux,
-// npm bin symlinks leave `argv[1]` as `node_modules/.bin/pyric` (NOT
-// resolved through the symlink), the regex missed, main() never ran,
-// and `pyric --help` printed nothing in CI. Dropping the guard fixes
-// it. (Verified on Linux Node 20 in the packaging gate.)
-main().then(
-  (code) => exitAfterFlush(code),
-  (err) => {
-    process.stderr.write(
-      `pyric: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
-    );
-    exitAfterFlush(2);
-  },
-);
+/**
+ * True when this module is the executable entry rather than an import.
+ *
+ * Bun identifies source and compiled entry points with `import.meta.main`.
+ * Node does not, so compare real paths there: resolving both sides preserves
+ * npm's `node_modules/.bin/pyric` symlink behavior that a textual path check
+ * previously broke.
+ */
+export function isDirectRun(): boolean {
+  if (import.meta.main) return true;
+  const argvEntry = process.argv[1];
+  if (!argvEntry) return false;
+  try {
+    return realpathSync(argvEntry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectRun()) {
+  main().then(
+    (code) => exitAfterFlush(code),
+    (err) => {
+      process.stderr.write(
+        `pyric: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+      );
+      exitAfterFlush(2);
+    },
+  );
+}
 
 /**
  * Drain stdout + stderr before exiting. `process.exit()` does NOT wait
