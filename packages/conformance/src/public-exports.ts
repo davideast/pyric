@@ -27,10 +27,10 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
 };
 
 function resolveDeclaration(specifier: string): string {
-  const source = workspaceSourceEntry(specifier);
-  if (source) return source;
   const resolved = ts.resolveModuleName(specifier, TYPE_CENSUS_ENTRY, COMPILER_OPTIONS, ts.sys).resolvedModule;
   if (resolved) return resolved.resolvedFileName;
+  const source = workspaceSourceEntry(specifier);
+  if (source) return source;
   throw new Error(`Cannot resolve public declaration entry for '${specifier}'`);
 }
 

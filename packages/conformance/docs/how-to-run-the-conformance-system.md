@@ -158,8 +158,9 @@ Current high-risk unverified ✓ rows: 5 (baseline tolerates 5).
 ### Generators (their output is disposable; never edit or commit it)
 
 **`compat:generate`** (exit 0) regenerates the ignored nine `COMPAT.md` docs and
-scoreboard from the registry. The docs-site build runs it immediately before
-porting content, so a clean checkout needs no pre-existing Markdown projection.
+scoreboard from the registry for local inspection. The docs-site porter renders
+the same pages in memory, so a clean checkout needs no package-side Markdown
+projection.
 
 ```
 $ bun run compat:generate

@@ -68,13 +68,19 @@ echo "━━━ Phase 1: Declaration stubs ━━━"
 emit_stubs "pyric"
 emit_stubs "pyric-admin"
 emit_stubs "create-pyric"
-emit_stubs "cli"
 emit_stubs "ui"
+
+# The CLI prebuild derives its ignored conformance projections from the live
+# pyric export surface. Build that dependency before emitting CLI declarations
+# so a clean checkout never needs a pre-existing runtime projection or dist.
+echo "▸ Building packages/pyric for CLI conformance bootstrap"
+build_pkg "pyric"
+emit_stubs "cli"
 
 # ── Phase 2: Full build (topological order) ────────────────────────────
 echo ""
 echo "━━━ Phase 2: Full build ━━━"
-build_pkg "pyric"
+echo "▸ packages/pyric already built for the CLI conformance bootstrap"
 build_pkg "pyric-admin"
 build_pkg "create-pyric"
 build_pkg "cli"

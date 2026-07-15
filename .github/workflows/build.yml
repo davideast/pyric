@@ -45,15 +45,6 @@ jobs:
         # for the exact rules. Cheap, deterministic, no build/install needed first.
         run: bun run compat:lint-terms
 
-      - name: Oracle audit gate (no NEW uncited ✓ COMPAT rows)
-        # Runs packages/conformance/src/audit.ts and ratchets its high-risk
-        # unprobed-✓ worklist against packages/conformance/baselines/audit-baseline.json.
-        # Fails only when a PR introduces a NEW ✓ COMPAT row with no oracle
-        # observation citing it.
-        # Existing debt is tolerated via the baseline; pay it down by adding
-        # an oracle citation (or downgrading the row) and dropping the id.
-        run: bun run packages/conformance/src/audit-gate.ts
-
       - name: Oracle observation version guard
         # Fails if any packages/conformance/observations/*.json was captured against
         # a firebase version other than the one bun.lock currently resolves —
@@ -67,6 +58,12 @@ jobs:
         # topological build. Same script `npm run build` runs locally;
         # CI and local can't drift.
         run: bash scripts/build.sh --skip-docs
+
+      - name: Oracle audit gate (no NEW uncited ✓ COMPAT rows)
+        # Runs the shared conformance model after workspace packages exist and
+        # ratchets its high-risk unprobed-✓ worklist against audit-baseline.json.
+        # Existing debt is tolerated; a new uncited conforming row is not.
+        run: bun run packages/conformance/src/audit-gate.ts
 
       - name: Oracle conformance gate (observations × probes)
         # Loads every observations/*.json (structural floor), asserts each
@@ -82,11 +79,10 @@ jobs:
       - name: Conformance graph integrity
         # Validates the compat registry, ratchets surface-census.ts's UNMAPPED
         # gaps against packages/conformance/baselines/census-baseline.json (failing on any NEW
-        # gap or any stale/redundant deny-list entry — see census-gate.ts),
-        # and checks the generated COMPAT.md docs haven't drifted from the
-        # registry source. Runs after the build: surface-census imports the
-        # built pyric/* packages, so dist must exist first.
-        run: bun run compat:validate && bun run compat:census-gate && bun run packages/conformance/src/generate-docs.ts --check
+        # gap or any stale/redundant disposition — see census-gate.ts). The
+        # disposable COMPAT pages are tested through deterministic rendering
+        # and the docs build, not compared against deleted committed copies.
+        run: bun run compat:validate && bun run compat:census-gate
 
       - name: Entry-path conformance gate (CLIFF, not a ratchet)
         # Runs packages/conformance/entry-path/*.ts in-process: one canonical

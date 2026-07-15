@@ -64,10 +64,14 @@ export interface SurfaceCensus {
 }
 
 async function runtimeExportNames(specifier: string): Promise<string[]> {
-  const source = workspaceSourceEntry(specifier);
-  if (source) return publicRuntimeExportNamesFromSource(source);
-  const mod = await import(specifier) as Record<string, unknown>;
-  return Object.keys(mod).sort();
+  try {
+    const mod = await import(specifier) as Record<string, unknown>;
+    return Object.keys(mod).sort();
+  } catch (error) {
+    const source = workspaceSourceEntry(specifier);
+    if (!source) throw error;
+    return publicRuntimeExportNamesFromSource(source);
+  }
 }
 
 export async function censusForPair(pair: MirrorPair): Promise<SurfaceCensus> {
