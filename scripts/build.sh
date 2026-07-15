@@ -39,7 +39,13 @@ build_pkg() {
   local dir="$1"
   echo "▸ Building packages/$dir"
   rm -rf "packages/$dir/dist"
-  bun run --cwd "packages/$dir" build
+  if [ "$dir" = "cli" ]; then
+    # emit_stubs already generated both ignored conformance projections from
+    # the same checkout; package-local builds still run their normal prebuild.
+    PYRIC_CONFORMANCE_READY=1 bun run --cwd "packages/$dir" build
+  else
+    bun run --cwd "packages/$dir" build
+  fi
 }
 
 # Emit .d.ts stubs without type-checking
