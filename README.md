@@ -14,9 +14,20 @@ Pyric adds a development-only resolution layer to a Firebase application. Run th
 
 The mirrored data services do not connect to a production Firebase project. Local writes cannot delete production data or create Firebase usage charges, and local rules changes do not deploy. Pyric owns the development sandbox and verification workflow. Firebase owns production, with `firebase-tools` or the Firebase Console handling deployment.
 
-Continue with an existing Vite application, or [read the documentation](https://pyric.dev/docs/).
+## Start a new Firebase application locally
 
-## Run Firebase code locally
+Create a Vite application with canonical Firebase imports, Firestore rules, and the Pyric development plugin already configured:
+
+```bash
+npx create-pyric my-app
+cd my-app
+npm install
+npm run dev
+```
+
+`npm create pyric my-app` runs the same scaffold.
+
+## Run an existing Firebase application locally
 
 Install the development plugin:
 
@@ -45,6 +56,8 @@ npm run dev
 During `vite dev`, the plugin swaps supported `firebase/*` modules at resolution time. The backend runs in a SharedWorker, so tabs on the same development origin use one local backend. Browser-local persistence uses IndexedDB.
 
 Pyric Studio is available on the Vite origin at `/__pyric/ui/`. It opens the same backend used by the application.
+
+For a static application or a Node process, `pyric dev` provides the same development-only package swap without the Vite plugin. The [CLI reference](packages/cli/docs/reference/cli.md) documents those paths and every command.
 
 ## Keep writing Firebase code
 
@@ -89,7 +102,7 @@ See [persistence and multi-tab behavior](packages/cli/docs/how-to/serve-persiste
 
 ## Give coding agents the same local Firebase target
 
-An agent can keep writing the same Firebase code while inspecting and changing the backend that the application is already using. Enable the MCP bridge in the Vite plugin:
+An agent can keep writing the same Firebase code while inspecting and changing the backend that the application is already using. Agent access is opt-in. Enable the MCP bridge in the Vite plugin:
 
 ```ts
 pyricSandbox({ bridge: true });
@@ -124,19 +137,6 @@ The built application contains the real Firebase SDK and uses the Firebase confi
 Pyric is an independent implementation of observable Firebase behavior. Conformance evidence records what has been compared with Firebase and keeps five outcomes distinct: conforms, documented divergence, bug, unsupported, and unverified. The evidence is a floor, not a claim that every Firebase behavior has been measured.
 
 Read the generated matrices for [App](packages/pyric/docs/app/COMPAT.md), [Auth](packages/pyric/docs/auth/COMPAT.md), [Firestore](packages/pyric/docs/firestore/COMPAT.md), [Realtime Database](packages/pyric/docs/database/COMPAT.md), [Storage](packages/pyric/docs/storage/COMPAT.md), [Messaging](packages/pyric/docs/messaging/COMPAT.md), [AI Logic](packages/pyric/docs/ai/COMPAT.md), [Security Rules](packages/pyric/docs/rules/COMPAT.md), and [Functions with Realtime Database](packages/cli/docs/functions-rtdb/COMPAT.md). The [versioning and compatibility policy](packages/pyric/docs/explanation/versioning-and-compatibility.md) explains the release boundary.
-
-## Start from a new application
-
-The scaffold creates a Vite application with canonical Firebase imports, the Pyric plugin, Firestore rules, and separate development and production build paths:
-
-```bash
-npm create pyric my-app
-cd my-app
-npm install
-npm run dev
-```
-
-For a static application or a Node process, `pyric dev` provides the same development-only package swap without the Vite plugin. The [CLI reference](packages/cli/docs/reference/cli.md) documents those paths and every command.
 
 ## Stability
 
