@@ -3,15 +3,48 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dir, '../../../..');
+const rootPackage = JSON.parse(
+  readFileSync(resolve(root, 'package.json'), 'utf8'),
+) as { scripts?: Record<string, string> };
 const cliPackage = JSON.parse(
   readFileSync(resolve(root, 'packages/cli/package.json'), 'utf8'),
 ) as { scripts?: Record<string, string> };
 const workflow = readFileSync(resolve(root, '.github/workflows/build.yml'), 'utf8');
+const mainJobStart = workflow.indexOf('  build-and-test:');
+const mainJobEnd = workflow.indexOf('\n  library-tests:', mainJobStart);
+const mainJob = workflow.slice(mainJobStart, mainJobEnd);
+const libraryJobStart = mainJobEnd;
+const libraryJobEnd = workflow.indexOf('\n  browser-conformance:', libraryJobStart);
+const libraryJob = workflow.slice(libraryJobStart, libraryJobEnd);
 const browserJobStart = workflow.indexOf('  browser-conformance:');
 const browserJobEnd = workflow.indexOf('\n  packaging:', browserJobStart);
 const browserJob = workflow.slice(browserJobStart, browserJobEnd);
 
 describe('served app conformance merge gate', () => {
+  test('required CI splits CLI and library tests without building documentation', () => {
+    expect(workflow).not.toContain('\n  documentation:');
+    expect(mainJobStart).toBeGreaterThanOrEqual(0);
+    expect(mainJobEnd).toBeGreaterThan(mainJobStart);
+    expect(mainJob).toContain('bash scripts/build.sh --skip-docs');
+    expect(mainJob).toContain('bun run test:ci:cli');
+    expect(mainJob).not.toContain('bun run test:ci:libraries');
+    expect(libraryJobStart).toBeGreaterThanOrEqual(0);
+    expect(libraryJobEnd).toBeGreaterThan(libraryJobStart);
+    expect(libraryJob).toContain('bash scripts/build.sh --packages-only');
+    expect(libraryJob).toContain('bun run test:ci:libraries');
+    expect(libraryJob).not.toContain('bun run test:ci:cli');
+    expect(mainJob).toContain('${elapsed}s / 180s');
+    expect(libraryJob).toContain('${elapsed}s / 180s');
+
+    const complete = rootPackage.scripts?.test?.split(' && ') ?? [];
+    const split = [
+      ...(rootPackage.scripts?.['test:ci:cli']?.split(' && ') ?? []),
+      ...(rootPackage.scripts?.['test:ci:libraries']?.split(' && ') ?? []),
+    ];
+    expect(split).toHaveLength(complete.length);
+    expect([...split].sort()).toEqual([...complete].sort());
+  });
+
   test('the CLI script runs every SharedWorker topology proof', () => {
     const command = cliPackage.scripts?.['test:app-conformance'];
     expect(command).toBeDefined();
@@ -29,7 +62,9 @@ describe('served app conformance merge gate', () => {
     expect(browserJob).toContain('bunx playwright install chromium');
     expect(browserJob).toContain('bunx playwright install-deps chromium');
     expect(browserJob).toContain('bun run --cwd packages/cli test:app-conformance');
-    const build = browserJob.indexOf('bash scripts/build.sh');
+    expect(browserJob).toContain('bash scripts/build.sh --skip-docs');
+    expect(browserJob).toContain('${elapsed}s / 180s');
+    const build = browserJob.indexOf('bash scripts/build.sh --skip-docs');
     const cache = browserJob.indexOf('Cache Playwright Chromium');
     const browser = browserJob.indexOf('bunx playwright install chromium');
     const dependencies = browserJob.indexOf('bunx playwright install-deps chromium');

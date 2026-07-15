@@ -17,6 +17,8 @@
     "build:cli": "bun run --cwd packages/cli build",
     "build:ui": "bun run --cwd packages/ui build",
     "test": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun test --cwd packages/cli && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs",
+    "test:ci:cli": "bun test --cwd packages/cli",
+    "test:ci:libraries": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs",
     "tool:parity": "bun run scripts/tool-parity.mjs",
     "tool:parity:check": "bun run scripts/tool-parity.mjs --check",
     "test:soak": "bun run --cwd packages/cli test:soak",

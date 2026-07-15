@@ -64,12 +64,12 @@ jobs:
         # the COMPAT matrices cite (INF-3/INF-4). Cheap, deterministic.
         run: bun run packages/conformance/src/check-observation-versions.ts
 
-      - name: Build all packages (scripts/build.sh — two-pass stubs then strict)
+      - name: Build packages + embedded Studio (documentation omitted)
         # scripts/build.sh handles the cycle-tolerant bootstrap pass
         # (declaration stubs for every package) then the strict
         # topological build. Same script `npm run build` runs locally;
         # CI and local can't drift.
-        run: bash scripts/build.sh
+        run: bash scripts/build.sh --skip-docs
 
       - name: Oracle conformance gate (observations × probes)
         # Loads every observations/*.json (structural floor), asserts each
@@ -136,23 +136,22 @@ jobs:
         # packages, so dist must exist first.
         run: set -o pipefail; bun run compat:coverage | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Run tests
-        # `npm run test` cycles through pyric, pyric-admin, @pyric/cli,
-        # and @pyric/ui.
-        run: npm run test
+      - name: Run CLI tests
+        # The other workspace suites run concurrently in library-tests.
+        run: bun run test:ci:cli
 
-      - name: Report timing and enforce five-minute job budget
+      - name: Report timing and enforce three-minute job budget
         if: always()
         run: |
           elapsed=$(( $(date +%s) - PYRIC_CI_JOB_STARTED_AT ))
-          echo "### Build + unit/conformance tests: ${elapsed}s / 300s" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed > 300 )); then
-            echo "Build + unit/conformance tests exceeded the 300s CI budget (${elapsed}s)." >&2
+          echo "### Build + unit/conformance tests: ${elapsed}s / 180s" >> "$GITHUB_STEP_SUMMARY"
+          if (( elapsed > 180 )); then
+            echo "Build + unit/conformance tests exceeded the 180s CI budget (${elapsed}s)." >&2
             exit 1
           fi
 
-  documentation:
-    name: Documentation generation + site verification
+  library-tests:
+    name: Run library + UI tests
     runs-on: ubuntu-latest
     steps:
       - name: Start job timer
@@ -167,37 +166,19 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
-      - name: Build all packages (scripts/build.sh — two-pass stubs then strict)
-        run: bash scripts/build.sh
+      - name: Build workspace packages (embedded apps omitted)
+        run: bash scripts/build.sh --packages-only
 
-      - name: Cache Playwright Chromium
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - name: Run library, UI, Studio, and conformance tests
+        run: bun run test:ci:libraries
 
-      - name: Install Chromium browser
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: bunx playwright install chromium
-
-      - name: Install Chromium system dependencies
-        run: bunx playwright install-deps chromium
-
-      - name: Documentation generation, drift, links, and site build
-        # API markdown is generated from the declarations named by each
-        # package export map. The site test re-ports authored sources, builds
-        # every route and Markdown twin, verifies the output/link inventory,
-        # and runs the documentation-rhythm audit.
-        run: bun run docs:api:check && bun run --cwd packages/site-docs test
-
-      - name: Report timing and enforce five-minute job budget
+      - name: Report timing and enforce three-minute job budget
         if: always()
         run: |
           elapsed=$(( $(date +%s) - PYRIC_CI_JOB_STARTED_AT ))
-          echo "### Documentation verification: ${elapsed}s / 300s" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed > 300 )); then
-            echo "Documentation verification exceeded the 300s CI budget (${elapsed}s)." >&2
+          echo "### Library + UI tests: ${elapsed}s / 180s" >> "$GITHUB_STEP_SUMMARY"
+          if (( elapsed > 180 )); then
+            echo "Library + UI tests exceeded the 180s CI budget (${elapsed}s)." >&2
             exit 1
           fi
 
@@ -217,8 +198,8 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
-      - name: Build all packages (scripts/build.sh — two-pass stubs then strict)
-        run: bash scripts/build.sh
+      - name: Build packages + embedded Studio (documentation omitted)
+        run: bash scripts/build.sh --skip-docs
 
       - name: Cache Playwright Chromium
         id: playwright-cache
@@ -240,20 +221,20 @@ jobs:
         # and the worker-owned AI boundary. These are blocking oracle claims.
         run: bun run --cwd packages/cli test:app-conformance
 
-      - name: Report timing and enforce five-minute job budget
+      - name: Report timing and enforce three-minute job budget
         if: always()
         run: |
           elapsed=$(( $(date +%s) - PYRIC_CI_JOB_STARTED_AT ))
-          echo "### Browser conformance: ${elapsed}s / 300s" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed > 300 )); then
-            echo "Browser conformance exceeded the 300s CI budget (${elapsed}s)." >&2
+          echo "### Browser conformance: ${elapsed}s / 180s" >> "$GITHUB_STEP_SUMMARY"
+          if (( elapsed > 180 )); then
+            echo "Browser conformance exceeded the 180s CI budget (${elapsed}s)." >&2
             exit 1
           fi
 
   packaging:
     name: Packaging gate (pack + install + subpath resolution)
     runs-on: ubuntu-latest
-    needs: [build-and-test, documentation, browser-conformance]
+    needs: [build-and-test, library-tests, browser-conformance]
     # Cost: the publish-shape gate runs only when the PR carries the
     # `ci-packaging` label (apply it on release PRs or ones touching package
     # manifests / exports / dist layout). Most code PRs do not need it.
@@ -297,7 +278,7 @@ jobs:
   install-matrix:
     name: Install matrix (${{ matrix.pm }})
     runs-on: ubuntu-latest
-    needs: [build-and-test, documentation, browser-conformance]
+    needs: [build-and-test, library-tests, browser-conformance]
     # Cost: same as `packaging`, only runs under the `ci-packaging` label.
     if: contains(github.event.pull_request.labels.*.name, 'ci-packaging')
     # Package managers resolve exports / scoped names / local tarballs differently;
