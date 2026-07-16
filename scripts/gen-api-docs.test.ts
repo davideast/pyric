@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   GENERATED_HEADER,
@@ -57,21 +57,26 @@ describe('generated API reference inventory', () => {
     }
   });
 
-  test('index and generated files cover the same route universe', () => {
-    const index = readFileSync(join(OUTPUT_ROOT, 'api-reference.md'), 'utf8');
-    expect(index).toBe(renderApiIndex(descriptors));
-    // _generated/ is shared with the conformance pages, so filter to the API
-    // files (every API slug ends in -reference-api) before comparing.
-    const files = readdirSync(OUTPUT_ROOT)
-      .filter((file) => file.endsWith('-reference-api.md'))
+  test('index and generated routes cover the same route universe', () => {
+    // Hermetic: _generated/ is gitignored and only exists after the site's
+    // generate step, so derive BOTH sides in memory from the generator's own
+    // pure functions rather than reading anything from disk. Content drift of
+    // the written files is `bun run docs:api:check`'s job, not this test's.
+    const index = renderApiIndex(descriptors);
+    expect(index).toContain(GENERATED_HEADER);
+    // Every descriptor route appears in the index exactly once, as a sibling
+    // .md link in the shared flat _generated/ directory, and nothing else
+    // links out of the index.
+    const linked = [...index.matchAll(/\]\(\.\/([a-z0-9-]+)\.md\)/g)]
+      .map((match) => match[1])
       .sort();
-    expect(files).toEqual(descriptors.map(({ slug }) => `${slug}.md`).sort());
+    expect(linked).toEqual(descriptors.map(({ slug }) => slug).sort());
+    // Every route's output path lands in the shared _generated/ directory
+    // under its own slug, so the written inventory cannot diverge from the
+    // index's link universe.
     for (const descriptor of descriptors) {
-      const markdown = readFileSync(descriptor.outputPath, 'utf8');
-      expect(markdown).toContain(GENERATED_HEADER);
-      expect(markdown).toContain(`apiImportPath: "${descriptor.importPath}"`);
-      expect(markdown).toMatch(/apiSymbolCount: [1-9][0-9]*/);
-      expect(markdown).not.toMatch(/^### `_.*`?$/m);
+      expect(descriptor.outputPath).toBe(join(OUTPUT_ROOT, `${descriptor.slug}.md`));
+      expect(index).toContain(`[\`${descriptor.importPath}\`](./${descriptor.slug}.md)`);
     }
   });
 });
