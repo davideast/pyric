@@ -127,6 +127,16 @@ for (const slug of SAMPLE_SLUGS) {
     continue;
   }
   await page.goto(`${base}/docs/${slug}/`);
+  // Generated API reference pages set their own denser heading scale in
+  // api-reference.css; the prose rhythm tokens deliberately do not apply.
+  const isApiReference = await page.evaluate(
+    () => document.querySelector('.prose') instanceof HTMLElement
+      && document.querySelector('.prose')!.classList.contains('api-reference-body'),
+  );
+  if (isApiReference) {
+    console.log(`  skip  ${slug}: api-reference page, measured by its own scale`);
+    continue;
+  }
   const measured = await page.evaluate(() => {
     const article = document.querySelector('.prose');
     if (!article) return { gaps: [], listGaps: [], quotePaddings: [] };

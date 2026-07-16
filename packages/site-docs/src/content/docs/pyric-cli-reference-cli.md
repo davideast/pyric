@@ -160,6 +160,36 @@ pyric verify --rules firestore=firestore.rules --rules rtdb=database.rules.json
 
 See [verify against a captured session](../pyric-cli-how-to-verify-against-a-captured-session/).
 
+<a id="pyric-can-i-use"></a>
+### `pyric can-i-use <feature> [--json]`
+
+Query the canonical conformance model for a developer-facing feature. The
+result reports availability, behaviour fidelity, assurance eligibility, the
+compatibility-page evidence slug, and any caveats.
+
+`<feature>` is case-sensitive and must use its canonical spelling. Prefix a
+feature with its surface when necessary, for example
+`firestore-rules/getAfter` or `storage/getDownloadURL`. A spelling variant is
+returned only as a suggestion; it is never promoted to a trust answer.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--json` | off | Emit the structured `{ query, match, supports }` result on stdout. |
+
+| Match | Exit code | Meaning |
+|---|---:|---|
+| `exact` | `0` | Exactly one canonical feature identity matched. |
+| `ambiguous` | `1` | More than one exact candidate matched; qualify the feature with its surface. |
+| `suggestions` | `1` | No exact identity matched; deterministic candidates are provided for discovery only. |
+| `none` | `1` | No candidate matched. |
+
+Missing feature names and unknown flags are usage errors and exit `1`.
+
+```sh
+pyric can-i-use firestore-rules/getAfter
+pyric can-i-use storage/getDownloadURL --json
+```
+
 ### `pyric verify cases [fixture] [flags]`
 
 Derive Firestore Rules Test API cases from a captured fixture without running

@@ -51,6 +51,14 @@ Those claims reach `request.auth.token` when local Security Rules evaluate an op
 
 ## Check the supported boundary
 
-Authentication is not a complete reimplementation of every Firebase Auth feature. Read the generated [Auth conformance matrix](../../../../packages/pyric/docs/auth/COMPAT.md) for the current public surface, verified behavior, documented differences, unsupported APIs, and unverified rows.
+Authentication is not a complete reimplementation of every Firebase Auth feature, and auth changes too quickly for a hand-maintained list to stay trustworthy. Ask the central conformance model before choosing a flow:
+
+```bash
+pyric can-i-use auth/signInWithEmailLink
+pyric can-i-use auth/linkWithCredential
+pyric can-i-use auth/sendPasswordResetEmail
+```
+
+Each result reports availability separately from behavioral fidelity and assurance, with caveats and a link to its evidence.
 
 Continue with [Store and query data](./store-and-query-data.md) or [inspect a local operation](../observe/see-whats-happening.md).

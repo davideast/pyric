@@ -1,3 +1,6 @@
+---
+navLabel: "Sentinel expression engine"
+---
 # The sentinel expression engine (`$expr`)
 
 Firestore writes are usually concrete: `{ count: 5, owner: 'alice' }`. But sometimes you want a write whose value depends on the document at write time: "increment `count` by one if it's less than 100", "set `lastSeen` to the current request time", "merge this list with the existing one and dedupe". The Firestore SDK offers a handful of `FieldValue` sentinels for the most common cases (`increment`, `arrayUnion`, `serverTimestamp`), but anything outside that small set requires a transaction.

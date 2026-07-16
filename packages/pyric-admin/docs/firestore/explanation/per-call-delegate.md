@@ -1,3 +1,6 @@
+---
+navLabel: "Per-call delegate"
+---
 # Per-call delegate construction
 
 Every production-shaped method on `SandboxFirestore` constructs a fresh

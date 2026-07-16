@@ -1,3 +1,6 @@
+---
+navLabel: "Simulate rules locally"
+---
 # How to simulate rules locally
 
 Evaluate Firestore rules in-process against a list of test cases, without deploying or contacting Google's servers.

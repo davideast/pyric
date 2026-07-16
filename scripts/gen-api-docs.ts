@@ -25,6 +25,7 @@ import {
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { canIUseImport } from '@pyric/cli/conformance';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..');
@@ -175,18 +176,7 @@ function yamlString(value: string): string {
 }
 
 function evidenceSlug(descriptor: ApiDescriptor): string | null {
-  const evidence: Record<string, string> = {
-    'pyric/app': 'pyric-app-compat',
-    'pyric/firestore': 'pyric-firestore-compat',
-    'pyric/auth': 'pyric-auth-compat',
-    'pyric/ai': 'pyric-ai-compat',
-    'pyric/database': 'pyric-database-compat',
-    'pyric/storage': 'pyric-storage-compat',
-    'pyric/messaging': 'pyric-messaging-compat',
-    'pyric/messaging/sw': 'pyric-messaging-compat',
-    'pyric/rules': 'pyric-rules-compat',
-  };
-  return evidence[descriptor.importPath] ?? null;
+  return canIUseImport(descriptor.importPath)?.evidenceSlug ?? null;
 }
 
 export function renderApiMarkdown(descriptor: ApiDescriptor): string {

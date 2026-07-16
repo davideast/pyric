@@ -3,7 +3,7 @@ title: "API reference: @pyric/cli/discover"
 navLabel: "@pyric/cli/discover"
 group: "API reference"
 section: "@pyric/cli"
-order: 24017
+order: 24019
 description: "Published declarations for @pyric/cli/discover."
 kind: "api"
 apiPackage: "@pyric/cli"

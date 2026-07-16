@@ -69,4 +69,4 @@ There is no Pyric production factory. Import `firebase/storage` for production.
 - Use the Vite plugin
 - [Enforce Storage rules](../pyric-storage-how-to-enforce-rules/)
 - [`StorageOptions`](../pyric-storage-reference-storage-options/)
-- [Implementation scope](../pyric-storage-explanation-implementation-scope/)
+- Run `pyric can-i-use storage/<symbol>` to check current support

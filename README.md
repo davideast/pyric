@@ -136,7 +136,33 @@ The built application contains the real Firebase SDK and uses the Firebase confi
 
 Pyric is an independent implementation of observable Firebase behavior. Conformance evidence records what has been compared with Firebase and keeps five outcomes distinct: conforms, documented divergence, bug, unsupported, and unverified. The evidence is a floor, not a claim that every Firebase behavior has been measured.
 
-Read the generated matrices for [App](packages/pyric/docs/app/COMPAT.md), [Auth](packages/pyric/docs/auth/COMPAT.md), [Firestore](packages/pyric/docs/firestore/COMPAT.md), [Realtime Database](packages/pyric/docs/database/COMPAT.md), [Storage](packages/pyric/docs/storage/COMPAT.md), [Messaging](packages/pyric/docs/messaging/COMPAT.md), [AI Logic](packages/pyric/docs/ai/COMPAT.md), [Security Rules](packages/pyric/docs/rules/COMPAT.md), and [Functions with Realtime Database](packages/cli/docs/functions-rtdb/COMPAT.md). The [versioning and compatibility policy](packages/pyric/docs/explanation/versioning-and-compatibility.md) explains the release boundary.
+Ask about a developer-facing feature without nesting discovery under rules verification:
+
+```bash
+npx pyric can-i-use getAfter
+npx pyric can-i-use firestore-rules/request.query --json
+```
+
+The result reports availability, Firebase fidelity, and assurance eligibility as separate axes. Exact names succeed; a name shared by multiple surfaces asks you to qualify it, and fuzzy input prints labeled suggestions and exits nonzero instead of presenting a guess as a trust answer.
+
+Documentation and other Node consumers can bind the same feature name to the
+published import that exposes it, without maintaining a second surface map:
+
+```ts
+import { canIUse, canIUseImport } from '@pyric/cli/conformance';
+
+const result = canIUse('getDownloadURL', { importPath: 'pyric/storage' });
+const evidence = canIUseImport('pyric/storage');
+const evidencePage = evidence && `/docs/${evidence.evidenceSlug}/`;
+```
+
+Each support result carries only census-proven `importPaths`; registry ownership
+cannot invent package exports. `canIUseImport()` supplies the separate canonical
+import-to-evidence join used by generated API documentation. An unrelated
+import path returns no exact match rather than borrowing another surface's trust
+claim.
+
+Read the generated [conformance scores](https://pyric.dev/docs/pyric-conformance-scores/) and the service matrices in the site's Conformance section. They are built from the same canonical registry used by assurance and `canIUse`, without committing duplicate Markdown. The [versioning and compatibility policy](packages/pyric/docs/explanation/versioning-and-compatibility.md) explains the release boundary.
 
 ## Stability
 

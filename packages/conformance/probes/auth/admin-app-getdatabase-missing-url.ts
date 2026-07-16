@@ -1,6 +1,6 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
-import { captureThrow } from '../../src/helpers.ts';
+import { captureThrow } from '../../src/captured-throw.ts';
 import type { Probe } from '../../rigs/types.ts';
 
 export const probe: Probe = {

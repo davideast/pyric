@@ -28,6 +28,14 @@ The sandbox does not reproduce bucket provisioning, CORS configuration, transfer
 
 ## Check the supported boundary
 
-Read the generated [Storage conformance matrix](../pyric-storage-compat/) for the current public API surface, verified operations, documented differences, unsupported behavior, and unverified rows.
+Storage support changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
+
+```bash
+pyric can-i-use storage/getDownloadURL
+pyric can-i-use storage/uploadBytesResumable
+pyric can-i-use storage/list
+```
+
+The answer separates availability from fidelity and assurance, and points to the evidence behind the result.
 
 Continue with [Inspect and correct](../see-whats-happening/) or [enforce Storage rules](../pyric-storage-how-to-enforce-rules/).

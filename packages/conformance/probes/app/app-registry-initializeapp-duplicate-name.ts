@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { captureThrow } from '../../src/helpers.ts';
+import { captureThrow } from '../../src/captured-throw.ts';
 import type { Probe } from '../../rigs/types.ts';
 
 const OPTS = { apiKey: 'fake-api-key', projectId: 'demo-app-registry', appId: '1:0:web:0' };

@@ -4,9 +4,14 @@ Firebase Storage mirror for the Pyric sandbox. Its modular Web-SDK shape (`getSt
 
 Built for the agent-session-archive use case. The scope is bounded; the architecture validates the broader pattern for adding file-based services to `pyric/sandbox`.
 
-## V1 scope status
+## Check feature support
 
-This package implements a deliberate subset of Firebase Storage. See [Implementation scope and deferred features](./explanation/implementation-scope.md) before adopting in production-style code.
+This package implements a deliberate subset of Firebase Storage. Query the central conformance model rather than relying on a hand-maintained scope list:
+
+```bash
+pyric can-i-use storage/uploadBytesResumable
+pyric can-i-use storage/list
+```
 
 ## Install
 
@@ -54,7 +59,7 @@ This documentation follows the [Diataxis](https://diataxis.fr/) framework:
 
 - **Upload + download flow**: [Upload and download a session archive](./tutorials/01-upload-and-download.md).
 - **Enforcing rules**: [Enforce Storage rules](./how-to/enforce-rules.md).
-- **Knowing what's deferred**: [Implementation scope and deferred features](./explanation/implementation-scope.md).
+- **Checking current support**: run `pyric can-i-use storage/<symbol>` and follow its evidence link.
 
 ## Position in the Pyric stack
 

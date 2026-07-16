@@ -1,3 +1,6 @@
+---
+navLabel: "Identity is a context"
+---
 # Identity is a context, not a sandbox
 
 The most-visible architectural decision in `pyric/sandbox` is that `Sandbox` does not carry an identity. To do anything as a user, you derive a `SandboxContext` via `sandbox.withAuth(...)`. This page explains why.

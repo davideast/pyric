@@ -8,6 +8,7 @@
  *   packages/pyric-admin/docs
  *   packages/cli/docs   (root tree + bridge)
  *   packages/ui/docs            (per-category component pages)
+ *   the in-memory conformance renderer (ten virtual COMPAT/SCORES pages)
  *
  * For each markdown file this writes src/content/docs/<slug>.md:
  * generated front matter (title from the doc's h1, nav group = package /
@@ -47,13 +48,21 @@ import {
 } from 'node:fs';
 import { join, resolve, dirname, relative, posix, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import GithubSlugger from 'github-slugger';
 import { SUPERSEDED } from './superseded';
+import { loadConformancePages } from './conformance-pages';
+import { transformCompatTables } from './compat-tables';
+import { anchorsOf, shortTitle, splitFences, titleOf } from './markdown-structure';
+import { navLabelFor } from './nav-label';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const siteRoot = resolve(here, '..');
 const repoRoot = resolve(siteRoot, '..', '..');
 const outDir = join(siteRoot, 'src', 'content', 'docs');
+const virtualSources = new Map<string, string>();
+
+function readSource(src: string): string {
+  return virtualSources.get(src) ?? readFileSync(src, 'utf8');
+}
 
 /** Hand-written pages the port never touches. */
 const KEEP = new Set(['rhythm.md']);
@@ -279,116 +288,6 @@ function slugFor(pkg: string, absFile: string, slugPrefix = pkg): string {
   return [slugPrefix, ...segs].join('-').toLowerCase();
 }
 
-/**
- * Hand-picked short nav labels (owner review: derived labels were
- * truncating badly in the nav — "How to infer a schema from an exi…").
- * Populated for every page whose auto-shortened label still ran past
- * ~28 chars; keyed by slug so it survives title rewording. Full titles
- * are untouched everywhere else (h1, <title>, llms.txt, index.json,
- * TOC "on this page") — this only swaps the nav item's text.
- */
-const NAV_ALIASES: Record<string, string> = {
-  'pyric-cli-tutorials-wire-claude-code': 'Wire Claude Code',
-  'pyric-rules-how-to-test-rules-against-firebase': 'Test rules against Firebase',
-  'pyric-cli-how-to-promote-sandbox-state-to-a-fixture': 'Promote sandbox state',
-  'pyric-sandbox-how-to-pick-an-adapter': 'Pick an adapter',
-  'pyric-cli-how-to-verify-against-a-captured-session': 'Verify rules',
-  'pyric-sandbox-explanation-local-backend-vs-firestore-offline': 'Local backend vs. offline',
-  'pyric-sandbox-how-to-multiple-isolated-sandboxes': 'Run isolated sandboxes',
-  'pyric-database-explanation-rules-authoring-and-deploy-are-separate': 'Authoring vs. deploy',
-  'pyric-firestore-how-to-build-queries': 'Build queries',
-  'pyric-rules-how-to-pin-request-time': 'Pin request.time',
-  'pyric-storage-how-to-switch-backends': 'Switch backends',
-  'ui-traffic-trafficlog': 'TrafficLog components',
-  'pyric-admin-firestore-explanation-error-translation': 'Error translation',
-  'pyric-admin-firestore-how-to-use-onsnapshot': 'Use onSnapshot',
-  'pyric-database-tutorials-01-author-rtdb-rules-with-constraints': 'Author RTDB rules',
-  'pyric-sandbox-explanation-why-adapters-are-siblings': 'Why adapters are siblings',
-  'pyric-firestore-explanation-rules-tooling-is-separate': 'Rules tooling is separate',
-  'pyric-admin-firestore-how-to-translate-denials': 'Translate denials',
-  'pyric-storage-explanation-implementation-scope': 'Implementation scope',
-  'pyric-storage-how-to-test-rule-expressions': 'Test rule expressions',
-  'pyric-admin-firestore-tutorials-01-first-admin-session': 'First admin session',
-  'pyric-rules-how-to-compare-rulesets-for-weakening': 'Compare rulesets',
-  'pyric-rules-how-to-register-tools-with-an-agent': 'Register rules tools',
-  'pyric-sandbox-how-to-use-admin-reads': 'Use admin reads',
-  'pyric-cli-how-to-serve-persistence-and-multi-tab': 'Persistence & multi-tab',
-  'pyric-firestore-how-to-migrate-from-firebase-firestore': 'Use in existing code',
-  'pyric-rules-explanation-agent-failure-modes': 'Agent failure modes',
-  'pyric-rules-explanation-sentinel-expression-engine': 'Sentinel expression engine',
-  'pyric-cli-how-to-use-the-vite-plugin': 'Use the Vite plugin',
-  'ui-auth-authsigninhelper': 'AuthSignInHelper',
-  'pyric-sandbox-explanation-listener-re-evaluation': 'Listener re-evaluation',
-  'pyric-sandbox-how-to-replay-events': 'Replay events',
-  'pyric-storage-tutorials-01-upload-and-download': 'Upload and download',
-  'pyric-firestore-compat': 'Conformance matrix',
-  'pyric-rules-explanation-lint-vs-validate-vs-simulate-vs-test': 'Lint vs validate vs test',
-  'pyric-rules-how-to-inspect-rules-via-the-ast': 'Inspect rules via the AST',
-  'pyric-sandbox-explanation-identity-is-a-context': 'Identity is a context',
-  'pyric-firestore-explanation-two-backends-one-surface': 'Two backends, one surface',
-  'pyric-rules-explanation-runtime-budget-and-shared-gates': 'Runtime budget and gates',
-  'pyric-rules-reference-simulator-context': 'Simulator context',
-  'pyric-firestore-explanation-target-symbol-opacity': 'TARGET_SYMBOL opacity',
-  'pyric-firestore-how-to-pick-a-backend': 'Pick a backend',
-  'pyric-firestore-how-to-use-sandbox-ops': 'Use sandbox-only ops',
-  'pyric-sandbox-how-to-seed-data-and-rules': 'Seed data and rules',
-  'pyric-sandbox-reference-sandbox-and-context': 'Sandbox and context',
-  'pyric-storage-compat': 'Conformance matrix',
-  'pyric-rules-compat': 'Conformance matrix',
-  'pyric-firestore-tutorials-02-swap-to-prod-backend': 'Swap to prod backend',
-  'pyric-rules-tutorials-02-write-a-test-suite-for-your-rules': 'Write a rules test suite',
-  'pyric-sandbox-how-to-switch-users': 'Switch users',
-  'pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness': 'Sandbox in a test harness',
-  'pyric-database-compat': 'Conformance matrix',
-  'pyric-rules-how-to-resolve-module-imports': 'Resolve 2+modules imports',
-  'pyric-auth-compat': 'Conformance matrix',
-  'pyric-ai-compat': 'Conformance matrix',
-  'pyric-sandbox-reference-snapshot-and-admin': 'Snapshot and admin reads',
-  'pyric-cli-how-to-build-a-standalone-binary': 'Build a standalone binary',
-  'pyric-admin-firestore-explanation-per-call-delegate': 'Per-call delegate',
-  'pyric-admin-firestore-explanation-why-mirror-admin-shape': 'Why mirror the admin SDK',
-  'pyric-sandbox-explanation-internal-adapter-protocol': 'The /internal protocol',
-  'pyric-sandbox-reference-internal-protocol': 'The /internal protocol',
-  'pyric-storage-how-to-list-and-delete': 'List and delete objects',
-  'pyric-rules-how-to-simulate-rules-locally': 'Simulate rules locally',
-  'pyric-sandbox-how-to-observe-events': 'Observe sandbox events',
-
-};
-
-/** Leading boilerplate the auto-shortening fallback strips before
- *  falling back to the dash/colon-truncated title. Order matters —
- *  first match wins. */
-const STRIP_PREFIXES: RegExp[] = [
-  /^How to /i,
-  /^Use the /i,
-  /^Use /i,
-  /^Build a /i,
-  /^Set up /i,
-  /^Write a /i,
-];
-
-/**
- * Nav label for a page: the hand-picked alias if the port set one
- * (NAV_ALIASES), else an auto-shortened title — strip a leading
- * boilerplate verb phrase ("How to ", "Use the ", …), then truncate
- * long "Title — subtitle" h1s at the dash/colon. Pages this doesn't
- * get under ~28 chars are exactly the ones NAV_ALIASES should cover;
- * this fallback exists for new pages added between owner passes.
- */
-function navLabelFor(slug: string, title: string): string {
-  const alias = NAV_ALIASES[slug];
-  if (alias) return alias;
-  let short = title.split(' — ')[0].split(': ')[0].trim();
-  for (const re of STRIP_PREFIXES) {
-    if (re.test(short)) {
-      short = short.replace(re, '').trim();
-      short = short.charAt(0).toUpperCase() + short.slice(1);
-      break;
-    }
-  }
-  return short;
-}
-
 /* ── Collect pages ─────────────────────────────────────────────────── */
 
 interface Page {
@@ -467,7 +366,8 @@ function nextOrder(group: string): number {
 function addPage(src: string, group: GroupSpec, section: string) {
   if (supersededByAbs.has(src) || bySrc.has(src)) return; // replaced or promoted into the guide
   const slug = slugFor(group.pkg, src, group.slugPrefix);
-  const title = titleOf(src);
+  const title = titleOf(src, readSource);
+  const { fm } = parseFrontmatter(readSource(src));
   const clash = bySlug.get(slug);
   if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
   const page: Page = {
@@ -477,7 +377,8 @@ function addPage(src: string, group: GroupSpec, section: string) {
     section,
     order: nextOrder(group.label),
     title: section === '' ? shortTitle(title) : title,
-    navLabel: section === '' ? 'Overview' : navLabelFor(slug, title),
+    navLabel: section === '' ? 'Overview' : fm.navLabel ?? navLabelFor(title),
+    stripFm: true,
   };
   pages.push(page);
   bySrc.set(src, page);
@@ -502,7 +403,7 @@ function addGuidePage(
     group: groupLabel,
     section,
     order: nextOrder(groupLabel),
-    title: fm.title ?? titleOf(src),
+    title: fm.title ?? titleOf(src, readSource),
     navLabel: options.navLabel ?? fm.navLabel,
     description: fm.outcome,
     stripFm: Object.keys(fm).length > 0,
@@ -532,7 +433,7 @@ function addApiPage(src: string) {
     group: API_REFERENCE_GROUP,
     section: kind === 'api' ? fm.apiPackage : '',
     order: nextOrder(API_REFERENCE_GROUP),
-    title: fm.title ?? titleOf(src),
+    title: fm.title ?? titleOf(src, readSource),
     navLabel: fm.navLabel,
     description: fm.outcome,
     stripFm: true,
@@ -578,26 +479,9 @@ for (const file of mdFilesIn(apiGeneratedRoot)) addApiPage(file);
 // conformance tables are the receipt behind the Trust pages and matter
 // to agents especially, so they stay itemized in the nav rather than
 // folding into the Reference shelf. Slugs are unchanged (slugFor).
-const COMPAT_PAGES: { pkg: string; file: string; label: string; slugPrefix?: string }[] = [
-  { pkg: 'pyric', file: 'conformance/SCORES.md', label: 'Conformance scores' },
-  { pkg: 'pyric', file: 'app/COMPAT.md', label: 'App' },
-  { pkg: 'pyric', file: 'firestore/COMPAT.md', label: 'Firestore' },
-  { pkg: 'pyric', file: 'auth/COMPAT.md', label: 'Auth' },
-  { pkg: 'pyric', file: 'database/COMPAT.md', label: 'Realtime Database' },
-  { pkg: 'pyric', file: 'storage/COMPAT.md', label: 'Storage' },
-  { pkg: 'pyric', file: 'rules/COMPAT.md', label: 'Rules' },
-  { pkg: 'pyric', file: 'messaging/COMPAT.md', label: 'Messaging' },
-  { pkg: 'pyric', file: 'ai/COMPAT.md', label: 'AI Logic' },
-  {
-    pkg: 'cli',
-    file: 'functions-rtdb/COMPAT.md',
-    label: 'Functions · RTDB',
-    slugPrefix: 'pyric-cli',
-  },
-];
-for (const c of COMPAT_PAGES) {
-  const src = join(docsRoot(c.pkg), c.file);
-  if (!existsSync(src)) throw new Error(`compat matrix missing: ${src}`);
+for (const c of await loadConformancePages(repoRoot)) {
+  const src = c.src;
+  virtualSources.set(src, c.rendered);
   const slug = slugFor(c.pkg, src, c.slugPrefix);
   const clash = bySlug.get(slug);
   if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
@@ -607,7 +491,7 @@ for (const c of COMPAT_PAGES) {
     group: 'Conformance',
     section: '',
     order: nextOrder('Conformance'),
-    title: titleOf(src),
+    title: titleOf(src, readSource),
     navLabel: c.label,
   };
   pages.push(page);
@@ -651,99 +535,6 @@ for (const f of walkMd(guideRoot)) {
 }
 for (const f of walkMd(apiReferenceRoot)) {
   if (!bySrc.has(f)) throw new Error(`unclaimed API reference page: ${f}`);
-}
-
-/* ── Markdown helpers (fence-aware) ────────────────────────────────── */
-
-/** Split a body into alternating [text, fence, text, fence, …] parts. */
-function splitFences(body: string): { text: string; isFence: boolean }[] {
-  const parts: { text: string; isFence: boolean }[] = [];
-  const lines = body.split('\n');
-  let buf: string[] = [];
-  let fence: string | null = null;
-  let fenceBuf: string[] = [];
-  for (const line of lines) {
-    const open = line.match(/^\s*(```+|~~~+)/);
-    if (fence === null && open) {
-      parts.push({ text: buf.join('\n'), isFence: false });
-      buf = [];
-      fence = open[1][0].repeat(3);
-      fenceBuf = [line];
-    } else if (fence !== null) {
-      fenceBuf.push(line);
-      if (line.trim().startsWith(fence)) {
-        parts.push({ text: fenceBuf.join('\n'), isFence: true });
-        fenceBuf = [];
-        fence = null;
-      }
-    } else {
-      buf.push(line);
-    }
-  }
-  if (fence !== null) parts.push({ text: fenceBuf.join('\n'), isFence: true });
-  else parts.push({ text: buf.join('\n'), isFence: false });
-  return parts;
-}
-
-/** Markdown inline syntax → plain text (what the rendered heading says). */
-function inlineText(md: string): string {
-  return md
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .trim();
-}
-
-/** ATX headings of a file, outside code fences. */
-function headingsOf(src: string): string[] {
-  const out: string[] = [];
-  for (const part of splitFences(readFileSync(src, 'utf8'))) {
-    if (part.isFence) continue;
-    for (const line of part.text.split('\n')) {
-      const m = line.match(/^#{1,6}\s+(.*)$/);
-      if (m) out.push(inlineText(m[1]));
-    }
-  }
-  return out;
-}
-
-/** The doc's title: its first h1 (rendered text), else the file name. */
-function titleOf(src: string): string {
-  for (const part of splitFences(readFileSync(src, 'utf8'))) {
-    if (part.isFence) continue;
-    for (const line of part.text.split('\n')) {
-      const m = line.match(/^#\s+(.*)$/);
-      if (m) return inlineText(m[1]);
-    }
-  }
-  return posix.basename(src, '.md');
-}
-
-
-/** Overview titles keep the doc identity but drop trailing " docs" etc. */
-function shortTitle(title: string): string {
-  return title.replace(/\s+(documentation|docs)$/i, '');
-}
-
-/** github-slugger ids of a target file's headings — what Astro emits. */
-const anchorCache = new Map<string, Set<string>>();
-function anchorsOf(src: string): Set<string> {
-  let set = anchorCache.get(src);
-  if (!set) {
-    const slugger = new GithubSlugger();
-    set = new Set(headingsOf(src).map((h) => slugger.slug(h)));
-    // TypeDoc emits stable anchors for properties and repeated declarations
-    // inside tables. They are real link targets even though they are not
-    // Markdown headings, so retain them during the port.
-    const raw = readFileSync(src, 'utf8');
-    for (const match of raw.matchAll(/<a\s+(?:id|name)=["']([^"']+)["']/gi)) {
-      set.add(match[1]);
-    }
-    anchorCache.set(src, set);
-  }
-  return set;
 }
 
 /* ── Link rewriting ────────────────────────────────────────────────── */
@@ -810,7 +601,7 @@ function rewriteLinks(page: Page, body: string): string {
             // generated links verbatim and let the built-site fragment gate
             // validate the rendered target.
             if (page.api?.kind === 'api') return `[${label}](#${id})`;
-            if (anchorsOf(page.src).has(id)) return `[${label}](#${id})`;
+            if (anchorsOf(page.src, readSource).has(id)) return `[${label}](#${id})`;
             stats.unlinked++;
             unlinkedLog.push(`${page.slug}: ${target}`);
             return label;
@@ -835,203 +626,13 @@ function rewriteLinks(page: Page, body: string): string {
           const targetPage = bySrc.get(resolved)!;
           let suffix = '';
           if (fragment) {
-            if (anchorsOf(resolved).has(fragment)) suffix = `#${fragment}`;
+            if (anchorsOf(resolved, readSource).has(fragment)) suffix = `#${fragment}`;
             else stats.droppedFragments++;
           }
           stats.rewritten++;
           return `[${label}](../${targetPage.slug}/${suffix})`;
         },
       );
-    })
-    .join('\n');
-}
-
-/* ── Conformance row lists ─────────────────────────────────────────── */
-//
-// The COMPAT matrices are authored as markdown tables, and a table is
-// the wrong display for them: a one-glyph status column between two
-// prose columns never aligns, and the probe text fights the behavior
-// text for width. On Conformance pages the port rewrites each
-// `# | Behavior | Status | Probe [| …]` table into a row list — status
-// dot, number, behavior, probe on its own muted line. Tables with any
-// other header (the status legend, the target tables) pass through
-// untouched. The generator can adopt this shape natively later; until
-// then the port owns the transform.
-
-const STATUS_META: Record<string, { key: string; label: string }> = {
-  '✓': { key: 'ok', label: 'Conforming' },
-  '⚠': { key: 'diverged', label: 'Diverged (documented)' },
-  '✗': { key: 'bug', label: 'Bug' },
-  '—': { key: 'unsupported', label: 'Unsupported' },
-  '?': { key: 'unverified', label: 'Unverified' },
-};
-
-/** Inline markdown → HTML for a table cell: code, links, bold, em.
- *  Escapes everything else. Enough for the COMPAT cells, which use
- *  exactly that subset. */
-function mdInlineHtml(md: string): string {
-  let s = md
-    .trim()
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-  s = s.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>');
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  return s;
-}
-
-/** Split a markdown table row into cells (escaped pipes survive). */
-function splitRow(line: string): string[] {
-  const inner = line.trim().replace(/^\|/, '').replace(/\|$/, '');
-  return inner.split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, '|'));
-}
-
-function transformCompatTables(body: string): string {
-  return splitFences(body)
-    .map((part) => {
-      if (part.isFence) return part.text;
-      const lines = part.text.split('\n');
-      const out: string[] = [];
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const isHeader =
-          /^\s*\|/.test(line) &&
-          i + 1 < lines.length &&
-          /^\s*\|[\s:|-]+\|?\s*$/.test(lines[i + 1]);
-        if (isHeader) {
-          const header = splitRow(line).map((h) => h.trim().toLowerCase());
-          const col = (name: string) => header.findIndex((h) => h === name || h.startsWith(name));
-          const iNum = col('#');
-          const iApi = col('api');
-          const iCat = col('category');
-          const iBeh = col('behavior');
-          const iSt = col('status');
-          const iPr = col('probe');
-          const iMeaning = col('meaning');
-          // Consolidated status roundups are two-column API tables. Render
-          // them as readable rows under the section that already names the
-          // status, without inventing a status dot.
-          if (header.length === 2 && header[0] === 'api') {
-            let j = i + 2;
-            const html: string[] = ['<div class="compat-list compat-list--plain">'];
-            while (j < lines.length && /^\s*\|/.test(lines[j])) {
-              const cells = splitRow(lines[j]);
-              const apiName = (cells[0] ?? '').trim();
-              const detail = (cells[1] ?? '').trim();
-              const mainInner = apiName
-                ? `<code class="compat-api">${mdInlineHtml(apiName)}</code><span class="compat-sub">${mdInlineHtml(detail)}</span>`
-                : `<span class="compat-behavior">${mdInlineHtml(detail)}</span>`;
-              html.push(
-                '<div class="compat-row">',
-                `<div class="compat-line"><span class="compat-main">${mainInner}</span></div>`,
-                '</div>',
-              );
-              j++;
-            }
-            html.push('</div>');
-            out.push(html.join('\n'));
-            i = j - 1;
-            continue;
-          }
-          // The status legend becomes the key for the dots: one compact
-          // line per status, same dot the rows use.
-          if (iBeh < 0 && iSt >= 0 && iMeaning >= 0) {
-            let j = i + 2;
-            const html: string[] = ['<div class="compat-key">'];
-            while (j < lines.length && /^\s*\|/.test(lines[j])) {
-              const cells = splitRow(lines[j]);
-              const glyph = (cells[iSt] ?? '').trim();
-              const meta = STATUS_META[glyph];
-              if (meta) {
-                html.push(
-                  `<span class="compat-key-item"><span class="compat-dot" data-status="${meta.key}"></span>${mdInlineHtml(
-                    (cells[iMeaning] ?? '').trim(),
-                  )}</span>`,
-                );
-              }
-              j++;
-            }
-            html.push('</div>');
-            out.push(html.join('\n'));
-            i = j - 1;
-            continue;
-          }
-          if (iBeh >= 0 && iSt >= 0) {
-            let j = i + 2;
-            const rows: string[][] = [];
-            while (j < lines.length && /^\s*\|/.test(lines[j])) {
-              rows.push(splitRow(lines[j]));
-              j++;
-            }
-            const html: string[] = ['<div class="compat-list">'];
-            for (const cells of rows) {
-              const status = (cells[iSt] ?? '').trim();
-              // A status may carry a qualifier ("✓ (wrap)"): the glyph
-              // drives the dot, the rest joins the evidence.
-              const glyph = status.slice(0, 1);
-              const meta = STATUS_META[status] ?? STATUS_META[glyph];
-              const qualifier = meta && status.length > 1 ? status.slice(1).trim() : '';
-              const probe = iPr >= 0 ? (cells[iPr] ?? '').trim() : '';
-              const apiName = iApi >= 0 ? (cells[iApi] ?? '').trim() : '';
-              const category = iCat >= 0 ? (cells[iCat] ?? '').trim() : '';
-              const extras = cells
-                .map((c, k) => ({ c, k }))
-                .filter(({ k }) => ![iNum, iApi, iCat, iBeh, iSt, iPr].includes(k))
-                .map(({ c }) => c.trim())
-                .filter(Boolean);
-              // The scan line is status plus the API heading and its
-              // category/behaviour sub-line. Evidence hides behind a native
-              // disclosure; rows without evidence render as plain rows.
-              const dot = meta
-                ? `<span class="compat-dot" data-status="${meta.key}" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`
-                : `<span class="compat-status">${mdInlineHtml(status)}</span>`;
-              const behaviorHtml = mdInlineHtml(cells[iBeh] ?? '');
-              let mainInner: string;
-              if (apiName) {
-                const sub = [
-                  category ? `<span class="compat-category">${mdInlineHtml(category)}</span>` : '',
-                  `<span class="compat-behavior">${behaviorHtml}</span>`,
-                ]
-                  .filter(Boolean)
-                  .join(' · ');
-                mainInner = `<code class="compat-api">${mdInlineHtml(apiName)}</code><span class="compat-sub">${sub}</span>`;
-              } else {
-                mainInner = `<span class="compat-behavior">${behaviorHtml}</span>`;
-              }
-              const scanLine = [dot, `<span class="compat-main">${mainInner}</span>`].join('');
-              const evidence = [
-                probe ? `<div class="compat-probe">${mdInlineHtml(probe)}</div>` : '',
-                qualifier ? `<div class="compat-note">${mdInlineHtml(qualifier)}</div>` : '',
-                ...extras.map((ex) => `<div class="compat-note">${mdInlineHtml(ex)}</div>`),
-              ]
-                .filter(Boolean)
-                .join('\n');
-              if (evidence) {
-                html.push(
-                  `<details class="compat-row" data-status="${meta?.key ?? 'unknown'}">`,
-                  `<summary class="compat-line">${scanLine}</summary>`,
-                  `<div class="compat-evidence">${evidence}</div>`,
-                  '</details>',
-                );
-              } else {
-                html.push(
-                  `<div class="compat-row" data-status="${meta?.key ?? 'unknown'}">`,
-                  `<div class="compat-line">${scanLine}</div>`,
-                  '</div>',
-                );
-              }
-            }
-            html.push('</div>');
-            out.push(html.join('\n'));
-            i = j - 1;
-            continue;
-          }
-        }
-        out.push(line);
-      }
-      return out.join('\n');
     })
     .join('\n');
 }
@@ -1047,7 +648,7 @@ for (const stale of readdirSync(outDir)) {
 }
 
 for (const page of pages) {
-  const raw = readFileSync(page.src, 'utf8');
+  const raw = readSource(page.src);
   const source = page.stripFm ? parseFrontmatter(raw).body : raw;
   let body = rewriteLinks(page, source);
   if (page.group === 'Conformance') body = transformCompatTables(body);

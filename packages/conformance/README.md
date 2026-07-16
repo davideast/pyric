@@ -4,19 +4,23 @@ Private workspace package (not published to npm). It holds the compatibility
 registry, the per-surface descriptors, the oracle capture rigs and their frozen
 observations, and the gates and reports that turn them into the published compat
 coverage number. This package is the project's trust proof: every "matches prod"
-claim in the mirror traces back to a file in this tree. Consumed only by the
-root `package.json` `compat:*` / `oracle:plan` scripts and by CI
-(`.github/workflows/build.yml`).
+claim in the mirror traces back to a file in this tree. Root `package.json`
+`compat:*` / `oracle:plan` scripts and CI consume the private package directly.
+The docs build has one additional narrow consumer: `@pyric/conformance/docs`
+renders virtual compatibility pages for `@pyric/site-docs`. Published runtime
+packages use generated projections and never import this workspace package.
 
 ## Layout
 
 ```
 packages/conformance/
-  surfaces/          one SurfaceDescriptorRecord per compatibility surface (ai,
+  surfaces/          one schema-validated JSON contract per compatibility surface (ai,
                      auth, firestore, rtdb, rtdb-modular, storage, messaging,
-                     messaging-admin). Filename is the key. The record names the
+                     messaging-admin), plus census-only surfaces. Filename is the key. The contract names the
                      registry it hosts rows in, the observation filename
-                     prefixes it owns, and the capture rigs that produce them.
+                     prefixes it owns, the capture rigs that produce them, and
+                     any reviewed public-runtime dispositions. load.ts is the
+                     single typed seam; policy data is never authored in code.
   registry/          one CompatibilitySurfaceRegistry per COMPAT.md doc (ai,
                      auth, firestore, rtdb, storage, messaging) plus index.ts.
                      Every compatibility row lives here; this is the single
@@ -55,18 +59,19 @@ packages/conformance/
                      hand-edited.
   rules-language/    the per-engine Rules-language axis. One hand-enumerated
                      construct snapshot per engine (firestore.json, storage.json,
-                     rtdb.json) plus three GENERATED reports: coverage-report.json
-                     (production-verified coverage), capability-report.json (which
-                     constructs the simulator evaluates), acceptance-report.json
-                     (the production Rules Test API acceptance probe). The reports
-                     are written by src/rules-language-{analyzer,capability,
-                     acceptance}.ts and are never hand-edited.
-  assurance-capabilities/  the assurance-engine capability graph. One authored
-                     dependency record per capability (<capability-id>.ts) plus
-                     two GENERATED artifacts, capabilities.json and generated.ts,
-                     written by src/assurance-capabilities.ts. A capability's
-                     status is DERIVED from its dependencies, never asserted:
-                     what the graph will and will not back, and why.
+                     rtdb.json). Coverage and simulator capability are derived in
+                     memory; the three report scripts may write ignored JSON for
+                     local inspection or CI artifacts, never as another input.
+  src/conformance-verdicts.ts  derives a verdict for every addressable graph
+                     node. The CLI prebuild writes one ignored runtime lookup;
+                     no authored capability catalog or committed projection is
+                     maintained beside the graph.
+  src/conformance-model.ts  joins the census, registries, rules snapshots,
+                     production evidence, and simulator capability into the
+                     shared read model used by canIUse and runtime projections.
+  src/generate-projections.ts  the executable that writes or checks the
+                     ignored can-i-use, browser, and verdict projections of
+                     that model (compat:conformance / compat:conformance:check).
   entry-path/        one canonical initialization program per service
                      (entry-path/<service>.ts: app+auth, app+firestore,
                      app+database, app+storage), each adapted from Firebase's
@@ -87,7 +92,7 @@ packages/conformance/
 ## How a claim gets proven
 
 A COMPAT.md row is not evidence by itself; it is a pointer into this tree.
-Start from a surface: `surfaces/auth.ts` names the `auth` registry and the
+Start from a surface: `surfaces/auth.json` names the `auth` registry and the
 `auth-` / `admin-app-` observation prefixes it owns. `registry/auth.ts` hosts
 the actual row (`auth#21`, say), which cites an observation name in its
 `oracleObservations` or `conformanceChecks`. That name resolves to a file under
@@ -112,7 +117,7 @@ exception. Initialization failing is total and immediate for a user, so
 `src/entry-path-gate.ts` runs every `entry-path/<name>.ts` program in-process
 with no baseline: a program either passes, or its failure is cited by an
 `entry-path/expected-failures.ts` record naming a real, currently-existing gap
-(an unmapped census symbol, a deferred deny-list entry, or an unverified
+(an unmapped census symbol, a deferred surface disposition, or an unverified
 registry row), or the gate fails the build. `src/entry-path-validate.ts`
 (wired into `compat:validate`) is what keeps a citation honest: it fails if
 the cited gap does not actually exist right now, so a record can never be

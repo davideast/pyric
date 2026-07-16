@@ -1,3 +1,6 @@
+---
+navLabel: "Promote sandbox state"
+---
 # How to promote sandbox state to a committable fixture
 
 You have been working in the sandbox interactively (signing in test users,

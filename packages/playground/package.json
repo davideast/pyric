@@ -18,6 +18,7 @@
     "debug:driver": "bun --env-file=../../.env --env-file=.env scripts/playground-debug.ts",
     "debug:fixtures": "bun --env-file=../../.env --env-file=.env scripts/run-fixtures.ts",
     "test": "bun test src functions scripts",
+    "test:can-i-use": "bun test test/lib/tools/core/can-i-use.test.ts src/lib/agent/system-prompt-brief.test.ts src/lib/tools/index.test.ts && bun scripts/check-can-i-use-bundle.ts",
     "preview:proof": "bun scripts/preview-proof.ts",
     "preview:proof:headed": "bun scripts/preview-proof.ts --headed"
   },

@@ -3,7 +3,7 @@ title: "API reference: @pyric/ui/auth"
 navLabel: "@pyric/ui/auth"
 group: "API reference"
 section: "@pyric/ui"
-order: 24035
+order: 24037
 description: "Published declarations for @pyric/ui/auth."
 kind: "api"
 apiPackage: "@pyric/ui"
@@ -467,9 +467,9 @@ A field set for "add new account" — mirrors the emulator's add-user form.
 
 | Property | Type | Description |
 | :------ | :------ | :------ |
-| <a id="config-1"></a> `config` | [`AuthProviderConfigEntry`](#authproviderconfigentry)[] | Every provider this sandbox has an explicit enablement for. Unknown providers (never toggled) are simply absent — `isEnabled` treats an absent entry as disabled, matching the backend default. |
+| <a id="config-1"></a> `config` | [`AuthProviderConfigEntry`](#authproviderconfigentry)[] | Every provider this sandbox has an explicit enablement for. Unknown providers (never toggled) are simply absent — `isEnabled` treats an absent entry as enabled, matching the backend default. |
 | <a id="error-4"></a> `error` | `Error` | - |
-| <a id="isenabled"></a> `isEnabled` | (`providerId`: `string`) => `boolean` | Convenience lookup: `false` for a provider that's never been toggled. |
+| <a id="isenabled"></a> `isEnabled` | (`providerId`: `string`) => `boolean` | Convenience lookup: `true` for a provider that's never been toggled. |
 | <a id="isloading-2"></a> `isLoading` | `boolean` | - |
 | <a id="refresh"></a> `refresh` | () => `void` | Re-read manually. Rarely needed — every mutation (this hook's own `setEnabled`, another handle, the agent) already triggers the subscription re-list. |
 | <a id="setenabled"></a> `setEnabled` | (`providerId`: `string`, `enabled`: `boolean`) => `void` | Toggle a provider on/off. Sync (in-process) failures throw to the caller, same policy as `useAuthUsers`'s mutation callbacks; an ASYNC (worker-RPC) failure can't reach a sync caller, so it surfaces on the hook's `error` state instead — never an unhandled rejection. |

@@ -3,7 +3,7 @@ title: "API reference: pyric/sandbox"
 navLabel: "pyric/sandbox"
 group: "API reference"
 section: "pyric"
-order: 24031
+order: 24033
 description: "Published declarations for pyric/sandbox."
 kind: "api"
 apiPackage: "pyric"

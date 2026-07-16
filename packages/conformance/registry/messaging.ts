@@ -1,4 +1,4 @@
-import type { CompatibilityRow, CompatibilitySurfaceRegistry, Surface } from './types.ts';
+import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
 
 /**
  * Messaging compatibility registry — the first surface authored under
@@ -30,7 +30,7 @@ import type { CompatibilityRow, CompatibilitySurfaceRegistry, Surface } from './
  * assertion set lands and passes.
  */
 
-type SurfacePlane = Extract<Surface, 'messaging' | 'messaging-admin'>;
+type SurfacePlane = 'messaging' | 'messaging-admin';
 
 interface RowSeed {
   surface: SurfacePlane;
@@ -38,6 +38,7 @@ interface RowSeed {
   section: string;
   api: string;
   behavior: string;
+  featureKeys: string[];
   evidence: string;
   /** Committed `messaging-*` observations that vouch for `behavior`. */
   observations?: string[];
@@ -70,6 +71,7 @@ function row(seed: RowSeed): CompatibilityRow {
     id: `${seed.surface}#${seed.ref}`,
     surface: seed.surface,
     aliases: [],
+    featureKeys: seed.featureKeys,
     rowRef: String(seed.ref),
     rowNumber: seed.ref,
     section: seed.section,
@@ -96,6 +98,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 1,
+    featureKeys: ["Messaging"],
     flipped: 'unit-backed',
     section: CLIENT,
     api: 'getMessaging(app?): Messaging',
@@ -108,6 +111,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 2,
+    featureKeys: ["getToken"],
     flipped: 'oracle-backed',
     section: CLIENT,
     api: 'getToken(messaging, options?): Promise<string>',
@@ -120,6 +124,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 3,
+    featureKeys: ["deleteToken"],
     flipped: 'oracle-backed',
     section: CLIENT,
     api: 'deleteToken(messaging): Promise<boolean>',
@@ -132,6 +137,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 4,
+    featureKeys: ["onMessage"],
     flipped: 'oracle-backed',
     section: CLIENT,
     api: 'onMessage(messaging, nextOrObserver): Unsubscribe',
@@ -144,6 +150,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 5,
+    featureKeys: ["isSupported"],
     flipped: 'unit-backed',
     section: CLIENT,
     api: 'isSupported(): Promise<boolean>',
@@ -154,6 +161,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 6,
+    featureKeys: ["Messaging"],
     flipped: 'unit-backed',
     section: CLIENT,
     api: 'interface Messaging { app }',
@@ -163,6 +171,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 7,
+    featureKeys: ["getToken"],
     flipped: 'unit-backed',
     section: CLIENT,
     api: 'interface GetTokenOptions { vapidKey?; serviceWorkerRegistration? }',
@@ -173,6 +182,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 8,
+    featureKeys: ["onMessage"],
     flipped: 'oracle-backed',
     section: CLIENT,
     api: 'interface MessagePayload { notification?; data?; fcmOptions?; from; collapseKey; messageId }',
@@ -185,6 +195,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 9,
+    featureKeys: ["MessagePayload"],
     flipped: 'oracle-backed',
     section: CLIENT,
     api: 'interface NotificationPayload { title?; body?; image?; icon? }',
@@ -197,6 +208,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 10,
+    featureKeys: ["MessagePayload"],
     flipped: 'unit-backed',
     section: CLIENT,
     api: 'interface FcmOptions { link?; analyticsLabel? }',
@@ -206,6 +218,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 11,
+    featureKeys: ["onMessage"],
     flipped: 'unit-backed',
     section: CLIENT,
     api: 'NextFn, Observer, Unsubscribe (re-exported from @firebase/util)',
@@ -216,6 +229,7 @@ const clientRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 12,
+    featureKeys: ["ErrorCode"],
     flipped: 'unit-backed',
     section: CLIENT,
     api: 'const enum ErrorCode (client)',
@@ -232,6 +246,7 @@ const swRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 13,
+    featureKeys: ["getMessaging","Messaging"],
     flipped: 'unit-backed',
     section: SW,
     api: 'getMessaging(app?): Messaging (sw)',
@@ -246,6 +261,7 @@ const swRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 14,
+    featureKeys: ["onBackgroundMessage"],
     flipped: 'oracle-backed',
     section: SW,
     api: 'onBackgroundMessage(messaging, nextOrObserver): Unsubscribe',
@@ -263,6 +279,7 @@ const swRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 15,
+    featureKeys: ["experimentalSetDeliveryMetricsExportedToBigQueryEnabled"],
     flipped: 'unit-backed',
     section: SW,
     api: 'experimentalSetDeliveryMetricsExportedToBigQueryEnabled(messaging, enable): void',
@@ -272,6 +289,7 @@ const swRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 16,
+    featureKeys: ["isSupported"],
     flipped: 'unit-backed',
     section: SW,
     api: 'isSupported(): Promise<boolean> (sw)',
@@ -282,6 +300,7 @@ const swRows: CompatibilityRow[] = [
   row({
     surface: 'messaging',
     ref: 17,
+    featureKeys: ["getMessaging","onBackgroundMessage","experimentalSetDeliveryMetricsExportedToBigQueryEnabled","isSupported","Messaging"],
     flipped: 'unit-backed',
     section: SW,
     api: 'firebase/messaging/sw module boundary + shared type parity',
@@ -299,6 +318,7 @@ const adminEntryRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 1,
+    featureKeys: ["Messaging"],
     flipped: 'unit-backed',
     section: ADMIN_ENTRY,
     api: 'getMessaging(app?): Messaging',
@@ -308,6 +328,7 @@ const adminEntryRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 2,
+    featureKeys: ["getMessaging","messaging"],
     flipped: 'unit-backed',
     section: ADMIN_ENTRY,
     api: 'messaging(app?): messaging.Messaging',
@@ -318,6 +339,7 @@ const adminEntryRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 3,
+    featureKeys: ["Messaging"],
     flipped: 'unit-backed',
     section: ADMIN_ENTRY,
     api: 'Messaging.get app(): App',
@@ -327,6 +349,7 @@ const adminEntryRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 4,
+    featureKeys: ["Messaging","send"],
     flipped: 'oracle-backed',
     section: ADMIN_ENTRY,
     api: 'Messaging.send(message, dryRun?): Promise<string>',
@@ -350,6 +373,7 @@ const adminEntryRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 5,
+    featureKeys: ["Messaging","sendEach"],
     flipped: 'unit-backed',
     section: ADMIN_ENTRY,
     api: 'Messaging.sendEach(messages, dryRun?): Promise<BatchResponse>',
@@ -360,6 +384,7 @@ const adminEntryRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 6,
+    featureKeys: ["sendEach"],
     flipped: 'unit-backed',
     section: ADMIN_ENTRY,
     api: 'Messaging.sendEachForMulticast(message, dryRun?): Promise<BatchResponse>',
@@ -369,6 +394,7 @@ const adminEntryRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 7,
+    featureKeys: ["Messaging","subscribeToTopic"],
     flipped: 'unit-backed',
     section: ADMIN_ENTRY,
     api: 'Messaging.subscribeToTopic(tokenOrTokens, topic): Promise<MessagingTopicManagementResponse>',
@@ -378,6 +404,7 @@ const adminEntryRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 8,
+    featureKeys: ["Messaging","unsubscribeFromTopic"],
     flipped: 'unit-backed',
     section: ADMIN_ENTRY,
     api: 'Messaging.unsubscribeFromTopic(tokenOrTokens, topic): Promise<MessagingTopicManagementResponse>',
@@ -387,6 +414,7 @@ const adminEntryRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 9,
+    featureKeys: ["sendEach","sendEachForMulticast"],
     flipped: 'unit-backed',
     section: ADMIN_ENTRY,
     api: 'Messaging.enableLegacyHttpTransport(): void',
@@ -400,6 +428,7 @@ const adminTargetRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 10,
+    featureKeys: ["Message","TokenMessage","TopicMessage","ConditionMessage"],
     flipped: 'unit-backed',
     section: ADMIN_TARGETS,
     api: 'type Message = TokenMessage | TopicMessage | ConditionMessage',
@@ -409,6 +438,7 @@ const adminTargetRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 11,
+    featureKeys: ["BaseMessage"],
     flipped: 'oracle-backed',
     section: ADMIN_TARGETS,
     api: 'interface BaseMessage { data?; notification?; android?; webpush?; apns?; fcmOptions? }',
@@ -421,6 +451,7 @@ const adminTargetRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 12,
+    featureKeys: ["BaseMessage","TokenMessage"],
     flipped: 'oracle-backed',
     section: ADMIN_TARGETS,
     api: 'interface TokenMessage extends BaseMessage { token: string }',
@@ -433,6 +464,7 @@ const adminTargetRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 13,
+    featureKeys: ["BaseMessage","TopicMessage"],
     flipped: 'oracle-backed',
     section: ADMIN_TARGETS,
     api: 'interface TopicMessage extends BaseMessage { topic: string }',
@@ -445,6 +477,7 @@ const adminTargetRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 14,
+    featureKeys: ["BaseMessage","ConditionMessage"],
     flipped: 'oracle-backed',
     section: ADMIN_TARGETS,
     api: 'interface ConditionMessage extends BaseMessage { condition: string }',
@@ -457,6 +490,7 @@ const adminTargetRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 15,
+    featureKeys: ["BaseMessage"],
     flipped: 'unit-backed',
     section: ADMIN_TARGETS,
     api: 'interface MulticastMessage extends BaseMessage { tokens: string[] }',
@@ -470,6 +504,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 16,
+    featureKeys: ["Notification"],
     flipped: 'oracle-backed',
     section: ADMIN_CONFIG,
     api: 'interface Notification { title?; body?; imageUrl? }',
@@ -482,6 +517,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 17,
+    featureKeys: ["FcmOptions"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface FcmOptions { analyticsLabel? }',
@@ -491,6 +527,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 18,
+    featureKeys: ["WebpushConfig"],
     flipped: 'oracle-backed',
     section: ADMIN_CONFIG,
     api: 'interface WebpushConfig { headers?; data?; notification?; fcmOptions? }',
@@ -503,6 +540,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 19,
+    featureKeys: ["WebpushFcmOptions"],
     flipped: 'oracle-backed',
     section: ADMIN_CONFIG,
     api: 'interface WebpushFcmOptions { link? }',
@@ -514,6 +552,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 20,
+    featureKeys: ["Notification"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface WebpushNotification { title?; actions?; badge?; body?; dir?; icon?; image?; renotify?; requireInteraction?; silent?; tag?; vibrate?; [key] }',
@@ -523,6 +562,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 21,
+    featureKeys: ["ApnsConfig"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface ApnsConfig { liveActivityToken?; headers?; payload?; fcmOptions? }',
@@ -532,6 +572,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 22,
+    featureKeys: ["ApnsPayload"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface ApnsPayload { aps; [customData] }',
@@ -541,6 +582,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 23,
+    featureKeys: ["Aps"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface Aps { alert?; badge?; sound?; contentAvailable?; mutableContent?; category?; threadId?; [customData] }',
@@ -550,6 +592,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 24,
+    featureKeys: ["ApsAlert"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface ApsAlert { title?; subtitle?; body?; locKey?; locArgs?; ...; launchImage? }',
@@ -559,6 +602,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 25,
+    featureKeys: ["CriticalSound"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface CriticalSound { critical?; name; volume? }',
@@ -568,6 +612,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 26,
+    featureKeys: ["ApnsFcmOptions"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface ApnsFcmOptions { analyticsLabel?; imageUrl? }',
@@ -577,6 +622,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 27,
+    featureKeys: ["AndroidConfig"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface AndroidConfig { collapseKey?; priority?; ttl?; restrictedPackageName?; data?; notification?; fcmOptions?; ... }',
@@ -586,6 +632,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 28,
+    featureKeys: ["AndroidNotification"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface AndroidNotification { title?; body?; icon?; color?; sound?; tag?; imageUrl?; channelId?; priority?; visibility?; lightSettings?; ... }',
@@ -595,6 +642,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 29,
+    featureKeys: ["LightSettings"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface LightSettings { color; lightOnDurationMillis; lightOffDurationMillis }',
@@ -604,6 +652,7 @@ const adminConfigRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 30,
+    featureKeys: ["AndroidFcmOptions"],
     flipped: 'unit-backed',
     section: ADMIN_CONFIG,
     api: 'interface AndroidFcmOptions { analyticsLabel? }',
@@ -617,6 +666,7 @@ const adminLegacyRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 31,
+    featureKeys: ["DataMessagePayload"],
     flipped: 'unit-backed',
     section: ADMIN_LEGACY,
     api: 'interface DataMessagePayload { [key]: string }',
@@ -626,6 +676,7 @@ const adminLegacyRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 32,
+    featureKeys: ["NotificationMessagePayload"],
     flipped: 'unit-backed',
     section: ADMIN_LEGACY,
     api: 'interface NotificationMessagePayload { tag?; body?; icon?; badge?; color?; sound?; title?; ...; [key] }',
@@ -635,6 +686,7 @@ const adminLegacyRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 33,
+    featureKeys: ["MessagingPayload"],
     flipped: 'unit-backed',
     section: ADMIN_LEGACY,
     api: 'interface MessagingPayload { data?; notification? }',
@@ -644,6 +696,7 @@ const adminLegacyRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 34,
+    featureKeys: ["MessagingOptions"],
     flipped: 'unit-backed',
     section: ADMIN_LEGACY,
     api: 'interface MessagingOptions { dryRun?; priority?; timeToLive?; collapseKey?; mutableContent?; contentAvailable?; restrictedPackageName?; [key] }',
@@ -658,6 +711,7 @@ const adminResponseRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 35,
+    featureKeys: ["MessagingTopicManagementResponse"],
     flipped: 'unit-backed',
     section: ADMIN_RESPONSES,
     api: 'interface MessagingTopicManagementResponse { failureCount; successCount; errors }',
@@ -667,6 +721,7 @@ const adminResponseRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 36,
+    featureKeys: ["SendResponse"],
     flipped: 'unit-backed',
     section: ADMIN_RESPONSES,
     api: 'interface BatchResponse { responses; successCount; failureCount }',
@@ -676,6 +731,7 @@ const adminResponseRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 37,
+    featureKeys: ["SendResponse"],
     flipped: 'unit-backed',
     section: ADMIN_RESPONSES,
     api: 'interface SendResponse { success; messageId?; error? }',
@@ -689,6 +745,7 @@ const adminErrorRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 38,
+    featureKeys: ["FirebaseMessagingError"],
     flipped: 'unit-backed',
     section: ADMIN_ERRORS,
     api: 'class FirebaseMessagingError extends PrefixedFirebaseError',
@@ -698,6 +755,7 @@ const adminErrorRows: CompatibilityRow[] = [
   row({
     surface: 'messaging-admin',
     ref: 39,
+    featureKeys: ["MessagingClientErrorCode"],
     flipped: 'oracle-backed',
     section: ADMIN_ERRORS,
     api: 'class MessagingClientErrorCode',
@@ -754,6 +812,7 @@ const rows: CompatibilityRow[] = [
 
 export const messagingRegistry: CompatibilitySurfaceRegistry = {
   surface: 'messaging',
+  label: 'Messaging',
   compatPath: 'packages/pyric/docs/messaging/COMPAT.md',
   blocks: [
     { kind: 'markdown', markdown: INTRO + '\n' },

@@ -3815,11 +3815,10 @@ type AIErrorCode = typeof AIErrorCode[keyof typeof AIErrorCode];
 
 `pyric/ai` — modular Web-SDK AI adapter for the Pyric sandbox.
 
-Mirrors `firebase/ai`'s v1 surface (packages/conformance/docs/ai/surface-inventory.md:
-exactly the 38 runtime value exports of the installed 2.12.0 that are
-admitted to v1; the 17 denied runtime exports — Imagen, Live API, server
-templates, hybrid/on-device — are intentionally NOT exported) as a
-sandbox-only mirror. Production selection happens before this module loads:
+Mirrors the admitted `firebase/ai` surface as a sandbox-only adapter.
+Availability and reviewed dispositions are owned only by
+`packages/conformance/surfaces/ai.json`; this barrel deliberately carries
+no copied counts or deny-list. Production selection happens before it loads:
 unmodified `firebase/ai` imports either remain Firebase or are swapped to
 this package by the Vite/import-map or Node register boundary.
 

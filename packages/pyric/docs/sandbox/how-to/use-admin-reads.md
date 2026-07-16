@@ -1,3 +1,6 @@
+---
+navLabel: "Use admin reads"
+---
 # How to use admin reads to assert in tests
 
 Use `sandbox.admin` to verify state in tests without writing rules that permit your test fixture.

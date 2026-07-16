@@ -19,10 +19,9 @@ import {
 } from "pyric/rules/internal";
 import { parseStorageRules } from "pyric/storage";
 import {
-  ASSURANCE_ENGINE_CAPABILITIES,
-  capabilityReasons,
-  type GeneratedAssuranceCapability,
-} from "./generated-capabilities.js";
+  CONFORMANCE_VERDICTS,
+  type ConformanceVerdict,
+} from "./.generated/conformance-verdicts.js";
 import type {
   AssuranceProbe,
   CapabilityDependency,
@@ -31,30 +30,17 @@ import type {
   LocalFirebaseTarget,
 } from "./types.js";
 
-export { ASSURANCE_ENGINE_CAPABILITIES, capabilityReasons };
-export type { GeneratedAssuranceCapability };
-
 /**
  * A probe's `requires` names graph nodes (constructs, registry rows) directly,
- * and the engine resolves each against the node's DERIVED verdict. Those
- * verdicts are single-sourced from the generated capability catalog: every
- * capability dependency carries its own node verdict, graph-derived and
- * identical wherever the node appears, so flattening the catalog IS the node
- * verdict map. There is no separate node snapshot to keep in sync; the catalog
- * the agent reads and the map a probe resolves against are the same derivation.
+ * and the engine resolves each against the node's derived verdict. The lookup
+ * contains every addressable graph node and is regenerated before compilation;
+ * it is not an authored or committed capability catalog.
  */
-const GRAPH_NODE_VERDICT: ReadonlyMap<string, "supported" | "qualified" | "unsupported"> =
-  (() => {
-    const map = new Map<string, "supported" | "qualified" | "unsupported">();
-    for (const capability of ASSURANCE_ENGINE_CAPABILITIES) {
-      for (const dependency of capability.dependencies) {
-        if (dependency.kind === "construct" || dependency.kind === "registry-row") {
-          map.set(dependency.id, dependency.verdict);
-        }
-      }
-    }
-    return map;
-  })();
+export function verdictOf(nodeId: string): ConformanceVerdict | undefined {
+  return Object.prototype.hasOwnProperty.call(CONFORMANCE_VERDICTS, nodeId)
+    ? CONFORMANCE_VERDICTS[nodeId as keyof typeof CONFORMANCE_VERDICTS]
+    : undefined;
+}
 
 /**
  * Resolve one `requires` node against the derived graph verdict, appending a
@@ -66,7 +52,7 @@ function resolveRequiredNode(
   dependency: CapabilityDependency,
   requirements: CapabilityRequirement[],
 ): EngineQualification["classification"] | undefined {
-  const verdict = GRAPH_NODE_VERDICT.get(dependency.id);
+  const verdict = verdictOf(dependency.id);
   if (!verdict) {
     requirements.push(
       requirement(
@@ -91,14 +77,6 @@ function resolveRequiredNode(
     requirement(dependency.id, true, `The ${dependency.kind} '${dependency.id}' is derived 'supported'.`),
   );
   return undefined;
-}
-
-export function listAssuranceCapabilities(
-  services?: ReadonlyArray<GeneratedAssuranceCapability["service"]>,
-): GeneratedAssuranceCapability[] {
-  return ASSURANCE_ENGINE_CAPABILITIES.filter(
-    (item) => !services || services.includes(item.service),
-  ).map((item) => ({ ...item, dependencies: [...item.dependencies] }));
 }
 
 function requirement(

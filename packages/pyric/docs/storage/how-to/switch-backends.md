@@ -1,3 +1,6 @@
+---
+navLabel: "Switch backends"
+---
 # Select the Storage runtime
 
 Keep application imports canonical:
@@ -62,4 +65,4 @@ There is no Pyric production factory. Import `firebase/storage` for production.
 - [Use the Vite plugin](../../../cli/docs/how-to/use-the-vite-plugin.md)
 - [Enforce Storage rules](./enforce-rules.md)
 - [`StorageOptions`](../reference/storage-options.md)
-- [Implementation scope](../explanation/implementation-scope.md)
+- Run `pyric can-i-use storage/<symbol>` to check current support

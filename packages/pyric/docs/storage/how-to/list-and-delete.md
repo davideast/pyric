@@ -1,3 +1,6 @@
+---
+navLabel: "List and delete objects"
+---
 # How to list and delete objects
 
 This guide shows you how to enumerate objects under a prefix and remove them.
@@ -57,28 +60,26 @@ await deleteFolder(ref(storage, 'sessions'));
 
 On sandbox this is fast (sub-millisecond per delete). On prod it makes one HTTPS call per object, costly for large folders.
 
-## Pagination is deferred
+## Check pagination support
 
-`list(ref, { maxResults, pageToken })` is part of the production `firebase/storage` API but not implemented in the v1 scope. The driving use case (session archives) doesn't need pagination: every list fits in one call. The `nextPageToken: undefined` field in `ListResult` is reserved for future compatibility.
-
-If you have a use case that needs pagination, file an issue.
+Before replacing this `listAll` recipe with Firebase's paginated `list`, query `pyric can-i-use storage/list`. That central result owns availability and points to the current evidence; this how-to does not duplicate its status.
 
 ## Gating list with rules
 
-`listAll` enforces the rules engine. Firebase's `read` permission governs both download and list, evaluated against the *prefix path*, so `listAll` requires `read` on the folder you're listing. A denied prefix throws `storage/unauthorized`.
+`listAll` enforces the rules engine at the *prefix path*. A denied prefix throws `storage/unauthorized`. Query `pyric can-i-use storage-rules/rule-kind.allow-list` before choosing between a granular `list` grant and the broader `read` umbrella.
 
 A `read` rule scoped to an item (`match /sessions/{id} { allow read }`) does NOT grant list on the parent `/sessions`; give the folder its own rule:
 
 ```rules
 match /sessions {
-  allow read: if request.auth != null; // covers listAll of /sessions
+  allow list: if request.auth != null; // covers listAll of /sessions only
 }
 match /sessions/{sessionId} {
-  allow read: if request.auth != null; // covers downloads of items
+  allow get: if request.auth != null; // covers downloads of items only
 }
 ```
 
-This mirrors production Firebase. With no rules configured, `listAll` is open-by-default like every other operation. (A distinct `allow list:` verb is deferred: the v1 scope's two-verb model folds get+list into `read`.)
+Use `allow read` only when the same condition should grant both `get` and `list`. With no rules configured, `listAll` is open-by-default like every other operation.
 
 ## Where to look next
 

@@ -4,6 +4,7 @@ interface RowSeed {
   ref: number;
   api: string;
   behavior: string;
+  featureKeys: string[];
   evidence: string;
   observations?: string[];
   /** Set only when the unchanged local replay passes for this row. */
@@ -25,6 +26,7 @@ function row(seed: RowSeed): CompatibilityRow {
     id: `functions-rtdb#${seed.ref}`,
     surface: 'functions-rtdb',
     aliases: [],
+    featureKeys: seed.featureKeys,
     rowRef: String(seed.ref),
     rowNumber: seed.ref,
     section: '`firebase-functions/v2/database.onValueCreated`',
@@ -48,6 +50,7 @@ function row(seed: RowSeed): CompatibilityRow {
 export const functionsRtdbRows: CompatibilityRow[] = [
   row({
     ref: 1,
+    featureKeys: ["onValueCreated"],
     flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
@@ -58,6 +61,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 2,
+    featureKeys: ["onValueCreated"],
     flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
@@ -68,6 +72,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 3,
+    featureKeys: ["onValueCreated"],
     flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
@@ -78,6 +83,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 4,
+    featureKeys: ["onValueCreated"],
     flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
@@ -88,6 +94,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 5,
+    featureKeys: ["onValueCreated"],
     flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
@@ -98,6 +105,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 6,
+    featureKeys: ["onValueCreated"],
     flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
@@ -108,6 +116,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 7,
+    featureKeys: ["onValueCreated"],
     flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
@@ -118,6 +127,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 8,
+    featureKeys: ["DatabaseEvent"],
     flipped: 'oracle-backed',
     api: 'DatabaseEvent.data',
     behavior:
@@ -128,6 +138,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 9,
+    featureKeys: ["DatabaseEvent"],
     flipped: 'oracle-backed',
     api: 'DatabaseEvent.data.ref',
     behavior:
@@ -138,6 +149,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 10,
+    featureKeys: ["DatabaseEvent"],
     flipped: 'oracle-backed',
     api: 'DatabaseEvent.authType / authId',
     behavior:
@@ -147,6 +159,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 11,
+    featureKeys: ["onValueCreated"],
     flipped: 'oracle-backed',
     api: 'onValueCreated(ref, async handler)',
     behavior:
@@ -157,6 +170,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 12,
+    featureKeys: ["onValueCreated"],
     api: 'onValueCreated(ref, handler)',
     behavior:
       'A handler that throws or returns a rejected Promise is reported by the managed runtime; with retry disabled, the Eventarc request can still be acknowledged with HTTP 200.',
@@ -166,6 +180,7 @@ export const functionsRtdbRows: CompatibilityRow[] = [
   }),
   row({
     ref: 13,
+    featureKeys: ["onValueCreated"],
     flipped: 'oracle-backed',
     api: 'onValueCreated(ref, handler)',
     behavior:
@@ -207,6 +222,7 @@ configuration.
 
 export const functionsRtdbRegistry: CompatibilitySurfaceRegistry = {
   surface: 'functions-rtdb',
+  label: 'Functions · RTDB',
   compatPath: 'packages/cli/docs/functions-rtdb/COMPAT.md',
   blocks: [
     { kind: 'markdown', markdown: INTRO },

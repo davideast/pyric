@@ -1,3 +1,6 @@
+---
+navLabel: "Error translation"
+---
 # Error translation and `instanceof SandboxError`
 
 Every operation through a `SandboxFirestore` handle that fails throws a `SandboxError`. The underlying simulator throws `FirestoreSimError`; the admin handle wraps every method, catches those, and re-throws as `SandboxError` with structured `denialContext`. This page explains the layer.

@@ -47,43 +47,35 @@ ever stated stronger than its evidence tier.
 
 ## Step 1: Admit the surface
 
-Admission is the moment a surface becomes real to every script at once. It
-is a data edit, because the scripts already iterate `surfaceDescriptors`
-instead of hardcoding surface lists.
+Admission is the moment a surface becomes real to every script at once. It is
+a data edit: scripts load schema-validated contracts from
+`packages/conformance/surfaces/*.json` instead of hardcoding surface lists.
 
 For messaging, admission means:
 
-1. **Extend the `Surface` union** in `packages/conformance/registry/types.ts` to
-   include `'messaging'`.
-2. **Create the registry file** `packages/conformance/registry/messaging.ts`
+1. **Create the registry file** `packages/conformance/registry/messaging.ts`
    exporting a `CompatibilitySurfaceRegistry` with
    `compatPath: 'packages/pyric/docs/messaging/COMPAT.md'` and the row
    blocks described in step 2.
-3. **Add the descriptor** to `packages/conformance/registry/index.ts`:
-
-   ```ts
-   {
-     surface: 'messaging',
-     registry: messagingRegistry,
-     observationPrefix: 'messaging-',
-     conformanceSuite: 'packages/pyric/test/messaging/oracle-conformance.test.ts',
-   }
-   ```
-
-   This replaces the current placeholder descriptor that parks the
-   `messaging-` prefix on the auth registry. The `conformanceSuite` field
-   already exists on `SurfaceDescriptor` as future wiring; CDD is the thing
-   it was waiting for. The descriptor also gains a `climb: true` marker (a
-   new optional field) so the climb lane knows which surfaces it owns.
+2. **Register the registry module** in
+   `packages/conformance/registry/index.ts`: import it and add it to the
+   stable `registriesByKey` source array so row consumers can reach it.
+3. **Add the self-owned surface contract** at
+   `packages/conformance/surfaces/messaging.json`. Use the checked-in file as
+   the worked example: it declares the census pair, mirrors, registry key,
+   observation prefixes, coverage ownership, capture rigs, conformance suite,
+   climb marker, and structured dispositions required by the published schema.
+   The loader validates and resolves that contract for every consumer.
 4. **Retire the exceptions.** The `messaging-*` entries in
    `observationExceptions` exist only because the captures predate the
    rows. Once rows cite those observations, the exceptions are deleted.
    `compat:validate` then enforces normal linkage: every `messaging-`
    observation must be cited by a row or carry a written exception.
 
-After admission, `compat:validate`, `compat:report`, `compat:generate`,
-`compat:audit`, and `compat:oracle-check` all see the surface with no
-further wiring. That is the point of the descriptor list.
+After those admission edits, `compat:validate`, `compat:report`,
+`compat:generate`, `compat:audit`, and `compat:oracle-check` all see the
+surface with no additional consumer-specific wiring. The registry barrel and
+surface-contract loader are the two explicit admission seams.
 
 ## Step 2: Author the rows, born unverified
 
@@ -92,7 +84,8 @@ Rows are authored from two inputs and only two inputs:
 - **The census** defines the shape universe. `bun run compat:census`
   diffs the upstream export set for the mirror pair; every upstream export
   that the surface intends to mirror becomes at least one row, and every
-  export it does not becomes a denylist entry with an honest reason. The
+   export it does not becomes a structured disposition in the owning surface
+   contract, with an availability, reason code, summary, and evidence. The
   census sees shape, never behavior, so census-derived rows describe what
   exists, not what it does.
 - **The committed observations** define the behavior facts. The seventeen
@@ -177,8 +170,10 @@ The flip checklist for a single row:
    blocking in `build.yml` and verifies the committed observation's values
    still match the row's expect block, so neither the capture nor the
    claim can drift silently.
-4. `bun run compat:generate` regenerates the docs; the diff shows exactly
-   the rows that flipped.
+4. `bun run compat:generate` renders the projections locally. Review the
+   canonical registry-row diff; generated pages are ignored and are verified
+   by `bun run compat:conformance:check` and the deterministic site-docs gate,
+   not by expecting them in the Git diff.
 5. `bun run compat:validate` and `bun run compat:audit` stay green. The
    audit gate already fails any PR that introduces a new conforms row with
    no oracle citation on the high-risk worklist; CDD relies on that ratchet
@@ -200,8 +195,8 @@ sibling `climb.yml` workflow), `needs: build-and-test` so it runs against
 built packages, driven by a script (working name
 `packages/conformance/src/climb.ts`) that:
 
-1. Iterates `surfaceDescriptors` and selects descriptors marked
-   `climb: true`.
+1. Iterates the resolved `surfaceDescriptors` loaded from the JSON contracts
+   and selects descriptors marked `climb: true`.
 2. Runs each descriptor's `conformanceSuite` via `bun test`, collecting
    per-assertion-set results and mapping them back to row ids.
 3. Computes the pass rate: assertion sets passing over assertion sets
@@ -301,8 +296,8 @@ Graduation criteria for messaging v1, as decided:
      `diverged-documented` (classified held, by-design, or pending-fix),
      `bug` with a pinned failing probe, or `unsupported` with a written
      reason.
-   - `compat:census` reports no UNMAPPED messaging symbols; everything is
-     mirrored or denylisted with a reason.
+   - `compat:census` reports no unmapped messaging runtime symbols; everything
+     is mirrored or has a structured disposition in the messaging contract.
    - `compat:report` shows no orphan `messaging-` observations.
 
 The graduation checklist, run from a clean tree:
@@ -310,8 +305,9 @@ The graduation checklist, run from a clean tree:
 ```sh
 bun test packages/pyric/test/messaging/oracle-conformance.test.ts  # fully green
 bun run compat:validate
-bun run compat:generate && git diff --exit-code packages/pyric/docs
-bun run compat:census
+bun run compat:generate
+sed -n '1,220p' packages/pyric/docs/messaging/COMPAT.md  # ignored projection: inspect directly
+bun run compat:census-gate
 bun run compat:oracle-versions
 bun run compat:oracle-check
 bun run compat:audit
@@ -331,8 +327,9 @@ surface the sequence is the same nine steps with new names:
 
 1. Capture or collect the first observations under a new filename prefix,
    parked via `observationExceptions` only until admission.
-2. Admit: extend `Surface`, add the registry file with its `compatPath`,
-   add the descriptor with prefix, suite path, and `climb: true`.
+2. Admit: add the registry file with its `compatPath`, import it from the
+   registry barrel, and add its self-owned JSON contract with prefix, suite
+   path, and `climb: true`.
 3. Author rows from census plus captures, all born `unverified`, claims
    never exceeding evidence tier.
 4. Derive the red suite, one assertion set per row, with the completeness

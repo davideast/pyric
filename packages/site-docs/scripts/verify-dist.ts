@@ -85,7 +85,7 @@ check(publicPages.length >= 150, `content: ${publicPages.length} public pages`);
 check(internalPages.length >= 1, 'content: has an internal rhythm page');
 const apiPages = publicPages.filter((page) => page.kind === 'api');
 const apiIndexes = publicPages.filter((page) => page.kind === 'api-index');
-check(apiPages.length === 46, 'content: all 46 released API entry points are generated');
+check(apiPages.length === 48, 'content: all 48 released API entry points are generated');
 check(apiIndexes.length === 1, 'content: one generated API reference index');
 check(
   new Set(apiPages.map((page) => page.apiImportPath)).size === apiPages.length,

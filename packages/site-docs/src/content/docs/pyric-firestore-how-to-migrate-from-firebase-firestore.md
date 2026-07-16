@@ -69,12 +69,19 @@ seedDocuments(sandbox, {
 Use direct sandbox construction in tests that need these controls. Application
 modules should continue using canonical Firebase imports.
 
-## Unsupported imports
+## Check imports before relying on them
 
-The mirror does not implement every Firebase Firestore export. In particular,
-bundle loading, named queries, and persistent-cache index management remain
-outside the sandbox surface. The compatibility matrix is the authoritative
-list of supported and diverged behaviour.
+The mirror does not implement every Firebase Firestore export, and that surface
+changes over time. Query the central conformance model instead of relying on a
+list in this migration guide:
+
+```bash
+pyric can-i-use firestore/loadBundle
+pyric can-i-use firestore/namedQuery
+```
+
+Each result separates availability from behavior fidelity and assurance, and
+points to the generated evidence behind the answer.
 
 Do not work around a missing export by importing the real Firebase module from
 inside sandbox code. That would bypass the package boundary and make the test

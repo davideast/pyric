@@ -1,3 +1,6 @@
+---
+navLabel: "Swap to prod backend"
+---
 # Run canonical imports against Firebase
 
 In this lesson you will take the canonical-import demo from the previous

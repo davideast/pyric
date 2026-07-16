@@ -1,3 +1,6 @@
+---
+navLabel: "Author RTDB rules"
+---
 # Author your first RTDB rules with constraints
 
 This tutorial creates a small Realtime Database rules document in memory, checks

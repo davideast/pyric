@@ -411,7 +411,8 @@ by the upload pipeline; client-settable fields round-trip from
 ### ListResult
 
 Mirrors `firebase/storage`'s `ListResult`. `nextPageToken` is
-`undefined` for `listAll`; pagination via `list()` is deferred.
+`undefined` for `listAll`; query `pyric can-i-use storage/list` for the
+current availability of the separate paginated operation.
 
 #### Properties
 
@@ -762,8 +763,7 @@ type StorageErrorCode =
 ```
 
 The unprefixed storage error codes the sandbox can raise. Mirrors
-the subset of `StorageErrorCode` the implemented operations use;
-resumable uploads and checksums remain out of scope.
+the subset of `StorageErrorCode` used by currently implemented operations.
 
 ***
 

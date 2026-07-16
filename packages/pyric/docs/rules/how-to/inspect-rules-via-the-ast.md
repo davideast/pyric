@@ -1,3 +1,6 @@
+---
+navLabel: "Inspect rules via the AST"
+---
 # How to inspect rules through the AST
 
 Parse rules into a typed AST and walk the tree for custom analysis: bespoke lint rules, generated documentation, or structural facts the built-in linter doesn't surface.

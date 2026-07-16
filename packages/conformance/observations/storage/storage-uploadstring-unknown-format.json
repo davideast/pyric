@@ -4,7 +4,7 @@
   "rowIds": [
     "storage#41"
   ],
-  "description": "uploadString with an unknown format string — error code prod throws; base64url is a VALID upstream format (pyric deny-lists it).",
+  "description": "uploadString with an unknown format string — error code prod throws; base64url is a valid upstream format that Pyric currently rejects.",
   "observedAt": "2026-06-10T10:41:15.006Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "blockingfun",

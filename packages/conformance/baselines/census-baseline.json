@@ -1,53 +1,7 @@
 {
-  "_comment": "Known unmapped PUBLIC Firebase exports tolerated by the census ratchet. Runtime and type namespaces are separate. Every entry remains in the public coverage denominator; the baseline prevents new gaps, it does not grant coverage credit. Regenerate with `bun run compat:census-gate --update`.",
-  "generatedFrom": "bun run compat:census",
-  "runtime": {
-    "ai": [],
-    "app": [],
-    "auth": [],
-    "firestore": [
-      "AbstractUserDataWriter",
-      "AggregateField",
-      "AggregateQuerySnapshot",
-      "CollectionReference",
-      "DocumentReference",
-      "DocumentSnapshot",
-      "Firestore",
-      "FirestoreError",
-      "Query",
-      "QueryCompositeFilterConstraint",
-      "QueryConstraint",
-      "QueryDocumentSnapshot",
-      "QueryEndAtConstraint",
-      "QueryFieldFilterConstraint",
-      "QueryLimitConstraint",
-      "QueryOrderByConstraint",
-      "QuerySnapshot",
-      "QueryStartAtConstraint",
-      "SnapshotMetadata",
-      "Transaction",
-      "WriteBatch",
-      "aggregateFieldEqual",
-      "aggregateQuerySnapshotEqual",
-      "documentSnapshotFromJSON",
-      "ensureFirestoreConfigured",
-      "executeWrite",
-      "onSnapshotResume",
-      "querySnapshotFromJSON"
-    ],
-    "database": [
-      "DataSnapshot",
-      "Database",
-      "QueryConstraint",
-      "TransactionResult"
-    ],
-    "storage": [
-      "StorageErrorCode",
-      "StringFormat"
-    ],
-    "messaging": [],
-    "messaging-sw": []
-  },
+  "_comment": "Known unmapped PUBLIC Firebase type exports tolerated by the census ratchet. Runtime gaps are never baseline-tolerated and must be classified in a surface contract. Every type entry remains in the public coverage denominator; the baseline prevents new gaps, it does not grant coverage credit. Regenerate with `bun run compat:census-gate --update`.",
+  "generatedFrom": "deriveConformanceModel().census",
+  "runtime": {},
   "types": {
     "ai": [
       "AudioConversationController",

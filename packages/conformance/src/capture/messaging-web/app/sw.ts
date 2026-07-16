@@ -1,3 +1,4 @@
+/// <reference lib="webworker" />
 /**
  * Background capture + demo service worker. Real firebase/messaging/sw:
  * onBackgroundMessage payloads are reported to the harness over

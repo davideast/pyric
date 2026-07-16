@@ -9,7 +9,7 @@ kind: "api"
 apiPackage: "@pyric/cli"
 apiImportPath: "@pyric/cli/assurance"
 apiSubpath: "assurance"
-apiSymbolCount: 67
+apiSymbolCount: 62
 ---
 
 <!-- Generated from published package declarations via TypeDoc. Do not edit by hand; run bun run docs:api:generate. -->
@@ -602,7 +602,7 @@ visualization(): AssuranceVisualizationSnapshot;
 | :------ | :------ |
 | <a id="code-1"></a> `code` | `string` |
 | <a id="reason"></a> `reason` | `string` |
-| <a id="service"></a> `service` | `"auth"` \| [`AssuranceService`](#assuranceservice) \| `"attachment"` |
+| <a id="service"></a> `service` | [`AssuranceService`](#assuranceservice) \| `"auth"` \| `"attachment"` |
 
 ***
 
@@ -853,7 +853,7 @@ Credential-free projection safe to hand to Studio visualization code.
 
 | Property | Type | Description |
 | :------ | :------ | :------ |
-| <a id="classification-1"></a> `classification?` | `"engine-gap"` \| `"invalid-probe"` | How an unsupported qualification must be classified. Absent when the qualification is supported. `engine-gap` is the default abstention (a target-specific check failed, or a declared capability is derived non-supported); `invalid-probe` overrides it when the campaign declared a capability the engine does not define. |
+| <a id="classification-1"></a> `classification?` | `"engine-gap"` \| `"invalid-probe"` | How an unsupported qualification must be classified. Absent when the qualification is supported. `engine-gap` is the default abstention (a target-specific check failed, or a required graph node is derived non-supported); `invalid-probe` overrides it when the campaign names a graph node the engine does not know. |
 | <a id="engine"></a> `engine` | `"pyric-local-sandboxes"` | - |
 | <a id="requirements"></a> `requirements` | [`CapabilityRequirement`](#capabilityrequirement)[] | - |
 | <a id="supported-1"></a> `supported` | `boolean` | - |
@@ -890,22 +890,6 @@ Credential-free projection safe to hand to Studio visualization code.
 | <a id="field"></a> `field` | `string` |
 | <a id="op-1"></a> `op` | \| `"<"` \| `"<="` \| `"=="` \| `"!="` \| `">="` \| `">"` \| `"array-contains"` \| `"in"` \| `"not-in"` \| `"array-contains-any"` |
 | <a id="value"></a> `value` | `unknown` |
-
-***
-
-<a id="generatedassurancecapability"></a>
-
-### GeneratedAssuranceCapability
-
-#### Properties
-
-| Property | Type | Description |
-| :------ | :------ | :------ |
-| <a id="dependencies"></a> `dependencies` | `GeneratedCapabilityDependency`[] | Everything the status rests on. The ones that pinned it are the ones whose verdict equals the status; `capabilityReasons` selects and renders them. |
-| <a id="description-1"></a> `description` | `string` | - |
-| <a id="id-8"></a> `id` | `string` | - |
-| <a id="service-3"></a> `service` | `AssuranceCapabilityService` | - |
-| <a id="status"></a> `status` | `AssuranceCapabilityStatus` | - |
 
 ***
 
@@ -961,9 +945,9 @@ Credential-free projection safe to hand to Studio visualization code.
 
 | Property | Type |
 | :------ | :------ |
-| <a id="description-2"></a> `description` | `string` |
+| <a id="description-1"></a> `description` | `string` |
 | <a id="dimension"></a> `dimension` | [`MutationDimension`](#mutationdimension) |
-| <a id="id-9"></a> `id?` | `string` |
+| <a id="id-8"></a> `id?` | `string` |
 | <a id="operation-1"></a> `operation` | [`FirebaseOperation`](#firebaseoperation) |
 
 ***
@@ -998,7 +982,7 @@ Credential-free projection safe to hand to Studio visualization code.
 
 | Property | Type |
 | :------ | :------ |
-| <a id="description-3"></a> `description` | `string` |
+| <a id="description-2"></a> `description` | `string` |
 | <a id="dimension-1"></a> `dimension` | [`MutationDimension`](#mutationdimension) |
 | <a id="operation-3"></a> `operation` | [`FirebaseOperation`](#firebaseoperation) |
 
@@ -1048,7 +1032,7 @@ Credential-free projection safe to hand to Studio visualization code.
 | `query.startAt?` | \{ `key?`: `string`; `value`: `unknown`; \} |
 | `query.startAt.key?` | `string` |
 | `query.startAt.value` | `unknown` |
-| <a id="service-4"></a> `service` | `"rtdb"` |
+| <a id="service-3"></a> `service` | `"rtdb"` |
 
 ***
 
@@ -1092,7 +1076,7 @@ Credential-free projection safe to hand to Studio visualization code.
 | <a id="campaignid-4"></a> `campaignId` | `string` |
 | <a id="control-2"></a> `control` | [`FirebaseOperation`](#firebaseoperation) |
 | <a id="expect"></a> `expect` | `"ALLOW"` \| `"DENY"` |
-| <a id="id-10"></a> `id` | `string` |
+| <a id="id-9"></a> `id` | `string` |
 | <a id="invariant-1"></a> `invariant` | [`SecurityInvariant`](#securityinvariant) |
 | <a id="mutation-2"></a> `mutation` | [`ProbeMutation`](#probemutation) |
 | <a id="qualification-1"></a> `qualification` | [`EngineQualification`](#enginequalification) |
@@ -1110,8 +1094,8 @@ Credential-free projection safe to hand to Studio visualization code.
 | :------ | :------ |
 | <a id="confidence"></a> `confidence` | `"authoritative"` \| `"strong"` \| `"tentative"` |
 | <a id="expected"></a> `expected` | `"ALLOW"` \| `"DENY"` |
-| <a id="id-11"></a> `id` | `string` |
-| <a id="service-5"></a> `service` | [`AssuranceService`](#assuranceservice) \| `"cross-service"` |
+| <a id="id-10"></a> `id` | `string` |
+| <a id="service-4"></a> `service` | [`AssuranceService`](#assuranceservice) \| `"cross-service"` |
 | <a id="source-2"></a> `source` | `"captured"` \| `"declared"` \| `"authored-test"` \| `"derived"` \| `"agent"` |
 | <a id="statement"></a> `statement` | `string` |
 
@@ -1159,7 +1143,7 @@ Credential-free projection safe to hand to Studio visualization code.
 | <a id="database64-1"></a> `dataBase64?` | `string` |
 | <a id="method-3"></a> `method` | `"get"` \| `"list"` \| `"delete"` \| `"upload"` \| `"updateMetadata"` |
 | <a id="path-4"></a> `path` | `string` |
-| <a id="service-6"></a> `service` | `"storage"` |
+| <a id="service-5"></a> `service` | `"storage"` |
 
 ## Type Aliases
 
@@ -1301,16 +1285,6 @@ const ASSURANCE_CAMPAIGN_SCHEMA: "pyric.assurance.campaign.v1";
 
 ***
 
-<a id="assurance_engine_capabilities"></a>
-
-### ASSURANCE\_ENGINE\_CAPABILITIES
-
-```ts
-const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapability[];
-```
-
-***
-
 <a id="assurance_report_schema"></a>
 
 ### ASSURANCE\_REPORT\_SCHEMA
@@ -1340,29 +1314,6 @@ const defaultAssuranceCampaignStore: AssuranceCampaignStore;
 ```
 
 ## Functions
-
-<a id="capabilityreasons"></a>
-
-### capabilityReasons()
-
-```ts
-function capabilityReasons(capability: GeneratedAssuranceCapability): string[];
-```
-
-The reasons a probe cites when it abstains: the dependencies whose verdict
- pinned the capability's status, each rendered as a sentence.
-
-#### Parameters
-
-| Parameter | Type |
-| :------ | :------ |
-| `capability` | [`GeneratedAssuranceCapability`](#generatedassurancecapability) |
-
-#### Returns
-
-`string`[]
-
-***
 
 <a id="createassurancetools"></a>
 
@@ -1426,26 +1377,6 @@ contacted and the returned campaign target itself keeps networking forbidden.
 #### Returns
 
 [`AssuranceAttachmentProvider`](#assuranceattachmentprovider)
-
-***
-
-<a id="listassurancecapabilities"></a>
-
-### listAssuranceCapabilities()
-
-```ts
-function listAssuranceCapabilities(services?: readonly AssuranceCapabilityService[]): GeneratedAssuranceCapability[];
-```
-
-#### Parameters
-
-| Parameter | Type |
-| :------ | :------ |
-| `services?` | readonly `AssuranceCapabilityService`[] |
-
-#### Returns
-
-[`GeneratedAssuranceCapability`](#generatedassurancecapability)[]
 
 ***
 
@@ -1557,11 +1488,3 @@ function subscribeAssuranceVisualizations(listener: (snapshot: AssuranceVisualiz
 ##### Returns
 
 `void`
-
-## References
-
-<a id="assuranceenginecapability"></a>
-
-### AssuranceEngineCapability
-
-Renames and re-exports [GeneratedAssuranceCapability](#generatedassurancecapability)

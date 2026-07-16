@@ -1,12 +1,12 @@
 ---
-title: "Storage rules subset"
+title: "Storage rules language reference"
 group: "pyric / storage"
 section: "Reference"
 order: 14008
 ---
-# Storage rules subset
+# Storage rules language reference
 
-The Storage rules grammar in the v1 scope. Anything not listed is out of scope and will produce a parse error.
+Usage reference for the Storage rules constructs shown in this package. This page is not an availability inventory: run `pyric can-i-use storage-rules/<construct>` for the current support, fidelity, assurance, caveats, and evidence before relying on a construct.
 
 ## Service header
 
@@ -121,15 +121,6 @@ allow write: if firestore.exists(/databases/(default)/documents/sessions/$(reque
 ## Literal values
 
 Strings (`'...'` or `"..."`), numbers, booleans (`true` / `false`), `null`, `timestamp.date(...)`.
-
-## Out of scope
-
-These still produce parse or evaluation errors:
-
-- The content-hash fields (`resource.md5Hash`, `resource.crc32c`, `resource.etag`).
-- Regex constructs that RE2 can't express inside `matches()`.
-
-See [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) for the reasoning.
 
 ## Where to look next
 

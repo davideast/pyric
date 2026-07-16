@@ -3,7 +3,7 @@ title: "API reference: @pyric/ui/storage/hooks"
 navLabel: "@pyric/ui/storage/hooks"
 group: "API reference"
 section: "@pyric/ui"
-order: 24044
+order: 24046
 description: "Published declarations for @pyric/ui/storage/hooks."
 kind: "api"
 apiPackage: "@pyric/ui"

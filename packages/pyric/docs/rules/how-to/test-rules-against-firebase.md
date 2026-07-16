@@ -1,3 +1,6 @@
+---
+navLabel: "Test rules against Firebase"
+---
 # How to test rules against the Firebase Rules Test API
 
 Evaluate Firestore rules against Google's live Rules Test API. Use this when the local simulator returns `UNSUPPORTED`, or when you need parity with what production will actually decide.

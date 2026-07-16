@@ -3,7 +3,7 @@ title: "API reference: pyric/messaging/sw"
 navLabel: "pyric/messaging/sw"
 group: "API reference"
 section: "pyric"
-order: 24027
+order: 24029
 description: "Published declarations for pyric/messaging/sw."
 kind: "api"
 apiPackage: "pyric"

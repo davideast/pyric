@@ -112,8 +112,8 @@ the observation; keep it small and explicit.
 The committed oracle now contains 197 observations across AI, Auth,
 Firestore, RTDB, RTDB modular, Storage, and Messaging. The compatibility ledger is
 loaded from the typed single-source registry in
-`packages/conformance/registry/*.ts`. The six `COMPAT.md` files are generated
-public docs, not inputs to the compatibility ledger.
+`packages/conformance/registry/*.ts`. The `COMPAT.md` files are ignored,
+generated public docs, not inputs to the compatibility ledger or review diffs.
 
 Useful commands:
 

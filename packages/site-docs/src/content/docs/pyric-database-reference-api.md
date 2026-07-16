@@ -3,7 +3,7 @@ title: "API reference: pyric/database"
 navLabel: "pyric/database"
 group: "API reference"
 section: "pyric"
-order: 24023
+order: 24025
 description: "Published declarations for pyric/database."
 kind: "api"
 apiPackage: "pyric"
@@ -88,7 +88,7 @@ Lightweight `DataSnapshot` — matches the subset of
 | Property | Modifier | Type | Description |
 | :------ | :------ | :------ | :------ |
 | <a id="key-1"></a> `key` | `readonly` | `string` | - |
-| <a id="priority"></a> `priority` | `readonly` | `string` \| `number` | The node's priority, or `null`. The sandbox does not model RTDB's priority (deny-listed — see COMPAT) so this is always `null`, matching the common case (no `.priority` set). Mirrors `api/Reference_impl.ts:312`. |
+| <a id="priority"></a> `priority` | `readonly` | `string` \| `number` | The node's priority, or `null`. The sandbox does not model RTDB's priority values, so this is always `null`, matching the common case (no `.priority` set). Mirrors `api/Reference_impl.ts:312`. |
 | <a id="ref"></a> `ref` | `readonly` | [`DatabaseReference`](#databasereference) | The ref the snap was taken from. |
 | <a id="size"></a> `size` | `readonly` | `number` | Number of child properties of this snapshot. A getter (NOT a `numChildren()` method — that was the legacy namespaced API). Locked by oracle `rtdb-modular-get-snapshot-shape.json` (`hasSize: true, hasNumChildren: false`) + upstream `api/Reference_impl.ts:331-333`. |
 

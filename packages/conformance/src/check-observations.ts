@@ -18,10 +18,11 @@ import {
   buildCompatibilityLedger,
   type OracleConformanceCheck,
 } from './ledger.ts';
+import { deriveConformanceModel } from './conformance-model.ts';
 
 const REQUIRED = ['name', 'matrixRow', 'rowIds', 'description', 'observedAt', 'behavior'] as const;
 
-const ledger = buildCompatibilityLedger();
+const ledger = buildCompatibilityLedger(await deriveConformanceModel());
 const checks = ledger.entries.flatMap((row) => (row.conformanceChecks ?? []).map((check) => ({ ...check, rowId: row.id })));
 const observations = ledger.observations;
 const byName = new Map(observations.map((obs) => [obs.name, obs]));
@@ -119,8 +120,9 @@ let buildProblem: string | null = null;
 let outcomes: ProbeOutcome[] = [];
 if (foundationOk) {
   buildProblem = ensureWorkspaceBuild();
-  outcomes = buildProblem
-    ? checks.map((entry) => ({ entry, kind: 'infrastructure' as const, detail: buildProblem }))
+  const buildFailure = buildProblem ?? undefined;
+  outcomes = buildFailure
+    ? checks.map((entry) => ({ entry, kind: 'infrastructure' as const, detail: buildFailure }))
     : checks.map(runProbe);
 }
 

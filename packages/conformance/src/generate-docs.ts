@@ -1,18 +1,23 @@
 #!/usr/bin/env bun
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from '../registry/index.ts';
-import { surfaceDescriptors } from '../surfaces/load.ts';
+import { type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from '../registry/index.ts';
+import {
+  deriveConformanceModel,
+  type ConformanceModel,
+} from './conformance-model.ts';
+import type { SurfaceCensus } from './surface-census.ts';
+import { compatibilityHref } from './docs-routes.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
-export const GENERATED_HEADER = '<!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->';
+export const GENERATED_HEADER = '<!-- Generated from the conformance model (registry rows + surface contracts). Do not edit by hand; run bun run compat:generate. -->';
 
 /** The generated central scoreboard, ported into the Compatibility nav group. */
 export const SCOREBOARD_PATH = 'packages/pyric/docs/conformance/SCORES.md';
 
-const COVERAGE_BASELINE_PATH = 'packages/conformance/baselines/coverage-baseline.json';
+export type DocumentationProjection = ConformanceModel['documentation'];
 
 /** Display glyphs for the typed status enum — rendering only, never parsed. */
 export const STATUS_GLYPHS: Record<CompatStatus, string> = {
@@ -30,68 +35,43 @@ function escapeCell(value: string): string {
 // ── Scoring (surface coverage + fidelity) ───────────────────────────────────
 //
 // Kept as distinct numbers (#224). Do NOT fold coverage into fidelity.
-// Surface breadth is read from the committed census baseline. Fidelity is
-// read from the live typed registry: a newly added behavior row must affect
-// generated scores immediately, before the coverage ratchet is refreshed.
-
-interface CoverageBaseline {
-  services: Record<string, {
-    publicSurface?: {
-      runtime: { mapped: number; denominator: number; pct: number };
-      types: { mapped: number; denominator: number; pct: number };
-    };
-    native?: boolean;
-    integration?: boolean;
-  }>;
-  overall: {
-    publicSurface: {
-      runtime: { mapped: number; denominator: number; pct: number };
-      types: { mapped: number; denominator: number; pct: number };
-    };
-  };
-  rowStatuses: Record<string, string>;
-}
-
-function readBaseline(): CoverageBaseline {
-  return JSON.parse(readFileSync(join(REPO_ROOT, COVERAGE_BASELINE_PATH), 'utf8')) as CoverageBaseline;
-}
+// Surface breadth is read from the live census. The committed baseline is a
+// ratchet only: it must never be republished as though it were current truth.
+// Fidelity is likewise read from the live typed registry.
 
 /** One surface's mapping onto the behavior ledger + surface census. */
 interface SurfaceScoreSpec {
   label: string;
   /** `rowStatuses` service prefixes whose behavior rows this surface owns. */
   rowServices: string[];
-  /** Baseline `services` keys that contribute surface-coverage % (mirror only). */
+  /** Live census surface keys that contribute surface-coverage % (mirror only). */
   censusServices: string[];
   /** Label used when this registry has no export-census denominator. */
   noCensusKind?: 'native' | 'integration';
-  /** Relative link from this surface's generated COMPAT page to the scoreboard. */
-  scoreboardHref?: string;
 }
 
-/**
- * Registry `surface` → score axes. `rtdb` owns classic + modular behavior rows;
- * surface coverage comes from the modular census (classic `rtdb` is native).
- * `rules` owns firestore-rules + storage-rules behavior; rtdb-rules rows live
- * in the baseline under their own key when present.
- */
-const SCORE_SPECS: Record<string, SurfaceScoreSpec> = {
-  app: { label: 'App', rowServices: ['app'], censusServices: ['app'] },
-  ai: { label: 'AI Logic', rowServices: ['ai'], censusServices: ['ai'] },
-  auth: { label: 'Auth', rowServices: ['auth'], censusServices: ['auth'] },
-  firestore: { label: 'Firestore', rowServices: ['firestore'], censusServices: ['firestore'] },
-  rtdb: { label: 'Realtime Database', rowServices: ['rtdb', 'rtdb-modular'], censusServices: ['rtdb-modular'] },
-  storage: { label: 'Storage', rowServices: ['storage'], censusServices: ['storage'] },
-  messaging: { label: 'Messaging', rowServices: ['messaging'], censusServices: ['messaging'] },
-  rules: { label: 'Rules', rowServices: ['firestore-rules', 'storage-rules', 'rtdb-rules'], censusServices: [] },
-  'functions-rtdb': {
-    label: 'Functions · RTDB',
-    rowServices: ['functions-rtdb'],
-    censusServices: [],
-    noCensusKind: 'integration',
-    scoreboardHref: '../../../pyric/docs/conformance/SCORES.md',
-  },
-};
+/** Derive scoring ownership from the same descriptors that own registry rows
+ * and census surfaces. A new descriptor therefore cannot disappear from the
+ * scoreboard behind an unmodified hand-maintained list. */
+function scoreSpec(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): SurfaceScoreSpec {
+  const descriptors = projection.descriptors.filter(({ registryKey }) => registryKey === surface.surface);
+  if (descriptors.length === 0) throw new Error(`No surface descriptors own compatibility registry '${surface.surface}'`);
+  const ownedServices = [...new Set(descriptors.map(({ surface: owner }) => owner))];
+  const rowServices = [...new Set(descriptors.filter(({ coverage }) => coverage).map(({ surface: owner }) => owner))];
+  const unownedRows = surface.blocks
+    .flatMap((block) => block.kind === 'table' ? block.rows : [])
+    .filter((row) => !ownedServices.includes(row.surface));
+  if (unownedRows.length > 0) {
+    throw new Error(`Registry '${surface.surface}' has rows outside its descriptor ownership: ${[...new Set(unownedRows.map(({ surface: owner }) => owner))].join(', ')}`);
+  }
+  const censusServices = [...new Set(descriptors.flatMap((descriptor) =>
+    descriptor.kind === 'mirror' && descriptor.coverage ? [descriptor.censusSurface] : [],
+  ))];
+  const noCensusKind = censusServices.length > 0
+    ? undefined
+    : descriptors.every(({ kind }) => kind === 'integration') ? 'integration' : 'native';
+  return { label: surface.label, rowServices, censusServices, noCensusKind };
+}
 
 interface BehaviorScore {
   conforms: number;
@@ -109,14 +89,14 @@ interface SurfaceScore {
   types: { mapped: number; denominator: number; pct: number } | null;
 }
 
-function computeBehavior(spec: SurfaceScoreSpec): BehaviorScore {
+function computeBehavior(spec: SurfaceScoreSpec, rows: readonly CompatibilityRow[]): BehaviorScore {
   let conforms = 0;
   let diverged = 0;
   let bugs = 0;
   let unsupported = 0;
   let unverified = 0;
   let total = 0;
-  for (const row of allCompatibilityRows) {
+  for (const row of rows) {
     if (!spec.rowServices.includes(row.surface)) continue;
     total += 1;
     if (row.status === 'conforms') conforms += 1;
@@ -164,18 +144,14 @@ function statKey(score: BehaviorScore, extraClass = ''): string {
   ].join('\n');
 }
 
-function computeSurface(spec: SurfaceScoreSpec, base: CoverageBaseline): SurfaceScore {
+function computeSurface(spec: SurfaceScoreSpec, census: readonly SurfaceCensus[]): SurfaceScore {
   if (spec.censusServices.length === 0) return { runtime: null, types: null };
-  const surfaces: NonNullable<CoverageBaseline['services'][string]['publicSurface']>[] = [];
-  for (const key of spec.censusServices) {
-    const svc = base.services[key];
-    if (!svc?.publicSurface) continue;
-    surfaces.push(svc.publicSurface);
-  }
+  const keys = new Set(spec.censusServices);
+  const surfaces = census.filter(({ surface }) => keys.has(surface));
   if (surfaces.length === 0) return { runtime: null, types: null };
   const combine = (axis: 'runtime' | 'types') => {
-    const mapped = surfaces.reduce((sum, surface) => sum + surface[axis].mapped, 0);
-    const denominator = surfaces.reduce((sum, surface) => sum + surface[axis].denominator, 0);
+    const mapped = surfaces.reduce((sum, surface) => sum + surface[axis].mapped.length, 0);
+    const denominator = surfaces.reduce((sum, surface) => sum + surface[axis].upstreamCount, 0);
     return { mapped, denominator, pct: denominator === 0 ? 0 : Math.round((mapped / denominator) * 1000) / 10 };
   };
   return { runtime: combine('runtime'), types: combine('types') };
@@ -185,11 +161,10 @@ function computeSurface(spec: SurfaceScoreSpec, base: CoverageBaseline): Surface
  * Score block each COMPAT doc leads with: surface coverage (breadth) and
  * fidelity (tracked claims that match production). Separate on purpose.
  */
-export function scoreBlock(surface: CompatibilitySurfaceRegistry, base = readBaseline()): string | null {
-  const spec = SCORE_SPECS[surface.surface];
-  if (!spec) return null;
-  const behavior = computeBehavior(spec);
-  const coverage = computeSurface(spec, base);
+export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string | null {
+  const spec = scoreSpec(surface, projection);
+  const behavior = computeBehavior(spec, projection.rows);
+  const coverage = computeSurface(spec, projection.census);
   const coverageLine = coverage.runtime === null || coverage.types === null
     ? spec.noCensusKind === 'integration'
       ? '<p class="compat-stat-surface"><strong>Surface:</strong> integration contract <span>(unchanged upstream source; breadth is the signed row inventory)</span></p>'
@@ -198,7 +173,7 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, base = readBas
   const explanation = spec.noCensusKind === 'integration'
     ? 'The signed row inventory defines this integration contract. Fidelity measures how many tracked behaviors match production.'
     : 'Public surface measures whether exports exist. Fidelity measures whether tracked behavior matches production.';
-  const scoreboardHref = spec.scoreboardHref ?? '../conformance/SCORES.md';
+  const scoreboardHref = relative(dirname(surface.compatPath), SCOREBOARD_PATH).replaceAll('\\', '/');
   return [
     '<div class="compat-stat">',
     coverageLine,
@@ -214,14 +189,6 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, base = readBas
     `[Read how the axes differ.](${scoreboardHref})`,
     '',
   ].join('\n');
-}
-
-function scoreboardHref(compatPath: string): string {
-  const pyric = compatPath.match(/^packages\/pyric\/docs\/(.+)\/COMPAT\.md$/)?.[1];
-  if (pyric) return `../pyric-${pyric.replaceAll('/', '-')}-compat/`;
-  const cli = compatPath.match(/^packages\/cli\/docs\/(.+)\/COMPAT\.md$/)?.[1];
-  if (cli) return `../pyric-cli-${cli.replaceAll('/', '-')}-compat/`;
-  throw new Error(`No docs route for compatibility path: ${compatPath}`);
 }
 
 function scoreRow(
@@ -262,7 +229,7 @@ function scoreRow(
 }
 
 /** Central scoreboard across every scored COMPAT surface. */
-export function renderScoreboardMarkdown(base = readBaseline()): string {
+export function renderScoreboardMarkdown(projection: DocumentationProjection): string {
   const lines: string[] = [
     GENERATED_HEADER,
     '',
@@ -270,8 +237,8 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     '',
     'Public runtime surface, public type surface, and behavior fidelity answer different questions. [How does Pyric know it works like Firebase?](../../../../docs/site-rewrite/content/trust/how-we-know-it-matches-firebase.md) explains the evidence and its limits.',
     '',
-    '- **Public runtime surface:** mirrored non-underscore Firebase runtime exports divided by all public runtime exports. Unsupported, deprecated, and deferred public APIs remain in the denominator.',
-    '- **Public type surface:** mirrored exported type names divided by all Firebase exported type names. This measures name presence, not structural assignability.',
+    '- **Public runtime surface:** mirrored Firebase runtime exports divided by all exports not exactly reviewed as private in the owning surface contract. Unsupported, deprecated, and deferred public APIs remain in the denominator.',
+    '- **Public type surface:** mirrored exported type names divided by non-underscore Firebase exported type names. This measures name presence, not structural assignability.',
     '- **Behavior fidelity:** conforming registry rows divided by all tracked rows. Documented divergences, bugs, unsupported behavior, and unverified behavior remain in the denominator.',
     '',
     'Every fidelity bar shows the full five-state distribution. Public surface values stay outside the bar so breadth cannot be mistaken for behavior.',
@@ -280,35 +247,36 @@ export function renderScoreboardMarkdown(base = readBaseline()): string {
     '',
     '<div class="compat-scoreboard">',
   ];
-  for (const surface of surfaceRegistries) {
-    const spec = SCORE_SPECS[surface.surface];
-    if (!spec) continue;
-    const behavior = computeBehavior(spec);
-    const coverage = computeSurface(spec, base);
+  for (const surface of projection.registries) {
+    const spec = scoreSpec(surface, projection);
+    const behavior = computeBehavior(spec, projection.rows);
+    const coverage = computeSurface(spec, projection.census);
     lines.push(...scoreRow(
       spec.label,
-      scoreboardHref(surface.compatPath),
+      compatibilityHref(surface.compatPath),
       behavior,
       coverage,
       spec.noCensusKind,
     ));
   }
   const overallBehavior = (() => {
-    const scored = new Set(Object.values(SCORE_SPECS).flatMap((s) => s.rowServices));
+    const scored = new Set(projection.registries.flatMap((surface) => scoreSpec(surface, projection).rowServices));
     const overallSpec: SurfaceScoreSpec = {
       label: 'Overall',
       rowServices: [...scored],
       censusServices: [],
     };
-    return computeBehavior(overallSpec);
+    return computeBehavior(overallSpec, projection.rows);
   })();
-  const overallRuntime = base.overall.publicSurface.runtime;
-  const overallTypes = base.overall.publicSurface.types;
+  const coverageCensusSurfaces = projection.descriptors.flatMap((descriptor) =>
+    descriptor.kind === 'mirror' && descriptor.coverage ? [descriptor.censusSurface] : [],
+  );
+  const overallCoverage = computeSurface({ label: 'Overall', rowServices: [], censusServices: coverageCensusSurfaces }, projection.census);
   lines.push(...scoreRow(
     'Overall',
     null,
     overallBehavior,
-    { runtime: overallRuntime, types: overallTypes },
+    overallCoverage,
     undefined,
     true,
   ));
@@ -378,6 +346,36 @@ export function consolidatedGapSections(rows: CompatibilityRow[]): string {
   return ['## Current gaps', '', ...sections].join('\n').replace(/\s+$/, '');
 }
 
+/** Reviewed public-runtime gaps come from the same surface contracts consumed
+ * by the census and query model. Registry prose must not duplicate them. */
+export function dispositionSection(
+  surface: CompatibilitySurfaceRegistry,
+  projection: DocumentationProjection,
+): string {
+  const censusSurfaces = new Set(projection.descriptors.flatMap((descriptor) =>
+    descriptor.registry === surface && descriptor.kind === 'mirror' && descriptor.coverage
+      ? [descriptor.censusSurface]
+      : [],
+  ));
+  const dispositions = projection.census
+    .filter((entry) => censusSurfaces.has(entry.surface))
+    .flatMap((entry) => entry.runtime.dispositioned);
+  if (dispositions.length === 0) return '';
+  const groups = Map.groupBy(dispositions, (entry) => entry.dispositionId);
+  return [
+    '## Reviewed public-runtime gaps',
+    '',
+    'These classifications are generated from the machine-readable surface contract used by the census and `can-i-use`.',
+    '',
+    '| Disposition | Availability | Symbols | Reason | Evidence |',
+    '|---|---|---|---|---|',
+    ...[...groups].map(([id, entries]) => {
+      const first = entries[0]!;
+      return `| ${escapeCell(id)} | ${first.availability} | ${escapeCell(entries.map(({ symbol }) => `\`${symbol}\``).join(', '))} | ${escapeCell(first.summary)} | ${escapeCell(first.evidenceRefs.join(', '))} |`;
+    }),
+  ].join('\n');
+}
+
 /** Non-conforming statuses, in the order the climb header lists them. */
 const CLIMB_STATUS_ORDER: CompatStatus[] = ['unverified', 'diverged-documented', 'bug', 'unsupported'];
 
@@ -388,8 +386,8 @@ const CLIMB_STATUS_ORDER: CompatStatus[] = ['unverified', 'diverged-documented',
  * Kept identical between renderSurfaceMarkdown and generatedRowLineNumbers so
  * row line numbers stay accurate.
  */
-export function climbHeaderLines(surface: CompatibilitySurfaceRegistry): string[] {
-  const climbing = surfaceDescriptors.some((d) => d.registry === surface && d.climb === true);
+export function climbHeaderLines(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string[] {
+  const climbing = projection.descriptors.some((d) => d.registry === surface && d.climb === true);
   if (!climbing) return [];
   const rows = surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows : []));
   const summary = (population: CompatibilityRow[], label?: string): string => {
@@ -424,8 +422,8 @@ export function climbHeaderLines(surface: CompatibilitySurfaceRegistry): string[
 }
 
 /** Inject the two-number score block under the H1 of the first markdown block. */
-function scoredBlocks(surface: CompatibilitySurfaceRegistry): CompatibilitySurfaceRegistry['blocks'] {
-  const score = scoreBlock(surface);
+function scoredBlocks(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): CompatibilitySurfaceRegistry['blocks'] {
+  const score = scoreBlock(surface, projection);
   if (score === null) return surface.blocks;
   return surface.blocks.map((block, index) => {
     if (index !== 0 || block.kind !== 'markdown') return block;
@@ -438,9 +436,9 @@ function scoredBlocks(surface: CompatibilitySurfaceRegistry): CompatibilitySurfa
   });
 }
 
-export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): string {
-  const blocks = scoredBlocks(surface);
-  const parts: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface)];
+export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string {
+  const blocks = scoredBlocks(surface, projection);
+  const parts: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface, projection)];
   const rows = blocks.flatMap((block) => block.kind === 'table' ? block.rows : []);
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
@@ -456,12 +454,14 @@ export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): st
   }
   const gaps = consolidatedGapSections(rows);
   if (gaps) parts.push('', gaps);
+  const dispositions = dispositionSection(surface, projection);
+  if (dispositions) parts.push('', dispositions);
   return parts.join('\n').replace(/\s+$/, '') + '\n';
 }
 
-export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): Map<string, number> {
-  const blocks = scoredBlocks(surface);
-  const lines: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface)];
+export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): Map<string, number> {
+  const blocks = scoredBlocks(surface, projection);
+  const lines: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface, projection)];
   const out = new Map<string, number>();
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
@@ -483,18 +483,36 @@ export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): 
   const rows = blocks.flatMap((block) => block.kind === 'table' ? block.rows : []);
   const gaps = consolidatedGapSections(rows);
   if (gaps) lines.push('', ...gaps.split('\n'));
+  const dispositions = dispositionSection(surface, projection);
+  if (dispositions) lines.push('', ...dispositions.split('\n'));
   return out;
 }
 
-export function renderAllCompatibilityMarkdown(): Map<string, string> {
-  const out = new Map(surfaceRegistries.map((surface) => [surface.compatPath, renderSurfaceMarkdown(surface)]));
-  out.set(SCOREBOARD_PATH, renderScoreboardMarkdown());
+export function renderAllCompatibilityMarkdown(model: ConformanceModel): Map<string, string> {
+  const projection = model.documentation;
+  const out = new Map(projection.registries.map((surface) => [surface.compatPath, renderSurfaceMarkdown(surface, projection)]));
+  out.set(SCOREBOARD_PATH, renderScoreboardMarkdown(projection));
   return out;
 }
 
-export function checkGeneratedMarkdown(): string[] {
+export interface CompatibilityPageCatalogEntry {
+  path: string;
+  label: string;
+}
+
+/** The complete generated-doc publication catalog. Presentation labels live
+ * with their canonical registries; consumers iterate this instead of copying
+ * a list of paths that can silently drift. */
+export function compatibilityPageCatalog(model: ConformanceModel): readonly CompatibilityPageCatalogEntry[] {
+  return [
+    { path: SCOREBOARD_PATH, label: 'Conformance scores' },
+    ...model.documentation.registries.map(({ compatPath, label }) => ({ path: compatPath, label })),
+  ];
+}
+
+export function checkGeneratedMarkdown(model: ConformanceModel): string[] {
   const problems: string[] = [];
-  for (const [rel, generated] of renderAllCompatibilityMarkdown()) {
+  for (const [rel, generated] of renderAllCompatibilityMarkdown(model)) {
     const path = join(REPO_ROOT, rel);
     let current: string;
     try {
@@ -509,22 +527,23 @@ export function checkGeneratedMarkdown(): string[] {
 }
 
 if (import.meta.main) {
+  const model = await deriveConformanceModel();
   const write = process.argv.includes('--write');
   const check = process.argv.includes('--check') || !write;
   if (write) {
-    for (const [rel, generated] of renderAllCompatibilityMarkdown()) {
+    for (const [rel, generated] of renderAllCompatibilityMarkdown(model)) {
       const path = join(REPO_ROOT, rel);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, generated);
     }
-    console.log(`Generated ${surfaceRegistries.length} compatibility document(s) + scoreboard.`);
+    console.log(`Generated ${model.documentation.registries.length} compatibility document(s) + scoreboard.`);
   }
   if (check) {
-    const problems = checkGeneratedMarkdown();
+    const problems = checkGeneratedMarkdown(model);
     if (problems.length > 0) {
       for (const problem of problems) console.error(`- ${problem}`);
       process.exit(1);
     }
-    console.log('Compatibility markdown is generated from the registry.');
+    console.log('Compatibility markdown is generated from the conformance model.');
   }
 }

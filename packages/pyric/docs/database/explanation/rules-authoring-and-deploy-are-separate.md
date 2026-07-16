@@ -1,3 +1,6 @@
+---
+navLabel: "Authoring vs. deploy"
+---
 # Why RTDB rules authoring and deploy are separate
 
 Pyric keeps Realtime Database rules authoring in `pyric/rules` (the constraints

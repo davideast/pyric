@@ -3,7 +3,7 @@ title: "API reference: @pyric/ui/rtdb"
 navLabel: "@pyric/ui/rtdb"
 group: "API reference"
 section: "@pyric/ui"
-order: 24041
+order: 24043
 description: "Published declarations for @pyric/ui/rtdb."
 kind: "api"
 apiPackage: "@pyric/ui"

@@ -3,7 +3,7 @@ title: "API reference: @pyric/ui/events"
 navLabel: "@pyric/ui/events"
 group: "API reference"
 section: "@pyric/ui"
-order: 24037
+order: 24039
 description: "Published declarations for @pyric/ui/events."
 kind: "api"
 apiPackage: "@pyric/ui"

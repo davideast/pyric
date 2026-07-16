@@ -86,6 +86,8 @@ export interface LanguageConstruct {
    *  `firestore.method.string.matches`, `rtdb.binding.newData`. Doubles as the
    *  join key the analyzer and the capability probe report against. */
   id: string;
+  /** Canonical developer-facing names when the stable id tail is insufficient. */
+  featureKeys?: string[];
   kind: ConstructKind;
   engine: RulesEngine;
   /** For `method` constructs: the value type the method dispatches on

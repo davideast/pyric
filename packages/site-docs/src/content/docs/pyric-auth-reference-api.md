@@ -1689,8 +1689,8 @@ containing the fields the sandbox can synthesize faithfully.
 
 The heavier `User` surface the sandbox does NOT model (`metadata`,
 `refreshToken`, `tenantId`, `reload()`, `delete()`, `toJSON()`) is
-documented in `docs/auth/COMPAT.md` / the deny-list rather than
-synthesized — see AUTH-GAP.
+intentionally not synthesized; its absence remains visible in the public
+type census rather than being hidden behind placeholder values.
 
 #### Properties
 

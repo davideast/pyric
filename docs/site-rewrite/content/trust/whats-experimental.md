@@ -30,7 +30,7 @@ The bar is the one Auth and Firestore already cleared:
 2. CI replays every observation on every change.
 3. The service's compatibility matrix fills with rows backed by that evidence.
 
-When a service's matrix is held to production recordings rather than documentation, it stops being experimental. The [Realtime Database](../../../../packages/pyric/docs/database/COMPAT.md) and [Storage](../../../../packages/pyric/docs/storage/COMPAT.md) matrices show the current row-by-row state, and the machinery is described in [How we know it matches Firebase](./how-we-know-it-matches-firebase.md).
+When a service's matrix is held to production recordings rather than documentation, it stops being experimental. The [Realtime Database](https://pyric.dev/docs/pyric-database-compat/) and [Storage](https://pyric.dev/docs/pyric-storage-compat/) matrices show the current row-by-row state, and the machinery is described in [How we know it matches Firebase](./how-we-know-it-matches-firebase.md).
 
 Until then, every page about these services says experimental near the top and links here. Use them, watch them, and know which kind of ground you're standing on.
 

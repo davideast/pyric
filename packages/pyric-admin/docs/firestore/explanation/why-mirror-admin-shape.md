@@ -1,3 +1,6 @@
+---
+navLabel: "Why mirror the admin SDK"
+---
 # Why mirror the admin SDK shape
 
 `pyric-admin` re-implements the `firebase-admin/firestore` API. Same chainable style, same method names, same arguments, same return types. The behaviour is sandbox-aware (it talks to `pyric/sandbox` instead of Google's servers), but the surface is faithful.

@@ -50,7 +50,7 @@ Walls of text are a defect. On a guide page, every H2 section should reach an ex
 - H1 is the outcome in the reader's words, not a feature name.
 - The first paragraph states the result the reader gets. No preamble, no "In this guide."
 - Show a working example early. Code before concepts wherever possible.
-- Code blocks are real and runnable against the current surface (check INVENTORY.md). Never pseudo-code presented as real.
+- Code blocks are real and runnable against the current surface (check `pyric can-i-use` and the generated conformance pages). Never pseudo-code presented as real.
 - Headings continue the narrative ("Watch the denial explain itself"), never label taxonomy ("Denial inspection"). Banned outright (owner review): vague relational labels that describe the section's role instead of its content. "What you do with it", "Where your agent fits", "Why it holds up", "The catalog", "The rest of the wing". If the heading would fit on any product's page, it says nothing about this one.
 - Keep pages short. One tangible win per page. Link deeper instead of piling on.
 - End with where to go next, one or two links, chosen, not a link farm.
@@ -74,7 +74,7 @@ Avoid: leverage, powerful, seamless, simply, easy, just (as minimizer), robust, 
 
 ## Sources of truth
 
-- `INVENTORY.md` for what exists and its maturity.
+- `pyric can-i-use` and generated conformance pages for what exists and its trust evidence.
 - `NOVELTY.md` for the deep material (limits, stdlib, patterns, control plane, replay) and how to frame it.
 - `HIERARCHY.md` v3 for what page you are writing and what it promises.
 - Existing package docs (`packages/*/docs`) for reusable prose and verified examples. Reuse facts and examples freely, but rewrite the voice to this brief.

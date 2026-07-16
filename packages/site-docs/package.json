@@ -6,13 +6,15 @@
   "scripts": {
     "dev": "astro dev",
     "port": "bun scripts/port-content.ts",
-    "build": "bun scripts/port-content.ts && astro build",
+    "build": "bun run port && astro build",
     "preview": "astro preview",
     "verify": "bun scripts/verify-dist.ts",
+    "test:generated": "bun scripts/verify-generated.ts && bun scripts/audit-rhythm.ts",
     "audit:rhythm": "bun scripts/audit-rhythm.ts",
     "test": "bun run build && bun scripts/verify-dist.ts && bun scripts/audit-rhythm.ts"
   },
   "dependencies": {
+    "@pyric/conformance": "workspace:*",
     "astro": "^5.0.0"
   },
   "devDependencies": {

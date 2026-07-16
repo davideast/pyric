@@ -1,3 +1,6 @@
+---
+navLabel: "TARGET_SYMBOL opacity"
+---
 # The `TARGET_SYMBOL` opacity contract
 
 The public `Firestore` type has exactly one property:

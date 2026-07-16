@@ -1,3 +1,6 @@
+---
+navLabel: "Rules tooling is separate"
+---
 # Why rules tooling lives on a sibling subpath
 
 `pyric/firestore` is the Firebase-compatible sandbox data plane. The rules

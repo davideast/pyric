@@ -67,7 +67,7 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..', '..');
 // rules-rtdb-* observations belong to the 'rtdb-rules' surface subdirectory
-// (surfaces/rtdb-rules.ts owns the prefix), NOT the SDK-plane 'rtdb' one.
+// (surfaces/rtdb-rules.json owns the prefix), NOT the SDK-plane 'rtdb' one.
 const OBS_DIR = join(HERE, '..', 'observations', 'rtdb-rules');
 
 interface FirebaseWebConfig {

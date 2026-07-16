@@ -1,3 +1,6 @@
+---
+navLabel: "The /internal protocol"
+---
 # The `/internal` adapter protocol
 
 `pyric/sandbox` ships a second sub-path: `pyric/sandbox/internal`. The public entry stays narrow: `Sandbox`, `SandboxContext`, `SandboxError`, listener channels, lifecycle. Anything an adapter needs but a consumer shouldn't reach for lives behind the `/internal` gate.

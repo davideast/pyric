@@ -1,18 +1,16 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { workspaceSourceEntry } from './workspace-entry.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TYPE_CENSUS_ENTRY = join(HERE, '__public-surface-census__.ts');
 
 /**
- * Firebase uses a leading underscore for implementation exports that happen to
- * escape through a runtime barrel. They are not part of the documented modular
- * API and therefore never belong in a public-surface denominator.
- *
- * This is deliberately structural rather than a hand-maintained exclusion
- * list. A newly added `_privateThing` is private immediately, while every
- * non-underscore export remains public until Firebase removes it.
+ * Type-surface visibility remains structural because the type census does not
+ * yet have reviewed per-symbol classifications. Runtime visibility is stricter:
+ * exact private names live in the owning surface contract, and this helper must
+ * not be used to let a new runtime export bypass review.
  */
 export function isPublicExportName(name: string): boolean {
   return !name.startsWith('_');
@@ -25,10 +23,32 @@ const COMPILER_OPTIONS: ts.CompilerOptions = {
   skipLibCheck: true,
 };
 
-function resolveDeclaration(specifier: string): string {
+/** Resolve every workspace import in a source census back to authored source,
+ * including transitive self-imports such as `pyric/sandbox/admin-firestore`.
+ * Without this host, a dirty checkout follows `dist` while a clean checkout
+ * leaves those aliases unresolved and silently loses their type symbols. */
+function sourceFirstCompilerHost(): ts.CompilerHost {
+  const host = ts.createCompilerHost(COMPILER_OPTIONS);
+  host.resolveModuleNames = (moduleNames, containingFile) => moduleNames.map((specifier) => {
+    const source = workspaceSourceEntry(specifier);
+    if (source) {
+      return {
+        resolvedFileName: source,
+        extension: source.endsWith('.tsx') ? ts.Extension.Tsx : ts.Extension.Ts,
+        isExternalLibraryImport: false,
+      };
+    }
+    return ts.resolveModuleName(specifier, containingFile, COMPILER_OPTIONS, host).resolvedModule;
+  });
+  return host;
+}
+
+export function resolvePublicTypeEntry(specifier: string): string {
+  const source = workspaceSourceEntry(specifier);
+  if (source) return source;
   const resolved = ts.resolveModuleName(specifier, TYPE_CENSUS_ENTRY, COMPILER_OPTIONS, ts.sys).resolvedModule;
-  if (!resolved) throw new Error(`Cannot resolve public declaration entry for '${specifier}'`);
-  return resolved.resolvedFileName;
+  if (resolved) return resolved.resolvedFileName;
+  throw new Error(`Cannot resolve public declaration entry for '${specifier}'`);
 }
 
 /**
@@ -39,8 +59,8 @@ function resolveDeclaration(specifier: string): string {
  * coverage because TypeScript exposes them in both namespaces.
  */
 export function publicTypeExportNames(specifiers: string[]): string[] {
-  const roots = [...new Set(specifiers.map(resolveDeclaration))];
-  const program = ts.createProgram(roots, COMPILER_OPTIONS);
+  const roots = [...new Set(specifiers.map(resolvePublicTypeEntry))];
+  const program = ts.createProgram(roots, COMPILER_OPTIONS, sourceFirstCompilerHost());
   const checker = program.getTypeChecker();
   const names = new Set<string>();
 
@@ -60,4 +80,26 @@ export function publicTypeExportNames(specifiers: string[]): string[] {
   }
 
   return [...names].sort();
+}
+
+/** Enumerate the runtime namespace of a workspace source barrel without
+ * evaluating it. This keeps clean-checkout conformance generation independent
+ * of package `dist/` while still following TypeScript re-exports. */
+export function publicRuntimeExportNamesFromSource(sourcePath: string): string[] {
+  const program = ts.createProgram([sourcePath], COMPILER_OPTIONS, sourceFirstCompilerHost());
+  const checker = program.getTypeChecker();
+  const source = program.getSourceFile(sourcePath);
+  if (!source) throw new Error(`TypeScript did not load source entry '${sourcePath}'`);
+  const moduleSymbol = checker.getSymbolAtLocation(source);
+  if (!moduleSymbol) throw new Error(`TypeScript found no module symbol for source entry '${sourcePath}'`);
+
+  return checker.getExportsOfModule(moduleSymbol)
+    .filter((exported) => {
+      const target = (exported.flags & ts.SymbolFlags.Alias) !== 0
+        ? checker.getAliasedSymbol(exported)
+        : exported;
+      return (target.flags & ts.SymbolFlags.Value) !== 0;
+    })
+    .map((exported) => exported.name)
+    .sort();
 }

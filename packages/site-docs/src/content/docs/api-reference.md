@@ -46,6 +46,8 @@ Find an import path, then open its generated declarations. These pages describe 
 
 - [`@pyric/cli/credentials/node`](../pyric-cli-credentials-node-reference-api/)
 - [`@pyric/cli/verify`](../pyric-cli-verify-reference-api/)
+- [`@pyric/cli/conformance`](../pyric-cli-conformance-reference-api/)
+- [`@pyric/cli/conformance/browser`](../pyric-cli-conformance-browser-reference-api/)
 - [`@pyric/cli/assurance`](../pyric-cli-assurance-reference-api/)
 - [`@pyric/cli/assurance/browser`](../pyric-cli-assurance-browser-reference-api/)
 - [`@pyric/cli/bridge`](../pyric-cli-bridge-reference-api/)

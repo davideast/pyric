@@ -3,7 +3,6 @@ import {
   AuthorizationCampaign,
   createAuthorizationCampaign,
 } from "./campaign.js";
-import { listAssuranceCapabilities } from "./capabilities.js";
 import { publishAssuranceVisualization } from "./browser.js";
 import type { AssuranceAttachmentProvider } from "./attachment.js";
 import {
@@ -460,7 +459,6 @@ export function createAssuranceTools(
                     "Auth inventory proves this identity exists, not that an attacker can acquire it. Use fixture-user only after the app owner confirms the test account is obtainable.",
                 }),
               ),
-              capabilities: listAssuranceCapabilities([...services, "auth"]),
               visualization: {
                 view: "assurance",
                 url: visualizationUrl.toString(),
@@ -521,7 +519,6 @@ export function createAssuranceTools(
               localOnly: true,
               network: "forbid",
               services,
-              capabilities: listAssuranceCapabilities([...services, "auth"]),
               nextActions: [
                 "Map reachable actors and known-good operations.",
                 "Define explicit security invariants.",

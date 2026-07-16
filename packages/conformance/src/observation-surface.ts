@@ -3,7 +3,8 @@
  *
  * `observations/` and `probes/` are grouped into per-surface subdirectories
  * keyed by the SAME `observationPrefixes` every surface descriptor
- * (`surfaces/*.ts`) already declares. Two different consumers need to answer
+ * (`surfaces/*.json`, loaded and validated through `surfaces/load.ts`) already
+ * declares. Two different consumers need to answer
  * "which owner claims this filename?": `rigs/load.ts`-style rig manifests
  * (which prefix belongs to which capture rig) and surface descriptors (which
  * prefix belongs to which surface, i.e. which subdirectory a file must live

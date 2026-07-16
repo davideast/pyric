@@ -49,7 +49,7 @@ interface LoadedProbe {
   probe: Probe;
 }
 
-/** Loads every admin-app-* probe file (helpers.ts and any non-admin-app-*
+/** Loads every admin-app-* probe file (captured-throw.ts and any non-admin-app-*
  *  file in the same directory is skipped by the prefix filter). */
 async function loadProbes(): Promise<LoadedProbe[]> {
   const files = readdirSync(PROBES_DIR)

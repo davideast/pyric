@@ -1,3 +1,6 @@
+---
+navLabel: "Compare rulesets"
+---
 # How to compare two rulesets for weakening
 
 When you ship a rules change, the most dangerous mistake is silently removing a security predicate to make a failing test pass. Here's how to catch that before it deploys.

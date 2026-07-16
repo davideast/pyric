@@ -30,4 +30,4 @@ tooling, not to the Firebase-shaped `pyric/database` mirror.
 | Learn the constraints authoring workflow | [Author your first RTDB rules with constraints](../pyric-database-tutorials-01-author-rtdb-rules-with-constraints/) |
 | Look up the RTDB rules tooling API | [RTDB rules tooling reference](../pyric-database-reference-rules-tooling/) |
 | Understand package boundaries for authoring vs shipping | [Why RTDB rules authoring and deploy are separate](../pyric-database-explanation-rules-authoring-and-deploy-are-separate/) |
-| Check Firebase Database compatibility status | [Compatibility matrix](../pyric-database-compat/) |
+| Check Firebase Database compatibility status | [Compatibility matrix](https://pyric.dev/docs/pyric-database-compat/) |

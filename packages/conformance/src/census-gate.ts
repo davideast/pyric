@@ -7,33 +7,14 @@
  * runtime exports never enter either baseline. Stale and redundant public
  * dispositions are always fatal.
  */
-import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, writeFileSync } from 'node:fs';
-import type { CensusSurface } from './surface-denylist.ts';
+import { deriveConformanceModel, type ConformanceModel } from './conformance-model.ts';
+import { censusGapProblems, censusIntegrityProblems } from './census-policy.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = join(HERE, '..', '..', '..');
 const BASELINE_PATH = join(HERE, '..', 'baselines', 'census-baseline.json');
-const CENSUS_SCRIPT = join(HERE, 'surface-census.ts');
-
-interface CensusRow {
-  surface: CensusSurface;
-  runtime: {
-    unmapped: string[];
-    staleDispositions: string[];
-    redundantDispositions: string[];
-  };
-  types: { unmapped: string[] };
-}
-
-interface CensusJson {
-  surfaces: CensusRow[];
-  totalRuntimeUnmapped: number;
-  totalTypeUnmapped: number;
-  totalStaleOrRedundant: number;
-}
 
 interface Baseline {
   _comment: string;
@@ -42,33 +23,22 @@ interface Baseline {
   types: Record<string, string[]>;
 }
 
-function runCensus(): CensusJson {
-  try {
-    const output = execFileSync('bun', ['run', CENSUS_SCRIPT, '--json'], { encoding: 'utf8', cwd: REPO_ROOT });
-    return JSON.parse(output) as CensusJson;
-  } catch (error) {
-    const output = (error as { stdout?: string }).stdout;
-    if (!output) throw error;
-    return JSON.parse(output) as CensusJson;
-  }
-}
-
-function axisFrom(census: CensusJson, axis: 'runtime' | 'types'): Record<string, string[]> {
-  return Object.fromEntries(census.surfaces.map((surface) => [surface.surface, [...surface[axis].unmapped].sort()]));
+function axisFrom(census: ConformanceModel['census'], axis: 'runtime' | 'types'): Record<string, string[]> {
+  return Object.fromEntries(census.map((surface) => [surface.surface, [...surface[axis].unmapped].sort()]));
 }
 
 function gapCount(axis: Record<string, string[]>): number {
   return Object.values(axis).reduce((count, gaps) => count + gaps.length, 0);
 }
 
-const census = runCensus();
+const { census } = await deriveConformanceModel({ enforceCensusPolicy: false });
 
 if (process.argv.includes('--update')) {
   const baseline: Baseline = {
     _comment:
-      'Known unmapped PUBLIC Firebase exports tolerated by the census ratchet. Runtime and type namespaces are separate. Every entry remains in the public coverage denominator; the baseline prevents new gaps, it does not grant coverage credit. Regenerate with `bun run compat:census-gate --update`.',
-    generatedFrom: 'bun run compat:census',
-    runtime: axisFrom(census, 'runtime'),
+      'Known unmapped PUBLIC Firebase type exports tolerated by the census ratchet. Runtime gaps are never baseline-tolerated and must be classified in a surface contract. Every type entry remains in the public coverage denominator; the baseline prevents new gaps, it does not grant coverage credit. Regenerate with `bun run compat:census-gate --update`.',
+    generatedFrom: 'deriveConformanceModel().census',
+    runtime: {},
     types: axisFrom(census, 'types'),
   };
   writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + '\n');
@@ -78,35 +48,24 @@ if (process.argv.includes('--update')) {
 
 console.log('# Public-surface census gate');
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as Baseline;
-const problems: string[] = [];
+const problems = [
+  ...censusGapProblems(census, baseline),
+  ...censusIntegrityProblems(census),
+];
 let resolved = 0;
 
-for (const surface of census.surfaces) {
-  for (const axis of ['runtime', 'types'] as const) {
-    const previous = baseline[axis][surface.surface] ?? [];
-    const current = surface[axis].unmapped;
-    const previousSet = new Set(previous);
-    const introduced = current.filter((symbol) => !previousSet.has(symbol));
-    const paid = previous.filter((symbol) => !current.includes(symbol));
-    if (introduced.length > 0) {
-      problems.push(`${surface.surface} ${axis}: ${introduced.length} new public gap(s): ${introduced.join(', ')}`);
-    }
-    if (paid.length > 0) {
-      resolved += paid.length;
-      console.log(`\n${surface.surface} ${axis}: ${paid.length} baseline gap(s) resolved; regenerate the baseline:`);
-      for (const symbol of paid) console.log(`  - ${symbol}`);
-    }
-  }
-
-  if (surface.runtime.staleDispositions.length > 0) {
-    problems.push(`${surface.surface}: stale dispositions: ${surface.runtime.staleDispositions.join(', ')}`);
-  }
-  if (surface.runtime.redundantDispositions.length > 0) {
-    problems.push(`${surface.surface}: redundant dispositions: ${surface.runtime.redundantDispositions.join(', ')}`);
+for (const surface of census) {
+  const previous = baseline.types[surface.surface] ?? [];
+  const current = surface.types.unmapped;
+  const paid = previous.filter((symbol) => !current.includes(symbol));
+  if (paid.length > 0) {
+    resolved += paid.length;
+    console.log(`\n${surface.surface} types: ${paid.length} baseline gap(s) resolved; regenerate the baseline:`);
+    for (const symbol of paid) console.log(`  - ${symbol}`);
   }
 }
 
-console.log(`\nCurrent public gaps: ${census.totalRuntimeUnmapped} runtime, ${census.totalTypeUnmapped} types.`);
+console.log(`\nCurrent public gaps: ${gapCount(axisFrom(census, 'runtime'))} runtime, ${gapCount(axisFrom(census, 'types'))} types.`);
 console.log(`Baseline tolerates: ${gapCount(baseline.runtime)} runtime, ${gapCount(baseline.types)} types.`);
 
 if (problems.length > 0) {
