@@ -11,7 +11,7 @@
  * reads intermediates own-only.
  */
 import { describe, test, expect } from 'bun:test';
-import { applyUpdate, applyMerge } from '../../../src/sandbox/firestore/field-merge.js';
+import { applyUpdate, applyMerge } from '../../../src/firestore/sandbox/field-merge.js';
 
 describe('field-merge — prototype-pollution guard', () => {
   test('updateDoc `__proto__.x` dot-path does NOT pollute Object.prototype', () => {

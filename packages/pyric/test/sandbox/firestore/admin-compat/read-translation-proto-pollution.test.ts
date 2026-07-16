@@ -10,7 +10,7 @@
  * prototype.
  */
 import { describe, test, expect } from 'bun:test';
-import { translateReadData } from '../../../../src/sandbox/firestore/admin-compat/read-translation.js';
+import { translateReadData } from '../../../../src/firestore/sandbox/admin-compat/read-translation.js';
 
 describe('translateReadData — prototype-pollution guard', () => {
   test('a stored `__proto__` field does NOT pollute Object.prototype', () => {

@@ -13,12 +13,12 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { createCompatFirestore } from '../../../../src/sandbox/firestore/admin-compat/index.js';
+import { createCompatFirestore } from '../../../../src/firestore/sandbox/admin-compat/index.js';
 import {
   compareValues,
   typeOrderRank,
   TypeRank,
-} from '../../../../src/sandbox/firestore/admin-compat/value-order.js';
+} from '../../../../src/firestore/sandbox/admin-compat/value-order.js';
 
 const ts = (s: number, n = 0) => ({ seconds: s, nanos: n });
 const geo = (lat: number, lng: number) => ({ latitude: lat, longitude: lng });

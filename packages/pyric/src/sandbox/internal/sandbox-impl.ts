@@ -18,7 +18,7 @@
  * to {@link SandboxContext}, derived via `withAuth`.
  */
 
-import { LocalEnvironment } from '../firestore/local-environment.js';
+import { LocalEnvironment } from '../../firestore/sandbox/local-environment.js';
 import type { AuthState } from '../types/auth-state.js';
 import type { SandboxContext } from '../types/context.js';
 import { SandboxError } from '../types/errors.js';

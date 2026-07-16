@@ -15,7 +15,7 @@
  */
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
-import type { EventProvenance } from '../../types/events.js';
+import type { EventProvenance } from '../../../sandbox/types/events.js';
 import { FirestoreImpl } from './firestore.js';
 import {
   type AuthContext,

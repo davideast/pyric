@@ -21,7 +21,7 @@
 import type { DocumentData } from './local-state.js';
 import type { AgentEvent } from './event-log.js';
 import type { FirestoreSimError } from './errors.js';
-import type { EventProvenance } from '../types/events.js';
+import type { EventProvenance } from '../../sandbox/types/events.js';
 
 /**
  * Snapshot shape returned by `tx.get` / `tx.getAll`. Matches the Admin
