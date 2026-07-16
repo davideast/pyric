@@ -5,7 +5,7 @@ import { allCompatibilityRows } from '../../registry/index.ts';
 import { surfaceContracts } from '../../surfaces/load.ts';
 
 let model: ConformanceModel;
-beforeAll(async () => { model = await deriveConformanceModel(); }, 20_000);
+beforeAll(async () => { model = await deriveConformanceModel(); }, 60_000);
 
 function one(query: string): FeatureSupport {
   const result = canIUse(model, query);

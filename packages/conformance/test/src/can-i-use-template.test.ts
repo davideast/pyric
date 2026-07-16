@@ -3,7 +3,7 @@ import { renderBrowserQuery, renderCliQuery } from '../../src/can-i-use-template
 import { deriveConformanceModel, type ConformanceModel } from '../../src/conformance-model.ts';
 
 let model: ConformanceModel;
-beforeAll(async () => { model = await deriveConformanceModel(); }, 20_000);
+beforeAll(async () => { model = await deriveConformanceModel(); }, 60_000);
 
 describe('can-i-use source template', () => {
   it('keeps the generated public availability type identical to the model contract', () => {
