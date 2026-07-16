@@ -93,7 +93,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "prebuild": "test \"${PYRIC_CONFORMANCE_READY:-0}\" = \"1\" || bun run ../../packages/conformance/src/conformance-model.ts --write",
+    "prebuild": "test \"${PYRIC_CONFORMANCE_READY:-0}\" = \"1\" || bun run ../../packages/conformance/src/generate-projections.ts --write",
     "build": "tsc && bun run scripts/postbuild.ts",
     "pretest": "bash ../../scripts/build.sh --packages-only",
     "test": "bun test",
