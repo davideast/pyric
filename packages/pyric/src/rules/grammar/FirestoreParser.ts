@@ -46,17 +46,20 @@ semantics.addOperation<any>('toAST', {
   // normalize into the same AST shape — caller code reads
   // `ast.version`, `ast.imports`, and `ast.service` regardless of
   // which order the source declared them in.
-  RulesFile_versionFirst(version, imports, service) {
+  RulesFile_versionFirst(version, imports, functions, service) {
     return {
       imports: imports.children.map((c: any) => c.toAST()),
-      version: version.toAST(),
+      // `rules_version` is optional in production (absent means '1').
+      version: version.children.length > 0 ? version.children[0].toAST() : '1',
+      functions: functions.children.map((c: any) => c.toAST()),
       service: service.toAST(),
     } as FirestoreRules;
   },
-  RulesFile_importsFirst(imports, version, service) {
+  RulesFile_importsFirst(imports, version, functions, service) {
     return {
       imports: imports.children.map((c: any) => c.toAST()),
       version: version.toAST(),
+      functions: functions.children.map((c: any) => c.toAST()),
       service: service.toAST(),
     } as FirestoreRules;
   },
@@ -66,8 +69,15 @@ semantics.addOperation<any>('toAST', {
   RulesVersion(_kw, _eq, str, _semi) {
     return str.toAST().value;
   },
-  ServiceBlock(_kw, name, _lb, docMatch, _rb) {
-    return { name: name.sourceString, match: docMatch.toAST() } as ServiceBlock;
+  ServiceBlock(_kw, name, _lb, fnsBefore, docMatch, fnsAfter, _rb) {
+    return {
+      name: name.sourceString,
+      functions: [
+        ...fnsBefore.children.map((c: any) => c.toAST()),
+        ...fnsAfter.children.map((c: any) => c.toAST()),
+      ],
+      match: docMatch.toAST(),
+    } as ServiceBlock;
   },
   DocumentsMatch(_kw, path, _lb, body, _rb) {
     const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
@@ -225,6 +235,10 @@ semantics.addOperation<any>('toAST', {
   // can detect it via prefix check (legitimate pathIdent segments cannot
   // start with '{').
   PathLitSegment_captureRef(_lb, name, _rb) { return `{${name.sourceString}}`; },
+  // Parenthesized database id in a cross-service Firestore lookup path,
+  // e.g. `firestore.get(/databases/(default)/documents/...)`. The parens
+  // are part of the production path shape, so keep them in the segment.
+  PathLitSegment_parenLiteral(_lp, name, _rp) { return `(${name.sourceString})`; },
   PathLitSegment_literal(p) { return p.sourceString; },
   ListLiteral(_lb, items, _comma, _rb) {
     return { type: 'listLiteral', elements: items.asIteration().children.map((c: any) => c.toAST()) };

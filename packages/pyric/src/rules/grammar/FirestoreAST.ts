@@ -14,11 +14,19 @@ export interface ImportDecl {
 export interface FirestoreRules {
   version: string;
   imports: ImportDecl[];
+  /** Functions declared at global scope (between the header lines and the
+   *  service block). Visible everywhere inside the service. Absent on ASTs
+   *  constructed programmatically. */
+  functions?: FunctionDef[];
   service: ServiceBlock;
 }
 
 export interface ServiceBlock {
   name: string;
+  /** Functions declared directly inside `service { }`, outside any match.
+   *  Visible everywhere inside the service. Absent on ASTs constructed
+   *  programmatically. */
+  functions?: FunctionDef[];
   match: MatchBlock;
 }
 

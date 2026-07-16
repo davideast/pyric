@@ -1,6 +1,6 @@
 # Storage rules subset
 
-The Storage rules grammar in the v1 scope. Anything not listed is out of scope and will produce a parse error.
+Storage rules parse through the same grammar as Firestore rules — Firebase Security Rules is one language, and the full syntax (including comments, `rules_version`, string escapes, and float literals) is accepted. This page documents the **evaluation** surface: the bindings, operators, and builtins the Storage evaluator implements. A construct that parses but falls outside this surface denies with a reason at evaluation time rather than allowing.
 
 ## Service header
 
@@ -50,7 +50,7 @@ A granular grant covers only its own verb: `allow get` does not grant `list`, an
 
 ## Rule functions
 
-User-defined functions are supported, including `let` bindings:
+User-defined functions are supported at global scope, service scope, and inside `match` blocks (with optional `export`), including `let` bindings:
 
 ```rules
 function isOwner(uid) {
@@ -107,21 +107,26 @@ allow write: if firestore.exists(/databases/(default)/documents/sessions/$(reque
 
 ## Operators
 
-- **Unary**: `!`.
-- **Binary**: `&&`, `||`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `/`.
+- **Unary**: `!`, `-`.
+- **Binary**: `&&`, `||`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `/`, `%`.
+- **Ternary**: `cond ? a : b`.
+- **Membership**: `x in list` (element membership), `x in map` (key membership).
+- **Type test**: `x is string` / `bool` / `int` / `float` / `number` / `list` / `map`. A type test against a type the evaluator does not model (`timestamp`, `duration`, `path`, `latlng`) denies with a reason.
+- **Indexing**: `a['key']`, and slice access `a[i:j]` on lists.
 - **Parentheses** for grouping.
 - **Short-circuit** evaluation matches Firestore's rules engine.
 
 ## Literal values
 
-Strings (`'...'` or `"..."`), numbers, booleans (`true` / `false`), `null`, `timestamp.date(...)`.
+Strings (`'...'` or `"..."`, with escape sequences), integers and floats, booleans (`true` / `false`), `null`, list literals (`['a', 'b']`), map literals (`{'k': v}`), `timestamp.date(...)`.
 
 ## Out of scope
 
-These still produce parse or evaluation errors:
+These parse but produce evaluation errors (deny with a reason):
 
 - The content-hash fields (`resource.md5Hash`, `resource.crc32c`, `resource.etag`).
 - Regex constructs that RE2 can't express inside `matches()`.
+- `import` declarations: the syntax parses, but module resolution is not implemented — calling an imported function denies as an undefined function.
 
 See [Implementation scope and deferred features](../explanation/implementation-scope.md) for the reasoning.
 

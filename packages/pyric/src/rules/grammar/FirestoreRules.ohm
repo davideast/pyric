@@ -10,14 +10,14 @@ FirestoreRules {
   // declarations above the version line working. The semantic
   // action below normalizes both into the same AST shape, so
   // downstream code doesn't have to care which path matched.
-  RulesFile = RulesVersion ImportDecl* ServiceBlock  -- versionFirst
-            | ImportDecl* RulesVersion ServiceBlock  -- importsFirst
+  RulesFile = RulesVersion? ImportDecl* FunctionDef* ServiceBlock  -- versionFirst
+            | ImportDecl* RulesVersion FunctionDef* ServiceBlock   -- importsFirst
 
   ImportDecl = "import" "{" ListOf<ident, ","> ","? "}" "from" string ";"
 
   RulesVersion = "rules_version" "=" string ";"
 
-  ServiceBlock = "service" serviceName "{" DocumentsMatch "}"
+  ServiceBlock = "service" serviceName "{" FunctionDef* DocumentsMatch FunctionDef* "}"
 
   DocumentsMatch = "match" matchPath "{" MatchBody "}"
 
@@ -148,9 +148,10 @@ FirestoreRules {
   PathLiteral = "/" PathLitSegment ("/" PathLitSegment)*
 
   PathLitSegment
-    = "$(" Expr ")"    -- interpolation
-    | "{" ident "}"    -- captureRef
-    | pathIdent        -- literal
+    = "$(" Expr ")"          -- interpolation
+    | "{" ident "}"          -- captureRef
+    | "(" pathIdent ")"      -- parenLiteral
+    | pathIdent              -- literal
 
   // === Literals ===
 

@@ -84,7 +84,7 @@ describe('parseStorageRules', () => {
           match /x/{id} { allow query: if true; }
         }
       }`),
-    ).toThrow(/Unsupported verb "query"/);
+    ).toThrow(/expected "delete", "update", "create", "list", "get", "write", or "read"/);
   });
 
   it('rejects unterminated strings', () => {
