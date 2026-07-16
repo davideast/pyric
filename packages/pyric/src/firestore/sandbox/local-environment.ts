@@ -89,6 +89,7 @@ export { SimulatorUnsupportedError } from './rules-evaluation.js';
 import { docDataEqual, anyPathInCollection } from './listener-delivery.js';
 import { listQueryFromStructured } from './reads.js';
 import { FirestoreEventBus } from './event-bus.js';
+import { HistoryControls } from './history-controls.js';
 import {
   SimulatorUnsupportedError,
   unsupportedMessage,
@@ -106,6 +107,7 @@ import {
 export class LocalEnvironment {
   private state: DocStore;
   private eventLog: EventLog;
+  private readonly history: HistoryControls;
   private simulator: SimulateFirestoreRulesHandler;
   private rulesSource: string;
   private seedSnapshot: Record<string, DocumentData>;
@@ -175,6 +177,14 @@ export class LocalEnvironment {
   constructor() {
     this.state = new LocalState();
     this.eventLog = new EventLog();
+    // Undo/redo needs live keyspace access (`seed()` replaces `state`) and
+    // the engine's write application — injected as a narrow HistoryHost.
+    const engine = this;
+    this.history = new HistoryControls(this.eventLog, {
+      get state() { return engine.state; },
+      capturePriors: (paths) => this.capturePriors(paths),
+      applyWrite: (method, path, data, merge) => this.applyWrite(method, path, data, merge),
+    });
     this.simulator = new SimulateFirestoreRulesHandler();
     // Default to an allow-all ruleset so a freshly-constructed sandbox
     // works for the quickstart `addDoc` / `getDoc` flow without forcing
@@ -3042,63 +3052,25 @@ export class LocalEnvironment {
   /** Undo the last write operation. Restores the affected paths (single-write /
    *  batch) or the whole keyspace (transaction) to their pre-write state. */
   undo(): AgentEvent | null {
-    const event = this.eventLog.popLastWrite();
-    if (!event) return null;
-    if (event.priorDocs) this.state.restorePaths(event.priorDocs);
-    else if (event.snapshot) this.state.restore(event.snapshot);
-    else return null;
-    return event;
+    return this.history.undo();
   }
 
   /** Redo the last undone operation. Re-applies the write directly
    *  without going through execute() (which would clear the redo stack). */
   redo(): OperationResult | null {
-    const event = this.eventLog.popLastUndo();
-    if (!event) return null;
-
-    // Capture prior state BEFORE re-applying (for a future undo of this redo),
-    // matching the kind the event used: affected paths for single-write / batch,
-    // the whole keyspace for a transaction.
-    const affectedPaths = (event.type === 'batch' && event.operations)
-      ? event.operations.map((op) => op.path)
-      : event.path ? [event.path] : [];
-    const useFullSnapshot = !!event.snapshot;
-    const priorDocs = useFullSnapshot ? undefined : this.capturePriors(affectedPaths);
-    const snapshot = useFullSnapshot ? this.state.snapshot() : undefined;
-
-    // Re-apply the write directly to state
-    if (event.type === 'batch' && event.operations) {
-      for (const op of event.operations) {
-        if (op.allowed) this.applyWrite(op.method, op.path, op.data);
-      }
-    } else if (event.allowed) {
-      this.applyWrite(event.method, event.path, event.data);
-    }
-
-    // Re-append with preserveRedo=true so remaining redos aren't lost
-    const newEvent = this.eventLog.append({
-      ...event,
-      snapshot,
-      priorDocs,
-    }, true);
-
-    return {
-      allowed: event.allowed,
-      debugMessages: ['Redo: ' + (event.allowed ? 'applied' : 'skipped (was denied)')],
-      event: newEvent,
-    };
+    return this.history.redo();
   }
 
   // ═══ Event log access ═══
 
   /** Get all events. */
   getEvents(): AgentEvent[] {
-    return this.eventLog.getEvents();
+    return this.history.getEvents();
   }
 
   /** Get event count. */
   getEventCount(): number {
-    return this.eventLog.size();
+    return this.history.getEventCount();
   }
 
   // ═══ Private helpers ═══
