@@ -875,9 +875,12 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (isErr(el)) return el;
       const coll = evalExpr(expr.collection, ctx);
       if (isErr(coll)) return coll;
-      // `x in list` is membership; `x in map` tests KEYS (CEL semantics).
+      // `x in list` is membership; `x in map` tests OWN keys only — production
+      // maps never expose prototype names (`'toString' in map` is false;
+      // live-pinned by rules-firestore-prototype-chain-keys), so JS `in`
+      // (which walks the prototype chain) would false-ALLOW here.
       if (Array.isArray(coll)) return coll.some((v) => v === el || (v == null && el == null));
-      if (coll !== null && typeof coll === 'object') return typeof el === 'string' && el in (coll as Record<string, unknown>);
+      if (coll !== null && typeof coll === 'object') return typeof el === 'string' && Object.prototype.hasOwnProperty.call(coll, el);
       return new RuleError(`'in' applied to ${describeType(coll)} (expected a list or map).`);
     }
     case 'is': {
@@ -916,9 +919,16 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (typeof start !== 'number' || typeof end !== 'number' || !Number.isInteger(start) || !Number.isInteger(end)) {
         return new RuleError(`Slice bounds must be integers.`);
       }
-      // Production slices lists; path.split() results are the common target.
-      if (Array.isArray(t) || typeof t === 'string') return t.slice(start, end);
-      return new RuleError(`Slice applied to ${describeType(t)} (expected a list).`);
+      // Production slices lists AND strings, but an out-of-range bound ERRORS
+      // (deny) — it does NOT clamp the way JS `.slice()` does (live-pinned by
+      // rules-firestore-range-slice-list-and-string: end past length → DENY).
+      if (Array.isArray(t) || typeof t === 'string') {
+        if (start < 0 || end < start || end > t.length) {
+          return new RuleError(`Slice bounds [${start}:${end}] out of range for ${describeType(t)} of size ${t.length}.`);
+        }
+        return t.slice(start, end);
+      }
+      return new RuleError(`Slice applied to ${describeType(t)} (expected a list or string).`);
     }
     case 'binary': {
       // Short-circuit && / || so half-undefined chains don't trip
@@ -945,10 +955,12 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       switch (expr.op) {
         // Firebase rules treat `null` and `undefined` as
         // equivalent (helpful for `request.resource == null` on
-        // deletes, which don't carry a resource payload). Mirror
-        // that semantic; everything else is strict equality.
-        case '==': return l === r || (l == null && r == null);
-        case '!=': return !(l === r || (l == null && r == null));
+        // deletes, which don't carry a resource payload). Lists and
+        // maps compare STRUCTURALLY (production `[a] == [a]` is true;
+        // JS reference identity would make every literal comparison
+        // false). Everything else is strict equality.
+        case '==': return rulesEquals(l, r);
+        case '!=': return !rulesEquals(l, r);
         case '<':  return cmp(l, r) < 0;
         case '>':  return cmp(l, r) > 0;
         case '<=': return cmp(l, r) <= 0;
@@ -956,8 +968,11 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
         case '+':  return numOp(l, r, (a, b) => a + b);
         case '-':  return numOp(l, r, (a, b) => a - b);
         case '*':  return numOp(l, r, (a, b) => a * b);
-        case '/':  return numOp(l, r, (a, b) => a / b);
-        case '%':  return numOp(l, r, (a, b) => a % b);
+        // A zero divisor ERRORS in production (deny; `10 / 0 || true` still
+        // absorbs to allow) — JS would yield Infinity/NaN, and Infinity leaks
+        // through comparisons as a false-ALLOW.
+        case '/':  return r === 0 ? new RuleError('Division by zero.') : numOp(l, r, (a, b) => a / b);
+        case '%':  return r === 0 ? new RuleError('Modulo by zero.') : numOp(l, r, (a, b) => a % b);
       }
     }
   }
@@ -1148,6 +1163,14 @@ function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCt
 
   if (expr.method === 'matches') {
     return evalMatches(expr, ctx);
+  }
+
+  if (expr.method === 'split') {
+    return evalSplit(expr, ctx);
+  }
+
+  if (expr.method === 'size') {
+    return evalSize(expr, ctx);
   }
 
   throw new RuleEvalError(`unsupported method .${expr.method}()`);
@@ -1348,6 +1371,79 @@ function evalMatches(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx):
     throw new RuleEvalError(`matches() invalid regex pattern: ${(err as Error).message}`);
   }
   return re.test(subject);
+}
+
+/**
+ * Evaluate `string.split(re)` — RE2 regex split, the storage-rules idiom for
+ * segmenting object names (`fileId.split('-')[0:2]`). Shares matches()'s
+ * RE2-vs-JS guard: constructs RE2 rejects (backreferences, lookaround) deny
+ * with a reason rather than silently (mis)compiling under JS semantics.
+ */
+function evalSplit(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
+  const subject = evalExpr(expr.target, ctx);
+  if (isErr(subject)) return subject;
+  if (typeof subject !== 'string') {
+    throw new RuleEvalError(`split() requires a string target, got ${describeType(subject)}`);
+  }
+  if (expr.args.length !== 1) {
+    throw new RuleEvalError(`split() expects a single pattern argument`);
+  }
+  const pattern = evalExpr(expr.args[0], ctx);
+  if (typeof pattern !== 'string') {
+    throw new RuleEvalError(`split() pattern must be a string`);
+  }
+  const backref = /\\[1-9]/.test(pattern);
+  const lookaround = /\(\?<?[=!]/.test(pattern);
+  if (backref || lookaround) {
+    throw new RuleEvalError(
+      `split() pattern uses an RE2-unsupported construct (${backref ? 'backreference' : 'lookaround'}) that production would reject`,
+    );
+  }
+  let re: RegExp;
+  try {
+    re = new RegExp(pattern);
+  } catch (err) {
+    throw new RuleEvalError(`split() invalid regex pattern: ${(err as Error).message}`);
+  }
+  return subject.split(re);
+}
+
+/**
+ * Evaluate `.size()` on the three sized types (string → length, list →
+ * element count, map → own-key count). Anything else denies with a reason.
+ */
+function evalSize(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
+  const subject = evalExpr(expr.target, ctx);
+  if (isErr(subject)) return subject;
+  if (expr.args.length !== 0) {
+    throw new RuleEvalError(`size() expects no arguments`);
+  }
+  if (typeof subject === 'string' || Array.isArray(subject)) return subject.length;
+  if (subject !== null && typeof subject === 'object') return Object.keys(subject).length;
+  throw new RuleEvalError(`size() requires a string, list, or map target, got ${describeType(subject)}`);
+}
+
+/**
+ * Rules `==` semantics: `null`/`undefined` are equivalent, lists and maps
+ * compare structurally (element-by-element / own-key-by-own-key), everything
+ * else is strict identity.
+ */
+function rulesEquals(l: unknown, r: unknown): boolean {
+  if (l === r) return true;
+  if (l == null || r == null) return l == null && r == null;
+  if (Array.isArray(l) && Array.isArray(r)) {
+    return l.length === r.length && l.every((v, i) => rulesEquals(v, r[i]));
+  }
+  if (typeof l === 'object' && typeof r === 'object' && !Array.isArray(l) && !Array.isArray(r)) {
+    const lk = Object.keys(l as Record<string, unknown>);
+    const rk = Object.keys(r as Record<string, unknown>);
+    return lk.length === rk.length && lk.every(
+      (k) =>
+        Object.prototype.hasOwnProperty.call(r, k) &&
+        rulesEquals((l as Record<string, unknown>)[k], (r as Record<string, unknown>)[k]),
+    );
+  }
+  return false;
 }
 
 function describeType(v: unknown): string {

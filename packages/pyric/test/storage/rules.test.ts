@@ -1303,3 +1303,76 @@ service firebase.storage {
     expect(result.reasons.join(' ')).toMatch(/Null value error/);
   });
 });
+
+describe('production-pinned JS-semantics guards (no false-allow via JS leakage)', () => {
+  /** One-condition harness: evaluate `if <cond>` for a create of a-b-c.png. */
+  const verdict = (cond: string, path = 'x/a-b-c.png') => {
+    const rules = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{fileId} {
+      allow create: if ${cond};
+    }
+  }
+}`);
+    return evaluateStorageRules(rules, {
+      request: {
+        auth: { uid: 'a' },
+        method: 'create',
+        path: `/b/b1/o/${path}`,
+        resource: { size: 100, contentType: 'image/png', metadata: { owner: 'a' } },
+      },
+      resource: null,
+    }).allowed;
+  };
+
+  /** The regression this guards: JS `in` walks the prototype chain, so
+   *  `'toString' in map` would be TRUE → ALLOW; production maps expose own
+   *  keys only (pinned by rules-firestore-prototype-chain-keys). */
+  it('`in` on maps tests own keys only — prototype names are not keys', () => {
+    expect(verdict(`'toString' in request.resource.metadata`)).toBe(false);
+    expect(verdict(`'constructor' in {'a': 1}`)).toBe(false);
+    expect(verdict(`!('hasOwnProperty' in request.resource.metadata)`)).toBe(true);
+    expect(verdict(`'owner' in request.resource.metadata`)).toBe(true);
+  });
+
+  /** The regression this guards: JS division by zero yields Infinity, and
+   *  `Infinity > n` is TRUE → ALLOW; production errors (denies), while
+   *  `error || true` still absorbs to allow. */
+  it('division/modulo by zero errors and denies, absorbable by ||', () => {
+    expect(verdict('request.resource.size / 0 > 5')).toBe(false);
+    expect(verdict('request.resource.size % 0 == 0')).toBe(false);
+    expect(verdict('(request.resource.size / 0 == 0) ? true : true')).toBe(false);
+    expect(verdict('(request.resource.size / 0 == 0) || true')).toBe(true);
+  });
+
+  /** The regression this guards: JS `.slice()` clamps out-of-range bounds;
+   *  production errors (pinned by rules-firestore-range-slice-list-and-string:
+   *  an end past length denies). */
+  it('out-of-range slice bounds error and deny instead of clamping', () => {
+    expect(verdict(`fileId.split('-')[0:2].size() == 2`)).toBe(true);
+    expect(verdict(`fileId.split('-')[0:9].size() >= 0`)).toBe(false);
+    expect(verdict(`'abcdef'[1:4] == 'bcd'`)).toBe(true);
+    expect(verdict(`'abc'[1:9].size() >= 0`)).toBe(false);
+  });
+
+  /** The regression this guards: `===` on arrays/maps is reference identity,
+   *  so a slice or literal could never equal another literal (false-DENY),
+   *  and `!=` would false-ALLOW; production compares structurally. */
+  it('lists and maps compare structurally under == / !=', () => {
+    expect(verdict(`fileId.split('-')[0:2] == ['a', 'b']`)).toBe(true);
+    expect(verdict(`['a', 'b'] != ['a', 'b']`)).toBe(false);
+    expect(verdict(`{'k': 1} == {'k': 1}`)).toBe(true);
+    expect(verdict(`{'k': 1} == {'k': 2}`)).toBe(false);
+  });
+
+  it('split() rejects RE2-unsupported constructs with a deny-reason', () => {
+    expect(verdict(`fileId.split('(?=x)').size() > 0`)).toBe(false);
+  });
+
+  it('size() covers strings, lists, and map own-keys', () => {
+    expect(verdict(`'abc'.size() == 3`)).toBe(true);
+    expect(verdict(`request.resource.metadata.size() == 1`)).toBe(true);
+    expect(verdict(`request.resource.size.size() > 0`)).toBe(false);
+  });
+});
