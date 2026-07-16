@@ -265,7 +265,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
   ));
   const features = new Map<string, MutableFeature>();
   const developerSurfaceByContract = new Map(surfaceContracts.map(({ key, record }) =>
-    [key, record.developerSurface as DeveloperSurface] as const,
+    [key, record.developerSurface] as const,
   ));
   const importsByContract = new Map<string, readonly string[]>();
   const runtimeExportsByContract = new Map<string, ReadonlySet<string>>();
@@ -288,7 +288,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
   }
   const evidenceSlugByDeveloperSurface = new Map<DeveloperSurface, string>();
   for (const descriptor of surfaceDescriptors) {
-    const surface = descriptor.developerSurface as DeveloperSurface;
+    const surface = descriptor.developerSurface;
     const slug = compatibilitySlug(descriptor.compatPath);
     const prior = evidenceSlugByDeveloperSurface.get(surface);
     if (prior && prior !== slug) {
@@ -301,7 +301,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
     const imports = record.kind === 'mirror' || record.kind === 'census-only'
       ? record.mirrors
       : record.evidenceImports ?? [];
-    const surface = record.developerSurface as DeveloperSurface;
+    const surface = record.developerSurface;
     const evidenceSlug = evidenceSlugByDeveloperSurface.get(surface);
     if (!evidenceSlug) throw new Error(`No evidence page for developer surface '${surface}'`);
     for (const importPath of imports) {
