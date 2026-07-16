@@ -49,7 +49,7 @@ The report is severity-ranked, critical findings first, each citing the simulati
 
 ## And from an agent
 
-All three audits are agent skills. Install them once and "audit my rules" becomes a request your agent executes end to end, running the same simulations and returning the same evidence-backed report. Install and catalog: [skills](../agent/skills.md).
+An MCP-connected agent can execute the audit end to end, running the same simulations and returning the same evidence-backed report. Start with the concrete prompts in [Work with an agent](../agent/work-with-an-agent.md).
 
 ## Where to go next
 

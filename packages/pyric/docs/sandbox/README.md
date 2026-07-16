@@ -45,7 +45,7 @@ Two contexts, one sandbox, shared data. The rules engine evaluates `aliceDb`'s w
 
 ## Where to go next
 
-Documentation is organised under [`docs/`](./docs/) following the [Diataxis](https://diataxis.fr/) framework:
+Documentation is organised under [`docs/`](./docs/):
 
 | If you want to | Read |
 |---|---|

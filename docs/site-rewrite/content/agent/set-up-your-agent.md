@@ -89,4 +89,4 @@ Do not start a second `pyric dev` next to it. Two servers means two sandboxes, a
 
 ## Where to go next
 
-No project yet? [Start building](../get-started/start-building.md) gets you a backend in one command first. Then see what the connection buys you in [what your agent can do](./what-your-agent-can-do.md).
+No project yet? [Start building](../get-started/start-building.md) gets you a backend in one command first. Then give the connection a real task in [Work with an agent](./work-with-an-agent.md).

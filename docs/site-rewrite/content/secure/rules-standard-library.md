@@ -1,99 +1,132 @@
 ---
-title: Build your rules from tested parts
+title: Use tested modules in Firestore Security Rules
 navLabel: The rules standard library
-outcome: Compose security rules from tested modules, with an import system that compiles away before Firebase ever sees it.
+outcome: Import a tested rule function, resolve it to ordinary Firebase Rules, then lint and simulate the result.
 status: draft
 ---
 
-# Build your rules from tested parts
+# Use tested modules in Firestore Security Rules
 
-This is a Firestore rules file:
+Pyric's standard library is a set of tested Firestore Rules functions. The `2+modules` source format adds imports for local development; the resolver replaces those imports with ordinary `rules_version = '2'` functions before deployment.
+
+This example lets an author update a post, prevents changes to `authorId` and `createdAt`, and requires a two-second cooldown between edits.
+
+## Import the functions you need
+
+Create `firestore.modules.rules`:
 
 ```rules
 rules_version = '2+modules';
-import { isMyTurn, turnFlipped } from 'turns';
+
+import { isAuthor } from 'content';
+import { onlyFieldsChanged, isServerTimestamp } from 'lifecycle';
+import { cooldownElapsed } from 'timing';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /games/{gameId} {
-      allow update: if isMyTurn() && turnFlipped();
+    match /posts/{postId} {
+      allow update: if isAuthor('authorId')
+        && onlyFieldsChanged(['title', 'body', 'updatedAt'])
+        && cooldownElapsed('updatedAt', 2)
+        && isServerTimestamp('updatedAt');
     }
   }
 }
 ```
 
-The rules language has no import statement. This file deploys anyway, and what lands on Firebase is stock `rules_version = '2'` with the two functions inlined at the top of the match tree. `isMyTurn` and `turnFlipped` are not snippets you pasted. They are functions from a tested module, pulled in by name.
+Imports are flat: call `isAuthor(...)`, not `content.isAuthor(...)`. Resolution fails if an imported name collides with a function already declared in your file.
 
-## An import system that compiles away
+`cooldownElapsed('updatedAt', 2)` compares the stored timestamp with `request.time`. Pairing it with `isServerTimestamp('updatedAt')` matters: without that second check, a client could submit an old timestamp and bypass the next cooldown. `cooldownElapsed` is for updates because it reads `resource.data`.
 
-Declare `rules_version = '2+modules'` instead of `'2'` and the import syntax becomes legal. When you lint, simulate, or deploy, the resolver:
+## Resolve to deployable Rules
 
-- reads each import and pulls in the functions you named, plus anything they call
-- prefixes each module's private helpers with the module name, so two modules can never collide
-- orders dependencies before dependents and injects the result into your ruleset
-- rewrites the version back to `'2'`
+Firebase does not understand `2+modules`, so compile the imports away:
 
-The output is byte-valid stock Firestore rules. Firebase never sees the module system.
-
-Two things to know once you are inside it:
-
-- Imports resolve to flat names. You call `hasRequired([...])`, never `validation.hasRequired(...)`.
-- If an imported function collides with one your file already defines, resolution fails loudly instead of shadowing anything.
-
-## Rate limits, atomic pairs, and state machines
-
-Fifteen modules ship with Pyric. A few exist specifically because the received wisdom says they can't.
-
-**Rules can rate-limit.** `timing.cooldownElapsed('lastMoveAt', 2)` allows an update only when the stored timestamp is more than two seconds old. On its own that is forgeable, because the client writes the timestamp and could write one from last week. So pair it with `isServerTimestamp('lastMoveAt')` from `lifecycle` on the same write, which forces the field to be the server's own clock:
-
-```rules
-import { cooldownElapsed } from 'timing';
-import { isServerTimestamp } from 'lifecycle';
-
-// At most one move every 2 seconds
-allow update: if cooldownElapsed('lastMoveAt', 2)
-  && isServerTimestamp('lastMoveAt');
+```bash
+pyric firestore rules resolve firestore.modules.rules --out firestore.rules
 ```
 
-A missing or non-timestamp field errors, and an error denies. Verified against the production rules engine, not a simulation of it.
+The generated `firestore.rules` contains `rules_version = '2'` and the imported function bodies. Point `firebase.json` at that generated file, and commit both the module source and resolved output if production deploys from the repository.
 
-**Rules can enforce integrity across a batch.** The `atomic` module uses the `get()`/`getAfter()` pair, where `getAfter()` reads another document as it will be after the current batch commits. `companionChangedBy(before, after, 'taskCount', 1)` allows a write only if a companion document's counter moved by exactly one in the same batch.
+## Lint and simulate the resolved result
 
-A solo write denies by construction: outside a batch, `getAfter()` equals `get()`, so the delta is zero. `consumedFlag` handles single-use invites the same way, pre-batch false and post-batch true, so a replay of the consuming write denies.
+```bash
+pyric firestore rules lint firestore.rules
+```
 
-Live-verified against a real production database, rules deployed and batch commits issued as a signed-in user. One thing to remember: every write in a batch is evaluated, so the companion write needs its own allow rule.
+You can then exercise the rule through the public API:
 
-**Rules can be a state machine.** `transitions.validTransition('status', 'pending', 'paid')` names exactly which edge a write may traverse, and nothing else.
+```ts
+import { readFileSync } from 'node:fs';
+import { firestoreRules } from 'pyric/rules';
 
-**Membership can change safely with no backend.** `spaces` gates a subcollection through its parent document's members field, list-shaped or map-shaped, and fails closed when the field or the parent document is missing.
+const source = readFileSync('firestore.rules', 'utf8');
+const result = firestoreRules(source).simulate([
+  {
+    description: 'author changes the title after the cooldown',
+    expectation: 'ALLOW',
+    method: 'update',
+    path: 'posts/p1',
+    auth: { uid: 'alice' },
+    requestTime: '2026-07-16T12:00:03.000Z',
+    resource: {
+      authorId: 'alice',
+      title: 'Old',
+      body: 'Text',
+      updatedAt: '2026-07-16T12:00:00.000Z',
+    },
+    data: {
+      authorId: 'alice',
+      title: 'New',
+      body: 'Text',
+      updatedAt: '2026-07-16T12:00:03.000Z',
+    },
+  },
+]);
 
-`joining` covers the write side. `onlyAddedSelf('members', 'editor')` uses set equality on the map diff, so the write adds exactly the caller at exactly that role. Nobody else changed, nobody removed, no self-granted admin.
+if (result.failed > 0 || result.unsupported > 0) process.exit(1);
+```
 
-Compose it with `lifecycle.onlyFieldsChanged(['members'])` and a join cannot touch anything else on the document. Production-verified, ten scenarios of ten.
+Pin `requestTime` whenever a rule reads `request.time`, otherwise the test depends on the clock.
 
-One gotcha worth taking from `membership` even if you never import it: custom claims live at `request.auth.token.admin`, not `request.auth.admin`. The second form reads null and quietly denies forever.
+## Choose a module
 
-## The everyday modules
+These are the importable modules shipped with Pyric:
 
-The rest of the shelf covers the common shapes.
+| Module | Use it for | Main functions |
+|---|---|---|
+| `auth` | Authentication and ownership | `isAuthenticated`, `isOwner` |
+| `validation` | Required fields, allowed fields, strings, enums | `hasRequired`, `hasOnly`, `validString`, `isOneOf` |
+| `lifecycle` | Immutable or changed fields and server timestamps | `fieldUnchanged`, `immutableFields`, `isServerTimestamp`, `onlyFieldsChanged`, `nFieldsChanged` |
+| `content` | Author-owned documents and published visibility | `validAuthorCreate`, `isAuthor`, `canReadContent`, `notDeleted` |
+| `membership` | Claims and document membership maps | `hasClaim`, `hasClaimRole`, `isMemberOf`, `hasRole` |
+| `spaces` | Parent-document membership for child data | `isSpaceMember`, `hasSpaceRole`, `validMemberCreate` |
+| `joining` | Safe self-service join and leave | `onlyAddedSelf`, `onlyRemovedSelf` |
+| `transitions` | Allowed state-machine edges | `validTransition`, `statusIs`, `newStatusIs` |
+| `counters` | Bounded values and controlled numeric changes | `incrementedBy`, `changedBy`, `boundedNumber` |
+| `timing` | Update cooldowns | `cooldownElapsed` |
+| `atomic` | Companion changes in one batch | `companionChangedBy`, `consumedFlag` |
+| `geometry` | Config-driven game moves | `validSimpleMove`, `validJumpMove` |
+| `lobby` | Two-player session creation and joining | `validCreate`, `validJoin`, `canCancel` |
+| `turns` | Two-player turn enforcement | `isMyTurn`, `turnFlipped` |
+| `state` | Game status, move count, and participants | `isPlaying`, `moveIncremented`, `participantsUnchanged` |
 
-| Module | What it covers |
-|---|---|
-| `auth` | the two checks every app writes first |
-| `validation` | field shape and enum checks |
-| `lifecycle` | `onlyFieldsChanged`, the single most common update guard: users may edit these fields and nothing else |
-| `content` | author-owned documents with draft visibility and soft delete |
-| `counters` | client-maintained numbers that may only change by known steps |
-| `lobby`, `turns`, `state`, `geometry` | the game set the case studies are built from |
+The game-oriented modules assume the field conventions documented by their function descriptions. Prefer the general modules for application data unless your schema matches those conventions.
 
-Every module ships with test fixtures that execute against the rules engine in CI, and each case must decide allow or deny as expected. The modules making the boldest claims, `timing`, `atomic`, `spaces`, `joining`, and `geometry`, are verified against production Firebase as well.
+## Look up exact signatures through an agent
 
-This page is a guide, not the catalog. The full module list, every signature with its gotchas, lives in the [module manifest](../../../../packages/pyric/src/rules/modules/stdlib/STDLIB.md) until the reference section lands.
+Do not ask an agent to guess a helper name. Ask it to inspect the library first:
 
-## And from an agent
+> Find the standard-library functions for an author-owned post with a server-timestamp cooldown. Show the signatures, compose the rule, resolve it, lint it, and simulate one allowed edit and one too-fast edit.
 
-An agent does not memorize any of this. `firestore_rules_stdlib_get({ key: 'timing' })` returns a module's signatures, examples, and gotchas, and the resolver runs in-process, so the agent composes a ruleset from modules, lints it, and simulates verdicts before anything deploys. See [skills](../agent/skills.md).
+The agent calls `firestore_rules_stdlib_list`, then `firestore_rules_stdlib_get` for `content`, `lifecycle`, and `timing`. It resolves the source with `firestore_resolve_modules`, checks it with `firestore_lint_rules`, and runs the two cases with `firestore_simulate_rules`.
 
-## Where to go next
+## Deploy the resolved file
 
-The modules are built from techniques you can use directly, in [rules patterns](../secure/rules-patterns.md). To prove a composed ruleset behaves before it ships, go to [simulate and lint before you deploy](../secure/simulate-and-lint.md).
+Only deploy the resolved `rules_version = '2'` file:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+For the compiler and evaluator ceilings that can still reject a valid-looking ruleset, see [Firestore Rules limits](./limits-that-bite.md).

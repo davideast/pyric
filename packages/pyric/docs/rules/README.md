@@ -68,7 +68,7 @@ import { resolveModules, createFirestoreRulesTools } from 'pyric/rules/internal/
 
 ## Where to go next
 
-Documentation is organised under [`docs/`](./docs/) following the [Diataxis](https://diataxis.fr/) framework:
+Documentation is organised under [`docs/`](./docs/):
 
 | If you want to | Read |
 |---|---|

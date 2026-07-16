@@ -34,10 +34,9 @@ service cloud.firestore {
 Now ask the question. No deploy, no network, no Firebase project. The simulator runs in-process.
 
 ```ts
-import { SimulateFirestoreRulesHandler } from 'pyric/rules';
+import { firestoreRules } from 'pyric/rules';
 
-const sim = new SimulateFirestoreRulesHandler();
-const { data } = sim.simulate(source, [
+const result = firestoreRules(source).simulate([
   {
     description: 'owner updates their own note',
     expectation: 'ALLOW',
@@ -58,7 +57,7 @@ const { data } = sim.simulate(source, [
   },
 ]);
 
-console.log(`${data.passed} passed, ${data.failed} failed`); // 2 passed, 0 failed
+console.log(`${result.passed} passed, ${result.failed} failed`); // 2 passed, 0 failed
 ```
 
 ## Read the verdict
@@ -93,14 +92,12 @@ That loop is the core. The wing deepens each step.
 - [Write a rules test suite](../secure/write-a-rules-test-suite.md). Turn one-off simulations into a suite that runs in CI.
 - [Read a denial and understand it](../secure/read-a-denial.md). Every denial carries the rule, path, and data that produced it.
 - [The rules standard library](../secure/rules-standard-library.md). Tested rule modules, composed with an import the rules language does not have.
-- [Rules patterns](../secure/rules-patterns.md). The techniques the hard rules are built from.
 - [Rules limits, measured](../secure/limits-that-bite.md). The production compiler's real limits, with numbers.
 - [Audit your rules and data](../secure/audit-your-rules.md). Find the holes before someone else does.
-- [Case studies](../secure/whats-possible.md). Deployed rulesets that enforce chess, connect four, and tax math.
 
 ## And from an agent
 
-An agent working in your sandbox can call `firestore_simulate_rules` to check a request's verdict before it writes, so it verifies its own rules instead of guessing. The audit skills go further: point one at your ruleset and it hunts for holes methodically. See [skills](../agent/skills.md).
+An agent working in your sandbox can call `firestore_simulate_rules` to check a request's verdict before it writes, so it verifies its own rules instead of guessing. [Work with an agent](../agent/work-with-an-agent.md) gives complete task prompts and names the evidence each tool returns.
 
 ## Where to go next
 

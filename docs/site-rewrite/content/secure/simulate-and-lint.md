@@ -16,10 +16,9 @@ Simulation tells you what a rule decides. Linting tells you what the production 
 Ask the simulator whether a specific request would be allowed. It runs in-process, no network, no project:
 
 ```ts
-import { SimulateFirestoreRulesHandler } from 'pyric/rules';
+import { firestoreRules } from 'pyric/rules';
 
-const sim = new SimulateFirestoreRulesHandler();
-const result = sim.simulate(source, [
+const result = firestoreRules(source).simulate([
   {
     description: 'unauthenticated read is denied',
     expectation: 'DENY',
@@ -98,7 +97,7 @@ A hallucinated method is always an error, because the named method literally doe
 
 ## And from an agent
 
-This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on the rules it wrote, reads the fixes in the warnings, and corrects itself before anything deploys. Then `firestore_simulate_rules` confirms the behavior. The mistakes the linter catches are, in large part, the mistakes models make. See [what your agent can do](../agent/skills.md).
+This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on the rules it wrote, reads the fixes in the warnings, and corrects itself before anything deploys. Then `firestore_simulate_rules` confirms the behavior. [Work with an agent](../agent/work-with-an-agent.md) shows the task prompts that drive this loop.
 
 ## Where to go next
 

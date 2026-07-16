@@ -105,7 +105,6 @@ const GROUPS: GroupSpec[] = [
     label: '@pyric/cli',
     dir: '.',
     sections: [
-      { label: '', path: 'README.md' },
       { label: 'Tutorials', path: 'tutorials' },
       { label: 'How-to', path: 'how-to' },
       { label: 'Reference', path: 'reference' },
@@ -190,7 +189,7 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
       'store-and-query-data.md',
       'sync-realtime-data.md',
       'store-files.md',
-      'which-data-service.md',
+      'receive-messages.md',
     ],
   },
   {
@@ -202,11 +201,9 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
       'write-a-rules-test-suite.md',
       'read-a-denial.md',
       'rules-standard-library.md',
-      'rules-patterns.md',
       'rtdb-rules-in-typescript.md',
       'limits-that-bite.md',
       'audit-your-rules.md',
-      'whats-possible.md',
     ],
   },
   {
@@ -217,22 +214,21 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
   {
     label: 'Ship & test',
     dir: 'ship',
-    files: ['ship-to-production.md', 'set-up-the-project.md', 'test-in-node.md'],
+    files: ['ship-to-production.md', 'test-in-node.md'],
   },
   {
     label: 'Work with an agent',
     dir: 'agent',
     files: [
       'set-up-your-agent.md',
-      'what-your-agent-can-do.md',
-      'skills.md',
+      'work-with-an-agent.md',
       'watch-and-review.md',
     ],
   },
   {
     label: 'Trust',
     dir: 'trust',
-    files: ['how-we-know-it-matches-firebase.md', 'whats-experimental.md'],
+    files: ['how-we-know-it-matches-firebase.md'],
   },
 ];
 
