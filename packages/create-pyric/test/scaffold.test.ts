@@ -1,4 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { parseCreateArgs } from '../src/parse-args.js';
 import { runScaffold, applyDepsMode, TEMPLATES } from '../src/scaffold.js';
 
@@ -28,6 +33,28 @@ describe('parseCreateArgs', () => {
 });
 
 describe('runScaffold', () => {
+  it('pins registry dependencies to the create-pyric package version', () => {
+    const root = mkdtempSync(join(tmpdir(), 'create-pyric-version-'));
+    const project = join(root, 'app');
+    try {
+      const bin = fileURLToPath(new URL('../src/bin.ts', import.meta.url));
+      const run = spawnSync(process.execPath, [bin, project], { encoding: 'utf8' });
+      expect(run.status).toBe(0);
+
+      const ownPackage = JSON.parse(
+        readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+      ) as { version: string };
+      const generated = JSON.parse(
+        readFileSync(join(project, 'package.json'), 'utf8'),
+      ) as { devDependencies: Record<string, string> };
+
+      expect(generated.devDependencies['@pyric/cli']).toBe(`^${ownPackage.version}`);
+      expect(run.stdout).toContain(`from npm (^${ownPackage.version})`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('writes the Vite web scaffold by default', async () => {
     const io = bufferIo();
     const writeFn = mock(async () => undefined);
