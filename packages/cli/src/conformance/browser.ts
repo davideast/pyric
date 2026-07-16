@@ -5,6 +5,7 @@ import {
   type CanIUseOptions,
 } from './.generated/can-i-use-browser.js';
 
+export { createCanIUseTool, type CanIUseToolOptions } from './can-i-use-tool.js';
 export type {
   Assurance,
   Availability,

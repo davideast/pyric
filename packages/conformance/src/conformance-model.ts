@@ -31,9 +31,12 @@ import { publicRuntimeExportNamesFromSource } from './public-exports.ts';
 import { compatibilitySlug } from './docs-routes.ts';
 
 export type { DeveloperSurface } from '../registry/index.ts';
-export type Availability = 'available' | 'unavailable' | 'deferred' | 'out-of-scope';
-export type Fidelity = 'conforms' | 'diverged' | 'bug' | 'unsupported' | 'unverified' | 'not-applicable';
-export type Assurance = 'eligible' | 'qualified' | 'ineligible' | 'not-applicable';
+export const AVAILABILITIES = ['available', 'unavailable', 'deferred', 'out-of-scope'] as const;
+export const FIDELITIES = ['conforms', 'diverged', 'bug', 'unsupported', 'unverified', 'not-applicable'] as const;
+export const ASSURANCES = ['eligible', 'qualified', 'ineligible', 'not-applicable'] as const;
+export type Availability = typeof AVAILABILITIES[number];
+export type Fidelity = typeof FIDELITIES[number];
+export type Assurance = typeof ASSURANCES[number];
 export type FeatureKey = `${DeveloperSurface}/${string}`;
 export type ConformanceNodeId = string;
 export type FeatureIndex = Readonly<Record<FeatureKey, readonly ConformanceNodeId[]>>;
