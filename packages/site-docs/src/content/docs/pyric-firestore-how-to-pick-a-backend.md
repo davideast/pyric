@@ -3,7 +3,7 @@ title: "How to select sandbox or production Firestore"
 navLabel: "Pick a backend"
 group: "pyric / firestore"
 section: "How-to"
-order: 11005
+order: 12005
 ---
 # How to select sandbox or production Firestore
 

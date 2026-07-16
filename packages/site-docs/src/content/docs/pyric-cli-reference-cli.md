@@ -2,7 +2,7 @@
 title: "pyric CLI reference"
 group: "@pyric/cli"
 section: "Reference"
-order: 9008
+order: 10009
 ---
 # `pyric` CLI reference
 

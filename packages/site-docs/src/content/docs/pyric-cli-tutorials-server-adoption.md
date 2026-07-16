@@ -2,7 +2,7 @@
 title: "Run your firebase-admin app on the pyric sandbox"
 group: "@pyric/cli"
 section: "Tutorials"
-order: 9002
+order: 10001
 ---
 # Run your firebase-admin app on the pyric sandbox
 

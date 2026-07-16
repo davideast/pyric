@@ -2,7 +2,7 @@
 title: "Why this package exists"
 group: "pyric / rules"
 section: "Explanation"
-order: 12026
+order: 13026
 ---
 # Why this package exists
 
@@ -18,7 +18,7 @@ The split looks bureaucratic at first. Why not put both in one package? Two reas
 
 `pyric/firestore` is meant to be a drop-in replacement for `firebase/firestore`. Any host that imports it should see exactly the surface area that the upstream modular Web SDK exposes. No more, no less. Adding rules tooling to that import path would either pollute the swap-in surface (making the package look bigger than the production package it mirrors) or force consumers to import from non-standard sub-paths (which break tree-shaking and make TypeScript editor completion noisier than it needs to be).
 
-The same reasoning shapes `pyric/rules` internally: the public front door (`firestoreRules`, `rtdbRules`, `lint`, the assertion adapters) is small on purpose, but the engine underneath it (the parser, `parseToAST`; the linter, `lintFirestoreRules`; the validator, `validateFirestoreRules`; the simulator, `SimulateFirestoreRulesHandler`; seven value wrappers; and a sentinel expression engine) is bigger than the production data-plane surface. Bundling all of that onto `pyric/firestore`'s root would dominate the swap-in package, which is why it stays behind `pyric/rules/internal` instead.
+The same reasoning shapes `pyric/rules` internally: the public front door (`firestoreRules`, `rtdbRules`, `lint`, and the assertion adapters) is small on purpose, while the parser, linter, validator, simulator internals, value wrappers, and expression engine stay behind `pyric/rules/internal`.
 
 ## The audiences are different
 

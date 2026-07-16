@@ -3,7 +3,7 @@ title: "Build a standalone pyric binary"
 navLabel: "Build a standalone binary"
 group: "@pyric/cli"
 section: "How-to"
-order: 9004
+order: 10003
 ---
 # Build a standalone `pyric` binary
 

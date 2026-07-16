@@ -3,7 +3,7 @@ title: "API reference: @pyric/cli/vite"
 navLabel: "@pyric/cli/vite"
 group: "API reference"
 section: "@pyric/cli"
-order: 24024
+order: 9024
 description: "Published declarations for @pyric/cli/vite."
 kind: "api"
 apiPackage: "@pyric/cli"

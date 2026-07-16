@@ -3,7 +3,7 @@ title: "A local backend, not Firestore offline persistence"
 navLabel: "Local backend vs. offline"
 group: "pyric / sandbox"
 section: "Explanation"
-order: 13021
+order: 14021
 ---
 # A local backend, not Firestore offline persistence
 

@@ -1,7 +1,7 @@
 ---
 title: "How firebase/* imports resolve locally and in production"
 navLabel: "How the swap works"
-group: "Run locally"
+group: "Get started"
 section: ""
 order: 1002
 description: "Understand how your firebase imports reached a local backend, and why production is untouched."

@@ -3,7 +3,7 @@ title: "API reference: pyric/firestore-values"
 navLabel: "pyric/firestore-values"
 group: "API reference"
 section: "pyric"
-order: 24027
+order: 9027
 description: "Published declarations for pyric/firestore-values."
 kind: "api"
 apiPackage: "pyric"

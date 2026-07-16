@@ -3,7 +3,7 @@ title: "How to run multiple isolated sandboxes in parallel"
 navLabel: "Run isolated sandboxes"
 group: "pyric / sandbox"
 section: "How-to"
-order: 13003
+order: 14003
 ---
 # How to run multiple isolated sandboxes in parallel
 
@@ -54,7 +54,7 @@ Each scenario gets its own sandbox. `dispose` at the end is defensive. Once the 
 Sandboxes are cheap in memory but not free. Each carries:
 
 - A `LocalEnvironment` with its own document store, event log, and listener registries.
-- A `SimulateFirestoreRulesHandler` instance (the rules-evaluation engine).
+- An isolated rules-evaluation engine, exposed publicly through `firestoreRules(source)`.
 - Whatever subscribers you attached.
 
 For thousands of sandboxes, profile before assuming linearity. For tens or hundreds, treat them as free.

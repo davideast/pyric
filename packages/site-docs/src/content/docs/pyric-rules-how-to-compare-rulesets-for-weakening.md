@@ -3,7 +3,7 @@ title: "How to compare two rulesets for weakening"
 navLabel: "Compare rulesets"
 group: "pyric / rules"
 section: "How-to"
-order: 12002
+order: 13002
 ---
 # How to compare two rulesets for weakening
 

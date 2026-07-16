@@ -266,6 +266,7 @@ body {
    for: heading commands attention, links stay quietly secondary. */
 .docs-nav-heading {
   margin: 0 0 var(--space-1);
+  padding-inline: var(--space-3);
   font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;

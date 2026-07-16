@@ -2,7 +2,7 @@
 title: "Tool factories"
 group: "pyric / firestore"
 section: "Reference"
-order: 11012
+order: 12012
 ---
 # Tool factories
 

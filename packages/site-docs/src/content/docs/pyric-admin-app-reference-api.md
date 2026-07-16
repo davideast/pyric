@@ -3,7 +3,7 @@ title: "API reference: pyric-admin/app"
 navLabel: "pyric-admin/app"
 group: "API reference"
 section: "pyric-admin"
-order: 24003
+order: 9003
 description: "Published declarations for pyric-admin/app."
 kind: "api"
 apiPackage: "pyric-admin"

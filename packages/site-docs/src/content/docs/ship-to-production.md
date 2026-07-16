@@ -1,7 +1,7 @@
 ---
 title: "The same code goes live"
 navLabel: "Ship to production"
-group: "Ship unchanged"
+group: "Ship & test"
 section: ""
 order: 5001
 description: "Deploy rules, indexes, hosting, and functions, and learn what would change before production does."
@@ -85,4 +85,4 @@ The full flag list is in the [CLI reference](../pyric-cli-reference-cli/).
 
 ## Where to go next
 
-If the project itself isn't stood up yet, providers, domains, database, Storage, that is [Set up the project](../set-up-the-project/). To make the captured sessions you verify richer, see [Shape your data](../shape-your-data/).
+To make the captured sessions you verify richer, see [Shape your data](../shape-your-data/). Use the Firebase Console or `firebase-tools` for production project setup.

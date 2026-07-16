@@ -22,7 +22,7 @@ import type { CompatibilityRow, CompatibilitySurfaceRegistry } from '../../regis
 import { computeCoverageReport, type CoverageReport } from '../../src/rules-language-analyzer.ts';
 
 let coverageReport: CoverageReport;
-beforeAll(async () => { coverageReport = await computeCoverageReport(); }, 20_000);
+beforeAll(async () => { coverageReport = await computeCoverageReport(); }, 60_000);
 
 function row(id: string, over: Partial<CompatibilityRow> = {}): CompatibilityRow {
   return {

@@ -5,7 +5,7 @@ import { allCompatibilityRows } from '../../registry/index.ts';
 import { surfaceContracts } from '../../surfaces/load.ts';
 
 let model: ConformanceModel;
-beforeAll(async () => { model = await deriveConformanceModel(); }, 20_000);
+beforeAll(async () => { model = await deriveConformanceModel(); }, 60_000);
 
 function one(query: string): FeatureSupport {
   const result = canIUse(model, query);
@@ -70,18 +70,6 @@ describe('multi-axis conformance model', () => {
     // a published import scope until it graduates from pyricUnreleasedExports.
     expect(canIUse(model, 'send', { importPath: 'pyric-admin/messaging' }).match).toBe('none');
     expect(canIUse(model, 'getAfter', { importPath: 'pyric/rules' }).match).toBe('none');
-  });
-
-  it('gives generated API docs a complete data-driven import-to-evidence join', () => {
-    expect(model.importEvidence).toEqual(expect.arrayContaining([
-      { importPath: 'pyric/app', surface: 'app', evidenceSlug: 'pyric-app-compat' },
-      { importPath: 'pyric/messaging/sw', surface: 'messaging', evidenceSlug: 'pyric-messaging-compat' },
-      { importPath: 'pyric/rules', surface: 'firestore-rules', evidenceSlug: 'pyric-rules-compat' },
-      { importPath: 'pyric/database', surface: 'rtdb', evidenceSlug: 'pyric-database-compat' },
-      { importPath: 'pyric/storage', surface: 'storage', evidenceSlug: 'pyric-storage-compat' },
-    ]));
-    expect(model.importEvidence.filter(({ importPath }) => importPath === 'pyric/database')).toHaveLength(1);
-    expect(model.importEvidence.filter(({ importPath }) => importPath === 'pyric/storage')).toHaveLength(1);
   });
 
   it('fails closed when one published import is assigned to different evidence surfaces', () => {

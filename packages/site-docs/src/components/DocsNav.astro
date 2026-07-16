@@ -30,7 +30,10 @@ const groups = await navGroups();
  *  and listed in llms.txt/index.json — they are reachable from their
  *  overview and from in-page links, just not itemized in the sidebar. */
 const guideGroups = groups.filter((g) => isGuideGroup(g.group));
-const referenceGroups = groups.filter((g) => !isGuideGroup(g.group));
+const apiReferenceGroup = groups.find((g) => g.group === 'API reference');
+const referenceGroups = groups.filter(
+  (g) => !isGuideGroup(g.group) && g.group !== 'API reference',
+);
 
 /** Only the group holding the current page starts open — everything
  *  else is tertiary and stays behind its disclosure. */
@@ -105,6 +108,22 @@ const referenceHoldsCurrent = referenceGroups.some(holdsCurrent);
       </details>
       );
     })
+  }
+  {
+    apiReferenceGroup && (
+      <a
+        class="docs-nav-toplink"
+        href={docPath(groupLanding(apiReferenceGroup))}
+        id={
+          variant === 'primary'
+            ? groupAnchorId(apiReferenceGroup.group)
+            : undefined
+        }
+        aria-current={holdsCurrent(apiReferenceGroup) ? 'true' : undefined}
+      >
+        API reference
+      </a>
+    )
   }
   {
     referenceGroups.length > 0 && (

@@ -1,9 +1,8 @@
 ---
 title: "Run an RTDB onValueCreated function locally"
-navLabel: "Run an RTDB function locally"
-group: "Develop with Firebase APIs"
-section: ""
-order: 2007
+group: "@pyric/cli"
+section: "How-to"
+order: 10005
 ---
 # Run an RTDB `onValueCreated` function locally
 

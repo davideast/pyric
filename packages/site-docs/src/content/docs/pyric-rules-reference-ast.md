@@ -2,7 +2,7 @@
 title: "AST"
 group: "pyric / rules"
 section: "Reference"
-order: 12010
+order: 13010
 ---
 # AST
 

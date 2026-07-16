@@ -1,9 +1,9 @@
 ---
 title: "Connect an agent to the sandbox"
 navLabel: "Connect an agent"
-group: "Run locally"
+group: "Work with an agent"
 section: ""
-order: 1003
+order: 6001
 description: "Connect Claude Code, Cursor, Codex, or any MCP client to your backend in minutes."
 ---
 
@@ -91,4 +91,4 @@ Do not start a second `pyric dev` next to it. Two servers means two sandboxes, a
 
 ## Where to go next
 
-No project yet? [Start building](../start-building/) gets you a backend in one command first. Then see what the connection buys you in [what your agent can do](../what-your-agent-can-do/).
+No project yet? [Start building](../start-building/) gets you a backend in one command first. Then give the connection a real task in [Work with an agent](../work-with-an-agent/).

@@ -3,7 +3,7 @@ title: "pyric/rules"
 navLabel: "Overview"
 group: "pyric / rules"
 section: ""
-order: 12001
+order: 13001
 ---
 # `pyric/rules`
 
@@ -75,7 +75,7 @@ import { resolveModules, createFirestoreRulesTools } from 'pyric/rules/internal/
 
 ## Where to go next
 
-Documentation is organised under [`docs/`](../pyric-rules/) following the [Diataxis](https://diataxis.fr/) framework:
+Documentation is organised under [`docs/`](../pyric-rules/):
 
 | If you want to | Read |
 |---|---|

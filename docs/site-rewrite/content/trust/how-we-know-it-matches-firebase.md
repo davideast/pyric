@@ -154,7 +154,7 @@ Conformance is a floor, not a guarantee of total equivalence.
 
 No published result is typed into this page. Registry state and the live public-surface census generate the matrices and scoreboard. CI verifies the model gates and proves those pages render deterministically from a clean checkout with valid routes, twins, and links.
 
-## Verify the boundary before shipping
+## Verify your Security Rules before shipping
 
 Pyric is designed for local development, where operations have no production consequences. Before deployment, replay the captured development session against the candidate Rules:
 

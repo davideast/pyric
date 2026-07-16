@@ -3,7 +3,7 @@ title: "The runtime budget and shared gates"
 navLabel: "Runtime budget and gates"
 group: "pyric / rules"
 section: "Explanation"
-order: 12021
+order: 13021
 ---
 # The runtime budget and shared gates
 

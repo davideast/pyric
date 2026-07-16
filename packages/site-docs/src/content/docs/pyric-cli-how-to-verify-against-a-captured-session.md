@@ -1,9 +1,9 @@
 ---
 title: "How to verify your rules against a captured session"
-navLabel: "Verify a captured session"
-group: "Verify the boundary"
-section: ""
-order: 4001
+navLabel: "Verify rules"
+group: "@pyric/cli"
+section: "How-to"
+order: 10008
 ---
 # How to verify your rules against a captured session
 

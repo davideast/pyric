@@ -3,7 +3,7 @@ title: "Run canonical imports against Firebase"
 navLabel: "Swap to prod backend"
 group: "pyric / firestore"
 section: "Tutorials"
-order: 11003
+order: 12003
 ---
 # Run canonical imports against Firebase
 

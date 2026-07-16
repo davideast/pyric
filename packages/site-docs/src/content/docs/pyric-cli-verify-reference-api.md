@@ -3,7 +3,7 @@ title: "API reference: @pyric/cli/verify"
 navLabel: "@pyric/cli/verify"
 group: "API reference"
 section: "@pyric/cli"
-order: 24023
+order: 9023
 description: "Published declarations for @pyric/cli/verify."
 kind: "api"
 apiPackage: "@pyric/cli"

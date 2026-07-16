@@ -2,7 +2,7 @@
 title: "Package exports and resolution"
 group: "@pyric/cli"
 section: "Reference"
-order: 9009
+order: 10010
 ---
 # Package exports and resolution
 

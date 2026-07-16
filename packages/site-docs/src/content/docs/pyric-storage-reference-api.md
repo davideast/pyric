@@ -3,7 +3,7 @@ title: "API reference: pyric/storage"
 navLabel: "pyric/storage"
 group: "API reference"
 section: "pyric"
-order: 24034
+order: 9034
 description: "Published declarations for pyric/storage."
 kind: "api"
 apiPackage: "pyric"
