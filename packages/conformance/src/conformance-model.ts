@@ -31,7 +31,7 @@ import censusBaselineJson from '../baselines/census-baseline.json' with { type: 
 import { loadObservations, type Observation } from '../observations/load.ts';
 import { observationExceptions } from '../exceptions/load.ts';
 import { renderBrowserQuery, renderCliQuery } from './can-i-use-template.ts';
-import { featureIdentity, normalizeFeature, resolveCanIUse, type CanIUseOptions, type CanIUseResult } from './can-i-use-query.ts';
+import { normalizeFeature, resolveCanIUse, type CanIUseOptions, type CanIUseResult } from './can-i-use-query.ts';
 import { censusGapProblems, censusIntegrityProblems, type CensusGapBaseline } from './census-policy.ts';
 import { workspaceEntryPaths } from './workspace-entry.ts';
 import { publicRuntimeExportNamesFromSource } from './public-exports.ts';
@@ -139,7 +139,7 @@ interface MutableFeature {
 }
 
 function featureKey(surface: DeveloperSurface, feature: string): FeatureKey {
-  return `${surface}/${featureIdentity(feature)}`;
+  return `${surface}/${feature}`;
 }
 
 function rows(): CompatibilityRow[] {
