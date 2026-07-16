@@ -44,11 +44,14 @@ describe('<TrafficGroupRow>', () => {
     )!;
     expect(header.getAttribute('data-pyric-group-kind')).toBe('listener-run');
     expect(
+      container.querySelector('[data-pyric-group-kind-label]')!.textContent,
+    ).toBe('listener re-evals');
+    expect(
       container.querySelector('[data-pyric-group-count]')!.textContent,
-    ).toBe('2');
+    ).toBe('×2');
     expect(
       container.querySelector('[data-pyric-group-denies]')!.textContent,
-    ).toBe('1');
+    ).toBe('1 denied');
     // Collapsed by default — no member rows.
     expect(
       container.querySelector('[data-pyric-traffic-group-members]'),

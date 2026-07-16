@@ -73,10 +73,19 @@ async function createDocWithProbe(
  * A "missing" parent doc (no stored fields, real descendants) rendered as a
  * navigable row. Queries correctly exclude these (Firebase parity), so the
  * DocumentColumn synthesizes just enough of a snapshot for `<DocumentList>`'s
- * surface (`.id` + `.ref`) and marks it so the renderers can style it.
+ * surface (`.id` + `.ref` + `.data()`) and marks it so the renderers can
+ * style it.
  */
 function makePhantomRow(ref: DocumentReference): QueryDocumentSnapshot {
-  return { id: ref.id, ref, __pyricPhantom: true } as unknown as QueryDocumentSnapshot;
+  // `data()` must exist: <DocumentList> calls it on every row to feed the
+  // update-highlight map. A phantom has no stored document, so `undefined`
+  // (a real DocumentSnapshot's miss value) is the honest answer.
+  return {
+    id: ref.id,
+    ref,
+    data: () => undefined,
+    __pyricPhantom: true,
+  } as unknown as QueryDocumentSnapshot;
 }
 
 function isPhantomRow(snap: QueryDocumentSnapshot): boolean {

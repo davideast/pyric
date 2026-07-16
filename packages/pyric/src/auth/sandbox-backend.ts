@@ -490,11 +490,11 @@ export class SandboxBackend {
   // ─── Provider config (sign-in method enablement) ─────────────────────
 
   /** Whether `providerId` is currently enabled. Unknown providers
-   *  (never toggled) default to `false` — matches a fresh real project,
-   *  EXCEPT `'password'`/`'anonymous'`, which start `true` (see the
-   *  {@link providerConfig} docstring for the rationale). */
+   *  (never toggled) default to `true` — every sign-in method works out
+   *  of the box until the sandbox grows a provider-enablement API and
+   *  UI. An explicit `false` entry still disables. */
   isProviderEnabled(providerId: string): boolean {
-    return this.providerConfig.get(providerId) ?? false;
+    return this.providerConfig.get(providerId) ?? true;
   }
 
   /** Every provider this backend has an explicit enablement for —
@@ -508,7 +508,7 @@ export class SandboxBackend {
    *  already what was requested — mirrors {@link setPersistenceMode}'s
    *  dedup so a redundant toggle doesn't churn subscribers / flushes. */
   setProviderConfig(providerId: string, enabled: boolean): void {
-    const before = this.providerConfig.get(providerId) ?? false;
+    const before = this.providerConfig.get(providerId) ?? true;
     if (before === enabled) return;
     this.providerConfig.set(providerId, enabled);
     this.notifyProviderConfigChanged();

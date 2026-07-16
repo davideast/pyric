@@ -13,26 +13,26 @@ function freshAuth(): Auth {
 }
 
 describe('useAuthProviderConfig', () => {
-  test('lists the default config on mount (password + anonymous enabled)', () => {
+  test('lists the default config on mount (everything enabled)', () => {
     const auth = freshAuth();
     const { result, unmount } = renderHook(() => useAuthProviderConfig(auth));
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeUndefined();
     expect(result.current.isEnabled('password')).toBe(true);
     expect(result.current.isEnabled('anonymous')).toBe(true);
-    expect(result.current.isEnabled('google.com')).toBe(false);
+    expect(result.current.isEnabled('google.com')).toBe(true);
     unmount();
   });
 
   test('setEnabled toggles a provider and the view stays live', () => {
     const auth = freshAuth();
     const { result, unmount } = renderHook(() => useAuthProviderConfig(auth));
-    expect(result.current.isEnabled('google.com')).toBe(false);
+    expect(result.current.isEnabled('google.com')).toBe(true);
 
     act(() => {
-      result.current.setEnabled('google.com', true);
+      result.current.setEnabled('google.com', false);
     });
-    expect(result.current.isEnabled('google.com')).toBe(true);
+    expect(result.current.isEnabled('google.com')).toBe(false);
 
     act(() => {
       result.current.setEnabled('password', false);
@@ -45,20 +45,20 @@ describe('useAuthProviderConfig', () => {
     const auth = freshAuth();
     const { result, unmount } = renderHook(() => useAuthProviderConfig(auth));
     act(() => {
-      authSandbox.setAuthProviderConfig(auth, 'github.com', true);
+      authSandbox.setAuthProviderConfig(auth, 'github.com', false);
     });
-    expect(result.current.isEnabled('github.com')).toBe(true);
+    expect(result.current.isEnabled('github.com')).toBe(false);
     unmount();
   });
 
   test('refresh re-reads the config manually', () => {
     const auth = freshAuth();
     const { result, unmount } = renderHook(() => useAuthProviderConfig(auth));
-    authSandbox.setAuthProviderConfig(auth, 'apple.com', true);
+    authSandbox.setAuthProviderConfig(auth, 'apple.com', false);
     act(() => {
       result.current.refresh();
     });
-    expect(result.current.isEnabled('apple.com')).toBe(true);
+    expect(result.current.isEnabled('apple.com')).toBe(false);
     unmount();
   });
 
@@ -66,9 +66,9 @@ describe('useAuthProviderConfig', () => {
     const auth = freshAuth();
     const { unmount } = renderHook(() => useAuthProviderConfig(auth));
     unmount();
-    authSandbox.setAuthProviderConfig(auth, 'microsoft.com', true);
+    authSandbox.setAuthProviderConfig(auth, 'microsoft.com', false);
     expect(
       authSandbox.getAuthProviderConfig(auth).find((c) => c.providerId === 'microsoft.com')?.enabled,
-    ).toBe(true);
+    ).toBe(false);
   });
 });
