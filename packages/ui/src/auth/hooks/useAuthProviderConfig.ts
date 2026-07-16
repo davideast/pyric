@@ -11,11 +11,11 @@ export interface AuthProviderConfigEntry {
 export interface UseAuthProviderConfigResult {
   /** Every provider this sandbox has an explicit enablement for. Unknown
    *  providers (never toggled) are simply absent — `isEnabled` treats an
-   *  absent entry as disabled, matching the backend default. */
+   *  absent entry as enabled, matching the backend default. */
   config: AuthProviderConfigEntry[];
   isLoading: boolean;
   error: Error | undefined;
-  /** Convenience lookup: `false` for a provider that's never been toggled. */
+  /** Convenience lookup: `true` for a provider that's never been toggled. */
   isEnabled: (providerId: string) => boolean;
   /** Toggle a provider on/off. Sync (in-process) failures throw to the
    *  caller, same policy as `useAuthUsers`'s mutation callbacks; an ASYNC
@@ -94,7 +94,7 @@ export function useAuthProviderConfig(auth: Auth): UseAuthProviderConfigResult {
   }, [auth, getAuthProviderConfig, subscribeAuthProviderConfig]);
 
   const isEnabled = useCallback(
-    (providerId: string) => config.find((c) => c.providerId === providerId)?.enabled ?? false,
+    (providerId: string) => config.find((c) => c.providerId === providerId)?.enabled ?? true,
     [config],
   );
 
