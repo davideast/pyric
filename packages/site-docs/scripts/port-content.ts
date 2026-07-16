@@ -53,6 +53,7 @@ import { loadConformancePages } from './conformance-pages';
 import { transformCompatTables } from './compat-tables';
 import { anchorsOf, shortTitle, splitFences, titleOf } from './markdown-structure';
 import { navLabelFor } from './nav-label';
+import { GUIDE_GROUP_LABELS } from '../src/lib/nav-groups';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const siteRoot = resolve(here, '..');
@@ -331,6 +332,16 @@ const GROUP_ORDER: string[] = [
   API_REFERENCE_GROUP,
   ...GROUPS.map((g) => g.label),
 ];
+
+// The nav renders only whitelisted guide groups in full; anything else
+// silently collapses into the Reference shelf. Fail the port instead.
+for (const label of [...GUIDE_GROUPS.map((g) => g.label), 'Conformance']) {
+  if (!GUIDE_GROUP_LABELS.has(label)) {
+    throw new Error(
+      `guide group '${label}' is missing from GUIDE_GROUP_LABELS (src/lib/nav-groups.ts) — the nav would collapse it into Reference`,
+    );
+  }
+}
 const GROUP_RANK_SPACING = 1000;
 // Reference groups began at rank 9 in the previous hierarchy. Keep that
 // stable so changing the primary workflow does not rewrite front matter for
