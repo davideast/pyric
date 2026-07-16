@@ -1,3 +1,6 @@
+---
+navLabel: "Runtime budget and gates"
+---
 # The runtime budget and shared gates
 
 Firestore rules have two kinds of limits. Compilation limits fail loudly: a `400 INVALID_ARGUMENT` at deploy. The runtime evaluation budget fails silently: a `403 PERMISSION_DENIED` that looks identical to a denied rule.

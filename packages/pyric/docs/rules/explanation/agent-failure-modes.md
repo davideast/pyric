@@ -1,3 +1,6 @@
+---
+navLabel: "Agent failure modes"
+---
 # Agent failure modes the linter catches
 
 Most of the linter's compilation and budget rules came from production: we hit the limit, learned the number, encoded it. A separate set of rules came from somewhere different. We watched LLM-driven agents try to write rules and fail in characteristic ways.

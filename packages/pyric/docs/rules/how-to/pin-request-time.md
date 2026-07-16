@@ -1,3 +1,6 @@
+---
+navLabel: "Pin request.time"
+---
 # How to pin `request.time` for deterministic tests
 
 A rule that reads `request.time` evaluates against wallclock by default. That makes any date-gated test flaky: the same `FirestoreCase` run twice can decide `ALLOW` once and `DENY` the next. Pin time and the verdict is reproducible.

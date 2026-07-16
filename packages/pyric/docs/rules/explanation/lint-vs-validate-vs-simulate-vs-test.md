@@ -1,3 +1,6 @@
+---
+navLabel: "Lint vs validate vs test"
+---
 # Lint vs validate vs simulate vs test
 
 The package offers four distinct ways to look at a rules source. Their names suggest they overlap. They don't, and the distinction matters when you're building a CI pipeline or an agent loop.

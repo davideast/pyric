@@ -1,3 +1,6 @@
+---
+navLabel: "Register rules tools"
+---
 # How to register rules tools with an agent
 
 Expose the rules surface as tool handlers for an `@inbrowser/agent` registry, so an LLM-driven agent can lint, simulate, and test rules through structured tool calls.

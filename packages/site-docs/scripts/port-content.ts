@@ -331,6 +331,7 @@ function addPage(src: string, group: GroupSpec, section: string) {
   if (supersededByAbs.has(src)) return; // replaced by a guide page
   const slug = slugFor(group.pkg, src, group.slugPrefix);
   const title = titleOf(src, readSource);
+  const { fm } = parseFrontmatter(readSource(src));
   const clash = bySlug.get(slug);
   if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
   const page: Page = {
@@ -340,7 +341,8 @@ function addPage(src: string, group: GroupSpec, section: string) {
     section,
     order: nextOrder(group.label),
     title: section === '' ? shortTitle(title) : title,
-    navLabel: section === '' ? 'Overview' : navLabelFor(slug, title),
+    navLabel: section === '' ? 'Overview' : fm.navLabel ?? navLabelFor(title),
+    stripFm: true,
   };
   pages.push(page);
   bySrc.set(src, page);

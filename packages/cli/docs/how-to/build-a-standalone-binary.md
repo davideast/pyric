@@ -1,3 +1,6 @@
+---
+navLabel: "Build a standalone binary"
+---
 # Build a standalone `pyric` binary
 
 Ship `pyric` as a single self-contained executable: no Node, no npm, no

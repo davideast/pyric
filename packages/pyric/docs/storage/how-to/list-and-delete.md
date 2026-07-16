@@ -1,3 +1,6 @@
+---
+navLabel: "List and delete objects"
+---
 # How to list and delete objects
 
 This guide shows you how to enumerate objects under a prefix and remove them.

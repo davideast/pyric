@@ -1,3 +1,6 @@
+---
+navLabel: "Test rule expressions"
+---
 # How to test rule expressions independently
 
 This guide shows you how to verify a Storage rule expression without uploading anything. Useful when iterating on a complex rule or building a rules-test harness.

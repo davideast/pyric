@@ -1,3 +1,6 @@
+---
+navLabel: "Sandbox and context"
+---
 # `Sandbox`, `SandboxContext`, `AuthState`
 
 The three core types. Every other surface in the package builds on them.

@@ -1,3 +1,6 @@
+---
+navLabel: "Why adapters are siblings"
+---
 # Why service adapters live in sibling packages
 
 `pyric/sandbox` doesn't ship the data-plane API. The functions you actually call (`getDoc`, `setDoc`, `collection`, `onSnapshot`, `runTransaction`) live in `pyric-admin` (Admin-SDK-shaped) and `pyric/firestore` (modular Web-SDK-shaped). This page explains why.

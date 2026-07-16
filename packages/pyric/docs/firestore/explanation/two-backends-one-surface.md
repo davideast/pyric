@@ -1,3 +1,6 @@
+---
+navLabel: "Two backends, one surface"
+---
 # Why package resolution owns backend selection
 
 Pyric and Firebase expose the same canonical module name in different

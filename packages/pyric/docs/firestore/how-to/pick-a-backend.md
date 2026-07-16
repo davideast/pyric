@@ -1,3 +1,6 @@
+---
+navLabel: "Pick a backend"
+---
 # How to select sandbox or production Firestore
 
 Keep canonical Firebase imports in application source and select the backend by

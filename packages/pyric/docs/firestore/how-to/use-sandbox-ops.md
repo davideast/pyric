@@ -1,3 +1,6 @@
+---
+navLabel: "Use sandbox-only ops"
+---
 # How to use sandbox-only operations
 
 Load rules, seed data, snapshot documents, and inspect Firestore state in one

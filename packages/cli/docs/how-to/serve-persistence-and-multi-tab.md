@@ -1,3 +1,6 @@
+---
+navLabel: "Persistence & multi-tab"
+---
 # Persistence and multi-tab with `pyric dev`
 
 When you run `pyric dev`, your app's `firebase/*` imports are served from an

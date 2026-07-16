@@ -1,3 +1,6 @@
+---
+navLabel: "The /internal protocol"
+---
 # The `/internal` adapter protocol
 
 The `pyric/sandbox/internal` sub-path is the **adapter-only** surface. Service-adapter packages (`pyric-admin`, `pyric/firestore`, future `pyric/auth`) consume it to reach the underlying `LocalEnvironment` and related primitives.

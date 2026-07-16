@@ -1,3 +1,6 @@
+---
+navLabel: "First admin session"
+---
 # Your first admin-shaped Firestore session
 
 In this tutorial you will use `pyric-admin` to write, read, batch, transact, and watch documents in a sandbox. By the end you will have seen every piece of the surface in action.

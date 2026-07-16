@@ -1,3 +1,6 @@
+---
+navLabel: "Use in existing code"
+---
 # How to run an existing Firebase application in the Firestore sandbox
 
 Keep the application's Firebase imports unchanged. Add a Pyric activation seam

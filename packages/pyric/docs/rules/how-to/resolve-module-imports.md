@@ -1,3 +1,6 @@
+---
+navLabel: "Resolve 2+modules imports"
+---
 # How to resolve `2+modules` imports
 
 Write rules that import reusable helper functions, then resolve them into a standard Firestore rules source.

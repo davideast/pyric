@@ -1,3 +1,6 @@
+---
+navLabel: "Translate denials"
+---
 # How to translate denials with `denialContext`
 
 This guide shows you how to read the structured denial frame attached to every `permission-denied` error from `pyric-admin` operations.

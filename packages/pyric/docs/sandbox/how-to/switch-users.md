@@ -1,3 +1,6 @@
+---
+navLabel: "Switch users"
+---
 # How to switch users with `withAuth`
 
 Evaluate rules under different auth identities against the same sandbox.
