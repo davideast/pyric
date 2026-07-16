@@ -1,3 +1,10 @@
+---
+title: "Storage rules gaps: where pyric and Firebase disagree"
+navLabel: "Storage rules gaps"
+group: "pyric / storage"
+section: "Reference"
+order: 60
+---
 # Storage rules gaps: where pyric and Firebase disagree
 
 A gap is a rule that gets one answer from pyric and a different answer from

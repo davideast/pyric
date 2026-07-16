@@ -1,3 +1,9 @@
+---
+title: "Why this package exists"
+group: "pyric / rules"
+section: "Explanation"
+order: 260
+---
 # Why this package exists
 
 Firestore Security Rules is a small DSL that sits between every read and write your app makes. In Pyric we have two distinct needs around that DSL:

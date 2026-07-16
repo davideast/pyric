@@ -1,5 +1,9 @@
 ---
+title: "How to use onSnapshot to watch a doc or query"
 navLabel: "Use onSnapshot"
+group: "pyric-admin / firestore"
+section: "How-to"
+order: 60
 ---
 # How to use `onSnapshot` to watch a doc or query
 

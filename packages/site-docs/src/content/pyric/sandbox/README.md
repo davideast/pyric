@@ -1,3 +1,10 @@
+---
+title: "pyric/sandbox"
+navLabel: "Overview"
+group: "pyric / sandbox"
+section: ""
+order: 10
+---
 # `pyric/sandbox`
 
 An in-process Firebase sandbox, the foundation every other `@pyric/*` data-plane package plugs into. It holds documents, rules, and listener state for a single isolated environment. It is identity-agnostic by design: every operation flows through a `SandboxContext` that names the auth identity it should evaluate under.

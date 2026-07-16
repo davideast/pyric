@@ -1,3 +1,10 @@
+---
+title: "@pyric/ui"
+navLabel: "Overview"
+group: "@pyric/ui"
+section: ""
+order: 10
+---
 # `@pyric/ui` docs
 
 Per-component reference. Each page is one-screen — import, minimal example, props table, common gotchas.

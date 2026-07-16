@@ -1,3 +1,9 @@
+---
+title: "<Badge>"
+group: "@pyric/ui"
+section: "Primitives"
+order: 20
+---
 # `<Badge>`
 
 Headless pill / tag. An inline `<span>` carrying `data-pyric-badge` and an

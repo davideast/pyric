@@ -1,8 +1,10 @@
 ---
-title: Run the same backend in tests and scripts
-navLabel: Test in Node
-outcome: Run your rules and data logic in a Node test suite, with no browser and no emulator.
-status: draft
+title: "Run the same backend in tests and scripts"
+navLabel: "Test in Node"
+group: "Ship & test"
+section: ""
+order: 20
+description: "Run your rules and data logic in a Node test suite, with no browser and no emulator."
 ---
 
 # Run the same backend in tests and scripts

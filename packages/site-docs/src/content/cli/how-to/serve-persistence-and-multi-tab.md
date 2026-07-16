@@ -1,5 +1,9 @@
 ---
+title: "Persistence and multi-tab with pyric dev"
 navLabel: "Persistence & multi-tab"
+group: "@pyric/cli"
+section: "How-to"
+order: 60
 ---
 # Persistence and multi-tab with `pyric dev`
 

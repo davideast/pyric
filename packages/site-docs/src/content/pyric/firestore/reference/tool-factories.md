@@ -1,3 +1,9 @@
+---
+title: "Tool factories"
+group: "pyric / firestore"
+section: "Reference"
+order: 120
+---
 # Tool factories
 
 `createFirestoreDataTools(deps)` wraps the modular Firestore data plane as `@inbrowser/agent` tool handlers.

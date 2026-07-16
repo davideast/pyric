@@ -1,8 +1,10 @@
 ---
-title: Write Realtime Database rules in TypeScript
-navLabel: RTDB rules in TypeScript
-outcome: Compose RTDB rules from typed constraints, prove them in-process, and deploy the compiled JSON.
-status: draft
+title: "Write Realtime Database rules in TypeScript"
+navLabel: "RTDB rules in TypeScript"
+group: "Secure & debug"
+section: ""
+order: 60
+description: "Compose RTDB rules from typed constraints, prove them in-process, and deploy the compiled JSON."
 ---
 
 # Write Realtime Database rules in TypeScript

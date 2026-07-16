@@ -1,8 +1,10 @@
 ---
-title: Simulate and lint Security Rules before deployment
-navLabel: Simulate and lint before you deploy
-outcome: Get a rules verdict and a lint report locally, before production answers with an unexplained 400 or 403.
-status: draft
+title: "Simulate and lint Security Rules before deployment"
+navLabel: "Simulate and lint before you deploy"
+group: "Secure & debug"
+section: ""
+order: 20
+description: "Get a rules verdict and a lint report locally, before production answers with an unexplained 400 or 403."
 ---
 
 # Simulate and lint Security Rules before deployment

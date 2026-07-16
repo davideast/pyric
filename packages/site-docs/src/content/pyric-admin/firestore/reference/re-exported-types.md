@@ -1,3 +1,9 @@
+---
+title: "Re-exported types"
+group: "pyric-admin / firestore"
+section: "Reference"
+order: 90
+---
 # Re-exported types
 
 `pyric-admin/firestore` re-exports a large surface of types from the sandbox

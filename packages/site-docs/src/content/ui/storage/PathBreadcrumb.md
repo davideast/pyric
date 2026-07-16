@@ -1,3 +1,9 @@
+---
+title: "<PathBreadcrumb>"
+group: "@pyric/ui"
+section: "Storage"
+order: 190
+---
 # `<PathBreadcrumb>`
 
 Headless breadcrumb for a storage path. Renders a root crumb plus one crumb per segment; every crumb (including the current one) is a real `<button>` firing `onNavigate` with that ancestor's absolute path.

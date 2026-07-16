@@ -1,3 +1,9 @@
+---
+title: "<ConfirmDialog> + useConfirm"
+group: "@pyric/ui"
+section: "Primitives"
+order: 30
+---
 # `<ConfirmDialog>` + `useConfirm`
 
 Headless confirmation dialog. Two ways to use:

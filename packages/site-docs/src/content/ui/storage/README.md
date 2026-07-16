@@ -1,3 +1,9 @@
+---
+title: "@pyric/ui/storage"
+group: "@pyric/ui"
+section: "Storage"
+order: 200
+---
 # `@pyric/ui/storage`
 
 Headless components + hooks for browsing AND administering Firebase Storage —

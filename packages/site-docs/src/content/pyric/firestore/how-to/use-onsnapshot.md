@@ -1,3 +1,10 @@
+---
+title: "How to use onSnapshot"
+navLabel: "Use onSnapshot"
+group: "pyric / firestore"
+section: "How-to"
+order: 70
+---
 # How to use `onSnapshot`
 
 Keep your UI live by registering snapshot listeners on documents and queries, in the modular Web SDK shape.

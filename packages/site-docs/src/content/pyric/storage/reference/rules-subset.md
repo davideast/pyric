@@ -1,3 +1,9 @@
+---
+title: "Storage rules language reference"
+group: "pyric / storage"
+section: "Reference"
+order: 80
+---
 # Storage rules language reference
 
 Usage reference for the Storage rules constructs shown in this package. This page is not an availability inventory: run `pyric can-i-use storage-rules/<construct>` for the current support, fidelity, assurance, caveats, and evidence before relying on a construct.

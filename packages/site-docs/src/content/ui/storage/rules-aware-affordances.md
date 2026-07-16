@@ -1,3 +1,9 @@
+---
+title: "Rules-aware affordances"
+group: "@pyric/ui"
+section: "Storage"
+order: 220
+---
 # Rules-aware affordances
 
 The M7 differentiator: the storage UI knows what the rules will say

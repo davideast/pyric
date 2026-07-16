@@ -1,3 +1,9 @@
+---
+title: "<ObjectInspector>"
+group: "@pyric/ui"
+section: "Storage"
+order: 180
+---
 # `<ObjectInspector>`
 
 Headless inspector for one storage object: metadata fields + a **content-type-driven preview**. Previews come from a registry — `image/*` (blob-URL `<img>`) and `text/* + application/json` (text panel, 256KB cap, JSON pretty-printed) ship built in; consumers extend by prepending their own matchers. Bytes load lazily and only when the matched preview asks; blob URLs are revoked on path change/unmount.

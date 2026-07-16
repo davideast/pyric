@@ -1,8 +1,10 @@
 ---
-title: Connect an agent to the sandbox
-navLabel: Connect an agent
-outcome: Connect Claude Code, Cursor, Codex, or any MCP client to your backend in minutes.
-status: draft
+title: "Connect an agent to the sandbox"
+navLabel: "Connect an agent"
+group: "Work with an agent"
+section: ""
+order: 10
+description: "Connect Claude Code, Cursor, Codex, or any MCP client to your backend in minutes."
 ---
 
 # Connect an agent to the sandbox

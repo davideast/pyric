@@ -1,5 +1,9 @@
 ---
+title: "How to test rules against the Firebase Rules Test API"
 navLabel: "Test rules against Firebase"
+group: "pyric / rules"
+section: "How-to"
+order: 90
 ---
 # How to test rules against the Firebase Rules Test API
 

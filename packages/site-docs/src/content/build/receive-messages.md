@@ -1,8 +1,10 @@
 ---
-title: Receive Firebase Cloud Messaging locally
-navLabel: Receive messages
-outcome: Keep Firebase Cloud Messaging receive code unchanged while tokens and deliveries stay in the local sandbox.
-status: draft
+title: "Receive Firebase Cloud Messaging locally"
+navLabel: "Receive messages"
+group: "Build"
+section: ""
+order: 50
+description: "Keep Firebase Cloud Messaging receive code unchanged while tokens and deliveries stay in the local sandbox."
 ---
 
 # Receive Firebase Cloud Messaging locally

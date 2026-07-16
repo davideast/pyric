@@ -1,3 +1,10 @@
+---
+title: "pyric/rules"
+navLabel: "Overview"
+group: "pyric / rules"
+section: ""
+order: 10
+---
 # `pyric/rules`
 
 Pyric-native Firestore Security Rules tooling. A browser-safe parser, linter, modules resolver, in-process simulator, and Rules Test API client, packaged so the data-plane swap-in (`pyric/firestore`) stays minimal.

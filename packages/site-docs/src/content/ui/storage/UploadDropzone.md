@@ -1,3 +1,9 @@
+---
+title: "<UploadDropzone>"
+group: "@pyric/ui"
+section: "Storage"
+order: 210
+---
 # `<UploadDropzone>`
 
 Headless drop target for file **and folder** uploads. Slot-based — the children render the chrome; the component owns the drag wiring, flattens the drop (folders traverse recursively via `webkitGetAsEntry`), and emits `DroppedFile { file, relativePath }[]` ready for `useObjectUpload`.

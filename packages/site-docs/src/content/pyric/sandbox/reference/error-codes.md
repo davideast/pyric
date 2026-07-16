@@ -1,3 +1,9 @@
+---
+title: "SandboxError codes"
+group: "pyric / sandbox"
+section: "Reference"
+order: 120
+---
 # `SandboxError` codes
 
 Every error the sandbox raises is a `SandboxError` carrying a `code`. Catch with `instanceof SandboxError`, switch on `code`.

@@ -1,3 +1,10 @@
+---
+title: "How to reset between tests"
+navLabel: "Reset between tests"
+group: "pyric / sandbox"
+section: "How-to"
+order: 70
+---
 # How to reset between tests
 
 Keep one sandbox alive across many tests without state leakage.

@@ -1,3 +1,9 @@
+---
+title: "getFirestore"
+group: "pyric / firestore"
+section: "Reference"
+order: 90
+---
 # `getFirestore`
 
 Constructs a Firestore handle owned by the Pyric sandbox mirror.

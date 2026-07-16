@@ -1,8 +1,10 @@
 ---
-title: Run Firebase Authentication locally
-navLabel: Sign in and manage users
-outcome: Run real auth flows against a local user database, seed test users with claims, and design an identity model your rules can trust.
-status: draft
+title: "Run Firebase Authentication locally"
+navLabel: "Sign in and manage users"
+group: "Build"
+section: ""
+order: 10
+description: "Run real auth flows against a local user database, seed test users with claims, and design an identity model your rules can trust."
 ---
 
 # Run Firebase Authentication locally

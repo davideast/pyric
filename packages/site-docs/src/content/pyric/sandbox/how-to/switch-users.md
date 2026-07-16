@@ -1,5 +1,9 @@
 ---
+title: "How to switch users with withAuth"
 navLabel: "Switch users"
+group: "pyric / sandbox"
+section: "How-to"
+order: 90
 ---
 # How to switch users with `withAuth`
 

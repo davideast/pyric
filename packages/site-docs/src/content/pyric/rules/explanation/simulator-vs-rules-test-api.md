@@ -1,3 +1,9 @@
+---
+title: "Simulator vs Rules Test API"
+group: "pyric / rules"
+section: "Explanation"
+order: 230
+---
 # Simulator vs Rules Test API
 
 Two surfaces evaluate rules against test cases. Underneath, they share a case shape and a result vocabulary; they disagree on tradeoffs. Choosing between them is a deliberate decision, not an implementation detail.

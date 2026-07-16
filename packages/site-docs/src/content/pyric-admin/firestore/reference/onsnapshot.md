@@ -1,3 +1,9 @@
+---
+title: "onSnapshot overloads"
+group: "pyric-admin / firestore"
+section: "Reference"
+order: 80
+---
 # `onSnapshot` overloads
 
 The Web-SDK-shaped streaming surface. Four overload groups mirror `firebase/firestore`'s `onSnapshot` exactly, so existing call sites copied from production code typecheck unchanged.

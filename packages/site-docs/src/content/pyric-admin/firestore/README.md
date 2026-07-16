@@ -1,3 +1,10 @@
+---
+title: "pyric-admin"
+navLabel: "Overview"
+group: "pyric-admin / firestore"
+section: ""
+order: 10
+---
 # `pyric-admin`
 
 Admin-SDK-shaped Firestore adapter for the Pyric sandbox. Mirrors `firebase-admin/firestore` (`db.collection(p).doc(p).get()`, `db.batch()`, `db.runTransaction()`) over `pyric/sandbox`'s in-process substrate. Streaming reads are covered too: a production-shaped `onSnapshot` ships as both a free function and a chainable `.onSnapshot(...)` method on refs and queries.

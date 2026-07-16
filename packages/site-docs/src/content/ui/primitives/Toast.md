@@ -1,3 +1,9 @@
+---
+title: "<ToastProvider> + useToast"
+group: "@pyric/ui"
+section: "Primitives"
+order: 70
+---
 # `<ToastProvider>` + `useToast`
 
 Imperative toast queue. One `<ToastProvider>` per scope; any descendant calls `useToast()` to push toasts. Renders to `document.body` via portal.

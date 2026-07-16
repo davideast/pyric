@@ -1,5 +1,9 @@
 ---
+title: "Sandbox, SandboxContext, AuthState"
 navLabel: "Sandbox and context"
+group: "pyric / sandbox"
+section: "Reference"
+order: 140
 ---
 # `Sandbox`, `SandboxContext`, `AuthState`
 

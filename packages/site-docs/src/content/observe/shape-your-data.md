@@ -1,8 +1,10 @@
 ---
-title: Seed, snapshot, reset, and replay the backend
-navLabel: Seed, snapshot, replay
-outcome: Put the backend in any state you want, capture the good ones, and get them back on demand.
-status: draft
+title: "Seed, snapshot, reset, and replay the backend"
+navLabel: "Seed, snapshot, replay"
+group: "Observe & shape"
+section: ""
+order: 20
+description: "Put the backend in any state you want, capture the good ones, and get them back on demand."
 ---
 
 # Seed, snapshot, reset, and replay the backend

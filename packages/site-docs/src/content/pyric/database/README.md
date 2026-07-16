@@ -1,3 +1,10 @@
+---
+title: "Realtime Database"
+navLabel: "Overview"
+group: "pyric / database"
+section: ""
+order: 10
+---
 # Realtime Database
 
 Pyric's Realtime Database surface has three deliberately separate parts:

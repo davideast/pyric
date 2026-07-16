@@ -1,3 +1,9 @@
+---
+title: "The session-archive driver"
+group: "pyric / storage"
+section: "Explanation"
+order: 100
+---
 # The session-archive driver
 
 `pyric/storage` was scoped around one use case: storing completed agent sessions so a user can come back to them later. This page explains the use case and how it shaped the package.

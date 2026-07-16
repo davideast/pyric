@@ -1,8 +1,10 @@
 ---
-title: Run Cloud Storage locally
-navLabel: Store files
-outcome: Upload, list, download, and delete files locally, with storage rules enforced in-process.
-status: draft
+title: "Run Cloud Storage locally"
+navLabel: "Store files"
+group: "Build"
+section: ""
+order: 40
+description: "Upload, list, download, and delete files locally, with storage rules enforced in-process."
 ---
 
 # Run Cloud Storage locally

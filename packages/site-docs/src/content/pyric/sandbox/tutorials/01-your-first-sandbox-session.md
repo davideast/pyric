@@ -1,3 +1,9 @@
+---
+title: "Your first sandbox session"
+group: "pyric / sandbox"
+section: "Tutorials"
+order: 20
+---
 # Your first sandbox session
 
 Create a sandbox, deploy a tiny set of rules, write a document as one user, deny a read as another, and inspect the result. By the end you'll have seen the three core ideas (`Sandbox`, `SandboxContext`, `SandboxError`) work together in one short script.

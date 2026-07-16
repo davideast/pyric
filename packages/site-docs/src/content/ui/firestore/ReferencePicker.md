@@ -1,3 +1,9 @@
+---
+title: "<ReferencePicker>"
+group: "@pyric/ui"
+section: "Firestore"
+order: 150
+---
 # `<ReferencePicker>`
 
 Pick a `DocumentReference` by typing a path OR by browsing the tree. Improvement over firebase-tools-ui's plain text input.

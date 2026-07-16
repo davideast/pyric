@@ -1,8 +1,10 @@
 ---
-title: Run Cloud Firestore locally
-navLabel: Store and query data
-outcome: Read, write, query, and stream Firestore documents locally, and derive the composite indexes your queries need from your source.
-status: draft
+title: "Run Cloud Firestore locally"
+navLabel: "Store and query data"
+group: "Build"
+section: ""
+order: 20
+description: "Read, write, query, and stream Firestore documents locally, and derive the composite indexes your queries need from your source."
 ---
 
 # Run Cloud Firestore locally

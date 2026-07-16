@@ -1,5 +1,9 @@
 ---
+title: "Select the Storage runtime"
 navLabel: "Switch backends"
+group: "pyric / storage"
+section: "How-to"
+order: 40
 ---
 # Select the Storage runtime
 

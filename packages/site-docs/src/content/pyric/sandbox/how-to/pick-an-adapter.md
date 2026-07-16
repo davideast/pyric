@@ -1,5 +1,9 @@
 ---
+title: "How to pick between pyric-admin and pyric/firestore"
 navLabel: "Pick an adapter"
+group: "pyric / sandbox"
+section: "How-to"
+order: 50
 ---
 # How to pick between `pyric-admin` and `pyric/firestore`
 

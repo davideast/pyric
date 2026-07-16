@@ -1,3 +1,9 @@
+---
+title: "<ObjectBrowser>"
+group: "@pyric/ui"
+section: "Storage"
+order: 170
+---
 # `<ObjectBrowser>`
 
 Headless row list for a storage path — folders first, then objects, from `useStorageList`'s `entries`. Folder rows **navigate**, object rows **select**. Above `virtualizeThreshold` (default 100), switches to virtualized rendering via `<VirtualList>`; below, renders a plain `<ul>`.

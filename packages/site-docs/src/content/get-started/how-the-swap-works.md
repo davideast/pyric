@@ -1,8 +1,10 @@
 ---
-title: How firebase/* imports resolve locally and in production
-navLabel: How the swap works
-outcome: Understand how your firebase imports reached a local backend, and why production is untouched.
-status: draft
+title: "How firebase/* imports resolve locally and in production"
+navLabel: "How the swap works"
+group: "Get started"
+section: ""
+order: 20
+description: "Understand how your firebase imports reached a local backend, and why production is untouched."
 ---
 
 # How firebase/* imports resolve locally and in production

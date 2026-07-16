@@ -1,3 +1,10 @@
+---
+title: "Auth users admin — useAuthUsers, <AuthUserList>, <AuthUserForm>"
+navLabel: "Auth users admin"
+group: "@pyric/ui"
+section: "Auth"
+order: 300
+---
 # Auth users admin — `useAuthUsers`, `<AuthUserList>`, `<AuthUserForm>`
 
 Emulator-style user administration for a sandbox `Auth` handle: a live

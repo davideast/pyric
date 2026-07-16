@@ -1,3 +1,9 @@
+---
+title: "Sandbox-only operations"
+group: "pyric / firestore"
+section: "Reference"
+order: 110
+---
 # Sandbox-only operations
 
 Firestore-specific controls are top-level exports from

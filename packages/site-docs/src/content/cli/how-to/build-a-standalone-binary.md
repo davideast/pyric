@@ -1,5 +1,9 @@
 ---
+title: "Build a standalone pyric binary"
 navLabel: "Build a standalone binary"
+group: "@pyric/cli"
+section: "How-to"
+order: 30
 ---
 # Build a standalone `pyric` binary
 

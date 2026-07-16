@@ -1,3 +1,9 @@
+---
+title: "RTDB rules tooling"
+group: "pyric / database"
+section: "Reference"
+order: 40
+---
 # RTDB rules tooling
 
 The RTDB constraints DSL (`defineRtdbRules` and the combinators) is public,

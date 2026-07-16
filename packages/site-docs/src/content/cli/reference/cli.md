@@ -1,3 +1,9 @@
+---
+title: "pyric CLI reference"
+group: "@pyric/cli"
+section: "Reference"
+order: 90
+---
 # `pyric` CLI reference
 
 The complete command + flag surface of the `pyric` binary. This is the

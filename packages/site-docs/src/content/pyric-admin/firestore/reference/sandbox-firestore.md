@@ -1,3 +1,9 @@
+---
+title: "SandboxFirestore surface"
+group: "pyric-admin / firestore"
+section: "Reference"
+order: 100
+---
 # `SandboxFirestore` surface
 
 The handle returned from `getFirestore(ctx)`. Extends `Firestore` from `firebase-admin/firestore` (via the simulator's compat impl) and adds three sandbox-only methods.

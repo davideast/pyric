@@ -1,8 +1,10 @@
 ---
-title: Audit Security Rules and data before production
-navLabel: Audit rules and data
-outcome: Get an evidence-backed answer to who can access what, with every serious finding proven by a simulation.
-status: draft
+title: "Audit Security Rules and data before production"
+navLabel: "Audit rules and data"
+group: "Secure & debug"
+section: ""
+order: 80
+description: "Get an evidence-backed answer to who can access what, with every serious finding proven by a simulation."
 ---
 
 # Audit Security Rules and data before production

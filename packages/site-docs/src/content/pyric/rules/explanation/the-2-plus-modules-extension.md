@@ -1,3 +1,9 @@
+---
+title: "The 2+modules extension"
+group: "pyric / rules"
+section: "Explanation"
+order: 240
+---
 # The `2+modules` extension
 
 Firestore rules don't have imports. The DSL has functions, but every function has to be defined in the same file as the match block that calls it. This means real-world rules either repeat the same helper code across files (and drift) or live in one giant file (and become unreadable).

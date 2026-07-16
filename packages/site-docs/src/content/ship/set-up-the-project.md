@@ -1,8 +1,10 @@
 ---
-title: Prepare the Firebase project
-navLabel: Set up the Firebase project
-outcome: Configure the real Firebase services that production will use, without confusing project setup with local development.
-status: draft
+title: "Prepare the Firebase project"
+navLabel: "Set up the Firebase project"
+group: "Ship & test"
+section: ""
+order: 30
+description: "Configure the real Firebase services that production will use, without confusing project setup with local development."
 ---
 
 # Prepare the Firebase project

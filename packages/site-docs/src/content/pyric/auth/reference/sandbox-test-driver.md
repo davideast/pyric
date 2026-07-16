@@ -1,3 +1,10 @@
+---
+title: "Sandbox test driver: pyric/auth/sandbox.*"
+navLabel: "Sandbox test driver"
+group: "pyric / auth"
+section: "Reference"
+order: 20
+---
 # Sandbox test driver: `pyric/auth/sandbox.*`
 
 The `sandbox` export is `pyric/auth`'s test-driver namespace. It mirrors `pyric/firestore`'s `sandbox.setRules` / `sandbox.seedDocuments` pattern: methods exist only for sandbox-backed `Auth` handles and throw `failed-precondition` against a prod handle.

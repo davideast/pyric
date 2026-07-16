@@ -1,3 +1,10 @@
+---
+title: "pyric/storage"
+navLabel: "Overview"
+group: "pyric / storage"
+section: ""
+order: 10
+---
 # `pyric/storage`
 
 Firebase Storage mirror for the Pyric sandbox. Its modular Web-SDK shape (`getStorage`, `ref`, `uploadBytes`, `getBytes`, `getDownloadURL`, `listAll`, `deleteObject`) is backed by IndexedDB. Production selection happens outside this package: normal builds resolve `firebase/storage`, while Pyric development swaps that import to this sandbox mirror.

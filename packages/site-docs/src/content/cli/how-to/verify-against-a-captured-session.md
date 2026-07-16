@@ -1,5 +1,9 @@
 ---
+title: "How to verify your rules against a captured session"
 navLabel: "Verify rules"
+group: "@pyric/cli"
+section: "How-to"
+order: 80
 ---
 # How to verify your rules against a captured session
 

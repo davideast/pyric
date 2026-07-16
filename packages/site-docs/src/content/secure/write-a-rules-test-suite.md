@@ -1,8 +1,10 @@
 ---
-title: Write a Security Rules test suite
-navLabel: Write a rules test suite
-outcome: A suite of allow/deny cases that runs in-process, gates CI, and can escalate to Google's own engine.
-status: draft
+title: "Write a Security Rules test suite"
+navLabel: "Write a rules test suite"
+group: "Secure & debug"
+section: ""
+order: 30
+description: "A suite of allow/deny cases that runs in-process, gates CI, and can escalate to Google's own engine."
 ---
 
 # Write a Security Rules test suite

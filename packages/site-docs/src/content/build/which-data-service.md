@@ -1,8 +1,10 @@
 ---
-title: Choose a Firebase database
-navLabel: Which data service?
-outcome: Make the Firestore or Realtime Database decision from Firebase's production model, then check the corresponding Pyric boundary.
-status: draft
+title: "Choose a Firebase database"
+navLabel: "Which data service?"
+group: "Build"
+section: ""
+order: 70
+description: "Make the Firestore or Realtime Database decision from Firebase's production model, then check the corresponding Pyric boundary."
 ---
 
 # Choose a Firebase database

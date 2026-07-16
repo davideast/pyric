@@ -1,3 +1,9 @@
+---
+title: "@pyric/cli/bridge"
+group: "@pyric/cli"
+section: "Bridge"
+order: 120
+---
 # `@pyric/cli/bridge`
 
 Bridge between an external MCP client (Claude Code, Cursor) and a browser-resident pyric sandbox.

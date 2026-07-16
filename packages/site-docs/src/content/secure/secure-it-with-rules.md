@@ -1,8 +1,10 @@
 ---
-title: Prove a user can access only their own data
-navLabel: Security Rules
-outcome: Write a rule, simulate a request against it, read the verdict, and deploy knowing what it allows.
-status: draft
+title: "Prove a user can access only their own data"
+navLabel: "Security Rules"
+group: "Secure & debug"
+section: ""
+order: 10
+description: "Write a rule, simulate a request against it, read the verdict, and deploy knowing what it allows."
 ---
 
 # Prove a user can access only their own data

@@ -1,8 +1,10 @@
 ---
-title: Run Firebase AI Logic locally
-navLabel: Run AI Logic locally
-outcome: Keep Firebase AI Logic application code unchanged while model responses stay deterministic or come from a local model.
-status: draft
+title: "Run Firebase AI Logic locally"
+navLabel: "Run AI Logic locally"
+group: "Build"
+section: ""
+order: 60
+description: "Keep Firebase AI Logic application code unchanged while model responses stay deterministic or come from a local model."
 ---
 
 # Run Firebase AI Logic locally

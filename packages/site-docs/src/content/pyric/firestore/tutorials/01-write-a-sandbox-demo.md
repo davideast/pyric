@@ -1,3 +1,10 @@
+---
+title: "Write a sandbox-backed demo"
+navLabel: "Sandbox-backed demo"
+group: "pyric / firestore"
+section: "Tutorials"
+order: 20
+---
 # Write a sandbox-backed demo
 
 Build a tiny notes app with `pyric/firestore` against the sandbox backend. By the end you'll have set rules, seeded data, written, read, watched a query, and seen a denial, all in-process.

@@ -1,3 +1,10 @@
+---
+title: "How to lint a rules source"
+navLabel: "Lint a rules source"
+group: "pyric / rules"
+section: "How-to"
+order: 40
+---
 # How to lint a rules source
 
 Lint a Firestore rules source, read the result, and gate a deploy on it. Everything here runs in-process.

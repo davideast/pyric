@@ -1,3 +1,9 @@
+---
+title: "<TrafficStats>"
+group: "@pyric/ui"
+section: "Traffic"
+order: 280
+---
 # `<TrafficStats>`
 
 The aggregation panel — totals, deny rate, and count breakdowns by method /

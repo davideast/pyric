@@ -1,3 +1,9 @@
+---
+title: "Value wrapper design"
+group: "pyric / rules"
+section: "Explanation"
+order: 250
+---
 # Value wrapper design
 
 Firestore rules have a small but real type system. `request.time` is a `timestamp`. `request.path` is a `path`. `bytes[0:10]` is a `bytes` value. `is duration`, `is timestamp`, `is reference` are type tests. None of these have first-class JavaScript representations (`Timestamp` is not a primitive, `Path` is not a primitive), so the simulator has to model them somehow.

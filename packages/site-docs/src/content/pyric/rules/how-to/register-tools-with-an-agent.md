@@ -1,5 +1,9 @@
 ---
+title: "How to register rules tools with an agent"
 navLabel: "Register rules tools"
+group: "pyric / rules"
+section: "How-to"
+order: 60
 ---
 # How to register rules tools with an agent
 

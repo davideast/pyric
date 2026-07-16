@@ -1,5 +1,9 @@
 ---
+title: "How to test rule expressions independently"
 navLabel: "Test rule expressions"
+group: "pyric / storage"
+section: "How-to"
+order: 50
 ---
 # How to test rule expressions independently
 

@@ -1,3 +1,9 @@
+---
+title: "<VirtualList>"
+group: "@pyric/ui"
+section: "Primitives"
+order: 80
+---
 # `<VirtualList>`
 
 Thin wrapper around [`@tanstack/react-virtual`](https://tanstack.com/virtual). Renders a scrollable container with absolutely-positioned rows; only the rows in view (plus `overscan` neighbors) mount to the DOM.

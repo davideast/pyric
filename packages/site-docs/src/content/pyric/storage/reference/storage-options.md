@@ -1,3 +1,9 @@
+---
+title: "StorageOptions"
+group: "pyric / storage"
+section: "Reference"
+order: 90
+---
 # `StorageOptions`
 
 The options bag for `getStorageSandbox(target, options?)`.

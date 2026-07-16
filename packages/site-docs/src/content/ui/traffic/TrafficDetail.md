@@ -1,3 +1,9 @@
+---
+title: "<TrafficDetail>"
+group: "@pyric/ui"
+section: "Traffic"
+order: 260
+---
 # `<TrafficDetail>`
 
 The drill-in panel for one traffic event — header, a consumer classification

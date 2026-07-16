@@ -1,3 +1,9 @@
+---
+title: "FirestoreCase schema"
+group: "pyric / rules"
+section: "Reference"
+order: 160
+---
 # `FirestoreCase` schema
 
 `FirestoreCase` is the unit of work for `firestoreRules(source).simulate(cases)` and `firestoreRules(source).explain(oneCase)`, both from `pyric/rules`. It's structurally identical to the engine-internal `TestCase` type (`pyric/rules/internal`), re-exported under the public name so callers never need to reach into the engine seam. A Zod schema for the same shape, `TestCaseSchema`, is available on `pyric/rules/internal` for callers that want runtime validation; it is not part of the public contract.

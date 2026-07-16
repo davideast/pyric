@@ -1,8 +1,10 @@
 ---
-title: Read a Security Rules denial
-navLabel: Read a denial and understand it
-outcome: See which rule denied an operation, on what path, with what data, the moment it happens.
-status: draft
+title: "Read a Security Rules denial"
+navLabel: "Read a denial and understand it"
+group: "Secure & debug"
+section: ""
+order: 40
+description: "See which rule denied an operation, on what path, with what data, the moment it happens."
 ---
 
 # Read a Security Rules denial

@@ -1,5 +1,9 @@
 ---
+title: "How to run an existing Firebase application in the Firestore sandbox"
 navLabel: "Use in existing code"
+group: "pyric / firestore"
+section: "How-to"
+order: 40
 ---
 # How to run an existing Firebase application in the Firestore sandbox
 

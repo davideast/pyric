@@ -1,3 +1,9 @@
+---
+title: "Why IndexedDB"
+group: "pyric / storage"
+section: "Explanation"
+order: 110
+---
 # Why IndexedDB
 
 `pyric/storage`'s sandbox backend persists blobs and metadata in IndexedDB. This page explains why, and what the choice implies.

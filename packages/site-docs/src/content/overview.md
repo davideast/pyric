@@ -1,8 +1,10 @@
 ---
-title: Firebase that runs in your browser
-navLabel: Overview
-outcome: Understand what Pyric is and what you get, in one short read.
-status: draft
+title: "Firebase that runs in your browser"
+navLabel: "Overview"
+group: "Overview"
+section: ""
+order: 10
+description: "Understand what Pyric is and what you get, in one short read."
 ---
 
 # Firebase that runs in your browser

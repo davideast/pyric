@@ -1,3 +1,10 @@
+---
+title: "pyric-admin/app"
+navLabel: "Overview"
+group: "pyric-admin / app"
+section: ""
+order: 10
+---
 # `pyric-admin/app`
 
 This subpath owns the sandbox admin app registry. `initializeApp` returns a

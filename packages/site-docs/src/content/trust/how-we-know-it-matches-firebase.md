@@ -1,8 +1,10 @@
 ---
-title: How does Pyric know it works like Firebase?
-navLabel: Conformance
-outcome: See the production evidence behind Pyric's conformance claims, the gaps those claims leave open, and the checks to make before shipping.
-status: draft
+title: "How does Pyric know it works like Firebase?"
+navLabel: "Conformance"
+group: "Trust"
+section: ""
+order: 10
+description: "See the production evidence behind Pyric's conformance claims, the gaps those claims leave open, and the checks to make before shipping."
 ---
 
 # How does Pyric know it works like Firebase?

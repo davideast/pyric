@@ -1,5 +1,9 @@
 ---
+title: "Wire Claude Code to your pyric sandbox (manual MCP wiring)"
 navLabel: "Wire Claude Code"
+group: "@pyric/cli"
+section: "Tutorials"
+order: 20
 ---
 # Wire Claude Code to your pyric sandbox (manual MCP wiring)
 

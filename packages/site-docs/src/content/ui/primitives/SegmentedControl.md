@@ -1,3 +1,9 @@
+---
+title: "<SegmentedControl>"
+group: "@pyric/ui"
+section: "Primitives"
+order: 60
+---
 # `<SegmentedControl>`
 
 Headless single-select chip group — reads as one widget, wired as an ARIA

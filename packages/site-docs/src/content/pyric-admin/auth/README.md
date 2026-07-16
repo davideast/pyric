@@ -1,3 +1,10 @@
+---
+title: "pyric-admin/auth"
+navLabel: "Overview"
+group: "pyric-admin / auth"
+section: ""
+order: 10
+---
 # `pyric-admin/auth`
 
 Admin-shape Auth with swappable backends. `getAuth(app)` mirrors `firebase-admin/auth` and dispatches on the app handle from `pyric-admin/app`:

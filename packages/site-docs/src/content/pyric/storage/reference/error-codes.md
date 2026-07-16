@@ -1,3 +1,9 @@
+---
+title: "Error codes"
+group: "pyric / storage"
+section: "Reference"
+order: 70
+---
 # Error codes
 
 Operations through `pyric/storage` throw errors with Firebase-aligned `code` properties, `'storage/<noun>'`. Catch by code.

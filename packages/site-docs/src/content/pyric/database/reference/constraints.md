@@ -1,3 +1,10 @@
+---
+title: "API reference: RTDB rules constraints"
+navLabel: "API reference"
+group: "pyric / database"
+section: "Reference"
+order: 30
+---
 # API reference: RTDB rules constraints
 
 Typed builders that produce Realtime Database security-rule expressions, plus the assembly layer that places them in a path tree and compiles the tree to Firebase rules JSON. Everything on this page is importable directly from `pyric/rules`, the public front door. The dedicated constraints-only subpaths that used to exist (`pyric/rules/rtdb/constraints`, `pyric/rules/rtdb-constraints`) no longer do; there is one place to import the DSL from now. The engine that compiles and simulates against it (the parser, linter, simulator, and tool factories) lives on the internal `pyric/rules/internal/rtdb` subpath instead.

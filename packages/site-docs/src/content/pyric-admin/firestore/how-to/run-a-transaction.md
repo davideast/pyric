@@ -1,3 +1,10 @@
+---
+title: "How to run a transaction"
+navLabel: "Run a transaction"
+group: "pyric-admin / firestore"
+section: "How-to"
+order: 30
+---
 # How to run a transaction
 
 This guide shows you how to use `runTransaction` on a sandbox Firestore handle.

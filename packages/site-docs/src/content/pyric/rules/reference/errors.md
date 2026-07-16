@@ -1,3 +1,9 @@
+---
+title: "Errors"
+group: "pyric / rules"
+section: "Reference"
+order: 120
+---
 # Errors
 
 `pyric/rules` throws exactly three error classes on its public surface. Everything below the public surface (the parser, evaluator, and handlers on `pyric/rules/internal`) has its own error vocabulary; those types still apply, but only to the internal engine now.

@@ -1,3 +1,9 @@
+---
+title: "<DocumentList>"
+group: "@pyric/ui"
+section: "Firestore"
+order: 120
+---
 # `<DocumentList>`
 
 Headless list renderer for documents in a collection. Above `virtualizeThreshold` (default 100), switches to virtualized rendering via `<VirtualList>`; below, renders a plain `<ul>`.

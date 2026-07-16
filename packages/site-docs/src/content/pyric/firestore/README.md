@@ -1,3 +1,10 @@
+---
+title: "pyric/firestore"
+navLabel: "Overview"
+group: "pyric / firestore"
+section: ""
+order: 10
+---
 # `pyric/firestore`
 
 `pyric/firestore` is the sandbox implementation of Firebase's modular

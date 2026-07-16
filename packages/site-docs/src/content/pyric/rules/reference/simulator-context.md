@@ -1,5 +1,9 @@
 ---
+title: "Simulator context and result states"
 navLabel: "Simulator context"
+group: "pyric / rules"
+section: "Reference"
+order: 140
 ---
 # Simulator context and result states
 

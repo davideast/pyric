@@ -1,8 +1,10 @@
 ---
-title: Use tested modules in Firestore Security Rules
-navLabel: The rules standard library
-outcome: Import a tested rule function, resolve it to ordinary Firebase Rules, then lint and simulate the result.
-status: draft
+title: "Use tested modules in Firestore Security Rules"
+navLabel: "The rules standard library"
+group: "Secure & debug"
+section: ""
+order: 50
+description: "Import a tested rule function, resolve it to ordinary Firebase Rules, then lint and simulate the result."
 ---
 
 # Use tested modules in Firestore Security Rules

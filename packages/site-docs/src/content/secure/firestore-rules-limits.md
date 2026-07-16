@@ -1,8 +1,10 @@
 ---
-title: Fix Firestore Security Rules limit failures
-navLabel: Rules limits
-outcome: Recognise a production Rules limit, see the invalid shape, and replace it with a valid one.
-status: draft
+title: "Fix Firestore Security Rules limit failures"
+navLabel: "Rules limits"
+group: "Secure & debug"
+section: ""
+order: 70
+description: "Recognise a production Rules limit, see the invalid shape, and replace it with a valid one."
 ---
 
 # Fix Firestore Security Rules limit failures

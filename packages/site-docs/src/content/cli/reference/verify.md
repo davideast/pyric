@@ -1,3 +1,9 @@
+---
+title: "Verify API"
+group: "@pyric/cli"
+section: "Reference"
+order: 110
+---
 # Verify API
 
 `@pyric/cli/verify` verifies captured sandbox sessions from code. It uses the

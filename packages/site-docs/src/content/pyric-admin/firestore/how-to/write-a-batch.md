@@ -1,3 +1,10 @@
+---
+title: "How to write a batch"
+navLabel: "Write a batch"
+group: "pyric-admin / firestore"
+section: "How-to"
+order: 70
+---
 # How to write a batch
 
 This guide shows you how to use `WriteBatch` for atomic multi-document writes.

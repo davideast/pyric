@@ -1,3 +1,9 @@
+---
+title: "<DocumentPreview>"
+group: "@pyric/ui"
+section: "Firestore"
+order: 130
+---
 # `<DocumentPreview>`
 
 Read-only renderer for a Firestore document. Iterates top-level fields in lexicographic order; dispatches each value through the field-editor registry on its inferred type.

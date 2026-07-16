@@ -1,3 +1,9 @@
+---
+title: "<CollectionList>"
+group: "@pyric/ui"
+section: "Firestore"
+order: 90
+---
 # `<CollectionList>`
 
 Headless list renderer for collections under a parent. The component is purely presentational — fetching is the consumer's job (via `useCollectionList` or otherwise).

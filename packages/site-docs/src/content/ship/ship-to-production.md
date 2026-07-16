@@ -1,8 +1,10 @@
 ---
-title: The same code goes live
-navLabel: Ship to production
-outcome: Deploy rules, indexes, hosting, and functions, and learn what would change before production does.
-status: draft
+title: "The same code goes live"
+navLabel: "Ship to production"
+group: "Ship & test"
+section: ""
+order: 10
+description: "Deploy rules, indexes, hosting, and functions, and learn what would change before production does."
 ---
 
 # The same code goes live

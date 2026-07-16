@@ -1,3 +1,9 @@
+---
+title: "The versioning and compatibility policy"
+group: "pyric"
+section: "Explanation"
+order: 10
+---
 # The versioning and compatibility policy
 
 Pyric mirrors Firebase's observable behavior. Users need one honest way to ask "which Firebase does this pyric behave like," and pyric needs one honest way to answer. This document is that answer. It defines what the claim means, where it appears, and what has to be true before it can move.

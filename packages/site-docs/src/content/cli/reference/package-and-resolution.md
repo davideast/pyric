@@ -1,3 +1,9 @@
+---
+title: "Package exports and resolution"
+group: "@pyric/cli"
+section: "Reference"
+order: 100
+---
 # Package exports and resolution
 
 Install `@pyric/cli` as a development dependency. It provides the `pyric`

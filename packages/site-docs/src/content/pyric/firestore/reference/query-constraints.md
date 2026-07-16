@@ -1,3 +1,9 @@
+---
+title: "Query constraints"
+group: "pyric / firestore"
+section: "Reference"
+order: 100
+---
 # Query constraints
 
 `pyric/firestore` mirrors `firebase/firestore`'s constraint factories. Compose them via `query(...)`.

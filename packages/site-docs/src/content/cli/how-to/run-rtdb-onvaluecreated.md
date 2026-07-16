@@ -1,3 +1,9 @@
+---
+title: "Run an RTDB onValueCreated function locally"
+group: "@pyric/cli"
+section: "How-to"
+order: 50
+---
 # Run an RTDB `onValueCreated` function locally
 
 Use `pyric dev` to run an existing Node

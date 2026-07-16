@@ -1,3 +1,10 @@
+---
+title: "How to run a transaction"
+navLabel: "Run a transaction"
+group: "pyric / firestore"
+section: "How-to"
+order: 60
+---
 # How to run a transaction
 
 Read a document and write based on its current value, atomically, with `runTransaction`. It works the same against either backend.

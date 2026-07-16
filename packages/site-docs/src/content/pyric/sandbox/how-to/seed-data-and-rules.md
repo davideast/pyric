@@ -1,5 +1,9 @@
 ---
+title: "How to seed initial data and rules"
 navLabel: "Seed data and rules"
+group: "pyric / sandbox"
+section: "How-to"
+order: 80
 ---
 # How to seed initial data and rules
 

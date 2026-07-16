@@ -1,3 +1,10 @@
+---
+title: "pyric/auth"
+navLabel: "Overview"
+group: "pyric / auth"
+section: ""
+order: 10
+---
 # `pyric/auth`
 
 Sandbox-only modular Web SDK Auth mirror. It implements `firebase/auth`'s tree-shakable shape (`getAuth`, `signInAnonymously`, `signInWithEmailAndPassword`, `onAuthStateChanged`, `signInWithPopup`, `GoogleAuthProvider`) in process, with no network.

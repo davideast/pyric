@@ -1,8 +1,10 @@
 ---
-title: Run Realtime Database locally
-navLabel: Sync realtime data
-outcome: Store and watch a Realtime Database tree locally, model it around your reads, and guard writes with schema and rules checks.
-status: draft
+title: "Run Realtime Database locally"
+navLabel: "Sync realtime data"
+group: "Build"
+section: ""
+order: 30
+description: "Store and watch a Realtime Database tree locally, model it around your reads, and guard writes with schema and rules checks."
 ---
 
 # Run Realtime Database locally

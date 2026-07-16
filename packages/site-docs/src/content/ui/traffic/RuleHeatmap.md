@@ -1,3 +1,9 @@
+---
+title: "<RuleHeatmap>"
+group: "@pyric/ui"
+section: "Traffic"
+order: 250
+---
 # `<RuleHeatmap>`
 
 Per-rule fire / deny rollup — one row per rule, busiest first. Pairs with

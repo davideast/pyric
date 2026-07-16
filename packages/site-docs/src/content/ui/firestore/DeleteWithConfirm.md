@@ -1,3 +1,9 @@
+---
+title: "<DeleteWithConfirm>"
+group: "@pyric/ui"
+section: "Firestore"
+order: 100
+---
 # `<DeleteWithConfirm>`
 
 Composition of [`useConfirm`](../primitives/ConfirmDialog.md) + [`useRecursiveDelete`](#user-content-userecursivedelete) for safe deletion of a document or collection with progress tracking.

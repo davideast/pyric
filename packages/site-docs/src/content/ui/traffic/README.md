@@ -1,3 +1,9 @@
+---
+title: "@pyric/ui/traffic"
+group: "@pyric/ui"
+section: "Traffic"
+order: 240
+---
 # `@pyric/ui/traffic`
 
 Headless components + hooks for observing rule-eval traffic — a Chrome

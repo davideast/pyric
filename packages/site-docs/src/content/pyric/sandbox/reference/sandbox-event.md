@@ -1,3 +1,9 @@
+---
+title: "SandboxEvent"
+group: "pyric / sandbox"
+section: "Reference"
+order: 150
+---
 # `SandboxEvent`
 
 The discriminated union `sandbox.onEvent(cb)` delivers. Filter on `kind` to

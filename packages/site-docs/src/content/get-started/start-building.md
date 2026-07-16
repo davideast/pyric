@@ -1,8 +1,10 @@
 ---
-title: Run Firebase locally
-navLabel: Quickstart
-outcome: Start a new Firebase application or add Pyric to an existing Vite application without connecting development to production.
-status: draft
+title: "Run Firebase locally"
+navLabel: "Quickstart"
+group: "Get started"
+section: ""
+order: 10
+description: "Start a new Firebase application or add Pyric to an existing Vite application without connecting development to production."
 ---
 
 # Run Firebase locally

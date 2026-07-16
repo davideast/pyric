@@ -1,5 +1,9 @@
 ---
+title: "Why rules tooling lives on a sibling subpath"
 navLabel: "Rules tooling is separate"
+group: "pyric / firestore"
+section: "Explanation"
+order: 130
 ---
 # Why rules tooling lives on a sibling subpath
 

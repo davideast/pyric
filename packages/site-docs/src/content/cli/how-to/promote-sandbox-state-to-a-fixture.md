@@ -1,5 +1,9 @@
 ---
+title: "How to promote sandbox state to a committable fixture"
 navLabel: "Promote sandbox state"
+group: "@pyric/cli"
+section: "How-to"
+order: 40
 ---
 # How to promote sandbox state to a committable fixture
 

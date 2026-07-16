@@ -1,8 +1,10 @@
 ---
-title: Work with an agent in the browser sandbox
-navLabel: Use the MCP tools
-outcome: Give a local coding agent real backend tasks and watch it inspect, change, and verify the same browser sandbox as your app.
-status: draft
+title: "Work with an agent in the browser sandbox"
+navLabel: "Use the MCP tools"
+group: "Work with an agent"
+section: ""
+order: 20
+description: "Give a local coding agent real backend tasks and watch it inspect, change, and verify the same browser sandbox as your app."
 ---
 
 # Work with an agent in the browser sandbox

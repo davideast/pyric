@@ -1,3 +1,9 @@
+---
+title: "Lint rules"
+group: "pyric / rules"
+section: "Reference"
+order: 130
+---
 # Lint rules
 
 This page lists every lint rule emitted by `lint(source)` and `firestoreRules(source).lint()`, both from `pyric/rules`. Each rule surfaces as a `RuleIssue` with `origin: 'lint'` and `code` set to the rule name below. Each entry gives the rule code, default severity, what it detects, and the suggested fix.

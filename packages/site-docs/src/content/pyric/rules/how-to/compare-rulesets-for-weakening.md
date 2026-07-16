@@ -1,5 +1,9 @@
 ---
+title: "How to compare two rulesets for weakening"
 navLabel: "Compare rulesets"
+group: "pyric / rules"
+section: "How-to"
+order: 20
 ---
 # How to compare two rulesets for weakening
 

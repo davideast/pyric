@@ -1,3 +1,10 @@
+---
+title: "Firestore rules gaps: where pyric and Firebase disagree"
+navLabel: "Firestore rules gaps"
+group: "pyric / rules"
+section: "Reference"
+order: 110
+---
 # Firestore rules gaps: where pyric and Firebase disagree
 
 A gap is a rule that gets one answer from pyric and a different answer from

@@ -1,3 +1,9 @@
+---
+title: "Standard library modules"
+group: "pyric / rules"
+section: "Reference"
+order: 150
+---
 # Standard library modules
 
 Fifteen modules ship with `pyric/rules`. Each module is a `.rules` file living under `src/rules/modules/stdlib/`; imports resolve automatically without any configuration.

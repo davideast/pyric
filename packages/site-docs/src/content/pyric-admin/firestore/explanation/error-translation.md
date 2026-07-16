@@ -1,5 +1,9 @@
 ---
+title: "Error translation and instanceof SandboxError"
 navLabel: "Error translation"
+group: "pyric-admin / firestore"
+section: "Explanation"
+order: 110
 ---
 # Error translation and `instanceof SandboxError`
 

@@ -1,3 +1,9 @@
+---
+title: "Divergence"
+group: "pyric / sandbox"
+section: "Reference"
+order: 110
+---
 # `Divergence`
 
 What `replay(events, rules, opts, originalState)` returns when the replayed state doesn't perfectly match the captured state. A discriminated union; filter on `kind` to handle each case.

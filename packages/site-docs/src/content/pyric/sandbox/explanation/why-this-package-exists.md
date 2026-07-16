@@ -1,3 +1,9 @@
+---
+title: "Why this package exists"
+group: "pyric / sandbox"
+section: "Explanation"
+order: 230
+---
 # Why this package exists
 
 The Firebase Emulator Suite is a Google-provided tool that runs a local copy of Firestore (and other services) in a sub-process. It's the canonical answer to "I want to test without hitting production." It works, but only in environments that can spawn an emulator. `pyric/sandbox` is what happens when you can't.

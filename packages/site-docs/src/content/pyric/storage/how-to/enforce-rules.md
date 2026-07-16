@@ -1,3 +1,10 @@
+---
+title: "How to enforce Storage rules"
+navLabel: "Enforce Storage rules"
+group: "pyric / storage"
+section: "How-to"
+order: 20
+---
 # How to enforce Storage rules
 
 This guide shows you how to wire Storage rules into a sandbox-backed handle and watch them gate uploads, reads, and deletes.

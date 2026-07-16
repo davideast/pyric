@@ -1,3 +1,9 @@
+---
+title: "Run your firebase-admin app on the pyric sandbox"
+group: "@pyric/cli"
+section: "Tutorials"
+order: 10
+---
 # Run your firebase-admin app on the pyric sandbox
 
 You have an existing Node server that uses `firebase-admin`: Realtime

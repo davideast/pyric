@@ -1,3 +1,9 @@
+---
+title: "<CopyButton>"
+group: "@pyric/ui"
+section: "Primitives"
+order: 40
+---
 # `<CopyButton>`
 
 Clipboard button that exposes a `data-copied` attribute on the underlying `<button>` so consumers can style the success state. Ships no visual treatment of its own.

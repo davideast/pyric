@@ -1,3 +1,9 @@
+---
+title: "<DocumentEditor>"
+group: "@pyric/ui"
+section: "Firestore"
+order: 110
+---
 # `<DocumentEditor>`
 
 Compound component over `useDocumentEditor`. The hook owns a reducer-backed normalized field tree; the component renders the tree with per-type Edit widgets and add/remove affordances.

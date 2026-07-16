@@ -1,3 +1,10 @@
+---
+title: "pyric-admin/database"
+navLabel: "Overview"
+group: "pyric-admin / database"
+section: ""
+order: 10
+---
 # `pyric-admin/database`
 
 Admin-shape Realtime Database with swappable backends. `getDatabase(app)` mirrors `firebase-admin/database` and dispatches on the app handle from `pyric-admin/app`:

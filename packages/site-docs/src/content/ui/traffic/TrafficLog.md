@@ -1,5 +1,9 @@
 ---
+title: "<TrafficLog> · <TrafficRow> · <TrafficGroupRow>"
 navLabel: "TrafficLog components"
+group: "@pyric/ui"
+section: "Traffic"
+order: 270
 ---
 # `<TrafficLog>` · `<TrafficRow>` · `<TrafficGroupRow>`
 

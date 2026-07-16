@@ -1,3 +1,10 @@
+---
+title: "pyric-admin/storage"
+navLabel: "Overview"
+group: "pyric-admin / storage"
+section: ""
+order: 10
+---
 # `pyric-admin/storage`
 
 Admin-shaped Cloud Storage for a sandbox. `getStorage(app)` reads the sandbox handle from `pyric-admin/app`:

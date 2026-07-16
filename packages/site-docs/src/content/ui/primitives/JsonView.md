@@ -1,3 +1,9 @@
+---
+title: "<JsonView>"
+group: "@pyric/ui"
+section: "Primitives"
+order: 50
+---
 # `<JsonView>`
 
 Headless collapsible JSON tree — one structural step above a `<pre>` dump.

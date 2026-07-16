@@ -1,5 +1,9 @@
 ---
+title: "How to list and delete objects"
 navLabel: "List and delete objects"
+group: "pyric / storage"
+section: "How-to"
+order: 30
 ---
 # How to list and delete objects
 
