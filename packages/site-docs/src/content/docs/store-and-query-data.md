@@ -1,12 +1,13 @@
 ---
-title: "Store and query data"
+title: "Run Cloud Firestore locally"
+navLabel: "Store and query data"
 group: "Build"
 section: ""
 order: 2002
 description: "Read, write, query, and stream Firestore documents locally, and derive the composite indexes your queries need from your source."
 ---
 
-# Store and query your data
+# Run Cloud Firestore locally
 
 Firestore in Pyric is v1. The modular SDK surface, reads and writes, queries, snapshots, transactions, and aggregations, runs locally with your rules enforced, and it is tested against recorded production behavior. Your imports stay `firebase/firestore`.
 

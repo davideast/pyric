@@ -1,11 +1,11 @@
 ---
-title: Sync realtime data
+title: Run Realtime Database locally
 navLabel: Sync realtime data
 outcome: Store and watch a Realtime Database tree locally, model it around your reads, and guard writes with schema and rules checks.
 status: draft
 ---
 
-# Sync realtime data
+# Run Realtime Database locally
 
 Realtime Database support is incomplete. Check its generated conformance page for the exact public API coverage before depending on a feature.
 

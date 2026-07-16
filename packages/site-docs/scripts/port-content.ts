@@ -202,6 +202,7 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
       { dir: 'build', file: 'store-files.md' },
       { dir: 'build', file: 'receive-messages.md' },
       { dir: 'build', file: 'run-ai-logic-locally.md' },
+      { dir: 'build', file: 'which-data-service.md' },
     ],
   },
   {
@@ -229,6 +230,7 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
     pages: [
       { dir: 'ship', file: 'ship-to-production.md' },
       { dir: 'ship', file: 'test-in-node.md' },
+      { dir: 'ship', file: 'set-up-the-project.md' },
     ],
   },
   {

@@ -1,11 +1,11 @@
 ---
-title: Prove a user can touch only their own data
+title: Prove a user can access only their own data
 navLabel: Security Rules
 outcome: Write a rule, simulate a request against it, read the verdict, and deploy knowing what it allows.
 status: draft
 ---
 
-# Prove a user can touch only their own data
+# Prove a user can access only their own data
 
 Before you deploy a ruleset, you can ask Pyric a direct question: would this specific request, from this specific user, be allowed? You get an answer, and the answer names the rule that decided it.
 

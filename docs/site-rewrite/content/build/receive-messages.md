@@ -42,4 +42,14 @@ await messagingSandbox.deliver(messaging, {
 
 Keep this driver outside application code that ships. A visible client routes the delivery to `onMessage`; a hidden client routes it to the service-worker `onBackgroundMessage` path. The local broker does not request notification permission or contact FCM.
 
-Use the generated Messaging conformance page to check the currently supported public API before depending on a receive path.
+## Check the supported boundary
+
+Messaging support changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
+
+```bash
+pyric can-i-use messaging/onMessage
+pyric can-i-use messaging/getToken
+pyric can-i-use messaging/onBackgroundMessage
+```
+
+The answer separates availability from fidelity and assurance, and points to the evidence behind the result.

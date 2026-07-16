@@ -1,11 +1,11 @@
 ---
-title: Sign users in and manage them
+title: Run Firebase Authentication locally
 navLabel: Sign in and manage users
 outcome: Run real auth flows against a local user database, seed test users with claims, and design an identity model your rules can trust.
 status: draft
 ---
 
-# Sign users in
+# Run Firebase Authentication locally
 
 The auth code you would write against Firebase works as-is under `pyric dev`, and the users it creates live in your sandbox. Auth is v1 in Pyric: the surface is tested against recorded production behavior, so what signs in here signs in there.
 

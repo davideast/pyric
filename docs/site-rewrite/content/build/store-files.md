@@ -1,11 +1,11 @@
 ---
-title: Store files
+title: Run Cloud Storage locally
 navLabel: Store files
 outcome: Upload, list, download, and delete files locally, with storage rules enforced in-process.
 status: draft
 ---
 
-# Store files
+# Run Cloud Storage locally
 
 Storage support is incomplete. Check its generated conformance page for the exact public API coverage before depending on a feature.
 

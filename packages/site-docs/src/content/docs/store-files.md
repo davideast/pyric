@@ -1,12 +1,13 @@
 ---
-title: "Store files"
+title: "Run Cloud Storage locally"
+navLabel: "Store files"
 group: "Build"
 section: ""
 order: 2004
 description: "Upload, list, download, and delete files locally, with storage rules enforced in-process."
 ---
 
-# Store files
+# Run Cloud Storage locally
 
 Storage support is incomplete. Check its generated conformance page for the exact public API coverage before depending on a feature.
 

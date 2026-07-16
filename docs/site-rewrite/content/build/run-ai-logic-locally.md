@@ -44,6 +44,14 @@ Local engines do not reproduce model quality, safety policy, latency, quotas, bi
 
 ## Check the supported boundary
 
-Read the generated [AI Logic conformance matrix](../../../../packages/pyric/docs/ai/COMPAT.md) for the mirrored API, verified wire behavior, documented differences, unsupported APIs, and unverified rows.
+AI Logic support changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
+
+```bash
+pyric can-i-use ai/getGenerativeModel
+pyric can-i-use ai/generateContent
+pyric can-i-use ai/generateContentStream
+```
+
+The answer separates availability from fidelity and assurance, and points to the evidence behind the result.
 
 Continue with [Inspect and correct](../observe/see-whats-happening.md) or [ship unchanged](../ship/ship-to-production.md).
