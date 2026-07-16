@@ -70,37 +70,7 @@ registerDefaultConverters();
 
 
 
-/**
- * Compare two doc payloads for snapshot-suppression purposes. `null`
- * means the doc is absent. Equality test uses `JSON.stringify` to
- * mirror `computeChanges` in `snapshot-listeners.ts` — keeps the two
- * change-detection paths consistent and good enough for sandbox data
- * (all `DocumentData` is JSON-serialisable post-sentinel-resolution).
- */
-function docDataEqual(a: DocumentData | null, b: DocumentData | null): boolean {
-  if (a === null && b === null) return true;
-  if (a === null || b === null) return false;
-  return JSON.stringify(a) === JSON.stringify(b);
-}
 
-/**
- * True if any path in `paths` is a direct child document of
- * `collection`. Used as a cheap pre-filter for query-listener
- * notifications: we only re-read the collection when something it
- * could plausibly contain was just touched. Slice 6 may revisit when
- * subcollection-aware queries land — current shape keeps the filter
- * conservative (no false negatives) at the cost of an occasional
- * false positive that the change-set diff then suppresses.
- */
-function anyPathInCollection(paths: ReadonlySet<string>, collection: string): boolean {
-  const prefix = `${collection}/`;
-  for (const p of paths) {
-    if (!p.startsWith(prefix)) continue;
-    const remaining = p.slice(prefix.length);
-    if (remaining.length > 0 && !remaining.includes('/')) return true;
-  }
-  return false;
-}
 
 export type {
   Operation,
@@ -116,6 +86,8 @@ import type {
 } from './writes.js';
 import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './history.js';
 export { SimulatorUnsupportedError } from './rules-evaluation.js';
+import { docDataEqual, anyPathInCollection } from './listener-delivery.js';
+import { listQueryFromStructured } from './reads.js';
 import {
   SimulatorUnsupportedError,
   unsupportedMessage,
@@ -125,16 +97,6 @@ import {
 } from './rules-evaluation.js';
 
 
-function listQueryFromStructured(structured: QueryConstraints): ListQuery | undefined {
-  if (structured.limit == null && structured.offset == null && structured.orderBy == null) {
-    return undefined;
-  }
-  return {
-    ...(structured.limit != null ? { limit: structured.limit } : {}),
-    ...(structured.offset != null ? { offset: structured.offset } : {}),
-    ...(structured.orderBy != null ? { orderBy: structured.orderBy } : {}),
-  };
-}
 
 
 
