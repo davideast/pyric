@@ -1,5 +1,5 @@
 ---
-title: "Never debug a bare permission-denied again"
+title: "Read a Security Rules denial"
 navLabel: "Read a denial and understand it"
 group: "Inspect and correct"
 section: "Inspect the sandbox"
@@ -7,7 +7,7 @@ order: 3002
 description: "See which rule denied an operation, on what path, with what data, the moment it happens."
 ---
 
-# Never debug a bare permission-denied again
+# Read a Security Rules denial
 
 In production, a blocked operation answers with one string: `permission-denied`. Not which rule. Not what the rule saw.
 
@@ -61,7 +61,7 @@ The linter normalizes every match path and diffs the predicates conjunct by conj
 
 One boundary stated plainly: the diff compares the predicates in `allow` statements, so weakening a helper function's body does not fire it. Your [test suite](../write-a-rules-test-suite/) is the net for that shape.
 
-## And from an agent
+## Diagnose a denial through an agent
 
 When an agent hits a denial, one `sandbox_inspect` call returns the current rules, a lint summary, and the recent denials from the event log together, so "why is my rule failing" is one tool call instead of an archaeology session. See [skills](../skills/).
 

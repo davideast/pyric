@@ -9,7 +9,7 @@ description: "See working, deployed rulesets that enforce chess, checkers, conne
 
 # Case studies in pure security rules
 
-Every artifact below enforces its logic entirely in security rules. No server, no Cloud Functions. The database is the referee. Each one deployed, each one is built from the same [patterns](../rules-patterns/) and [standard library](../rules-standard-library/) this wing teaches, and each one was engineered inside the [measured limits](../limits-that-bite/).
+Every artifact below enforces its logic entirely in security rules. No server, no Cloud Functions. The database is the referee. Each one deployed, each one is built from the same [patterns](../rules-patterns/) and [standard library](../rules-standard-library/) this wing teaches, and each one was engineered inside the [measured limits](../firestore-rules-limits/).
 
 | Case | Service | The rules enforce | The move that makes it work |
 |---|---|---|---|
@@ -58,4 +58,4 @@ A deployed, playable browser app on Realtime Database rules. Turn enforcement, p
 
 ## Calibration, not a feature list
 
-None of this is a feature you will ship on Monday. It is calibration. If rules can hold chess, they can hold your role model, your state machine, your billing invariants, and the parts are the ones you already have: the [patterns](../rules-patterns/), the [standard library](../rules-standard-library/), and the [limits](../limits-that-bite/) that keep all of it deployable.
+None of this is a feature you will ship on Monday. It is calibration. If rules can hold chess, they can hold your role model, your state machine, your billing invariants, and the parts are the ones you already have: the [patterns](../rules-patterns/), the [standard library](../rules-standard-library/), and the [limits](../firestore-rules-limits/) that keep all of it deployable.

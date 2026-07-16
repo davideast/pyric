@@ -18,7 +18,7 @@ firebase deploy --only hosting
 
 One guard stands between the two worlds. A sandbox build (from `vite build --mode development`) carries a marker in its `index.html`. Production hosting deploys should use an unmarked build (`vite build` / production mode) so a sandbox-wired dist never reaches production by accident. Prefer `firebase-tools` (or the Console) for the deploy itself.
 
-## Deploy your rules
+## Deploy Security Rules
 
 ```bash
 firebase deploy --only firestore:rules
@@ -26,7 +26,7 @@ firebase deploy --only firestore:rules
 
 This pushes the `firestore.rules` named in `firebase.json` to your project. By the time you run it, those rules have already been exercised: every operation your app performed in development was evaluated against them, verdict by verdict. You are not deploying a guess.
 
-## Deploy indexes from your query shapes
+## Deploy indexes from application query shapes
 
 Composite indexes usually live in a hand-kept file that drifts from the queries. Pyric derives them instead: index extraction reads your `query(collection, where, orderBy)` call sites in source and produces the `firestore.indexes.json` those shapes require (`pyric firestore indexes generate src`). Then:
 
@@ -74,7 +74,7 @@ firebase deploy --only functions
 
 Use `firebase-tools` (or the Console) for production shipping. Preview channels give you a shareable URL with an expiry before anything touches the live site.
 
-## Credentials for verify (and CI)
+## Configure credentials for verification and CI
 
 `pyric verify` with the default `sandbox` engine needs no cloud credentials. For `--engine rules-test-api` or `both`:
 

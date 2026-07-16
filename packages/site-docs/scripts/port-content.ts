@@ -213,7 +213,7 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
       { dir: 'secure', file: 'rules-patterns.md', section: 'Correct Security Rules' },
       { dir: 'secure', file: 'rules-standard-library.md', section: 'Correct Security Rules' },
       { dir: 'secure', file: 'rtdb-rules-in-typescript.md', section: 'Correct Security Rules' },
-      { dir: 'secure', file: 'limits-that-bite.md', section: 'Correct Security Rules' },
+      { dir: 'secure', file: 'firestore-rules-limits.md', section: 'Correct Security Rules' },
       { dir: 'secure', file: 'whats-possible.md', section: 'Correct Security Rules' },
       { dir: 'agent', file: 'what-your-agent-can-do.md', section: 'Work with an agent' },
       { dir: 'agent', file: 'skills.md', section: 'Work with an agent' },

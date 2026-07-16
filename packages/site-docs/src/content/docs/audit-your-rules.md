@@ -1,19 +1,19 @@
 ---
-title: "Find the holes before someone else does"
-navLabel: "Audit your rules and data"
+title: "Audit Security Rules and data before production"
+navLabel: "Audit rules and data"
 group: "Verify the boundary"
 section: ""
 order: 4003
 description: "Get an evidence-backed answer to who can access what, with every serious finding proven by a simulation."
 ---
 
-# Find the holes before someone else does
+# Audit Security Rules and data before production
 
 Your rules are a security boundary on the public internet, and anyone who cares to probe them can. An audit answers three questions with evidence: who can do what, whether the expressions mean what they appear to mean, and where the rules, the data, and the auth configuration disagree.
 
 Pyric packages each audit as a skill, a procedure you or your agent runs against the real project. A finding does not make the report on a reading alone. It has to cite a simulation, a test, or a lint result that demonstrates it.
 
-## Audit your Firestore rules
+## Audit Firestore Security Rules
 
 The `firestore-rules-audit` skill starts by building an access matrix: for every match block, identity by operation (get, list, create, update, delete), with no blank cells. Public writes, public reads on sensitive paths, and writes with no auth check fall out of the matrix immediately.
 
@@ -27,7 +27,7 @@ Then composition. Any matching allow grants access, so a recursive wildcard like
 
 Critical findings are proven with `firestore_simulate_rules` runs that vary the auth context, and the report arrives severity-ranked with a fix per finding.
 
-## Audit your Realtime Database rules
+## Audit Realtime Database Security Rules
 
 RTDB fails differently: access cascades downward. (Authoring those rules from typed constraints is its own page: [RTDB rules in TypeScript](../rtdb-rules-in-typescript/).) A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted. The `rtdb-security-rules` skill walks every cascade from the root, so the effective access at each path is stated rather than assumed.
 
@@ -49,7 +49,7 @@ Rules can be individually correct and collectively wrong. The `firebase-audit` s
 
 The report is severity-ranked, critical findings first, each citing the simulation or lint result that proves it. The audit stays read-only. Remediation is proposed in the report and applied only when you ask.
 
-## And from an agent
+## Run the audits through an agent
 
 All three audits are agent skills. Install them once and "audit my rules" becomes a request your agent executes end to end, running the same simulations and returning the same evidence-backed report. Install and catalog: [skills](../skills/).
 

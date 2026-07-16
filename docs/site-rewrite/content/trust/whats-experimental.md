@@ -11,7 +11,7 @@ Auth, Firestore, and Rules are v1: conformance-held against recorded production 
 
 Realtime Database and Storage are experimental. They are built, documented, and usable today, and they are explicitly not v1. This page is the exact meaning of that word.
 
-## What experimental costs you
+## What experimental status costs
 
 The experimental services are verified sandbox-side: unit probes check them against the documented `firebase/database` and `firebase/storage` contracts, and those probes pass. What most of their behavior lacks is a production observation, a recording of what the real service actually did, pinned and replayed in CI. Verified against the documentation is not the same as verified against production, and Pyric does not pretend otherwise.
 
