@@ -1,5 +1,5 @@
 ---
-title: "Run Firebase locally, ship unchanged"
+title: "Firebase that runs in your browser"
 navLabel: "Overview"
 group: "Overview"
 section: ""
@@ -7,37 +7,30 @@ order: 1
 description: "Understand what Pyric is and what you get, in one short read."
 ---
 
-# Run Firebase locally, ship unchanged
+# Firebase that runs in your browser
 
-Pyric runs supported Firebase application code against a local backend during development. The application keeps its ordinary `firebase/*` imports and Firebase configuration. A normal production build resolves those imports to Firebase again. The source does not branch between local development and production.
+Pyric is Firestore, Auth, Realtime Database, Storage, and the Security Rules engine, implemented in TypeScript and running inside your app. In the browser, that means the page itself. The whole backend executes in the tab. In Node, it is the process your tests run in. Your code keeps its ordinary `firebase/*` imports. During development they resolve to Pyric. In production they resolve to Firebase. Nothing in your source changes.
 
-Start a new application with one command:
+That is the whole trick, and it starts with one command.
 
 ```bash
-npx create-pyric my-app
+npm install -D @pyric/cli
+npx pyric dev
 ```
 
-Local development needs no Firebase account, cloud project, emulator, or Java runtime. The mirrored services do not connect to production. Local writes cannot delete production data or create Firebase usage charges, and local rules changes do not deploy.
+No account. No cloud project. No emulator, no Java, no port to babysit. You have a local Firebase stack before your coffee is warm. Pyric records comparisons with production Firebase in its conformance reference, including documented divergences, unsupported APIs, and areas that have not been verified.
 
-## Follow the application from local development to production
+## Build the app, prove the rules, ship the same code
 
-The documentation follows one workflow:
+You build your app with five service workflows: sign in and manage users, store and query data, sync realtime data, store files, and receive messages. Every local operation produces a Security Rules verdict you can inspect.
 
-1. **Run locally.** Start the sandbox and connect the application, tests, or coding agent.
-2. **Develop with Firebase APIs.** Keep writing normal Auth, Firestore, Realtime Database, Storage, Messaging, and AI Logic code.
-3. **Inspect and correct.** Read local operations and rules verdicts, then adjust application code, data, or Security Rules.
-4. **Verify the boundary.** Replay captured behavior and test candidate rules before production.
-5. **Ship unchanged.** Build with real Firebase and deploy through `firebase-tools` or the Firebase Console.
+Then you ship. With the development resolver inactive, the same canonical imports load real Firebase. Before anything goes live, replay a captured session against the candidate Security Rules and learn which operations would change verdict. Pyric produces those local artifacts; `firebase-tools` or the Firebase Console deploys them.
 
-Development moves back and forth between writing Firebase code and inspecting what happened. The boundary check comes after that loop, before the production build.
-
-Conformance sits underneath the workflow as separate evidence. It records which Pyric behaviors have been compared with production Firebase, which differ, and which remain unsupported or unverified.
-
-## Give coding agents the same local backend
+## Your agent works the same backend
 
 The backend is local state with a tool surface, so a coding agent can work on it the way you do. Point Claude Code, Cursor, or any MCP client at the sandbox and the agent can seed data, run queries, simulate a rules verdict before writing, and check its own work. Nothing it does leaves your machine. Everything it does is inspectable, live, in the same event stream you watch.
 
-## Inspect the difficult parts locally
+## It focuses on the hard parts
 
 Firebase development has hard parts, and they are not the parts the manuals dwell on. Rules that pass locally and fail in production. A denial with no explanation. Query shapes that quietly demand indexes. Limits that are real but written down nowhere.
 
@@ -45,4 +38,4 @@ Pyric was built by working those parts until they gave, and what was learned is 
 
 ## Where to go next
 
-Start with [Run Firebase locally](../start-building/). The [conformance explanation](../how-we-know-it-matches-firebase/) documents the evidence and its limits.
+Start with [the quickstart](../start-building/). If you came here for rules, go straight to [prove your rules protect the app](../secure-it-with-rules/).

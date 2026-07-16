@@ -3,7 +3,7 @@ title: "API reference: pyric-admin/database"
 navLabel: "pyric-admin/database"
 group: "API reference"
 section: "pyric-admin"
-order: 24005
+order: 9005
 description: "Published declarations for pyric-admin/database."
 kind: "api"
 apiPackage: "pyric-admin"

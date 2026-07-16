@@ -1,9 +1,9 @@
 ---
 title: "Simulate and lint Security Rules before deployment"
 navLabel: "Simulate and lint before you deploy"
-group: "Inspect and correct"
-section: "Correct Security Rules"
-order: 3006
+group: "Secure & debug"
+section: ""
+order: 3002
 description: "Get a rules verdict and a lint report locally, before production answers with an unexplained 400 or 403."
 ---
 
@@ -18,10 +18,9 @@ Simulation tells you what a rule decides. Linting tells you what the production 
 Ask the simulator whether a specific request would be allowed. It runs in-process, no network, no project:
 
 ```ts
-import { SimulateFirestoreRulesHandler } from 'pyric/rules';
+import { firestoreRules } from 'pyric/rules';
 
-const sim = new SimulateFirestoreRulesHandler();
-const result = sim.simulate(source, [
+const result = firestoreRules(source).simulate([
   {
     description: 'unauthenticated read is denied',
     expectation: 'DENY',
@@ -100,7 +99,7 @@ A hallucinated method is always an error, because the named method literally doe
 
 ## Correct Rules through an agent
 
-This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on the rules it wrote, reads the fixes in the warnings, and corrects itself before anything deploys. Then `firestore_simulate_rules` confirms the behavior. The mistakes the linter catches are, in large part, the mistakes models make. See [what your agent can do](../skills/).
+This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on the rules it wrote, reads the fixes in the warnings, and corrects itself before anything deploys. Then `firestore_simulate_rules` confirms the behavior. [Work with an agent](../work-with-an-agent/) shows the task prompts that drive this loop.
 
 ## Where to go next
 

@@ -3,7 +3,7 @@ title: "API reference: pyric-admin/storage"
 navLabel: "pyric-admin/storage"
 group: "API reference"
 section: "pyric-admin"
-order: 24007
+order: 9007
 description: "Published declarations for pyric-admin/storage."
 kind: "api"
 apiPackage: "pyric-admin"

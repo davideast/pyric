@@ -1,9 +1,9 @@
 ---
 title: "Run the same backend in tests and scripts"
 navLabel: "Test in Node"
-group: "Run locally"
+group: "Ship & test"
 section: ""
-order: 1004
+order: 5002
 description: "Run your rules and data logic in a Node test suite, with no browser and no emulator."
 ---
 

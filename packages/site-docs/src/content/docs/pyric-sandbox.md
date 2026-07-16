@@ -3,7 +3,7 @@ title: "pyric/sandbox"
 navLabel: "Overview"
 group: "pyric / sandbox"
 section: ""
-order: 13001
+order: 14001
 ---
 # `pyric/sandbox`
 
@@ -52,7 +52,7 @@ Two contexts, one sandbox, shared data. The rules engine evaluates `aliceDb`'s w
 
 ## Where to go next
 
-Documentation is organised under [`docs/`](../pyric-sandbox/) following the [Diataxis](https://diataxis.fr/) framework:
+Documentation is organised under [`docs/`](../pyric-sandbox/):
 
 | If you want to | Read |
 |---|---|
@@ -69,7 +69,7 @@ Documentation is organised under [`docs/`](../pyric-sandbox/) following the [Dia
 
 ## Position in the Pyric stack
 
-`pyric/sandbox` is the **runtime substrate**. It does not depend on `pyric-admin`, `pyric/firestore`, or any other adapter. They depend on it. Rules tooling lives in `pyric/rules` (imported by the sandbox for the engine-internal `SimulateFirestoreRulesHandler`, on `pyric/rules/internal`). Production shipping stays with `firebase-tools` / Console. See [Why this package exists](../pyric-sandbox-explanation-why-this-package-exists/).
+`pyric/sandbox` is the **runtime substrate**. It does not depend on `pyric-admin`, `pyric/firestore`, or any other adapter. They depend on it. Rules tooling lives in `pyric/rules`; application code uses the `firestoreRules(source)` public front door. Production shipping stays with `firebase-tools` / Console. See [Why this package exists](../pyric-sandbox-explanation-why-this-package-exists/).
 
 ## Licence
 

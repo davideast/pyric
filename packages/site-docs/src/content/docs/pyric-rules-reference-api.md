@@ -3,7 +3,7 @@ title: "API reference: pyric/rules"
 navLabel: "pyric/rules"
 group: "API reference"
 section: "pyric"
-order: 24030
+order: 9030
 description: "Published declarations for pyric/rules."
 kind: "api"
 apiPackage: "pyric"

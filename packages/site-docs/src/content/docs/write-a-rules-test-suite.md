@@ -1,9 +1,9 @@
 ---
 title: "Write a Security Rules test suite"
 navLabel: "Write a rules test suite"
-group: "Verify the boundary"
+group: "Secure & debug"
 section: ""
-order: 4002
+order: 3003
 description: "A suite of allow/deny cases that runs in-process, gates CI, and can escalate to Google's own engine."
 ---
 
@@ -18,12 +18,9 @@ In Pyric a rules test is a small fixture, a `TestCase`, and a whole suite runs i
 A `TestCase` describes one hypothetical request and the verdict you expect:
 
 ```ts
-import {
-  SimulateFirestoreRulesHandler,
-  type TestCase,
-} from 'pyric/rules';
+import { firestoreRules, type FirestoreCase } from 'pyric/rules';
 
-const testCases: TestCase[] = [
+const testCases: FirestoreCase[] = [
   {
     description: 'authenticated read on /notes is allowed',
     expectation: 'ALLOW',
@@ -62,14 +59,13 @@ The fields map straight onto what the rule sees. `resource` is the existing docu
 ## Run the suite
 
 ```ts
-const sim = new SimulateFirestoreRulesHandler();
-const result = sim.simulate(source, testCases);
+const result = firestoreRules(source).simulate(testCases);
 
-const { passed, failed, unsupported, results } = result.data;
+const { passed, failed, unsupported, cases } = result;
 console.log(`${passed} passed · ${failed} failed · ${unsupported} unsupported`);
 ```
 
-A failed case means the simulator's verdict disagreed with your `expectation`, and its `debugMessages` trace shows which rule decided. An `UNSUPPORTED` case means the simulator hit a feature it does not implement and abstained. It is not counted as a failure, and it is never a guess.
+A failed case means the simulator's verdict disagreed with your `expectation`, and its `trace` shows which rule decided. An unsupported case means the simulator hit a feature it does not implement and abstained. It is not counted as a failure, and it is never a guess.
 
 Two fixture fields worth knowing before your suite grows:
 
@@ -81,9 +77,9 @@ Two fixture fields worth knowing before your suite grows:
 The suite is a script, so CI is one exit code away:
 
 ```ts
-if (!result.success || result.data.failed > 0) {
-  for (const r of result.data.results) {
-    if (r.state === 'FAILED') console.error(`FAILED: ${r.description}`);
+if (result.failed > 0) {
+  for (const r of result.cases) {
+    if (!r.passed) console.error(`FAILED: ${r.description}`);
   }
   process.exit(1);
 }
@@ -108,7 +104,7 @@ The practical pattern is local-first: run everything through the simulator, then
 
 ```ts
 const escalate = testCases.filter(
-  (_, i) => result.data.results[i].state === 'UNSUPPORTED',
+  (_, i) => result.cases[i].unsupported,
 );
 if (escalate.length > 0) {
   const remote = await new TestFirestoreRulesHandler()
@@ -120,7 +116,7 @@ Each hosted call is one HTTP round-trip, tens to hundreds of milliseconds. The s
 
 ## Run the suite through an agent
 
-An agent can run this exact loop through `firestore_simulate_rules` and `firestore_test_rules`, which means the rules it writes arrive with a passing suite instead of a promise. See [skills](../skills/).
+An agent can run the local loop through `firestore_simulate_rules`, which means the rules it writes can arrive with explicit passing cases instead of a promise. See [Work with an agent](../work-with-an-agent/).
 
 ## Where to go next
 

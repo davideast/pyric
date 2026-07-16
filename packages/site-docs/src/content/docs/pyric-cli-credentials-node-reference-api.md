@@ -3,7 +3,7 @@ title: "API reference: @pyric/cli/credentials/node"
 navLabel: "@pyric/cli/credentials/node"
 group: "API reference"
 section: "@pyric/cli"
-order: 24018
+order: 9018
 description: "Published declarations for @pyric/cli/credentials/node."
 kind: "api"
 apiPackage: "@pyric/cli"

@@ -1,9 +1,9 @@
 ---
 title: "Prove a user can access only their own data"
 navLabel: "Security Rules"
-group: "Inspect and correct"
-section: "Correct Security Rules"
-order: 3005
+group: "Secure & debug"
+section: ""
+order: 3001
 description: "Write a rule, simulate a request against it, read the verdict, and deploy knowing what it allows."
 ---
 
@@ -36,10 +36,9 @@ service cloud.firestore {
 Now ask the question. No deploy, no network, no Firebase project. The simulator runs in-process.
 
 ```ts
-import { SimulateFirestoreRulesHandler } from 'pyric/rules';
+import { firestoreRules } from 'pyric/rules';
 
-const sim = new SimulateFirestoreRulesHandler();
-const { data } = sim.simulate(source, [
+const result = firestoreRules(source).simulate([
   {
     description: 'owner updates their own note',
     expectation: 'ALLOW',
@@ -60,7 +59,7 @@ const { data } = sim.simulate(source, [
   },
 ]);
 
-console.log(`${data.passed} passed, ${data.failed} failed`); // 2 passed, 0 failed
+console.log(`${result.passed} passed, ${result.failed} failed`); // 2 passed, 0 failed
 ```
 
 ## Read the verdict
@@ -87,7 +86,7 @@ firebase deploy --only firestore:rules
 
 Gate on error-severity lint findings in CI first (`lintFirestoreRules` / `pyric firestore rules lint`), so the mistakes that produce opaque production failures get stopped at the door.
 
-## Continue into deeper Rules guidance
+## Where the wing goes deeper
 
 That loop is the core. The wing deepens each step.
 
@@ -95,14 +94,12 @@ That loop is the core. The wing deepens each step.
 - [Write a rules test suite](../write-a-rules-test-suite/). Turn one-off simulations into a suite that runs in CI.
 - [Read a denial and understand it](../read-a-denial/). Every denial carries the rule, path, and data that produced it.
 - [The rules standard library](../rules-standard-library/). Tested rule modules, composed with an import the rules language does not have.
-- [Rules patterns](../rules-patterns/). The techniques the hard rules are built from.
-- [Firestore Rules limits](../firestore-rules-limits/). The production compiler's real limits, with numbers.
+- [Rules limits, measured](../firestore-rules-limits/). The production compiler's real limits, with numbers.
 - [Audit your rules and data](../audit-your-rules/). Find the holes before someone else does.
-- [Case studies](../whats-possible/). Deployed rulesets that enforce chess, connect four, and tax math.
 
-## Verify a denial through an agent
+## And from an agent
 
-An agent working in your sandbox can call `firestore_simulate_rules` to check a request's verdict before it writes, so it verifies its own rules instead of guessing. The audit skills go further: point one at your ruleset and it hunts for holes methodically. See [skills](../skills/).
+An agent working in your sandbox can call `firestore_simulate_rules` to check a request's verdict before it writes, so it verifies its own rules instead of guessing. [Work with an agent](../work-with-an-agent/) gives complete task prompts and names the evidence each tool returns.
 
 ## Where to go next
 

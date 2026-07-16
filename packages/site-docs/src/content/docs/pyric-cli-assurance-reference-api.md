@@ -3,7 +3,7 @@ title: "API reference: @pyric/cli/assurance"
 navLabel: "@pyric/cli/assurance"
 group: "API reference"
 section: "@pyric/cli"
-order: 24013
+order: 9013
 description: "Published declarations for @pyric/cli/assurance."
 kind: "api"
 apiPackage: "@pyric/cli"

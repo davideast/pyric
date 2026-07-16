@@ -53,6 +53,7 @@ import { loadConformancePages } from './conformance-pages';
 import { transformCompatTables } from './compat-tables';
 import { anchorsOf, shortTitle, splitFences, titleOf } from './markdown-structure';
 import { navLabelFor } from './nav-label';
+import { GUIDE_GROUP_LABELS } from '../src/lib/nav-groups';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const siteRoot = resolve(here, '..');
@@ -105,7 +106,6 @@ const GROUPS: GroupSpec[] = [
     label: '@pyric/cli',
     dir: '.',
     sections: [
-      { label: '', path: 'README.md' },
       { label: 'Tutorials', path: 'tutorials' },
       { label: 'How-to', path: 'how-to' },
       { label: 'Reference', path: 'reference' },
@@ -187,16 +187,14 @@ interface GuideGroupSpec {
 const GUIDE_GROUPS: GuideGroupSpec[] = [
   { label: 'Overview', pages: [{ file: 'overview.md' }] },
   {
-    label: 'Run locally',
+    label: 'Get started',
     pages: [
       { dir: 'get-started', file: 'start-building.md' },
       { dir: 'get-started', file: 'how-the-swap-works.md' },
-      { dir: 'agent', file: 'set-up-your-agent.md' },
-      { dir: 'ship', file: 'test-in-node.md' },
     ],
   },
   {
-    label: 'Develop with Firebase APIs',
+    label: 'Build',
     pages: [
       { dir: 'build', file: 'sign-in-and-manage-users.md' },
       { dir: 'build', file: 'store-and-query-data.md' },
@@ -204,57 +202,49 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
       { dir: 'build', file: 'store-files.md' },
       { dir: 'build', file: 'receive-messages.md' },
       { dir: 'build', file: 'run-ai-logic-locally.md' },
-      {
-        source: 'packages/cli/docs/how-to/run-rtdb-onvaluecreated.md',
-        slug: 'pyric-cli-how-to-run-rtdb-onvaluecreated',
-        navLabel: 'Run an RTDB function locally',
-      },
       { dir: 'build', file: 'which-data-service.md' },
     ],
   },
   {
-    label: 'Inspect and correct',
+    label: 'Secure & debug',
     pages: [
-      { dir: 'observe', file: 'see-whats-happening.md', section: 'Inspect the sandbox' },
-      { dir: 'secure', file: 'read-a-denial.md', section: 'Inspect the sandbox' },
-      { dir: 'observe', file: 'shape-your-data.md', section: 'Inspect the sandbox' },
-      { dir: 'agent', file: 'watch-and-review.md', section: 'Inspect the sandbox' },
-      { dir: 'secure', file: 'secure-it-with-rules.md', section: 'Correct Security Rules' },
-      { dir: 'secure', file: 'simulate-and-lint.md', section: 'Correct Security Rules' },
-      { dir: 'secure', file: 'rules-patterns.md', section: 'Correct Security Rules' },
-      { dir: 'secure', file: 'rules-standard-library.md', section: 'Correct Security Rules' },
-      { dir: 'secure', file: 'rtdb-rules-in-typescript.md', section: 'Correct Security Rules' },
-      { dir: 'secure', file: 'firestore-rules-limits.md', section: 'Correct Security Rules' },
-      { dir: 'secure', file: 'whats-possible.md', section: 'Correct Security Rules' },
-      { dir: 'agent', file: 'what-your-agent-can-do.md', section: 'Work with an agent' },
-      { dir: 'agent', file: 'skills.md', section: 'Work with an agent' },
-    ],
-  },
-  {
-    label: 'Verify the boundary',
-    pages: [
-      {
-        source: 'packages/cli/docs/how-to/verify-against-a-captured-session.md',
-        section: '',
-        slug: 'pyric-cli-how-to-verify-against-a-captured-session',
-        navLabel: 'Verify a captured session',
-      },
+      { dir: 'secure', file: 'secure-it-with-rules.md' },
+      { dir: 'secure', file: 'simulate-and-lint.md' },
       { dir: 'secure', file: 'write-a-rules-test-suite.md' },
+      { dir: 'secure', file: 'read-a-denial.md' },
+      { dir: 'secure', file: 'rules-standard-library.md' },
+      { dir: 'secure', file: 'rtdb-rules-in-typescript.md' },
+      { dir: 'secure', file: 'firestore-rules-limits.md' },
       { dir: 'secure', file: 'audit-your-rules.md' },
     ],
   },
   {
-    label: 'Ship unchanged',
+    label: 'Observe & shape',
+    pages: [
+      { dir: 'observe', file: 'see-whats-happening.md' },
+      { dir: 'observe', file: 'shape-your-data.md' },
+    ],
+  },
+  {
+    label: 'Ship & test',
     pages: [
       { dir: 'ship', file: 'ship-to-production.md' },
+      { dir: 'ship', file: 'test-in-node.md' },
       { dir: 'ship', file: 'set-up-the-project.md' },
     ],
   },
   {
-    label: 'Conformance',
+    label: 'Work with an agent',
+    pages: [
+      { dir: 'agent', file: 'set-up-your-agent.md' },
+      { dir: 'agent', file: 'work-with-an-agent.md' },
+      { dir: 'agent', file: 'watch-and-review.md' },
+    ],
+  },
+  {
+    label: 'Trust',
     pages: [
       { dir: 'trust', file: 'how-we-know-it-matches-firebase.md' },
-      { dir: 'trust', file: 'whats-experimental.md' },
     ],
   },
 ];
@@ -282,7 +272,11 @@ function parseFrontmatter(raw: string): {
 /** Slug for a source file: pkg id + docs-root-relative path, lowercased,
  *  separators → '-', README segment dropped. Unique by assertion. */
 function slugFor(pkg: string, absFile: string, slugPrefix = pkg): string {
-  const rel = relative(docsRoot(pkg), absFile).split(sep).join('/');
+  const rel = relative(docsRoot(pkg), absFile)
+    .split(sep)
+    .join('/')
+    .replace(/(^|\/)api\.generated\.md$/, '$1api.md')
+    .replace(/\.api\.generated\.md$/, '-api.md');
   const segs = rel.replace(/\.md$/, '').split('/');
   if (segs[segs.length - 1] === 'README') segs.pop();
   return [slugPrefix, ...segs].join('-').toLowerCase();
@@ -334,23 +328,28 @@ const bySlug = new Map<string, Page>();
  * most the trailing pages of its own group. Workflow groups follow
  * GUIDE_GROUPS order. Reference group ranks stay fixed below them.
  */
+const GROUP_ORDER: string[] = [
+  ...GUIDE_GROUPS.map((g) => g.label),
+  'Conformance',
+  API_REFERENCE_GROUP,
+  ...GROUPS.map((g) => g.label),
+];
+
+// The nav renders only whitelisted guide groups in full; anything else
+// silently collapses into the Reference shelf. Fail the port instead.
+for (const label of [...GUIDE_GROUPS.map((g) => g.label), 'Conformance']) {
+  if (!GUIDE_GROUP_LABELS.has(label)) {
+    throw new Error(
+      `guide group '${label}' is missing from GUIDE_GROUP_LABELS (src/lib/nav-groups.ts) — the nav would collapse it into Reference`,
+    );
+  }
+}
 const GROUP_RANK_SPACING = 1000;
 // Reference groups began at rank 9 in the previous hierarchy. Keep that
 // stable so changing the primary workflow does not rewrite front matter for
 // every generated reference page. Guide ranks may change with the workflow;
 // reference ranks are a durable shelf below it.
-const REFERENCE_GROUP_START_RANK = 9;
-const groupRank = new Map([
-  ...GUIDE_GROUPS.map((group, i) => [group.label, i * GROUP_RANK_SPACING] as const),
-  ...GROUPS.map((group, i) => [
-    group.label,
-    (REFERENCE_GROUP_START_RANK + i) * GROUP_RANK_SPACING,
-  ] as const),
-  [
-    API_REFERENCE_GROUP,
-    (REFERENCE_GROUP_START_RANK + GROUPS.length) * GROUP_RANK_SPACING,
-  ] as const,
-]);
+const groupRank = new Map(GROUP_ORDER.map((label, i) => [label, i * GROUP_RANK_SPACING]));
 const groupPosition = new Map<string, number>();
 function nextOrder(group: string): number {
   const rank = groupRank.get(group);

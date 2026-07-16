@@ -2,7 +2,7 @@
 title: "Standard library modules"
 group: "pyric / rules"
 section: "Reference"
-order: 12015
+order: 13015
 ---
 # Standard library modules
 

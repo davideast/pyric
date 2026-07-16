@@ -2,7 +2,7 @@
 title: "Every operation is a request"
 group: "pyric / sandbox"
 section: "Explanation"
-order: 13017
+order: 14017
 ---
 # Every operation is a request
 

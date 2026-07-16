@@ -1,9 +1,9 @@
 ---
 title: "Audit Security Rules and data before production"
 navLabel: "Audit rules and data"
-group: "Verify the boundary"
+group: "Secure & debug"
 section: ""
-order: 4003
+order: 3008
 description: "Get an evidence-backed answer to who can access what, with every serious finding proven by a simulation."
 ---
 
@@ -51,7 +51,7 @@ The report is severity-ranked, critical findings first, each citing the simulati
 
 ## Run the audits through an agent
 
-All three audits are agent skills. Install them once and "audit my rules" becomes a request your agent executes end to end, running the same simulations and returning the same evidence-backed report. Install and catalog: [skills](../skills/).
+An MCP-connected agent can execute the audit end to end, running the same simulations and returning the same evidence-backed report. Start with the concrete prompts in [Work with an agent](../work-with-an-agent/).
 
 ## Where to go next
 

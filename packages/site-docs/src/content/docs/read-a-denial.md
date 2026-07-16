@@ -1,9 +1,9 @@
 ---
 title: "Read a Security Rules denial"
 navLabel: "Read a denial and understand it"
-group: "Inspect and correct"
-section: "Inspect the sandbox"
-order: 3002
+group: "Secure & debug"
+section: ""
+order: 3004
 description: "See which rule denied an operation, on what path, with what data, the moment it happens."
 ---
 
@@ -63,7 +63,7 @@ One boundary stated plainly: the diff compares the predicates in `allow` stateme
 
 ## Diagnose a denial through an agent
 
-When an agent hits a denial, one `sandbox_inspect` call returns the current rules, a lint summary, and the recent denials from the event log together, so "why is my rule failing" is one tool call instead of an archaeology session. See [skills](../skills/).
+When an agent hits a denial, one `sandbox_inspect` call returns the current rules, a lint summary, and the recent denials from the event log together. [Work with an agent](../work-with-an-agent/) gives a task prompt for this exact diagnosis.
 
 ## Where to go next
 

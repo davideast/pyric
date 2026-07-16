@@ -3,7 +3,7 @@ title: "API reference: @pyric/cli/conformance"
 navLabel: "@pyric/cli/conformance"
 group: "API reference"
 section: "@pyric/cli"
-order: 24017
+order: 9017
 description: "Published declarations for @pyric/cli/conformance."
 kind: "api"
 apiPackage: "@pyric/cli"

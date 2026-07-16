@@ -16,13 +16,6 @@
  *                     ABOVE a heading always dwarfs the gap BELOW the
  *                     previous block — sections read as islands.
  *
- * Audit page: /docs/_rhythm stacks every adjacency this file styles.
- * Mechanically verified: `bun scripts/audit-rhythm.ts` (wired into
- * `bun run test`) renders /docs/_rhythm plus a sample of real pages,
- * measures the actual pixel gap between every direct-child pair in
- * `.prose`, and fails the build if any gap drifts more than 1px from
- * the token its adjacency maps to.
- *
  * ── Cascade / specificity scheme (single source of truth) ──────────
  * Every rule below is `.prose > X` or `.prose > X + Y` — one class plus
  * type selectors, so every rule in this file has EQUAL specificity.

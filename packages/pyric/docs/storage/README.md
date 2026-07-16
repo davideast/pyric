@@ -46,7 +46,7 @@ Beyond the data-plane adapter, the package exports a control-plane surface for p
 
 ## Where to go next
 
-This documentation follows the [Diataxis](https://diataxis.fr/) framework:
+The documentation is organised by task and reference material:
 
 | If you want to | Read |
 |---|---|

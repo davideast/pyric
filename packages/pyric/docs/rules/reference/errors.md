@@ -63,7 +63,7 @@ interface ParseResult {
 
 ### Evaluator errors
 
-These extend `Error` and are thrown synchronously during expression evaluation. `SimulateFirestoreRulesHandler.simulate` catches them and converts them into result states; callers using `evaluate` directly need to handle them. None of this escapes to the public surface: `firestoreRules(source).simulate(cases)` never throws on a rule outcome.
+These extend `Error` and are thrown synchronously during expression evaluation. The internal simulator catches them and converts them into result states; callers using `evaluate` directly need to handle them. None of this escapes to the public surface: `firestoreRules(source).simulate(cases)` never throws on a rule outcome.
 
 #### `EvalError`
 
@@ -94,7 +94,7 @@ Thrown by `tokenize` / `parse` in the sentinel expression DSL. Carry a `Position
 
 ### Handler results
 
-The handlers (`SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler`, the modules resolver) never throw for expected failure modes. They return `Outcome`-shaped objects:
+The internal simulator, hosted test handler, and modules resolver never throw for expected failure modes. They return `Outcome`-shaped objects:
 
 ```ts
 type Result<T> =

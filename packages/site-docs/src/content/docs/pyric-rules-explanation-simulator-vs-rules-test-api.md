@@ -2,7 +2,7 @@
 title: "Simulator vs Rules Test API"
 group: "pyric / rules"
 section: "Explanation"
-order: 12023
+order: 13023
 ---
 # Simulator vs Rules Test API
 
@@ -12,7 +12,7 @@ Two surfaces evaluate rules against test cases. Underneath, they share a case sh
 
 The public front door only fronts one of the two: `firestoreRules(source).simulate(cases)` runs the local simulator, takes `FirestoreCase[]`, and returns a `SimulationSummary` (`{ passed, failed, unsupported, cases: CaseResult[] }`) that never carries a thrown-error branch, since a parse failure already threw `RulesCompileError` at construction.
 
-The Rules Test API has no public front door yet. Both engines still share their case and result vocabulary one level down, on `pyric/rules/internal`: `TestFirestoreRulesHandler.execute` (the Rules Test API client) and the internal `SimulateFirestoreRulesHandler.simulate` both take a rules source and a list of `TestCase` objects (the same shape as the public `FirestoreCase`), and both return a `TestFirestoreRulesResult`:
+Use `firestoreRules(source).simulate(cases)` for local evaluation. The hosted Rules Test API and local engine share their case and result vocabulary one level down on `pyric/rules/internal`, but those handler classes are not the preferred public API.
 
 ```ts
 type TestFirestoreRulesResult =

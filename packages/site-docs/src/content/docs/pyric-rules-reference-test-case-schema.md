@@ -2,7 +2,7 @@
 title: "FirestoreCase schema"
 group: "pyric / rules"
 section: "Reference"
-order: 12016
+order: 13016
 ---
 # `FirestoreCase` schema
 

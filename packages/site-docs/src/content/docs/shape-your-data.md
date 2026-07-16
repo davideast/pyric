@@ -1,9 +1,9 @@
 ---
 title: "Seed, snapshot, reset, and replay the backend"
 navLabel: "Seed, snapshot, replay"
-group: "Inspect and correct"
-section: "Inspect the sandbox"
-order: 3003
+group: "Observe & shape"
+section: ""
+order: 4002
 description: "Put the backend in any state you want, capture the good ones, and get them back on demand."
 ---
 

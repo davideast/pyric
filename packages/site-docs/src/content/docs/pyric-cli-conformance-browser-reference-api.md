@@ -3,7 +3,7 @@ title: "API reference: @pyric/cli/conformance/browser"
 navLabel: "@pyric/cli/conformance/browser"
 group: "API reference"
 section: "@pyric/cli"
-order: 24016
+order: 9016
 description: "Published declarations for @pyric/cli/conformance/browser."
 kind: "api"
 apiPackage: "@pyric/cli"

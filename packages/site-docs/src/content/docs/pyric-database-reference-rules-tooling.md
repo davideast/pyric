@@ -2,7 +2,7 @@
 title: "RTDB rules tooling"
 group: "pyric / database"
 section: "Reference"
-order: 16004
+order: 17004
 ---
 # RTDB rules tooling
 

@@ -2,7 +2,7 @@
 title: "Storage rules language reference"
 group: "pyric / storage"
 section: "Reference"
-order: 14008
+order: 15008
 ---
 # Storage rules language reference
 

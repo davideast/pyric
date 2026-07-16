@@ -1,7 +1,7 @@
 ---
 title: "Run Firebase locally"
 navLabel: "Quickstart"
-group: "Run locally"
+group: "Get started"
 section: ""
 order: 1001
 description: "Start a new Firebase application or add Pyric to an existing Vite application without connecting development to production."
@@ -63,7 +63,7 @@ npm install --save-dev @pyric/cli
 npx pyric dev
 ```
 
-It can serve static files or start an existing development command. [The CLI guide](../pyric-cli/) covers those paths. [Test in Node](../test-in-node/) covers an in-process sandbox for tests and scripts.
+It can serve static files or start an existing development command. [The CLI guide](../pyric-cli-reference-cli/) covers those paths. [Test in Node](../test-in-node/) covers an in-process sandbox for tests and scripts.
 
 ## What remains local
 
