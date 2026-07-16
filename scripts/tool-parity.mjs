@@ -120,7 +120,15 @@ const MCP_CONTRIBUTIONS = [
     gates: { firestore_test_rules: 'in-process, scope-gated' },
   },
   { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
-  { file: `${TOOLS}/conformance/tools.ts`, factory: 'createConformanceTools', gate: 'in-process' },
+  // createConformanceTools registers the shared createCanIUseTool factory,
+  // which owns the name literal for both the MCP and Playground surfaces;
+  // `via` points name extraction at it.
+  {
+    file: `${TOOLS}/conformance/tools.ts`,
+    factory: 'createConformanceTools',
+    via: { file: `${TOOLS}/conformance/can-i-use-tool.ts`, factory: 'createCanIUseTool' },
+    gate: 'in-process',
+  },
 ];
 
 /**
@@ -150,6 +158,11 @@ const PLAYGROUND_WRAPPERS = {
   [`${PLAY}/tools/core/firestoreExtractIndexes.ts`]: {
     file: `${PYRIC}/rules/indexes/extractTool.ts`,
     factory: 'createFirestoreExtractTool',
+    gate: 'always-on',
+  },
+  [`${PLAY}/tools/core/can-i-use.ts`]: {
+    file: `${TOOLS}/conformance/can-i-use-tool.ts`,
+    factory: 'createCanIUseTool',
     gate: 'always-on',
   },
   [`${PLAY}/tools/core/firestoreRulesStdlib.ts`]: {
@@ -227,7 +240,7 @@ function addTool(surface, name, gate) {
 export function enumerateMcp() {
   const surface = new Map();
   for (const c of MCP_CONTRIBUTIONS) {
-    for (const name of factoryNames(c.file, c.factory)) {
+    for (const name of factoryNames((c.via ?? c).file, (c.via ?? c).factory)) {
       addTool(surface, name, c.gates?.[name] ?? c.gate);
     }
   }
