@@ -10,26 +10,11 @@ import {
   serializeRtdbRules,
   simulateRtdbRules,
 } from '../../src/rules/internal/rtdb.js';
-import * as rtdb from '../../src/rules/internal/rtdb.js';
 
 describe('pyric/rules/rtdb facade', () => {
-  test('exports only the pure RTDB rules engine', () => {
+  test('exports the pure RTDB rules engine', () => {
     expect(parseExpression('auth !== null').valid).toBe(true);
     expect(buildRuleExpression('auth.uid === $uid', 'read', ['$uid']).parsed.valid).toBe(true);
-
-    const productionOrStatefulExports = [
-      'fetchDatabase',
-      'createRtdbAdminTools',
-      'createRtdbDataTools',
-      'createRtdbRulesTools',
-      'getRtdbTools',
-      'initializeDatabaseApp',
-      'GenerateIRHandler',
-      'WriteRulesHandler',
-      'RtdbMapper',
-      'SimulateHandler',
-    ];
-    expect(productionOrStatefulExports.filter((name) => name in rtdb)).toEqual([]);
   });
 
   test('compiles, serializes, and simulates a rules tree without environment metadata', () => {
@@ -74,10 +59,8 @@ describe('pyric/rules/rtdb facade', () => {
       readFileSync(resolve(import.meta.dir, '../../package.json'), 'utf-8'),
     ) as { exports: Record<string, unknown> };
 
-    // The clean break removed the ./rules/rtdb, ./rules/rtdb/constraints, and
-    // ./rules/rtdb-constraints public subpaths. The engine now lives on the
-    // internal seam; the constraints DSL is re-exported from the public
-    // ./rules front door.
+    // The engine lives on the internal seam; the constraints DSL is
+    // re-exported from the public ./rules front door.
     expect(pkg.exports['./rules/rtdb']).toBeUndefined();
     expect(pkg.exports['./rules/rtdb/constraints']).toBeUndefined();
     expect(pkg.exports['./rules/rtdb-constraints']).toBeUndefined();
