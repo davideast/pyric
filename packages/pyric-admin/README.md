@@ -43,6 +43,6 @@ without sandbox activation and therefore resolves Firebase Admin directly.
 
 - [App registry and activation](docs/app/)
 - [Firestore](docs/firestore/)
-- [Auth API](docs/auth/reference/api.md)
-- [Realtime Database API](docs/database/reference/api.md)
-- [Storage API](docs/storage/reference/api.md)
+- [Auth API](https://pyric.dev/docs/pyric-admin-auth-reference-api/)
+- [Realtime Database API](https://pyric.dev/docs/pyric-admin-database-reference-api/)
+- [Storage API](https://pyric.dev/docs/pyric-admin-storage-reference-api/)

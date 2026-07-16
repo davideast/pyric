@@ -35,4 +35,4 @@ console.log(msg.key); // a real 20-char push id, available synchronously
 
 ## Where to go next
 
-- [API reference](../pyric-admin-database-reference-api/) for the full `Reference` and `DataSnapshot` surface, per arm.
+- [`pyric-admin/database` API reference](https://pyric.dev/docs/pyric-admin-database-reference-api/) for the published `Reference` and `DataSnapshot` declarations.

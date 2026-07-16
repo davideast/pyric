@@ -91,5 +91,4 @@ The `resolveSandbox` resolver fires per dispatch, so hosts that reset or swap th
 
 ## Where to look next
 
-- For the tool names, parameters, and the result shape, see [Internal engine in the API reference](../pyric-rules-reference-api/#internal-engine-pyricrulesinternal).
 - For `ToolHandler`, `createToolRegistry`, and `createDispatch`, see the `@inbrowser/agent` package.

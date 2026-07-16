@@ -1,201 +1,610 @@
 ---
 title: "API reference: pyric-admin/database"
-navLabel: "API reference"
-group: "pyric-admin / database"
-section: "Reference"
-order: 21002
----
-# API reference: `pyric-admin/database`
-
-Exact signatures of every public export, plus the local/remote method matrix for `Database`, `Reference`, and `DataSnapshot`. Realtime Database support is experimental; the surfaces below are tested but mostly not yet pinned to recorded production observations.
-
-The two sandbox backends:
-
-- **local**: an in-memory JSON tree per `Sandbox`. `sandbox.reset()` wipes it (via the sandbox's `session_boundary` event). Writes are rule-bypass, matching firebase-admin's behavior of bypassing rules.
-- **remote**: a remote-branded sandbox relays every data operation over the worker channel with `actAs: { mode: 'admin' }` pinned (rules bypass) against the browser-hosted tree. Server writes emit `SandboxEvent`s in the worker and fire the app's live listeners.
-
-Production code loads `firebase-admin/database` directly with Pyric activation
-absent.
-
+navLabel: "pyric-admin/database"
+group: "API reference"
+section: "pyric-admin"
+order: 24005
+description: "Published declarations for pyric-admin/database."
+kind: "api"
+apiPackage: "pyric-admin"
+apiImportPath: "pyric-admin/database"
+apiSubpath: "database"
+apiSymbolCount: 9
 ---
 
-## Initialization
+<!-- Generated from published package declarations via TypeDoc. Do not edit by hand; run bun run docs:api:generate. -->
 
-### `getDatabase(app?, legacyUrl?)`
+## Interfaces
 
-```ts
-function getDatabase(app?: PyricAdminApp, legacyUrl?: string): Database;
-```
+<a id="database"></a>
 
-Mirrors firebase-admin's `getDatabase(app?)`:
+### Database
 
-- `getDatabase()`: default database for the `'[DEFAULT]'` sandbox app, resolved through `pyric-admin/app`'s registry. Throws `app/no-app` when nothing is initialized.
-- `getDatabase(app)`: default database for the app.
-- `getDatabase(app, legacyUrl)`: retained for compatibility with Pyric's former collapsed signature. New code should use `getDatabaseWithUrl`.
+#### Properties
 
-Successive calls for the same sandbox return handles that share data, matching firebase-admin's singleton-per-app semantics. Throws `TypeError` for an unbranded value.
+| Property | Modifier | Type |
+| :------ | :------ | :------ |
+| <a id="app"></a> `app` | `readonly` | `unknown` |
 
-### `getDatabaseWithUrl(url, app?)`
+#### Methods
 
-```ts
-function getDatabaseWithUrl(url: string, app?: PyricAdminApp): Database;
-```
+<a id="getrules"></a>
 
-Uses firebase-admin's exact URL-first argument order. The Functions SDK calls
-this export when materializing `event.data.ref`. Pyric's first Functions slice
-has one shared RTDB instance, so the URL selects that instance; it does not
-create a separate sandbox tree.
-
----
-
-## `Database` (sandbox arms)
-
-| Method | local | remote | Behavior |
-|---|---|---|---|
-| `ref(path?)` | yes | yes | `Reference` at `path` (default `'/'`) |
-| `refFromURL(url)` | yes | yes | strips the `https://<host>` prefix, treats the rest as a path; the host is ignored |
-| `useEmulator(host, port)` | no-op | no-op | accepted so code that calls it unconditionally still runs |
-| `goOffline()` / `goOnline()` | no-op | no-op | no network connection to drop or reopen |
-| `getRules()` / `getRulesJSON()` / `setRules(src)` | throws | throws | rules metadata is not modeled; sandbox writes are rule-bypass, so there is no backing rule state to expose |
-| `app` | stubbed | stubbed | present for interface shape; the data-plane methods never read it |
-
----
-
-## `Reference`: the data plane
-
-Every implemented method is `async` and shapes its results like firebase-admin. Properties on every ref: `key` (last segment, `null` at root), `parent` (`null` at root), `root`, `path` (canonical, `/`-prefixed), `ref` (itself), `database`, `toString()` (returns `sandbox://rtdb<path>`), `isEqual(other)` (path comparison), `toJSON()`.
-
-### `ref.set(value)`
+##### getRules()
 
 ```ts
-set(value: unknown): Promise<void>;
+getRules(): Promise<string>;
 ```
 
-Arms: local, remote. Writes `value` at the ref's path; `null` deletes. A root-level `set` must be an object (or `null` to clear). Deleting trims now-empty ancestor objects, preserving the RTDB invariant that empty nodes don't exist. Remote relays `rtdb.set`.
+###### Returns
 
-### `ref.get()`
+`Promise`\<`string`\>
+
+<a id="getrulesjson"></a>
+
+##### getRulesJSON()
 
 ```ts
-get(): Promise<DataSnapshot>;
+getRulesJSON(): Promise<object>;
 ```
 
-Arms: local, remote. Reads the path and resolves to a `DataSnapshot`. Absent paths resolve to a snapshot with `exists() === false` and `val() === null`. Remote relays `rtdb.get`.
+###### Returns
 
-### `ref.once(eventType)`
+`Promise`\<`object`\>
+
+<a id="gooffline"></a>
+
+##### goOffline()
 
 ```ts
-once(eventType: EventType): Promise<DataSnapshot>;
+goOffline(): void;
 ```
 
-Arms: local, remote. Only `'value'` is supported; any other event type throws. Local reads the tree directly. Remote establishes a value subscription, resolves with the initial snapshot, then detaches.
+###### Returns
 
-### `ref.update(values)`
+`void`
+
+<a id="goonline"></a>
+
+##### goOnline()
 
 ```ts
-update(values: object): Promise<void>;
+goOnline(): void;
 ```
 
-Arms: local, remote, with a real semantic difference:
+###### Returns
 
-- **Local: shallow merge.** Each key in `values` replaces the corresponding child at the ref's path (a key may itself be a relative path like `'a/b'`). A `null` value deletes that child. There is no multi-path atomicity guarantee beyond the synchronous loop.
-- **Remote: full multi-path update.** Relays `rtdb.update`, and the worker applies `pyric/database`'s modular multi-path semantics.
+`void`
 
-### `ref.remove()`
+<a id="ref"></a>
+
+##### ref()
 
 ```ts
-remove(): Promise<void>;
+ref(path?: string): Reference;
 ```
 
-Arms: local, remote. Deletes the subtree; equivalent to `set(null)`. Remote relays `rtdb.remove`.
+###### Parameters
 
-### `ref.push(value?, onComplete?)`
+| Parameter | Type |
+| :------ | :------ |
+| `path?` | `string` |
+
+###### Returns
+
+[`Reference`](#reference)
+
+<a id="reffromurl"></a>
+
+##### refFromURL()
 
 ```ts
-push(value?: unknown, onComplete?: (err: Error | null) => void): ThenableReference;
+refFromURL(url: string): Reference;
 ```
 
-Arms: local, remote. Mints a 20-character push id with the same algorithm as firebase-js-sdk's published `nextPushId`, so sandbox keys are shape-compatible with production keys and sort chronologically. The returned `ThenableReference` exposes `.key` synchronously on both arms.
+###### Parameters
 
-- Local: the write is synchronous; `.then()` resolves immediately.
-- Remote: the client mints the id and relays `rtdb.push` carrying it; `.then()` settles when the relayed write commits, and a failure rejects the thenable and reaches `onComplete`. A bare `push()` performs no write, matching upstream.
+| Parameter | Type |
+| :------ | :------ |
+| `url` | `string` |
 
-### `ref.child(path)`
+###### Returns
+
+[`Reference`](#reference)
+
+<a id="setrules"></a>
+
+##### setRules()
+
+```ts
+setRules(source: string | object): Promise<void>;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `source` | `string` \| `object` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
+<a id="datasnapshot"></a>
+
+### DataSnapshot
+
+#### Properties
+
+| Property | Modifier | Type |
+| :------ | :------ | :------ |
+| <a id="key"></a> `key` | `readonly` | `string` |
+| <a id="ref-2"></a> `ref` | `readonly` | [`Reference`](#reference) |
+
+#### Methods
+
+<a id="child"></a>
+
+##### child()
+
+```ts
+child(path: string): DataSnapshot;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `path` | `string` |
+
+###### Returns
+
+[`DataSnapshot`](#datasnapshot)
+
+<a id="exists"></a>
+
+##### exists()
+
+```ts
+exists(): boolean;
+```
+
+###### Returns
+
+`boolean`
+
+<a id="exportval"></a>
+
+##### exportVal()
+
+```ts
+exportVal(): unknown;
+```
+
+###### Returns
+
+`unknown`
+
+<a id="foreach"></a>
+
+##### forEach()
+
+```ts
+forEach(action: (child: DataSnapshot) => boolean | void): boolean;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `action` | (`child`: [`DataSnapshot`](#datasnapshot)) => `boolean` \| `void` |
+
+###### Returns
+
+`boolean`
+
+<a id="getpriority"></a>
+
+##### getPriority()
+
+```ts
+getPriority(): string | number;
+```
+
+###### Returns
+
+`string` \| `number`
+
+<a id="haschild"></a>
+
+##### hasChild()
+
+```ts
+hasChild(path: string): boolean;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `path` | `string` |
+
+###### Returns
+
+`boolean`
+
+<a id="haschildren"></a>
+
+##### hasChildren()
+
+```ts
+hasChildren(children?: string[]): boolean;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `children?` | `string`[] |
+
+###### Returns
+
+`boolean`
+
+<a id="numchildren"></a>
+
+##### numChildren()
+
+```ts
+numChildren(): number;
+```
+
+###### Returns
+
+`number`
+
+<a id="tojson"></a>
+
+##### toJSON()
+
+```ts
+toJSON(): unknown;
+```
+
+###### Returns
+
+`unknown`
+
+<a id="val"></a>
+
+##### val()
+
+```ts
+val(): unknown;
+```
+
+###### Returns
+
+`unknown`
+
+***
+
+<a id="ondisconnect"></a>
+
+### OnDisconnect
+
+#### Indexable
+
+```ts
+[key: string]: unknown
+```
+
+***
+
+<a id="reference"></a>
+
+### Reference
+
+#### Indexable
+
+```ts
+[key: string]: unknown
+```
+
+#### Properties
+
+| Property | Modifier | Type |
+| :------ | :------ | :------ |
+| <a id="database-1"></a> `database` | `readonly` | [`Database`](#database) |
+| <a id="key-1"></a> `key` | `readonly` | `string` |
+| <a id="parent"></a> `parent` | `readonly` | [`Reference`](#reference) |
+| <a id="ref-3"></a> `ref` | `readonly` | [`Reference`](#reference) |
+| <a id="root"></a> `root` | `readonly` | [`Reference`](#reference) |
+
+#### Methods
+
+<a id="child-2"></a>
+
+##### child()
 
 ```ts
 child(path: string): Reference;
 ```
 
-Arms: local, remote. Pure path manipulation; returns a ref at `<this>/path`.
+###### Parameters
 
----
+| Parameter | Type |
+| :------ | :------ |
+| `path` | `string` |
 
-## Listeners: the local/remote divergence
+###### Returns
 
-### `ref.on(eventType, callback, cancelCallback?)` and `ref.off(eventType?, callback?)`
+[`Reference`](#reference)
 
-Arms: **remote only** for `'value'`. The local arm throws for all event types.
+<a id="get"></a>
 
-On the remote arm, `on('value', callback)` routes through the worker's RTDB value subscription: the callback fires with the initial snapshot and on every subsequent change, including changes made by the browser app, Studio, or agents (one shared tree). A subscription-establishment failure routes to `cancelCallback` when supplied. Re-registering the same callback replaces the prior registration.
-
-`off('value', callback)` removes that registration; `off()` or `off('value')` removes all registrations at the path. Unknown callbacks and other event types are no-ops.
-
-Other event types (`'child_added'`, `'child_changed'`, `'child_removed'`, `'child_moved'`) throw on both sandbox arms. The worker relays only value subscriptions today. The modular `pyric/database` surface has full listener support.
-
----
-
-## Not implemented on both sandbox arms
-
-Each throws `Error('pyric-admin/database sandbox: <method> not implemented')`:
-
-| Area | Methods |
-|---|---|
-| Transactions | `transaction` (the modular `pyric/database` surface has `runTransaction`) |
-| Queries | `orderByChild`, `orderByKey`, `orderByValue`, `orderByPriority`, `startAt`, `startAfter`, `endAt`, `endBefore`, `equalTo`, `limitToFirst`, `limitToLast` |
-| Priorities | `setPriority`, `setWithPriority` (snapshots report `getPriority() === null` and `exportVal()` equals `val()`) |
-| Presence | `onDisconnect` |
-| Rules metadata | `Database.getRules`, `getRulesJSON`, `setRules` |
-| Local arm only | `on`, `off`, `once` with a non-`'value'` type |
-
-Use Firebase Admin directly when production needs these methods.
-
----
-
-## `DataSnapshot`
-
-One snapshot implementation serves both sandbox arms (the remote arm feeds it wire values). Implemented surface:
+##### get()
 
 ```ts
-key: string | null;
-ref: Reference;
-exists(): boolean;
-val(): unknown;
-child(path: string): DataSnapshot;
-hasChild(path: string): boolean;
-hasChildren(): boolean;
-numChildren(): number;
-forEach(cb: (child: DataSnapshot) => boolean | void): boolean;
-toJSON(): unknown;
-getPriority(): string | number | null; // always null
-exportVal(): unknown; // equals val(): no priorities are modeled
+get(): Promise<DataSnapshot>;
 ```
 
----
+###### Returns
 
-## Path safety (sandbox-only constraint)
+`Promise`\<[`DataSnapshot`](#datasnapshot)\>
 
-The local tree is backed by plain JavaScript objects, so the path segments `__proto__`, `prototype`, and `constructor` are rejected with an error. A segment named `__proto__` arriving through a JSON or MCP transport could otherwise reach `Object.prototype` and pollute it process-wide. Real RTDB stores a server-side tree with no such reserved keys, so this is a sandbox-only safety constraint, not a parity behavior.
+<a id="off"></a>
 
----
+##### off()
 
-## Types
+```ts
+off(eventType?: EventType, callback?: (snapshot: DataSnapshot, previousChildKey?: string) => unknown): void;
+```
 
-The package exposes Firebase Admin-shaped `Database`, `Reference`,
-`DataSnapshot`, `ThenableReference`, `Query`, `OnDisconnect`, and `EventType`
-types. The sandbox backends implement the load-bearing subset documented here.
+###### Parameters
 
----
+| Parameter | Type |
+| :------ | :------ |
+| `eventType?` | [`EventType`](#eventtype) |
+| `callback?` | (`snapshot`: [`DataSnapshot`](#datasnapshot), `previousChildKey?`: `string`) => `unknown` |
 
-## Where to go next
+###### Returns
 
-- [`pyric-admin/app` reference](../pyric-admin-app-reference-api/) for sandbox binding and activation.
-- `pyric/database` for the modular mirror with listeners, transactions, and the query builder.
+`void`
+
+<a id="on"></a>
+
+##### on()
+
+```ts
+on(
+   eventType: EventType,
+   callback: (snapshot: DataSnapshot, previousChildKey?: string) => unknown,
+   cancelCallback?: (error: Error) => unknown): unknown;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `eventType` | [`EventType`](#eventtype) |
+| `callback` | (`snapshot`: [`DataSnapshot`](#datasnapshot), `previousChildKey?`: `string`) => `unknown` |
+| `cancelCallback?` | (`error`: `Error`) => `unknown` |
+
+###### Returns
+
+`unknown`
+
+<a id="once"></a>
+
+##### once()
+
+```ts
+once(
+   eventType: EventType,
+   successCallback?: (snapshot: DataSnapshot) => unknown,
+failureCallback?: (error: Error) => unknown): Promise<DataSnapshot>;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `eventType` | [`EventType`](#eventtype) |
+| `successCallback?` | (`snapshot`: [`DataSnapshot`](#datasnapshot)) => `unknown` |
+| `failureCallback?` | (`error`: `Error`) => `unknown` |
+
+###### Returns
+
+`Promise`\<[`DataSnapshot`](#datasnapshot)\>
+
+<a id="push"></a>
+
+##### push()
+
+```ts
+push(value?: unknown, onComplete?: (error: Error) => void): ThenableReference;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `value?` | `unknown` |
+| `onComplete?` | (`error`: `Error`) => `void` |
+
+###### Returns
+
+[`ThenableReference`](#thenablereference)
+
+<a id="remove"></a>
+
+##### remove()
+
+```ts
+remove(onComplete?: (error: Error) => void): Promise<void>;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `onComplete?` | (`error`: `Error`) => `void` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+<a id="set"></a>
+
+##### set()
+
+```ts
+set(value: unknown, onComplete?: (error: Error) => void): Promise<void>;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `value` | `unknown` |
+| `onComplete?` | (`error`: `Error`) => `void` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+<a id="tostring"></a>
+
+##### toString()
+
+```ts
+toString(): string;
+```
+
+###### Returns
+
+`string`
+
+<a id="update"></a>
+
+##### update()
+
+```ts
+update(values: object, onComplete?: (error: Error) => void): Promise<void>;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `values` | `object` |
+| `onComplete?` | (`error`: `Error`) => `void` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+## Type Aliases
+
+<a id="eventtype"></a>
+
+### EventType
+
+```ts
+type EventType =
+  | "value"
+  | "child_added"
+  | "child_changed"
+  | "child_removed"
+  | "child_moved";
+```
+
+Mirror-owned structural types for the implemented admin RTDB surface.
+
+***
+
+<a id="query"></a>
+
+### Query
+
+```ts
+type Query = Reference;
+```
+
+***
+
+<a id="thenablereference"></a>
+
+### ThenableReference
+
+```ts
+type ThenableReference = Reference & PromiseLike<Reference>;
+```
+
+## Functions
+
+<a id="getdatabase"></a>
+
+### getDatabase()
+
+```ts
+function getDatabase(app?: SandboxAdminApp, _url?: string): Database;
+```
+
+Returns the AdminDatabase service for the supplied app.
+
+Signature mirrors `firebase-admin/database`'s `getDatabase(app?)`.
+
+  - `getDatabase()` — default database for the DEFAULT app (resolved
+    through `pyric-admin/app`'s registry, exactly like firebase-admin's
+    no-arg `getDatabase()`; throws `app/no-app` when no default app has
+    been initialized). Works for local and remote sandbox apps.
+  - `getDatabase(app)` — default database for the app.
+  - `getDatabase(app, url)` — legacy Pyric-only compatibility form. New
+    code should use the upstream-shaped [getDatabaseWithUrl](#getdatabasewithurl) export.
+
+The sandbox brand returns the local or remote `Database` backed by the
+per-`Sandbox` state described in the module-level docs.
+
+#### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `app?` | `SandboxAdminApp` |
+| `_url?` | `string` |
+
+#### Returns
+
+[`Database`](#database)
+
+***
+
+<a id="getdatabasewithurl"></a>
+
+### getDatabaseWithUrl()
+
+```ts
+function getDatabaseWithUrl(_url: string, app?: SandboxAdminApp): Database;
+```
+
+Returns the AdminDatabase service selected by an upstream-shaped
+database URL.
+
+This is the exact `firebase-admin/database` argument order used by the
+Firebase Functions SDK: `getDatabaseWithUrl(url, app?)`. The first Pyric
+Functions slice has one shared RTDB instance, so the URL selects that
+instance rather than creating a second sandbox database.
+
+#### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `_url` | `string` |
+| `app?` | `SandboxAdminApp` |
+
+#### Returns
+
+[`Database`](#database)

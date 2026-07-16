@@ -89,5 +89,5 @@ This mirrors production Firebase. With no rules configured, `listAll` is open-by
 
 ## Where to look next
 
-- For the `StorageReference` shape and the `ref(...)` overloads, see [Public API](../pyric-storage-reference-api/#reference-construction).
-- For the `ListResult` shape, see [Public API](../pyric-storage-reference-api/#listing).
+- For the reference shape and overloads, see [`StorageReference`](https://pyric.dev/docs/pyric-storage-reference-api/#storagereference) and [`ref`](https://pyric.dev/docs/pyric-storage-reference-api/#ref-1).
+- For the listing result, see [`ListResult`](https://pyric.dev/docs/pyric-storage-reference-api/#listresult).

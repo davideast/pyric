@@ -2,13 +2,13 @@
 title: "Value wrappers"
 group: "pyric / rules"
 section: "Reference"
-order: 12019
+order: 12018
 ---
 # Value wrappers
 
 The simulator and the sentinel expression engine model Firestore's runtime types as TypeScript classes. Every wrapper extends `RulesValue`, exposes `equals`, `toJSON`, and `toString`, and dispatches method calls via `callMethod`. These classes are engine-internal, importable from `pyric/rules/internal`.
 
-Most callers don't need the classes directly: `pyric/rules`'s public value helpers (`serverTimestamp()`, `timestamp()`, `bytes()`, `latlng()`, `duration()`, `reference()`, `vector()`) construct the right wrapper instance for a `FirestoreCase`'s `data` / `resource` field. See [Public API](../pyric-rules-reference-api/#value-helpers).
+Most callers don't need the classes directly: `pyric/rules`'s public value helpers (`serverTimestamp()`, `timestamp()`, `bytes()`, `latlng()`, `duration()`, `reference()`, `vector()`) construct the right wrapper instance for a `FirestoreCase`'s `data` / `resource` field. See [Public API](../pyric-rules-reference-api/).
 
 You reach for the classes on `pyric/rules/internal` directly when:
 

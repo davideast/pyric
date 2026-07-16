@@ -29,8 +29,8 @@ const decoded = await auth.verifyIdToken(token);
 console.log(decoded.uid, decoded.role); // 'alice' 'admin'
 ```
 
-One honest note up front: sandbox tokens are deterministic strings, not real JWTs. They round-trip through the same sandbox backend and nothing else. The [API reference](../pyric-admin-auth-reference-api/) documents the exact format.
+One honest note up front: sandbox tokens are deterministic strings, not real JWTs. They round-trip through the same sandbox backend and nothing else. The [`SANDBOX_TOKEN_PREFIX` reference](https://pyric.dev/docs/pyric-admin-auth-reference-api/#sandbox_token_prefix) documents the exact prefix.
 
 ## Where to go next
 
-- [API reference](../pyric-admin-auth-reference-api/) for every method, per arm, including the full not-implemented list.
+- [`pyric-admin/auth` API reference](https://pyric.dev/docs/pyric-admin-auth-reference-api/) for the published declarations.

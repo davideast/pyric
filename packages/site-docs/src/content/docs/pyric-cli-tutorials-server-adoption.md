@@ -241,7 +241,7 @@ real Firebase. Set `PYRIC_SANDBOX_FORCE=1` to override (dev/CI only).
   worker, survives tab reloads, and stops being served the moment no page
   is open. `pyric dev --persist` additionally writes a committable
   `.pyric/state/state.json` (Firestore docs + auth users) restored on the
-  next run, see the [CLI reference](../pyric-cli-reference-cli/).
+  next run, see the [CLI reference](../pyric-cli-reference-cli/#pyric-dev).
 - **`this Node version lacks module.registerHooks (needs >= 22.15)`** On
   older Nodes ESM imports are still rewritten but CJS
   `require('firebase-admin')` is not, so a CJS app half-connects. Upgrade

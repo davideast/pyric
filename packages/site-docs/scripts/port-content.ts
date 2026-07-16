@@ -150,6 +150,8 @@ function docsRoot(pkg: string): string {
 // becomes the emitted `description` (llms.txt / index.json).
 
 const guideRoot = join(repoRoot, 'docs', 'site-rewrite', 'content');
+const apiReferenceRoot = join(repoRoot, 'docs', 'api-reference');
+const API_REFERENCE_GROUP = 'API reference';
 
 /** Superseded package pages (scripts/superseded.ts), by absolute path:
  *  skipped by the port, and links to them rewrite to the guide slug. */
@@ -401,13 +403,21 @@ interface Page {
   description?: string;
   /** Guide pages author their own front matter; strip it at emit. */
   stripFm?: boolean;
+  api?: {
+    kind: 'api' | 'api-index';
+    packageName?: string;
+    importPath?: string;
+    subpath?: string;
+    symbolCount?: number;
+    evidenceSlug?: string;
+  };
 }
 
 function mdFilesIn(dir: string): string[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.md'))
-    // TypeDoc receipts remain beside the hand-written reference but are not
-    // site pages until their cross-links and navigation role are designed.
+    // Ignore any stale declaration receipts. The generated API reference has
+    // one authoritative source tree under docs/api-reference.
     .filter((f) => !f.endsWith('.generated.md'))
     .sort()
     .map((f) => join(dir, f));
@@ -437,6 +447,10 @@ const groupRank = new Map([
     group.label,
     (REFERENCE_GROUP_START_RANK + i) * GROUP_RANK_SPACING,
   ] as const),
+  [
+    API_REFERENCE_GROUP,
+    (REFERENCE_GROUP_START_RANK + GROUPS.length) * GROUP_RANK_SPACING,
+  ] as const,
 ]);
 const groupPosition = new Map<string, number>();
 function nextOrder(group: string): number {
@@ -498,6 +512,44 @@ function addGuidePage(
   bySlug.set(slug, page);
 }
 
+/** Add a generated API page while preserving the metadata consumed by the
+ * dedicated API-reference layout. */
+function addApiPage(src: string) {
+  const { fm } = parseFrontmatter(readFileSync(src, 'utf8'));
+  const kind = fm.kind;
+  if (kind !== 'api' && kind !== 'api-index') {
+    throw new Error(`generated API page has invalid kind: ${src}`);
+  }
+  if (!fm.slug) throw new Error(`generated API page has no slug: ${src}`);
+  if (kind === 'api' && (!fm.apiPackage || !fm.apiImportPath || !fm.apiSymbolCount)) {
+    throw new Error(`generated API page is missing template metadata: ${src}`);
+  }
+  const clash = bySlug.get(fm.slug);
+  if (clash) throw new Error(`slug clash: ${fm.slug} (${clash.src} vs ${src})`);
+  const page: Page = {
+    src,
+    slug: fm.slug,
+    group: API_REFERENCE_GROUP,
+    section: kind === 'api' ? fm.apiPackage : '',
+    order: nextOrder(API_REFERENCE_GROUP),
+    title: fm.title ?? titleOf(src),
+    navLabel: fm.navLabel,
+    description: fm.outcome,
+    stripFm: true,
+    api: {
+      kind,
+      packageName: fm.apiPackage,
+      importPath: fm.apiImportPath,
+      subpath: fm.apiSubpath,
+      symbolCount: fm.apiSymbolCount ? Number(fm.apiSymbolCount) : undefined,
+      evidenceSlug: fm.apiEvidenceSlug,
+    },
+  };
+  pages.push(page);
+  bySrc.set(src, page);
+  bySlug.set(page.slug, page);
+}
+
 // Guide first: the nav renders groups in `order` order, so the
 // outcome-first sections sit above the package reference groups.
 for (const group of GUIDE_GROUPS) {
@@ -512,6 +564,15 @@ for (const group of GUIDE_GROUPS) {
     });
   }
 }
+
+// One generated API shelf after the workflow and package reference groups.
+// The shelf collapses to its index in the sidebar; every subpath route remains
+// searchable, linkable, and available through the index and package docs.
+const apiIndex = join(apiReferenceRoot, 'index.md');
+if (!existsSync(apiIndex)) throw new Error(`API reference index missing: ${apiIndex}`);
+addApiPage(apiIndex);
+const apiGeneratedRoot = join(apiReferenceRoot, 'generated');
+for (const file of mdFilesIn(apiGeneratedRoot)) addApiPage(file);
 
 // The conformance matrices, right after the guide: the per-service
 // conformance tables are the receipt behind the Trust pages and matter
@@ -587,6 +648,9 @@ for (const pkg of ['pyric', 'pyric-admin', 'cli', 'ui']) {
 for (const f of walkMd(guideRoot)) {
   if (GUIDE_IGNORE.has(posix.basename(f))) continue;
   if (!bySrc.has(f)) throw new Error(`unclaimed guide page: ${f}`);
+}
+for (const f of walkMd(apiReferenceRoot)) {
+  if (!bySrc.has(f)) throw new Error(`unclaimed API reference page: ${f}`);
 }
 
 /* ── Markdown helpers (fence-aware) ────────────────────────────────── */
@@ -670,6 +734,13 @@ function anchorsOf(src: string): Set<string> {
   if (!set) {
     const slugger = new GithubSlugger();
     set = new Set(headingsOf(src).map((h) => slugger.slug(h)));
+    // TypeDoc emits stable anchors for properties and repeated declarations
+    // inside tables. They are real link targets even though they are not
+    // Markdown headings, so retain them during the port.
+    const raw = readFileSync(src, 'utf8');
+    for (const match of raw.matchAll(/<a\s+(?:id|name)=["']([^"']+)["']/gi)) {
+      set.add(match[1]);
+    }
     anchorCache.set(src, set);
   }
   return set;
@@ -735,6 +806,10 @@ function rewriteLinks(page: Page, body: string): string {
             // Same-page anchor: keep if the heading exists (healing
             // GitHub's `user-content-` prefix), else unlink.
             const id = target.slice(1).replace(/^user-content-/, '');
+            // TypeDoc owns its repeated-member anchor model. Preserve those
+            // generated links verbatim and let the built-site fragment gate
+            // validate the rendered target.
+            if (page.api?.kind === 'api') return `[${label}](#${id})`;
             if (anchorsOf(page.src).has(id)) return `[${label}](#${id})`;
             stats.unlinked++;
             unlinkedLog.push(`${page.slug}: ${target}`);
@@ -986,6 +1061,26 @@ for (const page of pages) {
     `section: ${yamlQuote(page.section)}`,
     `order: ${page.order}`,
     ...(page.description ? [`description: ${yamlQuote(page.description)}`] : []),
+    ...(page.api
+      ? [
+          `kind: ${yamlQuote(page.api.kind)}`,
+          ...(page.api.packageName
+            ? [`apiPackage: ${yamlQuote(page.api.packageName)}`]
+            : []),
+          ...(page.api.importPath
+            ? [`apiImportPath: ${yamlQuote(page.api.importPath)}`]
+            : []),
+          ...(page.api.subpath !== undefined
+            ? [`apiSubpath: ${yamlQuote(page.api.subpath)}`]
+            : []),
+          ...(page.api.symbolCount !== undefined
+            ? [`apiSymbolCount: ${page.api.symbolCount}`]
+            : []),
+          ...(page.api.evidenceSlug
+            ? [`apiEvidenceSlug: ${yamlQuote(page.api.evidenceSlug)}`]
+            : []),
+        ]
+      : []),
     '---',
     '',
   ].join('\n');

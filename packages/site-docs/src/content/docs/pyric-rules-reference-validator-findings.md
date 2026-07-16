@@ -2,7 +2,7 @@
 title: "Validator findings"
 group: "pyric / rules"
 section: "Reference"
-order: 12018
+order: 12017
 ---
 # Validator findings
 

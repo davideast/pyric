@@ -3,7 +3,7 @@ title: "Feature matrix: pyric/auth coverage of firebase/auth"
 navLabel: "Feature matrix"
 group: "pyric / auth"
 section: "Reference"
-order: 15003
+order: 15002
 ---
 # Feature matrix: `pyric/auth` coverage of `firebase/auth`
 

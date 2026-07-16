@@ -17,7 +17,7 @@ The flow is: build state in `dev` → run `pyric snapshot` → commit the file �
 re-seed with `pyric dev --seed <file>`.
 
 For the full flag list, see the [`pyric snapshot`
-reference](../pyric-cli-reference-cli/).
+reference](../pyric-cli-reference-cli/#pyric-snapshot).
 
 ## Build up the state
 

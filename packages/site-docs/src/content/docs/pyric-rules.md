@@ -87,7 +87,7 @@ Documentation is organised under [`docs/`](../pyric-rules/) following the [Diata
 ### Starting points by role
 
 - **First time here?** Work through [Lint your first rules file](../simulate-and-lint/), then [Write a test suite for your rules](../write-a-rules-test-suite/).
-- **Building an agent or CLI?** See [Register rules tools with an agent](../pyric-rules-how-to-register-tools-with-an-agent/) and the [API reference](../pyric-rules-reference-api/).
+- **Building an agent or CLI?** See [Register rules tools with an agent](../pyric-rules-how-to-register-tools-with-an-agent/) and the [`pyric/rules` API reference](https://pyric.dev/docs/pyric-rules-reference-api/).
 - **Triaging a lint warning?** Jump to [Lint rules reference](../pyric-rules-reference-lint-rules/).
 - **Debugging an `UNSUPPORTED` test result?** Read [Simulator vs Rules Test API](../pyric-rules-explanation-simulator-vs-rules-test-api/).
 

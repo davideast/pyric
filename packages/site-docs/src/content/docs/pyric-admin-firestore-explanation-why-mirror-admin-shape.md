@@ -3,7 +3,7 @@ title: "Why mirror the admin SDK shape"
 navLabel: "Why mirror the admin SDK"
 group: "pyric-admin / firestore"
 section: "Explanation"
-order: 19014
+order: 19013
 ---
 # Why mirror the admin SDK shape
 

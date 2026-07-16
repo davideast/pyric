@@ -91,5 +91,5 @@ For a full test, run both. Most tests need only one or the other.
 
 ## Where to look next
 
-- For the input shape and the rule engine details, see [Public API: Rules](../pyric-storage-reference-api/#rules).
+- For the input and result shapes, see [`evaluateStorageRules`](https://pyric.dev/docs/pyric-storage-reference-api/#evaluatestoragerules).
 - For the grammar these functions parse, see [Storage rules subset](../pyric-storage-reference-rules-subset/).

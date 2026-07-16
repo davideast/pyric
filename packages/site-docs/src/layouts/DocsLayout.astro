@@ -2,6 +2,7 @@
 import type { MarkdownHeading } from 'astro';
 import '../styles/site.css';
 import '../styles/rhythm.css';
+import '../styles/api-reference.css';
 import DocsNav from '../components/DocsNav.astro';
 import DocsBreadcrumbs from '../components/DocsBreadcrumbs.astro';
 import { withBase, STUDIO_TABS, breadcrumbsFor, allDocs, slugOf } from '../lib/docs';
@@ -11,10 +12,34 @@ interface Props {
   description?: string;
   headings: MarkdownHeading[];
   currentSlug: string;
+  kind?: 'page' | 'api' | 'api-index';
+  apiPackage?: string;
+  apiImportPath?: string;
+  apiSymbolCount?: number;
+  apiEvidenceSlug?: string;
 }
 
-const { title, description, headings, currentSlug } = Astro.props;
+const {
+  title,
+  description,
+  headings,
+  currentSlug,
+  kind = 'page',
+  apiPackage,
+  apiImportPath,
+  apiSymbolCount,
+  apiEvidenceSlug,
+} = Astro.props;
+const isApi = kind === 'api';
 const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
+const apiGroups = tocHeadings.reduce<Array<{ heading: MarkdownHeading; symbols: MarkdownHeading[] }>>(
+  (groups, heading) => {
+    if (heading.depth === 2) groups.push({ heading, symbols: [] });
+    else if (groups.length > 0) groups[groups.length - 1].symbols.push(heading);
+    return groups;
+  },
+  [],
+);
 const currentEntry = (await allDocs()).find((e) => slugOf(e) === currentSlug);
 const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
 ---
@@ -70,13 +95,60 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
 
       <main class="doc-main">
         {breadcrumbs.length > 0 ? <DocsBreadcrumbs crumbs={breadcrumbs} /> : null}
-        <article class="prose">
+        {
+          isApi && apiImportPath ? (
+            <header class="api-reference-header">
+              <p class="api-reference-kicker">API reference</p>
+              <h1><code>{apiImportPath}</code></h1>
+              <p class="api-reference-meta">
+                {apiSymbolCount ?? 0} published symbols from <code>{apiPackage}</code>
+              </p>
+              <p class="api-reference-source">
+                Generated from the TypeScript declarations shipped at this import path.
+              </p>
+              {apiEvidenceSlug ? (
+                <a class="api-reference-evidence" href={withBase(`/docs/${apiEvidenceSlug}/`)}>
+                  Check behavioral conformance
+                </a>
+              ) : null}
+            </header>
+          ) : null
+        }
+        <article class:list={['prose', { 'api-reference-body': isApi }]}>
           <slot />
         </article>
       </main>
 
       {
-        tocHeadings.length > 0 ? (
+        isApi && apiGroups.length > 0 ? (
+          <aside class="doc-toc api-symbols" aria-label="API symbols">
+            <h2 class="doc-toc-heading">Symbols</h2>
+            <input
+              class="api-symbol-filter"
+              type="search"
+              placeholder="Filter symbols"
+              aria-label="Filter API symbols"
+              data-api-symbol-filter
+            />
+            <div class="api-symbol-groups" data-api-symbol-groups>
+              {apiGroups.map((group) => (
+                <section class="api-symbol-group" data-api-symbol-group>
+                  <a class="api-symbol-kind" href={`#${group.heading.slug}`}>
+                    {group.heading.text}
+                  </a>
+                  <ul>
+                    {group.symbols.map((symbol) => (
+                      <li data-api-symbol={symbol.text.toLowerCase()}>
+                        <a href={`#${symbol.slug}`}>{symbol.text}</a>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+              <p class="api-symbol-empty" data-api-symbol-empty hidden>No matching symbols</p>
+            </div>
+          </aside>
+        ) : tocHeadings.length > 0 ? (
           <aside class="doc-toc" aria-label="On this page">
             <h2 class="doc-toc-heading">On this page</h2>
             <ul>
@@ -134,6 +206,26 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
           if (el) observer.observe(el);
         });
       }
+    </script>
+    <script>
+      const filter = document.querySelector<HTMLInputElement>('[data-api-symbol-filter]');
+      const groups = [...document.querySelectorAll<HTMLElement>('[data-api-symbol-group]')];
+      const empty = document.querySelector<HTMLElement>('[data-api-symbol-empty]');
+      filter?.addEventListener('input', () => {
+        const query = filter.value.trim().toLowerCase();
+        let visibleCount = 0;
+        for (const group of groups) {
+          let groupCount = 0;
+          group.querySelectorAll<HTMLElement>('[data-api-symbol]').forEach((symbol) => {
+            const visible = !query || (symbol.dataset.apiSymbol ?? '').includes(query);
+            symbol.hidden = !visible;
+            if (visible) groupCount++;
+          });
+          group.hidden = groupCount === 0;
+          visibleCount += groupCount;
+        }
+        if (empty) empty.hidden = visibleCount > 0;
+      });
     </script>
   </body>
 </html>

@@ -2,7 +2,7 @@
 title: "Errors"
 group: "pyric / rules"
 section: "Reference"
-order: 12013
+order: 12012
 ---
 # Errors
 

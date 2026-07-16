@@ -3,7 +3,7 @@ title: "Firestore rules gaps: where pyric and Firebase disagree"
 navLabel: "Firestore rules gaps"
 group: "pyric / rules"
 section: "Reference"
-order: 12012
+order: 12011
 ---
 # Firestore rules gaps: where pyric and Firebase disagree
 

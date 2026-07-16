@@ -53,6 +53,8 @@ interface SourcePage {
   section: string;
   order: number;
   body: string;
+  kind: string;
+  apiImportPath: string;
 }
 
 /** Strip the front-matter block; return { frontmatter, body }. */
@@ -72,13 +74,33 @@ const sources: SourcePage[] = readdirSync(contentDir)
     const group = fm.match(/^group:\s*"?([^"\n]+)"?/m)?.[1] ?? '';
     const section = fm.match(/^section:\s*"?([^"\n]*)"?/m)?.[1] ?? '';
     const order = Number(fm.match(/^order:\s*(\d+)/m)?.[1] ?? Number.MAX_SAFE_INTEGER);
-    return { file, slug, internal, group, section, order, body };
+    const kind = fm.match(/^kind:\s*"?([^"\n]+)"?/m)?.[1] ?? 'page';
+    const apiImportPath = fm.match(/^apiImportPath:\s*"?([^"\n]+)"?/m)?.[1] ?? '';
+    return { file, slug, internal, group, section, order, body, kind, apiImportPath };
   });
 
 const publicPages = sources.filter((s) => !s.internal);
 const internalPages = sources.filter((s) => s.internal);
 check(publicPages.length >= 150, `content: ${publicPages.length} public pages`);
 check(internalPages.length >= 1, 'content: has an internal rhythm page');
+const apiPages = publicPages.filter((page) => page.kind === 'api');
+const apiIndexes = publicPages.filter((page) => page.kind === 'api-index');
+check(apiPages.length === 46, 'content: all 46 released API entry points are generated');
+check(apiIndexes.length === 1, 'content: one generated API reference index');
+check(
+  new Set(apiPages.map((page) => page.apiImportPath)).size === apiPages.length,
+  'content: API import paths are unique',
+);
+for (const page of apiPages) {
+  check(
+    page.body.includes('Generated from published package declarations via TypeDoc.'),
+    `content: ${page.apiImportPath} identifies its generated source`,
+  );
+  check(
+    !/^### `_.*`?$/m.test(page.body),
+    `content: ${page.apiImportPath} excludes implementation symbols`,
+  );
+}
 const fusedFencePages = sources.filter((page) =>
   page.body.split('\n').some(
     (line) => line.includes('```') && !/^\s*```[A-Za-z0-9_-]*\s*$/.test(line),
@@ -151,8 +173,8 @@ function* walkMd(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) yield* walkMd(full);
-    // TypeDoc declaration receipts are checked by `docs:api:check`. They stay
-    // beside the hand-written references but are not site pages.
+    // Historical TypeDoc declaration receipts are not site pages. The single
+    // generated API tree is checked by `docs:api:check`.
     else if (entry.name.endsWith('.md') && !entry.name.endsWith('.generated.md')) yield full;
   }
 }
@@ -203,6 +225,18 @@ for (const page of sources) {
       twinBytes === page.body,
       `/docs/${page.slug}.md is the exact post-front-matter source`,
       `twin ${twinBytes.length}B vs source body ${page.body.length}B`,
+    );
+  }
+  if (page.kind === 'api' && existsSync(html)) {
+    const rendered = readFileSync(html, 'utf8');
+    check(
+      rendered.includes('class="api-reference-header"') &&
+        rendered.includes(page.apiImportPath),
+      `/docs/${page.slug} uses the API reference header`,
+    );
+    check(
+      rendered.includes('data-api-symbol-filter'),
+      `/docs/${page.slug} renders the symbol index`,
     );
   }
 }
