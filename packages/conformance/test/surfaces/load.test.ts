@@ -157,6 +157,21 @@ describe('machine-readable surface contracts', () => {
       });
   });
 
+  it('pairs each disposition availability with its own reason code', () => {
+    const dispositions = loadSurfaceDispositions();
+    expect(dispositions.find(({ surface, symbol }) => surface === 'auth' && symbol === 'fetchSignInMethodsForEmail'))
+      .toMatchObject({
+        dispositionId: 'auth.email-enumeration',
+        availability: 'out-of-scope',
+        reasonCode: 'upstream-deprecated',
+      });
+    for (const disposition of dispositions) {
+      expect(disposition.reasonCode).toBe(
+        disposition.availability === 'deferred' ? 'implementation-deferred' : 'upstream-deprecated',
+      );
+    }
+  });
+
   it('publishes a versioned JSON Schema that validates every authored contract', () => {
     const schema = JSON.parse(readFileSync(new URL('../../schemas/surface-contract.v2.schema.json', import.meta.url), 'utf8'));
     expect(schema).toMatchObject({

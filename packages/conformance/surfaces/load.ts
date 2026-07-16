@@ -220,20 +220,17 @@ export function loadCensusPairs(): CensusMirrorPair[] {
 export function loadSurfaceDispositions(): SurfaceDisposition[] {
   return loadedContracts.flatMap(({ record }) => {
     if (record.kind !== 'mirror' && record.kind !== 'census-only') return [];
-    return record.dispositions.flatMap((group) =>
-      group.symbols.map((symbol): SurfaceDisposition => {
-        const base = {
-          surface: record.censusSurface,
-          symbol,
-          dispositionId: group.id,
-          summary: group.summary,
-          evidenceRefs: [...group.evidenceRefs],
-        };
-        return group.availability === 'deferred'
-          ? { ...base, availability: group.availability, reasonCode: group.reasonCode }
-          : { ...base, availability: group.availability, reasonCode: group.reasonCode };
-      }),
-    );
+    return record.dispositions.flatMap((group) => {
+      const { id, summary, evidenceRefs, symbols, ...state } = group;
+      return symbols.map((symbol): SurfaceDisposition => ({
+        surface: record.censusSurface,
+        symbol,
+        dispositionId: id,
+        summary,
+        evidenceRefs: [...evidenceRefs],
+        ...state,
+      }));
+    });
   });
 }
 
