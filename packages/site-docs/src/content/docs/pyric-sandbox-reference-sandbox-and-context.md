@@ -3,7 +3,7 @@ title: "Sandbox, SandboxContext, AuthState"
 navLabel: "Sandbox and context"
 group: "pyric / sandbox"
 section: "Reference"
-order: 13015
+order: 14014
 ---
 # `Sandbox`, `SandboxContext`, `AuthState`
 
@@ -12,6 +12,7 @@ The three core types. Every other surface in the package builds on them.
 ## `Sandbox`
 
 The data + rules + lifecycle handle.
+
 ```ts
 interface Sandbox {
   withAuth(auth: AuthState): SandboxContext;
@@ -23,6 +24,7 @@ interface Sandbox {
   snapshot(): SandboxSnapshot;
 }
 ```
+
 A `Sandbox` is **identity-agnostic**. It does not know who you are; that's what `SandboxContext` is for. The `Sandbox` only holds:
 
 - The current `LocalEnvironment` (documents, rules, listeners).
@@ -34,11 +36,13 @@ Construct via `initializeSandbox()`. Custom implementations are not supported. A
 ### `withAuth(auth)`
 
 Derive a `SandboxContext` bound to this sandbox under the given auth identity.
+
 ```ts
 const aliceCtx = sandbox.withAuth({ uid: 'alice' });
 const adminCtx = sandbox.withAuth({ uid: 'admin', token: { role: 'admin' } });
 const anonCtx  = sandbox.withAuth(null);
 ```
+
 `undefined` is rejected: say `withAuth(null)` for anonymous explicitly so the call site is unambiguous. Empty UIDs are rejected. Non-object `token` is rejected. See the [error-handling notes](../pyric-sandbox-reference-error-codes/#invalid-argument) for the exact rules.
 
 ### `onEvent(cb)`
@@ -82,6 +86,7 @@ Drop listener registries on this sandbox's environment without replacing it. Use
 Capture a typed snapshot of every service's state. v1 carries only `firestore`; future services add their own keys.
 
 ## `SandboxContext`
+
 ```ts
 interface SandboxContext {
   readonly sandbox: Sandbox;
@@ -89,23 +94,28 @@ interface SandboxContext {
   withAuth(auth: AuthState): SandboxContext;
 }
 ```
+
 A `(sandbox, auth)` pair. Cheap to create, immutable, freely shareable. Service factories require this; passing a bare `Sandbox` is a type error.
 
 Many contexts can coexist for one sandbox. Data is shared; rules evaluate per-context under the context's auth identity.
 
 ### Chaining
+
 ```ts
 const adminCtx = sandbox.withAuth({ uid: 'admin', token: { admin: true } });
 const userCtx = adminCtx.withAuth({ uid: 'alice' });
 ```
+
 `SandboxContext.withAuth` **replaces** auth, it does not merge. The new context carries only the new auth.
 
 ## `AuthState`
+
 ```ts
 type AuthState =
   | { uid: string; token?: Record<string, unknown> }
   | null;
 ```
+
 - `null` → unauthenticated; `request.auth` evaluates to `null` in rules.
 - `{ uid }` → authenticated; `request.auth.uid` carries the value.
 - `{ uid, token }` → authenticated with custom claims; `request.auth.token.<key>` carries each entry.
@@ -113,6 +123,7 @@ type AuthState =
 The same shape feeds the rules simulator's `TestCase.auth` field (`pyric/rules`), so test data written against one surface works with the other.
 
 ## Lifecycle in pictures
+
 ```
 initializeSandbox()
        │
@@ -132,4 +143,5 @@ initializeSandbox()
    │ box   │
    └───────┘
 ```
+
 The sandbox object identity is stable for the life of the consumer. Only the underlying environment swaps. Contexts holding references to the sandbox don't need to be re-derived after a `reset`.

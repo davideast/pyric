@@ -2,7 +2,7 @@
 title: "SandboxFirestore surface"
 group: "pyric-admin / firestore"
 section: "Reference"
-order: 19011
+order: 20010
 ---
 # `SandboxFirestore` surface
 
@@ -47,6 +47,7 @@ After a successful `setRules`, every active snapshot listener is re-evaluated un
 ### `seed(options?): LintResult`
 
 Replace stored documents with a new seed map. Active rules are preserved.
+
 ```ts
 db.seed({
   documents: {
@@ -55,6 +56,7 @@ db.seed({
   },
 });
 ```
+
 Pass an empty `documents` map (or omit it) to clear data without touching rules.
 
 Returns the lint of the preserved ruleset for consistency with `setRules`: the same `LintResult` shape across both methods means the caller can check warnings the same way after either call.
@@ -62,10 +64,12 @@ Returns the lint of the preserved ruleset for consistency with `setRules`: the s
 ### `snapshot(): Record<string, DocumentData>`
 
 Capture every stored document as a `{ [path]: data }` map. Reads from the live state and is independent of rules (same idea as `sandbox.admin.getDocument(...)` but for the whole database in one call).
+
 ```ts
 const state = db.snapshot();
 console.log(state['notes/n1']);  // { ownerId: 'alice', title: 'first' }
 ```
+
 The returned object is a structural clone. Mutating it does not affect the sandbox.
 
 ## What this handle ignores

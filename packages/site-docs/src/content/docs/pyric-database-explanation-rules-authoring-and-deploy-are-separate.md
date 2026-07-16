@@ -3,7 +3,7 @@ title: "Why RTDB rules authoring and deploy are separate"
 navLabel: "Authoring vs. deploy"
 group: "pyric / database"
 section: "Explanation"
-order: 16006
+order: 17005
 ---
 # Why RTDB rules authoring and deploy are separate
 
@@ -21,8 +21,10 @@ That split keeps the in-memory workflow usable in tests, code generation, agent
 planning, and browser-like hosts. A caller can inspect `rtdbRules(rules).toJSON()`
 without holding credentials, write `database.rules.json` (or run
 `pyric database rules generate`), then ship later:
+
 ```bash
 firebase deploy --only database
 ```
+
 Agent tools keep the same boundary. Local simulation and generate tools return
 JSON-shaped artifacts; production release is outside pyric's CLI surface.

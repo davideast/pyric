@@ -3,13 +3,14 @@ title: "How to use onSnapshot"
 navLabel: "Use onSnapshot"
 group: "pyric / firestore"
 section: "How-to"
-order: 11007
+order: 12007
 ---
 # How to use `onSnapshot`
 
 Keep your UI live by registering snapshot listeners on documents and queries, in the modular Web SDK shape.
 
 ## Watch a document
+
 ```ts
 import { onSnapshot, doc, type DocumentSnapshot } from 'pyric/firestore';
 
@@ -24,7 +25,9 @@ const unsubscribe = onSnapshot(doc(db, 'notes', 'n1'), (snap: DocumentSnapshot) 
 // ... later
 unsubscribe();
 ```
+
 ## Watch a query
+
 ```ts
 import { onSnapshot, collection, query, where, type QuerySnapshot } from 'pyric/firestore';
 
@@ -36,11 +39,13 @@ const unsubscribe = onSnapshot(q, (snap: QuerySnapshot) => {
   }
 });
 ```
+
 `docChanges()` returns `added` / `modified` / `removed` events. On the initial fire, every matching doc is `added`.
 
 ## Observer form
 
 The Web-SDK-shaped observer takes any subset of three handlers:
+
 ```ts
 onSnapshot(doc(db, 'notes', 'n1'), {
   next: (snap) => render(snap.data()),
@@ -48,7 +53,9 @@ onSnapshot(doc(db, 'notes', 'n1'), {
   // complete is accepted but never fires.
 });
 ```
+
 ## React `useEffect` cleanup
+
 ```ts
 useEffect(() => {
   const unsubscribe = onSnapshot(doc(db, 'notes', 'n1'), (snap) => {
@@ -57,6 +64,7 @@ useEffect(() => {
   return unsubscribe;
 }, []);
 ```
+
 Returning the unsubscribe from the effect tells React to call it on unmount or re-run. Without it, every re-render registers a fresh listener and the old ones stay alive.
 
 ## Listener errors

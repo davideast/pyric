@@ -202,6 +202,14 @@ export function useResourceIndex(): ResourceIndexState {
           if (token !== buildToken.current) return; // a newer build already took over `building`
           inFlight.current = false;
           setBuilding(false);
+          // An EMPTY project completes a build with zero onBatch calls (the
+          // sources only batch what they found). `entries` must still leave
+          // `null` — "measured, nothing there" — or the first-build effect
+          // treats every completed build as never-built and refires on the
+          // per-event `data` churn the build's own list ops cause: a
+          // self-sustaining rebuild loop that floods Traffic with storage
+          // LIST events.
+          setEntries((previous) => previous ?? []);
           if (pendingRebuild.current) {
             const next = pendingRebuild.current;
             pendingRebuild.current = null;

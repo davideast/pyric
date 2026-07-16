@@ -20,9 +20,15 @@ onMessage(messaging, payload => {
 });
 ```
 
+<<<<<<< HEAD
 During development, the token and message broker belong to the local sandbox. No registration reaches Firebase Cloud Messaging. A production build runs the same application code through Firebase.
 
 ## Deliver a local message
+=======
+During development, the token and message broker belong to the local sandbox. No registration reaches Firebase Cloud Messaging. A production build runs the same application code through Firebase. Use the [Firebase Cloud Messaging Web documentation](https://firebase.google.com/docs/cloud-messaging/web/get-started) for normal registration and the [message handling guide](https://firebase.google.com/docs/cloud-messaging/web/receive-messages) for foreground and background behavior.
+
+## Deliver a message during local development
+>>>>>>> origin/main
 
 Tests and development harnesses can inject a message through Pyric's sandbox-only driver:
 
@@ -40,6 +46,16 @@ await messagingSandbox.deliver(messaging, {
 });
 ```
 
+<<<<<<< HEAD
 Keep this driver outside application code that ships. A visible client routes the delivery to `onMessage`; a hidden client routes it to the service-worker `onBackgroundMessage` path. The local broker does not request notification permission or contact FCM.
 
 Use the generated Messaging conformance page to check the currently supported public API before depending on a receive path.
+=======
+Keep this driver outside application code that ships. A visible client routes the delivery to `onMessage`. A hidden client routes it to the service-worker `onBackgroundMessage` path. The local broker also models token stability and deletion, but it does not request browser notification permission or contact the FCM transport.
+
+## Check the supported boundary
+
+Read the generated [Messaging conformance matrix](../../../../packages/pyric/docs/messaging/COMPAT.md) for the current client, service-worker, and Admin send surfaces, including verified behavior and tracked limitations.
+
+Continue with [Inspect and correct](../observe/see-whats-happening.md) or [verify the production boundary](../../../../packages/cli/docs/how-to/verify-against-a-captured-session.md).
+>>>>>>> origin/main

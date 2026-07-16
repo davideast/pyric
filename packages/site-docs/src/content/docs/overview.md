@@ -12,17 +12,19 @@ description: "Understand what Pyric is and what you get, in one short read."
 Pyric is Firestore, Auth, Realtime Database, Storage, and the Security Rules engine, implemented in TypeScript and running inside your app. In the browser, that means the page itself. The whole backend executes in the tab. In Node, it is the process your tests run in. Your code keeps its ordinary `firebase/*` imports. During development they resolve to Pyric. In production they resolve to Firebase. Nothing in your source changes.
 
 That is the whole trick, and it starts with one command.
+
 ```bash
 npm install -D @pyric/cli
 npx pyric dev
 ```
-No account. No cloud project. No emulator, no Java, no port to babysit. You have a full Firebase stack before your coffee is warm, and it behaves like the real one because that claim is tested, not assumed. Pyric runs probes against production Firebase, records what actually happens, and replays every recorded behavior against itself in CI. When it diverges from Firebase, that is a documented row or a bug, never a surprise.
+
+No account. No cloud project. No emulator, no Java, no port to babysit. You have a local Firebase stack before your coffee is warm. Pyric records comparisons with production Firebase in its conformance reference, including documented divergences, unsupported APIs, and areas that have not been verified.
 
 ## Build the app, prove the rules, ship the same code
 
-You build your app. Sign users in with the auth calls you already know. Write documents, run queries, keep the UI live with snapshots. Write security rules and find out, before you deploy, exactly what they allow and deny, because every operation in Pyric produces a verdict you can read, and a denial tells you which rule said no and what data it saw.
+You build your app with five service workflows: sign in and manage users, store and query data, sync realtime data, store files, and receive messages. Every local operation produces a Security Rules verdict you can inspect.
 
-Then you ship. With the development resolver inactive, the same canonical imports load real Firebase. Your rules leave development already exercised against your app's real behaviour. Your composite indexes come from your actual queries instead of a hand-kept file. Before anything goes live, you can replay a captured session against the new rules and learn which operations would change verdict. Pyric produces and verifies those artifacts; `firebase-tools` or the Firebase Console deploys them.
+Then you ship. With the development resolver inactive, the same canonical imports load real Firebase. Before anything goes live, replay a captured session against the candidate Security Rules and learn which operations would change verdict. Pyric produces those local artifacts; `firebase-tools` or the Firebase Console deploys them.
 
 ## Your agent works the same backend
 

@@ -2,13 +2,13 @@
 title: "Value wrappers"
 group: "pyric / rules"
 section: "Reference"
-order: 12019
+order: 13018
 ---
 # Value wrappers
 
 The simulator and the sentinel expression engine model Firestore's runtime types as TypeScript classes. Every wrapper extends `RulesValue`, exposes `equals`, `toJSON`, and `toString`, and dispatches method calls via `callMethod`. These classes are engine-internal, importable from `pyric/rules/internal`.
 
-Most callers don't need the classes directly: `pyric/rules`'s public value helpers (`serverTimestamp()`, `timestamp()`, `bytes()`, `latlng()`, `duration()`, `reference()`, `vector()`) construct the right wrapper instance for a `FirestoreCase`'s `data` / `resource` field. See [Public API](../pyric-rules-reference-api/#value-helpers).
+Most callers don't need the classes directly: `pyric/rules`'s public value helpers (`serverTimestamp()`, `timestamp()`, `bytes()`, `latlng()`, `duration()`, `reference()`, `vector()`) construct the right wrapper instance for a `FirestoreCase`'s `data` / `resource` field. See [Public API](../pyric-rules-reference-api/).
 
 You reach for the classes on `pyric/rules/internal` directly when:
 
@@ -17,6 +17,7 @@ You reach for the classes on `pyric/rules/internal` directly when:
 - Writing your own wrapper for a type the built-ins don't model.
 
 ## `RulesValue` (base class)
+
 ```ts
 abstract class RulesValue {
   readonly typeName: string;
@@ -27,11 +28,13 @@ abstract class RulesValue {
   toString(): string;
 }
 ```
+
 `NO_OP` is the sentinel returned from `callMethod` and `binaryOp` when a wrapper doesn't implement a method or operation. The evaluator translates `NO_OP` into an `UnsupportedError`, which the handler maps to `state: 'UNSUPPORTED'`.
 
 ## `Timestamp`
 
 Wraps `request.time`, `getAfter()` timestamps, and any field value that was `FieldValue.serverTimestamp()` in the request payload.
+
 ```ts
 class Timestamp extends RulesValue {
   readonly seconds: number;
@@ -44,6 +47,7 @@ class Timestamp extends RulesValue {
   toMillis(): number;
 }
 ```
+
 Methods exposed to rules (via `callMethod`): `date`, `day`, `dayOfWeek`, `dayOfYear`, `hours`, `minutes`, `month`, `nanos`, `seconds`, `time`, `toMillis`, `year`.
 
 Binary ops: `==`, `!=`, `<`, `<=`, `>`, `>=` against another `Timestamp`; `+`/`-` against a `Duration` returning a new `Timestamp`; `-` against another `Timestamp` returning a `Duration`.
@@ -53,6 +57,7 @@ Internal storage uses signed `seconds` and non-negative `nanos` (protobuf conven
 ## `Path`
 
 Wraps `request.path`, `__name__`, and path literals constructed from `path(...)`.
+
 ```ts
 class Path extends RulesValue {
   readonly segments: readonly string[];
@@ -64,11 +69,13 @@ class Path extends RulesValue {
   field(name: string): unknown;                 // named-binding access
 }
 ```
+
 Methods: standard accessors. `bindings` is the wildcard map from the matched path pattern. `request.path.<name>` returns `bindings[name]` for `<name>` that was a wildcard in the match path. Without bindings, named-field access returns `null`.
 
 ## `Reference`
 
 Wraps DocumentReference values inside test data.
+
 ```ts
 class Reference extends RulesValue {
   readonly path: Path;
@@ -76,11 +83,13 @@ class Reference extends RulesValue {
 
 function referenceToResourceName(ref: Reference): string;
 ```
+
 Use `referenceToResourceName` to get the full `/databases/.../documents/...` form when calling the Rules Test API.
 
 ## `Duration`
 
 Wraps `request.time - resource.data.<ts>` results and `duration.value(n, 'h')` constructions.
+
 ```ts
 class Duration extends RulesValue {
   readonly seconds: number;
@@ -91,11 +100,13 @@ class Duration extends RulesValue {
   static abs(d: Duration): Duration;
 }
 ```
+
 Unit codes for `fromValue`: `'w'`, `'d'`, `'h'`, `'m'`, `'s'`, `'ms'`. Binary ops mirror `Timestamp`'s.
 
 ## `Bytes`
 
 Wraps `bytes` values.
+
 ```ts
 class Bytes extends RulesValue {
   readonly data: Uint8Array;
@@ -108,11 +119,13 @@ class Bytes extends RulesValue {
   toHexString(): string;
 }
 ```
+
 Slice access (`bytes[start:end]`) is supported via `sliceAccess` expressions and produces a new `Bytes`.
 
 ## `LatLng`
 
 Wraps geo-point values.
+
 ```ts
 class LatLng extends RulesValue {
   readonly lat: number;
@@ -123,14 +136,17 @@ class LatLng extends RulesValue {
   // distance(other) returns metres via the haversine formula.
 }
 ```
+
 ## `Vector`
 
 Wraps embedding vectors.
+
 ```ts
 class Vector extends RulesValue {
   readonly values: readonly number[];
 }
 ```
+
 ## `RulesValue` and `NO_OP`
 
 Exported for callers writing custom wrappers. To add support for a new type:

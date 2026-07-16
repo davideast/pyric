@@ -1,43 +1,41 @@
 ---
-title: "Your backend in one command"
+title: "Run Firebase locally"
 navLabel: "Quickstart"
 group: "Get started"
 section: ""
 order: 1001
-description: "Run a working Firebase backend locally, in a new app or the one you already have."
+description: "Start a new Firebase application or add Pyric to an existing Vite application without connecting development to production."
 ---
 
-# Your backend in one command
+# Run Firebase locally
+
+Pyric adds a development-only resolution layer to a Firebase application. During Vite development, supported `firebase/*` imports resolve to a browser-local backend. A normal production build resolves those imports to Firebase again.
+
+## Start a new application
+
+Create a Vite application with canonical Firebase imports, Firestore rules, and the Pyric plugin already configured:
+
 ```bash
-npm install -D @pyric/cli
-npx pyric dev
-```
-That is a full Firebase backend, running inside the browser tab you are about to open. No account. No cloud project. No emulator, no Java, no port to babysit.
-
-`pyric dev` works in any directory with a `firebase.json`. It serves your app, resolves its ordinary `firebase/*` imports to a local sandbox, and enforces your `firestore.rules` from the first request.
-
-No app yet? Scaffold one.
-
-## Scaffold a new app
-```bash
-mkdir hello-pyric && cd hello-pyric
-pyric init --template web
+npx create-pyric my-app
+cd my-app
 npm install
-pyric dev
+npm run dev
 ```
-Open <http://localhost:3473>. The scaffold is a small posts app with canonical `firebase/app`, `firebase/auth`, and `firebase/firestore` imports, owner-based rules, and a seed file with two posts already in it. Sign in and create a post. It appears.
 
-Now prove the rules are real. Open `firestore.rules`, change the posts rule to `allow read: if false;`, and save. The rules hot-reload and the post list becomes a permission error.
+`npm create pyric my-app` runs the same scaffold.
 
-Put the rule back and the posts return. That loop, edit rules and watch real enforcement respond, is the loop everything else builds on.
+Open the local URL printed by Vite. The application and Pyric Studio use the same local backend. Studio is mounted at `/__pyric/ui/` on that origin.
 
-Building a script or a test suite instead of a page? `pyric init --template node` scaffolds the Node shape.
+## Add Pyric to an existing Vite application
 
-## Add Pyric to an app you already have
+Install the development plugin:
 
-Pick by how your app is built.
+```bash
+npm install --save-dev @pyric/cli
+```
 
-**You build with Vite.** Add one plugin and keep your own dev loop, HMR and all:
+Add it to the Vite configuration:
+
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
@@ -47,28 +45,28 @@ export default defineConfig({
   plugins: [pyricSandbox()],
 });
 ```
-`vite dev` now swaps `firebase/app`, `firebase/auth`, and `firebase/firestore` to the sandbox at module resolution, deploys your `firestore.rules` at page load, and hot-reloads them on save. A plain `vite build` still ships the real `firebase` package. Nothing in your source changes.
 
-**Your app is static or already built.** Run `pyric dev` in the directory. It serves the files and injects an import map that resolves the page's bare `firebase/*` imports to the sandbox at load time. Same swap, different layer.
+Start the normal development server:
 
-It can run your own dev command too: `pyric dev -- npm run dev`.
-
-## Your data survives
-
-The sandbox runs in a SharedWorker, so every tab shares one backend and a write in one tab shows up live in the others. The data lives in IndexedDB and survives a refresh. Three flags control it:
-
-- `--persist` keeps a committable on-disk copy at `.pyric/state/state.json`.
-- `--seed <file>` loads a fixture on boot.
-- `--fresh` starts over.
-
-## And from an agent
-
-One flag gives your agent the same backend:
 ```bash
-pyric dev --bridge
+npm run dev
 ```
-`--bridge` mounts an MCP endpoint on the dev server, and any MCP client (Claude Code, Cursor, Codex) can seed data, run queries, and check rules verdicts against the exact sandbox your tabs are using. [Set up your agent](../set-up-your-agent/) walks through each client.
 
-## Where to go next
+No application imports change. Continue using `firebase/app`, `firebase/auth`, `firebase/firestore`, and the other supported Firebase entry points. The plugin discovers Firestore rules from `firebase.json`, or uses `firestore.rules` when no path is configured.
 
-You have a backend. [How the swap works](../how-the-swap-works/) explains the swap in one page, or go straight to [signing users in](../sign-in-and-manage-users/).
+## Use a static application or Node process
+
+`pyric dev` provides the same development-only package swap outside the Vite plugin:
+
+```bash
+npm install --save-dev @pyric/cli
+npx pyric dev
+```
+
+It can serve static files or start an existing development command. [The CLI guide](../pyric-cli-reference-cli/) covers those paths. [Test in Node](../test-in-node/) covers an in-process sandbox for tests and scripts.
+
+## What remains local
+
+The mirrored services do not connect to a production Firebase project. Local data changes stay in the sandbox. Local Security Rules changes are enforced there and are not deployed. Firebase configuration passed to `initializeApp(config)` is accepted so the application code stays unchanged, but it does not select a cloud backend during development.
+
+Continue with [How the swap works](../how-the-swap-works/), then [develop with the Firebase APIs](../sign-in-and-manage-users/).

@@ -1,3 +1,6 @@
+---
+navLabel: "Local backend vs. offline"
+---
 # A local backend, not Firestore offline persistence
 
 A natural worry when you see `pyric dev` keep data across refreshes and sync across tabs is: *"are you reimplementing Firestore's offline + multi-tab persistence?"* That feature is one of the largest parts of the Firestore SDK, and reimplementing it would be a massive undertaking.

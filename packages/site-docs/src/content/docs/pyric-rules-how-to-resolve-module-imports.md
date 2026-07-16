@@ -3,7 +3,7 @@ title: "How to resolve 2+modules imports"
 navLabel: "Resolve 2+modules imports"
 group: "pyric / rules"
 section: "How-to"
-order: 12007
+order: 13007
 ---
 # How to resolve `2+modules` imports
 
@@ -16,6 +16,7 @@ Write rules that import reusable helper functions, then resolve them into a stan
 ## Author rules with imports
 
 Set the version to `'2+modules'` and add `import` statements at the top of the file:
+
 ```rules
 import { isAuthenticated, isOwner } from 'auth';
 import { hasRequired, hasOnly } from 'validation';
@@ -34,7 +35,9 @@ service cloud.firestore {
   }
 }
 ```
+
 ## Resolve to standard rules
+
 ```ts
 import { resolveModules } from 'pyric/rules/internal/node';
 
@@ -47,6 +50,7 @@ if (!result.success) {
 console.log(result.data.resolved);   // standard '2' rules, ready to deploy
 console.log(result.data.modules);    // ['auth', 'validation']
 ```
+
 The output uses `rules_version = '2'` and has the imported functions inlined at the root scope of the match block.
 
 ## Use the stdlib
@@ -58,19 +62,24 @@ For the full list of exports, see [Standard library modules](../pyric-rules-refe
 ## Use your own `.rules` files
 
 For project-specific helpers, write a `.rules` file and use a relative import:
+
 ```rules
 import { hasModeratorClaim } from './lib/moderation';
 ```
+
 Then point the resolver at the base directory:
+
 ```ts
 const result = resolveModules(source, { basePath: './src' });
 // Loads './src/lib/moderation.rules'
 ```
+
 The resolved path is `${basePath}/${importPath}.rules`. Functions in your module file can be marked `export` (visible to importers) or left bare (private, renamed with a module prefix so they don't collide).
 
 ## Inject modules from memory
 
 For tests, ephemeral environments, or any case where the source isn't on disk, pass `modules`:
+
 ```ts
 const result = resolveModules(source, {
   modules: {
@@ -82,6 +91,7 @@ const result = resolveModules(source, {
   },
 });
 ```
+
 The `modules` map takes priority over both `basePath` lookups and the stdlib, so you can override a stdlib module by name if you need to.
 
 ## Handle resolve failures

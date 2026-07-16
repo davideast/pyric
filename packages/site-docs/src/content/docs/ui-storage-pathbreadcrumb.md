@@ -2,15 +2,18 @@
 title: "<PathBreadcrumb>"
 group: "@pyric/ui"
 section: "Storage"
-order: 23019
+order: 24019
 ---
 # `<PathBreadcrumb>`
 
 Headless breadcrumb for a storage path. Renders a root crumb plus one crumb per segment; every crumb (including the current one) is a real `<button>` firing `onNavigate` with that ancestor's absolute path.
+
 ```ts
 import { PathBreadcrumb } from '@pyric/ui/storage';
 ```
+
 ## Example
+
 ```tsx
 import { usePathState } from '@pyric/ui/storage/hooks';
 
@@ -26,6 +29,7 @@ function Crumbs() {
   );
 }
 ```
+
 ## Props
 
 | Prop | Type | Description |
@@ -37,6 +41,7 @@ function Crumbs() {
 | `className` | `string` | Forwarded to the `<nav>` root. |
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="path-breadcrumb"]            /* the <nav> */
 [data-pyric-breadcrumb-list]                 /* the <ol> */
@@ -46,6 +51,7 @@ function Crumbs() {
 [data-pyric-breadcrumb-root]                 /* the root crumb's button */
 [data-pyric-breadcrumb-separator]            /* the separators (aria-hidden) */
 ```
+
 ## Notes
 
 - **The current crumb is clickable** — wiring `onNavigate` to a path-keyed loader makes it a free "refresh this level" affordance. Disable via CSS (`[data-pyric-current] { pointer-events: none }`) if you'd rather not.

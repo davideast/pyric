@@ -2,7 +2,7 @@
 title: "Divergence"
 group: "pyric / sandbox"
 section: "Reference"
-order: 13012
+order: 14011
 ---
 # `Divergence`
 
@@ -20,6 +20,7 @@ Two design rules govern the classifier:
 2. **Leaf-precise.** The engine walks both documents recursively and reports field paths at the leaf (`profile.lastSeen`, `tags[0]`, `arr[2].nested`). A sentinel-bearing parent doesn't mask sibling changes.
 
 ## The union
+
 ```ts
 type Divergence =
   | {
@@ -34,12 +35,15 @@ type Divergence =
   | { kind: 'time-drift';     path: string; field: string;  before: unknown; after: unknown }
   | { kind: 'real-divergence';path: string; field?: string; before: unknown; after: unknown };
 ```
+
 ## `kind: 'autoid-alias'`
 
 A write that originated from `LocalEnvironment.createWithAutoId` minted a fresh document ID on replay: same content, different path.
+
 ```ts
 { kind: 'autoid-alias', originalPath: 'notes/Iy5CGRl0HlP1XZo4GGiI', replayedPath: 'notes/5MM3PdzWUQvqRCi3wthO' }
 ```
+
 Re-using the original ID would be incorrect: auto-id semantics include "the id is unique." Two replays of the same log on different sandboxes legitimately mint different ids. The engine emits one alias entry per such write and exposes the full mapping on `ReplayResult.pathAliases` so consumers that index by path can map original → replayed.
 
 Not a bug. Consumers comparing document presence should consult `pathAliases` before flagging "missing doc."
@@ -47,6 +51,7 @@ Not a bug. Consumers comparing document presence should consult `pathAliases` be
 ## `kind: 'sentinel-drift'`
 
 A captured `FieldValue.*` sentinel (other than `serverTimestamp`, which has its own kind) sits at this exact field path, and the subtree differs between original and replayed state.
+
 ```ts
 {
   kind: 'sentinel-drift',
@@ -57,6 +62,7 @@ A captured `FieldValue.*` sentinel (other than `serverTimestamp`, which has its 
   after: 7,
 }
 ```
+
 Usually means **the prior state differed**, not that the sentinel itself misbehaved. `increment`, `arrayUnion`, `arrayRemove`, and `deleteField` are deterministic given the same prior. If their result differs, the prior was different. Look for an upstream `real-divergence` that explains why.
 
 In practice, with the same captured stream replayed onto a fresh sandbox, sentinel-drift is rare. It surfaces most often when you replay onto state that *isn't* the captured starting point (e.g., partial replays, splicing two logs).
@@ -64,6 +70,7 @@ In practice, with the same captured stream replayed onto a fresh sandbox, sentin
 ## `kind: 'time-drift'`
 
 A captured `serverTimestamp()` sentinel at this exact field path resolved to a different `Timestamp` on replay.
+
 ```ts
 {
   kind: 'time-drift',
@@ -73,6 +80,7 @@ A captured `serverTimestamp()` sentinel at this exact field path resolved to a d
   after:  { __type: 'timestamp', seconds: 1778955966, nanos: 657000000 },
 }
 ```
+
 Only fires when `pinRequestTime: false`. With the default `pinRequestTime: true`, the engine re-issues the captured `request.time` to the fresh sandbox so the sentinel resolves to the same value: zero `time-drift`.
 
 Not a bug. Useful for two scenarios:
@@ -83,6 +91,7 @@ Not a bug. Useful for two scenarios:
 ## `kind: 'real-divergence'`
 
 Anything else. Captured metadata doesn't license this difference, so the engine flags it.
+
 ```ts
 {
   kind: 'real-divergence',
@@ -92,10 +101,13 @@ Anything else. Captured metadata doesn't license this difference, so the engine 
   after: 'NOT-alice',
 }
 ```
+
 The `field` may be absent. For example, when an entire document is present on one side and missing on the other, the path alone identifies the divergence:
+
 ```ts
 { kind: 'real-divergence', path: 'notes/x', before: { /* doc */ }, after: undefined }
 ```
+
 This is the only kind that signals an actual bug. Common causes:
 
 - **Rules changed between capture and replay**: a write that succeeded originally gets denied; the doc is missing in replayed state.
@@ -103,6 +115,7 @@ This is the only kind that signals an actual bug. Common causes:
 - **Replay state seeded incorrectly**: if you persisted state separately from events and they drift apart, fields can disagree.
 
 ## Classifying in code
+
 ```ts
 for (const d of divergences) {
   switch (d.kind) {
@@ -121,6 +134,7 @@ for (const d of divergences) {
   }
 }
 ```
+
 A typical CI assertion: `expect(divergences.filter(d => d.kind === 'real-divergence')).toHaveLength(0)`.
 
 ## Field-path syntax

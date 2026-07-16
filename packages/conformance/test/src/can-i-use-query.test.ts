@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { featureIdentity, normalizeFeature, resolveCanIUse, resolveImportEvidence } from '../../src/can-i-use-query.ts';
+import { normalizeFeature, resolveCanIUse, resolveImportEvidence } from '../../src/can-i-use-query.ts';
 
 const supports = [
   { feature: 'getAfter', surface: 'firestore-rules', importPaths: ['pyric/rules'] },
@@ -10,7 +10,6 @@ const supports = [
 describe('canonical can-i-use query runtime', () => {
   it('normalizes discovery spelling without erasing exact identity', () => {
     expect(normalizeFeature(' Get-After (rules) ')).toBe('getafter');
-    expect(featureIdentity(' get_After ')).toBe(' get_After ');
   });
 
   it('resolves exact qualified features and labels fuzzy matches as suggestions', () => {

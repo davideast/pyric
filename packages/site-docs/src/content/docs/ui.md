@@ -3,7 +3,7 @@ title: "@pyric/ui"
 navLabel: "Overview"
 group: "@pyric/ui"
 section: ""
-order: 23001
+order: 24001
 ---
 # `@pyric/ui` docs
 
@@ -87,9 +87,11 @@ Highlights:
 ## Styling pattern (all components)
 
 The library ships **no CSS**. Components emit structural `data-pyric-*` attributes that consumers target with attribute selectors:
+
 ```css
 [data-pyric-ui='document-preview'] { /* root */ }
 [data-pyric-field-type='reference'][data-pyric-clickable] { /* clickable refs */ }
 [data-pyric-toast][data-pyric-toast-kind='error'] { /* error toast */ }
 ```
+
 See `examples/admin-playground/src/styles/global.css` for a complete set of Tailwind-based rules covering every component the library ships.

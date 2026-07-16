@@ -80,7 +80,7 @@ Documentation is organised under [`docs/`](./docs/):
 ### Starting points by role
 
 - **First time here?** Work through [Lint your first rules file](./docs/tutorials/01-lint-your-first-rules-file.md), then [Write a test suite for your rules](./docs/tutorials/02-write-a-test-suite-for-your-rules.md).
-- **Building an agent or CLI?** See [Register rules tools with an agent](./docs/how-to/register-tools-with-an-agent.md) and the [API reference](./docs/reference/api.md).
+- **Building an agent or CLI?** See [Register rules tools with an agent](./docs/how-to/register-tools-with-an-agent.md) and the [`pyric/rules` API reference](https://pyric.dev/docs/pyric-rules-reference-api/).
 - **Triaging a lint warning?** Jump to [Lint rules reference](./docs/reference/lint-rules.md).
 - **Debugging an `UNSUPPORTED` test result?** Read [Simulator vs Rules Test API](./docs/explanation/simulator-vs-rules-test-api.md).
 

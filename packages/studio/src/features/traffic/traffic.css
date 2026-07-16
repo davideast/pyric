@@ -934,15 +934,44 @@
 /* Group rows (collapsed listener storms). */
 .traffic__log [data-pyric-traffic-group-row],
 .traffic__log [data-pyric-traffic-group] {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 8px 14px;
   border-bottom: 1px solid var(--line);
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--muted);
   background: var(--panel);
+}
+
+/* The header is a real disclosure control — make it read as one. */
+.traffic__log [data-pyric-traffic-group-header] {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.traffic__log [data-pyric-traffic-group-header]::before {
+  content: '▸';
+  color: var(--muted);
+}
+.traffic__log [data-pyric-traffic-group][data-pyric-expanded] [data-pyric-traffic-group-header]::before {
+  content: '▾';
+}
+.traffic__log [data-pyric-group-count] {
+  color: var(--fg);
+}
+.traffic__log [data-pyric-group-denies] {
+  color: var(--deny, #e5484d);
+}
+.traffic__log [data-pyric-traffic-group-members] {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 20px;
 }
 
 /* Pagination disclosure under the capped log (L6: bounded row count). */

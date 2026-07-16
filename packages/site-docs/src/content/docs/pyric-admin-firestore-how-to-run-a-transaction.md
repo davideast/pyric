@@ -3,13 +3,14 @@ title: "How to run a transaction"
 navLabel: "Run a transaction"
 group: "pyric-admin / firestore"
 section: "How-to"
-order: 19003
+order: 20003
 ---
 # How to run a transaction
 
 This guide shows you how to use `runTransaction` on a sandbox Firestore handle.
 
 ## The shape
+
 ```ts
 import { getFirestore } from 'pyric-admin';
 
@@ -22,6 +23,7 @@ const result = await db.runTransaction(async (tx) => {
   return current + 1;
 });
 ```
+
 The callback receives a `Transaction` object with `.get`, `.getAll`, `.set`, `.update`, `.delete`, `.create`. All reads must happen before any writes: read-after-write inside a tx throws `'failed-precondition'`.
 
 ## Read tracking
@@ -37,6 +39,7 @@ The recorded reads are available on the event log via `getInternalEnv(sandbox).g
 ## Aborted transactions
 
 If the callback throws, the transaction is aborted: no writes are applied, the event log records the abort with the thrown error, and the original error re-throws to the caller:
+
 ```ts
 try {
   await db.runTransaction(async (tx) => {
@@ -48,6 +51,7 @@ try {
   console.error('Transaction aborted:', e.message);
 }
 ```
+
 Aborted transactions are **not undoable**. Popping one as an undo step would skip a real prior write, so the sandbox refuses to treat them as undoable events.
 
 ## Denied operations inside a transaction
@@ -57,10 +61,12 @@ If a `tx.set` would deny under the current rules, the transaction aborts with `S
 ## Cross-context transactions are not allowed
 
 A transaction's auth is the registering context's auth, captured at `runTransaction` call time. You cannot pass per-call auth or switch identity mid-transaction. To act as a different user, derive a different context:
+
 ```ts
 const adminDb = getFirestore(sandbox.withAuth({ uid: 'admin', token: { admin: true } }));
 await adminDb.runTransaction(async (tx) => { /* runs as admin */ });
 ```
+
 ## When `runTransaction` is overkill
 
 For single-doc operations with no read dependency, plain `set` / `update` / `delete` is fine. Reach for `runTransaction` when:

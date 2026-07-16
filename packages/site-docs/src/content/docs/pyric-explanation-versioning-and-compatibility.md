@@ -2,7 +2,7 @@
 title: "The versioning and compatibility policy"
 group: "pyric"
 section: "Explanation"
-order: 10001
+order: 11001
 ---
 # The versioning and compatibility policy
 
@@ -17,9 +17,11 @@ Pyric ships a large surface that Firebase does not have: the sandbox runtime, th
 ## Firebase compatibility ships as a dist-tag
 
 The compatibility claim is an npm dist-tag of the form `fb<major>.<minor>`.
+
 ```
 npm install pyric@fb12.16
 ```
+
 A `fb<major>.<minor>` tag points at the newest pyric release whose conformance gates pass against that line of Firebase. Installing `pyric@fb12.16` gets you the pyric that has been conformance-tested against Firebase 12.16.
 
 The tag means "conformance-tested against Firebase 12.16." It does not mean "equal to Firebase 12.16" and it does not mean "full parity with Firebase 12.16." Those are claims pyric does not make and the conformance numbers do not back. The tag is a statement about what was tested, not a statement about how much matched.

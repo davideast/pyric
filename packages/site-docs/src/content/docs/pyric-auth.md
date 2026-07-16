@@ -3,7 +3,7 @@ title: "pyric/auth"
 navLabel: "Overview"
 group: "pyric / auth"
 section: ""
-order: 15001
+order: 16001
 ---
 # `pyric/auth`
 
@@ -12,14 +12,17 @@ Sandbox-only modular Web SDK Auth mirror. It implements `firebase/auth`'s tree-s
 Application code keeps canonical `firebase/auth` imports. Pyric's Vite/import-map or Node register boundary swaps those imports to this mirror in sandbox mode; production installs no swap and continues loading Firebase itself. Direct `pyric/auth` imports always select sandbox behavior.
 
 ## Install
+
 ```bash
 bun add pyric firebase
 ```
+
 `firebase` supplies the canonical production package. It is not a runtime dependency of the `pyric/auth` mirror.
 
 ## A 30-second example
 
 Sandbox backend:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sandbox as authSandbox } from 'pyric/auth';
@@ -38,7 +41,9 @@ onAuthStateChanged(auth, (user) => {
 await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 console.log(auth.currentUser?.uid); // 'alice'
 ```
+
 Production uses the canonical package without a Pyric swap:
+
 ```ts
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
@@ -48,13 +53,16 @@ const auth = getAuth(app);
 
 await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 ```
+
 ## Check feature support
 
 Auth support changes as the mirror grows, so this documentation does not maintain a second allow-list or deny-list. Query the central conformance model for the current availability, fidelity, assurance, caveats, and evidence:
+
 ```bash
 pyric can-i-use auth/signInWithEmailLink
 pyric can-i-use auth/linkWithCredential
 ```
+
 Unsupported symbols fail to resolve only in sandbox builds where package resolution selects this mirror. Production remains on the complete `firebase/auth` package.
 
 ## State model: sandbox-wide `currentUser`

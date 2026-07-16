@@ -2,7 +2,7 @@
 title: "Error codes"
 group: "pyric / storage"
 section: "Reference"
-order: 14008
+order: 15007
 ---
 # Error codes
 
@@ -31,6 +31,7 @@ Reserved on the `StorageErrorCode` union for upstream parity. The sandbox does *
 A function argument failed validation. Common cases: empty path, malformed string format in `uploadString`, non-string `contentType`.
 
 ## Branching
+
 ```ts
 try {
   await getBlob(ref(storage, 'sessions/n1'));
@@ -52,6 +53,7 @@ try {
   }
 }
 ```
+
 The sandbox throws `StorageError`, an `Error` subclass whose `.code` carries the Firebase-shaped value. Production code imports `firebase/storage` directly and receives Firebase's own error class; branching on `.code` works in both environments without coupling application code to either constructor.
 
 ## What the sandbox does not emit

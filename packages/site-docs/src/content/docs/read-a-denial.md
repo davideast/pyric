@@ -1,5 +1,5 @@
 ---
-title: "Never debug a bare permission-denied again"
+title: "Read a Security Rules denial"
 navLabel: "Read a denial and understand it"
 group: "Secure & debug"
 section: ""
@@ -7,7 +7,7 @@ order: 3004
 description: "See which rule denied an operation, on what path, with what data, the moment it happens."
 ---
 
-# Never debug a bare permission-denied again
+# Read a Security Rules denial
 
 In production, a blocked operation answers with one string: `permission-denied`. Not which rule. Not what the rule saw.
 
@@ -16,6 +16,7 @@ In Pyric, every operation the backend evaluates produces a verdict you can read,
 ## Every operation carries a verdict
 
 While your app runs against the sandbox, every read, write, and query passes through the rules engine, and each evaluation emits a typed event. Denials are not a separate channel. They are the same stream, filtered:
+
 ```ts
 sandbox.onEvent((e) => {
   if (e.kind === 'request' && e.result === 'deny') {
@@ -23,6 +24,7 @@ sandbox.onEvent((e) => {
   }
 });
 ```
+
 A denial event tells you the story in one object:
 
 - **`method` and `path`**: what was attempted, and where. `update` on `notes/n1`.
@@ -41,12 +43,14 @@ If you are running `pyric dev --ui`, you do not have to write the subscription. 
 A denial that should not happen is one failure mode. The quieter one is its opposite: an operation that should be denied and no longer is, because a rules edit removed a predicate somewhere. This usually happens while making a failing test pass.
 
 Pyric catches it by diffing rulesets. Lint the candidate with the previously deployed source:
+
 ```ts
 import { lintFirestoreRules } from 'pyric/rules';
 
 const result = lintFirestoreRules(newSource, { previousSource: oldSource });
 const weakened = result.warnings.filter((w) => w.rule === 'RULES_WEAKENED');
 ```
+
 The linter normalizes every match path and diffs the predicates conjunct by conjunct. It reports three shapes of weakening:
 
 - a match block that had `allow` rules and is gone
@@ -57,9 +61,9 @@ The linter normalizes every match path and diffs the predicates conjunct by conj
 
 One boundary stated plainly: the diff compares the predicates in `allow` statements, so weakening a helper function's body does not fire it. Your [test suite](../write-a-rules-test-suite/) is the net for that shape.
 
-## And from an agent
+## Diagnose a denial through an agent
 
-When an agent hits a denial, one `sandbox_inspect` call returns the current rules, a lint summary, and the recent denials from the event log together, so "why is my rule failing" is one tool call instead of an archaeology session. See [skills](../skills/).
+When an agent hits a denial, one `sandbox_inspect` call returns the current rules, a lint summary, and the recent denials from the event log together. [Work with an agent](../work-with-an-agent/) gives a task prompt for this exact diagnosis.
 
 ## Where to go next
 

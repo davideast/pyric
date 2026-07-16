@@ -11,6 +11,7 @@ description: "Read, write, query, and stream Firestore documents locally, and de
 Firestore in Pyric is v1. The modular SDK surface, reads and writes, queries, snapshots, transactions, and aggregations, runs locally with your rules enforced, and it is tested against recorded production behavior. Your imports stay `firebase/firestore`.
 
 ## Write and read documents
+
 ```ts
 import {
   getFirestore, collection, doc,
@@ -28,9 +29,11 @@ const noteRef = await addDoc(collection(db, 'notes'), {
 const snap = await getDoc(noteRef);
 console.log(snap.data());
 ```
+
 `setDoc` writes to a known path (pass `{ merge: true }` to update in place), `updateDoc` patches fields, `deleteDoc` removes. Field sentinels work: `serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, `deleteField`.
 
 ## Query with where, orderBy, limit
+
 ```ts
 import { query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 
@@ -44,16 +47,20 @@ const recent = query(
 
 const page = await getDocs(recent);
 ```
+
 Multiple `where` clauses AND together; the `or` and `and` combinators handle the rest. Cursors (`startAfter`, `endAt`) paginate, and collection groups query across every subcollection with a given name. Aggregations run without fetching the documents:
+
 ```ts
 import { getCountFromServer } from 'firebase/firestore';
 
 const count = await getCountFromServer(query(collection(db, 'notes'), where('archived', '==', false)));
 console.log(count.data().count);
 ```
+
 `sum` and `average` follow the same shape through `getAggregateFromServer`.
 
 ## Keep the UI live
+
 ```ts
 import { onSnapshot } from 'firebase/firestore';
 
@@ -63,11 +70,13 @@ const unsubscribe = onSnapshot(recent, (snap) => {
   }
 });
 ```
+
 Listeners fire on every matching change, across tabs, because every tab shares one backend. If your rules deny a listener, the error callback fires with a verdict that names the rule, not a bare `permission-denied`.
 
 ## Read, then write, atomically
 
 When a write depends on the current value, use a transaction:
+
 ```ts
 import { runTransaction } from 'firebase/firestore';
 
@@ -77,6 +86,7 @@ await runTransaction(db, async (tx) => {
   tx.set(doc(db, 'counters', 'main'), { count: current + 1 });
 });
 ```
+
 All reads must come before any writes inside the callback. Production enforces that because the engine retries on conflict, and the sandbox enforces it for parity, so the mistake surfaces on your machine instead of in a retry storm. For multiple writes with no read dependency, `writeBatch` is the cheaper shape.
 
 ## Design queries and the indexes they need
@@ -93,7 +103,7 @@ The index file stops being a hand-kept artifact. It becomes derived output, and 
 
 ## And from an agent
 
-The `firestore-query-indexes` skill designs read shapes the way a review would: it inventories every query the product performs, proves each list query is constrained the way the rules demand, then runs `firestore_extract_indexes` after every change so the index file tracks the code. Install it from the [skills catalog](../skills/).
+An MCP-connected agent can inventory the queries the product performs and compare them with the rules that govern list access. Start with [Work with an agent](../work-with-an-agent/).
 
 ## Where to go next
 

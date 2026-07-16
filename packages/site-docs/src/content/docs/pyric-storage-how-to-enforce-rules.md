@@ -3,13 +3,14 @@ title: "How to enforce Storage rules"
 navLabel: "Enforce Storage rules"
 group: "pyric / storage"
 section: "How-to"
-order: 14002
+order: 15002
 ---
 # How to enforce Storage rules
 
 This guide shows you how to wire Storage rules into a sandbox-backed handle and watch them gate uploads, reads, and deletes.
 
 ## Pass rules at config time
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getStorageSandbox } from 'pyric/storage';
@@ -31,17 +32,20 @@ const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
   rules: RULES,
 });
 ```
+
 The `rules` source is parsed eagerly: malformed source throws a `SyntaxError` at handle construction. After config, every operation evaluates against the rules.
 
 ## The `request.resource == null` carve-out
 
 Notice this in the rule:
+
 ```rules
 allow write: if request.auth != null
              && (request.resource == null
                  || (request.resource.size < 10 * 1024 * 1024
                      && request.resource.contentType == 'application/json'));
 ```
+
 `deleteObject` doesn't carry a payload, so `request.resource` evaluates to `null`. Without the carve-out, the size and content-type checks would fail (you can't read `.size` from `null`) and every delete would deny.
 
 The pattern is standard in production Storage rules. Match it.
@@ -63,6 +67,7 @@ Write rules with the umbrella verbs (`read`/`write`) when the distinction doesn'
 Under `pyric dev`, rules load into the served worker at boot and gate every operation the same as the in-process sandbox. Unlike `firestore.rules` and `database.rules.json`, `storage.rules` doesn't hot-reload — editing it while the dev server is running requires a restart to take effect.
 
 ## Switching users to test rules
+
 ```ts
 const aliceStorage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { rules: RULES });
 const anonStorage = getStorageSandbox(sandbox.withAuth(null), { rules: RULES });
@@ -77,6 +82,7 @@ try {
   console.log(e.code);  // 'storage/unauthenticated'
 }
 ```
+
 The rules engine sees `request.auth.uid == 'alice'` in the first call and `request.auth == null` in the second.
 
 The `rules` option only takes effect on the *first* `getStorageSandbox` call per sandbox. Subsequent calls return the cached handle, and its rules apply uniformly to every user via that sandbox.
@@ -84,6 +90,7 @@ The `rules` option only takes effect on the *first* `getStorageSandbox` call per
 ## Catching denials
 
 `pyric/storage` throws `FirebaseError` (from `firebase/app`) with Firebase-aligned codes:
+
 ```ts
 import { FirebaseError } from 'firebase/app';
 
@@ -99,11 +106,13 @@ try {
   }
 }
 ```
+
 See [Error codes](../pyric-storage-reference-error-codes/) for every code the sandbox can emit.
 
 ## Testing rule expressions without uploading
 
 If you want to test a rule expression in isolation:
+
 ```ts
 import { parseStorageRules, evaluateStorageRules } from 'pyric/storage';
 
@@ -116,6 +125,7 @@ const decision = evaluateStorageRules(parsed, {
 });
 console.log(decision);  // { allowed: true }
 ```
+
 Useful when iterating on rule logic. See [Test rule expressions independently](../pyric-storage-how-to-test-rule-expressions/).
 
 ## Where to look next

@@ -2,7 +2,7 @@
 title: "<ConfirmDialog> + useConfirm"
 group: "@pyric/ui"
 section: "Primitives"
-order: 23003
+order: 24003
 ---
 # `<ConfirmDialog>` + `useConfirm`
 
@@ -10,6 +10,7 @@ Headless confirmation dialog. Two ways to use:
 
 - **Controlled** — `<ConfirmDialog open onOpenChange title onConfirm>`. You hold the open state.
 - **Imperative** — wrap your app in `<ConfirmProvider>` and call `useConfirm()` from anywhere; the returned function opens the dialog and resolves to `Promise<boolean>`.
+
 ```ts
 import {
   ConfirmDialog,
@@ -17,7 +18,9 @@ import {
   useConfirm,
 } from '@pyric/ui/primitives';
 ```
+
 ## Imperative (recommended)
+
 ```tsx
 function App() {
   return (
@@ -41,7 +44,9 @@ function Inner() {
   return <button onClick={handleDelete}>Delete</button>;
 }
 ```
+
 ## Controlled
+
 ```tsx
 const [open, setOpen] = useState(false);
 
@@ -56,6 +61,7 @@ const [open, setOpen] = useState(false);
   }}
 />
 ```
+
 The dialog does **not** auto-close on confirm — `onConfirm` runs your action and you dismiss when ready. This lets you keep the dialog open while a slow operation completes and dismiss on success.
 
 ## `<ConfirmDialog>` props
@@ -73,6 +79,7 @@ The dialog does **not** auto-close on confirm — `onConfirm` runs your action a
 | `className` | `string` | no | Forwarded to the content node. |
 
 ## `useConfirm` API
+
 ```ts
 const confirm: (options: {
   title: string;
@@ -82,9 +89,11 @@ const confirm: (options: {
   cancelLabel?: string;
 }) => Promise<boolean>;
 ```
+
 Resolves to `true` on confirm, `false` on cancel / Escape / overlay click. Throws if called without a `<ConfirmProvider>` ancestor.
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="confirm-portal"]
 [data-pyric-ui="confirm-overlay"]
@@ -97,6 +106,7 @@ Resolves to `true` on confirm, `false` on cancel / Escape / overlay click. Throw
 [data-pyric-confirm-confirm]
 [data-pyric-confirm-confirm][data-pyric-destructive]
 ```
+
 ## Notes
 
 - **Hand-rolled, not Radix.** Initial M4 implementation tried Radix Dialog; Radix's Presence + Portal stack doesn't render under our bun:test + JSDOM env even with `forceMount`. The hand-rolled component provides focus trap, Escape, overlay click, ARIA wiring, and focus restoration in ~110 lines.

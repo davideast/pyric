@@ -3,7 +3,7 @@ title: "Persistence and multi-tab with pyric dev"
 navLabel: "Persistence & multi-tab"
 group: "@pyric/cli"
 section: "How-to"
-order: 9007
+order: 10006
 ---
 # Persistence and multi-tab with `pyric dev`
 
@@ -65,9 +65,11 @@ Notes, honestly stated:
   port, profile, or incognito window is a fresh sandbox.
 
 ## Persist to a committable file: `--persist`
+
 ```bash
 pyric dev --persist
 ```
+
 `--persist` adds a durable, **git-trackable** state file at
 `.pyric/state/state.json`. The sandbox restores from it on start and mirrors
 writes back to it. Reach for it when you want sandbox state that:
@@ -114,9 +116,11 @@ private window) whenever you pass `--fresh`. (A real reset handshake that makes
 `--fresh` clear the browser store too is future work.)
 
 ## Seed data on boot: `--seed`
+
 ```bash
 pyric dev --seed seed.json
 ```
+
 Loads a fixture document set admin-style before your app runs. Accepts either a
 `"collection/doc" → fields` map or a `pyric snapshot` state file.
 
@@ -173,7 +177,7 @@ in-page fallback.
 
 The complete `pyric dev` flag set (`--port`, `--host`, `--bridge`,
 `--no-watch`, `--no-open`, `--no-cache`, `--allowed-host`, `--json`, …) lives in
-the [CLI reference](../pyric-cli-reference-cli/).
+the [CLI reference](../pyric-cli-reference-cli/#pyric-dev).
 
 ## See also
 

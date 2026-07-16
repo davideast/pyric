@@ -2,17 +2,19 @@
 title: "Package exports and resolution"
 group: "@pyric/cli"
 section: "Reference"
-order: 9011
+order: 10010
 ---
 # Package exports and resolution
 
 Install `@pyric/cli` as a development dependency. It provides the `pyric`
 binary and a small set of explicit programmatic subpaths; the package root is
 not an import target.
+
 ```bash
 npm install -D @pyric/cli
 npx pyric --help
 ```
+
 ## Public subpaths
 
 | Import | Purpose |

@@ -3,7 +3,7 @@ title: "How to pick between pyric-admin and pyric/firestore"
 navLabel: "Pick an adapter"
 group: "pyric / sandbox"
 section: "How-to"
-order: 13005
+order: 14005
 ---
 # How to pick between `pyric-admin` and `pyric/firestore`
 
@@ -12,6 +12,7 @@ Two adapter packages sit on top of `pyric/sandbox`. Both expose Firestore. They 
 ## The two surfaces
 
 **`pyric-admin`** mirrors `firebase-admin/firestore`: chainable, class-shaped.
+
 ```ts
 import { getFirestore } from 'pyric-admin';
 
@@ -21,7 +22,9 @@ await db.collection('notes').doc('n1').set({ title: 'hello' });
 const snap = await db.collection('notes').where('owner', '==', 'alice').get();
 await db.runTransaction(async (tx) => { /* ... */ });
 ```
+
 **`pyric/firestore`** mirrors `firebase/firestore` (the modular Web SDK): function-shaped, tree-shakable.
+
 ```ts
 import { initializeFirestore, getDoc, setDoc, doc, query, where, getDocs } from 'pyric/firestore';
 
@@ -31,6 +34,7 @@ await setDoc(doc(db, 'notes', 'n1'), { title: 'hello' });
 const q = query(db.collection('notes'), where('owner', '==', 'alice'));
 const snap = await getDocs(q);
 ```
+
 Both back onto the same `LocalEnvironment` under the hood. The runtime behaviour is identical; only the API shape differs.
 
 ## Decision matrix
@@ -49,6 +53,7 @@ Both back onto the same `LocalEnvironment` under the hood. The runtime behaviour
 The right choice is whatever shape your *production* code already uses. The sandbox is a development tool, and keeping the test code's surface identical to production avoids translation bugs.
 
 If you're working in both environments (a hybrid app, a Cloud Functions backend with a web frontend), use both. They share the same sandbox cleanly:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore as getAdmin } from 'pyric-admin';
@@ -64,6 +69,7 @@ await adminDb.collection('notes').doc('n1').set({ title: 'from backend' });
 const snap = await getDoc(doc(webDb, 'notes', 'n1'));
 console.log(snap.data());  // { title: 'from backend' }
 ```
+
 ## Can I use both inside one test?
 
 Yes. Each adapter is a thin wrapper over `SandboxContext` and `LocalEnvironment`. The two adapters don't conflict, and their objects don't interfere with each other.

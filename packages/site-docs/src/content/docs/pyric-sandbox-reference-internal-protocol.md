@@ -3,7 +3,7 @@ title: "The /internal adapter protocol"
 navLabel: "The /internal protocol"
 group: "pyric / sandbox"
 section: "Reference"
-order: 13014
+order: 14013
 ---
 # The `/internal` adapter protocol
 
@@ -12,9 +12,11 @@ The `pyric/sandbox/internal` sub-path is the **adapter-only** surface. Service-a
 It is **not** part of the public API. The shape is subject to change without breaking-change semantics across `pyric/sandbox` versions. External adapter authors should not depend on it directly. When the protocol stabilises (after the multi-service architecture lands) it will be promoted.
 
 ## What lives there
+
 ```ts
 import { getInternalEnv, LocalEnvironment, EventLog /* … */ } from 'pyric/sandbox/internal';
 ```
+
 The major surfaces:
 
 ### `getInternalEnv(sandbox): LocalEnvironment`
@@ -43,6 +45,7 @@ Append-only audit trail of every operation. Adapters that need to surface "what 
 ### Field-value sentinels
 
 For `pyric-admin` and `pyric/firestore` to translate user-facing sentinels into the simulator's shape:
+
 ```ts
 import {
   INCREMENT,
@@ -53,7 +56,9 @@ import {
   incrementConverter, arrayUnionConverter, arrayRemoveConverter, deleteFieldConverter,
 } from 'pyric/sandbox/internal';
 ```
+
 ### Transaction primitives
+
 ```ts
 import {
   Transaction,
@@ -64,9 +69,11 @@ import {
   type DeleteResult,
 } from 'pyric/sandbox/internal';
 ```
+
 These shapes describe the per-operation results inside a batch or transaction so adapters can map them onto upstream-SDK return types.
 
 ### Error translation helpers
+
 ```ts
 import {
   FirestoreSimError,
@@ -74,9 +81,11 @@ import {
   FIRESTORE_ERROR_CODES,
 } from 'pyric/sandbox/internal';
 ```
+
 Adapters use these to translate simulator-shaped errors into upstream-SDK error shapes (`FirebaseError` with `firestore/permission-denied`-style codes).
 
 ### Value resolver
+
 ```ts
 import {
   resolveValueTree,
@@ -85,6 +94,7 @@ import {
   type ResolveMethod,
 } from 'pyric/sandbox/internal';
 ```
+
 Walk a payload tree, replacing sentinel values (`INCREMENT(1)`, `serverTimestamp()`, etc.) with their resolved equivalents under the current document state.
 
 ## What stays out

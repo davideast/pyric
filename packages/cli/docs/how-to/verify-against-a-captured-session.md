@@ -1,3 +1,6 @@
+---
+navLabel: "Verify rules"
+---
 # How to verify your rules against a captured session
 
 `pyric verify` replays a captured sandbox session against candidate rules and

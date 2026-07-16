@@ -1,0 +1,150 @@
+.api-reference-header {
+  margin: 0 0 2.5rem;
+  padding: 0 0 2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.api-reference-kicker {
+  margin: 0 0 0.65rem;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+.api-reference-header h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.7rem, 4vw, 2.45rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+.api-reference-header h1 code {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+}
+
+.api-reference-meta,
+.api-reference-source {
+  margin: 0.7rem 0 0;
+  color: var(--muted);
+  font-size: var(--fs-body);
+}
+
+.api-reference-source {
+  margin-top: 0.3rem;
+}
+
+.api-reference-evidence {
+  display: inline-block;
+  margin-top: 1rem;
+  color: var(--ink);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  text-underline-offset: 0.18em;
+}
+
+.api-reference-body > h2 {
+  margin-top: 3.75rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.api-reference-body > h3 {
+  margin-top: 2.75rem;
+}
+
+.api-reference-body > h3 code {
+  font-size: inherit;
+}
+
+.api-reference-body h4 {
+  margin-top: 1.8rem;
+}
+
+.api-reference-body h5,
+.api-reference-body h6 {
+  margin-top: 1.35rem;
+}
+
+.api-reference-body pre {
+  overflow-x: auto;
+}
+
+.api-reference-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.api-symbols {
+  max-height: calc(100vh - 5rem);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.api-symbol-filter {
+  width: 100%;
+  margin: 0.2rem 0 1rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  color: var(--ink);
+  background: var(--panel);
+  font: inherit;
+  font-size: var(--fs-caption);
+}
+
+.api-symbol-filter:focus {
+  border-color: var(--muted);
+  outline: none;
+}
+
+.api-symbol-group + .api-symbol-group {
+  margin-top: 1rem;
+}
+
+.api-symbol-kind {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+.api-symbol-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.api-symbol-group li + li {
+  margin-top: 0.22rem;
+}
+
+.api-symbol-group li a {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-symbol-group li a:hover,
+.api-symbol-kind:hover {
+  color: var(--ink);
+}
+
+.api-symbol-empty {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}

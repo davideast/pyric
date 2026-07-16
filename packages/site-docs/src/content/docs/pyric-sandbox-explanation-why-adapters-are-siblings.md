@@ -3,7 +3,7 @@ title: "Why service adapters live in sibling packages"
 navLabel: "Why adapters are siblings"
 group: "pyric / sandbox"
 section: "Explanation"
-order: 13023
+order: 14022
 ---
 # Why service adapters live in sibling packages
 
@@ -39,6 +39,7 @@ Keeping the split visible at the package level makes the dependency direction ob
 ## What the adapters do
 
 Both adapters are thin. The pattern, abstracted:
+
 ```
 User call (getDoc, db.collection.get, etc.)
   ↓
@@ -52,6 +53,7 @@ OperationResult { allowed, data?, debugMessages, event }
   ↓
 Adapter translates back to user-facing types (QuerySnapshot, DocumentSnapshot, etc.)
 ```
+
 The adapter is mostly translation. Each one does a few extra things to match its upstream SDK's idiosyncrasies (`pyric-admin` constructs a per-call compatibility implementation to keep reference semantics right; `pyric/firestore` adapts the modular Web SDK shape), but the core flow is the same.
 
 This is what makes "the substrate is shared" workable. Both adapters bottom out at the same `LocalEnvironment` methods. Two contexts derived from one sandbox, one through `pyric-admin` and one through `pyric/firestore`, see the same data.
@@ -75,7 +77,7 @@ The rule of thumb: anything *shape-agnostic* (the data, the rules, the lifecycle
 
 `pyric/sandbox` imports the rules simulator from `pyric/rules/internal`. `pyric/rules` imports `LocalEnvironment` (type-only) from `pyric/sandbox/internal`. This is a module cycle inside the package graph.
 
-The cycle is benign: the import from `pyric/rules/internal` into `pyric/sandbox` is value (the `SimulateFirestoreRulesHandler` class and a handful of wrappers); the import from `pyric/sandbox` back into `pyric/rules` is type-only (the `LocalEnvironment` interface for the internal `createFirestoreSimulatorTools`'s `resolveSandbox` dep). Neither side is in the other's runtime call graph beyond what's documented.
+The cycle is benign: the import from `pyric/rules/internal` into `pyric/sandbox` supplies the rules engine and value wrappers; the import from `pyric/sandbox` back into `pyric/rules` is type-only. Neither side is in the other's runtime call graph beyond what is documented.
 
 We accepted the cycle because the alternative, duplicating wrapper classes in both packages, would make `instanceof Timestamp` start lying depending on which copy was imported. The substrate consuming the simulator's wrapper types is the canonical path.
 

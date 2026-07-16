@@ -1,3 +1,6 @@
+---
+navLabel: "Run isolated sandboxes"
+---
 # How to run multiple isolated sandboxes in parallel
 
 Keep multiple sandboxes alive at once, for fleet tests, multi-tenant simulations, or any workload that needs more than one isolated environment.

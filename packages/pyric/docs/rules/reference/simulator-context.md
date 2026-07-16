@@ -1,3 +1,6 @@
+---
+navLabel: "Simulator context"
+---
 # Simulator context and result states
 
 The simulator evaluates expressions against a `SimulationContext`. This page describes its shape and the three result states a test case can land in. `SimulationContext` and `evaluate` are engine-internal, reached through `pyric/rules/internal`; the public front door is `firestoreRules(source).simulate(cases)` / `.explain(oneCase)`, which builds and consumes this context internally and returns a `CaseResult` / `Explanation` instead. This page documents the internals for callers who need them directly, and to explain what the public result fields mean underneath.

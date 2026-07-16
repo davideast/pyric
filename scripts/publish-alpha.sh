@@ -30,6 +30,14 @@
 set -euo pipefail
 
 V="${1:?usage: bash scripts/publish-alpha.sh <version> (e.g. 0.1.0-alpha.9)}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# The argument controls publish filenames and dist-tags, while npm pack names
+# tarballs from each package.json. Refuse a mismatch before doing the expensive
+# build or touching the registry.
+node "$ROOT/scripts/lib/check-publish-version.mjs" "$V" "$ROOT"
+
+cd "$ROOT"
 
 bash scripts/pack-packages.sh
 

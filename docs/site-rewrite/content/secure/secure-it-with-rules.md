@@ -92,7 +92,7 @@ That loop is the core. The wing deepens each step.
 - [Write a rules test suite](../secure/write-a-rules-test-suite.md). Turn one-off simulations into a suite that runs in CI.
 - [Read a denial and understand it](../secure/read-a-denial.md). Every denial carries the rule, path, and data that produced it.
 - [The rules standard library](../secure/rules-standard-library.md). Tested rule modules, composed with an import the rules language does not have.
-- [Rules limits, measured](../secure/limits-that-bite.md). The production compiler's real limits, with numbers.
+- [Rules limits, measured](../secure/firestore-rules-limits.md). The production compiler's real limits, with numbers.
 - [Audit your rules and data](../secure/audit-your-rules.md). Find the holes before someone else does.
 
 ## And from an agent

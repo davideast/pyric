@@ -1,3 +1,6 @@
+---
+navLabel: "Use the Vite plugin"
+---
 # Use the Vite plugin (`@pyric/cli/vite`)
 
 The `pyricSandbox()` Vite plugin gives a **source-driven** app the same

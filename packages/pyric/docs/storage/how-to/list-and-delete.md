@@ -1,3 +1,6 @@
+---
+navLabel: "List and delete objects"
+---
 # How to list and delete objects
 
 This guide shows you how to enumerate objects under a prefix and remove them.
@@ -80,5 +83,5 @@ Use `allow read` only when the same condition should grant both `get` and `list`
 
 ## Where to look next
 
-- For the `StorageReference` shape and the `ref(...)` overloads, see [Public API](../reference/api.md#reference-construction).
-- For the `ListResult` shape, see [Public API](../reference/api.md#listing).
+- For the reference shape and overloads, see [`StorageReference`](https://pyric.dev/docs/pyric-storage-reference-api/#storagereference) and [`ref`](https://pyric.dev/docs/pyric-storage-reference-api/#ref-1).
+- For the listing result, see [`ListResult`](https://pyric.dev/docs/pyric-storage-reference-api/#listresult).

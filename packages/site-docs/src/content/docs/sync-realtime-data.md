@@ -8,13 +8,14 @@ description: "Store and watch a Realtime Database tree locally, model it around 
 
 # Sync realtime data
 
-> **Experimental.** Realtime Database works and is documented, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. Read [what's experimental](../whats-experimental/) before you rely on it.
+Realtime Database support is incomplete. Check its generated conformance page for the exact public API coverage before depending on a feature.
 
 Realtime Database is one JSON tree that many clients watch at once. In Pyric it runs locally, rules enforced, with the modular calls you already know.
 
 ## Store and read
 
 Under `pyric dev`, your `firebase/database` imports resolve to the sandbox:
+
 ```ts
 import { getDatabase, ref, set, get, onValue } from 'firebase/database';
 
@@ -29,7 +30,9 @@ onValue(ref(db, 'status'), (snap) => {
   renderPresence(snap.val());
 });
 ```
+
 `push` appends with chronologically sortable IDs, `update` patches, `remove` deletes. One boundary to know: the Vite plugin does not swap `firebase/database` yet, so this path runs under `pyric dev`. In Node, import the same functions from `pyric/database` and hand `getDatabase` a sandbox:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getDatabase, ref, set } from 'pyric/database';
@@ -37,6 +40,7 @@ import { getDatabase, ref, set } from 'pyric/database';
 const sandbox = initializeSandbox();
 const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
 ```
+
 ## Model the tree around your reads
 
 Every RTDB path is an endpoint, and reading a path downloads everything below it. So structure follows the reads, not the entities. The defaults that hold up:
@@ -47,6 +51,7 @@ Every RTDB path is an endpoint, and reading a path downloads everything below it
 - **Push IDs for anything append-only.** Sequential numeric keys collide under concurrent writers; push IDs never do.
 
 Duplicated data stays consistent through fan-out: one `update` at the root with full paths as keys commits atomically.
+
 ```ts
 import { update } from 'firebase/database';
 
@@ -55,6 +60,7 @@ await update(ref(db), {
   'postSummaries/p1/title': 'New title',
 });
 ```
+
 Either both paths change or neither does. Queries take one `orderBy`, so multi-field filters want a precomputed composite key (`"lang_level": "en_5"`) rather than a clever query.
 
 ## Inspect and simulate locally
@@ -67,12 +73,8 @@ sandbox swap.
 
 ## And from an agent
 
-The `rtdb-data-model` skill designs the tree the way this page describes,
-starting from an inventory of reads. In a Pyric session, local inspection tools
-map the sandbox snapshot without reaching production. Install the skill from the
-[catalog](../skills/), and see [set up your agent](../set-up-your-agent/)
-for the wiring.
+Ask an MCP-connected agent to inventory the reads your application performs, then inspect the local tree with `rtdb_crawl_structure`. [Work with an agent](../work-with-an-agent/) gives a complete RTDB task prompt, and [Set up your agent](../set-up-your-agent/) explains the browser bridge.
 
 ## Where to go next
 
-Not sure the tree is the right home for this data? [Which data service should I use?](../which-data-service/) is the one-page answer. When the paths are settled, write the rules that hold them in TypeScript: [RTDB rules in TypeScript](../rtdb-rules-in-typescript/).
+When the paths are settled, write the rules that hold them in TypeScript: [RTDB rules in TypeScript](../rtdb-rules-in-typescript/).

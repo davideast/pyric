@@ -13,7 +13,7 @@
  * For each markdown file this writes src/content/docs/<slug>.md:
  * generated front matter (title from the doc's h1, nav group = package /
  * subtree, section = the tree's existing subdir, an order scoped to the
- * doc's nav group — see GROUP_ORDER below) plus the source body VERBATIM
+ * doc's nav group — see groupRank below) plus the source body VERBATIM
  * except intra-doc links:
  *
  *   - a relative link that resolves to another ported file is rewritten
@@ -158,6 +158,7 @@ function docsRoot(pkg: string): string {
 // becomes the emitted `description` (llms.txt / index.json).
 
 const guideRoot = join(repoRoot, 'docs', 'site-rewrite', 'content');
+const apiReferenceRoot = join(repoRoot, 'docs', 'api-reference');
 const API_REFERENCE_GROUP = 'API reference';
 
 /** Superseded package pages (scripts/superseded.ts), by absolute path:
@@ -169,67 +170,79 @@ const supersededByAbs = new Map<string, string>(
 interface GuideGroupSpec {
   /** Nav group label (disclosure summary). */
   label: string;
-  /** Dir relative to guideRoot ('' = the root itself). */
-  dir: string;
-  /** Files in nav order — explicit, never readdir order. */
-  files: string[];
+  /** Pages in nav order. Most live in the authored guide tree. A page
+   *  may instead name an existing package-doc source so useful depth can
+   *  move into the workflow without creating a second copy. */
+  pages: Array<{
+    dir?: string;
+    file?: string;
+    source?: string;
+    section?: string;
+    slug?: string;
+    navLabel?: string;
+  }>;
 }
 
 const GUIDE_GROUPS: GuideGroupSpec[] = [
-  { label: 'Overview', dir: '', files: ['overview.md'] },
+  { label: 'Overview', pages: [{ file: 'overview.md' }] },
   {
     label: 'Get started',
-    dir: 'get-started',
-    files: ['start-building.md', 'how-the-swap-works.md'],
+    pages: [
+      { dir: 'get-started', file: 'start-building.md' },
+      { dir: 'get-started', file: 'how-the-swap-works.md' },
+    ],
   },
   {
     label: 'Build',
-    dir: 'build',
-    files: [
-      'sign-in-and-manage-users.md',
-      'store-and-query-data.md',
-      'sync-realtime-data.md',
-      'store-files.md',
-      'receive-messages.md',
+    pages: [
+      { dir: 'build', file: 'sign-in-and-manage-users.md' },
+      { dir: 'build', file: 'store-and-query-data.md' },
+      { dir: 'build', file: 'sync-realtime-data.md' },
+      { dir: 'build', file: 'store-files.md' },
+      { dir: 'build', file: 'receive-messages.md' },
+      { dir: 'build', file: 'run-ai-logic-locally.md' },
     ],
   },
   {
     label: 'Secure & debug',
-    dir: 'secure',
-    files: [
-      'secure-it-with-rules.md',
-      'simulate-and-lint.md',
-      'write-a-rules-test-suite.md',
-      'read-a-denial.md',
-      'rules-standard-library.md',
-      'rtdb-rules-in-typescript.md',
-      'limits-that-bite.md',
-      'audit-your-rules.md',
+    pages: [
+      { dir: 'secure', file: 'secure-it-with-rules.md' },
+      { dir: 'secure', file: 'simulate-and-lint.md' },
+      { dir: 'secure', file: 'write-a-rules-test-suite.md' },
+      { dir: 'secure', file: 'read-a-denial.md' },
+      { dir: 'secure', file: 'rules-standard-library.md' },
+      { dir: 'secure', file: 'rtdb-rules-in-typescript.md' },
+      { dir: 'secure', file: 'firestore-rules-limits.md' },
+      { dir: 'secure', file: 'audit-your-rules.md' },
     ],
   },
   {
     label: 'Observe & shape',
-    dir: 'observe',
-    files: ['see-whats-happening.md', 'shape-your-data.md'],
+    pages: [
+      { dir: 'observe', file: 'see-whats-happening.md' },
+      { dir: 'observe', file: 'shape-your-data.md' },
+    ],
   },
   {
     label: 'Ship & test',
-    dir: 'ship',
-    files: ['ship-to-production.md', 'test-in-node.md'],
+    pages: [
+      { dir: 'ship', file: 'ship-to-production.md' },
+      { dir: 'ship', file: 'test-in-node.md' },
+    ],
   },
   {
     label: 'Work with an agent',
-    dir: 'agent',
-    files: [
-      'set-up-your-agent.md',
-      'work-with-an-agent.md',
-      'watch-and-review.md',
+    pages: [
+      { dir: 'agent', file: 'set-up-your-agent.md' },
+      { dir: 'agent', file: 'work-with-an-agent.md' },
+      { dir: 'agent', file: 'watch-and-review.md' },
     ],
   },
   {
     label: 'Trust',
-    dir: 'trust',
-    files: ['how-we-know-it-matches-firebase.md'],
+    pages: [
+      { dir: 'trust', file: 'how-we-know-it-matches-firebase.md' },
+    ],
   },
 ];
 
@@ -280,12 +293,21 @@ interface Page {
   description?: string;
   /** Guide pages author their own front matter; strip it at emit. */
   stripFm?: boolean;
+  api?: {
+    kind: 'api' | 'api-index';
+    packageName?: string;
+    importPath?: string;
+    subpath?: string;
+    symbolCount?: number;
+    evidenceSlug?: string;
+  };
 }
 
 function mdFilesIn(dir: string): string[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.md'))
-    // TypeDoc receipts are collected into the dedicated API reference group.
+    // Ignore any stale declaration receipts. The generated API reference has
+    // one authoritative source tree under docs/api-reference.
     .filter((f) => !f.endsWith('.generated.md'))
     .sort()
     .map((f) => join(dir, f));
@@ -297,16 +319,11 @@ const bySlug = new Map<string, Page>();
 
 /**
  * Order is scoped per nav group instead of one counter across the whole
- * tree: each group gets a rank (its index among GROUP_ORDER, spaced by
- * 1000 — comfortably above the largest group's page count) and each
- * page an offset from 1 within its group, assigned in the same
- * traversal order the old global counter used. `order = groupRank +
- * offset`. Adding a doc then renumbers at most the trailing pages of
- * its own group; adding a group renumbers nothing before it. GROUP_ORDER
- * must list every group label the port ever assigns (GUIDE_GROUPS, the
- * synthetic 'Conformance' group, then GROUPS) in the exact order the
- * nav renders them — that order is what the rendered sidebar sequence
- * depends on, not the numeric order values.
+ * tree: each group gets a rank spaced by 1000, comfortably above the
+ * largest group's page count, and each page an offset from 1 within its
+ * group. `order = groupRank + offset`. Adding a doc then renumbers at
+ * most the trailing pages of its own group. Workflow groups follow
+ * GUIDE_GROUPS order. Reference group ranks stay fixed below them.
  */
 const GROUP_ORDER: string[] = [
   ...GUIDE_GROUPS.map((g) => g.label),
@@ -315,11 +332,15 @@ const GROUP_ORDER: string[] = [
   ...GROUPS.map((g) => g.label),
 ];
 const GROUP_RANK_SPACING = 1000;
+// Reference groups began at rank 9 in the previous hierarchy. Keep that
+// stable so changing the primary workflow does not rewrite front matter for
+// every generated reference page. Guide ranks may change with the workflow;
+// reference ranks are a durable shelf below it.
 const groupRank = new Map(GROUP_ORDER.map((label, i) => [label, i * GROUP_RANK_SPACING]));
 const groupPosition = new Map<string, number>();
 function nextOrder(group: string): number {
   const rank = groupRank.get(group);
-  if (rank === undefined) throw new Error(`group not in GROUP_ORDER: ${group}`);
+  if (rank === undefined) throw new Error(`group has no rank: ${group}`);
   const position = (groupPosition.get(group) ?? 0) + 1;
   groupPosition.set(group, position);
   if (position >= GROUP_RANK_SPACING) {
@@ -329,9 +350,10 @@ function nextOrder(group: string): number {
 }
 
 function addPage(src: string, group: GroupSpec, section: string) {
-  if (supersededByAbs.has(src)) return; // replaced by a guide page
+  if (supersededByAbs.has(src) || bySrc.has(src)) return; // replaced or promoted into the guide
   const slug = slugFor(group.pkg, src, group.slugPrefix);
   const title = titleOf(src, readSource);
+  const { fm } = parseFrontmatter(readSource(src));
   const clash = bySlug.get(slug);
   if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
   const page: Page = {
@@ -341,7 +363,8 @@ function addPage(src: string, group: GroupSpec, section: string) {
     section,
     order: nextOrder(group.label),
     title: section === '' ? shortTitle(title) : title,
-    navLabel: section === '' ? 'Overview' : navLabelFor(slug, title),
+    navLabel: section === '' ? 'Overview' : fm.navLabel ?? navLabelFor(title),
+    stripFm: true,
   };
   pages.push(page);
   bySrc.set(src, page);
@@ -350,36 +373,93 @@ function addPage(src: string, group: GroupSpec, section: string) {
 
 /** Add one guide page: slug from the bare file name, title/navLabel/
  *  description from its own front matter (title falls back to the h1). */
-function addGuidePage(src: string, groupLabel: string) {
+function addGuidePage(
+  src: string,
+  groupLabel: string,
+  section = '',
+  options: { slug?: string; navLabel?: string } = {},
+) {
   const { fm } = parseFrontmatter(readFileSync(src, 'utf8'));
-  const slug = posix.basename(src, '.md').toLowerCase();
+  const slug = options.slug ?? posix.basename(src, '.md').toLowerCase();
   const clash = bySlug.get(slug);
   if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
   const page: Page = {
     src,
     slug,
     group: groupLabel,
-    section: '',
+    section,
     order: nextOrder(groupLabel),
     title: fm.title ?? titleOf(src, readSource),
-    navLabel: fm.navLabel,
+    navLabel: options.navLabel ?? fm.navLabel,
     description: fm.outcome,
-    stripFm: true,
+    stripFm: Object.keys(fm).length > 0,
   };
   pages.push(page);
   bySrc.set(src, page);
   bySlug.set(slug, page);
 }
 
+/** Add a generated API page while preserving the metadata consumed by the
+ * dedicated API-reference layout. */
+function addApiPage(src: string) {
+  const { fm } = parseFrontmatter(readFileSync(src, 'utf8'));
+  const kind = fm.kind;
+  if (kind !== 'api' && kind !== 'api-index') {
+    throw new Error(`generated API page has invalid kind: ${src}`);
+  }
+  if (!fm.slug) throw new Error(`generated API page has no slug: ${src}`);
+  if (kind === 'api' && (!fm.apiPackage || !fm.apiImportPath || !fm.apiSymbolCount)) {
+    throw new Error(`generated API page is missing template metadata: ${src}`);
+  }
+  const clash = bySlug.get(fm.slug);
+  if (clash) throw new Error(`slug clash: ${fm.slug} (${clash.src} vs ${src})`);
+  const page: Page = {
+    src,
+    slug: fm.slug,
+    group: API_REFERENCE_GROUP,
+    section: kind === 'api' ? fm.apiPackage : '',
+    order: nextOrder(API_REFERENCE_GROUP),
+    title: fm.title ?? titleOf(src, readSource),
+    navLabel: fm.navLabel,
+    description: fm.outcome,
+    stripFm: true,
+    api: {
+      kind,
+      packageName: fm.apiPackage,
+      importPath: fm.apiImportPath,
+      subpath: fm.apiSubpath,
+      symbolCount: fm.apiSymbolCount ? Number(fm.apiSymbolCount) : undefined,
+      evidenceSlug: fm.apiEvidenceSlug,
+    },
+  };
+  pages.push(page);
+  bySrc.set(src, page);
+  bySlug.set(page.slug, page);
+}
+
 // Guide first: the nav renders groups in `order` order, so the
 // outcome-first sections sit above the package reference groups.
 for (const group of GUIDE_GROUPS) {
-  for (const file of group.files) {
-    const p = resolve(guideRoot, group.dir, file);
+  for (const page of group.pages) {
+    const p = page.source
+      ? resolve(repoRoot, page.source)
+      : resolve(guideRoot, page.dir ?? '', page.file ?? '');
     if (!existsSync(p)) throw new Error(`guide page missing: ${p}`);
-    addGuidePage(p, group.label);
+    addGuidePage(p, group.label, page.section ?? '', {
+      slug: page.slug,
+      navLabel: page.navLabel,
+    });
   }
 }
+
+// One generated API shelf after the workflow and package reference groups.
+// The shelf collapses to its index in the sidebar; every subpath route remains
+// searchable, linkable, and available through the index and package docs.
+const apiIndex = join(apiReferenceRoot, 'index.md');
+if (!existsSync(apiIndex)) throw new Error(`API reference index missing: ${apiIndex}`);
+addApiPage(apiIndex);
+const apiGeneratedRoot = join(apiReferenceRoot, 'generated');
+for (const file of mdFilesIn(apiGeneratedRoot)) addApiPage(file);
 
 // The conformance matrices, right after the guide: the per-service
 // conformance tables are the receipt behind the Trust pages and matter
@@ -403,28 +483,6 @@ for (const c of await loadConformancePages(repoRoot)) {
   pages.push(page);
   bySrc.set(src, page);
   bySlug.set(slug, page);
-}
-
-addGuidePage(resolve(guideRoot, 'api-reference.md'), API_REFERENCE_GROUP);
-
-function* walkGeneratedApi(dir: string): Generator<string> {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) yield* walkGeneratedApi(full);
-    else if (entry.name.endsWith('.api.generated.md') || entry.name === 'api.generated.md') yield full;
-  }
-}
-
-for (const pkg of ['pyric', 'pyric-admin', 'cli'] as const) {
-  const group: GroupSpec = {
-    pkg,
-    slugPrefix: pkg === 'cli' ? 'pyric-cli' : undefined,
-    label: API_REFERENCE_GROUP,
-    dir: '.',
-    sections: [],
-  };
-  const section = pkg === 'cli' ? '@pyric/cli' : pkg;
-  for (const src of walkGeneratedApi(docsRoot(pkg))) addPage(src, group, section);
 }
 
 for (const group of GROUPS) {
@@ -460,6 +518,9 @@ for (const pkg of ['pyric', 'pyric-admin', 'cli', 'ui']) {
 for (const f of walkMd(guideRoot)) {
   if (GUIDE_IGNORE.has(posix.basename(f))) continue;
   if (!bySrc.has(f)) throw new Error(`unclaimed guide page: ${f}`);
+}
+for (const f of walkMd(apiReferenceRoot)) {
+  if (!bySrc.has(f)) throw new Error(`unclaimed API reference page: ${f}`);
 }
 
 /* ── Link rewriting ────────────────────────────────────────────────── */
@@ -522,6 +583,10 @@ function rewriteLinks(page: Page, body: string): string {
             // Same-page anchor: keep if the heading exists (healing
             // GitHub's `user-content-` prefix), else unlink.
             const id = target.slice(1).replace(/^user-content-/, '');
+            // TypeDoc owns its repeated-member anchor model. Preserve those
+            // generated links verbatim and let the built-site fragment gate
+            // validate the rendered target.
+            if (page.api?.kind === 'api') return `[${label}](#${id})`;
             if (anchorsOf(page.src, readSource).has(id)) return `[${label}](#${id})`;
             stats.unlinked++;
             unlinkedLog.push(`${page.slug}: ${target}`);
@@ -555,7 +620,7 @@ function rewriteLinks(page: Page, body: string): string {
         },
       );
     })
-    .join('');
+    .join('\n');
 }
 
 /* ── Emit ──────────────────────────────────────────────────────────── */
@@ -583,6 +648,26 @@ for (const page of pages) {
     `section: ${yamlQuote(page.section)}`,
     `order: ${page.order}`,
     ...(page.description ? [`description: ${yamlQuote(page.description)}`] : []),
+    ...(page.api
+      ? [
+          `kind: ${yamlQuote(page.api.kind)}`,
+          ...(page.api.packageName
+            ? [`apiPackage: ${yamlQuote(page.api.packageName)}`]
+            : []),
+          ...(page.api.importPath
+            ? [`apiImportPath: ${yamlQuote(page.api.importPath)}`]
+            : []),
+          ...(page.api.subpath !== undefined
+            ? [`apiSubpath: ${yamlQuote(page.api.subpath)}`]
+            : []),
+          ...(page.api.symbolCount !== undefined
+            ? [`apiSymbolCount: ${page.api.symbolCount}`]
+            : []),
+          ...(page.api.evidenceSlug
+            ? [`apiEvidenceSlug: ${yamlQuote(page.api.evidenceSlug)}`]
+            : []),
+        ]
+      : []),
     '---',
     '',
   ].join('\n');

@@ -1,24 +1,18 @@
-#!/usr/bin/env bun
 /**
  * The derived, multi-axis conformance read model.
  *
  * Canonical registries, rules-language inventories, and surface contracts are
  * joined here once. Consumer bundles are disposable projections of this model;
- * they never become inputs to another derivation.
+ * they never become inputs to another derivation. generate-projections.ts is
+ * the executable that writes/checks those projections.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { gzipSync } from 'node:zlib';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { surfaceRegistries, type CompatibilityRow, type CompatStatus, type DeveloperSurface, type Surface } from '../registry/index.ts';
 import { loadAllSnapshots } from '../rules-language/load.ts';
 import type { LanguageConstruct } from '../rules-language/types.ts';
 import { buildSurfaceCensus, type SurfaceCensus } from './surface-census.ts';
 import {
-  RUNTIME_TS_PATH,
   deriveAllNodeVerdicts,
   deriveConformanceEvidence,
-  renderConformanceVerdicts,
   type ConformanceVerdict,
 } from './conformance-verdicts.ts';
 import { surfaceContracts, surfaceDescriptors } from '../surfaces/load.ts';
@@ -30,21 +24,19 @@ import coverageBaselineJson from '../baselines/coverage-baseline.json' with { ty
 import censusBaselineJson from '../baselines/census-baseline.json' with { type: 'json' };
 import { loadObservations, type Observation } from '../observations/load.ts';
 import { observationExceptions } from '../exceptions/load.ts';
-import { renderBrowserQuery, renderCliQuery } from './can-i-use-template.ts';
-import { featureIdentity, normalizeFeature, resolveCanIUse, type CanIUseOptions, type CanIUseResult } from './can-i-use-query.ts';
+import { normalizeFeature, resolveCanIUse, type CanIUseOptions, type CanIUseResult } from './can-i-use-query.ts';
 import { censusGapProblems, censusIntegrityProblems, type CensusGapBaseline } from './census-policy.ts';
 import { workspaceEntryPaths } from './workspace-entry.ts';
 import { publicRuntimeExportNamesFromSource } from './public-exports.ts';
 import { compatibilitySlug } from './docs-routes.ts';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-export const CLI_QUERY_PATH = join(HERE, '..', '..', 'cli', 'src', 'conformance', '.generated', 'can-i-use.ts');
-export const CLI_BROWSER_QUERY_PATH = join(HERE, '..', '..', 'cli', 'src', 'conformance', '.generated', 'can-i-use-browser.ts');
-
 export type { DeveloperSurface } from '../registry/index.ts';
-export type Availability = 'available' | 'unavailable' | 'deferred' | 'out-of-scope';
-export type Fidelity = 'conforms' | 'diverged' | 'bug' | 'unsupported' | 'unverified' | 'not-applicable';
-export type Assurance = 'eligible' | 'qualified' | 'ineligible' | 'not-applicable';
+export const AVAILABILITIES = ['available', 'unavailable', 'deferred', 'out-of-scope'] as const;
+export const FIDELITIES = ['conforms', 'diverged', 'bug', 'unsupported', 'unverified', 'not-applicable'] as const;
+export const ASSURANCES = ['eligible', 'qualified', 'ineligible', 'not-applicable'] as const;
+export type Availability = typeof AVAILABILITIES[number];
+export type Fidelity = typeof FIDELITIES[number];
+export type Assurance = typeof ASSURANCES[number];
 export type FeatureKey = `${DeveloperSurface}/${string}`;
 export type ConformanceNodeId = string;
 export type FeatureIndex = Readonly<Record<FeatureKey, readonly ConformanceNodeId[]>>;
@@ -139,7 +131,7 @@ interface MutableFeature {
 }
 
 function featureKey(surface: DeveloperSurface, feature: string): FeatureKey {
-  return `${surface}/${featureIdentity(feature)}`;
+  return `${surface}/${feature}`;
 }
 
 function rows(): CompatibilityRow[] {
@@ -265,7 +257,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
   ));
   const features = new Map<string, MutableFeature>();
   const developerSurfaceByContract = new Map(surfaceContracts.map(({ key, record }) =>
-    [key, record.developerSurface as DeveloperSurface] as const,
+    [key, record.developerSurface] as const,
   ));
   const importsByContract = new Map<string, readonly string[]>();
   const runtimeExportsByContract = new Map<string, ReadonlySet<string>>();
@@ -288,7 +280,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
   }
   const evidenceSlugByDeveloperSurface = new Map<DeveloperSurface, string>();
   for (const descriptor of surfaceDescriptors) {
-    const surface = descriptor.developerSurface as DeveloperSurface;
+    const surface = descriptor.developerSurface;
     const slug = compatibilitySlug(descriptor.compatPath);
     const prior = evidenceSlugByDeveloperSurface.get(surface);
     if (prior && prior !== slug) {
@@ -301,7 +293,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
     const imports = record.kind === 'mirror' || record.kind === 'census-only'
       ? record.mirrors
       : record.evidenceImports ?? [];
-    const surface = record.developerSurface as DeveloperSurface;
+    const surface = record.developerSurface;
     const evidenceSlug = evidenceSlugByDeveloperSurface.get(surface);
     if (!evidenceSlug) throw new Error(`No evidence page for developer surface '${surface}'`);
     for (const importPath of imports) {
@@ -494,36 +486,4 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
 
 export function canIUse(model: ConformanceModel, query: string, options?: CanIUseOptions): CanIUseResult<FeatureSupport> {
   return resolveCanIUse(model.supports, query, options);
-}
-
-if (import.meta.main) {
-  const model = await deriveConformanceModel();
-  const rendered = renderCliQuery(model);
-  const browserRendered = renderBrowserQuery(model);
-  const verdicts = renderConformanceVerdicts(model.assuranceNodeVerdicts);
-  if (process.argv.includes('--write')) {
-    mkdirSync(dirname(CLI_QUERY_PATH), { recursive: true });
-    mkdirSync(dirname(RUNTIME_TS_PATH), { recursive: true });
-    writeFileSync(CLI_QUERY_PATH, rendered);
-    writeFileSync(CLI_BROWSER_QUERY_PATH, browserRendered);
-    writeFileSync(RUNTIME_TS_PATH, verdicts);
-    console.log(`Wrote ${CLI_QUERY_PATH}`);
-    console.log(`Wrote ${CLI_BROWSER_QUERY_PATH}`);
-    console.log(`Wrote ${RUNTIME_TS_PATH}`);
-  } else if (process.argv.includes('--check')) {
-    for (const [path, source] of [[CLI_QUERY_PATH, rendered], [CLI_BROWSER_QUERY_PATH, browserRendered], [RUNTIME_TS_PATH, verdicts]] as const) {
-      let current = '';
-      try { current = readFileSync(path, 'utf8'); } catch { /* reported below */ }
-      if (current !== source) {
-        console.error(`Generated conformance projection is missing or stale: ${path}`);
-        process.exitCode = 1;
-      }
-    }
-  }
-  console.log(`Conformance model: ${model.supports.length} developer feature result(s), ${Buffer.byteLength(rendered)} bytes`);
-  console.log(`Browser query projection: ${Buffer.byteLength(browserRendered)} bytes raw, ${gzipSync(browserRendered).byteLength} bytes gzip`);
-  const counts = { supported: 0, qualified: 0, unsupported: 0 };
-  for (const verdict of Object.values(model.assuranceNodeVerdicts)) counts[verdict]++;
-  console.log(`Assurance verdicts: ${Object.keys(model.assuranceNodeVerdicts).length} nodes (${counts.supported} supported, ${counts.qualified} qualified, ${counts.unsupported} unsupported)`);
-  console.log(`Generated verdict lookup: ${Buffer.byteLength(verdicts)} bytes raw, ${gzipSync(verdicts).byteLength} bytes gzip`);
 }

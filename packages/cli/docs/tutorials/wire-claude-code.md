@@ -1,3 +1,6 @@
+---
+navLabel: "Wire Claude Code"
+---
 # Wire Claude Code to your pyric sandbox (manual MCP wiring)
 
 > **Most users want the plugin instead.** `claude plugin install` +

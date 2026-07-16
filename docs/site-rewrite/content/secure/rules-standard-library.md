@@ -129,4 +129,4 @@ Only deploy the resolved `rules_version = '2'` file:
 firebase deploy --only firestore:rules
 ```
 
-For the compiler and evaluator ceilings that can still reject a valid-looking ruleset, see [Firestore Rules limits](./limits-that-bite.md).
+For the compiler and evaluator ceilings that can still reject a valid-looking ruleset, see [Firestore Rules limits](./firestore-rules-limits.md).

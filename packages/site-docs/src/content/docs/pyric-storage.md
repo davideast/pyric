@@ -3,7 +3,7 @@ title: "pyric/storage"
 navLabel: "Overview"
 group: "pyric / storage"
 section: ""
-order: 14001
+order: 15001
 ---
 # `pyric/storage`
 
@@ -14,17 +14,22 @@ Built for the agent-session-archive use case. The scope is bounded; the architec
 ## Check feature support
 
 This package implements a deliberate subset of Firebase Storage. Query the central conformance model rather than relying on a hand-maintained scope list:
+
 ```bash
 pyric can-i-use storage/uploadBytesResumable
 pyric can-i-use storage/list
 ```
+
 ## Install
+
 ```bash
 bun add pyric/storage pyric/sandbox
 # or
 npm install pyric/storage pyric/sandbox
 ```
+
 ## A 30-second example
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getStorageSandbox, ref, uploadBytes, getBlob } from 'pyric/storage';
@@ -41,13 +46,14 @@ await uploadBytes(
 const blob = await getBlob(ref(storage, 'sessions/gen-123'));
 console.log(await blob.text());
 ```
+
 ## Control-plane surface
 
 Beyond the data-plane adapter, the package exports a control-plane surface for provisioning and managing real Cloud Storage buckets: `provisionStorage`, `getStorageServiceState`, `enableStorageService`, bucket listing, CORS management (`getBucketCors` / `setBucketCors`), and `deployStorageRules`. Alongside those sits `createStorageAdminTools`, a `ToolHandler[]` factory for an `@inbrowser/agent` registry. It also ships a local Storage rules engine (`parseStorageRules` / `evaluateStorageRules`).
 
 ## Where to go next
 
-This documentation follows the [Diataxis](https://diataxis.fr/) framework:
+The documentation is organised by task and reference material:
 
 | If you want to | Read |
 |---|---|

@@ -1,3 +1,6 @@
+---
+navLabel: "Use onSnapshot"
+---
 # How to use `onSnapshot` to watch a doc or query
 
 This guide shows you how to register a snapshot listener and react to changes.

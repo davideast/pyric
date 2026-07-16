@@ -35,15 +35,11 @@ export function normalizeFeature(value: string): string {
   return value.trim().replace(/\(.*\)$/, '').replace(/[\s_-]+/g, '').toLowerCase();
 }
 
-export function featureIdentity(value: string): string {
-  return value;
-}
-
 function normalizeSurface(value: string): string {
   return value.trim().replace(/[\s_-]+/g, '-').toLowerCase();
 }
 
-function distance(left: string, right: string): number {
+function levenshtein(left: string, right: string): number {
   const row = Array.from({ length: right.length + 1 }, (_, index) => index);
   for (let i = 1; i <= left.length; i++) {
     let diagonal = row[0]!;
@@ -82,7 +78,7 @@ export function resolveCanIUse<T extends QueryableFeatureSupport>(
     (!requestedSurface || normalizeSurface(support.surface) === requestedSurface) && normalizeFeature(support.feature) === normalized,
   );
   const exactCandidates = candidates.filter((support) =>
-    featureIdentity(support.feature) === featureIdentity(requestedFeature)
+    support.feature === requestedFeature
     && (!requestedSurfaceIdentity || (delimiter === '/' && support.surface === requestedSurfaceIdentity)),
   );
   if (exactCandidates.length > 0) {
@@ -96,7 +92,7 @@ export function resolveCanIUse<T extends QueryableFeatureSupport>(
     .filter((support) => !requestedSurface || normalizeSurface(support.surface) === requestedSurface)
     .map((support) => {
       const name = normalizeFeature(support.feature);
-      const score = name.startsWith(normalized) ? 0 : name.includes(normalized) ? 1 : 2 + distance(normalized, name);
+      const score = name.startsWith(normalized) ? 0 : name.includes(normalized) ? 1 : 2 + levenshtein(normalized, name);
       return { support, score };
     })
     .filter(({ score }) => score <= Math.max(4, Math.ceil(normalized.length / 3) + 2))

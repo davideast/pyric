@@ -3,7 +3,7 @@ title: "pyric-admin/storage"
 navLabel: "Overview"
 group: "pyric-admin / storage"
 section: ""
-order: 22001
+order: 23001
 ---
 # `pyric-admin/storage`
 
@@ -15,6 +15,7 @@ Admin-shaped Cloud Storage for a sandbox. `getStorage(app)` reads the sandbox ha
 Storage support is experimental, on this surface and on `pyric/storage`. The object API works and is tested; most behavior is not yet pinned to a recorded production observation.
 
 Deferred surfaces (streams, resumable uploads, IAM, ACLs, copy/move) throw a clear "not implemented" error, never bad data. Production code loads `firebase-admin/storage` directly with Pyric activation absent.
+
 ```ts
 import { initializeApp } from 'pyric-admin/app';
 import { getStorage } from 'pyric-admin/storage';
@@ -30,6 +31,7 @@ const [exists] = await file.exists(); // [true]
 const [bytes] = await file.download();
 console.log(bytes.toString());
 ```
+
 ## Where to go next
 
-- [API reference](../pyric-admin-storage-reference-api/) for the full `Bucket` and `File` surface, including the byte cap and deferred list.
+- [`pyric-admin/storage` API reference](https://pyric.dev/docs/pyric-admin-storage-reference-api/) for the published `Bucket` and `File` declarations.

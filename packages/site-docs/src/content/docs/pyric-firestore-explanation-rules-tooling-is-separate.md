@@ -3,7 +3,7 @@ title: "Why rules tooling lives on a sibling subpath"
 navLabel: "Rules tooling is separate"
 group: "pyric / firestore"
 section: "Explanation"
-order: 11014
+order: 12013
 ---
 # Why rules tooling lives on a sibling subpath
 
@@ -31,7 +31,7 @@ By keeping rules tooling in `pyric/rules`, the swap-in surface stays bit-faithfu
 | `setRules`, `seedDocuments`, `snapshotDocuments`, `inspect` | `pyric/sandbox/firestore` |
 | `firestoreRules`, `lint`, `assertCase`, `explainCase` | `pyric/rules` (public front door) |
 | `parseToAST`, `lintFirestoreRules`, `validateFirestoreRules` | `pyric/rules/internal` |
-| `SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler` | `pyric/rules/internal` |
+| Simulator and hosted-test internals | `pyric/rules/internal` |
 | Stdlib (`auth`, `validation`, ... modules) | resolved via `pyric/rules/internal/node` |
 | `Timestamp`, `Path`, `Bytes` (rules wrapper classes) | `pyric/rules/internal` |
 | Tool factories for lint / simulate / test | `pyric/rules/internal/node` |
@@ -53,10 +53,12 @@ These belong to a different audience than the data-plane consumers. A web app ra
 
 `setRules(sandbox, rules)` loads rules into the local Firestore environment owned
 by that sandbox. The implementation path is:
+
 ```ts
 setRules(sandbox, source) → LocalEnvironment.deployRules(source)
                           → lintFirestoreRules(source)
 ```
+
 The control receives the owner rather than a Firestore handle. This lets one
 sandbox own Firestore rules, documents, listeners, history, and diagnostics
 without widening the data-plane API.

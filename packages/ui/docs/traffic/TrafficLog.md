@@ -1,3 +1,6 @@
+---
+navLabel: "TrafficLog components"
+---
 # `<TrafficLog>` · `<TrafficRow>` · `<TrafficGroupRow>`
 
 The event stream — a Chrome DevTools Network-panel-style list. Below 100 rows

@@ -1,3 +1,6 @@
+---
+navLabel: "Replay events"
+---
 # How to replay a captured event stream
 
 The sandbox captures every `SandboxEvent` it emits. Hand the captured stream to `replay(events, rules)` from `pyric/sandbox` and the engine re-issues every write against a fresh sandbox, classifying the differences against an optional snapshot of the original state.

@@ -1,3 +1,6 @@
+---
+navLabel: "Pick an adapter"
+---
 # How to pick between `pyric-admin` and `pyric/firestore`
 
 Two adapter packages sit on top of `pyric/sandbox`. Both expose Firestore. They look the same from a distance and shape differently up close. This guide helps you pick.

@@ -1,3 +1,6 @@
+---
+navLabel: "Snapshot and admin reads"
+---
 # `SandboxSnapshot` and admin reads
 
 Two related surfaces. `SandboxSnapshot` is the shape returned by `Sandbox.snapshot()`. `SandboxAdmin` is the rule-bypass read surface exposed on `Sandbox.admin`.

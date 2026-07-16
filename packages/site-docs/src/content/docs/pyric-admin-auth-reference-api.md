@@ -1,156 +1,454 @@
 ---
 title: "API reference: pyric-admin/auth"
-navLabel: "API reference"
-group: "pyric-admin / auth"
-section: "Reference"
-order: 20002
----
-# API reference: `pyric-admin/auth`
-
-Exact signatures of every public export, plus the local/remote method matrix for the `Auth` handle.
-
-The two sandbox backends:
-
-- **local**: the app carries an in-process `Sandbox`. Users live in an in-memory store keyed off the sandbox; `sandbox.reset()` wipes it.
-- **remote**: the app carries a remote-branded sandbox (a Node handle onto the browser-hosted worker sandbox). User CRUD relays over the worker channel into the one user pool the browser app, Studio, and agents share. Mutations emit auth `SandboxEvent`s in the worker.
-
-Production code loads `firebase-admin/auth` directly with Pyric activation
-absent.
-
+navLabel: "pyric-admin/auth"
+group: "API reference"
+section: "pyric-admin"
+order: 9004
+description: "Published declarations for pyric-admin/auth."
+kind: "api"
+apiPackage: "pyric-admin"
+apiImportPath: "pyric-admin/auth"
+apiSubpath: "auth"
+apiSymbolCount: 10
 ---
 
-## Initialization
+<!-- Generated from published package declarations via TypeDoc. Do not edit by hand; run bun run docs:api:generate. -->
 
-### `getAuth(app?)`
+## Interfaces
+
+<a id="auth"></a>
+
+### Auth
+
+Sandbox Auth interface intentionally limited to implemented behavior.
+
+#### Indexable
+
 ```ts
-function getAuth(app?: PyricAdminApp): Auth;
+[key: string]: unknown
 ```
-Return an `Auth` handle for the given app, or for the `'[DEFAULT]'` sandbox app when called with no argument (throws `app/no-app` when nothing is initialized). Dispatch reads the brand symbol on the handle:
 
-- sandbox app with a remote-branded sandbox: returns the remote relay handle.
-- sandbox app (local): returns the in-memory handle. Repeat calls for the same sandbox share the store, so writes are visible across handles.
+#### Properties
 
-Throws `TypeError` for a value with no `ADMIN_APP_TARGET` brand, or a brand value the dispatch table doesn't know.
+| Property | Modifier | Type |
+| :------ | :------ | :------ |
+| <a id="app"></a> `app` | `readonly` | `SandboxAdminApp` |
 
----
+#### Methods
 
-## Tokens (local and remote, identical)
+<a id="createcustomtoken"></a>
 
-Token handling is stateless string transformation, shared byte for byte by both sandbox arms. A token minted against either arm verifies against the other.
+##### createCustomToken()
 
-**Sandbox tokens are not real JWTs.** They are deterministic strings with no signature. They round-trip through this same sandbox backend and are rejected by every other token verifier. Never send one to a real Firebase service.
-
-### `Auth.createCustomToken(uid, developerClaims?)`
 ```ts
 createCustomToken(uid: string, developerClaims?: object): Promise<string>;
 ```
-Arms: local, remote. Mints `` `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims ?? {})}` ``. No signing, no expiry.
 
-### `Auth.verifyIdToken(idToken, checkRevoked?)`
-```ts
-verifyIdToken(idToken: string, checkRevoked?: boolean): Promise<DecodedIdToken>;
-```
-Arms: local, remote. Parses tokens minted by `createCustomToken` and rejects anything else, including real JWTs. Returns a `DecodedIdToken`-shaped object: `aud` and `iss` are `'pyric-sandbox'`, `sub` and `uid` are the token's uid, time fields are now (`exp` is now plus 3600 seconds), `firebase.sign_in_provider` is `'custom'`, and the developer claims are spread onto the result so `decoded.role` reads the same way it does in production. `checkRevoked` is accepted and ignored (sandbox tokens have no revocation state).
+###### Parameters
 
-### `SANDBOX_TOKEN_PREFIX`
-```ts
-const SANDBOX_TOKEN_PREFIX = 'pyric-sandbox-custom';
-```
-The token format's prefix, exported so tests can lock the shape. Layout: `pyric-sandbox-custom:${uid}:${jsonClaims}`. `verifyIdToken` splits on the first two colons only, so JSON claims containing colons round-trip losslessly.
+| Parameter | Type |
+| :------ | :------ |
+| `uid` | `string` |
+| `developerClaims?` | `object` |
 
----
+###### Returns
 
-## User management
+`Promise`\<`string`\>
 
-### `Auth.createUser(properties)`
+<a id="createuser"></a>
+
+##### createUser()
+
 ```ts
 createUser(properties: CreateRequest): Promise<UserRecord>;
 ```
-Arms: local, remote.
 
-- Local: stores a `UserRecord` in the in-memory map. Auto-generates a uid of the form `pyric-sandbox-<20-digit counter>` when none is supplied. A supplied uid that already exists rejects. Defaults match upstream: `emailVerified: false`, `disabled: false`, empty `providerData`, `tenantId: null`, metadata with sandbox-current timestamps.
-- Remote: relays the worker's `auth.adminCreateUser` op. Uid conflicts, invalid emails, and weak passwords reject with the worker backend's `auth/*` error. `multiFactor` is not modeled; upstream `null` ("clear") fields are treated as unset, since a fresh user has nothing to clear.
+###### Parameters
 
-### `Auth.getUser(uid)` / `Auth.getUserByEmail(email)`
-```ts
-getUser(uid: string): Promise<UserRecord>;
-getUserByEmail(email: string): Promise<UserRecord>;
-```
-Arms: local, remote. Rejects with a user-not-found message on a miss.
+| Parameter | Type |
+| :------ | :------ |
+| `properties` | [`CreateRequest`](#createrequest) |
 
-- Local: map lookup by uid; linear scan for email. Sandbox-scale data only.
-- Remote: both go through `auth.listUsers` plus a client-side filter. The worker protocol has no dedicated single-lookup op; O(n) over the wire is fine at sandbox scale.
+###### Returns
 
-### `Auth.deleteUser(uid)`
+`Promise`\<[`UserRecord`](#userrecord)\>
+
+<a id="deleteuser"></a>
+
+##### deleteUser()
+
 ```ts
 deleteUser(uid: string): Promise<void>;
 ```
-Arms: local, remote. Rejects on a missing uid, matching upstream's strict delete contract. Remote relays `auth.adminDeleteUser`.
 
-### `Auth.setCustomUserClaims(uid, customUserClaims)`
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `uid` | `string` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+<a id="getuser"></a>
+
+##### getUser()
+
 ```ts
-setCustomUserClaims(uid: string, customUserClaims: object | null): Promise<void>;
+getUser(uid: string): Promise<UserRecord>;
 ```
-Arms: local, remote. Replaces the stored `customClaims`; `null` clears them (upstream contract). Remote relays `auth.adminUpdateUser` with a whole-map `customClaims` replacement.
 
-### `Auth.updateUser(uid, properties)`
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `uid` | `string` |
+
+###### Returns
+
+`Promise`\<[`UserRecord`](#userrecord)\>
+
+<a id="getuserbyemail"></a>
+
+##### getUserByEmail()
+
 ```ts
-updateUser(uid: string, properties: UpdateRequest): Promise<UserRecord>;
+getUserByEmail(email: string): Promise<UserRecord>;
 ```
-Arms: **remote only**. The local arm throws the not-implemented error.
 
-Remote relays `auth.adminUpdateUser` for the fields the worker models: `displayName`, `email`, `password`, `disabled`, `emailVerified`. Fields it cannot express throw rather than silently dropping a requested change: `photoURL`, `phoneNumber`, `multiFactor`, `providerToLink`, `providersToUnlink`.
+###### Parameters
 
-### `Auth.listUsers(maxResults?, pageToken?)`
+| Parameter | Type |
+| :------ | :------ |
+| `email` | `string` |
+
+###### Returns
+
+`Promise`\<[`UserRecord`](#userrecord)\>
+
+<a id="listusers"></a>
+
+##### listUsers()
+
 ```ts
 listUsers(maxResults?: number, pageToken?: string): Promise<ListUsersResult>;
 ```
-Arms: **remote only**. The local arm throws the not-implemented error.
 
-Remote relays `auth.listUsers`. `maxResults` is honored by slicing; `pageToken` is accepted and ignored, and the result never sets one, because the whole pool fits one page at sandbox scale.
+###### Parameters
 
----
+| Parameter | Type |
+| :------ | :------ |
+| `maxResults?` | `number` |
+| `pageToken?` | `string` |
 
-## Everything else throws (local and remote)
+###### Returns
 
-Every other method on the `Auth` surface throws an `Error` whose message names the method and the arm:
+`Promise`\<[`ListUsersResult`](#listusersresult)\>
+
+<a id="setcustomuserclaims"></a>
+
+##### setCustomUserClaims()
+
+```ts
+setCustomUserClaims(uid: string, customUserClaims: object): Promise<void>;
 ```
-pyric-admin/auth: <method> is not implemented in pyric-admin/auth sandbox backend
-pyric-admin/auth: <method> is not implemented in pyric-admin/auth remote sandbox backend
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `uid` | `string` |
+| `customUserClaims` | `object` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+<a id="updateuser"></a>
+
+##### updateUser()
+
+```ts
+updateUser(uid: string, properties: UpdateRequest): Promise<UserRecord>;
 ```
-The full list, by area:
 
-| Area | Methods |
-|---|---|
-| Lookups | `getUserByPhoneNumber`, `getUserByProviderUid` |
-| Bulk operations | `getUsers`, `deleteUsers`, `importUsers`, `listUsers` (local arm only; works on remote) |
-| Updates | `updateUser` (local arm only; works on remote) |
-| Revocation | `revokeRefreshTokens` |
-| Session cookies | `createSessionCookie`, `verifySessionCookie` |
-| Action codes | `generatePasswordResetLink`, `generateEmailVerificationLink`, `generateSignInWithEmailLink`, `generateVerifyAndChangeEmailLink` |
-| Identity providers | `createProviderConfig`, `getProviderConfig`, `listProviderConfigs`, `updateProviderConfig`, `deleteProviderConfig` |
-| Managers | `tenantManager`, `projectConfigManager` (throwing getters) |
-| Handle | the `auth.app` getter |
+###### Parameters
 
-Multi-factor: `UserRecord.multiFactor` is always `undefined` on the sandbox arms; MFA enrollment is unsupported.
+| Parameter | Type |
+| :------ | :------ |
+| `uid` | `string` |
+| `properties` | [`UpdateRequest`](#updaterequest) |
 
-Use Firebase Admin directly when production needs these methods.
+###### Returns
 
----
+`Promise`\<[`UserRecord`](#userrecord)\>
 
-## Types
+<a id="verifyidtoken"></a>
 
-These types use Firebase Admin's public shapes so sandbox code can retain the
-same signatures:
+##### verifyIdToken()
 
-- `Auth`: a structurally compatible handle whose implemented method set is the subset above.
-- `CreateRequest`: firebase-admin's `createUser` properties bag.
-- `DecodedIdToken`: firebase-admin's decoded token shape. Sandbox fills required fields with the placeholders documented under `verifyIdToken`.
-- `UserRecord`: firebase-admin's user record shape. Sandbox arms build plain objects with the same field set (including `toJSON()`).
+```ts
+verifyIdToken(idToken: string, checkRevoked?: boolean): Promise<DecodedIdToken>;
+```
 
----
+###### Parameters
 
-## Where to go next
+| Parameter | Type |
+| :------ | :------ |
+| `idToken` | `string` |
+| `checkRevoked?` | `boolean` |
 
-- [`pyric-admin/app` reference](../pyric-admin-app-reference-api/) for sandbox binding and activation.
-- [`pyric/auth` reference](../pyric-auth-reference-api/) for the Web-SDK-shaped mirror with the full sign-in surface.
+###### Returns
+
+`Promise`\<[`DecodedIdToken`](#decodedidtoken)\>
+
+***
+
+<a id="createrequest"></a>
+
+### CreateRequest
+
+#### Properties
+
+| Property | Type |
+| :------ | :------ |
+| <a id="disabled"></a> `disabled?` | `boolean` |
+| <a id="displayname"></a> `displayName?` | `string` |
+| <a id="email"></a> `email?` | `string` |
+| <a id="emailverified"></a> `emailVerified?` | `boolean` |
+| <a id="password"></a> `password?` | `string` |
+| <a id="phonenumber"></a> `phoneNumber?` | `string` |
+| <a id="photourl"></a> `photoURL?` | `string` |
+| <a id="uid"></a> `uid?` | `string` |
+
+***
+
+<a id="decodedidtoken"></a>
+
+### DecodedIdToken
+
+#### Extends
+
+- `Record`\<`string`, `unknown`\>
+
+#### Indexable
+
+```ts
+[key: string]: unknown
+```
+
+#### Properties
+
+| Property | Type |
+| :------ | :------ |
+| <a id="aud"></a> `aud` | `string` |
+| <a id="auth_time"></a> `auth_time` | `number` |
+| <a id="exp"></a> `exp` | `number` |
+| <a id="firebase"></a> `firebase` | \{ `identities`: `Record`\<`string`, `unknown`\>; `sign_in_provider`: `string`; \} |
+| `firebase.identities` | `Record`\<`string`, `unknown`\> |
+| `firebase.sign_in_provider` | `string` |
+| <a id="iat"></a> `iat` | `number` |
+| <a id="iss"></a> `iss` | `string` |
+| <a id="sub"></a> `sub` | `string` |
+| <a id="uid-1"></a> `uid` | `string` |
+
+***
+
+<a id="listusersresult"></a>
+
+### ListUsersResult
+
+#### Properties
+
+| Property | Type |
+| :------ | :------ |
+| <a id="pagetoken"></a> `pageToken?` | `string` |
+| <a id="users"></a> `users` | [`UserRecord`](#userrecord)[] |
+
+***
+
+<a id="updaterequest"></a>
+
+### UpdateRequest
+
+#### Extends
+
+- `Omit`\<[`CreateRequest`](#createrequest), `"uid"`\>
+
+#### Properties
+
+| Property | Type |
+| :------ | :------ |
+| <a id="disabled-1"></a> `disabled?` | `boolean` |
+| <a id="displayname-1"></a> `displayName?` | `string` |
+| <a id="email-1"></a> `email?` | `string` |
+| <a id="emailverified-1"></a> `emailVerified?` | `boolean` |
+| <a id="multifactor"></a> `multiFactor?` | `unknown` |
+| <a id="password-1"></a> `password?` | `string` |
+| <a id="phonenumber-1"></a> `phoneNumber?` | `string` |
+| <a id="photourl-1"></a> `photoURL?` | `string` |
+| <a id="providerstounlink"></a> `providersToUnlink?` | `unknown` |
+| <a id="providertolink"></a> `providerToLink?` | `unknown` |
+
+***
+
+<a id="userinfo"></a>
+
+### UserInfo
+
+#### Properties
+
+| Property | Type |
+| :------ | :------ |
+| <a id="displayname-2"></a> `displayName?` | `string` |
+| <a id="email-2"></a> `email?` | `string` |
+| <a id="phonenumber-2"></a> `phoneNumber?` | `string` |
+| <a id="photourl-2"></a> `photoURL?` | `string` |
+| <a id="providerid"></a> `providerId` | `string` |
+| <a id="uid-2"></a> `uid` | `string` |
+
+#### Methods
+
+<a id="tojson"></a>
+
+##### toJSON()
+
+```ts
+toJSON(): Record<string, unknown>;
+```
+
+###### Returns
+
+`Record`\<`string`, `unknown`\>
+
+***
+
+<a id="usermetadata"></a>
+
+### UserMetadata
+
+#### Properties
+
+| Property | Type |
+| :------ | :------ |
+| <a id="creationtime"></a> `creationTime` | `string` |
+| <a id="lastsignintime"></a> `lastSignInTime` | `string` |
+
+#### Methods
+
+<a id="tojson-2"></a>
+
+##### toJSON()
+
+```ts
+toJSON(): Record<string, unknown>;
+```
+
+###### Returns
+
+`Record`\<`string`, `unknown`\>
+
+***
+
+<a id="userrecord"></a>
+
+### UserRecord
+
+#### Properties
+
+| Property | Modifier | Type |
+| :------ | :------ | :------ |
+| <a id="customclaims"></a> `customClaims?` | `readonly` | `Record`\<`string`, `unknown`\> |
+| <a id="disabled-2"></a> `disabled` | `readonly` | `boolean` |
+| <a id="displayname-3"></a> `displayName?` | `readonly` | `string` |
+| <a id="email-3"></a> `email?` | `readonly` | `string` |
+| <a id="emailverified-2"></a> `emailVerified` | `readonly` | `boolean` |
+| <a id="metadata"></a> `metadata` | `readonly` | [`UserMetadata`](#usermetadata) |
+| <a id="phonenumber-3"></a> `phoneNumber?` | `readonly` | `string` |
+| <a id="photourl-3"></a> `photoURL?` | `readonly` | `string` |
+| <a id="providerdata"></a> `providerData` | `readonly` | [`UserInfo`](#userinfo)[] |
+| <a id="tenantid"></a> `tenantId` | `readonly` | `string` |
+| <a id="uid-3"></a> `uid` | `readonly` | `string` |
+
+#### Methods
+
+<a id="tojson-4"></a>
+
+##### toJSON()
+
+```ts
+toJSON(): Record<string, unknown>;
+```
+
+###### Returns
+
+`Record`\<`string`, `unknown`\>
+
+## Variables
+
+<a id="sandbox_token_prefix"></a>
+
+### SANDBOX\_TOKEN\_PREFIX
+
+```ts
+const SANDBOX_TOKEN_PREFIX: "pyric-sandbox-custom" = "pyric-sandbox-custom";
+```
+
+Token format minted by `createCustomToken` and parsed by
+`verifyIdToken`. Exported as a constant so tests can lock the shape.
+
+Layout: `pyric-sandbox-custom:${uid}:${jsonClaims}`
+
+- The prefix lets `verifyIdToken` reject foreign tokens with a clear
+  "not a sandbox token" error rather than NaN'ing out.
+- `uid` is colon-free per the auto-uid format above.
+- `jsonClaims` is the JSON-stringified developer claims (or `{}` when
+  none were provided). Round-trips losslessly through `JSON.parse`.
+
+NOT a JWT. NOT signed. Do not use this token format to talk to any
+real Firebase service — it only round-trips through this same
+sandbox backend.
+
+## Functions
+
+<a id="getauth"></a>
+
+### getAuth()
+
+```ts
+function getAuth(app?: SandboxAdminApp): Auth;
+```
+
+Return an `Auth` handle for the given app — or for the DEFAULT app when
+called with no argument (mirrors firebase-admin's no-arg `getAuth()`:
+resolves `'[DEFAULT]'` through `pyric-admin/app`'s registry and throws
+`app/no-app` when nothing has been initialized). Local sandboxes use the
+in-memory store; remote sandboxes relay to the browser-hosted worker.
+
+#### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `app?` | `SandboxAdminApp` |
+
+#### Returns
+
+[`Auth`](#auth)
+
+#### Example
+
+```ts
+import { initializeApp } from 'pyric-admin/app';
+import { initializeSandbox } from 'pyric/sandbox';
+import { getAuth } from 'pyric-admin/auth';
+
+const sandbox = initializeSandbox();
+const app = initializeApp({ sandbox });
+const auth = getAuth(app);
+
+const user = await auth.createUser({ uid: 'alice', email: 'a@e.com' });
+const token = await auth.createCustomToken(user.uid, { role: 'admin' });
+const decoded = await auth.verifyIdToken(token);
+console.log(decoded.uid, decoded.role); // 'alice' 'admin'
+```

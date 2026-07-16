@@ -119,6 +119,8 @@ echo "━━━ Phase 4: Docs site ━━━"
 # /__pyric/ui/docs/index.json, and tabs back at /__pyric/ui/<tab>. The default
 # (no DOCS_BASE) build the hosted site uses is unaffected — base stays `/`.
 if $BUILD_DOCS; then
+  echo "▸ Verifying generated API reference"
+  bun run docs:api:check
   echo "▸ Building packages/site-docs (base /__pyric/ui/)"
   rm -rf packages/site-docs/dist
   DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build

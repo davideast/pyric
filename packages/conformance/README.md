@@ -69,6 +69,9 @@ packages/conformance/
   src/conformance-model.ts  joins the census, registries, rules snapshots,
                      production evidence, and simulator capability into the
                      shared read model used by canIUse and runtime projections.
+  src/generate-projections.ts  the executable that writes or checks the
+                     ignored can-i-use, browser, and verdict projections of
+                     that model (compat:conformance / compat:conformance:check).
   entry-path/        one canonical initialization program per service
                      (entry-path/<service>.ts: app+auth, app+firestore,
                      app+database, app+storage), each adapted from Firebase's

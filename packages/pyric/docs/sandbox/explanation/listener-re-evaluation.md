@@ -1,3 +1,6 @@
+---
+navLabel: "Listener re-evaluation"
+---
 # Listener re-evaluation on `deployRules`
 
 A snapshot listener attached before a `deployRules` call gets re-evaluated under the new rules. This is a deliberate departure from production Firestore behaviour. The reasoning matters; this page lays it out.

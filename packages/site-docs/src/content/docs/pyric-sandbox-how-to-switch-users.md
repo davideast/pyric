@@ -3,13 +3,14 @@ title: "How to switch users with withAuth"
 navLabel: "Switch users"
 group: "pyric / sandbox"
 section: "How-to"
-order: 13009
+order: 14009
 ---
 # How to switch users with `withAuth`
 
 Evaluate rules under different auth identities against the same sandbox.
 
 ## Two contexts, one sandbox
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric-admin';
@@ -20,21 +21,25 @@ const aliceDb = getFirestore(sandbox.withAuth({ uid: 'alice' }));
 const adminDb = getFirestore(sandbox.withAuth({ uid: 'admin', token: { admin: true } }));
 const anonDb  = getFirestore(sandbox.withAuth(null));
 ```
+
 Three contexts, three identities, shared data. Writes through `aliceDb` evaluate with `request.auth.uid == 'alice'`; reads through `adminDb` evaluate with `request.auth.token.admin == true`; everything through `anonDb` sees `request.auth == null`.
 
 ## Chain from a context
 
 `SandboxContext.withAuth` replaces the auth and returns a new sibling context:
+
 ```ts
 const adminCtx = sandbox.withAuth({ uid: 'admin', token: { admin: true } });
 const userCtx = adminCtx.withAuth({ uid: 'alice' });
 // adminCtx and userCtx share the same sandbox but evaluate as different users.
 ```
+
 Use this when a chunk of code already has a context and wants to derive another one without going back to the sandbox.
 
 ## Tokens are claims, not just JWTs
 
 The `token` field on `AuthState` becomes `request.auth.token.*` in rules. Pass any custom claims your rules care about:
+
 ```ts
 sandbox.withAuth({
   uid: 'employee-42',
@@ -45,11 +50,14 @@ sandbox.withAuth({
   },
 });
 ```
+
 Inside a rule:
+
 ```rules
 allow update: if request.auth.token.role == 'editor'
               || request.auth.token.role == 'admin';
 ```
+
 ## Anonymous must be explicit
 
 `withAuth(undefined)` throws `SandboxError('invalid-argument')`. For anonymous access, say `withAuth(null)`. The call site is then unambiguous about whether anonymous was intended or omitted.

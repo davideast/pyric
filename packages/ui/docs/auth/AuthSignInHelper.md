@@ -1,3 +1,6 @@
+---
+navLabel: "AuthSignInHelper"
+---
 # `<AuthSignInHelper>` + `useAuthFlowHelper`
 
 Emulator-style sign-in helper for sandbox auth: when an app calls

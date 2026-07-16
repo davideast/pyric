@@ -3,7 +3,7 @@ title: "How to compare two rulesets for weakening"
 navLabel: "Compare rulesets"
 group: "pyric / rules"
 section: "How-to"
-order: 12002
+order: 13002
 ---
 # How to compare two rulesets for weakening
 
@@ -14,6 +14,7 @@ When you ship a rules change, the most dangerous mistake is silently removing a 
 ## Lint with the previous source
 
 Pass the previously-deployed source as `options.previousSource`:
+
 ```ts
 import { lintFirestoreRules } from 'pyric/rules/internal';
 
@@ -24,6 +25,7 @@ for (const w of weakened) {
   console.log(`[WEAKENED] ${w.message}`);
 }
 ```
+
 The linter walks both rulesets, normalises every match path, and diffs the predicates conjunct-by-conjunct on each allow rule. Every conjunct that existed in `previousSource` but is missing from the current source produces one `RULES_WEAKENED` warning.
 
 ## What it detects
@@ -46,10 +48,13 @@ By design:
 ## Wire it into CI
 
 Pull the live ruleset before linting the candidate:
+
 ```bash
 firebase firestore:rules:get > previous.rules
 ```
+
 Then in your check script:
+
 ```ts
 import { readFileSync } from 'node:fs';
 import { lintFirestoreRules } from 'pyric/rules/internal';
@@ -66,6 +71,7 @@ if (weakened.length > 0) {
   process.exit(1);
 }
 ```
+
 `RULES_WEAKENED` is a `warning`, not an `error`. The deploy gate stays under your control: require human ack, or treat it as a hard block as above.
 
 ## When the previous source is malformed

@@ -2,17 +2,19 @@
 title: "Standard library modules"
 group: "pyric / rules"
 section: "Reference"
-order: 12016
+order: 13015
 ---
 # Standard library modules
 
 Fifteen modules ship with `pyric/rules`. Each module is a `.rules` file living under `src/rules/modules/stdlib/`; imports resolve automatically without any configuration.
 
 Use them by setting `rules_version = '2+modules'` and adding import statements:
+
 ```rules
 import { isAuthenticated, isOwner } from 'auth';
 import { hasOnly } from 'validation';
 ```
+
 Then run `resolveModules(source)` to inline the exports into a standard `'2'` source. `resolveModules` is an internal engine seam, imported from `pyric/rules/internal/node`, not the public `pyric/rules` front door. See [How to resolve `2+modules` imports](../pyric-rules-how-to-resolve-module-imports/).
 
 Convention: modules either operate against `request` / `resource` / `request.auth` only (self-contained) or take explicit parameters (no implicit lookups).
@@ -105,6 +107,7 @@ Movement-game validation via a config-document lookup. The caller must pass the 
 | `validJumpMove(cfg)` | `cfg.jumps[piece][from][to] == captured` |
 
 Usage:
+
 ```rules
 import { validSimpleMove, validJumpMove } from 'geometry';
 
@@ -117,6 +120,7 @@ match /games/{gameId} {
   allow update: if validJumpMove(config()) && captureValid();
 }
 ```
+
 ## Importing private functions
 
 Functions in a module that aren't marked `export` are still inlined by the resolver, but renamed with a module prefix (`{module}__{name}`) so they don't collide with source-defined functions or with private helpers in other modules. You can't import a private function by name; doing so produces `UNKNOWN_FUNCTION` with a message that explains the function exists but isn't exported.
@@ -124,6 +128,7 @@ Functions in a module that aren't marked `export` are still inlined by the resol
 ## Overriding a stdlib module
 
 Pass a `modules` map to `resolveModules` to shadow a stdlib name:
+
 ```ts
 import { resolveModules } from 'pyric/rules/internal/node';
 
@@ -140,4 +145,5 @@ resolveModules(source, {
   },
 });
 ```
+
 The `modules` map takes priority over both stdlib and `basePath` resolution.

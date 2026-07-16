@@ -2,6 +2,15 @@ import { useState, type ReactNode } from 'react';
 import type { TrafficEvent } from '../types.js';
 import type { TrafficGroup } from '../hooks/useTrafficGroups.js';
 import { TrafficRow } from './TrafficRow.js';
+import type { TrafficGroupKind } from '../hooks/useTrafficGroups.js';
+
+/** Header text per group kind — the raw kind slug stays on the
+ *  `data-pyric-group-kind` attributes for styling/tests. */
+const GROUP_KIND_LABELS: Record<TrafficGroupKind, string> = {
+  batch: 'batch write',
+  transaction: 'transaction',
+  'listener-run': 'listener re-evals',
+};
 
 export interface TrafficGroupRowProps {
   group: TrafficGroup;
@@ -52,10 +61,10 @@ export function TrafficGroupRow({
         data-pyric-group-kind={group.kind}
         aria-expanded={expanded}
       >
-        <span data-pyric-group-kind-label="">{group.kind}</span>
-        <span data-pyric-group-count="">{group.count}</span>
+        <span data-pyric-group-kind-label="">{GROUP_KIND_LABELS[group.kind]}</span>
+        <span data-pyric-group-count="">×{group.count}</span>
         {group.denies > 0 ? (
-          <span data-pyric-group-denies="">{group.denies}</span>
+          <span data-pyric-group-denies="">{group.denies} denied</span>
         ) : null}
       </button>
       {expanded ? (

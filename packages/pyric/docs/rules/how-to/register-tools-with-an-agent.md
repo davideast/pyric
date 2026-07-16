@@ -1,3 +1,6 @@
+---
+navLabel: "Register rules tools"
+---
 # How to register rules tools with an agent
 
 Expose the rules surface as tool handlers for an `@inbrowser/agent` registry, so an LLM-driven agent can lint, simulate, and test rules through structured tool calls.
@@ -84,5 +87,4 @@ The `resolveSandbox` resolver fires per dispatch, so hosts that reset or swap th
 
 ## Where to look next
 
-- For the tool names, parameters, and the result shape, see [Internal engine in the API reference](../reference/api.md#internal-engine-pyricrulesinternal).
 - For `ToolHandler`, `createToolRegistry`, and `createDispatch`, see the [`@inbrowser/agent` package](../../../agent/README.md).

@@ -1,3 +1,6 @@
+---
+navLabel: "Seed data and rules"
+---
 # How to seed initial data and rules
 
 Bring a fresh sandbox up to a known state (rules deployed, documents in place) before your test code runs.
