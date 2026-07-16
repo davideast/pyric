@@ -12,6 +12,7 @@ A rule that reads `request.time` evaluates against wallclock by default. That ma
 ## Set `requestTime` on every affected `FirestoreCase`
 
 `requestTime` accepts an ISO-8601 string. The simulator parses it into a `Timestamp` and uses it for `request.time`:
+
 ```ts
 import type { FirestoreCase } from 'pyric/rules';
 
@@ -36,11 +37,13 @@ const testCases: FirestoreCase[] = [
   },
 ];
 ```
+
 The same ISO string is forwarded to the Firebase Rules Test API when you run via the internal `TestFirestoreRulesHandler` (`pyric/rules/internal`), so the two evaluation paths stay in agreement.
 
 ## Find unpinned cases automatically
 
 Pass the test suite to the linter and look for `REQUEST_TIME_NOT_PINNED`. The public `lint(source)` and `firestoreRules(source).lint()` don't take a `testCases` option, so this check runs through the engine-internal `lintFirestoreRules`:
+
 ```ts
 import { lintFirestoreRules } from 'pyric/rules/internal';
 
@@ -55,6 +58,7 @@ for (const w of unpinned) {
   // across runs.
 }
 ```
+
 The linter only flags a case if its `path` actually matches a rule that reads `request.time`. Cases that target unrelated paths aren't reported.
 
 ## When `requestTime` doesn't help

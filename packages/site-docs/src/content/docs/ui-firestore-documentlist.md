@@ -7,10 +7,13 @@ order: 23012
 # `<DocumentList>`
 
 Headless list renderer for documents in a collection. Above `virtualizeThreshold` (default 100), switches to virtualized rendering via `<VirtualList>`; below, renders a plain `<ul>`.
+
 ```ts
 import { DocumentList } from '@pyric/ui/firestore';
 ```
+
 ## Example
+
 ```tsx
 import { useDocumentList } from '@pyric/ui/firestore/hooks';
 
@@ -43,6 +46,7 @@ function DocsPane({ collection }) {
   );
 }
 ```
+
 ## Props
 
 | Prop | Type | Description |
@@ -67,6 +71,7 @@ function DocsPane({ collection }) {
 This is **read-via-get, not realtime.** For realtime, use `useFirestoreCollection(query)` directly. Combining pagination + realtime is non-trivial; deferred until a real use case demands it.
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="document-list"]
 [data-pyric-ui="document-list"][data-pyric-loading]
@@ -79,6 +84,7 @@ This is **read-via-get, not realtime.** For realtime, use `useFirestoreCollectio
 [data-pyric-document-select]
 [data-pyric-load-more]
 ```
+
 ## Notes
 
 - **Infinite scroll** isn't built in. Wire your own `IntersectionObserver` against the last rendered row's element and call `onLoadMore` when it intersects.

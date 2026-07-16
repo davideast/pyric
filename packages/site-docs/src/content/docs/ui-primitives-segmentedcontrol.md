@@ -8,10 +8,13 @@ order: 23006
 
 Headless single-select chip group — reads as one widget, wired as an ARIA
 radiogroup.
+
 ```ts
 import { SegmentedControl } from '@pyric/ui/primitives';
 ```
+
 ## Example
+
 ```tsx
 <SegmentedControl
   ariaLabel="Result filter"
@@ -24,6 +27,7 @@ import { SegmentedControl } from '@pyric/ui/primitives';
   onChange={setResult}
 />
 ```
+
 ## Props
 
 | Prop | Type | Required | Description |
@@ -38,12 +42,14 @@ import { SegmentedControl } from '@pyric/ui/primitives';
 / `error` to tint the active label. The library doesn't enumerate tones.
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="segmented-control"]              /* container */
 [data-pyric-segment]                             /* each option button */
 [data-pyric-segment][data-pyric-active]          /* the selected one */
 [data-pyric-segment-tone="error"]                /* tone-tinted options */
 ```
+
 ## Notes
 
 - Type-parameterized — `SegmentedControl<MyUnion>` keeps `value` / `onChange`

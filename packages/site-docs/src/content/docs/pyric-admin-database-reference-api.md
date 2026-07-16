@@ -22,9 +22,11 @@ absent.
 ## Initialization
 
 ### `getDatabase(app?, legacyUrl?)`
+
 ```ts
 function getDatabase(app?: PyricAdminApp, legacyUrl?: string): Database;
 ```
+
 Mirrors firebase-admin's `getDatabase(app?)`:
 
 - `getDatabase()`: default database for the `'[DEFAULT]'` sandbox app, resolved through `pyric-admin/app`'s registry. Throws `app/no-app` when nothing is initialized.
@@ -34,9 +36,11 @@ Mirrors firebase-admin's `getDatabase(app?)`:
 Successive calls for the same sandbox return handles that share data, matching firebase-admin's singleton-per-app semantics. Throws `TypeError` for an unbranded value.
 
 ### `getDatabaseWithUrl(url, app?)`
+
 ```ts
 function getDatabaseWithUrl(url: string, app?: PyricAdminApp): Database;
 ```
+
 Uses firebase-admin's exact URL-first argument order. The Functions SDK calls
 this export when materializing `event.data.ref`. Pyric's first Functions slice
 has one shared RTDB instance, so the URL selects that instance; it does not
@@ -62,51 +66,65 @@ create a separate sandbox tree.
 Every implemented method is `async` and shapes its results like firebase-admin. Properties on every ref: `key` (last segment, `null` at root), `parent` (`null` at root), `root`, `path` (canonical, `/`-prefixed), `ref` (itself), `database`, `toString()` (returns `sandbox://rtdb<path>`), `isEqual(other)` (path comparison), `toJSON()`.
 
 ### `ref.set(value)`
+
 ```ts
 set(value: unknown): Promise<void>;
 ```
+
 Arms: local, remote. Writes `value` at the ref's path; `null` deletes. A root-level `set` must be an object (or `null` to clear). Deleting trims now-empty ancestor objects, preserving the RTDB invariant that empty nodes don't exist. Remote relays `rtdb.set`.
 
 ### `ref.get()`
+
 ```ts
 get(): Promise<DataSnapshot>;
 ```
+
 Arms: local, remote. Reads the path and resolves to a `DataSnapshot`. Absent paths resolve to a snapshot with `exists() === false` and `val() === null`. Remote relays `rtdb.get`.
 
 ### `ref.once(eventType)`
+
 ```ts
 once(eventType: EventType): Promise<DataSnapshot>;
 ```
+
 Arms: local, remote. Only `'value'` is supported; any other event type throws. Local reads the tree directly. Remote establishes a value subscription, resolves with the initial snapshot, then detaches.
 
 ### `ref.update(values)`
+
 ```ts
 update(values: object): Promise<void>;
 ```
+
 Arms: local, remote, with a real semantic difference:
 
 - **Local: shallow merge.** Each key in `values` replaces the corresponding child at the ref's path (a key may itself be a relative path like `'a/b'`). A `null` value deletes that child. There is no multi-path atomicity guarantee beyond the synchronous loop.
 - **Remote: full multi-path update.** Relays `rtdb.update`, and the worker applies `pyric/database`'s modular multi-path semantics.
 
 ### `ref.remove()`
+
 ```ts
 remove(): Promise<void>;
 ```
+
 Arms: local, remote. Deletes the subtree; equivalent to `set(null)`. Remote relays `rtdb.remove`.
 
 ### `ref.push(value?, onComplete?)`
+
 ```ts
 push(value?: unknown, onComplete?: (err: Error | null) => void): ThenableReference;
 ```
+
 Arms: local, remote. Mints a 20-character push id with the same algorithm as firebase-js-sdk's published `nextPushId`, so sandbox keys are shape-compatible with production keys and sort chronologically. The returned `ThenableReference` exposes `.key` synchronously on both arms.
 
 - Local: the write is synchronous; `.then()` resolves immediately.
 - Remote: the client mints the id and relays `rtdb.push` carrying it; `.then()` settles when the relayed write commits, and a failure rejects the thenable and reaches `onComplete`. A bare `push()` performs no write, matching upstream.
 
 ### `ref.child(path)`
+
 ```ts
 child(path: string): Reference;
 ```
+
 Arms: local, remote. Pure path manipulation; returns a ref at `<this>/path`.
 
 ---
@@ -145,6 +163,7 @@ Use Firebase Admin directly when production needs these methods.
 ## `DataSnapshot`
 
 One snapshot implementation serves both sandbox arms (the remote arm feeds it wire values). Implemented surface:
+
 ```ts
 key: string | null;
 ref: Reference;
@@ -159,6 +178,7 @@ toJSON(): unknown;
 getPriority(): string | number | null; // always null
 exportVal(): unknown; // equals val(): no priorities are modeled
 ```
+
 ---
 
 ## Path safety (sandbox-only constraint)

@@ -12,14 +12,17 @@ Sandbox-only modular Web SDK Auth mirror. It implements `firebase/auth`'s tree-s
 Application code keeps canonical `firebase/auth` imports. Pyric's Vite/import-map or Node register boundary swaps those imports to this mirror in sandbox mode; production installs no swap and continues loading Firebase itself. Direct `pyric/auth` imports always select sandbox behavior.
 
 ## Install
+
 ```bash
 bun add pyric firebase
 ```
+
 `firebase` supplies the canonical production package. It is not a runtime dependency of the `pyric/auth` mirror.
 
 ## A 30-second example
 
 Sandbox backend:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sandbox as authSandbox } from 'pyric/auth';
@@ -38,7 +41,9 @@ onAuthStateChanged(auth, (user) => {
 await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 console.log(auth.currentUser?.uid); // 'alice'
 ```
+
 Production uses the canonical package without a Pyric swap:
+
 ```ts
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
@@ -48,6 +53,7 @@ const auth = getAuth(app);
 
 await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 ```
+
 ## What's in v0
 
 The deliberately-minimal surface covers everything an `appSource` likely needs:

@@ -36,6 +36,7 @@ We chose classes. The class-instances approach pulled together best in practice:
 ## The `RulesValue` base class
 
 All wrappers extend `RulesValue`. The base class is intentionally thin:
+
 ```ts
 abstract class RulesValue {
   readonly typeName: string;            // 'timestamp', 'path', 'bytes', ...
@@ -46,6 +47,7 @@ abstract class RulesValue {
   toString(): string;
 }
 ```
+
 `callMethod` and `binaryOp` exist so the evaluator can dispatch generically: `if (lhs instanceof RulesValue) return lhs.callMethod(method, args)`. The handler doesn't need a per-type switch; the polymorphism does the work.
 
 `typeName` is the lowercase identifier the rules engine uses for the `is` operator. `request.time is timestamp` works because `Timestamp.typeName === 'timestamp'`.

@@ -28,11 +28,13 @@ End-to-end coverage: see `packages/pyric/test/storage/session-archive.test.ts`.
 ### The sandbox `getDownloadURL` boundary
 
 The sandbox mirror returns a page-local `blob:` URL over the rules-checked bytes. Production builds resolve `firebase/storage` directly and therefore receive Firebase's token-signed HTTPS URL:
+
 ```ts
 const url = await getDownloadURL(ref(storage, 'sessions/n1'));
 // ... use url ...
 URL.revokeObjectURL(url);  // free the memory when done
 ```
+
 The sandbox URL is a snapshot, not a Firebase download token. It cannot be shared outside the page and expires when revoked or when the page unloads.
 
 ## What's deferred

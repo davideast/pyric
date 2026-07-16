@@ -22,12 +22,15 @@ The surface is grouped around the things you can do with a rules source:
 Parse, Lint, Validate, Simulate, and Test all sit behind the public front door: `firestoreRules`, `rtdbRules`, `lint`, `assertCase`, and `explainCase`. The parser, linter, validator, simulator, modules resolver, and agent-tool factories are internal engine seams, exposed only under `pyric/rules/internal*` for callers that need them directly. They may change without notice.
 
 ## Install
+
 ```bash
 bun add pyric
 # or
 npm install pyric
 ```
+
 ## A 30-second example
+
 ```ts
 import { firestoreRules } from 'pyric/rules';
 
@@ -55,16 +58,21 @@ const { passed, failed } = ruleset.simulate([
 ]);
 console.log(passed, failed); // 1 0
 ```
+
 `firestoreRules(source)` throws `RulesCompileError` if the source doesn't parse. `simulate` never throws on rule outcomes; failures and unsupported cases come back in the result, not as exceptions.
 
 The RTDB constraints DSL (`defineRtdbRules`, `ruleset`, `schemaRules`, and the combinators) is public and lives on the same root entry:
+
 ```ts
 import { rtdbRules, defineRtdbRules, ruleset, allow } from 'pyric/rules';
 ```
+
 The parser, validator, simulator internals, modules resolver, and agent-tool factories live on `pyric/rules/internal` and `pyric/rules/internal/node`. They're not part of the public contract:
+
 ```ts
 import { resolveModules, createFirestoreRulesTools } from 'pyric/rules/internal/node';
 ```
+
 ## Where to go next
 
 Documentation is organised under [`docs/`](../pyric-rules/) following the [Diataxis](https://diataxis.fr/) framework:

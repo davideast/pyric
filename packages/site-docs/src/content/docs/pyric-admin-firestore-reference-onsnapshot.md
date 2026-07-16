@@ -20,6 +20,7 @@ The Firebase Admin SDK's `onSnapshot` lives on the reference (`db.doc('x').onSna
 The reference-method form (`ref.onSnapshot(...)`) is also available because the underlying Firestore reference still carries that method.
 
 ## Document overloads
+
 ```ts
 // (observer)
 onSnapshot(ref: DocumentReference, observer: SnapshotObserver<DocumentSnapshot>): Unsubscribe;
@@ -29,21 +30,26 @@ onSnapshot(ref: DocumentReference, options: SnapshotListenOptions, observer: Sna
 onSnapshot(ref: DocumentReference, onNext: (snap: DocumentSnapshot) => void, onError?: (error: unknown) => void): Unsubscribe;
 onSnapshot(ref: DocumentReference, options: SnapshotListenOptions, onNext: (snap: DocumentSnapshot) => void, onError?: (error: unknown) => void): Unsubscribe;
 ```
+
 ## Query overloads
 
 Same four shapes against `Query`:
+
 ```ts
 onSnapshot(query: Query, observer: SnapshotObserver<QuerySnapshot>): Unsubscribe;
 onSnapshot(query: Query, options: SnapshotListenOptions, observer: SnapshotObserver<QuerySnapshot>): Unsubscribe;
 onSnapshot(query: Query, onNext: (snap: QuerySnapshot) => void, onError?: (error: unknown) => void): Unsubscribe;
 onSnapshot(query: Query, options: SnapshotListenOptions, onNext: (snap: QuerySnapshot) => void, onError?: (error: unknown) => void): Unsubscribe;
 ```
+
 ## `SnapshotListenOptions`
+
 ```ts
 interface SnapshotListenOptions {
   includeMetadataChanges?: boolean;
 }
 ```
+
 Accepted for shape parity. `includeMetadataChanges` has no observable effect in the sandbox (there's no offline cache and no pending-writes window), so `metadata.fromCache` and `metadata.hasPendingWrites` are always `false`.
 
 ## What `Unsubscribe` does

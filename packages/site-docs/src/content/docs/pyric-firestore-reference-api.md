@@ -30,14 +30,17 @@ local. Production uses Firebase's untouched implementation through package
 resolution.
 
 ## Reference types
+
 ```ts
 interface DocumentReference<T = DocumentData> { readonly id: string; readonly path: string; }
 interface CollectionReference<T = DocumentData> { readonly id: string; readonly path: string; }
 interface Query<T = DocumentData> { readonly _isQuery?: true; }
 ```
+
 References and queries are backend-opaque. Don't read or mutate their properties beyond `id` and `path`; pass them to free functions instead.
 
 ## Snapshot types
+
 ```ts
 interface DocumentSnapshot<T = DocumentData> {
   readonly id: string;
@@ -60,6 +63,7 @@ interface QuerySnapshot<T = DocumentData> {
   docChanges(opts?: DocChangesOptions): DocumentChange<T>[];
 }
 ```
+
 ## Reads
 
 - `getDoc(ref)`
@@ -84,6 +88,7 @@ interface QuerySnapshot<T = DocumentData> {
 ## Queries
 
 Build a query by composing constraints:
+
 ```ts
 query(
   collection(db, 'notes'),
@@ -93,6 +98,7 @@ query(
   limit(20),
 );
 ```
+
 Constraint constructors:
 
 - `where(field, op, value)`
@@ -129,6 +135,7 @@ Returns an `Unsubscribe` (`() => void`).
 - `snapshotEqual(a, b)`: compare two `DocumentSnapshot`s or `QuerySnapshot`s.
 
 ## Sentinels
+
 ```ts
 import {
   FieldValue,
@@ -140,15 +147,19 @@ import {
   deleteField,
 } from 'pyric/firestore';
 ```
+
 The factory functions (`serverTimestamp()`, `increment(n)`, etc.) match `firebase/firestore`. `FieldValue` and `Timestamp` are also exported as classes for code that prefers the class form.
 
 ## Converters
+
 ```ts
 withConverter(parent, converter)
 ```
+
 Mirrors `firebase/firestore`'s `withConverter`. Apply to a `DocumentReference`, `CollectionReference`, or `Query`; the returned reference carries the converter through subsequent reads and writes.
 
 ## Sandbox-only operations
+
 ```ts
 import {
   inspect,
@@ -162,6 +173,7 @@ seedDocuments(sandbox, documents)
 snapshotDocuments(sandbox)
 inspect(sandbox)
 ```
+
 These controls accept the owning local `Sandbox`, not a `Firestore` handle. They
 are deliberately separate from the `firebase/firestore`-compatible data-plane
 surface. Remote sandboxes are rejected by the type contract.

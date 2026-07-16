@@ -13,6 +13,7 @@ around the application instead of replacing imports with `pyric/firestore`.
 ## Node applications
 
 Given existing code such as:
+
 ```ts
 import { initializeApp } from 'firebase/app';
 import { doc, getDoc, getFirestore } from 'firebase/firestore';
@@ -21,10 +22,13 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const snapshot = await getDoc(doc(db, 'notes/n1'));
 ```
+
 run it through the register hook:
+
 ```bash
 PYRIC_SANDBOX=local node --import @pyric/cli/register app.mjs
 ```
+
 The hook resolves `firebase/app` and `firebase/firestore` to the sandbox
 mirrors. Without the environment variable and preload, Node resolves the real
 Firebase packages.
@@ -32,6 +36,7 @@ Firebase packages.
 ## Vite applications
 
 Add the plugin to the development configuration:
+
 ```ts
 import { defineConfig } from 'vite';
 import { pyricSandbox } from '@pyric/cli/vite';
@@ -40,6 +45,7 @@ export default defineConfig({
   plugins: [pyricSandbox()],
 });
 ```
+
 The plugin swaps canonical Firebase specifiers for application code and its
 dependencies. Production builds remain Firebase unless sandbox build swapping
 is explicitly enabled.
@@ -48,6 +54,7 @@ is explicitly enabled.
 
 Rules, fixtures, and state inspection are intentionally separate from the
 Firebase-shaped data plane:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
@@ -58,6 +65,7 @@ seedDocuments(sandbox, {
   'notes/n1': { title: 'fixture' },
 });
 ```
+
 Use direct sandbox construction in tests that need these controls. Application
 modules should continue using canonical Firebase imports.
 

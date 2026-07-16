@@ -1,9 +1,9 @@
 ---
 title: "Firestore rules limits, measured"
 navLabel: "Rules limits"
-group: "Secure & debug"
-section: ""
-order: 3008
+group: "Inspect and correct"
+section: "Correct Security Rules"
+order: 3010
 description: "Know the measured limits of the production rules compiler and evaluator, with exact numbers, so your rules compile the first time."
 ---
 

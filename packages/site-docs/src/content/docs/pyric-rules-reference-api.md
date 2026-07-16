@@ -59,10 +59,12 @@ Throws on a failed or abstained case result. `RulesUnsupportedError` for an abst
 Simulates that single case and throws on a miss, with the same semantics as the result form: `RulesAssertionError` (message is the `explainCase` trace) when the decision didn't match the expectation, `RulesUnsupportedError` on a simulator abstention. The `source` form compiles Firestore source first (throwing `RulesCompileError` if it doesn't parse).
 
 Runner wiring:
+
 ```ts
 const ruleset = firestoreRules(source);
 for (const c of cases) test(c.description, () => assertCase(ruleset, c));
 ```
+
 ### `explainCase(result: CaseResult | RtdbCaseResult): string`
 
 The single sanctioned trace renderer. Used as the message of the errors `assertCase` throws, and available directly for logging a result without asserting.
@@ -80,6 +82,7 @@ See [Errors](../pyric-rules-reference-errors/) for the full picture, including t
 ## Unified issue type
 
 ### `RuleIssue`
+
 ```ts
 interface RuleIssue {
   code: string;
@@ -91,6 +94,7 @@ interface RuleIssue {
   origin: 'parse' | 'validate' | 'lint';
 }
 ```
+
 Replaces the old `LintWarning`, `ValidationFinding`, and `ParseError` shapes with one. `origin` records which stage produced the issue: `'parse'` for compile blockers, `'validate'` for structural/security findings, `'lint'` for budget/quality/hallucination warnings. Filtering on `origin === 'parse'` gets the compile blockers without needing three separate types.
 
 ## Case and result types

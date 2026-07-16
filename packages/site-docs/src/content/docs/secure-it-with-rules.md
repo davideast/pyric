@@ -1,9 +1,9 @@
 ---
 title: "Prove a user can touch only their own data"
 navLabel: "Security Rules"
-group: "Secure & debug"
-section: ""
-order: 3001
+group: "Inspect and correct"
+section: "Correct Security Rules"
+order: 3005
 description: "Write a rule, simulate a request against it, read the verdict, and deploy knowing what it allows."
 ---
 
@@ -18,6 +18,7 @@ Here is the loop.
 ## Write the rule
 
 A notes collection. Anyone signed in can read. Only the owner can write.
+
 ```rules
 rules_version = '2';
 service cloud.firestore {
@@ -29,9 +30,11 @@ service cloud.firestore {
   }
 }
 ```
+
 ## Simulate a request
 
 Now ask the question. No deploy, no network, no Firebase project. The simulator runs in-process.
+
 ```ts
 import { SimulateFirestoreRulesHandler } from 'pyric/rules';
 
@@ -59,14 +62,17 @@ const { data } = sim.simulate(source, [
 
 console.log(`${data.passed} passed, ${data.failed} failed`); // 2 passed, 0 failed
 ```
+
 ## Read the verdict
 
 Each result carries the decision and a trace of which rule made it. When a case surprises you, the trace is where you look:
+
 ```
 Rule #0 (read) → deny
 Rule #1 (write) → ALLOW
 Simulated: ALLOW
 ```
+
 And this is not only a test-time thing. While `pyric dev` runs, your `firestore.rules` is loaded into the sandbox and hot-reloaded on save, and every operation your app performs carries this same verdict.
 
 A denial in your running app tells you the rule, the path, and the data that produced it. See [read a denial and understand it](../read-a-denial/).
@@ -74,9 +80,11 @@ A denial in your running app tells you the rule, the path, and the data that pro
 ## Deploy
 
 When the answers hold, ship the same file to production with `firebase-tools`:
+
 ```bash
 firebase deploy --only firestore:rules
 ```
+
 Gate on error-severity lint findings in CI first (`lintFirestoreRules` / `pyric firestore rules lint`), so the mistakes that produce opaque production failures get stopped at the door.
 
 ## Where the wing goes deeper

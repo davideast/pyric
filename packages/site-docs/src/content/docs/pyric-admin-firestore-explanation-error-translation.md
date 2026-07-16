@@ -10,12 +10,15 @@ order: 19012
 Every operation through a `SandboxFirestore` handle that fails throws a `SandboxError`. The underlying simulator throws `FirestoreSimError`; the admin handle wraps every method, catches those, and re-throws as `SandboxError` with structured `denialContext`. This page explains the layer.
 
 ## What the wrapping does
+
 ```ts
 import { wrapWithErrorTranslation } from './error-translation.js';
 
 const fresh = wrapWithErrorTranslation(buildFirestoreHandle(ctx), ctx);
 ```
+
 The wrapper covers every method on the handle plus every object returned from it: `DocumentReference`, `Query`, `WriteBatch`, `Transaction`. Inside, the simulator might throw a `FirestoreSimError('permission-denied', ..., { request, resource, debugMessages })`. The wrapper translates that to:
+
 ```ts
 new SandboxError({
   code: 'permission-denied',
@@ -28,6 +31,7 @@ new SandboxError({
   },
 });
 ```
+
 Same shape every consumer sees. Catch with `instanceof SandboxError`, switch on `code`.
 
 ## Why translate
@@ -54,9 +58,11 @@ The `DenialContext` shape is also what `Sandbox.onDenial` and `Sandbox.onSnapsho
 The wrapper attaches the original `SandboxContext` to every wrapped value via a `CONTEXT_SYMBOL` property. This isn't for application code: it's so `onSnapshot` can recover the context from a `DocumentReference` passed to it.
 
 When you call:
+
 ```ts
 onSnapshot(db.doc('notes/n1'), callback);
 ```
+
 The `db.doc('notes/n1')` is a `DocumentReference`. `onSnapshot` doesn't get the context handed to it directly. It gets the ref. Without the stash, `onSnapshot` couldn't tell which auth identity to register the listener under.
 
 `CONTEXT_SYMBOL` is non-enumerable and uses a unique symbol, so it doesn't show up in `Object.keys`, doesn't serialise, doesn't appear in `console.log` output. Application code never sees it.
@@ -72,6 +78,7 @@ The reason for this dance is that the standalone function can be called against 
 ## What this means for tests
 
 Tests catching denials don't need to know about `FirestoreSimError`, `LocalEnvironment`, or any simulator internals. They write:
+
 ```ts
 try {
   await bobDb.collection('notes').doc('n1').update({ title: 'tamper' });
@@ -81,6 +88,7 @@ try {
   }
 }
 ```
+
 Same shape as catching denials from `Sandbox.onDenial`. Same shape as catching denials from a production runtime (with `'permission-denied'` from `firebase-admin/firestore`'s error class). The translation layer hides the simulator's existence.
 
 ## When translation doesn't happen

@@ -3,7 +3,7 @@ title: "pyric/app compatibility matrix"
 navLabel: "App"
 group: "Conformance"
 section: ""
-order: 8002
+order: 6004
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

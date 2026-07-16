@@ -1,8 +1,8 @@
 ---
 title: "What's experimental"
-group: "Trust"
+group: "Conformance"
 section: ""
-order: 7002
+order: 6002
 description: "Know exactly which parts of Pyric are v1 and which are still earning it."
 ---
 

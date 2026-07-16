@@ -14,6 +14,7 @@ The tool factories (`createFirestoreRulesTools`, `createFirestoreSimulatorTools`
 ## Without project credentials: lint / resolve / simulate
 
 `createFirestoreRulesTools()` returns three handlers:
+
 ```ts
 import { createFirestoreRulesTools } from 'pyric/rules/internal/node';
 import { createToolRegistry } from '@inbrowser/agent';
@@ -26,11 +27,13 @@ for (const handler of createFirestoreRulesTools()) {
 registry.list().map((h) => h.name);
 // → ['firestore_lint_rules', 'firestore_resolve_modules', 'firestore_simulate_rules']
 ```
+
 These are pure-local: no network, no credentials, safe to expose anywhere.
 
 ## With a `ProjectScope`: also expose live testing
 
 Pass a `ProjectScope` and a fourth handler appears: `firestore_test_rules`, which calls Google's Rules Test API.
+
 ```ts
 import { fromServiceAccount } from '@pyric/cli/credentials/node';
 
@@ -44,11 +47,13 @@ registry.list().map((h) => h.name);
 // → ['firestore_lint_rules', 'firestore_resolve_modules',
 //    'firestore_simulate_rules', 'firestore_test_rules']
 ```
+
 Only attach `scope` when the host actually has credentials. The factory drops `firestore_test_rules` cleanly when `scope` is omitted, so an unsuspecting agent can't try to call it.
 
 ## Dispatch a tool call
 
 `@inbrowser/agent` does the dispatch:
+
 ```ts
 import { createDispatch } from '@inbrowser/agent';
 
@@ -66,11 +71,13 @@ const result = await dispatch.execute(
 console.log(result.summary); // 'Linted rules source'
 console.log(result.data);    // the full internal LintResult
 ```
+
 The `ToolResult` shape is uniform across handlers: `{ ok, summary, data }`. Look at `summary` for a one-line agent-facing message; `data` is the structured payload.
 
 ## Stateful simulator tools (Slice 8 scaffold)
 
 `createFirestoreSimulatorTools({ resolveSandbox })` is the entry point for the seven-tool simulator family that operates against a session-scoped `LocalEnvironment` from `pyric/sandbox`. It currently returns an empty array. The full implementation lands as consumers ask for it. The factory shape and dependency contract are stable; only the handlers are pending.
+
 ```ts
 import { createFirestoreSimulatorTools } from 'pyric/rules/internal/node';
 
@@ -79,6 +86,7 @@ const tools = createFirestoreSimulatorTools({
   resolveSandbox: () => sessionContext.localEnv,
 });
 ```
+
 The `resolveSandbox` resolver fires per dispatch, so hosts that reset or swap the sandbox transparently get a fresh environment without re-registering tools.
 
 ## Where to look next
