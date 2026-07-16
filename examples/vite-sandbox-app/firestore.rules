@@ -11,13 +11,6 @@ service cloud.firestore {
                             && resource.data.uid == request.auth.uid;
     }
 
-    match /zones/{zoneId} {
-      allow read, write: if true;
-    }
-    match /zones/{zoneId}/sensors/{sensorId} {
-      allow read, write: if true;
-    }
-
     // Default deny — opt in per collection.
     match /{document=**} {
       allow read, write: if false;

@@ -32,10 +32,10 @@ describe('SandboxSnapshot.services.auth.providers', () => {
   it('reflects toggles made via sandbox.setAuthProviderConfig', () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
-    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     authSandbox.setAuthProviderConfig(auth, 'password', false);
     const authSnap = sandbox.snapshot().services.auth as { providers: Record<string, boolean> };
-    expect(authSnap.providers).toEqual({ password: false, anonymous: true, 'google.com': true });
+    expect(authSnap.providers).toEqual({ password: false, anonymous: true, 'google.com': false });
   });
 });
 
@@ -46,7 +46,7 @@ describe('auth provider-config persistence — round-trip', () => {
     const sandbox1 = initializeSandbox();
     await sandbox1.enablePersistence({ key: 'auth:providers:rt', injectedBackend: backend });
     const auth1 = getAuth(sandbox1);
-    authSandbox.setAuthProviderConfig(auth1, 'google.com', true);
+    authSandbox.setAuthProviderConfig(auth1, 'google.com', false);
     authSandbox.setAuthProviderConfig(auth1, 'anonymous', false);
     await sandbox1.flush();
 
@@ -56,7 +56,7 @@ describe('auth provider-config persistence — round-trip', () => {
 
     const config = authSandbox.getAuthProviderConfig(auth2);
     const byId = Object.fromEntries(config.map((c) => [c.providerId, c.enabled]));
-    expect(byId).toEqual({ password: true, anonymous: false, 'google.com': true });
+    expect(byId).toEqual({ password: true, anonymous: false, 'google.com': false });
   });
 
   it('legacy blob without a `providers` key restores to documented defaults', async () => {
@@ -94,7 +94,7 @@ describe('auth provider-config persistence — round-trip', () => {
     await sandbox.enablePersistence({ key: 'auth:providers:autoflush', injectedBackend: backend, flushIntervalMs: 20 });
     const auth = getAuth(sandbox);
 
-    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     await sleep(60);
 
     const records: [string, unknown][] = [];
@@ -103,7 +103,7 @@ describe('auth provider-config persistence — round-trip', () => {
     }
     const { services } = deserializeFromBuckets(records);
     const providers = (services as { auth?: { providers?: Record<string, boolean> } }).auth?.providers;
-    expect(providers?.['google.com']).toBe(true);
+    expect(providers?.['google.com']).toBe(false);
   });
 });
 
@@ -111,14 +111,14 @@ describe('sandbox.reset() and provider config', () => {
   it('reset() does NOT clear provider config — same precedent as the user DB', () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
-    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     authSandbox.setAuthProviderConfig(auth, 'password', false);
 
     sandbox.reset();
 
     const config = authSandbox.getAuthProviderConfig(auth);
     const byId = Object.fromEntries(config.map((c) => [c.providerId, c.enabled]));
-    expect(byId).toEqual({ password: false, anonymous: true, 'google.com': true });
+    expect(byId).toEqual({ password: false, anonymous: true, 'google.com': false });
   });
 
   it('a brand-new sandbox (not a reset() of an existing one) starts at the documented defaults', () => {
