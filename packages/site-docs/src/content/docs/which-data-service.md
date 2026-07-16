@@ -1,9 +1,9 @@
 ---
 title: "Choose a Firebase database"
 navLabel: "Which data service?"
-group: "Develop with Firebase APIs"
+group: "Build"
 section: ""
-order: 2008
+order: 2007
 description: "Make the Firestore or Realtime Database decision from Firebase's production model, then check the corresponding Pyric boundary."
 ---
 
@@ -13,7 +13,14 @@ Choosing between Cloud Firestore and Realtime Database is a Firebase architectur
 
 After choosing the production service, use the matching local path:
 
-- [Run Cloud Firestore locally](../store-and-query-data/), then inspect the [Firestore conformance matrix](../pyric-firestore-compat/).
-- [Run Realtime Database locally](../sync-realtime-data/), then inspect the [Realtime Database conformance matrix](../pyric-database-compat/).
+- [Run Cloud Firestore locally](../store-and-query-data/).
+- [Run Realtime Database locally](../sync-realtime-data/).
 
-The conformance matrices describe Pyric's current local boundary. They should not replace Firebase's production architecture guidance.
+Support for each service changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
+
+```bash
+pyric can-i-use firestore/getDocs
+pyric can-i-use rtdb/onValue
+```
+
+The answer separates availability from fidelity and assurance, and describes Pyric's current local boundary. It should not replace Firebase's production architecture guidance.

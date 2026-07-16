@@ -3,7 +3,7 @@ title: "API reference: @pyric/ui/firestore"
 navLabel: "@pyric/ui/firestore"
 group: "API reference"
 section: "@pyric/ui"
-order: 24041
+order: 9041
 description: "Published declarations for @pyric/ui/firestore."
 kind: "api"
 apiPackage: "@pyric/ui"

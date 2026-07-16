@@ -3,7 +3,7 @@ title: "How to test rule expressions independently"
 navLabel: "Test rule expressions"
 group: "pyric / storage"
 section: "How-to"
-order: 14005
+order: 15005
 ---
 # How to test rule expressions independently
 

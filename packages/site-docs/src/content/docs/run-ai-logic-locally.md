@@ -1,7 +1,7 @@
 ---
 title: "Run Firebase AI Logic locally"
 navLabel: "Run AI Logic locally"
-group: "Develop with Firebase APIs"
+group: "Build"
 section: ""
 order: 2006
 description: "Keep Firebase AI Logic application code unchanged while model responses stay deterministic or come from a local model."
@@ -46,6 +46,14 @@ Local engines do not reproduce model quality, safety policy, latency, quotas, bi
 
 ## Check the supported boundary
 
-Read the generated [AI Logic conformance matrix](../pyric-ai-compat/) for the mirrored API, verified wire behavior, documented differences, unsupported APIs, and unverified rows.
+AI Logic support changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
+
+```bash
+pyric can-i-use ai/getGenerativeModel
+pyric can-i-use ai/generateContent
+pyric can-i-use ai/generateContentStream
+```
+
+The answer separates availability from fidelity and assurance, and points to the evidence behind the result.
 
 Continue with [Inspect and correct](../see-whats-happening/) or [ship unchanged](../ship-to-production/).

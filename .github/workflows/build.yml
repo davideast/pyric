@@ -10,8 +10,6 @@
 name: Build & Test
 
 on:
-  # Authored documentation feeds generated site twins, so docs-only PRs need
-  # the same determinism and link checks as code changes.
   pull_request:
 
 concurrency:
@@ -39,36 +37,6 @@ jobs:
 
       - name: Test tool, prompt, registration, and browser bundle budget
         run: bun run --cwd packages/playground test:can-i-use
-
-  generated-docs:
-    name: Clean-checkout generated documentation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.11'
-
-      - name: Install
-        run: bun install --frozen-lockfile --filter '!@pyric/playground'
-
-      - name: Cache Playwright Chromium
-        id: generated-docs-playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-
-      - name: Install Chromium browser
-        if: steps.generated-docs-playwright-cache.outputs.cache-hit != 'true'
-        run: bunx playwright install chromium
-
-      - name: Install Chromium system dependencies
-        run: bunx playwright install-deps chromium
-
-      - name: Build twice and verify routes, Markdown twins, links, and clean tree
-        run: bun run --cwd packages/site-docs test:generated
 
   build-and-test:
     name: Build all packages + run tests

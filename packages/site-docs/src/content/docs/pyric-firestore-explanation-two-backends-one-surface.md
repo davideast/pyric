@@ -3,7 +3,7 @@ title: "Why package resolution owns backend selection"
 navLabel: "Two backends, one surface"
 group: "pyric / firestore"
 section: "Explanation"
-order: 11015
+order: 12015
 ---
 # Why package resolution owns backend selection
 

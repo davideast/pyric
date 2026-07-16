@@ -11,7 +11,14 @@ Choosing between Cloud Firestore and Realtime Database is a Firebase architectur
 
 After choosing the production service, use the matching local path:
 
-- [Run Cloud Firestore locally](./store-and-query-data.md), then inspect the [Firestore conformance matrix](../../../../packages/pyric/docs/firestore/COMPAT.md).
-- [Run Realtime Database locally](./sync-realtime-data.md), then inspect the [Realtime Database conformance matrix](../../../../packages/pyric/docs/database/COMPAT.md).
+- [Run Cloud Firestore locally](./store-and-query-data.md).
+- [Run Realtime Database locally](./sync-realtime-data.md).
 
-The conformance matrices describe Pyric's current local boundary. They should not replace Firebase's production architecture guidance.
+Support for each service changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
+
+```bash
+pyric can-i-use firestore/getDocs
+pyric can-i-use rtdb/onValue
+```
+
+The answer separates availability from fidelity and assurance, and describes Pyric's current local boundary. It should not replace Firebase's production architecture guidance.

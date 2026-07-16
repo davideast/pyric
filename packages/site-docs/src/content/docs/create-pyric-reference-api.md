@@ -3,7 +3,7 @@ title: "API reference: create-pyric"
 navLabel: "create-pyric"
 group: "API reference"
 section: "create-pyric"
-order: 24002
+order: 9002
 description: "Published declarations for create-pyric."
 kind: "api"
 apiPackage: "create-pyric"

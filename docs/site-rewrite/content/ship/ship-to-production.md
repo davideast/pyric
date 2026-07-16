@@ -83,4 +83,4 @@ The full flag list is in the [CLI reference](../../../../packages/cli/docs/refer
 
 ## Where to go next
 
-If the project itself isn't stood up yet, providers, domains, database, Storage, that is [Set up the project](./set-up-the-project.md). To make the captured sessions you verify richer, see [Shape your data](../observe/shape-your-data.md).
+To make the captured sessions you verify richer, see [Shape your data](../observe/shape-your-data.md). Use the Firebase Console or `firebase-tools` for production project setup.

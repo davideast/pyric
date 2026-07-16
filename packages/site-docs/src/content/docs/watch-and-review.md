@@ -1,9 +1,9 @@
 ---
 title: "Watch the agent work, then check it"
 navLabel: "Review agent activity"
-group: "Inspect and correct"
-section: "Inspect the sandbox"
-order: 3004
+group: "Work with an agent"
+section: ""
+order: 6003
 description: "See every operation your agent performs, live, with the verdict that decided it."
 ---
 

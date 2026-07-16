@@ -1,60 +1,186 @@
 ---
-title: Firestore Rules compiler and evaluator limits
+title: Fix Firestore Security Rules limit failures
 navLabel: Rules limits
-outcome: Use measured production compiler and evaluator limits before a ruleset reaches Firebase.
+outcome: Recognise a production Rules limit, see the invalid shape, and replace it with a valid one.
 status: draft
 ---
 
-# Firestore Rules compiler and evaluator limits
+# Fix Firestore Security Rules limit failures
 
-A ruleset can be syntactically perfect and still fail two ways: a 400 at deploy with no useful message, or a silent 403 at runtime that looks exactly like a denial you wrote. Both come from real limits in the production compiler and evaluator. The numbers below are researched and observed behavior: Pyric's tooling probed production Firestore directly, isolating one variable at a time, and recorded what it measured. They ship inside Pyric's linter as thresholds, so you do not have to remember them. It helps to know they exist.
+A ruleset can parse correctly and still fail to deploy, or return `permission-denied` because evaluation exhausted a production budget. Run the linter before deployment:
 
-## 256 KB of source
+```bash
+pyric firestore rules lint firestore.rules
+```
 
-For a long time the working assumption was a "30 to 37 KB practical limit" on rules source. It was wrong. That number was chain depth in disguise: complex rulesets happened to hit the depth limit at around that size, and size took the blame. Isolate the variable with a large file of trivial single-comparison rules and 250 KB compiles while 256 KB fails. The real source ceiling is 256 KB, and 58 KB of simple functions compiles without complaint.
+The examples below show the shape that fails and the change that fixes it.
 
-## 98 terms in a chain
+## Source larger than 256 KB
 
-A flat chain of `a && b && c && ...` compiles at 98 terms and fails at 99. Same for `||`. The limit is the depth of the top-level binary chain, not the number of comparisons: 90 OR branches of `(a && b)` pairs is 180 leaf expressions and compiles fine, because nesting halves the chain. When the linter reports CHAIN_DEPTH, the fix is grouping. `a && b && c && d` becomes `(a && b) && (c && d)`.
+Production accepts a rules source below 256 KB and rejects one at the ceiling. Generated lookup tables and repeated helpers are common causes.
 
-## 11 let bindings per function
+Invalid: duplicate the same helper into many match blocks until the source crosses the limit.
 
-Eleven `let` bindings in a function compile. Twelve fail, with the same unexplained 400 as every other compilation failure. The fix is inlining expressions into the return statement, or splitting the function.
+```rules
+match /teams/{teamId}/posts/{postId} {
+  function signedIn() { return request.auth != null; }
+  allow read: if signedIn();
+}
+match /teams/{teamId}/comments/{commentId} {
+  function signedIn() { return request.auth != null; }
+  allow read: if signedIn();
+}
+// ...thousands more duplicated blocks...
+```
 
-## 10 get() calls per evaluation
+Valid: define shared helpers once at the database scope and split data-driven lookup tables into Firestore documents.
 
-This limit is in Firebase's own documentation. What matters in practice is the caching: results are cached per unique path, so a shared `config()` helper called from six functions costs one read, while six different paths cost six. The linter warns past 5 distinct calls and errors at the documented 10.
+```rules
+match /databases/{database}/documents {
+  function signedIn() { return request.auth != null; }
 
-## The runtime evaluation budget
+  match /teams/{teamId}/posts/{postId} {
+    allow read: if signedIn();
+  }
+  match /teams/{teamId}/comments/{commentId} {
+    allow read: if signedIn();
+  }
+}
+```
 
-The compile-time limits fail loudly at deploy. This one does not. A rule whose evaluation is too expensive returns 403 PERMISSION_DENIED at runtime, indistinguishable from a denial you intended.
+## Boolean chain longer than 98 terms
 
-Pinning it down took a deploy-once, test-five-times methodology, and the result is not a single number:
+A flat `&&` or `||` chain compiles with 98 terms and fails at 99. The depth of the binary chain is the problem, not the number of leaf comparisons.
 
-| Shape | Total expressions | Result |
-|---|---|---|
-| 1 function of 98 expressions | 98 | 5/5 pass |
-| 2 functions of 60 | 120 | 5/5 pass |
-| 2 functions of 65 | 130 | 2/5 pass |
-| 3 functions of 20 | 60 | 2/5 pass |
-| 3 functions of 50 | 150 | 0/5 pass |
+Invalid:
 
-Read the second row against the fourth. Two function calls with 120 total expressions always pass. Three calls with half that total are already failing intermittently. Function calls carry heavy overhead, so the budget is call-count-dependent. And between "always passes" and "never passes" sits a genuine flaky zone, where the same rule passes most of the time and intermittently denies under load. The linter models this with conservative tiers: at one or two function calls it warns at 100 total expressions, at three or four it warns at 60, at five or more it warns at 40.
+```rules
+allow update: if check01() && check02() && check03()
+  // ...the same flat chain continues...
+  && check98() && check99();
+```
 
-## About 40,000 index entries in a config document
+Valid: group related checks into a balanced expression.
 
-The config-document pattern has a ceiling on the data side. A 129 KB config document with 19 thousand index entries writes fine. A 207 KB one with 39 thousand fails with "too many index entries for entity". If your lookup document is large, budget its keys, not only its bytes.
+```rules
+function identityChecks() {
+  return (check01() && check02()) && (check03() && check04());
+}
+function dataChecks() {
+  return (check05() && check06()) && (check07() && check08());
+}
+allow update: if identityChecks() && dataChecks();
+```
 
-## The budget that spans rules
+Grouping reduces chain depth. Splitting into functions also consumes evaluation budget, so lint the final shape rather than mechanically creating dozens of helpers.
 
-The runtime expression budget is shared across all the allow rules of a match block, evaluated in order. Non-matching rules spend from the same account as the rule that will eventually match, and the evidence was unambiguous: with sixteen checkers rules, reordering them changed which category of move failed. The structural fix, a unique first expression per rule, is covered in [rules patterns](../secure/rules-patterns.md). The linter flags the hazard as SHARED_GATE.
+## More than 11 `let` bindings in one function
 
-## Use the measured limits in the linter
+Eleven bindings compile; twelve fail.
 
-`pyric firestore rules lint` carries every number above as a threshold and reports the specific function, chain, or rule that crosses it, with a fix. It runs in-process, without a deploy, so the first time production sees your rules they already fit. From an agent, the same check is `firestore_lint_rules`.
+Invalid:
 
-One honest note. The Firebase emulator does not reproduce the cross-rule budget and does not enforce these thresholds at production values. Rules that pass there can still fail to deploy, or deny at runtime. The numbers on this page were measured against production because that is where they apply.
+```rules
+function canUpdate() {
+  let a = request.resource.data.a;
+  let b = request.resource.data.b;
+  let c = request.resource.data.c;
+  let d = request.resource.data.d;
+  let e = request.resource.data.e;
+  let f = request.resource.data.f;
+  let g = request.resource.data.g;
+  let h = request.resource.data.h;
+  let i = request.resource.data.i;
+  let j = request.resource.data.j;
+  let k = request.resource.data.k;
+  let l = request.resource.data.l;
+  return a && b && c && d && e && f && g && h && i && j && k && l;
+}
+```
 
-## Where to go next
+Valid: keep only values that are reused and read one-off fields directly.
 
-Lint and simulate together in [simulate and lint before you deploy](../secure/simulate-and-lint.md). To see rules engineered against these exact limits, read the [case studies](../secure/whats-possible.md).
+```rules
+function canUpdate() {
+  let next = request.resource.data;
+  return next.a && next.b && next.c && next.d
+    && next.e && next.f && next.g && next.h
+    && next.i && next.j && next.k && next.l;
+}
+```
+
+## More than 10 document access calls
+
+An evaluation may use at most 10 `get()` and `exists()` calls for a single-document request or query. Repeated reads of the same path are cached; reads of different paths are not.
+
+Invalid:
+
+```rules
+function hasEveryGrant() {
+  return exists(/databases/$(database)/documents/grants/01)
+    && exists(/databases/$(database)/documents/grants/02)
+    // ...different paths 03 through 10...
+    && exists(/databases/$(database)/documents/grants/11);
+}
+```
+
+Valid: put related grants in one document and read one path.
+
+```rules
+function grants() {
+  return get(/databases/$(database)/documents/config/grants).data;
+}
+allow write: if request.auth.uid in grants().editors;
+```
+
+## Too much runtime evaluation
+
+The runtime expression budget does not fail at deploy. An expensive rule returns `permission-denied`, which looks like a denial you intended. Measurements show the budget depends heavily on function-call count: two functions with 120 total expressions passed consistently, while three functions with 60 expressions already failed intermittently.
+
+Invalid: every allow rule starts by calling the same expensive gate, so a request pays for it repeatedly while Firestore evaluates possible rules.
+
+```rules
+allow update: if expensiveSharedGate() && isTitleEdit();
+allow update: if expensiveSharedGate() && isStatusEdit();
+allow update: if expensiveSharedGate() && isOwnerEdit();
+```
+
+Valid: put a cheap, mutually exclusive discriminator first, then call the expensive check only for the matching operation.
+
+```rules
+allow update: if isTitleEdit() && expensiveSharedGate();
+allow update: if isStatusEdit() && expensiveSharedGate();
+allow update: if isOwnerEdit() && expensiveSharedGate();
+```
+
+The linter reports this repeated-prefix hazard as `SHARED_GATE`. Its conservative expression warnings begin at 100 expressions for one or two function calls, 60 for three or four, and 40 for five or more.
+
+## Oversized indexed configuration documents
+
+Firestore rejected an observed configuration document near 40,000 index entries even though its bytes were below the document-size limit.
+
+Invalid: store tens of thousands of deeply indexed lookup keys in one document.
+
+```text
+/config/moves
+  moves: { ...approximately 40,000 indexed leaf values... }
+```
+
+Valid: split the lookup into bounded documents and exempt fields from indexing when queries never use them.
+
+```text
+/moveConfigs/checkers-white
+/moveConfigs/checkers-black
+```
+
+Index exemptions are configured in Firestore, not in Security Rules. Count indexed keys as well as document bytes when you design a lookup document.
+
+## Check the corrected rules
+
+Linting reports the function, chain, or repeated gate that crosses a threshold:
+
+```bash
+pyric firestore rules lint firestore.rules
+```
+
+Then run explicit allow and deny cases with `firestoreRules(source).simulate(cases)` or the `firestore_simulate_rules` MCP tool. The Firebase emulator does not reproduce all of these production thresholds, so an emulator pass is not evidence that the rules fit the production compiler and evaluator.

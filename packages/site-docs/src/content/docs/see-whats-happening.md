@@ -1,9 +1,9 @@
 ---
 title: "Watch every read, write, and denial live"
 navLabel: "Traffic & rule verdicts"
-group: "Inspect and correct"
-section: "Inspect the sandbox"
-order: 3001
+group: "Observe & shape"
+section: ""
+order: 4001
 description: "See every operation your backend performs, with its rules verdict, without writing a log line."
 ---
 

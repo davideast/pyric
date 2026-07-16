@@ -1,9 +1,9 @@
 ---
 title: "How does Pyric know it works like Firebase?"
 navLabel: "Conformance"
-group: "Conformance"
+group: "Trust"
 section: ""
-order: 6001
+order: 7001
 description: "See the production evidence behind Pyric's conformance claims, the gaps those claims leave open, and the checks to make before shipping."
 ---
 
@@ -14,9 +14,11 @@ If Pyric is a mirror of Firebase, how does it know it actually behaves like Fire
 Documentation describes intent. TypeScript declarations describe shape. Neither records what a deployed Firebase project actually did. The strongest available evidence is Firebase itself, so Pyric captures production behavior, compares the local result, and publishes where the two agree and where they do not. That is what it means to conform.
 
 The application call stays the same:
+
 ```ts
 import { signInWithEmailAndPassword } from 'firebase/auth';
 ```
+
 During Vite development, supported `firebase/*` imports resolve to Pyric. A production build resolves them to Firebase. Conformance asks whether the two implementations return the same value, error, state transition, or Rules verdict for a defined behavior.
 
 ## The conformance system
@@ -40,6 +42,7 @@ The observation records what Firebase did. The registry states the claim Pyric m
 ## Follow one behavior from Firebase to the matrix
 
 Consider a failed password sign-in. A probe signs into a real Firebase project with the wrong password and records the result, including the Firebase SDK version and project used for the capture:
+
 ```json
 {
   "name": "auth-wrong-password-error-code",
@@ -55,7 +58,9 @@ Consider a failed password sign-in. A probe signs into a real Firebase project w
   }
 }
 ```
+
 That committed [observation](https://github.com/davideast/pyric/blob/main/packages/conformance/observations/auth/auth-wrong-password-error-code.json) is a captured fact, not a summary of Firebase documentation. It is then attached to a specific registry row:
+
 ```ts
 {
   id: 'auth#15',
@@ -67,9 +72,11 @@ That committed [observation](https://github.com/davideast/pyric/blob/main/packag
   automation: 'oracle-backed',
 }
 ```
+
 The [registry row](https://github.com/davideast/pyric/blob/main/packages/conformance/registry/auth.ts) is the published claim. It names the production evidence, the broader local behavior test, the current status, and the strength of the automation behind it.
 
 Separately, an [oracle conformance test](https://github.com/davideast/pyric/blob/main/packages/pyric/test/auth/oracle-conformance.test.ts) reads the observation and requires Pyric to return the recorded error code:
+
 ```ts
 const observation = load('auth-wrong-password-error-code.json');
 
@@ -78,6 +85,7 @@ await expectCode(
   observation.code,
 );
 ```
+
 CI checks this chain in layers. Registry validation rejects missing or inconsistent evidence references. The library tests exercise local behavior, including observation-backed comparisons like this one. Selected production observations also have dedicated replay checks. The generated matrices are rendered from the model on a clean checkout; the docs build renders them twice and verifies deterministic output, routes, Markdown/HTML twins, and links.
 
 This distinction matters. `compat:check` validates the conformance model and generated results, but it does not replay every production observation by itself. The full CI suite combines those gates with the tests that exercise Pyric.
@@ -87,6 +95,7 @@ This distinction matters. `compat:check` validates the conformance model and gen
 A single API result can be captured as one observation. Security Rules need a broader method because a ruleset is a program. The relevant question is whether Firebase allows or denies a request under a particular ruleset, data state, identity, and operation.
 
 The [Rules corpus](https://github.com/davideast/pyric/tree/main/packages/conformance/rules-corpus) stores those inputs as scenarios. For example, Firestore treats direct access to a missing map field as a runtime error. Comparing that field with `null` denies the request, while the `in` operator performs an actual absence check:
+
 ```rules
 rules_version = '2';
 service cloud.firestore {
@@ -101,6 +110,7 @@ service cloud.firestore {
   }
 }
 ```
+
 The corpus expects the first request to be denied and the second to be allowed. Firebase supplies the authoritative verdict. Pyric's simulator must reach the same result.
 
 Firestore and Storage expose hosted Rules Test APIs, so their capture runners can ask Firebase for each verdict directly. Realtime Database has no equivalent API. Its runner deploys each scenario's rules to a dedicated oracle database, executes the live operations in an isolated namespace, records the results, restores the previous rules, and verifies cleanup. The acquisition paths differ, but the contract is the same: production decides the expected verdict.
@@ -146,16 +156,20 @@ Conformance is a floor, not a guarantee of total equivalence.
 
 No published result is typed into this page. Registry state and the live public-surface census generate the matrices and scoreboard. CI verifies the model gates and proves those pages render deterministically from a clean checkout with valid routes, twins, and links.
 
-## Verify the boundary before shipping
+## Verify your Security Rules before shipping
 
 Pyric is designed for local development, where operations have no production consequences. Before deployment, replay the captured development session against the candidate Rules:
+
 ```bash
 npx pyric verify
 ```
+
 The default engine runs locally and requires no cloud credentials. For Firestore, the hosted Rules Test API can provide a second verdict from Google in a controlled project:
+
 ```bash
 npx pyric verify --engine both --project staging-project
 ```
+
 Hosted verification evaluates derived cases. It does not deploy Rules or modify production data. It does require Firebase credentials and a project configured for that check.
 
 This is the final boundary of the conformance claim. Pyric supplies evidence that local behavior matches the cases it tracks. A staging or hosted verification step checks the application-specific configuration that a general conformance suite cannot know. Then the same `firebase/*` application code can proceed through the normal Firebase deployment path described in [Ship to production](../ship-to-production/).

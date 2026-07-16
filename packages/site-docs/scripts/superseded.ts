@@ -12,6 +12,7 @@
  * that replaced it.
  */
 export const SUPERSEDED: Record<string, string> = {
+  'packages/cli/docs/README.md': 'pyric-cli-reference-cli',
   'packages/cli/docs/tutorials/getting-started.md': 'start-building',
   // Modernization pass, 2026-07-10: role duplicates the editors flagged
   // and the gate confirmed (whole job done by the guide, no unique depth
@@ -34,10 +35,8 @@ export const SUPERSEDED: Record<string, string> = {
   'packages/pyric/docs/rules/reference/api.md': 'pyric-rules-reference-api',
   'packages/pyric/docs/sandbox/reference/api.md': 'pyric-sandbox-reference-api',
   'packages/pyric-admin/docs/app/reference/api.md': 'pyric-admin-app-reference-api',
-  'packages/pyric-admin/docs/firestore/reference/api.md':
-    'pyric-admin-firestore-reference-api',
+  'packages/pyric-admin/docs/firestore/reference/api.md': 'pyric-admin-firestore-reference-api',
   'packages/pyric-admin/docs/auth/reference/api.md': 'pyric-admin-auth-reference-api',
-  'packages/pyric-admin/docs/database/reference/api.md':
-    'pyric-admin-database-reference-api',
+  'packages/pyric-admin/docs/database/reference/api.md': 'pyric-admin-database-reference-api',
   'packages/pyric-admin/docs/storage/reference/api.md': 'pyric-admin-storage-reference-api',
 };

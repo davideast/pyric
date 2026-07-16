@@ -2,7 +2,7 @@
 title: "API reference"
 group: "API reference"
 section: ""
-order: 24001
+order: 9001
 description: "Published declarations for every supported Pyric package entry point."
 kind: "api-index"
 ---

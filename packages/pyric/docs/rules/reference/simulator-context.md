@@ -21,7 +21,7 @@ interface SimulationContext {
 }
 ```
 
-You don't construct this directly. `SimulateFirestoreRulesHandler.simulate` builds it from each case. The shape is documented because `evaluate(expression, ctx)` is exported from `pyric/rules/internal`, so callers writing custom evaluators do need to build it.
+You don't construct this through the public API. `firestoreRules(source).simulate(cases)` builds it for each case. The shape is documented because `evaluate(expression, ctx)` is exported from `pyric/rules/internal`, so callers writing custom evaluators do need to build it.
 
 ### `request: SimRequest`
 

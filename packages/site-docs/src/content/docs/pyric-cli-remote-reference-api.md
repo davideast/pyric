@@ -3,7 +3,7 @@ title: "API reference: @pyric/cli/remote"
 navLabel: "@pyric/cli/remote"
 group: "API reference"
 section: "@pyric/cli"
-order: 24021
+order: 9021
 description: "Published declarations for @pyric/cli/remote."
 kind: "api"
 apiPackage: "@pyric/cli"

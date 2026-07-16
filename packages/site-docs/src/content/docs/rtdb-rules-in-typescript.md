@@ -1,15 +1,15 @@
 ---
 title: "Write Realtime Database rules in TypeScript"
 navLabel: "RTDB rules in TypeScript"
-group: "Inspect and correct"
-section: "Correct Security Rules"
-order: 3009
+group: "Secure & debug"
+section: ""
+order: 3006
 description: "Compose RTDB rules from typed constraints, prove them in-process, and deploy the compiled JSON."
 ---
 
 # Write Realtime Database rules in TypeScript
 
-> Realtime Database support is experimental. [What that costs you](../whats-experimental/).
+Realtime Database support is still incomplete. Check the generated conformance reference for the exact supported surface before depending on it.
 
 Realtime Database rules are strings inside a JSON tree. Pyric lets you write them as TypeScript instead: typed builders compose into expressions, the expressions assemble into a ruleset, and the ruleset checks itself, simulates requests, and compiles to the exact JSON Firebase deploys. A typo becomes a compile error instead of a production surprise.
 
@@ -74,7 +74,7 @@ firebase deploy --only database
 
 ## Turn enforcement, from a deployed game
 
-The tic-tac-toe [case study](../whats-possible/) is built from these same parts, deployed and playable:
+This turn-enforcement example is built from the same parts:
 
 ```ts
 import {
@@ -102,7 +102,7 @@ Three constraints carry the whole game. `turnGuard` reads stored state, never th
 
 ## And from an agent
 
-An agent authors and checks the same way you do: lint and simulate locally (`pyric database rules lint`, `pyric database rules simulate`, or `rtdb_simulate_access` against the connected sandbox), generate JSON with `pyric database rules generate` / `rtdb_generate_rules`, then ship with `firebase-tools`. The [rtdb-security-rules skill](../skills/) packages the whole discipline.
+An agent authors and checks the same way you do: lint and simulate locally (`pyric database rules lint`, `pyric database rules simulate`, or `rtdb_simulate_access` against the connected sandbox), generate JSON with `pyric database rules generate`, then ship with `firebase-tools`. See the RTDB task in [Work with an agent](../work-with-an-agent/).
 
 ## Where to go next
 

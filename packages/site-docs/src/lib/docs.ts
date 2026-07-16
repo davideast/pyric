@@ -105,24 +105,8 @@ export async function navGroups(): Promise<NavGroup[]> {
   return groups;
 }
 
-/**
- * The guide groups — the outcome-first sections the left nav renders in
- * full. Everything else is reference: the nav collapses each of those
- * groups to a single link (its overview page) under one "Reference"
- * disclosure, so the sidebar reads as a guide, not a manual. The pages
- * themselves are unaffected: still built, still in llms.txt, index.json,
- * and search, still reachable from their overview and in-page links.
- * Must match the porter's GUIDE_GROUPS labels (scripts/port-content.ts).
- */
-export const GUIDE_GROUP_LABELS: ReadonlySet<string> = new Set([
-  'Overview',
-  'Run locally',
-  'Develop with Firebase APIs',
-  'Inspect and correct',
-  'Verify the boundary',
-  'Ship unchanged',
-  'Conformance',
-]);
+export { GUIDE_GROUP_LABELS } from './nav-groups';
+import { GUIDE_GROUP_LABELS } from './nav-groups';
 
 export function isGuideGroup(label: string): boolean {
   return GUIDE_GROUP_LABELS.has(label);
@@ -171,7 +155,7 @@ export interface Breadcrumb {
  * Decision (owner review, item 4): the Package crumb links to its
  * group's overview/README page when the group has one (`section: ''`
  * in the port plan); groups without one (and every Section crumb —
- * there is never a page for a bare Diataxis section) fall back to a
+ * there is never a page for a bare reference section) fall back to a
  * same-page anchor into the left nav instead of a dead link. The
  * current page is always plain text (`href: null`, `anchorId: null`).
  */

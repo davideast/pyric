@@ -3,7 +3,7 @@ title: "API reference: @pyric/cli/bridge"
 navLabel: "@pyric/cli/bridge"
 group: "API reference"
 section: "@pyric/cli"
-order: 24015
+order: 9015
 description: "Published declarations for @pyric/cli/bridge."
 kind: "api"
 apiPackage: "@pyric/cli"

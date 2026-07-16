@@ -1,9 +1,9 @@
 ---
 title: "Prepare the Firebase project"
 navLabel: "Set up the Firebase project"
-group: "Ship unchanged"
+group: "Ship & test"
 section: ""
-order: 5002
+order: 5003
 description: "Configure the real Firebase services that production will use, without confusing project setup with local development."
 ---
 
