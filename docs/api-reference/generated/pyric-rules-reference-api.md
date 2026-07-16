@@ -637,7 +637,7 @@ Per-rule evaluation entry produced by the local simulator. Each entry
 corresponds to one `allow` declaration the simulator evaluated, in
 source order.
 
-Populated only by `SimulateFirestoreRulesHandler` (which has the parsed
+Populated only by the internal simulator (which has the parsed
 AST in hand); the production Test API client (`TestFirestoreRulesHandler`)
 returns an empty `trace` and surfaces the wire text on `TestResult.notes`.
 
@@ -646,7 +646,7 @@ returns an empty `trace` and surfaces the wire text on `TestResult.notes`.
 | Property | Type | Description |
 | :------ | :------ | :------ |
 | <a id="conditiontext"></a> `conditionText?` | `string` | Pretty-printed condition expression. Use this verbatim in agent-facing summaries — derived from the AST via `printExpression`, so it survives comment removal and whitespace re-flow in the source. |
-| <a id="expressiontrace-1"></a> `expressionTrace?` | [`ExprTraceEntry`](#exprtraceentry)[] | Per-sub-expression evaluation trace for this rule's condition. Flat, in evaluation order; reconstruct the tree via the `parent` index on each entry. Populated by the local simulator when the caller enables tracing — currently always on for `SimulateFirestoreRulesHandler.simulate()` so agents can see *why* a rule's condition resolved as it did (which disjunct was true, which `let` binding the value flowed through, which method call threw). Absent on entries that came from the production Test API client (no AST visibility). |
+| <a id="expressiontrace-1"></a> `expressionTrace?` | [`ExprTraceEntry`](#exprtraceentry)[] | Per-sub-expression evaluation trace for this rule's condition. Flat, in evaluation order; reconstruct the tree via the `parent` index on each entry. Populated by the local simulator when the caller enables tracing — currently always on for the simulator so agents can see *why* a rule's condition resolved as it did (which disjunct was true, which `let` binding the value flowed through, which method call threw). Absent on entries that came from the production Test API client (no AST visibility). |
 | <a id="line-2"></a> `line?` | `number` | 1-indexed source line of the `allow` keyword. Populated when the rule's `loc` was set by the parser. |
 | <a id="matchpath"></a> `matchPath?` | `string` | Source-rendered path of the `match` block this rule belongs to, e.g. `'/docs/{docId}'` or `'/{document=**}'`. Populated when the request path matches MORE THAN ONE overlapping `match` block: allows OR-combine across every matching block (production semantics — there is no first-match-wins), so a DENY trace can carry entries from several blocks. This field keeps them unambiguous — which block did this rule live in. Absent for the common single-block case. |
 | <a id="message-1"></a> `message?` | `string` | Human-readable diagnostic — populated for `UNSUPPORTED` (which sim surface is missing) and `ERROR` (which runtime error caused the rule to abort). |
