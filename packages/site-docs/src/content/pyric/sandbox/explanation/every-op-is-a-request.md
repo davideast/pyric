@@ -22,7 +22,6 @@ The reframe: **every op the simulator evaluates is a request worth seeing.** Den
 ## Denials are now a filter, not a channel
 
 The unified-channel rollout collapsed the prior three channels into one:
-
 ```
 sandbox.onEvent         — every observable event
   ├ kind: 'request'
@@ -34,7 +33,6 @@ sandbox.onEvent         — every observable event
   │   └ filter kind === 'listener_errored'  →  what onSnapshotError used to deliver
   └ kind: 'session_boundary'
 ```
-
 One subscription, one mental model. A consumer that wants only denials filters `kind === 'request' && result === 'deny'`. The event carries strictly more information than the old `DenialEvent` did (`evalMs`, `origin`, `matchedRule`, `groupKind`, `groupId`).
 
 ## The substrate sits at the right layer
@@ -93,7 +91,6 @@ By keeping the substrate purely fire-and-forget, we kept it simple and let consu
 ## Relationship to `MutationEvent`
 
 `@inbrowser/agent` has its own append-only event log at `~/.pyric/projects/<id>/events.ndjson`, populated by `wrapMutating`. The shape there is `MutationEvent`:
-
 ```ts
 interface MutationEvent {
   id: string;
@@ -107,7 +104,6 @@ interface MutationEvent {
   reverse?: ReverseOp;
 }
 ```
-
 `RequestEvent` and `MutationEvent` aren't the same thing, even though they overlap in spirit.
 
 | | `RequestEvent` | `MutationEvent` |

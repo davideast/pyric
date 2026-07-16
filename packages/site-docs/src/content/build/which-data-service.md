@@ -17,10 +17,8 @@ After choosing the production service, use the matching local path:
 - [Run Realtime Database locally](./sync-realtime-data.md).
 
 Support for each service changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
-
 ```bash
 pyric can-i-use firestore/getDocs
 pyric can-i-use rtdb/onValue
 ```
-
 The answer separates availability from fidelity and assurance, and describes Pyric's current local boundary. It should not replace Firebase's production architecture guidance.

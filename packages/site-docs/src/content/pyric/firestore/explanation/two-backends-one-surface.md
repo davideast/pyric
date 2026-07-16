@@ -10,7 +10,6 @@ order: 150
 Pyric and Firebase expose the same canonical module name in different
 environments. The environment chooses the package before either implementation
 loads:
-
 ```text
 import 'firebase/firestore'
            |
@@ -18,7 +17,6 @@ import 'firebase/firestore'
            |
            `-- Pyric active ----> pyric/firestore --> sandbox
 ```
-
 This is stronger than choosing a backend inside `getFirestore`. A sandbox
 module cannot accidentally acquire a production client, and a production
 module does not carry dormant simulator code.
@@ -32,7 +30,6 @@ the unswapped Firebase package is rejected.
 
 Production remains Firebase because the activation layer is absent. The Vite
 plugin and Node register hook are therefore the only switch:
-
 ```text
 source code
   import { getFirestore } from 'firebase/firestore'
@@ -42,7 +39,6 @@ source code
              Firebase SDK    Pyric mirror
               production       sandbox
 ```
-
 ## Why canonical imports matter
 
 Application source should keep importing `firebase/app` and

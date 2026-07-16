@@ -9,18 +9,15 @@ order: 10
 
 Admin-SDK-shaped Firestore adapter for the Pyric sandbox. Mirrors `firebase-admin/firestore` (`db.collection(p).doc(p).get()`, `db.batch()`, `db.runTransaction()`) over `pyric/sandbox`'s in-process substrate. Streaming reads are covered too: a production-shaped `onSnapshot` ships as both a free function and a chainable `.onSnapshot(...)` method on refs and queries.
 
-Use this package when your production code uses `firebase-admin/firestore` (Node services, Cloud Functions). For the modular Web SDK shape, use [`pyric/firestore`](../firestore/README.md) instead.
+Use this package when your production code uses `firebase-admin/firestore` (Node services, Cloud Functions). For the modular Web SDK shape, use [`pyric/firestore`](./README.md) instead.
 
 ## Install
-
 ```bash
 bun add pyric-admin pyric/sandbox
 # or
 npm install pyric-admin pyric/sandbox
 ```
-
 ## A 30-second example
-
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric-admin';
@@ -41,15 +38,14 @@ await db.collection('notes').doc('n1').set({ title: 'hello' });
 const snap = await db.collection('notes').doc('n1').get();
 console.log(snap.exists, snap.data());
 ```
-
 Alongside the production-shaped surface, the `db` handle carries three sandbox-only methods: `setRules(src)`, `seed({ documents })`, and `snapshot()`. The package also re-exports the foundation and production-shaped types (`SandboxError`, `FieldValue`, `Timestamp`, the snapshot types) so consumers can import everything from `pyric-admin`.
 
 ## Where to go next
 
-- [Tutorials](./docs/tutorials/): guided lessons.
-- [How-to guides](./docs/how-to/): task-focused recipes.
-- [Reference](./docs/reference/): exact signatures and types.
-- [Explanation](./docs/explanation/): why the API is shaped this way.
+- Tutorials: guided lessons.
+- How-to guides: task-focused recipes.
+- Reference: exact signatures and types.
+- Explanation: why the API is shaped this way.
 
 ## Position in the Pyric stack
 

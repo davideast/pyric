@@ -10,7 +10,6 @@ order: 50
 This guide shows you how to read the structured denial frame attached to every `permission-denied` error from `pyric-admin` operations.
 
 ## Catch with `instanceof`
-
 ```ts
 import { SandboxError } from 'pyric-admin';
 
@@ -31,11 +30,9 @@ try {
   }
 }
 ```
-
 `SandboxError` is re-exported from `pyric/sandbox`, so you can import it directly from `pyric-admin`. The `instanceof` check is what TypeScript narrows on: `e.code` is then typed.
 
 ## What `denialContext` carries
-
 ```ts
 interface DenialContext {
   auth?: AuthState;
@@ -53,7 +50,6 @@ interface DenialContext {
   failedFields?: string[];                       // deferred
 }
 ```
-
 For a denied write:
 
 - `request.method` = `create` / `update` / `delete`.
@@ -70,7 +66,6 @@ For a denied read:
 - `resource.data` / `resource.exists` reflect the doc being read (for `get`; absent for `list`).
 
 ## Render a "why did this deny" UI
-
 ```tsx
 function DenialBanner({ error }: { error: SandboxError }) {
   if (error.code !== 'permission-denied') return null;
@@ -90,7 +85,6 @@ function DenialBanner({ error }: { error: SandboxError }) {
   );
 }
 ```
-
 Real Firebase strips this context server-side for security. The sandbox can expose it because it's a development tool: every field is useful for debugging without leaking anything sensitive about the rules engine.
 
 ## Cross-listener denials
@@ -101,5 +95,5 @@ This means one denial-UI component can render denials from anywhere (try/catch s
 
 ## Where to look next
 
-- For the `DenialContext` field-by-field reference, see [Denial shapes](../../../sandbox/docs/reference/denial-shapes.md) in `pyric/sandbox`.
-- For the difference between `SandboxError` codes, see [`SandboxError` codes](../../../sandbox/docs/reference/error-codes.md).
+- For the `DenialContext` field-by-field reference, see Denial shapes in `pyric/sandbox`.
+- For the difference between `SandboxError` codes, see [`SandboxError` codes](../../../pyric/sandbox/reference/error-codes.md).

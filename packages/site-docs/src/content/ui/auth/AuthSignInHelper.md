@@ -11,19 +11,16 @@ Emulator-style sign-in helper for sandbox auth: when an app calls
 `signInWithPopup` / `signInWithRedirect` against a sandbox `Auth` handle, the
 flow parks on a helper request; this pair renders an account picker +
 add-account form and settles the app's promise.
-
 ```ts
 import { AuthSignInHelper, useAuthFlowHelper } from '@pyric/ui/auth';
 // hook-only entry:
 import { useAuthFlowHelper } from '@pyric/ui/auth/hooks';
 ```
-
 Sandbox-only: the underlying controller drives `pyric/auth`'s
 `sandbox.setAuthFlowResolver` seam, which throws `failed-precondition` on a
 prod-backed handle.
 
 ## Example
-
 ```tsx
 import { getAuth } from 'pyric/auth';
 import { AuthSignInHelper, useAuthFlowHelper } from '@pyric/ui/auth';
@@ -46,7 +43,6 @@ function SignInHelper({ sandbox }) {
   );
 }
 ```
-
 The component is positioning-agnostic — wrap it in your own modal/panel.
 `onCancel` rejects the app's promise with the faithful
 `auth/popup-closed-by-user`.
@@ -85,11 +81,9 @@ Non-React hosts can use the exported `AuthFlowController` class directly
 The add form validates the claims textarea with the same checks and messages
 as the Firebase emulator UI: must be a JSON **object**, ≤ 1000 characters,
 and no reserved JWT keys (`sub`, `iss`, `exp`, …). Exposed for reuse:
-
 ```ts
 import { validateSerializedClaims, FORBIDDEN_CUSTOM_CLAIMS } from '@pyric/ui/auth';
 ```
-
 ## Provider labels
 
 `providerLabel(providerId)` maps the emulator's provider-id set to text

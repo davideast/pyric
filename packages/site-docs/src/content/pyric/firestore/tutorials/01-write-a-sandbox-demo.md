@@ -10,17 +10,14 @@ order: 20
 Build a tiny notes app with `pyric/firestore` against the sandbox backend. By the end you'll have set rules, seeded data, written, read, watched a query, and seen a denial, all in-process.
 
 ## Set up
-
 ```bash
 mkdir notes-demo && cd notes-demo
 bun init -y
 bun add pyric
 ```
-
 ## Step 1: Boot the sandbox and a Firestore handle
 
 Create `demo.ts`:
-
 ```ts
 import { initializeSandbox, SandboxError } from 'pyric/sandbox';
 import {
@@ -40,11 +37,9 @@ const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
 
 console.log('Sandbox-backed Firestore ready.');
 ```
-
 Run with `bun run demo.ts`. You should see the line and nothing else.
 
 ## Step 2: Deploy rules
-
 ```ts
 const lint = setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
@@ -61,12 +56,10 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
 }
 console.log('Rules deployed.');
 ```
-
 Firestore controls receive the owning `Sandbox`, while data-plane functions
 receive `db`. Lint warnings are visible. Surface them if any are errors.
 
 ## Step 3: Write and read
-
 ```ts
 await setDoc(doc(db, 'notes', 'n1'), {
   ownerId: 'alice',
@@ -76,11 +69,9 @@ await setDoc(doc(db, 'notes', 'n1'), {
 const snap = await getDoc(doc(db, 'notes', 'n1'));
 console.log('Read back:', snap.data());
 ```
-
 Output: `Read back: { ownerId: "alice", title: "My first note" }`.
 
 ## Step 4: Query
-
 ```ts
 import { getDocs } from 'pyric/firestore';
 
@@ -102,19 +93,15 @@ const results = await getDocs(q);
 console.log(`Found ${results.size} unarchived notes:`);
 results.forEach((d) => console.log(' ', d.id, d.data().title));
 ```
-
 Output:
-
 ```
 Found 2 unarchived notes:
   n1 My first note
   n3 Third note
 ```
-
 The query runs against the sandbox's `LocalEnvironment`, no network. The filter evaluates correctly on `getDocs`.
 
 ## Step 5: Watch with `onSnapshot`
-
 ```ts
 const changes: string[] = [];
 const unsubscribe = onSnapshot(
@@ -136,18 +123,14 @@ await new Promise((resolve) => setTimeout(resolve, 10));  // let the listener fi
 console.log('Saw changes:', changes);
 unsubscribe();
 ```
-
 Output something like:
-
 ```
 Saw changes: [
   'added n1', 'added n2', 'added n3',  // initial fire
   'added n4',                          // write
 ]
 ```
-
 ## Step 6: Try a denied write
-
 ```ts
 const bob = getFirestore(sandbox.withAuth({ uid: 'bob' }));
 
@@ -162,15 +145,12 @@ try {
   }
 }
 ```
-
 Output: `Bob was denied: Rule #1 (write) → deny`. The write rule checks `request.auth.uid == request.resource.data.ownerId`. Bob's UID doesn't match Alice's, so the rule denies and `SandboxError` surfaces with full context.
 
 ## Step 7: Dump the state
-
 ```ts
 console.log('Final state:', snapshotDocuments(sandbox));
 ```
-
 Every stored document, including Alice's writes and excluding Bob's denied one.
 
 ## What you have learned

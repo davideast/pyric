@@ -14,7 +14,6 @@ The parser (`parseToAST`, `parseToASTOrError`, `parseFunctions`), the AST types,
 ## Parse to AST
 
 `parseToASTOrError` returns either the AST or a structured failure. Use it when you want a diagnostic on parse failure:
-
 ```ts
 import { parseToASTOrError } from 'pyric/rules/internal';
 
@@ -25,20 +24,16 @@ if (!result.ok) {
 }
 const ast = result.ast;
 ```
-
 When `null` is sufficient signal:
-
 ```ts
 import { parseToAST } from 'pyric/rules/internal';
 
 const ast = parseToAST(source);
 if (!ast) throw new Error('parse failed');
 ```
-
 ## Walk match blocks
 
 `FirestoreRules.service.match` is the root match (always `/databases/{db}/documents`). Walk its `children` recursively to enumerate every nested match block:
-
 ```ts
 import type { MatchBlock } from 'pyric/rules/internal';
 
@@ -52,7 +47,6 @@ function walk(block: MatchBlock, parentPath = ''): void {
 
 walk(ast.service.match);
 ```
-
 ## Inspect path patterns
 
 A `PathPattern` is `{ raw: string, segments: PathSegment[] }`. Each segment is one of three shapes:
@@ -62,7 +56,6 @@ A `PathPattern` is `{ raw: string, segments: PathSegment[] }`. Each segment is o
 - `{ type: 'recursive', name: 'document' }`: for `{document=**}`
 
 Branch on `seg.type` rather than parsing `raw`:
-
 ```ts
 for (const seg of block.path.segments) {
   if (seg.type === 'literal') console.log('static:', seg.value);
@@ -70,11 +63,9 @@ for (const seg of block.path.segments) {
   else console.log('recursive:', seg.name);
 }
 ```
-
 ## Walk expressions
 
 `Expression` is a discriminated union. The discriminator is `type`:
-
 ```ts
 import type { Expression } from 'pyric/rules/internal';
 
@@ -96,13 +87,11 @@ function walkExpr(expr: Expression, visit: (e: Expression) => void): void {
   }
 }
 ```
-
 See [AST reference](../reference/ast.md) for every node shape.
 
 ## Run the validator
 
 If your custom checks overlap with security or quality concerns, run the bundled validator and union the findings into your output:
-
 ```ts
 import { validateFirestoreRules } from 'pyric/rules/internal';
 
@@ -111,13 +100,11 @@ for (const f of findings) {
   console.log(`[${f.severity}] ${f.code} at ${f.path}: ${f.message}`);
 }
 ```
-
 The validator covers public-write detection, default-deny audit, duplicate function names, overlapping paths, and other structural issues. See [Validator findings reference](../reference/validator-findings.md) for the full code list.
 
 ## Parse just a function body
 
 Useful for editor pop-ups or function-level lint hooks:
-
 ```ts
 import { parseFunctions } from 'pyric/rules/internal';
 
@@ -126,7 +113,6 @@ const fns = parseFunctions(`
 `);
 if (fns) console.log(fns[0].name); // 'isAdmin'
 ```
-
 `parseFunctions` wraps the input in a minimal `rules_version='2'` shell and returns only the parsed `FunctionDef[]`, or `null` if parsing failed.
 
 ## Where to look next

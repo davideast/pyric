@@ -7,7 +7,6 @@ order: 170
 # Validator findings
 
 The validator runs as part of `lint(source)` and `firestoreRules(source).lint()`, both from `pyric/rules`. Each finding surfaces as a `RuleIssue` with `origin: 'validate'`. The validator's own internal shape, `ValidationFinding`, still exists on `pyric/rules/internal` (via `validateFirestoreRules(ast)`) for callers that need the raw four-level severity scale:
-
 ```ts
 interface ValidationFinding {
   code: string;
@@ -17,7 +16,6 @@ interface ValidationFinding {
   message: string;
 }
 ```
-
 On the public `RuleIssue`, `critical` and `high` fold to `'error'`, `medium` folds to `'warning'`, and `low` folds to `'info'`.
 
 Findings are grouped by code family:

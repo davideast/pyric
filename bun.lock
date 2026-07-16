@@ -217,6 +217,7 @@
       "name": "@pyric/site-docs",
       "version": "0.0.1",
       "dependencies": {
+        "@pyric/cli": "workspace:*",
         "@pyric/conformance": "workspace:*",
         "astro": "^5.0.0",
       },

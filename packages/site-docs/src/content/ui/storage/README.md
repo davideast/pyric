@@ -12,7 +12,6 @@ bulk delete (the write path), plus rules-aware affordances (the gate
 pre-evaluates rules so denied actions warn BEFORE the click). Same one-handle
 contract as the Firestore half: every hook takes the sandbox
 `FirebaseStorage` handle from `pyric/storage`.
-
 ```ts
 import {
   // read path
@@ -35,9 +34,7 @@ import {
 } from '@pyric/ui/storage';
 // hooks-only entry: '@pyric/ui/storage/hooks'
 ```
-
 ## The wiring (one screen)
-
 ```tsx
 function StorageAdmin({ storage }) {
   const nav = usePathState();
@@ -81,7 +78,6 @@ function StorageAdmin({ storage }) {
   );
 }
 ```
-
 ## Components
 
 - [ObjectBrowser](./ObjectBrowser.md) — the folder/object row list;

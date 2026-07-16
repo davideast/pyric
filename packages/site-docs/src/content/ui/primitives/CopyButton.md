@@ -7,26 +7,20 @@ order: 40
 # `<CopyButton>`
 
 Clipboard button that exposes a `data-copied` attribute on the underlying `<button>` so consumers can style the success state. Ships no visual treatment of its own.
-
 ```ts
 import { CopyButton } from '@pyric/ui/primitives';
 ```
-
 ## Example
-
 ```tsx
 <CopyButton text="users/alice" className="my-btn" />
 ```
-
 Style the success state with an attribute selector:
-
 ```css
 .my-btn[data-copied] {
   background: var(--success-bg);
   color: var(--success-fg);
 }
 ```
-
 ## Props
 
 | Prop | Type | Required | Description |

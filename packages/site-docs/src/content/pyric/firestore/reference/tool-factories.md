@@ -7,7 +7,6 @@ order: 120
 # Tool factories
 
 `createFirestoreDataTools(deps)` wraps the modular Firestore data plane as `@inbrowser/agent` tool handlers.
-
 ```ts
 import { createFirestoreDataTools } from 'pyric/firestore';
 import { createToolRegistry } from '@inbrowser/agent';
@@ -19,15 +18,12 @@ const tools = createFirestoreDataTools({
 const registry = createToolRegistry();
 for (const h of tools) registry.register(h);
 ```
-
 ## `FirestoreDataToolDeps`
-
 ```ts
 interface FirestoreDataToolDeps {
   resolveDb: (as?: As) => Promise<Firestore> | Firestore;
 }
 ```
-
 The resolver fires per-dispatch with the op's `as` value. Hosts decide what backend to return:
 
 - **`'admin'` (or omitted)**: an admin-mode handle that BYPASSES rules. The default, for sandbox seeding.
@@ -36,7 +32,6 @@ The resolver fires per-dispatch with the op's `as` value. Hosts decide what back
 A sandbox resolver may default to admin. A resolver wired to a promoted/real backend MUST reject `'admin'` and require an explicit identity.
 
 ## `As`
-
 ```ts
 type As = 'admin' | UserAuth;
 
@@ -45,7 +40,6 @@ interface UserAuth {
   claims?: Record<string, unknown>;
 }
 ```
-
 The value passed to `resolveDb` from a tool call's `as` field. The explicit `'admin'` literal makes bypass **named** (you opt into it by writing `as: 'admin'` rather than it being the silent consequence of omitting an auth field), and `{ uid }` names the user to act as. Omitting `as` is treated as `'admin'`.
 
 ## What the factory exposes
@@ -74,4 +68,4 @@ The `as` argument has a proper JSONSchema shape (`'admin'` OR `{ uid, claims? }`
 
 ## Where to look next
 
-- For tool registry and dispatch, see the [`@inbrowser/agent` package](../../../agent/README.md).
+- For tool registry and dispatch, see the `@inbrowser/agent` package.

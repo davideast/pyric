@@ -82,16 +82,14 @@ Highlights:
 
 ## See also
 
-- [Live showcase](../../../examples/admin-playground/) — one Astro page per component with copy-pasteable Tailwind styling for the `[data-pyric-*]` selectors.
+- Live showcase — one Astro page per component with copy-pasteable Tailwind styling for the `[data-pyric-*]` selectors.
 
 ## Styling pattern (all components)
 
 The library ships **no CSS**. Components emit structural `data-pyric-*` attributes that consumers target with attribute selectors:
-
 ```css
 [data-pyric-ui='document-preview'] { /* root */ }
 [data-pyric-field-type='reference'][data-pyric-clickable] { /* clickable refs */ }
 [data-pyric-toast][data-pyric-toast-kind='error'] { /* error toast */ }
 ```
-
 See [`examples/admin-playground/src/styles/global.css`](../../../examples/admin-playground/src/styles/global.css) for a complete set of Tailwind-based rules covering every component the library ships.

@@ -9,7 +9,6 @@ order: 100
 The AST is the typed tree produced by `parseToAST` / `parseToASTOrError`. These functions and the shapes below are exported from `pyric/rules/internal`, an internal, unstable surface not covered by the public `pyric/rules` contract: it may change without notice. Most callers reach the AST through the public front door instead: `firestoreRules(source).toJSON()` returns the same `FirestoreRules` tree without touching the parser directly. This page documents the shape for callers (and tooling like [Inspect rules via the AST](../how-to/inspect-rules-via-the-ast.md)) that need to walk it directly.
 
 ## Root: `FirestoreRules`
-
 ```ts
 interface FirestoreRules {
   version: string;          // 'rules_version' value, e.g. '2' or '2+modules'
@@ -17,27 +16,21 @@ interface FirestoreRules {
   service: ServiceBlock;
 }
 ```
-
 ## `ImportDecl`
-
 ```ts
 interface ImportDecl {
   functions: string[];   // imported function names
   module: string;        // module name (stdlib name or relative path)
 }
 ```
-
 ## `ServiceBlock`
-
 ```ts
 interface ServiceBlock {
   name: string;          // always 'cloud.firestore' for Firestore rules
   match: MatchBlock;     // the root match (/databases/{database}/documents)
 }
 ```
-
 ## `MatchBlock`
-
 ```ts
 interface MatchBlock {
   path: PathPattern;
@@ -46,9 +39,7 @@ interface MatchBlock {
   children: MatchBlock[];
 }
 ```
-
 ## `PathPattern`
-
 ```ts
 interface PathPattern {
   raw: string;              // original path text, e.g. '/users/{uid}'
@@ -60,9 +51,7 @@ type PathSegment =
   | { type: 'wildcard'; name: string }     // {name}
   | { type: 'recursive'; name: string };   // {name=**}
 ```
-
 ## `AllowRule`
-
 ```ts
 interface AllowRule {
   operations: Operation[];
@@ -71,9 +60,7 @@ interface AllowRule {
 
 type Operation = 'read' | 'write' | 'get' | 'list' | 'create' | 'update' | 'delete';
 ```
-
 ## `FunctionDef`
-
 ```ts
 interface FunctionDef {
   name: string;
@@ -88,11 +75,9 @@ interface LetBinding {
   value: Expression;
 }
 ```
-
 ## `Expression`
 
 Discriminated union. The discriminator is `type`.
-
 ```ts
 type Expression =
   | { type: 'literal'; value: string | number | boolean | null; raw: string }
@@ -111,7 +96,6 @@ type Expression =
   | { type: 'pathLiteral'; raw: string; segments: Array<string | Expression> }
   | { type: 'functionCall'; name: string; args: Expression[] };
 ```
-
 ### Notes per variant
 
 - `literal.raw` preserves the original source text of the literal, useful for diagnostics and for `RULES_WEAKENED`'s deterministic serialiser.

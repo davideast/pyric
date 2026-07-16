@@ -24,20 +24,16 @@ Takes about five minutes.
   the current directory.
 
 ## Step 1: Install
-
 ```bash
 npm i -D @pyric/cli
 ```
-
 `@pyric/cli` provides the CLI and Node resolver; its sandbox mirror
 dependencies are installed with it. None of them appear in your app code.
 
 ## Step 2: Run it
-
 ```bash
 npx pyric dev
 ```
-
 `pyric dev` starts the sandbox host and then runs **your own `dev`
 script** with the environment activated (or run an explicit command:
 `npx pyric dev -- node server.mjs`). Whenever it runs your server,
@@ -45,7 +41,6 @@ script** with the environment activated (or run an explicit command:
 calls travel through, no extra flag needed.
 
 Your server needs nothing pyric-shaped. This works as-is:
-
 ```js
 // server.mjs — zero pyric identifiers
 import { createServer } from 'node:http';
@@ -70,10 +65,8 @@ createServer(async (req, res) => {
   res.end('ok');
 }).listen(8080, () => console.log('api listening on http://localhost:8080'));
 ```
-
 The terminal shows the host banner, then your dev command's output
 prefixed with `[dev]`:
-
 ```
 === Serving from '/Users/you/code/your-app'...
 
@@ -97,18 +90,15 @@ prefixed with `[dev]`:
 [dev] pyric: firebase-admin routed to sandbox at http://localhost:3473
 [dev] api listening on http://localhost:8080
 ```
-
 (The `register: active` line appears once per Node process; `npm run
 dev` is itself a Node process, so seeing it twice is normal.)
 
 A browser tab on <http://localhost:3473> auto-opens: **it is the
 backend**, so keep it open. Now:
-
 ```bash
 curl http://localhost:8080/signup
 # {"uid":"user-1"}
 ```
-
 That user, the RTDB profile, and the stored avatar all landed in the
 sandbox your browser tab hosts. Run with `--ui` instead and Pyric Studio
 (`http://localhost:3473/__pyric/ui/`) shows the data live as your server
@@ -184,13 +174,11 @@ instead; nothing silently no-ops.
 second terminal): skip the child runner and set the two env vars
 yourself, with `pyric dev --bridge --no-run` (or any `pyric dev --bridge`)
 running elsewhere:
-
 ```bash
 PYRIC_SANDBOX=remote \
 NODE_OPTIONS="--import @pyric/cli/register" \
 node server.mjs
 ```
-
 `PYRIC_SANDBOX=remote` auto-discovers the running dev server via
 `.pyric/serve.json` in your project (written when `--bridge` is on);
 `PYRIC_SANDBOX=remote:http://localhost:3473` pins the URL explicitly.
@@ -200,7 +188,6 @@ start your dev server with the bridge enabled and retry.``
 
 **Explicit wiring for tests**: when you want pyric identifiers on
 purpose instead of env-var routing:
-
 ```ts
 import { connectRemoteSandbox } from '@pyric/cli/remote';
 import { initializeApp } from 'pyric-admin/app';
@@ -212,7 +199,6 @@ const db = getDatabase(app);
 // ...assertions...
 sandbox.close();
 ```
-
 An explicit config always bypasses the environment, so pyric-aware test
 code keeps full control even under `pyric dev`.
 
@@ -252,6 +238,6 @@ real Firebase. Set `PYRIC_SANDBOX_FORCE=1` to override (dev/CI only).
 - **Every `pyric dev` flag** (`--persist`, `--seed`, `--ui`, `--json`, …):
   the [CLI reference](../reference/cli.md).
 - **New app instead of an existing one:**
-  [getting started](./getting-started.md).
+  [getting started](../../get-started/start-building.md).
 - **Let an agent drive the same sandbox** over MCP:
   [wire-claude-code.md](./wire-claude-code.md).

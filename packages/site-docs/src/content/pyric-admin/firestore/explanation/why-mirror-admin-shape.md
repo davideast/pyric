@@ -16,7 +16,6 @@ This page explains why we mirrored an existing API instead of designing a new on
 Test code should look like production code. Anything else is friction.
 
 A team writes a Cloud Function in `firebase-admin/firestore`:
-
 ```ts
 async function archiveOld(): Promise<void> {
   const snapshot = await db
@@ -29,9 +28,7 @@ async function archiveOld(): Promise<void> {
   await batch.commit();
 }
 ```
-
 The test for that function should look identical except for how `db` is obtained:
-
 ```ts
 // Production
 const db = getFirestoreAdmin();
@@ -39,7 +36,6 @@ const db = getFirestoreAdmin();
 // Test
 const db = getFirestore(sandbox.withAuth({ uid: 'admin', token: { admin: true } }));
 ```
-
 That's the shape we picked. Anything beyond the `db =` line is the same code in both contexts. Test code that imports from `pyric-admin` works against the sandbox today and against `firebase-admin/firestore` tomorrow if you swap the import.
 
 ## What we considered
@@ -47,13 +43,11 @@ That's the shape we picked. Anything beyond the `db =` line is the same code in 
 ### A simpler API for tests only
 
 We could have designed a small, opinionated test-only API:
-
 ```ts
 // Hypothetical, not the actual API.
 await sandbox.write('notes/n1', { ownerId: 'alice' });
 const data = await sandbox.read('notes/n1', { as: 'alice' });
 ```
-
 Shorter. Easier to learn. Fundamentally different from production code.
 
 The problem is that "test the shape of your production code" has a different goal from "express a test scenario concisely". Production code has methods (`add`, `update`, `set`, `delete`), arguments (`where`, `orderBy`, `limit`), return types (`QuerySnapshot.docChanges()`). The test API that elides those forces test authors to mentally translate. The translation is where bugs hide.
@@ -84,7 +78,7 @@ These have no production analog. We picked sandbox-flavoured verbs (`setRules`, 
 
 ## What we don't add
 
-- No per-call `auth` override. Identity is per-context; the handle is bound at construction. See [Identity is a context, not a sandbox](../../../sandbox/docs/explanation/identity-is-a-context.md).
+- No per-call `auth` override. Identity is per-context; the handle is bound at construction. See [Identity is a context, not a sandbox](../../../pyric/sandbox/explanation/identity-is-a-context.md).
 - No alternative APIs that change semantics. The shape exists to mirror production; second-guessing it would defeat the point.
 - No "test helpers" embedded in the handle. The `WriteBatch` is a `WriteBatch`, not a `WriteBatch & TestUtilities`. If you need test affordances, build them as a wrapper around the handle.
 

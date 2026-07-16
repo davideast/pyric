@@ -10,17 +10,14 @@ order: 20
 In this tutorial you will use `pyric-admin` to write, read, batch, transact, and watch documents in a sandbox. By the end you will have seen every piece of the surface in action.
 
 ## Before you start
-
 ```bash
 mkdir admin-tutorial && cd admin-tutorial
 bun init -y
 bun add pyric/sandbox pyric-admin
 ```
-
 ## Step 1: Boot the sandbox and deploy rules
 
 Create `session.ts`:
-
 ```ts
 import { initializeSandbox, SandboxError } from 'pyric/sandbox';
 import { getFirestore, FieldValue, onSnapshot } from 'pyric-admin';
@@ -50,11 +47,9 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
 }
 console.log('Rules deployed.');
 ```
-
 Run with `bun run session.ts`. You should see `Rules deployed.` and no warnings.
 
 ## Step 2: Write as one user
-
 ```ts
 const aliceCtx = sandbox.withAuth({ uid: 'alice' });
 const aliceDb = getFirestore(aliceCtx);
@@ -67,15 +62,11 @@ await aliceDb.collection('notes').doc('n1').set({
 const snap = await aliceDb.collection('notes').doc('n1').get();
 console.log('Alice reads back:', snap.data());
 ```
-
 Output:
-
 ```
 Alice reads back: { ownerId: "alice", title: "My first note" }
 ```
-
 ## Step 3: Try a denied write
-
 ```ts
 const bobDb = getFirestore(sandbox.withAuth({ uid: 'bob' }));
 
@@ -87,11 +78,9 @@ try {
   }
 }
 ```
-
 Bob is not Alice; the update rule requires `request.auth.uid == resource.data.ownerId`. The denial fires with full context.
 
 ## Step 4: Run a transaction
-
 ```ts
 const result = await adminDb.runTransaction(async (tx) => {
   const counterRef = adminDb.doc('counters/main');
@@ -103,11 +92,9 @@ const result = await adminDb.runTransaction(async (tx) => {
 
 console.log('Counter is now:', result);
 ```
-
 Output: `Counter is now: 1`. Run the file again and it becomes 2 (the sandbox isn't reset between runs of the script).
 
 ## Step 5: Write a batch
-
 ```ts
 const batch = adminDb.batch();
 batch.set(adminDb.doc('notes/n2'), { ownerId: 'alice', title: 'batched A' });
@@ -117,11 +104,9 @@ await batch.commit();
 
 console.log('After batch:', adminDb.snapshot());
 ```
-
 The three operations either all succeed or all fail. `FieldValue.increment(2)` resolves against the pre-batch state.
 
 ## Step 6: Watch with `onSnapshot`
-
 ```ts
 const changes: any[] = [];
 const unsubscribe = onSnapshot(aliceDb.collection('notes'), (snap) => {
@@ -136,9 +121,7 @@ await aliceDb.collection('notes').doc('n1').update({ title: 'updated' });
 console.log('Saw changes:', changes);
 unsubscribe();
 ```
-
 Output:
-
 ```
 Saw changes: [
   'added n1', 'added n2', 'added n3',  // initial fire
@@ -146,16 +129,13 @@ Saw changes: [
   'modified n1',                        // update
 ]
 ```
-
 The listener fires once for the initial state, then again per write. Don't forget to `unsubscribe`: without it, a script holding the listener forever keeps the sandbox alive in memory.
 
 ## Step 7: Snapshot the world
-
 ```ts
 console.log('Full state:');
 console.log(adminDb.snapshot());
 ```
-
 Every document, every path. Use this for forensic dumps when a test fails.
 
 ## What you have learned
@@ -168,6 +148,6 @@ Every document, every path. Use this for forensic dumps when a test fails.
 
 ## What to do next
 
-- Pick between this package and `pyric/firestore`: see [Pick between `pyric-admin` and `pyric/firestore`](../../../sandbox/docs/how-to/pick-an-adapter.md).
+- Pick between this package and `pyric/firestore`: see [Pick between `pyric-admin` and `pyric/firestore`](../../../pyric/sandbox/how-to/pick-an-adapter.md).
 - Wire denials into a UI: see [Translate denials with `denialContext`](../how-to/translate-denials.md).
-- Use the sandbox in a real test suite: see [Use the sandbox in a test harness](../../../sandbox/docs/tutorials/02-use-the-sandbox-in-a-test-harness.md).
+- Use the sandbox in a real test suite: see [Use the sandbox in a test harness](../../../ship/test-in-node.md).

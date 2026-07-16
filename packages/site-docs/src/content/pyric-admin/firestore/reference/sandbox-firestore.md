@@ -42,12 +42,11 @@ These have no production analog and use sandbox-specific verbs so they can't be 
 
 Replace the active ruleset. Returns the lint result from `pyric/rules`: surface the warnings if any. If the source has parse-level errors, the rules are not swapped (consistent with `LocalEnvironment.deployRules`).
 
-After a successful `setRules`, every active snapshot listener is re-evaluated under the new rules. See [Listener re-evaluation on `deployRules`](../../../sandbox/docs/explanation/listener-re-evaluation.md) in `pyric/sandbox`.
+After a successful `setRules`, every active snapshot listener is re-evaluated under the new rules. See [Listener re-evaluation on `deployRules`](../../../pyric/sandbox/explanation/listener-re-evaluation.md) in `pyric/sandbox`.
 
 ### `seed(options?): LintResult`
 
 Replace stored documents with a new seed map. Active rules are preserved.
-
 ```ts
 db.seed({
   documents: {
@@ -56,7 +55,6 @@ db.seed({
   },
 });
 ```
-
 Pass an empty `documents` map (or omit it) to clear data without touching rules.
 
 Returns the lint of the preserved ruleset for consistency with `setRules`: the same `LintResult` shape across both methods means the caller can check warnings the same way after either call.
@@ -64,19 +62,17 @@ Returns the lint of the preserved ruleset for consistency with `setRules`: the s
 ### `snapshot(): Record<string, DocumentData>`
 
 Capture every stored document as a `{ [path]: data }` map. Reads from the live state and is independent of rules (same idea as `sandbox.admin.getDocument(...)` but for the whole database in one call).
-
 ```ts
 const state = db.snapshot();
 console.log(state['notes/n1']);  // { ownerId: 'alice', title: 'first' }
 ```
-
 The returned object is a structural clone. Mutating it does not affect the sandbox.
 
 ## What this handle ignores
 
 The handle accepts but does not act on the production `OperationOptions.auth` field. Auth is captured at handle construction from `ctx.auth`: it cannot be overridden per call. To act as a different user, derive a new context via `sandbox.withAuth(...)` and call `getFirestore` again.
 
-This is per the [identity-is-a-context](../../../sandbox/docs/explanation/identity-is-a-context.md) design: identity lives on the context, not on individual operations.
+This is per the [identity-is-a-context](../../../pyric/sandbox/explanation/identity-is-a-context.md) design: identity lives on the context, not on individual operations.
 
 ## Per-call delegate construction
 

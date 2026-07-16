@@ -29,7 +29,7 @@ Critical findings are proven with `firestore_simulate_rules` runs that vary the 
 
 ## Audit Realtime Database Security Rules
 
-RTDB fails differently: access cascades downward. (Authoring those rules from typed constraints is its own page: [RTDB rules in TypeScript](../secure/rtdb-rules-in-typescript.md).) A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted. The `rtdb-security-rules` skill walks every cascade from the root, so the effective access at each path is stated rather than assumed.
+RTDB fails differently: access cascades downward. (Authoring those rules from typed constraints is its own page: [RTDB rules in TypeScript](./rtdb-rules-in-typescript.md).) A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted. The `rtdb-security-rules` skill walks every cascade from the root, so the effective access at each path is stated rather than assumed.
 
 It also keeps the two semantics that trip people straight:
 
@@ -55,4 +55,4 @@ An MCP-connected agent can execute the audit end to end, running the same simula
 
 ## Where to go next
 
-An audit finds the holes at a point in time. [Prove your rules protect the app](../secure/secure-it-with-rules.md) is how they stay closed as the rules evolve.
+An audit finds the holes at a point in time. [Prove your rules protect the app](./secure-it-with-rules.md) is how they stay closed as the rules evolve.

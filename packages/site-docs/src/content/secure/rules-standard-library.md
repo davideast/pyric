@@ -16,7 +16,6 @@ This example lets an author update a post, prevents changes to `authorId` and `c
 ## Import the functions you need
 
 Create `firestore.modules.rules`:
-
 ```rules
 rules_version = '2+modules';
 
@@ -35,7 +34,6 @@ service cloud.firestore {
   }
 }
 ```
-
 Imports are flat: call `isAuthor(...)`, not `content.isAuthor(...)`. Resolution fails if an imported name collides with a function already declared in your file.
 
 `cooldownElapsed('updatedAt', 2)` compares the stored timestamp with `request.time`. Pairing it with `isServerTimestamp('updatedAt')` matters: without that second check, a client could submit an old timestamp and bypass the next cooldown. `cooldownElapsed` is for updates because it reads `resource.data`.
@@ -43,21 +41,16 @@ Imports are flat: call `isAuthor(...)`, not `content.isAuthor(...)`. Resolution 
 ## Resolve to deployable Rules
 
 Firebase does not understand `2+modules`, so compile the imports away:
-
 ```bash
 pyric firestore rules resolve firestore.modules.rules --out firestore.rules
 ```
-
 The generated `firestore.rules` contains `rules_version = '2'` and the imported function bodies. Point `firebase.json` at that generated file, and commit both the module source and resolved output if production deploys from the repository.
 
 ## Lint and simulate the resolved result
-
 ```bash
 pyric firestore rules lint firestore.rules
 ```
-
 You can then exercise the rule through the public API:
-
 ```ts
 import { readFileSync } from 'node:fs';
 import { firestoreRules } from 'pyric/rules';
@@ -88,7 +81,6 @@ const result = firestoreRules(source).simulate([
 
 if (result.failed > 0 || result.unsupported > 0) process.exit(1);
 ```
-
 Pin `requestTime` whenever a rule reads `request.time`, otherwise the test depends on the clock.
 
 ## Choose a module
@@ -126,9 +118,7 @@ The agent calls `firestore_rules_stdlib_list`, then `firestore_rules_stdlib_get`
 ## Deploy the resolved file
 
 Only deploy the resolved `rules_version = '2'` file:
-
 ```bash
 firebase deploy --only firestore:rules
 ```
-
 For the compiler and evaluator ceilings that can still reject a valid-looking ruleset, see [Firestore Rules limits](./firestore-rules-limits.md).

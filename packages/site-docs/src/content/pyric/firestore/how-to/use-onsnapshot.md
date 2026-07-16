@@ -10,7 +10,6 @@ order: 70
 Keep your UI live by registering snapshot listeners on documents and queries, in the modular Web SDK shape.
 
 ## Watch a document
-
 ```ts
 import { onSnapshot, doc, type DocumentSnapshot } from 'pyric/firestore';
 
@@ -25,9 +24,7 @@ const unsubscribe = onSnapshot(doc(db, 'notes', 'n1'), (snap: DocumentSnapshot) 
 // ... later
 unsubscribe();
 ```
-
 ## Watch a query
-
 ```ts
 import { onSnapshot, collection, query, where, type QuerySnapshot } from 'pyric/firestore';
 
@@ -39,13 +36,11 @@ const unsubscribe = onSnapshot(q, (snap: QuerySnapshot) => {
   }
 });
 ```
-
 `docChanges()` returns `added` / `modified` / `removed` events. On the initial fire, every matching doc is `added`.
 
 ## Observer form
 
 The Web-SDK-shaped observer takes any subset of three handlers:
-
 ```ts
 onSnapshot(doc(db, 'notes', 'n1'), {
   next: (snap) => render(snap.data()),
@@ -53,9 +48,7 @@ onSnapshot(doc(db, 'notes', 'n1'), {
   // complete is accepted but never fires.
 });
 ```
-
 ## React `useEffect` cleanup
-
 ```ts
 useEffect(() => {
   const unsubscribe = onSnapshot(doc(db, 'notes', 'n1'), (snap) => {
@@ -64,7 +57,6 @@ useEffect(() => {
   return unsubscribe;
 }, []);
 ```
-
 Returning the unsubscribe from the effect tells React to call it on unmount or re-run. Without it, every re-render registers a fresh listener and the old ones stay alive.
 
 ## Listener errors
@@ -100,4 +92,4 @@ If you wrap snapshots in a generic UI component that branches on `metadata.fromC
 ## Where to look next
 
 - For the full `onSnapshot` overload list, see the [Firebase Web SDK reference](https://firebase.google.com/docs/reference/js/firestore_#onsnapshot). The `pyric/firestore` signature matches.
-- For the sandbox-side listener semantics, see [Listener re-evaluation on `deployRules`](../../../sandbox/docs/explanation/listener-re-evaluation.md).
+- For the sandbox-side listener semantics, see [Listener re-evaluation on `deployRules`](../../sandbox/explanation/listener-re-evaluation.md).

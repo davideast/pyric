@@ -9,20 +9,16 @@ order: 50
 Headless collapsible JSON tree — one structural step above a `<pre>` dump.
 Object/array nodes are independently expandable; there's no editing and no
 syntax-color theme, just `data-pyric-*` hooks.
-
 ```ts
 import { JsonView } from '@pyric/ui/primitives';
 ```
-
 ## Example
-
 ```tsx
 <JsonView value={{ uid: 'alice', roles: ['admin', 'beta'] }} />
 
 // Collapse everything below the root on first render:
 <JsonView value={largePayload} defaultCollapsedDepth={1} />
 ```
-
 ## Props
 
 | Prop | Type | Required | Description |
@@ -32,7 +28,6 @@ import { JsonView } from '@pyric/ui/primitives';
 | `className` | `string` | no | Forwarded to the root. |
 
 ## Styling hooks
-
 ```
 [data-pyric-ui="json-view"]              /* root */
 [data-pyric-json-node]                   /* every node, + data-pyric-json-type */
@@ -43,7 +38,6 @@ import { JsonView } from '@pyric/ui/primitives';
 [data-pyric-json-summary]                /* the {…} / […] placeholder when collapsed */
 [data-pyric-json-children]               /* the expanded children wrapper */
 ```
-
 ## Notes
 
 - `data-pyric-json-type` is one of `object` / `array` / `string` / `number` /

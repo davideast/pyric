@@ -22,15 +22,12 @@ The surface is grouped around the things you can do with a rules source:
 Parse, Lint, Validate, Simulate, and Test all sit behind the public front door: `firestoreRules`, `rtdbRules`, `lint`, `assertCase`, and `explainCase`. The parser, linter, validator, simulator, modules resolver, and agent-tool factories are internal engine seams, exposed only under `pyric/rules/internal*` for callers that need them directly. They may change without notice.
 
 ## Install
-
 ```bash
 bun add pyric
 # or
 npm install pyric
 ```
-
 ## A 30-second example
-
 ```ts
 import { firestoreRules } from 'pyric/rules';
 
@@ -58,42 +55,37 @@ const { passed, failed } = ruleset.simulate([
 ]);
 console.log(passed, failed); // 1 0
 ```
-
 `firestoreRules(source)` throws `RulesCompileError` if the source doesn't parse. `simulate` never throws on rule outcomes; failures and unsupported cases come back in the result, not as exceptions.
 
 The RTDB constraints DSL (`defineRtdbRules`, `ruleset`, `schemaRules`, and the combinators) is public and lives on the same root entry:
-
 ```ts
 import { rtdbRules, defineRtdbRules, ruleset, allow } from 'pyric/rules';
 ```
-
 The parser, validator, simulator internals, modules resolver, and agent-tool factories live on `pyric/rules/internal` and `pyric/rules/internal/node`. They're not part of the public contract:
-
 ```ts
 import { resolveModules, createFirestoreRulesTools } from 'pyric/rules/internal/node';
 ```
-
 ## Where to go next
 
-Documentation is organised under [`docs/`](./docs/):
+Documentation is organised under [`docs/`](./README.md):
 
 | If you want to | Read |
 |---|---|
-| Learn the package by following a complete lesson | [Tutorials](./docs/tutorials/) |
-| Accomplish a specific task | [How-to guides](./docs/how-to/) |
-| Look up an exact symbol, lint rule, or schema | [Reference](./docs/reference/) |
-| Understand why the package is shaped this way | [Explanation](./docs/explanation/) |
+| Learn the package by following a complete lesson | Tutorials |
+| Accomplish a specific task | How-to guides |
+| Look up an exact symbol, lint rule, or schema | Reference |
+| Understand why the package is shaped this way | Explanation |
 
 ### Starting points by role
 
-- **First time here?** Work through [Lint your first rules file](./docs/tutorials/01-lint-your-first-rules-file.md), then [Write a test suite for your rules](./docs/tutorials/02-write-a-test-suite-for-your-rules.md).
-- **Building an agent or CLI?** See [Register rules tools with an agent](./docs/how-to/register-tools-with-an-agent.md) and the [`pyric/rules` API reference](https://pyric.dev/docs/pyric-rules-reference-api/).
-- **Triaging a lint warning?** Jump to [Lint rules reference](./docs/reference/lint-rules.md).
-- **Debugging an `UNSUPPORTED` test result?** Read [Simulator vs Rules Test API](./docs/explanation/simulator-vs-rules-test-api.md).
+- **First time here?** Work through [Lint your first rules file](../../secure/simulate-and-lint.md), then [Write a test suite for your rules](../../secure/write-a-rules-test-suite.md).
+- **Building an agent or CLI?** See [Register rules tools with an agent](./how-to/register-tools-with-an-agent.md) and the [`pyric/rules` API reference](https://pyric.dev/docs/pyric-rules-reference-api/).
+- **Triaging a lint warning?** Jump to [Lint rules reference](./reference/lint-rules.md).
+- **Debugging an `UNSUPPORTED` test result?** Read [Simulator vs Rules Test API](./explanation/simulator-vs-rules-test-api.md).
 
 ## Position in the Pyric stack
 
-`pyric/rules` is the **rules-tooling** sibling of `pyric/firestore` (the modular Web-SDK swap-in). The split is deliberate: the data-plane swap-in must mirror the production Firestore surface and nothing more. Anything that is *about* rules (parsing them, linting them, simulating them) lives here. See [Why this package exists](./docs/explanation/why-this-package-exists.md) for the longer story.
+`pyric/rules` is the **rules-tooling** sibling of `pyric/firestore` (the modular Web-SDK swap-in). The split is deliberate: the data-plane swap-in must mirror the production Firestore surface and nothing more. Anything that is *about* rules (parsing them, linting them, simulating them) lives here. See [Why this package exists](./explanation/why-this-package-exists.md) for the longer story.
 
 ## Licence
 

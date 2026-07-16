@@ -16,7 +16,6 @@ In Pyric, every operation the backend evaluates produces a verdict you can read,
 ## Every operation carries a verdict
 
 While your app runs against the sandbox, every read, write, and query passes through the rules engine, and each evaluation emits a typed event. Denials are not a separate channel. They are the same stream, filtered:
-
 ```ts
 sandbox.onEvent((e) => {
   if (e.kind === 'request' && e.result === 'deny') {
@@ -24,7 +23,6 @@ sandbox.onEvent((e) => {
   }
 });
 ```
-
 A denial event tells you the story in one object:
 
 - **`method` and `path`**: what was attempted, and where. `update` on `notes/n1`.
@@ -43,14 +41,12 @@ If you are running `pyric dev --ui`, you do not have to write the subscription. 
 A denial that should not happen is one failure mode. The quieter one is its opposite: an operation that should be denied and no longer is, because a rules edit removed a predicate somewhere. This usually happens while making a failing test pass.
 
 Pyric catches it by diffing rulesets. Lint the candidate with the previously deployed source:
-
 ```ts
 import { lintFirestoreRules } from 'pyric/rules';
 
 const result = lintFirestoreRules(newSource, { previousSource: oldSource });
 const weakened = result.warnings.filter((w) => w.rule === 'RULES_WEAKENED');
 ```
-
 The linter normalizes every match path and diffs the predicates conjunct by conjunct. It reports three shapes of weakening:
 
 - a match block that had `allow` rules and is gone
@@ -59,7 +55,7 @@ The linter normalizes every match path and diffs the predicates conjunct by conj
 
 `RULES_WEAKENED` is a warning, not an error, because removing a predicate is sometimes a legitimate refactor. The signal is "a human should look at this," and in CI you decide whether that means a required ack or a hard block.
 
-One boundary stated plainly: the diff compares the predicates in `allow` statements, so weakening a helper function's body does not fire it. Your [test suite](../secure/write-a-rules-test-suite.md) is the net for that shape.
+One boundary stated plainly: the diff compares the predicates in `allow` statements, so weakening a helper function's body does not fire it. Your [test suite](./write-a-rules-test-suite.md) is the net for that shape.
 
 ## Diagnose a denial through an agent
 

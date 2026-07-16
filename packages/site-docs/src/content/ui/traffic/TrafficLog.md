@@ -10,13 +10,10 @@ order: 270
 The event stream — a Chrome DevTools Network-panel-style list. Below 100 rows
 it's a plain `<ul>`; above, it virtualizes via `<VirtualList>`. Pass `items`
 (from `useTrafficGroups`) instead of `events` for collapsible group rows.
-
 ```ts
 import { TrafficLog, TrafficRow, TrafficGroupRow } from '@pyric/ui/traffic';
 ```
-
 ## Example
-
 ```tsx
 // Flat, virtualized:
 <TrafficLog
@@ -32,7 +29,6 @@ import { TrafficLog, TrafficRow, TrafficGroupRow } from '@pyric/ui/traffic';
 const { items } = useTrafficGroups({ events: ordered });
 <TrafficLog events={[]} items={items} onSelect={openDetail} />
 ```
-
 ## `<TrafficLog>` props
 
 | Prop | Type | Required | Description |
@@ -53,7 +49,6 @@ const { items } = useTrafficGroups({ events: ordered });
 their own list — see their source JSDoc for props.
 
 ## Styling hooks
-
 ```
 [data-pyric-ui="traffic-log"]                    /* root */
 [data-pyric-ui="traffic-log"][data-pyric-grouped]
@@ -65,7 +60,6 @@ their own list — see their source JSDoc for props.
 [data-pyric-traffic-group][data-pyric-expanded]
 [data-pyric-traffic-group-members]
 ```
-
 Method + result render as [`<Badge>`](../primitives/Badge.md) — style via
 `[data-pyric-badge-kind="…"]`.
 

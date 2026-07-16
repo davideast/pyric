@@ -10,7 +10,6 @@ order: 140
 The simulator evaluates expressions against a `SimulationContext`. This page describes its shape and the three result states a test case can land in. `SimulationContext` and `evaluate` are engine-internal, reached through `pyric/rules/internal`; the public front door is `firestoreRules(source).simulate(cases)` / `.explain(oneCase)`, which builds and consumes this context internally and returns a `CaseResult` / `Explanation` instead. This page documents the internals for callers who need them directly, and to explain what the public result fields mean underneath.
 
 ## `SimulationContext`
-
 ```ts
 interface SimulationContext {
   request: SimRequest;
@@ -24,11 +23,9 @@ interface SimulationContext {
   existsAfter: boolean;
 }
 ```
-
 You don't construct this through the public API. `firestoreRules(source).simulate(cases)` builds it for each case. The shape is documented because `evaluate(expression, ctx)` is exported from `pyric/rules/internal`, so callers writing custom evaluators do need to build it.
 
 ### `request: SimRequest`
-
 ```ts
 interface SimRequest {
   auth: { uid: string; token: Record<string, unknown> } | null;
@@ -39,11 +36,9 @@ interface SimRequest {
   time: Timestamp;
 }
 ```
-
 The rule sees this as `request`. `request.auth` is `null` for unauthenticated cases.
 
 ### `resource: SimResource`
-
 ```ts
 interface SimResource {
   data: Record<string, unknown>;   // existing document data
@@ -51,7 +46,6 @@ interface SimResource {
   __name__: Path;                  // full Path
 }
 ```
-
 The rule sees this as `resource`. On `create`, `resource.data` is `{}` and `existsAfter` is `true` for the post-write doc.
 
 ### `mockDocuments`

@@ -16,7 +16,6 @@ In Pyric a rules test is a small fixture, a `TestCase`, and a whole suite runs i
 ## The fixtures
 
 A `TestCase` describes one hypothetical request and the verdict you expect:
-
 ```ts
 import { firestoreRules, type FirestoreCase } from 'pyric/rules';
 
@@ -53,18 +52,15 @@ const testCases: FirestoreCase[] = [
   },
 ];
 ```
-
 The fields map straight onto what the rule sees. `resource` is the existing document, `data` is the proposed write, `auth.uid` becomes `request.auth.uid`, and `auth.token` becomes `request.auth.token` for rules that check custom claims.
 
 ## Run the suite
-
 ```ts
 const result = firestoreRules(source).simulate(testCases);
 
 const { passed, failed, unsupported, cases } = result;
 console.log(`${passed} passed · ${failed} failed · ${unsupported} unsupported`);
 ```
-
 A failed case means the simulator's verdict disagreed with your `expectation`, and its `trace` shows which rule decided. An unsupported case means the simulator hit a feature it does not implement and abstained. It is not counted as a failure, and it is never a guess.
 
 Two fixture fields worth knowing before your suite grows:
@@ -75,7 +71,6 @@ Two fixture fields worth knowing before your suite grows:
 ## Gate CI on it
 
 The suite is a script, so CI is one exit code away:
-
 ```ts
 if (result.failed > 0) {
   for (const r of result.cases) {
@@ -84,13 +79,11 @@ if (result.failed > 0) {
   process.exit(1);
 }
 ```
-
 Sub-millisecond per case once the rules are parsed. There is no reason not to run this on every push.
 
 ## Use Google's Rules Test API when production authority matters
 
 The hosted Rules Test API evaluates your cases on Google's servers, in the same engine production uses, without deploying anything. It takes the same `TestCase` objects and returns the same result shape. It needs a real project and credentials:
-
 ```ts
 import { TestFirestoreRulesHandler } from 'pyric/rules';
 import { fromServiceAccount } from '@pyric/cli/credentials/node';
@@ -99,9 +92,7 @@ const scope = await fromServiceAccount('./service-account.json');
 const remote = await new TestFirestoreRulesHandler()
   .execute(scope, source, testCases);
 ```
-
 The practical pattern is local-first: run everything through the simulator, then send only the `UNSUPPORTED` cases to the hosted engine.
-
 ```ts
 const escalate = testCases.filter(
   (_, i) => result.cases[i].unsupported,
@@ -111,7 +102,6 @@ if (escalate.length > 0) {
     .execute(scope, source, escalate);
 }
 ```
-
 Each hosted call is one HTTP round-trip, tens to hundreds of milliseconds. The simulator itself is held to that engine's answers by a parity corpus that runs in CI, so for most suites the local verdicts are the same verdicts, sooner.
 
 ## Run the suite through an agent
@@ -120,4 +110,4 @@ An agent can run the local loop through `firestore_simulate_rules`, which means 
 
 ## Where to go next
 
-A test failure tells you a verdict was wrong. A denial explains why. Read [read a denial and understand it](../secure/read-a-denial.md). Before those rules ship, see [ship to production](../ship/ship-to-production.md).
+A test failure tells you a verdict was wrong. A denial explains why. Read [read a denial and understand it](./read-a-denial.md). Before those rules ship, see [ship to production](../ship/ship-to-production.md).

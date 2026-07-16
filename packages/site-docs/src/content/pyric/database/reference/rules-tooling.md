@@ -11,7 +11,6 @@ re-exported directly from `pyric/rules`. The engine underneath it (expression
 parser, validator, linter, compile/simulate/serialize, and replay) is
 engine-internal, on the `pyric/rules/internal/rtdb` subpath. That subpath isn't
 covered by the public `pyric/rules` contract and may change without notice.
-
 ```ts
 import { defineRtdbRules, rtdbRules } from 'pyric/rules';
 import {
@@ -22,13 +21,11 @@ import {
   parseExpression,
 } from 'pyric/rules/internal/rtdb';
 ```
-
 ## Constraints authoring
 
 ### `defineRtdbRules(definition): RtdbRulesDocument`
 
 Create an in-memory RTDB rules document from path constraints.
-
 ```ts
 import { defineRtdbRules, deny, pathOwnerOnly } from 'pyric/rules';
 
@@ -42,15 +39,12 @@ const rules = defineRtdbRules({
   },
 });
 ```
-
 `definition`:
-
 ```ts
 type RtdbRulesDefinition = {
   paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
 };
 ```
-
 There is no `databaseUrl` on the definition. Compilation is
 environment-independent; the database URL is a Firebase project concern when
 you ship with `firebase-tools`, not part of the authored artifact.
@@ -60,7 +54,6 @@ you ship with `firebase-tools`, not part of the authored artifact.
 The value `defineRtdbRules` returns. On the public surface it is an inert
 authored artifact: the type exposes no methods. You hand it to `rtdbRules()`,
 which is the one analysis surface.
-
 ```ts
 import { rtdbRules } from 'pyric/rules';
 
@@ -78,7 +71,6 @@ const summary = ruleset.simulate([
 ]);
 const json = ruleset.toJSON();   // { rules: {...} }
 ```
-
 `lint()` folds the document's parser and linter findings into one
 `RuleIssue[]` list; a compile failure arrives as a `COMPILE_ERROR` issue
 rather than a throw. `simulate(cases)` takes `RtdbCase[]` and returns
@@ -94,7 +86,6 @@ The method-bearing document interface (`toJSON` / `compile` / `check` /
 `simulate` method (the public `rtdbRules().simulate` takes `RtdbCase[]`
 instead). It accepts the existing simulation fields plus these authoring
 conveniences:
-
 ```ts
 type RtdbRulesSimulationInput = {
   operation: 'read' | 'write' | 'validate';
@@ -105,12 +96,10 @@ type RtdbRulesSimulationInput = {
   newData?: unknown;
 };
 ```
-
 `auth: 'alice'` becomes `{ uid: 'alice', token: {} }`. `data` is an alias for
 `mockData`; if both are supplied, `mockData` is used.
 
 `RtdbRulesCheckResult`:
-
 ```ts
 type RtdbRulesCheckResult = {
   ok: boolean;
@@ -118,7 +107,6 @@ type RtdbRulesCheckResult = {
   warnings: RtdbRulesFinding[];
 };
 ```
-
 Compile failures return an error finding with code `COMPILE_ERROR`.
 
 ### Generating `database.rules.json`
@@ -130,14 +118,12 @@ the same compilation and never recompiles the rules a second time.
 
 For scripts running in Node, `pyric/rules/internal/node` exports a helper that
 writes the file directly:
-
 ```ts
 import { writeRtdbRulesFile } from 'pyric/rules/internal/node';
 import { rules } from './database.rules.js';
 
 const path = await writeRtdbRulesFile(rules, 'database.rules.json');
 ```
-
 #### `writeRtdbRulesFile(doc, path): Promise<string>`
 
 Compiles `doc` and writes the rules JSON as pretty-printed output to `path`,
@@ -148,11 +134,9 @@ itself: `rtdbRules(rules).toJSON()`, from the public `pyric/rules`, never
 pulls in Node builtins.
 
 #### CLI
-
 ```sh
 pyric database rules generate [--config <path>] [--out <path>]
 ```
-
 Loads a constraints module (default `database.rules.ts`, or the `--config`
 path), looks for a named `rules` export or a default export produced by
 `defineRtdbRules(...)`, compiles it to rules JSON, and writes it to `--out`
@@ -170,7 +154,6 @@ returns the compiled `{ rulesJson }` without contacting a Firebase project.
 
 Constraints documents can be passed directly to `@pyric/cli/verify` as
 candidate RTDB rules:
-
 ```ts
 import { verifyFixture } from '@pyric/cli/verify';
 import { rules } from './database.rules.js';
@@ -182,17 +165,12 @@ const result = await verifyFixture(fixture, {
   rules: { rtdb: rules },
 });
 ```
-
 For CLI verification, generate JSON first and pass it as the RTDB rules file:
-
 ```ts
 await Bun.write('database.rules.json', JSON.stringify(rtdbRules(rules).toJSON(), null, 2));
-```
-
-```sh
+``````sh
 pyric verify --service rtdb --rules rtdb=database.rules.json
 ```
-
 Verification lives in `@pyric/cli/verify` because constraints are an authoring
 surface and captured-session replay is local tooling around an app session.
 The Firebase Rules Test API engine is Firestore-only; RTDB constraints verify by
@@ -212,7 +190,6 @@ Convert a compiled tree back to Firebase RTDB rules JSON.
 ### `simulateRtdbRules(compiled, input): SimulateResult`
 
 Evaluate one operation against a compiled rules tree.
-
 ```ts
 const compiled = compileRtdbRules({
   rules: {
@@ -231,9 +208,7 @@ const result = simulateRtdbRules(compiled, {
   mockData: {},
 });
 ```
-
 `SimulationInput`:
-
 ```ts
 type SimulationInput = {
   operation: 'read' | 'write' | 'validate';
@@ -243,7 +218,6 @@ type SimulationInput = {
   newData?: unknown;
 };
 ```
-
 ### `replay` / expression helpers
 
 Also on `pyric/rules/internal/rtdb`:
@@ -286,7 +260,6 @@ groups are:
 - assembly: `defineRtdbRules`, `ruleset`, `schemaRules`
 
 ### `PathDef`
-
 ```ts
 interface PathDef {
   read?: Expr;
@@ -298,7 +271,6 @@ interface PathDef {
   children?: Record<string, PathDef>;
 }
 ```
-
 `schema` supports Zod object fields composed from strings, numbers, booleans,
 enums, literals, unions of supported types, nested objects, and optional fields.
 Unsupported Zod types throw during compilation.

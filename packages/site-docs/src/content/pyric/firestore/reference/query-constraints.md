@@ -11,20 +11,17 @@ order: 100
 ## Filters
 
 ### `where(field, op, value)`
-
 ```ts
 where('ownerId', '==', 'alice')
 where('priority', '>=', 5)
 where('tags', 'array-contains', 'urgent')
 where('status', 'in', ['open', 'pending'])
 ```
-
 `op` is one of `==`, `!=`, `<`, `<=`, `>`, `>=`, `array-contains`, `array-contains-any`, `in`, `not-in`.
 
 ### `or(...filters)`
 
 Compose multiple filters with OR semantics. The combined constraint matches a doc when any inner filter matches.
-
 ```ts
 query(
   collection(db, 'notes'),
@@ -34,28 +31,23 @@ query(
   ),
 );
 ```
-
 ### `and(...filters)`
 
 Compose multiple filters with AND semantics. Top-level constraints already AND together, so `and` is only needed inside an `or`.
-
 ```ts
 or(
   and(where('priority', '>=', 5), where('archived', '==', false)),
   where('flagged', '==', true),
 )
 ```
-
 ## Ordering
 
 ### `orderBy(field, direction?)`
-
 ```ts
 orderBy('createdAt')              // default 'asc'
 orderBy('createdAt', 'desc')
 orderBy('priority', 'desc')
 ```
-
 `direction` is `'asc'` or `'desc'`. Multiple `orderBy` calls in one query stack; later constraints are tiebreakers.
 
 ## Limits
@@ -87,7 +79,6 @@ Include everything up to and including the matching doc.
 ### `endBefore(snapshot)` / `endBefore(...values)`
 
 Exclude the matching doc; end just before it.
-
 ```ts
 const firstPage = await getDocs(query(
   collection(db, 'notes'),
@@ -103,7 +94,6 @@ const secondPage = await getDocs(query(
   limit(20),
 ));
 ```
-
 ## Sandbox-backend caveat
 
 Chained queries (`.where`, `.orderBy`, `.limit`) currently route to the underlying `LocalEnvironment` as whole-collection listeners when used with `onSnapshot`. The simulator fires for any change in the collection and the callback receives every document. Filter / order honouring at the listener layer is in a later slice. For `getDocs` calls, the constraints apply normally.
@@ -113,7 +103,6 @@ evaluates the filters correctly. In an inactive production run, the canonical
 import remains Firebase and uses Firebase's listener behaviour.
 
 ## Combining everything
-
 ```ts
 const q = query(
   collection(db, 'notes'),
@@ -126,7 +115,6 @@ const q = query(
   limit(20),
 );
 ```
-
 The order of constraints in the argument list doesn't change semantics. The engine sorts them into the right execution order, so keep them in a readable order for humans.
 
 ## Where to look next

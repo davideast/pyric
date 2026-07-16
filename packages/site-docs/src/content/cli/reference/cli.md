@@ -35,7 +35,7 @@ with the default `sandbox` engine, and every service-first rules or index
 command) need no credentials. Hosted Rules Test API verification (`--engine
 rules-test-api` or `both`) needs a project id plus `FIREBASE_SA_BASE64` or
 `GOOGLE_APPLICATION_CREDENTIALS` (or ADC). See
-[`@pyric/cli/credentials/node`](../../README.md#programmatic-subpaths).
+`@pyric/cli/credentials/node`.
 
 ---
 
@@ -148,7 +148,6 @@ missing candidate rules exits `2`. Firestore auto-id aliases, time drift, and
 sentinel drift are informational and do not fail.
 
 Examples:
-
 ```sh
 pyric verify
 pyric verify journeys/ --rules firestore=firestore.rules
@@ -157,7 +156,6 @@ pyric verify journeys/checkout.json --engine both --project demo-app
 pyric verify --service rtdb --rules rtdb=database.rules.json
 pyric verify --rules firestore=firestore.rules --rules rtdb=database.rules.json
 ```
-
 See [verify against a captured session](../how-to/verify-against-a-captured-session.md).
 
 <a id="pyric-can-i-use"></a>
@@ -184,12 +182,10 @@ returned only as a suggestion; it is never promoted to a trust answer.
 | `none` | `1` | No candidate matched. |
 
 Missing feature names and unknown flags are usage errors and exit `1`.
-
 ```sh
 pyric can-i-use firestore-rules/getAfter
 pyric can-i-use storage/getDownloadURL --json
 ```
-
 ### `pyric verify cases [fixture] [flags]`
 
 Derive Firestore Rules Test API cases from a captured fixture without running
@@ -199,11 +195,9 @@ verification.
 |---|---|---|
 | `--service firestore` | `firestore` | The service to derive cases for. Only Firestore is supported. |
 | `--out <path>` | stdout | Write the derived case JSON to a file. |
-
 ```sh
 pyric verify cases journeys/checkout.json --service firestore --out journeys/checkout.cases.json
 ```
-
 ### `pyric mcp`
 
 Start a stdio MCP server for editors. It attaches to a running `pyric dev
@@ -227,7 +221,7 @@ tool calls to a connected in-browser sandbox. See [bridge](../bridge/README.md).
 
 Every service command follows `pyric <service> <artifact> <operation>`. The
 Firestore rules commands wrap the rules toolchain documented in
-[`pyric/docs/rules/`](../../../pyric/docs/rules/).
+[`pyric/docs/rules/`](../../pyric/rules/README.md).
 
 ### `pyric firestore rules lint <path>`
 

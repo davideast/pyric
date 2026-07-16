@@ -7,13 +7,10 @@ order: 170
 # `<ObjectBrowser>`
 
 Headless row list for a storage path — folders first, then objects, from `useStorageList`'s `entries`. Folder rows **navigate**, object rows **select**. Above `virtualizeThreshold` (default 100), switches to virtualized rendering via `<VirtualList>`; below, renders a plain `<ul>`.
-
 ```ts
 import { ObjectBrowser } from '@pyric/ui/storage';
 ```
-
 ## Example
-
 ```tsx
 import { useStorageList, usePathState } from '@pyric/ui/storage/hooks';
 
@@ -41,7 +38,6 @@ function Browser({ storage }) {
   );
 }
 ```
-
 ## Props
 
 | Prop | Type | Description |
@@ -61,7 +57,6 @@ function Browser({ storage }) {
 | `virtualizedHeight` | `number \| string` | Scroll-container height when virtualized. Default `'60vh'`. |
 
 ## Styling hooks
-
 ```
 [data-pyric-ui="object-browser"]                       /* root; also stamps data-size */
 [data-pyric-ui="object-browser"][data-pyric-loading]
@@ -80,7 +75,6 @@ function Browser({ storage }) {
 [data-pyric-entry-select]                              /* the row button */
 [data-pyric-entry-select][data-pyric-selected]
 ```
-
 ## Notes
 
 - **`listAll` has no pagination** — a big prefix arrives as one flat result; virtualization is the defense, which is why the threshold mechanics mirror `<DocumentList>`.

@@ -14,14 +14,12 @@ Pyric adds a development-only resolution layer to a Firebase application. During
 ## Start a new application
 
 Create a Vite application with canonical Firebase imports, Firestore rules, and the Pyric plugin already configured:
-
 ```bash
 npx create-pyric my-app
 cd my-app
 npm install
 npm run dev
 ```
-
 `npm create pyric my-app` runs the same scaffold.
 
 Open the local URL printed by Vite. The application and Pyric Studio use the same local backend. Studio is mounted at `/__pyric/ui/` on that origin.
@@ -29,13 +27,10 @@ Open the local URL printed by Vite. The application and Pyric Studio use the sam
 ## Add Pyric to an existing Vite application
 
 Install the development plugin:
-
 ```bash
 npm install --save-dev @pyric/cli
 ```
-
 Add it to the Vite configuration:
-
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
@@ -45,25 +40,20 @@ export default defineConfig({
   plugins: [pyricSandbox()],
 });
 ```
-
 Start the normal development server:
-
 ```bash
 npm run dev
 ```
-
 No application imports change. Continue using `firebase/app`, `firebase/auth`, `firebase/firestore`, and the other supported Firebase entry points. The plugin discovers Firestore rules from `firebase.json`, or uses `firestore.rules` when no path is configured.
 
 ## Use a static application or Node process
 
 `pyric dev` provides the same development-only package swap outside the Vite plugin:
-
 ```bash
 npm install --save-dev @pyric/cli
 npx pyric dev
 ```
-
-It can serve static files or start an existing development command. [The CLI guide](../../../../packages/cli/docs/README.md) covers those paths. [Test in Node](../ship/test-in-node.md) covers an in-process sandbox for tests and scripts.
+It can serve static files or start an existing development command. [The CLI guide](../cli/reference/cli.md) covers those paths. [Test in Node](../ship/test-in-node.md) covers an in-process sandbox for tests and scripts.
 
 ## What remains local
 

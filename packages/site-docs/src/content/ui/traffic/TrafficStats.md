@@ -8,19 +8,15 @@ order: 280
 
 The aggregation panel — totals, deny rate, and count breakdowns by method /
 origin / path. Pairs with `useTrafficStats`.
-
 ```ts
 import { TrafficStats, useTrafficStats } from '@pyric/ui/traffic';
 ```
-
 ## Example
-
 ```tsx
 const stats = useTrafficStats({ events: filtered, topPaths: 10 });
 
 <TrafficStats stats={stats} />
 ```
-
 Feed it the filtered or full event list depending on what the panel should
 reflect — it's pure derivation either way.
 
@@ -32,7 +28,6 @@ reflect — it's pure derivation either way.
 | `className` | `string` | no | Forwarded to the root. |
 
 ## Styling hooks
-
 ```
 [data-pyric-ui="traffic-stats"]          /* root; carries --pyric-deny-rate */
 [data-pyric-stat-totals]
@@ -43,7 +38,6 @@ reflect — it's pure derivation either way.
 [data-pyric-stat-bucket]                 /* + data-pyric-stat-key */
 [data-pyric-stat-bucket-label] / [data-pyric-stat-bucket-count]
 ```
-
 ## Notes
 
 - The deny rate is exposed twice — as a `%` text value and as the

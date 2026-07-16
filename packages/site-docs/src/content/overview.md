@@ -12,12 +12,10 @@ description: "Understand what Pyric is and what you get, in one short read."
 Pyric is Firestore, Auth, Realtime Database, Storage, and the Security Rules engine, implemented in TypeScript and running inside your app. In the browser, that means the page itself. The whole backend executes in the tab. In Node, it is the process your tests run in. Your code keeps its ordinary `firebase/*` imports. During development they resolve to Pyric. In production they resolve to Firebase. Nothing in your source changes.
 
 That is the whole trick, and it starts with one command.
-
 ```bash
 npm install -D @pyric/cli
 npx pyric dev
 ```
-
 No account. No cloud project. No emulator, no Java, no port to babysit. You have a local Firebase stack before your coffee is warm. Pyric records comparisons with production Firebase in its conformance reference, including documented divergences, unsupported APIs, and areas that have not been verified.
 
 ## Build the app, prove the rules, ship the same code

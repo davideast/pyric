@@ -8,11 +8,9 @@ order: 20
 # Sandbox test driver: `pyric/auth/sandbox.*`
 
 The `sandbox` export is `pyric/auth`'s test-driver namespace. It mirrors `pyric/firestore`'s `sandbox.setRules` / `sandbox.seedDocuments` pattern: methods exist only for sandbox-backed `Auth` handles and throw `failed-precondition` against a prod handle.
-
 ```ts
 import { sandbox as authSandbox } from 'pyric/auth';
 ```
-
 The import alias avoids the name collision with the local `const sandbox = initializeSandbox()` you'll typically have in scope.
 
 ---
@@ -20,7 +18,6 @@ The import alias avoids the name collision with the local `const sandbox = initi
 ## `sandbox.setUser(auth, user | null)`
 
 Force the current user. Bypasses email/password lookup, mock-result registry, and seeded DB. Pass `null` to sign out.
-
 ```ts
 authSandbox.setUser(auth, {
   uid: 'forced-uid',
@@ -37,7 +34,6 @@ authSandbox.setUser(auth, {
   }),
 });
 ```
-
 Emits to `onAuthStateChanged` / `onIdTokenChanged` subscribers and writes through to `sandbox.currentUser`.
 
 ---
@@ -45,7 +41,6 @@ Emits to `onAuthStateChanged` / `onIdTokenChanged` subscribers and writes throug
 ## `sandbox.mockSignInResult(auth, result)`
 
 Pre-stage the result that the next matching `signInWithPopup` / `signInWithCredential` call returns. The mock is **one-shot**, consumed by the next call with the matching `providerId`. Stage again for repeat tests.
-
 ```ts
 authSandbox.mockSignInResult(auth, {
   user: makeGoogleUser('uid-1', 'a@example.com'),
@@ -59,7 +54,6 @@ await signInWithPopup(auth, new GoogleAuthProvider());
 await signInWithPopup(auth, new GoogleAuthProvider());
 // → throws auth/no-mock-configured
 ```
-
 The provider passed to `signInWithPopup` must have a `providerId` that matches `result.providerId`.
 
 ---
@@ -67,7 +61,6 @@ The provider passed to `signInWithPopup` must have a `providerId` that matches `
 ## `sandbox.seedUsers(auth, users)`
 
 Bulk-load test users for email/password lookup. Each record:
-
 ```ts
 interface SeedUser {
   uid: string;
@@ -76,9 +69,7 @@ interface SeedUser {
   displayName?: string;
   customClaims?: Record<string, unknown>;
 }
-```
-
-```ts
+``````ts
 authSandbox.seedUsers(auth, [
   { uid: 'alice', email: 'alice@example.com', password: 'pw1' },
   {
@@ -94,7 +85,6 @@ await signInWithEmailAndPassword(auth, 'admin@example.com', 'pw2');
 // auth.currentUser.uid === 'admin'
 // (await auth.currentUser.getIdTokenResult()).claims.role === 'admin'
 ```
-
 `customClaims` flow through into `sandbox.currentUser.token`, which is what the Firestore rules engine reads as `request.auth.token.*`. This is the seam that makes rules tests with custom claims work end-to-end on sandbox.
 
 Email lookup is case-insensitive. Re-seeding the same uid overwrites.

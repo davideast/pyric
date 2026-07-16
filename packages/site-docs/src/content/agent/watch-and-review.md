@@ -14,11 +14,9 @@ An agent you cannot see is an agent you cannot trust. Pyric makes the agent's wo
 ## Watch it live in Studio
 
 Start the sandbox with Studio on:
-
 ```bash
 pyric dev --ui
 ```
-
 Studio opens at `/__pyric/ui/` against the same sandbox your app tab and MCP client use.
 
 Ask your connected agent for a feature and watch documents appear in the Firestore tab as it writes them, because there is one backend and everyone is looking at it. When the agent claims it seeded ten users, the Auth tab either shows ten users or it does not.

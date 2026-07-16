@@ -7,13 +7,10 @@ order: 230
 # `useStorageRulesGate`
 
 Pre-flight rules evaluation — evaluate the current identity against storage paths **before the click**, so the UI can mark denied affordances (`data-pyric-denied` rows, disabled-with-reason buttons) instead of letting the user discover a denial through a thrown `storage/unauthorized`. Built on the pure evaluator exports from `pyric/storage` (`parseStorageRules` + `evaluateStorageRules`) — the same evaluator the sandbox enforces with.
-
 ```ts
 import { useStorageRulesGate } from '@pyric/ui/storage/hooks';
 ```
-
 ## Example
-
 ```tsx
 function GatedAdmin({ storage }) {
   const nav = usePathState();
@@ -40,9 +37,7 @@ function GatedAdmin({ storage }) {
   );
 }
 ```
-
 ## Signature
-
 ```ts
 useStorageRulesGate(storage, {
   paths?, rules?, identity?, writeResource?,
@@ -50,7 +45,6 @@ useStorageRulesGate(storage, {
   status, source, advisory, identity, verdicts, verdictFor, error,
 }
 ```
-
 ### Options
 
 | Option | Type | Description |

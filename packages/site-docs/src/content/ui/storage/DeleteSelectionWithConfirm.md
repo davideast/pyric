@@ -7,13 +7,10 @@ order: 160
 # `<DeleteSelectionWithConfirm>`
 
 Bulk + recursive delete behind the confirm-dialog primitive, with **toasts on outcome** — the storage counterpart of the Firestore half's `<DeleteWithConfirm>`. Objects delete via `deleteObject`; folders walk recursively (default impl: `listAll`-driven, including the create-folder placeholder sweep). Requires `<ConfirmProvider>` **and** `<ToastProvider>` ancestors.
-
 ```ts
 import { DeleteSelectionWithConfirm } from '@pyric/ui/storage';
 ```
-
 ## Example
-
 ```tsx
 import { useStorageList, useStorageSelection } from '@pyric/ui/storage/hooks';
 
@@ -37,7 +34,6 @@ function Toolbar({ storage, path }) {
   );
 }
 ```
-
 ## Props
 
 | Prop | Type | Description |
@@ -55,7 +51,6 @@ function Toolbar({ storage, path }) {
 | `className` | `string` | Forwarded to the default trigger. |
 
 ## Styling hooks
-
 ```
 [data-pyric-ui="delete-selection"]                       /* default trigger */
 [data-pyric-ui="delete-selection"][data-pyric-destructive]
@@ -65,7 +60,6 @@ function Toolbar({ storage, path }) {
 [data-pyric-delete-selection-paths]                      /* default dialog body */
 [data-pyric-delete-selection-failures]                   /* error-toast body */
 ```
-
 (The dialog and toasts style via the primitives' own hooks —
 `[data-pyric-ui="confirm-dialog"]`, `[data-pyric-toast]`.)
 

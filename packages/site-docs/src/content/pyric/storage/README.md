@@ -14,22 +14,17 @@ Built for the agent-session-archive use case. The scope is bounded; the architec
 ## Check feature support
 
 This package implements a deliberate subset of Firebase Storage. Query the central conformance model rather than relying on a hand-maintained scope list:
-
 ```bash
 pyric can-i-use storage/uploadBytesResumable
 pyric can-i-use storage/list
 ```
-
 ## Install
-
 ```bash
 bun add pyric/storage pyric/sandbox
 # or
 npm install pyric/storage pyric/sandbox
 ```
-
 ## A 30-second example
-
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getStorageSandbox, ref, uploadBytes, getBlob } from 'pyric/storage';
@@ -46,7 +41,6 @@ await uploadBytes(
 const blob = await getBlob(ref(storage, 'sessions/gen-123'));
 console.log(await blob.text());
 ```
-
 ## Control-plane surface
 
 Beyond the data-plane adapter, the package exports a control-plane surface for provisioning and managing real Cloud Storage buckets: `provisionStorage`, `getStorageServiceState`, `enableStorageService`, bucket listing, CORS management (`getBucketCors` / `setBucketCors`), and `deployStorageRules`. Alongside those sits `createStorageAdminTools`, a `ToolHandler[]` factory for an `@inbrowser/agent` registry. It also ships a local Storage rules engine (`parseStorageRules` / `evaluateStorageRules`).
@@ -57,14 +51,14 @@ The documentation is organised by task and reference material:
 
 | If you want to | Read |
 |---|---|
-| Follow a complete lesson | [Tutorials](./tutorials/) |
-| Accomplish a specific task | [How-to guides](./how-to/) |
-| Look up signatures and options | [Reference](./reference/) |
-| Understand scope and design choices | [Explanation](./explanation/) |
+| Follow a complete lesson | Tutorials |
+| Accomplish a specific task | How-to guides |
+| Look up signatures and options | Reference |
+| Understand scope and design choices | Explanation |
 
 ### Starting points
 
-- **Upload + download flow**: [Upload and download a session archive](./tutorials/01-upload-and-download.md).
+- **Upload + download flow**: [Upload and download a session archive](../../build/store-files.md).
 - **Enforcing rules**: [Enforce Storage rules](./how-to/enforce-rules.md).
 - **Checking current support**: run `pyric can-i-use storage/<symbol>` and follow its evidence link.
 

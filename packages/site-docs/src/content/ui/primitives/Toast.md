@@ -7,13 +7,10 @@ order: 70
 # `<ToastProvider>` + `useToast`
 
 Imperative toast queue. One `<ToastProvider>` per scope; any descendant calls `useToast()` to push toasts. Renders to `document.body` via portal.
-
 ```ts
 import { ToastProvider, useToast } from '@pyric/ui/primitives';
 ```
-
 ## Example
-
 ```tsx
 function App() {
   return (
@@ -41,7 +38,6 @@ function Inner() {
   return <button onClick={handleSave}>Save</button>;
 }
 ```
-
 ## `<ToastProvider>` props
 
 | Prop | Type | Default | Description |
@@ -51,7 +47,6 @@ function Inner() {
 | `regionLabel` | `string` | `"Notifications"` | `aria-label` on the container. |
 
 ## `useToast` API
-
 ```ts
 const { toast, dismiss, toasts } = useToast();
 
@@ -65,11 +60,9 @@ toast({
 dismiss(id: string): void;
 toasts: ReadonlyArray<ToastRecord>;
 ```
-
 Throws if called without a `<ToastProvider>` ancestor.
 
 ## Styling hooks
-
 ```
 [data-pyric-ui="toast-region"]
 [data-pyric-toast]
@@ -78,7 +71,6 @@ Throws if called without a `<ToastProvider>` ancestor.
 [data-pyric-toast-body]
 [data-pyric-toast-dismiss]
 ```
-
 Error toasts get `role="alert"`; others get `role="status"`. The container is `aria-live="polite"`.
 
 ## Notes

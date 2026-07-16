@@ -56,7 +56,6 @@ differs: locally it uploads, in production it is refused.
 
 The create-if-absent guard. Anyone may upload a new object, nobody may
 overwrite one:
-
 ```
 rules_version = '2';
 service firebase.storage {
@@ -68,17 +67,14 @@ service firebase.storage {
   }
 }
 ```
-
 ### What happens
 
 Upload to `uploads/report.pdf` when no such object exists yet:
-
 ```ts
 import { getStorage, ref, uploadBytes } from 'pyric/storage';
 
 await uploadBytes(ref(getStorage(app), 'uploads/report.pdf'), bytes);
 ```
-
 In pyric the create is ALLOWED. `resource` is null before the object exists,
 so `resource == null` is true and the rule passes.
 
@@ -100,7 +96,6 @@ the genuinely new object, differs.
 Delete the existence check. Storage rules already give it to you: `create`
 only fires when there is no existing object, and `update` only fires when
 there is one. The verb is the existence check.
-
 ```
 match /uploads/{fileId} {
   allow create: if request.auth != null;
@@ -108,7 +103,6 @@ match /uploads/{fileId} {
                 && resource.metadata.owner == request.auth.uid;
 }
 ```
-
 Do not reference `resource` anywhere inside a `create` rule. Not
 `resource == null`, not `resource != null`, not `resource.size`. There is no
 object to read, and in production reading it errors, which denies. Put your

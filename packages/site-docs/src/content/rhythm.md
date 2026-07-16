@@ -53,7 +53,6 @@ The paragraph after the list sits at the group beat (`ul + p`).
 
 This paragraph introduces a code block at the group beat (`p + pre`
 uses the default, since code blocks are their own block group):
-
 ```ts
 import { lintFirestoreRules } from 'pyric/rules';
 
@@ -62,16 +61,13 @@ for (const finding of result.findings) {
   console.log(finding.code, finding.severity);
 }
 ```
-
 The paragraph after a code block returns at the group beat. Inline
 code like `pyric dev --persist` participates in the line, not the
 rhythm.
-
 ```bash
 # pre + pre: two code blocks at the group beat
 pyric firestore rules lint firestore.rules
 ```
-
 ## Blockquote
 
 This paragraph introduces a quote, so it binds at the para beat. Quotes

@@ -9,7 +9,7 @@
  */
 import { readFileSync } from 'node:fs';
 import type { APIRoute, GetStaticPaths } from 'astro';
-import { allDocs, slugOf, type DocEntry } from '../../lib/docs';
+import { allDocs, slugOf, type DocEntry } from '../../lib/content';
 
 export const getStaticPaths: GetStaticPaths = async () => {
   const entries = await allDocs();

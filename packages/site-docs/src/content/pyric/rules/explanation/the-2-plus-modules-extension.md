@@ -13,7 +13,6 @@ Firestore rules don't have imports. The DSL has functions, but every function ha
 ## What it adds
 
 A new version string and an `import` statement:
-
 ```rules
 import { isAuthenticated, isOwner } from 'auth';
 import { hasOnly } from 'validation';
@@ -21,7 +20,6 @@ import { hasOnly } from 'validation';
 rules_version = '2+modules';
 service cloud.firestore { … }
 ```
-
 Module names are either:
 
 - **Stdlib** names like `auth`, `validation`, `lobby`: built-in modules bundled with the package.
@@ -29,7 +27,6 @@ Module names are either:
 - **In-memory entries**: passed via `options.modules` as a `Record<name, source>`.
 
 Functions inside a module file declare visibility with `export`:
-
 ```rules
 // auth.rules
 export function isAuthenticated() { return request.auth != null; }
@@ -37,7 +34,6 @@ export function isOwner(userId) { return isAuthenticated() && request.auth.uid =
 
 function _private() { return request.time != null; }
 ```
-
 `isAuthenticated` and `isOwner` are importable. `_private` is not. It's an internal helper.
 
 ## What it doesn't add

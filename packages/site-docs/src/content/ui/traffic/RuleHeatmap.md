@@ -8,13 +8,10 @@ order: 250
 
 Per-rule fire / deny rollup — one row per rule, busiest first. Pairs with
 `useRuleHeatmap`, which does the aggregation.
-
 ```ts
 import { RuleHeatmap, useRuleHeatmap } from '@pyric/ui/traffic';
 ```
-
 ## Example
-
 ```tsx
 const { entries } = useRuleHeatmap({ events: monitor.events });
 
@@ -24,7 +21,6 @@ const { entries } = useRuleHeatmap({ events: monitor.events });
   onSelectRule={(i) => setSelectedRule((cur) => (cur === i ? null : i))}
 />
 ```
-
 Wire `onSelectRule` to your log filter for the cross-view "click a rule, see
 its traffic" interaction — the showcase narrows the event list to
 `matchedRule.ruleIndex === selectedRule` before the origin/result filter runs.
@@ -50,7 +46,6 @@ Each row exposes the deny intensity two ways — use whichever fits:
   target element).
 
 ## Styling hooks
-
 ```
 [data-pyric-ui="rule-heatmap"]
 [data-pyric-rule-row]                  /* + data-pyric-rule-index / -heat, data-pyric-selected */
@@ -59,7 +54,6 @@ Each row exposes the deny intensity two ways — use whichever fits:
 [data-pyric-rule-total] / -allows / -denies
 [data-pyric-rule-bar]                  /* read --pyric-deny-ratio off the row */
 ```
-
 ## Notes
 
 - Events with no `matchedRule` aren't attributed to any row — `useRuleHeatmap`

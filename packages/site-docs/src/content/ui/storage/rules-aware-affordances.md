@@ -13,12 +13,10 @@ sandbox enforces with; the components annotate themselves from its
 verdicts. No emulator-UI equivalent exists.
 
 ## The wiring
-
 ```tsx
 const gate = useStorageRulesGate(storage);          // sandbox: zero config
 const pathVerdict = gate.verdictFor(nav.path);
 ```
-
 | Component | Verdict consumed | Affordance |
 |---|---|---|
 | `<ObjectBrowser gate={gate}>` | `read` per row path | Read-denied rows stamped `data-pyric-denied` (+ the evaluator trace on `data-pyric-denied-reason`). Rows stay **clickable** — navigating into a denied folder surfaces the real `storage/unauthorized` through the existing error UI; the stamp is the early warning. |

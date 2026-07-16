@@ -11,7 +11,6 @@ DevTools Network-panel-style **log** and a per-rule **heatmap**, plus stats
 and grouping. Decoupled from `pyric/sandbox`: the data hook takes a `source`
 function, so the same components work against the sandbox or a production
 log feed.
-
 ```ts
 import {
   useTrafficMonitor,
@@ -29,13 +28,10 @@ import {
   type TrafficSource,
 } from '@pyric/ui/traffic';
 ```
-
 ## The decoupling contract
-
 ```ts
 type TrafficSource = (cb: (event: TrafficEvent) => void) => () => void;
 ```
-
 `pyric/sandbox`'s `Sandbox.onRequest` matches this signature exactly —
 `useTrafficMonitor({ source: sandbox.onRequest })` wires with zero adapter
 code. `TrafficEvent` is structurally identical to the sandbox's `RequestEvent`
@@ -70,7 +66,6 @@ return-shape interface commented per field. Summary:
   listener-run aggregation.
 
 ## Minimal wiring
-
 ```tsx
 function TrafficPanel({ sandbox }) {
   const monitor = useTrafficMonitor({ source: sandbox.onRequest });
@@ -90,7 +85,6 @@ function TrafficPanel({ sandbox }) {
   );
 }
 ```
-
 ## Notes
 
 - **Latency is de-featured.** `evalMs` stays on `TrafficEvent` and shows in
@@ -104,5 +98,5 @@ function TrafficPanel({ sandbox }) {
 - design rationale — the milestone roadmap.
 - design rationale — the sandbox
   `onRequest` API and the empirical probe findings this builds on.
-- [Live showcase](../../../../examples/admin-playground/) — the "Traffic
+- Live showcase — the "Traffic
   Monitor" route.

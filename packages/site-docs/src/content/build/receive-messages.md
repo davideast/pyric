@@ -10,7 +10,6 @@ description: "Keep Firebase Cloud Messaging receive code unchanged while tokens 
 # Receive Firebase Cloud Messaging locally
 
 Keep using the Firebase Cloud Messaging Web API:
-
 ```ts
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
@@ -21,13 +20,11 @@ onMessage(messaging, payload => {
   console.log(payload.data);
 });
 ```
-
 During development, the token and message broker belong to the local sandbox. No registration reaches Firebase Cloud Messaging. A production build runs the same application code through Firebase.
 
 ## Deliver a local message
 
 Tests and development harnesses can inject a message through Pyric's sandbox-only driver:
-
 ```ts
 import { getMessaging, onMessage, sandbox as messagingSandbox } from 'pyric/messaging';
 
@@ -41,17 +38,14 @@ await messagingSandbox.deliver(messaging, {
   data: { event: 'report-ready' },
 });
 ```
-
 Keep this driver outside application code that ships. A visible client routes the delivery to `onMessage`; a hidden client routes it to the service-worker `onBackgroundMessage` path. The local broker does not request notification permission or contact FCM.
 
 ## Check the supported boundary
 
 Messaging support changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
-
 ```bash
 pyric can-i-use messaging/onMessage
 pyric can-i-use messaging/getToken
 pyric can-i-use messaging/onBackgroundMessage
 ```
-
 The answer separates availability from fidelity and assurance, and points to the evidence behind the result.

@@ -24,7 +24,6 @@ One subscription covers everything observable. `sandbox.onEvent(cb)` fires a [`S
 | Attribute a listener re-eval to the originating write | `kind === 'snapshot_delivery'`, read `triggeredBy` |
 
 ## Subscribe
-
 ```ts
 import { initializeSandbox, type SandboxEvent } from 'pyric/sandbox';
 
@@ -36,11 +35,9 @@ const unsubscribe = sandbox.onEvent((event) => events.push(event));
 // ... later:
 unsubscribe();
 ```
-
 The subscription **survives `sandbox.reset()`**. The underlying environment swaps but the user callback stays in the sandbox-level registry. A `session_boundary` event with `phase: 'reset'` fires immediately before the swap so consumers can segment their stream. On `sandbox.dispose()` the boundary fires once with `phase: 'dispose'` and the registry clears.
 
 ## Render a traffic panel
-
 ```tsx
 function TrafficPanel() {
   const [events, setEvents] = useState<SandboxEvent[]>([]);
@@ -69,24 +66,20 @@ function TrafficPanel() {
   );
 }
 ```
-
 ## Derive denials as a filter
 
 The previous `onDenial` channel is gone. Denials are a one-line filter:
-
 ```ts
 const unsubscribe = sandbox.onEvent((event) => {
   if (event.kind !== 'request' || event.result !== 'deny') return;
   showBanner(`${event.method} ${event.path} denied`);
 });
 ```
-
 The same `request` event carries `auth`, `reasons`, `request.resourceData`, and `resourceBefore`: every field the old `DenialEvent` carried, plus the per-eval `evalMs` the request channel always had.
 
 ## Capture snapshot deliveries
 
 `onRequest` used to fire one listener-origin event per write that touched a watched path, even when the listener's diff-check determined the result was identical to the prior snapshot. That over-counted: consumers saw "the listener was woken up", not "the listener delivered to user code". The new `snapshot_delivery` and `snapshot_suppressed` events disambiguate.
-
 ```ts
 sandbox.onEvent((event) => {
   if (event.kind === 'snapshot_delivery') {
@@ -100,11 +93,9 @@ sandbox.onEvent((event) => {
   }
 });
 ```
-
 The initial-fire event (when a listener attaches) emits `snapshot_delivery` with every existing doc as `added` and no `triggeredBy`. Write-driven re-evals carry `triggeredBy: { method, path }`.
 
 ## Track listener lifecycle
-
 ```ts
 sandbox.onEvent((event) => {
   if (event.kind === 'listener_attach') console.log(`+ ${event.target.kind}: ${describe(event.target)}`);
@@ -112,7 +103,6 @@ sandbox.onEvent((event) => {
   else if (event.kind === 'listener_errored') console.log(`! ${event.listenerId}: ${event.error?.message}`);
 });
 ```
-
 Attach fires once before the initial-snapshot delivery. Detach fires when the returned unsubscribe is called against a still-registered listener (idempotent calls don't double-emit; listeners dropped by `reset()` don't emit detach, the `session_boundary` event covers the rollover). Errored fires when a stream-level rule denial silently terminates the listener.
 
 ## Volume: default-hide listener re-evals
@@ -122,7 +112,6 @@ Per the issue #307 probe data: a query listener can re-evaluate on every write t
 The decision-doc recommendation: in a UI panel, default-hide `kind: 'request' && origin: 'listener'` events behind a toggle. Default-show: user-origin requests + snapshot deliveries + listener lifecycle + denials. `snapshot_suppressed` is opt-in (inspector mode).
 
 ## Capture committed writes for replay
-
 ```ts
 sandbox.onEvent((event) => {
   if (event.kind !== 'write') return;
@@ -139,13 +128,11 @@ sandbox.onEvent((event) => {
   });
 });
 ```
-
 `write` events fire only for writes that the rule engine allowed AND the keyspace successfully applied. Denied or rolled-back writes surface as `kind: 'request' && result: 'deny'` with no companion `write` event.
 
 The `sentinels`, `autoId`, and `requestTime` fields on `WriteSandboxEvent` are populated so a captured stream can be replayed. See [Replay a captured event stream](./replay-events.md). For live observation you can ignore them.
 
 ## Segment around reset()
-
 ```ts
 let session = 1;
 sandbox.onEvent((event) => {
@@ -155,7 +142,6 @@ sandbox.onEvent((event) => {
   }
 });
 ```
-
 `session_boundary` fires BEFORE the env swap on `reset()` and BEFORE teardown on `dispose()`. The subscription survives reset; only dispose clears it.
 
 ## Subscriber contract

@@ -145,7 +145,7 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
     '',
     '# Public API coverage',
     '',
-    'This is the share of Firebase\'s public API that Pyric supports. [How does Pyric know it works like Firebase?](../../../../docs/site-rewrite/content/trust/how-we-know-it-matches-firebase.md) explains the evidence and its limits.',
+    'This is the share of Firebase\'s public API that Pyric supports. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
     '',
     '- **Public runtime surface:** mirrored Firebase runtime exports divided by all exports not exactly reviewed as private in the owning surface contract. Unsupported, deprecated, and deferred public APIs remain in the denominator.',
     '- **Public type surface:** mirrored exported type names divided by non-underscore Firebase exported type names. This measures name presence, not structural assignability.',

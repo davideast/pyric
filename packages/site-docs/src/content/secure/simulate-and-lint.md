@@ -16,7 +16,6 @@ Simulation tells you what a rule decides. Linting tells you what the production 
 ## Simulate a hypothetical request
 
 Ask the simulator whether a specific request would be allowed. It runs in-process, no network, no project:
-
 ```ts
 import { firestoreRules } from 'pyric/rules';
 
@@ -29,35 +28,28 @@ const result = firestoreRules(source).simulate([
   },
 ]);
 ```
-
 Each result is `PASSED`, `FAILED`, or `UNSUPPORTED`, and each carries `debugMessages`, a trace naming the rule that decided:
-
 ```
 Rule #0 (read) → deny
 Simulated: DENY
 ```
-
-`UNSUPPORTED` means the simulator hit a feature it does not implement and abstained rather than guessed. Those cases can be routed to Google's own engine. See [write a rules test suite](../secure/write-a-rules-test-suite.md).
+`UNSUPPORTED` means the simulator hit a feature it does not implement and abstained rather than guessed. Those cases can be routed to Google's own engine. See [write a rules test suite](./write-a-rules-test-suite.md).
 
 The same simulator is on the command line as `pyric firestore rules simulate`, and it is what evaluates every operation inside your running sandbox.
 
 ## Lint before Firebase rejects the rules
-
 ```bash
 pyric firestore rules lint firestore.rules
 ```
-
 Or in code:
-
 ```ts
 import { lintFirestoreRules } from 'pyric/rules';
 
 const { warnings, metrics } = lintFirestoreRules(source);
 ```
-
 The linter checks two different kinds of failure.
 
-**The production limits.** The rules compiler enforces hard caps: a 256 KB source ceiling, a boolean chain depth of 98, 11 `let` bindings per function, `get()` call counts, and a runtime evaluation budget that fails as a silent `permission-denied` under load. The linter carries each cap as an exact threshold, measured by probing the production engine. The numbers live in [the measured Firestore Rules limits](../secure/firestore-rules-limits.md).
+**The production limits.** The rules compiler enforces hard caps: a 256 KB source ceiling, a boolean chain depth of 98, 11 `let` bindings per function, `get()` call counts, and a runtime evaluation budget that fails as a silent `permission-denied` under load. The linter carries each cap as an exact threshold, measured by probing the production engine. The numbers live in [the measured Firestore Rules limits](./firestore-rules-limits.md).
 
 **JS-in-rules mistakes.** The rules language looks like JavaScript, and that resemblance is a trap. Models fall into it constantly, and humans do too.
 
@@ -77,24 +69,20 @@ Code like `resource.data.tags.includes('x')` parses fine and then fails at runti
 | `undefined` | `null` |
 
 Each of these emits a warning that names the mistake:
-
 ```
 [HALLUCINATED_METHOD] `.includes()` does not exist in Firestore rules.
   Use `x in list` instead of `list.includes(x)`
 ```
-
 The syntax-level catches (`===`, `?.`, `??`, arrow functions, backtick strings) fire even when the file fails to parse, because the parse error alone would point you at a stray parenthesis instead of the actual cause.
 
 ## Block shipping on Rules errors
 
 Warnings carry a severity. Gate CI (and refuse to `firebase deploy`) when any finding has `severity: 'error'`:
-
 ```ts
 const errors = lintFirestoreRules(source).warnings
   .filter((w) => w.severity === 'error');
 if (errors.length > 0) process.exit(1);
 ```
-
 A hallucinated method is always an error, because the named method literally does not exist. Blocking on it is never a false alarm.
 
 ## Correct Rules through an agent
@@ -103,4 +91,4 @@ This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on 
 
 ## Where to go next
 
-The exact numbers behind the limit checks are in [the measured Firestore Rules limits](../secure/firestore-rules-limits.md). To make simulation a habit rather than a one-off, [write a rules test suite](../secure/write-a-rules-test-suite.md).
+The exact numbers behind the limit checks are in [the measured Firestore Rules limits](./firestore-rules-limits.md). To make simulation a habit rather than a one-off, [write a rules test suite](./write-a-rules-test-suite.md).

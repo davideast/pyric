@@ -16,7 +16,6 @@ Admin-shape Realtime Database with swappable backends. `getDatabase(app)` mirror
 Realtime Database support is experimental, on this surface and on `pyric/database`. The data plane works and is tested; most behavior is not yet pinned to a recorded production observation.
 
 Anything the sandbox arms don't model (listeners on the local arm, transactions, queries, priorities, `onDisconnect`, rules metadata) throws a clear "not implemented" error, never bad data.
-
 ```ts
 import { initializeApp } from 'pyric-admin/app';
 import { getDatabase } from 'pyric-admin/database';
@@ -32,7 +31,6 @@ console.log(snap.val()); // 'launch'
 const msg = db.ref('rooms/lobby/messages').push({ text: 'hi' });
 console.log(msg.key); // a real 20-char push id, available synchronously
 ```
-
 ## Where to go next
 
 - [`pyric-admin/database` API reference](https://pyric.dev/docs/pyric-admin-database-reference-api/) for the published `Reference` and `DataSnapshot` declarations.

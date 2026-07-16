@@ -18,7 +18,6 @@ Here is the loop.
 ## Write the rule
 
 A notes collection. Anyone signed in can read. Only the owner can write.
-
 ```rules
 rules_version = '2';
 service cloud.firestore {
@@ -30,11 +29,9 @@ service cloud.firestore {
   }
 }
 ```
-
 ## Simulate a request
 
 Now ask the question. No deploy, no network, no Firebase project. The simulator runs in-process.
-
 ```ts
 import { firestoreRules } from 'pyric/rules';
 
@@ -61,41 +58,36 @@ const result = firestoreRules(source).simulate([
 
 console.log(`${result.passed} passed, ${result.failed} failed`); // 2 passed, 0 failed
 ```
-
 ## Read the verdict
 
 Each result carries the decision and a trace of which rule made it. When a case surprises you, the trace is where you look:
-
 ```
 Rule #0 (read) → deny
 Rule #1 (write) → ALLOW
 Simulated: ALLOW
 ```
-
 And this is not only a test-time thing. While `pyric dev` runs, your `firestore.rules` is loaded into the sandbox and hot-reloaded on save, and every operation your app performs carries this same verdict.
 
-A denial in your running app tells you the rule, the path, and the data that produced it. See [read a denial and understand it](../secure/read-a-denial.md).
+A denial in your running app tells you the rule, the path, and the data that produced it. See [read a denial and understand it](./read-a-denial.md).
 
 ## Deploy
 
 When the answers hold, ship the same file to production with `firebase-tools`:
-
 ```bash
 firebase deploy --only firestore:rules
 ```
-
 Gate on error-severity lint findings in CI first (`lintFirestoreRules` / `pyric firestore rules lint`), so the mistakes that produce opaque production failures get stopped at the door.
 
 ## Where the wing goes deeper
 
 That loop is the core. The wing deepens each step.
 
-- [Simulate and lint before you deploy](../secure/simulate-and-lint.md). Catch the error before Firebase returns an unexplained 400 or 403.
-- [Write a rules test suite](../secure/write-a-rules-test-suite.md). Turn one-off simulations into a suite that runs in CI.
-- [Read a denial and understand it](../secure/read-a-denial.md). Every denial carries the rule, path, and data that produced it.
-- [The rules standard library](../secure/rules-standard-library.md). Tested rule modules, composed with an import the rules language does not have.
-- [Rules limits, measured](../secure/firestore-rules-limits.md). The production compiler's real limits, with numbers.
-- [Audit your rules and data](../secure/audit-your-rules.md). Find the holes before someone else does.
+- [Simulate and lint before you deploy](./simulate-and-lint.md). Catch the error before Firebase returns an unexplained 400 or 403.
+- [Write a rules test suite](./write-a-rules-test-suite.md). Turn one-off simulations into a suite that runs in CI.
+- [Read a denial and understand it](./read-a-denial.md). Every denial carries the rule, path, and data that produced it.
+- [The rules standard library](./rules-standard-library.md). Tested rule modules, composed with an import the rules language does not have.
+- [Rules limits, measured](./firestore-rules-limits.md). The production compiler's real limits, with numbers.
+- [Audit your rules and data](./audit-your-rules.md). Find the holes before someone else does.
 
 ## And from an agent
 
@@ -103,4 +95,4 @@ An agent working in your sandbox can call `firestore_simulate_rules` to check a 
 
 ## Where to go next
 
-Start with [simulate and lint before you deploy](../secure/simulate-and-lint.md). When your rules matter enough to protect, give them [a test suite](../secure/write-a-rules-test-suite.md).
+Start with [simulate and lint before you deploy](./simulate-and-lint.md). When your rules matter enough to protect, give them [a test suite](./write-a-rules-test-suite.md).

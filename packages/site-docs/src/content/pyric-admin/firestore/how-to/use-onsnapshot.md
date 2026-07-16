@@ -10,7 +10,6 @@ order: 60
 This guide shows you how to register a snapshot listener and react to changes.
 
 ## Watch a single document
-
 ```ts
 import { onSnapshot, type DocumentSnapshot } from 'pyric-admin';
 
@@ -25,11 +24,9 @@ const unsubscribe = onSnapshot(db.doc('notes/n1'), (snap: DocumentSnapshot) => {
 // ... later
 unsubscribe();
 ```
-
 The callback fires immediately with the initial snapshot, then again every time the document changes (write, delete, or rule re-evaluation after `setRules`).
 
 ## Watch a query
-
 ```ts
 import { onSnapshot, type QuerySnapshot } from 'pyric-admin';
 
@@ -40,13 +37,11 @@ const unsubscribe = onSnapshot(q, (snap: QuerySnapshot) => {
   }
 });
 ```
-
 `docChanges()` returns `added` / `modified` / `removed` events. On the initial fire, every matching document is reported as `added`.
 
 ## Use the observer form
 
 The Web-SDK-shaped observer is convenient when you want all three handlers:
-
 ```ts
 const unsubscribe = onSnapshot(db.doc('notes/n1'), {
   next: (snap) => console.log(snap.data()),
@@ -54,24 +49,20 @@ const unsubscribe = onSnapshot(db.doc('notes/n1'), {
   // complete is accepted but never fires — local stream has no terminal state.
 });
 ```
-
 ## Handle stream errors
 
 When a listener is silently terminated by a rule denial (most commonly during re-evaluation after a `setRules`), the `error` handler fires once and the listener stops:
-
 ```ts
 onSnapshot(db.doc('locked-by-rules/x'), {
   next: (snap) => render(snap.data()),
   error: (err) => render(`Error: ${err.message}`),
 });
 ```
-
 Once-per-stream: after `error` fires, no further `next` or `error` callbacks happen on this listener. To resume watching, register a new listener.
 
-For host-level error handling without each listener registering its own callback, subscribe to `sandbox.onSnapshotError(...)`. See [Observe denials and stream errors](../../../sandbox/docs/how-to/observe-denials.md) in `pyric/sandbox`.
+For host-level error handling without each listener registering its own callback, subscribe to `sandbox.onSnapshotError(...)`. See Observe denials and stream errors in `pyric/sandbox`.
 
 ## Clean up in React `useEffect`
-
 ```ts
 useEffect(() => {
   const unsubscribe = onSnapshot(db.doc('notes/n1'), (snap) => {
@@ -80,7 +71,6 @@ useEffect(() => {
   return unsubscribe;
 }, []);
 ```
-
 Returning `unsubscribe` from the effect tells React to call it when the component unmounts or the effect re-runs. Without the cleanup, a re-render registers a fresh listener and the old one stays alive until the sandbox is reset.
 
 ## Why `metadata.fromCache` is always `false`
@@ -92,4 +82,4 @@ If your production code branches on these flags, the sandbox's behaviour is cons
 ## Where to look next
 
 - For the full overload list, see [`onSnapshot` overloads](../reference/onsnapshot.md).
-- For listener re-evaluation when rules change, see [Listener re-evaluation on `deployRules`](../../../sandbox/docs/explanation/listener-re-evaluation.md).
+- For listener re-evaluation when rules change, see [Listener re-evaluation on `deployRules`](../../../pyric/sandbox/explanation/listener-re-evaluation.md).

@@ -7,13 +7,10 @@ order: 100
 # `<DeleteWithConfirm>`
 
 Composition of [`useConfirm`](../primitives/ConfirmDialog.md) + [`useRecursiveDelete`](#user-content-userecursivedelete) for safe deletion of a document or collection with progress tracking.
-
 ```ts
 import { DeleteWithConfirm } from '@pyric/ui/firestore';
 ```
-
 ## Example
-
 ```tsx
 import {
   DeleteWithConfirm,
@@ -44,7 +41,6 @@ function DocRow({ ref }) {
   );
 }
 ```
-
 ## Props
 
 | Prop | Type | Required | Description |
@@ -59,14 +55,12 @@ function DocRow({ ref }) {
 | `className` | `string` | no | Forwarded to the default trigger. |
 
 ## `RecursiveDeleteImpl`
-
 ```ts
 interface RecursiveDeleteImpl {
   start: (target: DocumentReference | CollectionReference)
     => AsyncIterableIterator<{ deletedCount: number; done: boolean }>;
 }
 ```
-
 Yield progress events as you delete. The final yield must have `done: true`. The hook tracks `deletedCount` from the most recent event and exposes it via `progress`.
 
 Two common implementations:
@@ -77,7 +71,6 @@ Two common implementations:
 The library doesn't ship either — they're consumer-specific.
 
 ## Direct hook access
-
 ```tsx
 import { useRecursiveDelete } from '@pyric/ui/firestore/hooks';
 
@@ -85,17 +78,14 @@ const { delete: runDelete, progress, isRunning, error } = useRecursiveDelete(imp
 
 await runDelete(target);  // resolves on completion; errors land on `error`, not thrown
 ```
-
 Use the hook directly for richer UIs (a progress bar, a Cancel button, etc.).
 
 ## Styling hooks
-
 ```
 [data-pyric-ui="delete-with-confirm"]
 [data-pyric-ui="delete-with-confirm"][data-pyric-destructive]
 [data-pyric-ui="delete-with-confirm"][data-pyric-running]
 ```
-
 (Plus the [`<ConfirmDialog>` selectors](../primitives/ConfirmDialog.md#styling-hooks).)
 
 ## Notes
