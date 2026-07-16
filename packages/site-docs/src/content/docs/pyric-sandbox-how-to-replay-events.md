@@ -19,6 +19,7 @@ The sandbox captures every `SandboxEvent` it emits. Hand the captured stream to 
 | Debug "why did `serverTimestamp()` resolve differently" | check `time-drift` divergences (turn off `pinRequestTime` if you want to see the drift) |
 
 ## Capture
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric-admin';
@@ -36,11 +37,13 @@ const state = sandbox.snapshot().firestore ?? {};
 
 // Persist `events` and `state` wherever you want (file, Firebase Storage, etc).
 ```
+
 `sandbox.history()` returns a defensive copy of every `SandboxEvent` the sandbox has emitted: request, write, snapshot delivery, listener lifecycle, session_boundary. The replay engine only consumes `kind: 'write'` events; the rest pass through untouched (useful if you persist the full log for diagnostic purposes).
 
 The captured `request.resourceData` and `write.data` ship **pre-resolution**. `FieldValue.serverTimestamp()` arrives as `{ __type: 'serverTimestamp' }`, not a materialized Timestamp; `FieldValue.increment(1)` arrives as `{ __type: 'increment', value: 1 }`, etc. This is what lets the replay engine re-resolve them against a fresh sandbox (and lets `pinRequestTime` actually do something). `write.priorState` / `write.nextState` carry the **post-resolution** values, the actual stored state at that moment.
 
 ## Replay
+
 ```ts
 import { replay } from 'pyric/sandbox';
 
@@ -51,15 +54,18 @@ const { sandbox: replayed, divergences, pathAliases } = replay(
   state,                      // optional — enables divergence classification
 );
 ```
+
 The function builds a fresh sandbox with the same rules, walks every captured write, re-issues it (with sentinels intact), and, if you passed `state`, diffs the replayed final state against it.
 
 ## Classify divergences
 
 The `divergences` array is a discriminated union. Filter on `kind` and handle each case. `real-divergence` is the only kind that signals an actual bug; the others are intentional by-design differences (auto-id minting, clock drift on unpinned replay, sentinel resolution against a different prior).
+
 ```ts
 const real = divergences.filter((d) => d.kind === 'real-divergence');
 expect(real).toHaveLength(0);    // typical CI assertion
 ```
+
 See the [`Divergence` reference](../pyric-sandbox-reference-divergences/) for the full union shape, per-kind semantics, and field-path syntax.
 
 ## `pinRequestTime`: the default that prevents flake

@@ -2,11 +2,12 @@
 title: "SandboxError codes"
 group: "pyric / sandbox"
 section: "Reference"
-order: 13013
+order: 13012
 ---
 # `SandboxError` codes
 
 Every error the sandbox raises is a `SandboxError` carrying a `code`. Catch with `instanceof SandboxError`, switch on `code`.
+
 ```ts
 import { SandboxError } from 'pyric/sandbox';
 
@@ -18,6 +19,7 @@ try {
   }
 }
 ```
+
 ## Firebase-aligned codes
 
 These match Firebase / gRPC conventions so production-shaped `catch (e) { if (e.code === 'permission-denied') }` code keeps working.
@@ -90,6 +92,7 @@ Similar to `'not-seeded'`, but specifically signals that rules haven't been depl
 ## Constructing errors yourself
 
 Two forms:
+
 ```ts
 // Positional — backwards-compatible.
 throw new SandboxError('permission-denied', 'Denied: …', denialContext);
@@ -101,6 +104,7 @@ throw new SandboxError({
   remediation: 'For anonymous: withAuth(null). For users: withAuth({ uid: "…" }).',
 });
 ```
+
 When `remediation` is set, it is appended to the error's `.message` with a blank-line separator so consumers that surface `.message` (logs, UIs) see the guidance without an API change. The structured form is also available on the instance as `error.remediation`.
 
 ## What carries `denialContext`

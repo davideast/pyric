@@ -3,7 +3,7 @@ title: "Firestore rules gaps: where pyric and Firebase disagree"
 navLabel: "Firestore rules gaps"
 group: "pyric / rules"
 section: "Reference"
-order: 12012
+order: 12011
 ---
 # Firestore rules gaps: where pyric and Firebase disagree
 
@@ -54,6 +54,7 @@ cost is trust: a legitimate write you validated locally is refused in the cloud.
 
 A rule that gates on a digest. An upload token, a content checksum, a
 signature check:
+
 ```
 match /docs/{id} {
   allow create: if request.auth != null
@@ -61,6 +62,7 @@ match /docs/{id} {
        == request.resource.data.checksum;
 }
 ```
+
 Or any use of `hashing.md5()`, `hashing.crc32()`, `hashing.crc32c()`, or
 `Bytes.toBase64()`.
 
@@ -95,6 +97,7 @@ cost is trust: a legitimate write you validated locally is refused in the cloud.
 ### What you would write
 
 A post-write check, usually to keep two documents consistent:
+
 ```
 match /orders/{id} {
   allow create: if request.auth != null
@@ -102,6 +105,7 @@ match /orders/{id} {
     && getAfter(request.path).data.total == request.resource.data.total;
 }
 ```
+
 ### What happens
 
 In pyric the write is ALLOWED. pyric models the post-write state and hands
@@ -133,11 +137,13 @@ cost is trust: a legitimate write you validated locally is refused in the cloud.
 ### What you would write
 
 A rule that reads the identity of a document it looked up:
+
 ```
 match /pages/{id} {
   allow create: if get(/databases/$(database)/documents/cfg/site).id == 'site';
 }
 ```
+
 ### What happens
 
 In pyric the write is ALLOWED. pyric attaches a document identity to the
@@ -153,9 +159,11 @@ cross-document read in these captures.
 
 Read data off a `get()`, not identity. `get(...).data.<field>` matches
 production exactly, and so does `exists(...)`.
+
 ```
 allow create: if get(/databases/$(database)/documents/cfg/site).data.open == true;
 ```
+
 If you need the identity, you already have it. It is the path you passed to
 `get()`.
 
@@ -168,6 +176,7 @@ cost is trust: a legitimate write you validated locally is refused in the cloud.
 ### What you would write
 
 A rule that inspects the query on a request that is not a list:
+
 ```
 match /notes/{id} {
   allow create: if request.auth != null
@@ -175,6 +184,7 @@ match /notes/{id} {
     && request.query.size() == 0;
 }
 ```
+
 ### What happens
 
 In pyric the write is ALLOWED. pyric models `request.query` as an empty map on
@@ -195,12 +205,14 @@ cost is trust: a legitimate write you validated locally is refused in the cloud.
 ### What you would write
 
 A slice whose end index runs past the end of the value:
+
 ```
 match /notes/{id} {
   allow create: if request.resource.data.tags[1:99].size() == 3
     && request.resource.data.title[6:99] == 'world';
 }
 ```
+
 ### What happens
 
 In pyric both slices clamp to the length of the list or the string, the
@@ -211,10 +223,12 @@ slice end is DENIED, on lists and on strings alike.
 
 Never slice past the end. Check the size first, or slice with an index you
 know is in range:
+
 ```
 allow create: if request.resource.data.tags.size() >= 4
   && request.resource.data.tags[1:4].size() == 3;
 ```
+
 In-range slices, empty slices (`[i:i]`), and full-length slices all agree with
 production.
 
@@ -228,6 +242,7 @@ cost is trust: a legitimate write you validated locally is refused in the cloud.
 
 A `path()` call wrapped around something that is already a `Path`, usually
 because it came out of a helper:
+
 ```
 function asPath(p) {
   return path(p);
@@ -236,6 +251,7 @@ match /users/{uid} {
   allow read: if asPath(path('users/alice')) == path('users/alice');
 }
 ```
+
 ### What happens
 
 In pyric `path()` is idempotent. Passing it a `Path` gives the same `Path`
@@ -260,12 +276,14 @@ watch.
 ### What you would write
 
 A type check on a number in the payload:
+
 ```
 match /readings/{id} {
   allow create: if request.resource.data.x is float
     && !(request.resource.data.x is int);
 }
 ```
+
 ### What happens
 
 In pyric the write is DENIED. In Firebase it is ALLOWED.
@@ -284,11 +302,13 @@ not run locally: a rule you trusted to block, tested once, and shipped.
 
 Do not use `is float` or `is int` to tell payload numbers apart while testing
 locally. Test the property you actually care about, which is usually a range:
+
 ```
 allow create: if request.resource.data.x is number
   && request.resource.data.x >= 0
   && request.resource.data.x <= 100;
 ```
+
 Integer division, truncation, modulo, division by zero, and `is int` on a
 genuinely integral value all match production.
 

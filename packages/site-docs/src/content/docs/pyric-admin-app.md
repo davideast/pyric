@@ -12,12 +12,14 @@ branded `PyricAdminApp`, and every other `pyric-admin/*` subpath uses that app's
 sandbox.
 
 Use an explicit sandbox in tests and scripts:
+
 ```ts
 import { initializeApp } from 'pyric-admin/app';
 import { initializeSandbox } from 'pyric/sandbox';
 
 const app = initializeApp({ sandbox: initializeSandbox() });
 ```
+
 Or use a bare `initializeApp()` in canonical server code running under `pyric
 dev`. The activated `@pyric/cli/register` resolver supplies the remote sandbox
 factory. Outside activated development, canonical `firebase-admin/app` imports
@@ -28,5 +30,5 @@ names and lifecycle errors.
 
 ## Where to go next
 
-- [API reference](../pyric-admin-app-reference-api/)
+- [`pyric-admin/app` API reference](https://pyric.dev/docs/pyric-admin-app-reference-api/)
 - [Package resolution](../pyric-cli-reference-package-and-resolution/)

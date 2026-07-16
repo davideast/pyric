@@ -1,11 +1,11 @@
 ---
-title: Rules you trust because they are tested
+title: Write a Security Rules test suite
 navLabel: Write a rules test suite
 outcome: A suite of allow/deny cases that runs in-process, gates CI, and can escalate to Google's own engine.
 status: draft
 ---
 
-# Rules you trust because they are tested
+# Write a Security Rules test suite
 
 A ruleset is code that decides who sees what. It deserves tests like any other code that matters.
 
@@ -89,7 +89,7 @@ if (!result.success || result.data.failed > 0) {
 
 Sub-millisecond per case once the rules are parsed. There is no reason not to run this on every push.
 
-## When you want Google's own answer
+## Use Google's Rules Test API when production authority matters
 
 The hosted Rules Test API evaluates your cases on Google's servers, in the same engine production uses, without deploying anything. It takes the same `TestCase` objects and returns the same result shape. It needs a real project and credentials:
 
@@ -116,7 +116,7 @@ if (escalate.length > 0) {
 
 Each hosted call is one HTTP round-trip, tens to hundreds of milliseconds. The simulator itself is held to that engine's answers by a parity corpus that runs in CI, so for most suites the local verdicts are the same verdicts, sooner.
 
-## And from an agent
+## Run the suite through an agent
 
 An agent can run this exact loop through `firestore_simulate_rules` and `firestore_test_rules`, which means the rules it writes arrive with a passing suite instead of a promise. See [skills](../agent/skills.md).
 

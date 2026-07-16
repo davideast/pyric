@@ -1,16 +1,16 @@
 #!/usr/bin/env bun
 /**
- * Generate mechanical API reference from the declarations named by each
- * package's public export map.
+ * Generate the site API reference from the declarations published by each
+ * package export map.
  *
- * `--write` updates committed `*.generated.md` files. `--check` (the default)
- * regenerates in memory and fails on drift. Run the repository build first so
- * every manifest `types` target exists.
+ * TypeDoc owns declaration extraction and signature rendering. This script
+ * owns the site contract around it: which published packages are documented,
+ * which exported implementation seams are excluded, stable route names, and
+ * the generated front matter consumed by the API-reference template.
  *
- * Hand-written reference pages continue to carry behavioural guidance. These
- * generated files are the declaration receipt: they prove that reference
- * plumbing follows the public package contract instead of a second list of
- * source paths.
+ * `--write` updates docs/api-reference/generated/*.md. `--check` (the
+ * default) regenerates in memory and fails on drift. Build the packages first
+ * so every manifest `types` target exists.
  */
 import { execFileSync } from 'node:child_process';
 import {
@@ -18,144 +18,218 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { canIUseImport } from '@pyric/cli/conformance';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..');
+export const OUTPUT_ROOT = join(REPO_ROOT, 'docs', 'api-reference', 'generated');
 
 export const GENERATED_HEADER =
-  '<!-- Generated from the package export declaration via TypeDoc. Do not edit by hand; run bun run docs:api:generate. -->';
+  '<!-- Generated from published package declarations via TypeDoc. Do not edit by hand; run bun run docs:api:generate. -->';
 
-type WorkspacePackage = 'pyric' | 'pyric-admin' | 'cli';
+/** The packages packed and published by scripts/publish-alpha.sh. */
+export const PUBLISHED_PACKAGE_DIRS = [
+  'pyric',
+  'pyric-admin',
+  'create-pyric',
+  'cli',
+  'ui',
+] as const;
 
-export interface ApiDescriptor {
-  pkg: WorkspacePackage;
-  subpath: string;
-}
+export type PublishedPackageDir = (typeof PUBLISHED_PACKAGE_DIRS)[number];
 
 /**
- * Consumer-facing exports with API-reference value. Internal library seams are
- * intentionally absent. Every final @pyric/cli subpath is included because its
- * export map is the package contract this epic settles.
+ * Published adapter seams used by Pyric itself, not developer-facing APIs.
+ * `/internal` paths are excluded mechanically below. These three historical
+ * names cannot express that intent in their path, so each needs a disposition.
  */
-export const API_DESCRIPTORS: ApiDescriptor[] = [
-  { pkg: 'pyric', subpath: 'app' },
-  { pkg: 'pyric', subpath: 'firestore' },
-  { pkg: 'pyric', subpath: 'auth' },
-  { pkg: 'pyric', subpath: 'database' },
-  { pkg: 'pyric', subpath: 'storage' },
-  { pkg: 'pyric', subpath: 'rules' },
-  { pkg: 'pyric', subpath: 'sandbox' },
-  { pkg: 'pyric', subpath: 'firestore-values' },
-  { pkg: 'pyric-admin', subpath: 'app' },
-  { pkg: 'pyric-admin', subpath: 'firestore' },
-  { pkg: 'pyric-admin', subpath: 'auth' },
-  { pkg: 'pyric-admin', subpath: 'database' },
-  { pkg: 'pyric-admin', subpath: 'storage' },
-  { pkg: 'cli', subpath: 'credentials/node' },
-  { pkg: 'cli', subpath: 'verify' },
-  { pkg: 'cli', subpath: 'assurance' },
-  { pkg: 'cli', subpath: 'assurance/browser' },
-  { pkg: 'cli', subpath: 'bridge' },
-  { pkg: 'cli', subpath: 'bridge/client' },
-  { pkg: 'cli', subpath: 'discover' },
-  { pkg: 'cli', subpath: 'vite' },
-  { pkg: 'cli', subpath: 'serve/worker' },
-  { pkg: 'cli', subpath: 'remote' },
-  { pkg: 'cli', subpath: 'register' },
-];
+export const NON_USER_FACING_EXPORTS: ReadonlyMap<string, string> = new Map([
+  [
+    'pyric:./app/register',
+    'Node loader adapter used by @pyric/cli/register, not a developer API.',
+  ],
+  [
+    'pyric:./sandbox/admin-compat',
+    'Cross-package admin compatibility seam, not a developer API.',
+  ],
+  [
+    'pyric:./sandbox/admin-firestore',
+    'Cross-package admin Firestore seam, not a developer API.',
+  ],
+]);
+
+type ExportTarget = string | { [condition: string]: ExportTarget | undefined };
 
 interface PackageManifest {
   name: string;
-  exports: Record<string, { types?: string }>;
+  private?: boolean;
+  exports?: Record<string, ExportTarget>;
   pyricUnreleasedExports?: string[];
 }
 
-function packageManifest(pkg: WorkspacePackage): PackageManifest {
+export interface ApiDescriptor {
+  packageDir: PublishedPackageDir;
+  packageName: string;
+  exportKey: string;
+  importPath: string;
+  subpath: string;
+  typesPath: string;
+  slug: string;
+  outputPath: string;
+}
+
+function packageManifest(packageDir: PublishedPackageDir): PackageManifest {
   return JSON.parse(
-    readFileSync(join(REPO_ROOT, 'packages', pkg, 'package.json'), 'utf8'),
+    readFileSync(join(REPO_ROOT, 'packages', packageDir, 'package.json'), 'utf8'),
   ) as PackageManifest;
 }
 
-/** Descriptors minus exports explicitly stripped from published packages. */
-export function releasedDescriptors(
-  descriptors: ApiDescriptor[] = API_DESCRIPTORS,
-): ApiDescriptor[] {
-  const manifests = new Map<WorkspacePackage, PackageManifest>();
-  return descriptors.filter((descriptor) => {
-    const manifest = manifests.get(descriptor.pkg) ?? packageManifest(descriptor.pkg);
-    manifests.set(descriptor.pkg, manifest);
-    const key = `./${descriptor.subpath}`;
-    return !(manifest.pyricUnreleasedExports ?? []).includes(key);
-  });
-}
-
-/** Resolve declarations from the manifest itself; do not duplicate dist paths. */
-export function entryDtsPath(descriptor: ApiDescriptor): string {
-  const manifest = packageManifest(descriptor.pkg);
-  const key = `./${descriptor.subpath}`;
-  const target = manifest.exports[key]?.types;
-  if (!target) {
-    throw new Error(`missing public types target: ${manifest.name} export ${key}`);
+function typesTarget(target: ExportTarget | undefined): string | null {
+  if (!target || typeof target === 'string') return null;
+  if (typeof target.types === 'string') return target.types;
+  for (const nested of Object.values(target)) {
+    const found = typesTarget(nested);
+    if (found) return found;
   }
-  return join(REPO_ROOT, 'packages', descriptor.pkg, target);
+  return null;
 }
 
-export function outputPath(descriptor: ApiDescriptor): string {
-  if (descriptor.pkg === 'cli') {
-    const slug = descriptor.subpath.replaceAll('/', '-');
-    return join(REPO_ROOT, 'packages', 'cli', 'docs', 'reference', `${slug}.api.generated.md`);
+function isInternalExport(exportKey: string): boolean {
+  return exportKey
+    .replace(/^\.\//, '')
+    .split('/')
+    .some((segment) => segment === 'internal');
+}
+
+function slugPart(value: string): string {
+  return value
+    .replace(/^@/, '')
+    .replaceAll('/', '-')
+    .replace(/[^a-zA-Z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+}
+
+export function apiSlug(packageName: string, exportKey: string): string {
+  const packageSlug = slugPart(packageName);
+  if (exportKey === '.') return `${packageSlug}-reference-api`;
+  return `${packageSlug}-${slugPart(exportKey.replace(/^\.\//, ''))}-reference-api`;
+}
+
+/**
+ * Discover every released developer-facing declaration entry from package
+ * manifests. There is no second allow-list of subpaths: every export must be
+ * documented, explicitly unreleased, mechanically internal, or dispositioned
+ * above as a non-user-facing adapter seam.
+ */
+export function discoverApiDescriptors(): ApiDescriptor[] {
+  const descriptors: ApiDescriptor[] = [];
+  for (const packageDir of PUBLISHED_PACKAGE_DIRS) {
+    const manifest = packageManifest(packageDir);
+    if (manifest.private) {
+      throw new Error(`published package is marked private: packages/${packageDir}`);
+    }
+    if (!manifest.exports) {
+      throw new Error(`published package has no export map: ${manifest.name}`);
+    }
+    const unreleased = new Set(manifest.pyricUnreleasedExports ?? []);
+    for (const [exportKey, target] of Object.entries(manifest.exports)) {
+      if (unreleased.has(exportKey)) continue;
+      if (isInternalExport(exportKey)) continue;
+      if (NON_USER_FACING_EXPORTS.has(`${packageDir}:${exportKey}`)) continue;
+      const types = typesTarget(target);
+      if (!types) {
+        throw new Error(`${manifest.name} export ${exportKey} has no types target`);
+      }
+      const subpath = exportKey === '.' ? '' : exportKey.replace(/^\.\//, '');
+      const importPath = subpath ? `${manifest.name}/${subpath}` : manifest.name;
+      const slug = apiSlug(manifest.name, exportKey);
+      descriptors.push({
+        packageDir,
+        packageName: manifest.name,
+        exportKey,
+        importPath,
+        subpath,
+        typesPath: join(REPO_ROOT, 'packages', packageDir, types),
+        slug,
+        outputPath: join(OUTPUT_ROOT, `${slug}.md`),
+      });
+    }
   }
-  return join(
-    REPO_ROOT,
-    'packages',
-    descriptor.pkg,
-    'docs',
-    descriptor.subpath,
-    'reference',
-    'api.generated.md',
-  );
+  return descriptors;
 }
 
-function publicName(descriptor: ApiDescriptor): string {
-  const packageName = packageManifest(descriptor.pkg).name;
-  return `${packageName}/${descriptor.subpath}`;
+interface TypeDocProject {
+  children?: Array<{ name?: string }>;
+}
+
+function yamlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function evidenceSlug(descriptor: ApiDescriptor): string | null {
+  return canIUseImport(descriptor.importPath)?.evidenceSlug ?? null;
 }
 
 export function renderApiMarkdown(descriptor: ApiDescriptor): string {
-  const entry = entryDtsPath(descriptor);
-  if (!existsSync(entry)) {
-    throw new Error(`missing declaration entry: ${entry}\n  Build first: bun run build`);
+  if (!existsSync(descriptor.typesPath)) {
+    throw new Error(
+      `missing declaration entry: ${descriptor.typesPath}\n  Build first: bun run build`,
+    );
   }
 
   const tmp = mkdtempSync(join(tmpdir(), 'pyric-api-docs-'));
   try {
+    const jsonPath = join(tmp, 'reflection.json');
     const options = {
-      entryPoints: [entry],
-      plugin: ['typedoc-plugin-markdown'],
+      entryPoints: [descriptor.typesPath],
+      plugin: [
+        'typedoc-plugin-markdown',
+        join(HERE, 'typedoc-api-filter.mjs'),
+      ],
       out: tmp,
-      name: publicName(descriptor),
+      json: jsonPath,
+      name: descriptor.importPath,
       readme: 'none',
       githubPages: false,
       skipErrorChecking: true,
       excludeInternal: true,
       excludePrivate: true,
+      excludeExternals: true,
       disableSources: true,
       validation: {
-        // A subpath entry deliberately excludes private and sibling symbols.
-        // Links to those symbols are useful in source but cannot resolve in a
-        // standalone public-subpath receipt.
         notExported: false,
         invalidLink: false,
       },
       outputFileStrategy: 'modules',
       hideBreadcrumbs: true,
       hidePageHeader: true,
+      hidePageTitle: true,
+      useHTMLAnchors: true,
+      useCodeBlocks: true,
+      expandObjects: true,
+      expandParameters: true,
+      typeDeclarationVisibility: 'verbose',
+      parametersFormat: 'table',
+      interfacePropertiesFormat: 'table',
+      classPropertiesFormat: 'table',
+      propertyMembersFormat: 'table',
+      typeAliasPropertiesFormat: 'table',
+      enumMembersFormat: 'table',
+      indexFormat: 'table',
+      tableColumnSettings: {
+        hideInherited: true,
+        hideSources: true,
+        leftAlignHeaders: true,
+      },
     };
     const optionsPath = join(tmp, 'typedoc.json');
     writeFileSync(optionsPath, JSON.stringify(options, null, 2));
@@ -163,14 +237,72 @@ export function renderApiMarkdown(descriptor: ApiDescriptor): string {
       cwd: REPO_ROOT,
       stdio: ['ignore', 'ignore', 'inherit'],
     });
-    const body = readFileSync(join(tmp, 'README.md'), 'utf8').replace(/\s+$/, '');
-    return `${GENERATED_HEADER}\n\n${body}\n`;
+    const body = readFileSync(join(tmp, 'README.md'), 'utf8')
+      .replace(/[ \t]+$/gm, '')
+      .replace(/\s+$/, '');
+    const project = JSON.parse(readFileSync(jsonPath, 'utf8')) as TypeDocProject;
+    const symbolCount = (project.children ?? []).filter(
+      (child) => child.name && !child.name.startsWith('_'),
+    ).length;
+    const evidence = evidenceSlug(descriptor);
+    const frontmatter = [
+      '---',
+      `title: ${yamlString(`API reference: ${descriptor.importPath}`)}`,
+      `navLabel: ${yamlString(descriptor.importPath)}`,
+      `outcome: ${yamlString(`Published declarations for ${descriptor.importPath}.`)}`,
+      `slug: ${yamlString(descriptor.slug)}`,
+      'kind: "api"',
+      `apiPackage: ${yamlString(descriptor.packageName)}`,
+      `apiImportPath: ${yamlString(descriptor.importPath)}`,
+      `apiSubpath: ${yamlString(descriptor.subpath)}`,
+      `apiSymbolCount: ${symbolCount}`,
+      ...(evidence ? [`apiEvidenceSlug: ${yamlString(evidence)}`] : []),
+      '---',
+    ].join('\n');
+    return `${frontmatter}\n\n${GENERATED_HEADER}\n\n${body}\n`;
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
 }
 
-function parseArgs(argv: string[]): { write: boolean; check: boolean; only: Set<string> | null } {
+export function renderApiIndex(descriptors: ApiDescriptor[]): string {
+  const byPackage = new Map<string, ApiDescriptor[]>();
+  for (const descriptor of descriptors) {
+    const entries = byPackage.get(descriptor.packageName) ?? [];
+    entries.push(descriptor);
+    byPackage.set(descriptor.packageName, entries);
+  }
+  const body: string[] = [
+    '---',
+    'title: "API reference"',
+    'navLabel: "API reference"',
+    'outcome: "Published declarations for every supported Pyric package entry point."',
+    'slug: "api-reference"',
+    'kind: "api-index"',
+    '---',
+    '',
+    GENERATED_HEADER,
+    '',
+    '# API reference',
+    '',
+    'Find an import path, then open its generated declarations. These pages describe the published TypeScript contract. Behavioral fidelity and known gaps remain in Conformance.',
+    '',
+  ];
+  for (const [packageName, entries] of byPackage) {
+    body.push(`## \`${packageName}\``, '');
+    for (const descriptor of entries) {
+      body.push(`- [\`${descriptor.importPath}\`](./generated/${descriptor.slug}.md)`);
+    }
+    body.push('');
+  }
+  return `${body.join('\n').replace(/\s+$/, '')}\n`;
+}
+
+function parseArgs(argv: string[]): {
+  write: boolean;
+  check: boolean;
+  only: Set<string> | null;
+} {
   const write = argv.includes('--write');
   const check = argv.includes('--check') || !write;
   const only: string[] = [];
@@ -182,46 +314,66 @@ function parseArgs(argv: string[]): { write: boolean; check: boolean; only: Set<
   return { write, check, only: only.length ? new Set(only) : null };
 }
 
-function selected(only: Set<string> | null): ApiDescriptor[] {
-  const released = releasedDescriptors();
-  if (!only) return released;
-  return released.filter((descriptor) => {
-    const packageName = packageManifest(descriptor.pkg).name;
-    return only.has(`${packageName}/${descriptor.subpath}`);
-  });
+function selected(descriptors: ApiDescriptor[], only: Set<string> | null): ApiDescriptor[] {
+  if (!only) return descriptors;
+  return descriptors.filter((descriptor) => only.has(descriptor.importPath));
+}
+
+function generatedFiles(): string[] {
+  if (!existsSync(OUTPUT_ROOT)) return [];
+  return readdirSync(OUTPUT_ROOT)
+    .filter((file) => file.endsWith('.md'))
+    .sort();
 }
 
 if (import.meta.main) {
   const { write, check, only } = parseArgs(process.argv.slice(2));
-  const descriptors = selected(only);
+  const allDescriptors = discoverApiDescriptors();
+  const descriptors = selected(allDescriptors, only);
   if (descriptors.length === 0) {
     console.error('No matching released descriptors. Use --only <package/subpath>.');
     process.exit(1);
   }
 
   if (write) {
+    mkdirSync(OUTPUT_ROOT, { recursive: true });
+    if (!only) {
+      const expected = new Set(descriptors.map((descriptor) => `${descriptor.slug}.md`));
+      for (const file of generatedFiles()) {
+        if (!expected.has(file)) rmSync(join(OUTPUT_ROOT, file));
+      }
+      writeFileSync(join(REPO_ROOT, 'docs', 'api-reference', 'index.md'), renderApiIndex(descriptors));
+    }
     for (const descriptor of descriptors) {
-      const out = outputPath(descriptor);
-      mkdirSync(dirname(out), { recursive: true });
-      writeFileSync(out, renderApiMarkdown(descriptor));
-      console.log(`Generated ${out.replace(`${REPO_ROOT}/`, '')}`);
+      writeFileSync(descriptor.outputPath, renderApiMarkdown(descriptor));
+      console.log(`Generated ${descriptor.outputPath.replace(`${REPO_ROOT}/`, '')}`);
     }
   }
 
   if (check) {
     const problems: string[] = [];
+    const expectedFiles = allDescriptors.map((descriptor) => `${descriptor.slug}.md`).sort();
+    if (generatedFiles().join('\n') !== expectedFiles.join('\n')) {
+      problems.push('docs/api-reference/generated: route inventory drifted');
+    }
+    const indexPath = join(REPO_ROOT, 'docs', 'api-reference', 'index.md');
+    if (!existsSync(indexPath)) problems.push('docs/api-reference/index.md: missing');
+    else if (readFileSync(indexPath, 'utf8') !== renderApiIndex(allDescriptors)) {
+      problems.push('docs/api-reference/index.md: drifted');
+    }
     for (const descriptor of descriptors) {
-      const out = outputPath(descriptor);
-      const rel = out.replace(`${REPO_ROOT}/`, '');
+      const rel = descriptor.outputPath.replace(`${REPO_ROOT}/`, '');
       const generated = renderApiMarkdown(descriptor);
-      if (!existsSync(out)) problems.push(`${rel}: missing`);
-      else if (readFileSync(out, 'utf8') !== generated) problems.push(`${rel}: drifted`);
+      if (!existsSync(descriptor.outputPath)) problems.push(`${rel}: missing`);
+      else if (readFileSync(descriptor.outputPath, 'utf8') !== generated) {
+        problems.push(`${rel}: drifted`);
+      }
     }
     if (problems.length > 0) {
       for (const problem of problems) console.error(`- ${problem}`);
       console.error('Run bun run docs:api:generate after bun run build.');
       process.exit(1);
     }
-    console.log(`API reference matches public declarations (${descriptors.length} checked).`);
+    console.log(`API reference matches published declarations (${allDescriptors.length} routes).`);
   }
 }

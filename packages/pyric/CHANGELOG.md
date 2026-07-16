@@ -4,10 +4,8 @@
 
 ### Breaking: `pyric/database` is the canonical sandbox-only mirror
 
-- `pyric/database` now exports only the Firebase-shaped modular Database
-  surface and sandbox-specific extensions. It no longer exports the legacy
-  production host, REST handlers, stateful `getRtdbTools` resolver, or agent
-  tool factories.
+- `pyric/database` exports only the Firebase-shaped modular Database surface
+  and sandbox-specific extensions.
 - The duplicate `pyric/database/modular` subpath is removed. Import the mirror
   from `pyric/database`.
 - Direct mirror calls reject real Firebase apps. Package resolution owns the

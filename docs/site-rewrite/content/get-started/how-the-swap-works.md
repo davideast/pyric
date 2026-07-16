@@ -1,15 +1,15 @@
 ---
-title: How the swap works
+title: How firebase/* imports resolve locally and in production
 navLabel: How the swap works
 outcome: Understand how your firebase imports reached a local backend, and why production is untouched.
 status: draft
 ---
 
-# How the swap works
+# How firebase/* imports resolve locally and in production
 
 In activated development, your app's `firebase/*` imports resolve to a local backend with rules enforced, and no request leaves your machine. With that activation absent in production, the runtime resolves those imports to Firebase directly. Here is the whole mechanism, in three parts.
 
-## Your imports resolve differently in dev
+## Resolve imports to Pyric during development
 
 Your source says `import { getFirestore } from 'firebase/firestore'`. In development, that specifier resolves to Pyric instead of the Firebase SDK. The swap happens in one of two layers:
 

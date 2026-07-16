@@ -1,11 +1,11 @@
 ---
-title: Teach your agent the hard Firebase things
-navLabel: Skills
+title: Give an agent methods for Firebase tasks
+navLabel: Agent skills
 outcome: Packaged expert procedures for the problems that need a method, not more tools.
 status: draft
 ---
 
-# Teach your agent the hard Firebase things
+# Give an agent methods for Firebase tasks
 
 Tools give an agent hands. Skills give it a method. A skill is a written procedure the agent follows step by step, with a completion check on every step and the specific Pyric moves each step uses named in place.
 
@@ -13,7 +13,7 @@ An auth-model skill does not say "think about identity." It says map every ident
 
 Six skills ship today, one per hard problem.
 
-## Install them
+## Install the skills
 
 The skills live in the Pyric repository under `.agents/skills/`, one folder per skill.
 
@@ -21,7 +21,7 @@ The skills live in the Pyric repository under `.agents/skills/`, one folder per 
 - For Claude Code, copy the folders you want into your project's `.claude/skills/` directory.
 - The Claude Code plugin ships its own operational pieces (`pyric-start` boots and wires the sandbox), so the domain skills below slot into a session that is already connected.
 
-## What each skill does
+## Choose a skill for the task
 
 **firebase-auth-model.** Design or audit an identity model that actually connects to your rules. It maps every identity your app has, chooses provider flows, decides where profile data lives and which document IDs use `uid`, and draws the line between custom claims and document roles so they never contradict, ending with test users you can seed. Serves [sign in and manage users](../build/sign-in-and-manage-users.md).
 

@@ -3,7 +3,7 @@ title: "The /internal adapter protocol"
 navLabel: "The /internal protocol"
 group: "pyric / sandbox"
 section: "Explanation"
-order: 13020
+order: 13019
 ---
 # The `/internal` adapter protocol
 
@@ -32,6 +32,7 @@ The gate is by convention, not enforcement. `pyric/sandbox/internal` is a regula
 A typical adapter does three things with `/internal`:
 
 ### 1. Resolve the runtime substrate
+
 ```ts
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { SandboxContext } from 'pyric/sandbox';
@@ -41,9 +42,11 @@ function getFirestore(ctx: SandboxContext): FirestoreHandle {
   return buildHandleAroundEnv(env, ctx.auth);
 }
 ```
+
 `getInternalEnv` throws if the `Sandbox` wasn't produced by `initializeSandbox`, so adapters can rely on it to reject malformed input early.
 
 ### 2. Translate user calls to substrate operations
+
 ```ts
 import type { Operation, OperationResult } from 'pyric/sandbox/internal';
 
@@ -59,12 +62,15 @@ async function set(handle, path, data) {
   return result;
 }
 ```
+
 Operations are plain shapes. Each adapter writes its own translation logic: `pyric-admin` translates chainable calls, `pyric/firestore` translates modular function calls. Both produce `Operation` and consume `OperationResult`.
 
 ### 3. Resolve sentinels
+
 ```ts
 import { resolveValueTree, registerDefaultConverters } from 'pyric/sandbox/internal';
 ```
+
 Sentinels (`FieldValue.increment`, `serverTimestamp`, `arrayUnion`) are values the substrate doesn't store directly. They describe an operation on the current document. The adapter resolves them via `resolveValueTree(payload, env, method)` before handing the payload to `LocalEnvironment.execute`.
 
 ## What adapters shouldn't do

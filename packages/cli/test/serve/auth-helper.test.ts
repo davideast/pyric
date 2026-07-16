@@ -67,11 +67,12 @@ describe('ServeAuthHelper', () => {
     });
   });
 
-  it('non-delegated (in-page fallback) default: google.com popup throws operation-not-allowed', async () => {
+  it('non-delegated (in-page fallback): a disabled google.com popup throws operation-not-allowed', async () => {
     // The served NON-worker leg keeps local gating with the documented
-    // sandbox defaults — no silent pre-enabling in these tests anymore.
+    // sandbox defaults (everything enabled) — an explicit disable still bites.
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     const helper = helperForLocalAuth(auth);
     await expect(signInWithPopup(auth, new GoogleAuthProvider())).rejects.toMatchObject({
       code: 'auth/operation-not-allowed',

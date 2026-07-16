@@ -2,18 +2,20 @@
 title: "Storage rules language reference"
 group: "pyric / storage"
 section: "Reference"
-order: 14009
+order: 14008
 ---
 # Storage rules language reference
 
 Usage reference for the Storage rules constructs shown in this package. This page is not an availability inventory: run `pyric can-i-use storage-rules/<construct>` for the current support, fidelity, assurance, caveats, and evidence before relying on a construct.
 
 ## Service header
+
 ```rules
 service firebase.storage {
   // ...
 }
 ```
+
 Required. Anything other than `firebase.storage` fails parsing.
 
 ## Path matching
@@ -25,6 +27,7 @@ Three segment types:
 - **Multi-segment wildcards**: `{allPaths=**}` matches the rest of the path.
 
 Nested `match` blocks compose naturally:
+
 ```rules
 match /b/{bucket}/o {
   match /users/{uid} {
@@ -34,6 +37,7 @@ match /b/{bucket}/o {
   }
 }
 ```
+
 Path variables bind to the surrounding scope: `uid` from the parent match is in scope in the inner allow condition.
 
 ## Allow conditions
@@ -53,12 +57,14 @@ A granular grant covers only its own verb: `allow get` does not grant `list`, an
 ## Rule functions
 
 User-defined functions are supported, including `let` bindings:
+
 ```rules
 function isOwner(uid) {
   let owner = resource.metadata['owner'];
   return request.auth != null && request.auth.uid == owner;
 }
 ```
+
 Recursion depth is capped; a function that errors mid-evaluation denies rather than throwing past the rule (deny-on-error).
 
 ## Request bindings
@@ -86,17 +92,21 @@ For existing objects:
 - `resource.timeCreated` / `resource.updated`: the object's creation and last-update timestamps. The update-time field is `updated`; the language has no `resource.timeUpdated`.
 
 `duration.value(n, unit)` builds a duration, so a freshness window reads:
+
 ```
 allow delete: if request.time < resource.timeCreated + duration.value(1, 'h');
 ```
+
 Reading a field an object does not carry is an evaluation error, and an error **denies** — including through a negation, so `resource.name != 'x'` on an object with no name denies rather than allowing.
 
 ## Cross-service lookups
 
 `firestore.get(path)` and `firestore.exists(path)` read a Firestore document from inside a Storage rule, with `$(expr)` interpolation for dynamic path segments:
+
 ```rules
 allow write: if firestore.exists(/databases/(default)/documents/sessions/$(request.auth.uid));
 ```
+
 ## String matching
 
 `matches()` does whole-string-anchored regex matching, evaluated with RE2 semantics. Constructs RE2 can't express (backreferences, lookahead/lookbehind) are denied at parse time rather than silently mismatching.
@@ -115,7 +125,7 @@ Strings (`'...'` or `"..."`), numbers, booleans (`true` / `false`), `null`, `tim
 ## Where to look next
 
 - For testing rule expressions independently, see [Test rule expressions independently](../pyric-storage-how-to-test-rule-expressions/).
-- For the engine's evaluation contract (`evaluateStorageRules`), see [Public API](../pyric-storage-reference-api/#rules).
+- For the engine's evaluation contract (`evaluateStorageRules`), see [Public API](../pyric-storage-reference-api/).
 - For the one known production-vs-evaluator divergence (a `resource == null`
   create edge case) and the oracle-capture evidence behind this page's
   claims, see [Storage rules evaluator conformance gaps](../pyric-storage-reference-conformance-gaps/).

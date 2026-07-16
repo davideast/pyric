@@ -1,15 +1,15 @@
 ---
 title: "Case studies in pure security rules"
 navLabel: "Case studies"
-group: "Secure & debug"
-section: ""
-order: 3010
+group: "Inspect and correct"
+section: "Correct Security Rules"
+order: 3011
 description: "See working, deployed rulesets that enforce chess, checkers, connect four, and US tax math, built from the patterns this wing teaches."
 ---
 
 # Case studies in pure security rules
 
-Every artifact below enforces its logic entirely in security rules. No server, no Cloud Functions. The database is the referee. Each one deployed, each one is built from the same [patterns](../rules-patterns/) and [standard library](../rules-standard-library/) this wing teaches, and each one was engineered inside the [measured limits](../limits-that-bite/).
+Every artifact below enforces its logic entirely in security rules. No server, no Cloud Functions. The database is the referee. Each one deployed, each one is built from the same [patterns](../rules-patterns/) and [standard library](../rules-standard-library/) this wing teaches, and each one was engineered inside the [measured limits](../firestore-rules-limits/).
 
 | Case | Service | The rules enforce | The move that makes it work |
 |---|---|---|---|
@@ -22,10 +22,12 @@ Every artifact below enforces its logic entirely in security rules. No server, n
 ## Chess
 
 Rules cannot iterate, and check detection means examining every opponent piece. The answer is to stop scanning and start tracking. All thirty-two piece locations live as document fields, so check becomes sixteen targeted lookups against a config document:
+
 ```
 // Is the king's square in this piece's attack table?
 kingSquare in cfg.moves[board[piecePos]][piecePos]
 ```
+
 Checkmate is not computed at all. The rules deny any move that leaves your own king in check, so checkmate is emergent: the state from which no legal write exists. Seventeen scenarios pass against a deployed ruleset, including a false checkmate claim, denied.
 
 Stated plainly: castling, en passant, and promotion are written into the rules but were not among the seventeen deployed tests.
@@ -33,9 +35,11 @@ Stated plainly: castling, en passant, and promotion are written into the rules b
 ## Checkers
 
 Where the lookup-document pattern was born. The first build hardcoded geometry into 30 KB of rules across 611 lines. The rebuild stores the same geometry as data and reads it back with one expression:
+
 ```
 cfg.moves[piece][from][to] == true
 ```
+
 That took the ruleset to 7 KB and 86 lines, a 77 percent reduction, with a React UI playing against it over live snapshots.
 
 ## Connect Four
@@ -54,4 +58,4 @@ A deployed, playable browser app on Realtime Database rules. Turn enforcement, p
 
 ## Calibration, not a feature list
 
-None of this is a feature you will ship on Monday. It is calibration. If rules can hold chess, they can hold your role model, your state machine, your billing invariants, and the parts are the ones you already have: the [patterns](../rules-patterns/), the [standard library](../rules-standard-library/), and the [limits](../limits-that-bite/) that keep all of it deployable.
+None of this is a feature you will ship on Monday. It is calibration. If rules can hold chess, they can hold your role model, your state machine, your billing invariants, and the parts are the ones you already have: the [patterns](../rules-patterns/), the [standard library](../rules-standard-library/), and the [limits](../firestore-rules-limits/) that keep all of it deployable.

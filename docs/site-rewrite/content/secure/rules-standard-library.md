@@ -1,11 +1,11 @@
 ---
-title: Build your rules from tested parts
+title: Build Firestore Rules from tested modules
 navLabel: The rules standard library
 outcome: Compose security rules from tested modules, with an import system that compiles away before Firebase ever sees it.
 status: draft
 ---
 
-# Build your rules from tested parts
+# Build Firestore Rules from tested modules
 
 This is a Firestore rules file:
 
@@ -90,7 +90,7 @@ Every module ships with test fixtures that execute against the rules engine in C
 
 This page is a guide, not the catalog. The full module list, every signature with its gotchas, lives in the [module manifest](../../../../packages/pyric/src/rules/modules/stdlib/STDLIB.md) until the reference section lands.
 
-## And from an agent
+## Load standard modules through an agent
 
 An agent does not memorize any of this. `firestore_rules_stdlib_get({ key: 'timing' })` returns a module's signatures, examples, and gotchas, and the resolver runs in-process, so the agent composes a ruleset from modules, lints it, and simulates verdicts before anything deploys. See [skills](../agent/skills.md).
 

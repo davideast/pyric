@@ -3,7 +3,7 @@ title: "API reference: RTDB rules constraints"
 navLabel: "API reference"
 group: "pyric / database"
 section: "Reference"
-order: 16004
+order: 16003
 ---
 # API reference: RTDB rules constraints
 
@@ -98,11 +98,13 @@ Supported Zod types: `string`, `number`, `boolean`, `enum`, `literal` (string, n
 ## Assembly
 
 ### `defineRtdbRules(definition)`
+
 ```ts
 function defineRtdbRules(definition: {
   paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
 }): RtdbRulesDocument;
 ```
+
 The authoring entry, and the one to reach for first. The returned
 `RtdbRulesDocument` is an inert authored artifact: on the public surface it
 exposes no methods. Pass it to `rtdbRules()` for everything analytical:
@@ -122,16 +124,19 @@ environment-independent. The method-bearing document interface (with
 `pyric/rules/internal/rtdb`.
 
 ### `ruleset(input)`
+
 ```ts
 function ruleset(
   input: Record<string, PathDef> | ((ctx: RulesetContext) => void),
 ): CompiledRtdbRules;
 ```
+
 The raw compiled-tree builder underneath `defineRtdbRules`. Same path inputs,
 no document wrapper. Returns `CompiledRtdbRules` (the `RtdbNode` root), not a
 project-scoped IR.
 
 ### `PathDef`
+
 ```ts
 interface PathDef {
   read?: Expr;
@@ -143,6 +148,7 @@ interface PathDef {
   children?: Record<string, PathDef>;
 }
 ```
+
 Placement semantics worth knowing:
 
 - Path keys are literal strings with `$wildcards` as segments (`'/games/$gameId'`); every `$segment` becomes a path variable in scope for expression validation.

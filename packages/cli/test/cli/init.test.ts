@@ -390,7 +390,7 @@ describe('pyric init output contract', () => {
         'firebase.json': '06ed33d14b46379011c4a805299016f8c03adf5f47994624fde82b794f09ec2b',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '5251fb08767a1a8ae2242eb6784cd96838311499bd888fe5a975f65d3a0247ac',
-        'index.html': '12f621f10493b0556d5f38acc3a0625c97646e32bd2bca740098ec5715f50aad',
+        'index.html': 'b484dc3d63752ed4585fdbe2c2c71bbec7aba95b016c0d7da07c7d9b05b9e6c0',
         'package.json': 'f53371163698b81268f95d899c298d84c2f9bbf597909e77af430d71cef8eb10',
         'src/main.ts': '3e165d28c4d22df0b868d26cd4071950a6c47cfd0c8944d01c2dadc66c0dfab2',
         'src/vite-env.d.ts': '65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5',

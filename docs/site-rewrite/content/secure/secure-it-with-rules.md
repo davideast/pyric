@@ -1,11 +1,11 @@
 ---
-title: Prove a user can touch only their own data
+title: Prove a user can access only their own data
 navLabel: Security Rules
 outcome: Write a rule, simulate a request against it, read the verdict, and deploy knowing what it allows.
 status: draft
 ---
 
-# Prove a user can touch only their own data
+# Prove a user can access only their own data
 
 Before you deploy a ruleset, you can ask Pyric a direct question: would this specific request, from this specific user, be allowed? You get an answer, and the answer names the rule that decided it.
 
@@ -85,7 +85,7 @@ firebase deploy --only firestore:rules
 
 Gate on error-severity lint findings in CI first (`lintFirestoreRules` / `pyric firestore rules lint`), so the mistakes that produce opaque production failures get stopped at the door.
 
-## Where the wing goes deeper
+## Continue into deeper Rules guidance
 
 That loop is the core. The wing deepens each step.
 
@@ -94,11 +94,11 @@ That loop is the core. The wing deepens each step.
 - [Read a denial and understand it](../secure/read-a-denial.md). Every denial carries the rule, path, and data that produced it.
 - [The rules standard library](../secure/rules-standard-library.md). Tested rule modules, composed with an import the rules language does not have.
 - [Rules patterns](../secure/rules-patterns.md). The techniques the hard rules are built from.
-- [Rules limits, measured](../secure/limits-that-bite.md). The production compiler's real limits, with numbers.
+- [Firestore Rules limits](../secure/firestore-rules-limits.md). The production compiler's real limits, with numbers.
 - [Audit your rules and data](../secure/audit-your-rules.md). Find the holes before someone else does.
 - [Case studies](../secure/whats-possible.md). Deployed rulesets that enforce chess, connect four, and tax math.
 
-## And from an agent
+## Verify a denial through an agent
 
 An agent working in your sandbox can call `firestore_simulate_rules` to check a request's verdict before it writes, so it verifies its own rules instead of guessing. The audit skills go further: point one at your ruleset and it hunts for holes methodically. See [skills](../agent/skills.md).
 

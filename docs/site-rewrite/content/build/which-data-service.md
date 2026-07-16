@@ -1,29 +1,17 @@
 ---
-title: Which data service should I use?
+title: Choose a Firebase database
 navLabel: Which data service?
-outcome: Pick between Firestore and Realtime Database in one short read.
+outcome: Make the Firestore or Realtime Database decision from Firebase's production model, then check the corresponding Pyric boundary.
 status: draft
 ---
 
-# Which data service should I use?
+# Choose a Firebase database
 
-The short answer: Firestore, unless your data is a small shared tree that many clients watch at once.
+Choosing between Cloud Firestore and Realtime Database is a Firebase architecture decision, not a Pyric decision. Compare their production data models, query capabilities, scaling behavior, availability, locations, and pricing in the official [Firebase database comparison](https://firebase.google.com/docs/database/rtdb-vs-firestore).
 
-| | Firestore | Realtime Database |
-|---|---|---|
-| Model | documents and subcollections | one JSON tree |
-| Queries | combined filters, ordering, aggregations, cursors | path reads, one `orderBy` |
-| Built for | structured app data, almost every CRUD app | presence, live cursors, game state, counters |
-| Maturity in Pyric | v1, tested against recorded production behavior | [experimental](../trust/whats-experimental.md) |
+After choosing the production service, use the matching local path:
 
-**Choose Firestore for query power and structured documents.** Documents and subcollections grow with your app's shape, and access rules attach naturally to paths and document data. Most apps land here.
+- [Run Cloud Firestore locally](./store-and-query-data.md), then inspect the [Firestore conformance matrix](../../../../packages/pyric/docs/firestore/COMPAT.md).
+- [Run Realtime Database locally](./sync-realtime-data.md), then inspect the [Realtime Database conformance matrix](../../../../packages/pyric/docs/database/COMPAT.md).
 
-**Choose Realtime Database for low-latency tree sync.** The model is deliberately simpler, and that simplicity is the feature. It stops being a fit the moment you want multi-field queries, so [model the tree around your reads](./sync-realtime-data.md) before committing.
-
-Maturity belongs in the decision too. If either service would fit, pick Firestore.
-
-They also combine. A common shape is Firestore for the documents your app is made of and RTDB for the ephemeral layer on top, presence and typing indicators, where a two-field tree beats a document write per keystroke.
-
-## Where to go next
-
-[Store and query data](./store-and-query-data.md) for the Firestore path, or [sync realtime data](./sync-realtime-data.md) for the tree.
+The conformance matrices describe Pyric's current local boundary. They should not replace Firebase's production architecture guidance.

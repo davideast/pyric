@@ -72,10 +72,10 @@ describe('sandbox.getAuthProviderConfig — defaults', () => {
 describe('sandbox.setAuthProviderConfig', () => {
   it('toggles a provider on/off and getAuthProviderConfig reflects it', () => {
     const auth = getAuth(initializeSandbox());
-    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
-    expect(authSandbox.getAuthProviderConfig(auth).find((c) => c.providerId === 'google.com')?.enabled).toBe(true);
     authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     expect(authSandbox.getAuthProviderConfig(auth).find((c) => c.providerId === 'google.com')?.enabled).toBe(false);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+    expect(authSandbox.getAuthProviderConfig(auth).find((c) => c.providerId === 'google.com')?.enabled).toBe(true);
   });
 
   it('disabling password blocks it; re-enabling restores it', () => {
@@ -147,8 +147,20 @@ describe('gating matrix: password provider', () => {
 });
 
 describe('gating matrix: signInWithPopup / signInWithRedirect (OAuth)', () => {
-  it('google.com disabled by default → auth/operation-not-allowed (even with a mock staged)', async () => {
+  it('google.com enabled by default + mock staged → succeeds', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.mockSignInResult(auth, {
+      user: makeFakeUser('g1', 'g1@example.com'),
+      providerId: 'google.com',
+      operationType: 'signIn',
+    });
+    const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+    expect(cred.user.uid).toBe('g1');
+  });
+
+  it('google.com explicitly disabled → auth/operation-not-allowed (even with a mock staged)', async () => {
+    const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     authSandbox.mockSignInResult(auth, {
       user: makeFakeUser('g1', 'g1@example.com'),
       providerId: 'google.com',
@@ -177,23 +189,25 @@ describe('gating matrix: signInWithPopup / signInWithRedirect (OAuth)', () => {
 
   it('signInWithRedirect: same gating as popup', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     await expectCode(signInWithRedirect(auth, new GoogleAuthProvider()), 'auth/operation-not-allowed');
     authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     await expectCode(signInWithRedirect(auth, new GoogleAuthProvider()), 'auth/argument-error');
   });
 
-  it('a custom OAuth provider id is disabled by default; enabling it unblocks resolveFlow', async () => {
+  it('a custom OAuth provider id is enabled by default; disabling it blocks resolveFlow', async () => {
     const auth = getAuth(initializeSandbox());
     const provider = new OAuthProvider('microsoft.com');
-    await expectCode(signInWithPopup(auth, provider), 'auth/operation-not-allowed');
-    authSandbox.setAuthProviderConfig(auth, 'microsoft.com', true);
     await expectCode(signInWithPopup(auth, provider), 'auth/argument-error');
+    authSandbox.setAuthProviderConfig(auth, 'microsoft.com', false);
+    await expectCode(signInWithPopup(auth, provider), 'auth/operation-not-allowed');
   });
 });
 
 describe('gating matrix: signInWithCredential', () => {
   it('disabled providerId → auth/operation-not-allowed (even with a mock staged)', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     authSandbox.mockSignInResult(auth, {
       user: makeFakeUser('g1', 'g1@example.com'),
       providerId: 'google.com',
@@ -297,6 +311,7 @@ describe('provider-enforcement delegation (the served-worker page-sandbox seam)'
 
   it('reclaiming enforcement (false) restores the default gate', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     authSandbox.delegateProviderEnforcement(auth, true);
     authSandbox.delegateProviderEnforcement(auth, false);
     await expectCode(signInWithPopup(auth, new GoogleAuthProvider()), 'auth/operation-not-allowed');
@@ -304,6 +319,7 @@ describe('provider-enforcement delegation (the served-worker page-sandbox seam)'
 
   it('assertAuthProviderEnabled: the authority-side gate throws for disabled, passes for enabled', () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
     expect(() => authSandbox.assertAuthProviderEnabled(auth, 'google.com')).toThrow(
       expect.objectContaining({ code: 'auth/operation-not-allowed' }),
     );

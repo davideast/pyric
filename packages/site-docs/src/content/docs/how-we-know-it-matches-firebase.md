@@ -1,9 +1,9 @@
 ---
 title: "How does Pyric know it works like Firebase?"
 navLabel: "Conformance"
-group: "Trust"
+group: "Conformance"
 section: ""
-order: 7001
+order: 6001
 description: "See the production evidence behind Pyric's conformance claims, the gaps those claims leave open, and the checks to make before shipping."
 ---
 

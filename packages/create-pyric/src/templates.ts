@@ -371,7 +371,9 @@ const VITE_INDEX_HTML = (name: string): string => `<!doctype html>
       <p class="status" id="auth-status">Signed out</p>
       <button id="sign-in">Sign in with Google</button>
       <button id="sign-out" hidden>Sign out</button>
-      <form id="add-post" hidden>
+      <!-- Visible even while signed out ON PURPOSE — submitting attempts the
+           write and the owner-based rules deny it (see src/main.ts). -->
+      <form id="add-post">
         <input id="post-title" placeholder="Post title" required />
         <button type="submit">Add post</button>
       </form>

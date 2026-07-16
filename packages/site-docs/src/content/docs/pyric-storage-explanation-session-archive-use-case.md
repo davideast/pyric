@@ -2,7 +2,7 @@
 title: "The session-archive driver"
 group: "pyric / storage"
 section: "Explanation"
-order: 14011
+order: 14010
 ---
 # The session-archive driver
 
@@ -31,6 +31,7 @@ A real Cloud Storage round-trip per session save is the wrong shape. So is "save
 ## Why rules mattered
 
 The eventual upload to production is gated by rules. We wanted those rules visible at session-save time so the user sees "this would be rejected" before they hit upload. The rule shape:
+
 ```rules
 service firebase.storage {
   match /b/{bucket}/o {
@@ -44,6 +45,7 @@ service firebase.storage {
   }
 }
 ```
+
 Four real-world bits embedded:
 
 - **Anonymous denials.** Anyone hitting "save" while not signed in gets blocked.

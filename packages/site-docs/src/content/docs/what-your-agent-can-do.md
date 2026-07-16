@@ -1,13 +1,13 @@
 ---
-title: "Hand your agent the whole backend"
-navLabel: "What your agent can do"
-group: "Work with an agent"
-section: ""
-order: 6002
+title: "Work with the sandbox through an agent"
+navLabel: "Work through an agent"
+group: "Inspect and correct"
+section: "Work with an agent"
+order: 3012
 description: "Every backend capability, callable as a tool: inspect, query, simulate, shape, ship, verify."
 ---
 
-# Hand your agent the whole backend
+# Work with the sandbox through an agent
 
 Once connected, your agent works on the backend the way you do, except every capability is a tool call it can make and check. This page walks the surface by what the agent can accomplish, not by tool name. The names appear where they matter.
 
@@ -20,7 +20,7 @@ Once connected, your agent works on the backend the way you do, except every cap
 | Operate the real project | the deploy and auth-config tools, with credentials you provide |
 | Check its own work | session replay against candidate rules |
 
-## Read, write, and query like the app does
+## Read, write, and query with application identity
 
 The data plane is the app's own surface, and the agent uses it as a specific identity, so a read that should be denied is denied for the agent too.
 
@@ -28,7 +28,7 @@ The data plane is the app's own surface, and the agent uses it as a specific ide
 - **Realtime Database**: get, set, update, and push.
 - **RTDB inspection**: crawls the active sandbox snapshot and reports its local structure without production access.
 
-## See what exists before guessing
+## Inspect state before changing it
 
 The single most-used move is one call. `sandbox_inspect` returns:
 
@@ -40,7 +40,7 @@ The tool's own source records why it exists. In a recorded debug session, diagno
 
 Discovery works on real projects too. Firestore has no schema, so Pyric infers one: the agent can crawl a live database by sampling, cost-bounded and cost-reported, and come back with the shape of what is actually there. The same goes for a Realtime Database tree.
 
-## Prove a rule before writing it
+## Simulate a rule before writing it
 
 The agent can ask whether a specific request, by a specific identity, would be allowed under a ruleset, and get the verdict with the rule and data that decided it. No deploy, no waiting.
 
@@ -53,13 +53,13 @@ For longer work it can open a stateful simulator session:
 
 A scratchpad for rules and data with a real undo stack, which means the agent can try something wrong and back out cleanly.
 
-## Shape the state it tests against
+## Shape the state under test
 
 Backend state is a tool input. The agent can seed a scenario, reset to clean, and snapshot what it built so the state survives as a fixture. Between test runs, between hypotheses, between conversations.
 
 The same seed, reset, and snapshot moves you make yourself, callable.
 
-## Operate the real project
+## Understand the credential boundary
 
 Given credentials you choose to hand it, the agent can run the control plane over REST, with no extra CLI:
 
@@ -69,13 +69,13 @@ Given credentials you choose to hand it, the agent can run the control plane ove
 
 This is the same path you walk in [set up the project](../set-up-the-project/) and [ship to production](../ship-to-production/). Without those credentials, none of it is reachable.
 
-## Check its own work
+## Check the result
 
 Verification is a tool, not a ritual. The agent can replay a captured session of real operations against a candidate ruleset and learn which operations change verdict, before anything deploys.
 
 It writes a rule, replays, reads the diff, and fixes what flipped. That loop is the difference between an agent that asserts its rules work and one that has evidence.
 
-## The honest shape of the surface
+## Understand the supported boundary
 
 The surface is wide because Firebase's is: data, rules, identity, deployment, and two database models.
 

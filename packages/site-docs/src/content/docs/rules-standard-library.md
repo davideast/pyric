@@ -1,15 +1,16 @@
 ---
-title: "Build your rules from tested parts"
+title: "Build Firestore Rules from tested modules"
 navLabel: "The rules standard library"
-group: "Secure & debug"
-section: ""
-order: 3005
+group: "Inspect and correct"
+section: "Correct Security Rules"
+order: 3008
 description: "Compose security rules from tested modules, with an import system that compiles away before Firebase ever sees it."
 ---
 
-# Build your rules from tested parts
+# Build Firestore Rules from tested modules
 
 This is a Firestore rules file:
+
 ```rules
 rules_version = '2+modules';
 import { isMyTurn, turnFlipped } from 'turns';
@@ -22,6 +23,7 @@ service cloud.firestore {
   }
 }
 ```
+
 The rules language has no import statement. This file deploys anyway, and what lands on Firebase is stock `rules_version = '2'` with the two functions inlined at the top of the match tree. `isMyTurn` and `turnFlipped` are not snippets you pasted. They are functions from a tested module, pulled in by name.
 
 ## An import system that compiles away
@@ -45,6 +47,7 @@ Two things to know once you are inside it:
 Fifteen modules ship with Pyric. A few exist specifically because the received wisdom says they can't.
 
 **Rules can rate-limit.** `timing.cooldownElapsed('lastMoveAt', 2)` allows an update only when the stored timestamp is more than two seconds old. On its own that is forgeable, because the client writes the timestamp and could write one from last week. So pair it with `isServerTimestamp('lastMoveAt')` from `lifecycle` on the same write, which forces the field to be the server's own clock:
+
 ```rules
 import { cooldownElapsed } from 'timing';
 import { isServerTimestamp } from 'lifecycle';
@@ -53,6 +56,7 @@ import { isServerTimestamp } from 'lifecycle';
 allow update: if cooldownElapsed('lastMoveAt', 2)
   && isServerTimestamp('lastMoveAt');
 ```
+
 A missing or non-timestamp field errors, and an error denies. Verified against the production rules engine, not a simulation of it.
 
 **Rules can enforce integrity across a batch.** The `atomic` module uses the `get()`/`getAfter()` pair, where `getAfter()` reads another document as it will be after the current batch commits. `companionChangedBy(before, after, 'taskCount', 1)` allows a write only if a companion document's counter moved by exactly one in the same batch.
@@ -88,7 +92,7 @@ Every module ships with test fixtures that execute against the rules engine in C
 
 This page is a guide, not the catalog. The full module list, every signature with its gotchas, lives in the module manifest until the reference section lands.
 
-## And from an agent
+## Load standard modules through an agent
 
 An agent does not memorize any of this. `firestore_rules_stdlib_get({ key: 'timing' })` returns a module's signatures, examples, and gotchas, and the resolver runs in-process, so the agent composes a ruleset from modules, lints it, and simulates verdicts before anything deploys. See [skills](../skills/).
 

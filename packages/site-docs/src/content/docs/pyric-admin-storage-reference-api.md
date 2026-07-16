@@ -1,170 +1,298 @@
 ---
 title: "API reference: pyric-admin/storage"
-navLabel: "API reference"
-group: "pyric-admin / storage"
-section: "Reference"
-order: 22002
----
-# API reference: `pyric-admin/storage`
-
-Exact signatures of every public export, plus the local/remote method matrix for `Storage`, `Bucket`, and `File`. Storage support is experimental; the surfaces below are tested but mostly not yet pinned to recorded production observations.
-
-The two sandbox backends:
-
-- **local**: an in-memory `Map<bucketName, Map<path, entry>>` per `Sandbox`. Multi-bucket isolation is real (buckets are independent maps). `sandbox.reset()` wipes the store.
-- **remote**: a remote-branded sandbox relays operations over the worker channel with `actAs: { mode: 'admin' }` pinned (rules bypass) against the one object store the browser app, Studio, and agents share. Single bucket; 8 MiB per-operation byte cap.
-
-Production code loads `firebase-admin/storage` directly with Pyric activation
-absent.
-
+navLabel: "pyric-admin/storage"
+group: "API reference"
+section: "pyric-admin"
+order: 24007
+description: "Published declarations for pyric-admin/storage."
+kind: "api"
+apiPackage: "pyric-admin"
+apiImportPath: "pyric-admin/storage"
+apiSubpath: "storage"
+apiSymbolCount: 8
 ---
 
-## Initialization
+<!-- Generated from published package declarations via TypeDoc. Do not edit by hand; run bun run docs:api:generate. -->
 
-### `getStorage(app?)`
-```ts
-function getStorage(app?: StorageApp): Storage;
-```
-Get the `Storage` service for the given sandbox app, or for the `'[DEFAULT]'` app when called with no argument (throws `app/no-app` when nothing is initialized). A remote-branded sandbox gets the relay backend; a local sandbox gets the in-memory backend. Throws `TypeError` for an unbranded value.
+## Interfaces
 
----
+<a id="bucket"></a>
 
-## `Storage` and `Bucket`
+### Bucket
 
-### `storage.bucket(name?)`
-```ts
-bucket(name?: string): Bucket;
-```
-- Local: returns a handle for `name`, creating the bucket map on first use. Omitted `name` resolves to the default bucket `'pyric-default'` (the same default `pyric/storage` uses). Buckets are genuinely isolated from each other.
-- Remote: the worker's object store is single-bucket. `bucket()` and `bucket('pyric-default')` work; any other name throws immediately rather than silently merging buckets. This is the sharpest local/remote divergence, and it is loud on purpose.
+A storage bucket handle implemented by both local and remote sandbox
+paths. Only the documented subset is supported.
 
-### `bucket.file(path)`
+#### Properties
+
+| Property | Modifier | Type | Description |
+| :------ | :------ | :------ | :------ |
+| <a id="name"></a> `name` | `readonly` | `string` | Name of the bucket. Stable across `file()` lookups. |
+
+#### Methods
+
+<a id="file"></a>
+
+##### file()
+
 ```ts
 file(path: string): File;
 ```
-Returns a `File` handle; the file may or may not exist.
 
----
+Get a [File](#file-2) handle for `path`. The file may or may not exist.
 
-## `File`: the object data plane
+###### Parameters
 
-### `file.save(data, options?)`
-```ts
-save(data: Buffer | string | Uint8Array, options?: SaveOptions): Promise<void>;
-```
-Arms: local, remote. Persists `data` at the file's path, replacing any existing content (no append semantics). Strings are UTF-8 encoded; buffers are copied on ingest so callers can reuse their input. `options.metadata` and `options.contentType` are stored alongside the bytes and round-trip.
+| Parameter | Type |
+| :------ | :------ |
+| `path` | `string` |
 
-- `options.resumable: true` throws on both sandbox backends because resumable uploads are deferred.
-- Remote: relays `storage.putBytes` (base64 over the wire). Payloads over 8 MiB reject with the payload-too-large error below, before anything is sent.
+###### Returns
 
-### `file.download(options?)`
-```ts
-download(options?: DownloadOptions): Promise<[Buffer]>;
-```
-Arms: local, remote. Returns a `[Buffer]` tuple, mirroring `@google-cloud/storage`. A missing file throws `Error('No such object: <bucket>/<path>')` on both arms, the same message shape as production, so catch blocks that string-match keep working. `options.validation` is accepted and ignored on the sandbox arms. Remote relays `storage.getBytes`.
+[`File`](#file-2)
 
-### `file.delete()`
+***
+
+<a id="downloadoptions"></a>
+
+### DownloadOptions
+
+Options bag for [File.download](#download). Subset of `@google-cloud/storage`'s `DownloadOptions`.
+
+#### Properties
+
+| Property | Type | Description |
+| :------ | :------ | :------ |
+| <a id="validation"></a> `validation?` | `boolean` \| `"md5"` \| `"crc32c"` | The sandbox accepts but ignores `validation`. |
+
+***
+
+<a id="file-2"></a>
+
+### File
+
+A file handle within a bucket. Method shapes mirror
+`@google-cloud/storage`'s `File` (return tuples for download / exists
+/ getSignedUrl, etc.) so common consumer code retains the familiar shape.
+
+The sandbox backend implements the methods documented here. Any
+other `File` method from `@google-cloud/storage` (`createWriteStream`,
+`createReadStream`, `copy`, `move`, `setMetadata` beyond the basic
+`save` options, etc.) throws on the sandbox path — see module header.
+
+#### Properties
+
+| Property | Modifier | Type | Description |
+| :------ | :------ | :------ | :------ |
+| <a id="bucket-1"></a> `bucket` | `readonly` | [`Bucket`](#bucket) | Bucket the file belongs to. Same handle the `file()` call came from. |
+| <a id="name-1"></a> `name` | `readonly` | `string` | Name (path) of the file within its bucket. |
+
+#### Methods
+
+<a id="delete"></a>
+
+##### delete()
+
 ```ts
 delete(): Promise<void>;
 ```
-Arms: local, remote. Idempotent: deleting a missing file is a no-op (the `ignoreNotFound: true` mode is the only one the sandbox models). Remote relays `storage.deleteObject`.
 
-### `file.exists()`
+Remove the file from its bucket. Idempotent — deleting a missing
+file is a no-op (matches `@google-cloud/storage`'s
+`ignoreNotFound: true`, which is the only mode the sandbox models).
+
+###### Returns
+
+`Promise`\<`void`\>
+
+<a id="download"></a>
+
+##### download()
+
+```ts
+download(options?: DownloadOptions): Promise<[Buffer<ArrayBufferLike>]>;
+```
+
+Read the file's bytes. Returns a `[Buffer]` tuple to mirror
+`@google-cloud/storage`'s `File.download` (which returns
+`[Buffer, ...]`). Throws if the file does not exist.
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `options?` | [`DownloadOptions`](#downloadoptions) |
+
+###### Returns
+
+`Promise`\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+
+<a id="exists"></a>
+
+##### exists()
+
 ```ts
 exists(): Promise<[boolean]>;
 ```
-Arms: local, remote. `[true]` if the file exists. Remote probes `storage.getMetadata` and maps object-not-found to `[false]`.
 
-### `file.getSignedUrl(options)`
+`[true]` if the file exists, `[false]` otherwise. Tuple shape mirrors `@google-cloud/storage`.
+
+###### Returns
+
+`Promise`\<\[`boolean`\]\>
+
+<a id="getsignedurl"></a>
+
+##### getSignedUrl()
+
 ```ts
 getSignedUrl(options: GetSignedUrlOptions): Promise<[string]>;
 ```
-Arms: local, remote (byte-identical output; the remote arm never relays this call). Returns a deterministic stub:
-```
-pyric-sandbox-storage://<bucket>/<path>?expires=<ms>&action=<action>
-```
-The sandbox does NOT serve this URL. It is a stable placeholder so code that round-trips signed URLs through logs, fixtures, or replay sees a consistent shape. `expires` accepts ms-since-epoch, an ISO date string, or a `Date`, normalized to ms; expiration is not enforced.
 
----
+Return a stub signed URL of the form
+`pyric-sandbox-storage://${path}?expires=${expires}`. The sandbox
+does NOT serve the URL — it's a deterministic placeholder so
+agent code that round-trips signed URLs (logs, fixtures, replay)
+sees a stable shape.
 
-## The remote byte cap
+###### Parameters
 
-Relayed payloads are capped at 8 MiB per operation (whole-object buffering across the relay hops; the cap mirrors the worker host's `MAX_STORAGE_OP_BYTES`). An oversized `save` rejects with an `Error` carrying `code: 'payload-too-large'` and a message that names the size, the cap, and the remediation (split the object or keep it under the cap). The local arm has no cap.
+| Parameter | Type |
+| :------ | :------ |
+| `options` | [`GetSignedUrlOptions`](#getsignedurloptions) |
 
----
+###### Returns
 
-## Deferred on both sandbox arms
+`Promise`\<\[`string`\]\>
 
-Each throws `Error('not implemented in pyric-admin/storage sandbox backend: <what>')` (the remote arm says `remote sandbox backend` and, for streams, points at `save`/`download` as the alternative):
+<a id="save"></a>
 
-- Streaming: `createWriteStream`, `createReadStream`
-- Resumable uploads (`save` with `resumable: true`)
-- Signed cookies
-- IAM policies
-- Lifecycle rules
-- ACLs
-- Copy / move
-- Notifications
+##### save()
 
-Use Firebase Admin directly when production needs these methods.
-
----
-
-## Types
-
-### `Storage`, `Bucket`, `File`
 ```ts
-interface Storage {
-  bucket(name?: string): Bucket;
-}
+save(data: string | Buffer<ArrayBufferLike> | Uint8Array<ArrayBufferLike>, options?: SaveOptions): Promise<void>;
+```
 
-interface Bucket {
-  readonly name: string;
-  file(path: string): File;
-}
+Persist `data` at this file's path. Replaces any existing content
+(no append semantics). `options.metadata` is stored alongside the
+bytes and surfaces on later reads via the in-memory state — the
+sandbox doesn't expose a full `Metadata` API yet, but the payload
+round-trips so future expansion is non-breaking.
 
-interface File {
-  readonly name: string;
-  readonly bucket: Bucket;
-  save(data: Buffer | string | Uint8Array, options?: SaveOptions): Promise<void>;
-  download(options?: DownloadOptions): Promise<[Buffer]>;
-  delete(): Promise<void>;
-  exists(): Promise<[boolean]>;
-  getSignedUrl(options: GetSignedUrlOptions): Promise<[string]>;
-}
-```
-These interfaces document the subset the sandbox backends implement.
+###### Parameters
 
-### `SaveOptions`
+| Parameter | Type |
+| :------ | :------ |
+| `data` | `string` \| `Buffer`\<`ArrayBufferLike`\> \| `Uint8Array`\<`ArrayBufferLike`\> |
+| `options?` | [`SaveOptions`](#saveoptions) |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
+<a id="getsignedurloptions"></a>
+
+### GetSignedUrlOptions
+
+Options bag for [File.getSignedUrl](#getsignedurl). Mirrors `@google-cloud/storage`'s shape.
+
+#### Properties
+
+| Property | Type | Description |
+| :------ | :------ | :------ |
+| <a id="action"></a> `action` | `"read"` \| `"write"` \| `"delete"` \| `"resumable"` | `'read' | 'write' | 'delete' | 'resumable'`. Sandbox stamps it into the URL only as a hint. |
+| <a id="expires"></a> `expires` | `string` \| `number` \| `Date` | Expiration. Accepts ms-since-epoch (number), ISO date string, or `Date`. Sandbox normalizes to ms-since-epoch and embeds in the stub URL's `expires=` query. |
+
+***
+
+<a id="saveoptions"></a>
+
+### SaveOptions
+
+Options bag for [File.save](#save). Subset of `@google-cloud/storage`'s `SaveOptions`.
+
+#### Properties
+
+| Property | Type | Description |
+| :------ | :------ | :------ |
+| <a id="contenttype"></a> `contentType?` | `string` | Content type hint stored on the sandbox entry. Convenience shortcut for `metadata.contentType`. |
+| <a id="metadata"></a> `metadata?` | `Record`\<`string`, `unknown`\> | Arbitrary metadata stored alongside the file. The sandbox stores it verbatim; consumers that need to round-trip `contentType`, `metadata.custom`, etc. get it back via internal admin tooling (not exposed on `File` itself yet). |
+| <a id="resumable"></a> `resumable?` | `boolean` | `resumable: false` is the only mode the sandbox models (single- shot writes). The sandbox throws when set to `true` since resumable uploads are deferred. |
+
+***
+
+<a id="storage"></a>
+
+### Storage
+
+`pyric-admin/storage`'s sandbox `Storage` handle. It exposes the subset
+documented in the module header.
+
+The shared `bucket(name?)` shape is the contract — consumers code
+against it without caring whether the local or remote sandbox is live.
+
+#### Methods
+
+<a id="bucket-2"></a>
+
+##### bucket()
+
 ```ts
-interface SaveOptions {
-  metadata?: Record<string, unknown>;
-  contentType?: string; // shortcut for metadata.contentType
-  resumable?: boolean;  // true throws on sandbox backends
-}
+bucket(name?: string): Bucket;
 ```
-### `DownloadOptions`
-```ts
-interface DownloadOptions {
-  validation?: 'md5' | 'crc32c' | boolean; // sandbox backends ignore
-}
-```
-### `GetSignedUrlOptions`
-```ts
-interface GetSignedUrlOptions {
-  action: 'read' | 'write' | 'delete' | 'resumable';
-  expires: number | string | Date;
-}
-```
-### `StorageApp`
+
+Get a [Bucket](#bucket) handle. When `name` is omitted, returns the
+sandbox default bucket (`'pyric-default'`).
+
+###### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `name?` | `string` |
+
+###### Returns
+
+[`Bucket`](#bucket)
+
+## Type Aliases
+
+<a id="storageapp"></a>
+
+### StorageApp
+
 ```ts
 type StorageApp = PyricAdminApp;
 ```
-The input `getStorage` accepts; an alias of the branded handle from `pyric-admin/app`.
 
----
+Input accepted by [getStorage](#getstorage). The branded `PyricAdminApp` is
+the canonical shape; calling without an argument resolves the default
+app from the `pyric-admin/app` registry (mirroring
+`firebase-admin/storage`, where `getStorage()` resolves the default App),
+and throws the captured `app/no-app` error when nothing is initialized.
 
-## Where to go next
+## Functions
 
-- [`pyric-admin/app` reference](../pyric-admin-app-reference-api/) for sandbox binding and activation.
-- `pyric/storage` for the Web-SDK-shaped mirror and the storage rules engine.
+<a id="getstorage"></a>
+
+### getStorage()
+
+```ts
+function getStorage(app?: SandboxAdminApp): Storage;
+```
+
+Get the [Storage](#storage) service for the given app.
+
+Returns a sandbox-backed `Storage` whose state
+  lives on the `Sandbox`. `sandbox.reset()` wipes it.
+
+#### Parameters
+
+| Parameter | Type |
+| :------ | :------ |
+| `app?` | `SandboxAdminApp` |
+
+#### Returns
+
+[`Storage`](#storage)

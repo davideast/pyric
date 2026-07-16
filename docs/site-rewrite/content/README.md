@@ -1,55 +1,17 @@
-# Docs rewrite content (step 4 drafts)
+# Authored workflow content
 
-Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3. All pages carry `status: draft` frontmatter. This tree is for review; wiring it into the site generator (`packages/site-docs/scripts/port-content.ts`) is the step after the red pen.
+These pages form the primary learning path. They teach Pyric as one local-to-production system, with Firebase products introduced only when application code reaches them.
 
-## The map
+## Workflow map
 
-| Nav | File | New or re-hung |
+| Phase | Pages | Role |
 |---|---|---|
-| Overview | `overview.md` | new (voice anchor) |
-| **GET STARTED** | | |
-| Start building | `get-started/start-building.md` | new landing over reused tutorials |
-| How the swap works | `get-started/how-the-swap-works.md` | new |
-| **BUILD** | | |
-| Sign in and manage users | `build/sign-in-and-manage-users.md` | new (Auth finally gets its guide) |
-| Store and query data | `build/store-and-query-data.md` | new landing over reused how-tos |
-| Sync realtime data | `build/sync-realtime-data.md` | new, experimental-labeled |
-| Store files | `build/store-files.md` | new, experimental-labeled |
-| Which data service? | `build/which-data-service.md` | new |
-| **SECURE & DEBUG** (the rules wing) | | |
-| Secure it with rules | `secure/secure-it-with-rules.md` | new wing landing |
-| Simulate and lint | `secure/simulate-and-lint.md` | new over reused how-tos |
-| Write a rules test suite | `secure/write-a-rules-test-suite.md` | new over reused tutorial |
-| Read a denial | `secure/read-a-denial.md` | new |
-| The rules standard library | `secure/rules-standard-library.md` | new (from STDLIB.md) |
-| Rules patterns | `secure/rules-patterns.md` | new (ported from firebase-agent-sdk skills) |
-| RTDB rules in TypeScript | `secure/rtdb-rules-in-typescript.md` | new (constraints DSL) |
-| The limits that actually bite | `secure/limits-that-bite.md` | new (from LINTER_SPEC + linter thresholds) |
-| Audit your rules and data | `secure/audit-your-rules.md` | new (from the audit skills) |
-| What's possible | `secure/whats-possible.md` | new (the gallery) |
-| **OBSERVE & SHAPE** | | |
-| See what's happening | `observe/see-whats-happening.md` | new landing over reused how-tos |
-| Shape your data | `observe/shape-your-data.md` | new landing over reused how-tos |
-| **SHIP & TEST** | | |
-| Ship to production | `ship/ship-to-production.md` | new landing over reused deploy tree |
-| Set up the project | `ship/set-up-the-project.md` | new (control-plane enablement) |
-| Test in Node | `ship/test-in-node.md` | new over reused harness tutorial |
-| **WORK WITH AN AGENT** | | |
-| Set up your agent | `agent/set-up-your-agent.md` | new (per-client recipes) |
-| What your agent can do | `agent/what-your-agent-can-do.md` | new (capability-taught) |
-| Skills | `agent/skills.md` | new (catalog) |
-| Watch and review | `agent/watch-and-review.md` | new |
-| **TRUST** | | |
-| How we know it matches Firebase | `trust/how-we-know-it-matches-firebase.md` | new over conformance docs |
-| What's experimental | `trust/whats-experimental.md` | new |
-| **REFERENCE** | (unchanged: existing per-package reference + COMPAT) | re-hung as-is |
+| Overview | `overview.md` | State the local-development contract and production handoff. |
+| Run locally | `get-started/*`, `agent/set-up-your-agent.md`, `ship/test-in-node.md` | Start the sandbox and connect browser, Node, or agent work to it. |
+| Develop with Firebase APIs | `build/*`, plus the existing RTDB Functions guide | Use ordinary Firebase APIs against the sandbox, then reach local behavior that differs by product. |
+| Inspect and correct | `observe/*`, most of `secure/*`, remaining `agent/*` | Read operations and denials, correct state and rules, and inspect agent work. |
+| Verify the boundary | `secure/write-a-rules-test-suite.md`, `secure/audit-your-rules.md`, plus the existing CLI verification guide | Check captured application behavior and rules before production. |
+| Ship unchanged | `ship/ship-to-production.md`, `ship/set-up-the-project.md` | Build with real Firebase and deploy through Firebase tooling. |
+| Conformance | `trust/*`, generated scores, and product matrices | Explain and expose the evidence that Pyric itself matches Firebase. |
 
-## What re-hanging means
-
-The package how-tos, explanations, and reference trees provide the depth behind
-these guide pages. The site porter shelves both sets beneath one outcome-first
-navigation model and rewrites links from authored sources.
-
-## Review guide
-
-Read `overview.md` first; it is the voice contract in action. Then read one page per section to check the voice holds. The knowledge pages (`secure/rules-standard-library.md`, `secure/limits-that-bite.md`, `secure/rules-patterns.md`, `secure/whats-possible.md`) carry the most new claims; their facts trace to STDLIB.md, LINTER_SPEC.md, the chess log, and the firebase-agent-sdk skill references.
+Detailed package documentation remains the source for API reference and product-specific depth. The site porter keeps those routes searchable while collapsing them beneath Reference.

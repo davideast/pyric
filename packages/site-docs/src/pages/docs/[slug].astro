@@ -24,6 +24,11 @@ const { Content, headings } = await render(entry);
   description={entry.data.description}
   headings={headings}
   currentSlug={slugOf(entry)}
+  kind={entry.data.kind}
+  apiPackage={entry.data.apiPackage}
+  apiImportPath={entry.data.apiImportPath}
+  apiSymbolCount={entry.data.apiSymbolCount}
+  apiEvidenceSlug={entry.data.apiEvidenceSlug}
 >
   <Content />
 </DocsLayout>

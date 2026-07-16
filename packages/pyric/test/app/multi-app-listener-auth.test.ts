@@ -106,6 +106,7 @@ describe('named Firebase apps isolate listener authorization', () => {
     const defaultAuth = getAuth(defaultApp);
     const namedAuth = getAuth(namedApp);
 
+    authSandbox.setAuthProviderConfig(namedAuth, 'google.com', false);
     authSandbox.delegateProviderEnforcement(defaultAuth, true);
 
     await expect(signInWithPopup(namedAuth, new GoogleAuthProvider())).rejects.toMatchObject({

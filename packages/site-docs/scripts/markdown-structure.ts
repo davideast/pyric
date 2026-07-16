@@ -69,7 +69,20 @@ export function shortTitle(title: string): string {
   return title.replace(/\s+(documentation|docs)$/i, '');
 }
 
+/** github-slugger ids of a target file's headings — what Astro emits. */
+const anchorCache = new Map<string, Set<string>>();
 export function anchorsOf(src: string, readSource: SourceReader): Set<string> {
-  const slugger = new GithubSlugger();
-  return new Set(headingsOf(src, readSource).map((heading) => slugger.slug(heading)));
+  let set = anchorCache.get(src);
+  if (!set) {
+    const slugger = new GithubSlugger();
+    set = new Set(headingsOf(src, readSource).map((heading) => slugger.slug(heading)));
+    // TypeDoc emits stable anchors for properties and repeated declarations
+    // inside tables. They are real link targets even though they are not
+    // Markdown headings, so retain them during the port.
+    for (const match of readSource(src).matchAll(/<a\s+(?:id|name)=["']([^"']+)["']/gi)) {
+      set.add(match[1]);
+    }
+    anchorCache.set(src, set);
+  }
+  return set;
 }

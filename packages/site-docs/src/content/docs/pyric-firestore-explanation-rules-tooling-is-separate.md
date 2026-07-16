@@ -3,7 +3,7 @@ title: "Why rules tooling lives on a sibling subpath"
 navLabel: "Rules tooling is separate"
 group: "pyric / firestore"
 section: "Explanation"
-order: 11014
+order: 11013
 ---
 # Why rules tooling lives on a sibling subpath
 
@@ -53,10 +53,12 @@ These belong to a different audience than the data-plane consumers. A web app ra
 
 `setRules(sandbox, rules)` loads rules into the local Firestore environment owned
 by that sandbox. The implementation path is:
+
 ```ts
 setRules(sandbox, source) → LocalEnvironment.deployRules(source)
                           → lintFirestoreRules(source)
 ```
+
 The control receives the owner rather than a Firestore handle. This lets one
 sandbox own Firestore rules, documents, listeners, history, and diagnostics
 without widening the data-plane API.

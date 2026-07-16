@@ -8,6 +8,17 @@
 
 import { parseCreateArgs } from './parse-args.js';
 import { applyDepsMode, normalizeBoolFlags, runScaffold, TEMPLATES } from './scaffold.js';
+import { readFileSync } from 'node:fs';
+
+function packageVersion(): string {
+  const metadata = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  ) as { version?: unknown };
+  if (typeof metadata.version !== 'string' || metadata.version.length === 0) {
+    throw new Error('create-pyric package metadata has no version');
+  }
+  return metadata.version;
+}
 
 async function main(): Promise<number> {
   const args = parseCreateArgs(process.argv.slice(2));
@@ -35,7 +46,8 @@ async function main(): Promise<number> {
   const nameFlag = args.flags.get('name');
   const name = typeof nameFlag === 'string' && nameFlag.length > 0 ? nameFlag : undefined;
 
-  const effectiveTemplate = applyDepsMode(TEMPLATES[templateName], 'npm', { version: null });
+  const version = packageVersion();
+  const effectiveTemplate = applyDepsMode(TEMPLATES[templateName], 'npm', { version });
 
   return runScaffold(
     {
@@ -46,6 +58,7 @@ async function main(): Promise<number> {
       json: args.flags.get('json') === true,
       depsMode: 'npm',
       effectiveTemplate,
+      pinVersion: version,
       commandLabel: 'create-pyric',
     },
   );

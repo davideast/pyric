@@ -2,7 +2,7 @@
 title: "SandboxEvent"
 group: "pyric / sandbox"
 section: "Reference"
-order: 13016
+order: 13015
 ---
 # `SandboxEvent`
 
@@ -11,6 +11,7 @@ recover any individual event family. The unified channel replaces the prior
 `onRequest` / `onDenial` / `onSnapshotError` triplet.
 
 ## The union
+
 ```ts
 type SandboxEvent =
   | RequestEvent              // kind: 'request'
@@ -20,9 +21,11 @@ type SandboxEvent =
   | ListenerLifecycleEvent    // kind: 'listener_attach' | 'listener_detach' | 'listener_errored'
   | SessionBoundaryEvent;     // kind: 'session_boundary'
 ```
+
 Every event carries `kind: <discriminator>`, `id: string` (unique within the sandbox process; React-list-key safe), and `at: number` (`Date.now()` at emission).
 
 ## `kind: 'request'`: every evaluated op
+
 ```ts
 interface RequestEvent {
   kind: 'request';
@@ -44,6 +47,7 @@ interface RequestEvent {
   triggeredBy?: { method: string; path: string };
 }
 ```
+
 Fires once per simulator-evaluated op. Denials surface here with `result: 'deny'`; the previous `DenialEvent` shape lives on as a derived field-projection. Filter `kind === 'request' && result === 'deny'` to recover it.
 
 **`method`** preserves the caller's verb. `set` stays `'set'` (the rule engine maps it internally to `'create'` or `'update'` based on whether the doc exists; that mapping appears on `matchedRule.operations`).
@@ -55,6 +59,7 @@ Fires once per simulator-evaluated op. Denials surface here with `result: 'deny'
 **`evalMs`** is the wall-clock duration of `simulator.simulate(...)`. Sub-millisecond for trivial rules; a traffic-monitor validation probe measured ~95ms p99 on connect-four's deep boolean chains.
 
 ## `kind: 'write'`: committed writes only
+
 ```ts
 interface WriteSandboxEvent {
   kind: 'write';
@@ -73,6 +78,7 @@ interface WriteSandboxEvent {
   requestTime: { seconds: number; nanoseconds: number };
 }
 ```
+
 Fires AFTER the corresponding `kind: 'request'` event for the same op, and ONLY for writes that the rule engine allowed AND the keyspace successfully applied. Denied or rolled-back writes don't emit a write event. They surface as `kind: 'request' && result: 'deny'` only.
 
 **`data`** is the **pre-resolution** payload: the user's intent. `FieldValue.*` sentinels are preserved as their marker shapes (`{ __type: 'serverTimestamp' }`, etc.); plain values pass through unchanged. The replay engine re-resolves the markers against a fresh sandbox so `pinRequestTime: false` actually drifts and `pinRequestTime: true` matches capture. Absent on `delete`. The materialized values the keyspace applied live on `nextState`.
@@ -86,6 +92,7 @@ Fires AFTER the corresponding `kind: 'request'` event for the same op, and ONLY 
 **`requestTime`** pins the `request.time` the rule engine evaluated against. The shape mirrors the Firestore Web SDK Timestamp (`{ seconds, nanoseconds }`). Required. The replay engine re-issues this exact value when re-resolving `serverTimestamp()` sentinels so resolved fields are bit-identical on replay; rules that branch on `request.time` evaluate identically. Within a batch or transaction, all sub-ops share the same `requestTime`.
 
 ## `kind: 'snapshot_delivery'`: listener callback fired
+
 ```ts
 interface SnapshotDeliveryEvent {
   kind: 'snapshot_delivery';
@@ -104,6 +111,7 @@ interface SnapshotDeliveryEvent {
   triggeredBy?: { method: string; path: string };
 }
 ```
+
 Fires AFTER the user callback runs, corresponding 1:1 with actual snapshot deliveries.
 
 **`addedCount` + `modifiedCount` + `removedCount`** match `QuerySnapshot.docChanges()`. Doc-target listeners report exactly one of (added=1, removed=1, modified=1) per fire. Query-target listeners can report any combination; the initial fire surfaces every doc as `added`.
@@ -115,6 +123,7 @@ Fires AFTER the user callback runs, corresponding 1:1 with actual snapshot deliv
 **`triggeredBy`** absent on initial fire (no user op caused it) and on `deployRules`-driven re-evals.
 
 ## `kind: 'snapshot_suppressed'`: re-eval ran but didn't deliver
+
 ```ts
 interface SnapshotSuppressedEvent {
   kind: 'snapshot_suppressed';
@@ -127,11 +136,13 @@ interface SnapshotSuppressedEvent {
   triggeredBy?: { method: string; path: string };
 }
 ```
+
 Fires when a listener wakes up on a write but the diff against the prior snapshot finds nothing observable changed (the no-op suppression). Useful for "why didn't my listener fire" debugging.
 
 **`reason`** is `'no-op'` in v1. The discriminator exists so future suppression sources (auth changes, rules changes mid-listen) can land without reshape.
 
 ## `kind: 'listener_attach' | 'listener_detach' | 'listener_errored'`
+
 ```ts
 interface ListenerLifecycleEvent {
   kind: 'listener_attach' | 'listener_detach' | 'listener_errored';
@@ -147,6 +158,7 @@ interface ListenerLifecycleEvent {
   };
 }
 ```
+
 **`listener_attach`** fires once when `onSnapshot` registers a record, BEFORE the initial-snapshot delivery.
 
 **`listener_detach`** fires once when the returned unsubscribe is called against a still-registered listener. Idempotent unsubscribes don't double-emit. Listeners dropped by `sandbox.reset()` don't emit detach; the `session_boundary` event covers the rollover.
@@ -156,6 +168,7 @@ interface ListenerLifecycleEvent {
 **`error`** is populated on `listener_errored` only. The shape mirrors what the previous `SnapshotErrorEvent` carried.
 
 ## `kind: 'session_boundary'`: reset / dispose
+
 ```ts
 interface SessionBoundaryEvent {
   kind: 'session_boundary';
@@ -165,11 +178,13 @@ interface SessionBoundaryEvent {
   priorOpCount: number;
 }
 ```
+
 Fires BEFORE the env swap on `sandbox.reset()` and BEFORE registry teardown on `sandbox.dispose()`. The subscription itself survives `reset()`; only `dispose()` clears it.
 
 **`priorOpCount`** is the cumulative count of events emitted from this sandbox prior to the boundary. Useful for verifying a persisted stream's segmentation against the sandbox's own bookkeeping.
 
 ## Filter cookbook
+
 ```ts
 // All denials (replaces the old onDenial channel).
 const isDenial = (e: SandboxEvent): e is RequestEvent =>
@@ -187,6 +202,7 @@ const isCommittedWrite = (e: SandboxEvent): e is WriteSandboxEvent =>
 const isLiveDelivery = (e: SandboxEvent): e is SnapshotDeliveryEvent =>
   e.kind === 'snapshot_delivery';
 ```
+
 ## See also
 
 - [Observe sandbox events](../pyric-sandbox-how-to-observe-events/): usage patterns + subscriber contract.

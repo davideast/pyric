@@ -10,13 +10,16 @@ order: 14005
 This guide shows you how to verify a Storage rule expression without uploading anything. Useful when iterating on a complex rule or building a rules-test harness.
 
 ## The two functions
+
 ```ts
 import { parseStorageRules, evaluateStorageRules } from 'pyric/storage';
 ```
+
 - **`parseStorageRules(source)`** returns a `ParsedRules` object. Throws a `SyntaxError` with line/column info if the source is malformed.
 - **`evaluateStorageRules(rules, input)`** takes parsed rules plus a synthetic request shape and returns `{ allowed: true } | { allowed: false; reason }`.
 
 ## A complete test
+
 ```ts
 const source = `service firebase.storage {
   match /b/{bucket}/o {
@@ -50,9 +53,11 @@ const denied = evaluateStorageRules(rules, {
 console.log(denied);
 // { allowed: false, reason: 'request.auth != null failed' }
 ```
+
 The synthetic input mirrors what the actual handler builds when an operation runs against a sandbox-backed handle.
 
 ## The input shape
+
 ```ts
 {
   path: string;                          // full path, including bucket prefix
@@ -62,6 +67,7 @@ The synthetic input mirrors what the actual handler builds when an operation run
   existing?: { size: number; contentType: string; metadata?: Record<string, string> };  // for read/update/delete
 }
 ```
+
 `resource` represents `request.resource` (what's being uploaded). `existing` represents `resource` (what's already stored). Set whichever the rule references.
 
 ## Why not go through the handler
@@ -85,5 +91,5 @@ For a full test, run both. Most tests need only one or the other.
 
 ## Where to look next
 
-- For the input shape and the rule engine details, see [Public API: Rules](../pyric-storage-reference-api/#rules).
+- For the input and result shapes, see [`evaluateStorageRules`](https://pyric.dev/docs/pyric-storage-reference-api/#evaluatestoragerules).
 - For the grammar these functions parse, see [Storage rules subset](../pyric-storage-reference-rules-subset/).
