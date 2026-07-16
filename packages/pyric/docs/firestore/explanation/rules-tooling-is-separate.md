@@ -24,7 +24,7 @@ By keeping rules tooling in `pyric/rules`, the swap-in surface stays bit-faithfu
 | `setRules`, `seedDocuments`, `snapshotDocuments`, `inspect` | `pyric/sandbox/firestore` |
 | `firestoreRules`, `lint`, `assertCase`, `explainCase` | `pyric/rules` (public front door) |
 | `parseToAST`, `lintFirestoreRules`, `validateFirestoreRules` | `pyric/rules/internal` |
-| `SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler` | `pyric/rules/internal` |
+| Simulator and hosted-test internals | `pyric/rules/internal` |
 | Stdlib (`auth`, `validation`, ... modules) | resolved via `pyric/rules/internal/node` |
 | `Timestamp`, `Path`, `Bytes` (rules wrapper classes) | `pyric/rules/internal` |
 | Tool factories for lint / simulate / test | `pyric/rules/internal/node` |

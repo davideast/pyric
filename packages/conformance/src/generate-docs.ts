@@ -32,18 +32,11 @@ function escapeCell(value: string): string {
   return value.replace(/\|/g, '\\|');
 }
 
-// ── Scoring (surface coverage + fidelity) ───────────────────────────────────
-//
-// Kept as distinct numbers (#224). Do NOT fold coverage into fidelity.
-// Surface breadth is read from the live census. The committed baseline is a
-// ratchet only: it must never be republished as though it were current truth.
-// Fidelity is likewise read from the live typed registry.
+// ── Public API surface coverage ─────────────────────────────────────────────
 
 /** One surface's mapping onto the behavior ledger + surface census. */
 interface SurfaceScoreSpec {
   label: string;
-  /** `rowStatuses` service prefixes whose behavior rows this surface owns. */
-  rowServices: string[];
   /** Live census surface keys that contribute surface-coverage % (mirror only). */
   censusServices: string[];
   /** Label used when this registry has no export-census denominator. */
@@ -57,7 +50,6 @@ function scoreSpec(surface: CompatibilitySurfaceRegistry, projection: Documentat
   const descriptors = projection.descriptors.filter(({ registryKey }) => registryKey === surface.surface);
   if (descriptors.length === 0) throw new Error(`No surface descriptors own compatibility registry '${surface.surface}'`);
   const ownedServices = [...new Set(descriptors.map(({ surface: owner }) => owner))];
-  const rowServices = [...new Set(descriptors.filter(({ coverage }) => coverage).map(({ surface: owner }) => owner))];
   const unownedRows = surface.blocks
     .flatMap((block) => block.kind === 'table' ? block.rows : [])
     .filter((row) => !ownedServices.includes(row.surface));
@@ -70,78 +62,13 @@ function scoreSpec(surface: CompatibilitySurfaceRegistry, projection: Documentat
   const noCensusKind = censusServices.length > 0
     ? undefined
     : descriptors.every(({ kind }) => kind === 'integration') ? 'integration' : 'native';
-  return { label: surface.label, rowServices, censusServices, noCensusKind };
-}
-
-interface BehaviorScore {
-  conforms: number;
-  diverged: number;
-  bugs: number;
-  unsupported: number;
-  unverified: number;
-  total: number;
-  pct: number;
+  return { label: surface.label, censusServices, noCensusKind };
 }
 
 interface SurfaceScore {
   /** null when the page has no upstream Firebase public surface to measure. */
   runtime: { mapped: number; denominator: number; pct: number } | null;
   types: { mapped: number; denominator: number; pct: number } | null;
-}
-
-function computeBehavior(spec: SurfaceScoreSpec, rows: readonly CompatibilityRow[]): BehaviorScore {
-  let conforms = 0;
-  let diverged = 0;
-  let bugs = 0;
-  let unsupported = 0;
-  let unverified = 0;
-  let total = 0;
-  for (const row of rows) {
-    if (!spec.rowServices.includes(row.surface)) continue;
-    total += 1;
-    if (row.status === 'conforms') conforms += 1;
-    else if (row.status === 'diverged-documented') diverged += 1;
-    else if (row.status === 'bug') bugs += 1;
-    else if (row.status === 'unsupported') unsupported += 1;
-    else if (row.status === 'unverified') unverified += 1;
-  }
-  const pct = total > 0 ? Math.round((conforms / total) * 1000) / 10 : 0;
-  return { conforms, diverged, bugs, unsupported, unverified, total, pct };
-}
-
-const BEHAVIOR_BUCKETS = [
-  { field: 'conforms', status: 'ok', label: 'conform' },
-  { field: 'diverged', status: 'diverged', label: 'documented divergences' },
-  { field: 'bugs', status: 'bug', label: 'bugs' },
-  { field: 'unsupported', status: 'unsupported', label: 'unsupported' },
-  { field: 'unverified', status: 'unverified', label: 'unverified' },
-] as const;
-
-function behaviorDistributionLabel(score: BehaviorScore): string {
-  return `Behavior distribution: ${BEHAVIOR_BUCKETS.map(({ field, label }) => `${score[field]} ${label}`).join(', ')}.`;
-}
-
-/** Proportional five-state bar. Empty buckets remain in the visible key rather
- * than receiving fake width in the bar. */
-export function statBar(score: BehaviorScore, extraClass = ''): string {
-  const className = extraClass ? `compat-stat-bar ${extraClass}` : 'compat-stat-bar';
-  return [
-    `<div class="${className}" role="img" aria-label="${behaviorDistributionLabel(score)}">`,
-    ...BEHAVIOR_BUCKETS
-      .filter(({ field }) => score[field] > 0)
-      .map(({ field, status }) => `<span class="compat-stat-seg" data-status="${status}" style="flex-grow: ${score[field]}" aria-hidden="true"></span>`),
-    '</div>',
-  ].join('\n');
-}
-
-function statKey(score: BehaviorScore, extraClass = ''): string {
-  const className = extraClass ? `compat-stat-key ${extraClass}` : 'compat-stat-key';
-  return [
-    `<ul class="${className}" aria-label="Behavior state counts">`,
-    ...BEHAVIOR_BUCKETS.map(({ field, status, label }) =>
-      `<li class="compat-stat-item"><span class="compat-dot" data-status="${status}" aria-hidden="true"></span><span><strong>${score[field]}</strong> ${label}</span></li>`),
-    '</ul>',
-  ].join('\n');
 }
 
 function computeSurface(spec: SurfaceScoreSpec, census: readonly SurfaceCensus[]): SurfaceScore {
@@ -157,36 +84,26 @@ function computeSurface(spec: SurfaceScoreSpec, census: readonly SurfaceCensus[]
   return { runtime: combine('runtime'), types: combine('types') };
 }
 
-/**
- * Score block each COMPAT doc leads with: surface coverage (breadth) and
- * fidelity (tracked claims that match production). Separate on purpose.
- */
+/** Public API breadth shown at the top of each compatibility document. */
 export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string | null {
   const spec = scoreSpec(surface, projection);
-  const behavior = computeBehavior(spec, projection.rows);
   const coverage = computeSurface(spec, projection.census);
-  const coverageLine = coverage.runtime === null || coverage.types === null
-    ? spec.noCensusKind === 'integration'
-      ? '<p class="compat-stat-surface"><strong>Surface:</strong> integration contract <span>(unchanged upstream source; breadth is the signed row inventory)</span></p>'
-      : '<p class="compat-stat-surface"><strong>Surface:</strong> native <span>(no upstream Firebase public API; measured against Pyric\'s own surface)</span></p>'
-    : `<p class="compat-stat-surface"><strong>Public surface:</strong> runtime ${coverage.runtime.pct}% (${coverage.runtime.mapped}/${coverage.runtime.denominator}) <span aria-hidden="true">·</span> types ${coverage.types.pct}% (${coverage.types.mapped}/${coverage.types.denominator})</p>`;
-  const explanation = spec.noCensusKind === 'integration'
-    ? 'The signed row inventory defines this integration contract. Fidelity measures how many tracked behaviors match production.'
-    : 'Public surface measures whether exports exist. Fidelity measures whether tracked behavior matches production.';
+  if (coverage.runtime === null || coverage.types === null) {
+    const surfaceLine = spec.noCensusKind === 'integration'
+      ? '<p class="compat-stat-surface"><strong>Surface:</strong> integration contract. This page does not have a Firebase public API denominator.</p>'
+      : '<p class="compat-stat-surface"><strong>Surface:</strong> Pyric-owned API. This page does not mirror a Firebase public API denominator.</p>';
+    return ['<div class="compat-stat">', surfaceLine, '</div>', ''].join('\n');
+  }
   const scoreboardHref = relative(dirname(surface.compatPath), SCOREBOARD_PATH).replaceAll('\\', '/');
   return [
     '<div class="compat-stat">',
-    coverageLine,
     '<p class="compat-stat-figure">',
-    `<span class="compat-stat-pct">${behavior.pct}%</span>`,
-    '<span class="compat-stat-label">of tracked behaviors conform</span>',
+    `<span class="compat-stat-pct">${coverage.runtime.pct}%</span>`,
+    '<span class="compat-stat-label">of public runtime exports supported</span>',
     '</p>',
-    `<p class="compat-stat-denom">${behavior.conforms} of ${behavior.total} tracked behaviors</p>`,
-    statBar(behavior),
-    statKey(behavior),
-    `<p class="compat-stat-note">${explanation}</p>`,
+    `<p class="compat-stat-denom">${coverage.runtime.mapped} of ${coverage.runtime.denominator} public runtime exports <span aria-hidden="true">·</span> ${coverage.types.mapped} of ${coverage.types.denominator} public type exports</p>`,
     '</div>',
-    `[Read how the axes differ.](${scoreboardHref})`,
+    `[See public API coverage for every service.](${scoreboardHref})`,
     '',
   ].join('\n');
 }
@@ -194,7 +111,6 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: Do
 function scoreRow(
   label: string,
   href: string | null,
-  behavior: BehaviorScore,
   coverage: SurfaceScore,
   noCensusKind: SurfaceScoreSpec['noCensusKind'],
   overall = false,
@@ -218,12 +134,6 @@ function scoreRow(
     `<span><span class="compat-score-axis">Runtime</span>${runtime}</span>`,
     `<span><span class="compat-score-axis">Types</span>${types}</span>`,
     '</span>',
-    '<span class="compat-score-fidelity">',
-    `<strong class="compat-score-pct">${behavior.pct}%</strong>`,
-    `<span>${behavior.conforms}/${behavior.total} conform</span>`,
-    '</span>',
-    statBar(behavior, 'compat-stat-bar--mini'),
-    `<span class="compat-score-breakdown">${BEHAVIOR_BUCKETS.map(({ field, label: bucketLabel }) => `${behavior[field]} ${bucketLabel}`).join(' · ')}</span>`,
     `</${tag}>`,
   ];
 }
@@ -233,49 +143,34 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
   const lines: string[] = [
     GENERATED_HEADER,
     '',
-    '# Conformance scores',
+    '# Public API coverage',
     '',
-    'Public runtime surface, public type surface, and behavior fidelity answer different questions. [How does Pyric know it works like Firebase?](../../../../docs/site-rewrite/content/trust/how-we-know-it-matches-firebase.md) explains the evidence and its limits.',
+    'This is the share of Firebase\'s public API that Pyric supports. [How does Pyric know it works like Firebase?](../../../../docs/site-rewrite/content/trust/how-we-know-it-matches-firebase.md) explains the evidence and its limits.',
     '',
     '- **Public runtime surface:** mirrored Firebase runtime exports divided by all exports not exactly reviewed as private in the owning surface contract. Unsupported, deprecated, and deferred public APIs remain in the denominator.',
     '- **Public type surface:** mirrored exported type names divided by non-underscore Firebase exported type names. This measures name presence, not structural assignability.',
-    '- **Behavior fidelity:** conforming registry rows divided by all tracked rows. Documented divergences, bugs, unsupported behavior, and unverified behavior remain in the denominator.',
     '',
-    'Every fidelity bar shows the full five-state distribution. Public surface values stay outside the bar so breadth cannot be mistaken for behavior.',
-    '',
-    '## Scores',
+    '## Services',
     '',
     '<div class="compat-scoreboard">',
   ];
   for (const surface of projection.registries) {
     const spec = scoreSpec(surface, projection);
-    const behavior = computeBehavior(spec, projection.rows);
     const coverage = computeSurface(spec, projection.census);
     lines.push(...scoreRow(
       spec.label,
       compatibilityHref(surface.compatPath),
-      behavior,
       coverage,
       spec.noCensusKind,
     ));
   }
-  const overallBehavior = (() => {
-    const scored = new Set(projection.registries.flatMap((surface) => scoreSpec(surface, projection).rowServices));
-    const overallSpec: SurfaceScoreSpec = {
-      label: 'Overall',
-      rowServices: [...scored],
-      censusServices: [],
-    };
-    return computeBehavior(overallSpec, projection.rows);
-  })();
   const coverageCensusSurfaces = projection.descriptors.flatMap((descriptor) =>
     descriptor.kind === 'mirror' && descriptor.coverage ? [descriptor.censusSurface] : [],
   );
-  const overallCoverage = computeSurface({ label: 'Overall', rowServices: [], censusServices: coverageCensusSurfaces }, projection.census);
+  const overallCoverage = computeSurface({ label: 'Overall', censusServices: coverageCensusSurfaces }, projection.census);
   lines.push(...scoreRow(
     'Overall',
     null,
-    overallBehavior,
     overallCoverage,
     undefined,
     true,
@@ -505,7 +400,7 @@ export interface CompatibilityPageCatalogEntry {
  * a list of paths that can silently drift. */
 export function compatibilityPageCatalog(model: ConformanceModel): readonly CompatibilityPageCatalogEntry[] {
   return [
-    { path: SCOREBOARD_PATH, label: 'Conformance scores' },
+    { path: SCOREBOARD_PATH, label: 'Public API coverage' },
     ...model.documentation.registries.map(({ compatPath, label }) => ({ path: compatPath, label })),
   ];
 }

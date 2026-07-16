@@ -158,6 +158,7 @@ function docsRoot(pkg: string): string {
 // becomes the emitted `description` (llms.txt / index.json).
 
 const guideRoot = join(repoRoot, 'docs', 'site-rewrite', 'content');
+const API_REFERENCE_GROUP = 'API reference';
 
 /** Superseded package pages (scripts/superseded.ts), by absolute path:
  *  skipped by the port, and links to them rewrite to the guide slug. */
@@ -255,7 +256,11 @@ function parseFrontmatter(raw: string): {
 /** Slug for a source file: pkg id + docs-root-relative path, lowercased,
  *  separators → '-', README segment dropped. Unique by assertion. */
 function slugFor(pkg: string, absFile: string, slugPrefix = pkg): string {
-  const rel = relative(docsRoot(pkg), absFile).split(sep).join('/');
+  const rel = relative(docsRoot(pkg), absFile)
+    .split(sep)
+    .join('/')
+    .replace(/(^|\/)api\.generated\.md$/, '$1api.md')
+    .replace(/\.api\.generated\.md$/, '-api.md');
   const segs = rel.replace(/\.md$/, '').split('/');
   if (segs[segs.length - 1] === 'README') segs.pop();
   return [slugPrefix, ...segs].join('-').toLowerCase();
@@ -280,8 +285,7 @@ interface Page {
 function mdFilesIn(dir: string): string[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.md'))
-    // TypeDoc receipts remain beside the hand-written reference but are not
-    // site pages until their cross-links and navigation role are designed.
+    // TypeDoc receipts are collected into the dedicated API reference group.
     .filter((f) => !f.endsWith('.generated.md'))
     .sort()
     .map((f) => join(dir, f));
@@ -307,6 +311,7 @@ const bySlug = new Map<string, Page>();
 const GROUP_ORDER: string[] = [
   ...GUIDE_GROUPS.map((g) => g.label),
   'Conformance',
+  API_REFERENCE_GROUP,
   ...GROUPS.map((g) => g.label),
 ];
 const GROUP_RANK_SPACING = 1000;
@@ -398,6 +403,28 @@ for (const c of await loadConformancePages(repoRoot)) {
   pages.push(page);
   bySrc.set(src, page);
   bySlug.set(slug, page);
+}
+
+addGuidePage(resolve(guideRoot, 'api-reference.md'), API_REFERENCE_GROUP);
+
+function* walkGeneratedApi(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) yield* walkGeneratedApi(full);
+    else if (entry.name.endsWith('.api.generated.md') || entry.name === 'api.generated.md') yield full;
+  }
+}
+
+for (const pkg of ['pyric', 'pyric-admin', 'cli'] as const) {
+  const group: GroupSpec = {
+    pkg,
+    slugPrefix: pkg === 'cli' ? 'pyric-cli' : undefined,
+    label: API_REFERENCE_GROUP,
+    dir: '.',
+    sections: [],
+  };
+  const section = pkg === 'cli' ? '@pyric/cli' : pkg;
+  for (const src of walkGeneratedApi(docsRoot(pkg))) addPage(src, group, section);
 }
 
 for (const group of GROUPS) {

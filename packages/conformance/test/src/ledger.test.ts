@@ -1,11 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow } from '../../registry/index.ts';
+import { allCompatibilityRows, type CompatibilityRow } from '../../registry/index.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { observationExceptions } from '../../exceptions/load.ts';
-import { compatibilityPageCatalog, renderAllCompatibilityMarkdown, SCOREBOARD_PATH } from '../../src/generate-docs.ts';
-import { deriveConformanceModel } from '../../src/conformance-model.ts';
 import { loadObservations, REPO_ROOT } from '../../src/ledger.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { loadRigManifests } from '../../rigs/load.ts';
@@ -134,24 +132,6 @@ describe('single-source compatibility registry', () => {
     expect(problems).toContain(`${row.id}: featureKeys must not contain blank identities`);
     expect(problems).toContain(`${row.id}: duplicate normalized featureKey 'getAuth'`);
   });
-
-  test('generated markdown covers every published compat document', async () => {
-    const model = await deriveConformanceModel();
-    const docs = renderAllCompatibilityMarkdown(model);
-    // One doc per registry surface, plus the central scoreboard.
-    expect(docs.size).toBe(surfaceRegistries.length + 1);
-    for (const surface of surfaceRegistries) {
-      expect(docs.has(surface.compatPath)).toBe(true);
-    }
-    expect(docs.get(SCOREBOARD_PATH)).toContain(
-      'Generated from the conformance model (registry rows + surface contracts)',
-    );
-    expect(docs.get('packages/pyric/docs/auth/COMPAT.md')).toContain(
-      'Generated from the conformance model (registry rows + surface contracts)',
-    );
-    expect(new Set(compatibilityPageCatalog(model).map(({ path }) => path))).toEqual(new Set(docs.keys()));
-    expect(docs.get(SCOREBOARD_PATH)).toContain('17/17 conform');
-  }, 60_000);
 
   test('every observation internal name matches its filename minus .json', () => {
     const observations = loadObservations();

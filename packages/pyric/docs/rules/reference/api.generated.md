@@ -1525,7 +1525,7 @@ Per-rule evaluation entry produced by the local simulator. Each entry
 corresponds to one `allow` declaration the simulator evaluated, in
 source order.
 
-Populated only by `SimulateFirestoreRulesHandler` (which has the parsed
+Populated only by the internal simulator (which has the parsed
 AST in hand); the production Test API client (`TestFirestoreRulesHandler`)
 returns an empty `trace` and surfaces the wire text on `TestResult.notes`.
 
@@ -1547,7 +1547,7 @@ Per-sub-expression evaluation trace for this rule's condition.
 Flat, in evaluation order; reconstruct the tree via the `parent`
 index on each entry. Populated by the local simulator when the
 caller enables tracing — currently always on for
-`SimulateFirestoreRulesHandler.simulate()` so agents can see *why*
+the simulator so agents can see *why*
 a rule's condition resolved as it did (which disjunct was true,
 which `let` binding the value flowed through, which method call
 threw). Absent on entries that came from the production Test API

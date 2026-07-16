@@ -7,7 +7,7 @@ status: draft
 
 # Sync realtime data
 
-> **Experimental.** Realtime Database works and is documented, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. Read [what's experimental](../trust/whats-experimental.md) before you rely on it.
+Realtime Database support is incomplete. Check its generated conformance page for the exact public API coverage before depending on a feature.
 
 Realtime Database is one JSON tree that many clients watch at once. In Pyric it runs locally, rules enforced, with the modular calls you already know.
 
@@ -72,12 +72,8 @@ sandbox swap.
 
 ## And from an agent
 
-The `rtdb-data-model` skill designs the tree the way this page describes,
-starting from an inventory of reads. In a Pyric session, local inspection tools
-map the sandbox snapshot without reaching production. Install the skill from the
-[catalog](../agent/skills.md), and see [set up your agent](../agent/set-up-your-agent.md)
-for the wiring.
+Ask an MCP-connected agent to inventory the reads your application performs, then inspect the local tree with `rtdb_crawl_structure`. [Work with an agent](../agent/work-with-an-agent.md) gives a complete RTDB task prompt, and [Set up your agent](../agent/set-up-your-agent.md) explains the browser bridge.
 
 ## Where to go next
 
-Not sure the tree is the right home for this data? [Which data service should I use?](./which-data-service.md) is the one-page answer. When the paths are settled, write the rules that hold them in TypeScript: [RTDB rules in TypeScript](../secure/rtdb-rules-in-typescript.md).
+When the paths are settled, write the rules that hold them in TypeScript: [RTDB rules in TypeScript](../secure/rtdb-rules-in-typescript.md).

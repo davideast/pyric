@@ -102,7 +102,7 @@ The index file stops being a hand-kept artifact. It becomes derived output, and 
 
 ## And from an agent
 
-The `firestore-query-indexes` skill designs read shapes the way a review would: it inventories every query the product performs, proves each list query is constrained the way the rules demand, then runs `firestore_extract_indexes` after every change so the index file tracks the code. Install it from the [skills catalog](../agent/skills.md).
+An MCP-connected agent can inventory the queries the product performs and compare them with the rules that govern list access. Start with [Work with an agent](../agent/work-with-an-agent.md).
 
 ## Where to go next
 

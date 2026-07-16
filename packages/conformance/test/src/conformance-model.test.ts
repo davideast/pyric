@@ -72,18 +72,6 @@ describe('multi-axis conformance model', () => {
     expect(canIUse(model, 'getAfter', { importPath: 'pyric/rules' }).match).toBe('none');
   });
 
-  it('gives generated API docs a complete data-driven import-to-evidence join', () => {
-    expect(model.importEvidence).toEqual(expect.arrayContaining([
-      { importPath: 'pyric/app', surface: 'app', evidenceSlug: 'pyric-app-compat' },
-      { importPath: 'pyric/messaging/sw', surface: 'messaging', evidenceSlug: 'pyric-messaging-compat' },
-      { importPath: 'pyric/rules', surface: 'firestore-rules', evidenceSlug: 'pyric-rules-compat' },
-      { importPath: 'pyric/database', surface: 'rtdb', evidenceSlug: 'pyric-database-compat' },
-      { importPath: 'pyric/storage', surface: 'storage', evidenceSlug: 'pyric-storage-compat' },
-    ]));
-    expect(model.importEvidence.filter(({ importPath }) => importPath === 'pyric/database')).toHaveLength(1);
-    expect(model.importEvidence.filter(({ importPath }) => importPath === 'pyric/storage')).toHaveLength(1);
-  });
-
   it('fails closed when one published import is assigned to different evidence surfaces', () => {
     const evidence = new Map();
     const firestore = { importPath: 'pyric/rules', surface: 'firestore-rules', evidenceSlug: 'pyric-rules-compat' } as const;

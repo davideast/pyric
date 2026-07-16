@@ -173,7 +173,7 @@ export interface Breadcrumb {
  * Decision (owner review, item 4): the Package crumb links to its
  * group's overview/README page when the group has one (`section: ''`
  * in the port plan); groups without one (and every Section crumb —
- * there is never a page for a bare Diataxis section) fall back to a
+ * there is never a page for a bare reference section) fall back to a
  * same-page anchor into the left nav instead of a dead link. The
  * current page is always plain text (`href: null`, `anchorId: null`).
  */

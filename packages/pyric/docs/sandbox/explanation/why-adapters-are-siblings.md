@@ -70,7 +70,7 @@ The rule of thumb: anything *shape-agnostic* (the data, the rules, the lifecycle
 
 `pyric/sandbox` imports the rules simulator from `pyric/rules/internal`. `pyric/rules` imports `LocalEnvironment` (type-only) from `pyric/sandbox/internal`. This is a module cycle inside the package graph.
 
-The cycle is benign: the import from `pyric/rules/internal` into `pyric/sandbox` is value (the `SimulateFirestoreRulesHandler` class and a handful of wrappers); the import from `pyric/sandbox` back into `pyric/rules` is type-only (the `LocalEnvironment` interface for the internal `createFirestoreSimulatorTools`'s `resolveSandbox` dep). Neither side is in the other's runtime call graph beyond what's documented.
+The cycle is benign: the import from `pyric/rules/internal` into `pyric/sandbox` supplies the rules engine and value wrappers; the import from `pyric/sandbox` back into `pyric/rules` is type-only. Neither side is in the other's runtime call graph beyond what is documented.
 
 We accepted the cycle because the alternative, duplicating wrapper classes in both packages, would make `instanceof Timestamp` start lying depending on which copy was imported. The substrate consuming the simulator's wrapper types is the canonical path.
 

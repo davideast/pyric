@@ -114,7 +114,7 @@ Each result reports availability separately from behavioral fidelity and assuran
 
 ## And from an agent
 
-The `firebase-auth-model` skill designs or audits an identity model end to end: it names the actors, maps UIDs to data shapes, weighs claims against document roles, and then verifies each rule branch by simulating the identities it defined. Point it at an existing app and it reports where the model and the rules disagree. Install it from the [skills catalog](../agent/skills.md).
+An MCP-connected agent can inspect the current identities and simulate each Security Rules branch as those users. Start with [Work with an agent](../agent/work-with-an-agent.md).
 
 ## Where to go next
 

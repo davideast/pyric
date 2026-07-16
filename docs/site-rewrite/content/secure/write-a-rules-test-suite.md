@@ -63,7 +63,7 @@ const { passed, failed, unsupported, cases } = result;
 console.log(`${passed} passed · ${failed} failed · ${unsupported} unsupported`);
 ```
 
-A failed case means the simulator's verdict disagreed with your `expectation`, and its `debugMessages` trace shows which rule decided. An `UNSUPPORTED` case means the simulator hit a feature it does not implement and abstained. It is not counted as a failure, and it is never a guess.
+A failed case means the simulator's verdict disagreed with your `expectation`, and its `trace` shows which rule decided. An unsupported case means the simulator hit a feature it does not implement and abstained. It is not counted as a failure, and it is never a guess.
 
 Two fixture fields worth knowing before your suite grows:
 

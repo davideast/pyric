@@ -7,7 +7,7 @@ status: draft
 
 # Store files
 
-> **Experimental.** Storage works and is documented, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. Read [what's experimental](../trust/whats-experimental.md) before you rely on it.
+Storage support is incomplete. Check its generated conformance page for the exact public API coverage before depending on a feature.
 
 Files land in your sandbox the way documents do: locally, with rules deciding what gets in.
 
@@ -105,4 +105,4 @@ The answer separates availability from fidelity and assurance, and points to the
 
 ## Where to go next
 
-If the data is structured rather than binary, [which data service should I use?](./which-data-service.md) sorts it out. And [what's experimental](../trust/whats-experimental.md) says exactly what experimental costs you.
+For structured documents and queries, use [Store and query data](./store-and-query-data.md).
