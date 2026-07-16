@@ -8,9 +8,12 @@
  * which exported implementation seams are excluded, stable route names, and
  * the generated front matter consumed by the API-reference template.
  *
- * `--write` updates docs/api-reference/generated/*.md. `--check` (the
- * default) regenerates in memory and fails on drift. Build the packages first
- * so every manifest `types` target exists.
+ * `--write` writes the API-reference pages into the site's gitignored
+ * packages/site-docs/src/content/_generated/ directory (flat slug filenames
+ * plus the api-reference index). `--check` (the default) regenerates in memory
+ * and fails on drift. Build the packages first so every manifest `types`
+ * target exists, and generate the pages (bun run docs:api:generate, or the
+ * site's `bun run generate`) before checking.
  */
 import { execFileSync } from 'node:child_process';
 import {

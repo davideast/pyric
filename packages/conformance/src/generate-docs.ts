@@ -14,7 +14,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
 export const GENERATED_HEADER = '<!-- Generated from the conformance model (registry rows + surface contracts). Do not edit by hand; run bun run compat:generate. -->';
 
-/** The generated central scoreboard, ported into the Compatibility nav group. */
+/**
+ * Canonical virtual identifier for the generated central scoreboard. Authored
+ * docs no longer live under packages/pyric/docs, but this string is a neutral
+ * virtual path, not a filesystem target: it seeds the stable public slug
+ * (docs-routes.compatibilitySlug) and the relative scoreboard hrefs the site
+ * rewrites. It must not change, or the published /docs/ URLs would move.
+ */
 export const SCOREBOARD_PATH = 'packages/pyric/docs/conformance/SCORES.md';
 
 export type DocumentationProjection = ConformanceModel['documentation'];

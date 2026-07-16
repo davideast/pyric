@@ -21,7 +21,7 @@ import { join, relative } from 'node:path';
 import { REPO_ROOT } from './ledger.ts';
 
 const REGISTRY_DIR = join(REPO_ROOT, 'packages/conformance/registry');
-const DOCS_GLOB_ROOTS = [join(REPO_ROOT, 'packages/pyric/docs')];
+const DOCS_GLOB_ROOTS = [join(REPO_ROOT, 'packages/site-docs/src/content/pyric')];
 
 export interface TerminologyViolation {
   file: string;

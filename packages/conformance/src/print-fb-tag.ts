@@ -7,7 +7,7 @@
 // compat-target.ts) — the same constant `pyric --version` prints. The patch
 // component is discarded when forming the tag: pyric tags Firebase's major
 // and minor lines, never its patch level (see
-// packages/pyric/docs/explanation/versioning-and-compatibility.md).
+// packages/site-docs/src/content/pyric/explanation/versioning-and-compatibility.md).
 import { FIREBASE_TESTED_AGAINST } from '../../../packages/cli/src/version/compat-target.ts';
 
 const [major, minor] = FIREBASE_TESTED_AGAINST.split('.');

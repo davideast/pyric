@@ -58,9 +58,13 @@ describe('generated API reference inventory', () => {
   });
 
   test('index and generated files cover the same route universe', () => {
-    const index = readFileSync(join(REPO_ROOT, 'docs', 'api-reference', 'index.md'), 'utf8');
+    const index = readFileSync(join(OUTPUT_ROOT, 'api-reference.md'), 'utf8');
     expect(index).toBe(renderApiIndex(descriptors));
-    const files = readdirSync(OUTPUT_ROOT).filter((file) => file.endsWith('.md')).sort();
+    // _generated/ is shared with the conformance pages, so filter to the API
+    // files (every API slug ends in -reference-api) before comparing.
+    const files = readdirSync(OUTPUT_ROOT)
+      .filter((file) => file.endsWith('-reference-api.md'))
+      .sort();
     expect(files).toEqual(descriptors.map(({ slug }) => `${slug}.md`).sort());
     for (const descriptor of descriptors) {
       const markdown = readFileSync(descriptor.outputPath, 'utf8');

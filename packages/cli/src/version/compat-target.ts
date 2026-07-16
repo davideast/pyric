@@ -4,7 +4,7 @@
  * @pyric/cli' own version, and the number `scripts/publish-alpha.sh`
  * reads to derive the `fb<major>.<minor>` dist-tag it moves on a green
  * `compat:check` (see
- * packages/pyric/docs/explanation/versioning-and-compatibility.md).
+ * packages/site-docs/src/content/pyric/explanation/versioning-and-compatibility.md).
  *
  * This is a pin, not @pyric/cli' own version: bumping it starts a
  * re-snapshot of the upstream surface, and no release claims the new
