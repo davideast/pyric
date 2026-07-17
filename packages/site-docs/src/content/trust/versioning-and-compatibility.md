@@ -1,8 +1,8 @@
 ---
 title: "Versioning and the fb tag"
-group: "pyric"
-section: "Explanation"
-order: 10
+group: "Trust"
+section: ""
+order: 30
 ---
 # Versioning and the fb tag
 

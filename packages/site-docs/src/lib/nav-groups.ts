@@ -37,18 +37,6 @@ export const GROUP_ORDER: readonly string[] = [
   'Work with an agent',
   'Trust',
   'Conformance',
-  // Surviving hand-written package guides (pyric-specific how-tos, tutorials,
-  // and explanations). Their reference pages and landing READMEs were removed;
-  // the API surface now lives in the generated "API reference" group below.
-  // Each of these collapses to its overview link in the Reference shelf.
-  'pyric',
-  'pyric / firestore',
-  'pyric / rules',
-  'pyric / sandbox',
-  'pyric / storage',
-  'pyric / database',
-  '@pyric/cli',
-  'pyric-admin / firestore',
   // The generated API reference renders itemized inside the Reference shelf and
   // is the destination for per-package reference material.
   'API reference',

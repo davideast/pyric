@@ -149,32 +149,48 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: Do
   ].join('\n');
 }
 
+/** Share of a surface's tracked behaviors that conform — the published score
+ * for native/integration surfaces, which have no Firebase export denominator. */
+function fidelityScore(surface: CompatibilitySurfaceRegistry): { pct: string; conforming: number; total: number } {
+  const rows = surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows : []));
+  const conforming = rows.filter((row) => row.status === 'conforms').length;
+  const pct = rows.length === 0 ? '0' : ((conforming / rows.length) * 100).toFixed(1).replace(/\.0$/, '');
+  return { pct, conforming, total: rows.length };
+}
+
+function meterCell(pct: number | string): string {
+  return `<span class="compat-score-pct">${pct}%</span>` +
+    `<span class="compat-meter-track compat-meter-track--mini"><span class="compat-meter-fill" style="width: ${pct}%"></span></span>`;
+}
+
 function scoreRow(
   label: string,
   href: string | null,
+  surface: CompatibilitySurfaceRegistry | null,
   coverage: SurfaceScore,
-  noCensusKind: SurfaceScoreSpec['noCensusKind'],
   overall = false,
 ): string[] {
-  const noCensusLabel = noCensusKind === 'integration' ? 'integration' : 'native';
   const combined = combinedScore(coverage);
-  const tag = href === null ? 'div' : 'a';
-  const attrs = [
-    `class="compat-score-row${overall ? ' compat-score-row--overall' : ''}"`,
-    href === null ? '' : `href="${href}"`,
-  ].filter(Boolean).join(' ');
-  const surface = combined === null
-    ? `<span class="compat-score-pct">${noCensusLabel}</span>`
-    : `<span><span class="compat-score-pct">${combined.pct}%</span>` +
-      `<span class="compat-meter-track compat-meter-track--mini"><span class="compat-meter-fill" style="width: ${combined.pct}%"></span></span></span>` +
-      `<span class="compat-score-breakdown">${splitLine(coverage)}</span>`;
+  const name = href === null ? escapeCell(label) : `<a href="${href}">${escapeCell(label)}</a>`;
+  let score: string;
+  let detail: string;
+  if (combined !== null) {
+    score = meterCell(combined.pct);
+    detail = splitLine(coverage);
+  } else if (surface !== null) {
+    const fidelity = fidelityScore(surface);
+    score = meterCell(fidelity.pct);
+    detail = `${fidelity.conforming} of ${fidelity.total} tracked behaviors conform`;
+  } else {
+    score = '';
+    detail = '';
+  }
   return [
-    `<${tag} ${attrs}>`,
-    `<span class="compat-score-name">${label}</span>`,
-    '<span class="compat-score-surface">',
-    surface,
-    '</span>',
-    `</${tag}>`,
+    `<tr${overall ? ' class="compat-score-row--overall"' : ''}>`,
+    `<th scope="row" class="compat-score-name">${name}</th>`,
+    `<td class="compat-score-cell">${score}</td>`,
+    `<td class="compat-score-detail">${detail}</td>`,
+    '</tr>',
   ];
 }
 
@@ -192,7 +208,9 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
     '',
     '## Services',
     '',
-    '<div class="compat-scoreboard">',
+    '<table class="compat-score-table">',
+    '<thead><tr><th>Service</th><th>Score</th><th>Basis</th></tr></thead>',
+    '<tbody>',
   ];
   for (const surface of projection.registries) {
     const spec = scoreSpec(surface, projection);
@@ -200,8 +218,8 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
     lines.push(...scoreRow(
       spec.label,
       compatibilityHref(surface.compatPath),
+      surface,
       coverage,
-      spec.noCensusKind,
     ));
   }
   const coverageCensusSurfaces = projection.descriptors.flatMap((descriptor) =>
@@ -211,11 +229,11 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
   lines.push(...scoreRow(
     'Overall',
     null,
+    null,
     overallCoverage,
-    undefined,
     true,
   ));
-  lines.push('</div>', '');
+  lines.push('</tbody>', '</table>', '');
   return lines.join('\n');
 }
 
