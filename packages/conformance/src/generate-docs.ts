@@ -149,9 +149,12 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: Do
   ].join('\n');
 }
 
-function meterCell(pct: number | string): string {
-  return `<span class="compat-score-pct">${pct}%</span>` +
-    `<span class="compat-meter-track compat-meter-track--mini"><span class="compat-meter-fill" style="width: ${pct}%"></span></span>`;
+function meterCell(pct: number | string, basis: string): string {
+  return '<div class="compat-score-stack">' +
+    `<div class="compat-score-bar"><span class="compat-meter-track"><span class="compat-meter-fill" style="width: ${pct}%"></span></span>` +
+    `<span class="compat-score-pct">${pct}%</span></div>` +
+    (basis === '' ? '' : `<div class="compat-score-basis">${basis}</div>`) +
+    '</div>';
 }
 
 function scoreRow(
@@ -163,24 +166,16 @@ function scoreRow(
 ): string[] {
   const combined = combinedScore(coverage);
   const name = href === null ? escapeCell(label) : `<a href="${href}">${escapeCell(label)}</a>`;
-  let score: string;
-  let detail: string;
-  if (combined !== null) {
-    score = meterCell(combined.pct);
-    detail = splitLine(coverage);
-  } else if (surface !== null) {
+  const score = combined !== null
+    ? meterCell(combined.pct, splitLine(coverage))
     // No honest public-API denominator exists yet for this surface (#343).
-    score = '<span class="compat-score-tbd">Gathering metrics. Total score TBD.</span>';
-    detail = '';
-  } else {
-    score = '';
-    detail = '';
-  }
+    : surface !== null
+      ? '<span class="compat-score-tbd">Gathering metrics. Total score TBD.</span>'
+      : '';
   return [
     `<tr${overall ? ' class="compat-score-row--overall"' : ''}>`,
     `<th scope="row" class="compat-score-name">${name}</th>`,
     `<td class="compat-score-cell">${score}</td>`,
-    `<td class="compat-score-detail">${detail}</td>`,
     '</tr>',
   ];
 }
@@ -200,7 +195,7 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
     '## Services',
     '',
     '<table class="compat-score-table">',
-    '<thead><tr><th>Service</th><th>Score</th><th>Basis</th></tr></thead>',
+    '<thead><tr><th>Service</th><th>Public API supported</th></tr></thead>',
     '<tbody>',
   ];
   for (const surface of projection.registries) {
@@ -306,29 +301,29 @@ export function dispositionSection(
     .flatMap((entry) => entry.runtime.dispositioned);
   if (dispositions.length === 0) return '';
   const groups = Map.groupBy(dispositions, (entry) => entry.dispositionId);
-  const rows = [...groups].map(([id, entries]) => {
+  const availabilityLabel = (availability: string): string =>
+    availability === 'deferred' ? 'Not implemented yet' : 'Out of scope';
+  const items = [...groups].map(([id, entries]) => {
     const first = entries[0]!;
-    const symbols = entries.map(({ symbol }) => `<code>${escapeHtml(symbol)}</code>`).join(', ');
+    const symbols = entries.map(({ symbol }) => `<code>${escapeHtml(symbol)}</code>`).join(' ');
     const evidence = first.evidenceRefs.length > 0
-      ? `<div class="compat-note">${escapeHtml(first.evidenceRefs.join(', '))}</div>`
+      ? `<p class="compat-gap-evidence">${escapeHtml(first.evidenceRefs.join(', '))}</p>`
       : '';
     return [
-      '<div class="compat-row" data-status="unsupported">',
-      '<div class="compat-line"><span class="compat-main">' +
-        `<code class="compat-api">${escapeHtml(id)}</code>` +
-        `<span class="compat-sub"><span class="compat-behavior">${escapeHtml(first.availability)}</span></span></span></div>`,
-      '<div class="compat-evidence">' +
-        `<div class="compat-note">${escapeHtml(first.summary).replace(/`([^`]+)`/g, '<code>$1</code>')} — ${symbols}</div>` +
-        evidence +
-        '</div>',
-      '</div>',
+      '<article class="compat-gap">',
+      `<header class="compat-gap-header"><code>${escapeHtml(id)}</code>` +
+        `<span class="compat-gap-availability">${availabilityLabel(first.availability)}</span></header>`,
+      `<p class="compat-gap-summary">${escapeHtml(first.summary).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>')}</p>`,
+      `<p class="compat-gap-symbols">${symbols}</p>`,
+      evidence,
+      '</article>',
     ].join('\n');
   });
   return [
     '## Reviewed public-runtime gaps',
     '',
-    '<div class="compat-list">',
-    ...rows,
+    '<div class="compat-gaps">',
+    ...items,
     '</div>',
   ].join('\n');
 }
