@@ -89,6 +89,7 @@ export { SimulatorUnsupportedError } from './rules-evaluation.js';
 import { docDataEqual, anyPathInCollection } from './listener-delivery.js';
 import { listQueryFromStructured } from './reads.js';
 import { FirestoreEventBus } from './event-bus.js';
+import { TriggerScope } from './trigger-scope.js';
 import { HistoryControls } from './history-controls.js';
 import {
   SimulatorUnsupportedError,
@@ -119,18 +120,12 @@ export class LocalEnvironment {
   private readonly events = new FirestoreEventBus();
 
   /**
-   * The user-origin op that's currently triggering a listener re-eval,
-   * if any. Set by the execute / batch / transaction call sites
-   * immediately before `notifyListenersForPaths`. Call sites use a
-   * **save/restore** pattern — a listener callback may itself issue a
-   * write, recursing through execute and setting up its own trigger; we
-   * must put the outer trigger back when the nested call returns so the
-   * remaining listeners in the outer fan-out still attribute correctly.
-   *
-   * Listener-origin RequestEvents copy this into `triggeredBy`. Undefined
-   * for the initial-fire path and for deployRules re-evaluation.
+   * The trigger-attribution baton (ADR-0009 decision 3). Written by the
+   * execute / batch / transaction fan-out sites and the scheduled-delivery
+   * restore via `run()`'s save/restore stack; read by the listener-origin
+   * emit sites via `current()`. See {@link TriggerScope} for semantics.
    */
-  private currentTrigger?: { method: string; path: string };
+  private readonly triggerScope = new TriggerScope();
 
   /**
    * RULES-B11 — parsed-AST cache for the query-proof gate. The proof
@@ -634,21 +629,13 @@ export class LocalEnvironment {
    * Enqueue a write-driven delivery, restoring the triggering op while it
    * runs so listener-origin RequestEvents / delivery events still attribute
    * to the write (`triggeredBy`) even though the callback now fires off the
-   * writing stack. See {@link currentTrigger}.
+   * writing stack. See {@link triggerScope}.
    */
   private scheduleTriggeredDelivery(
     trigger: { method: string; path: string } | undefined,
     deliver: () => void,
   ): void {
-    this.scheduleDelivery(() => {
-      const prevTrigger = this.currentTrigger;
-      this.currentTrigger = trigger;
-      try {
-        deliver();
-      } finally {
-        this.currentTrigger = prevTrigger;
-      }
-    });
+    this.scheduleDelivery(() => this.triggerScope.run(trigger, deliver));
   }
 
   /**
@@ -703,7 +690,7 @@ export class LocalEnvironment {
     if (this.snapshotListeners.size === 0) return;
     // Capture the triggering op now; the deliveries run off-stack, by which
     // time `currentTrigger` has been restored to the microtask loop's state.
-    const trigger = this.currentTrigger;
+    const trigger = this.triggerScope.current();
     const records = Array.from(this.snapshotListeners.values());
     for (const record of records) {
       this.scheduleTriggeredDelivery(trigger, () => {
@@ -745,7 +732,7 @@ export class LocalEnvironment {
         listenerId: record.id,
         target: { kind: 'doc', path: record.target.path },
         auth: record.auth,
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       return;
     }
@@ -782,7 +769,7 @@ export class LocalEnvironment {
       removedCount,
       size: isExists ? 1 : 0,
       sample: { docs: [{ path, data: result.data }] },
-      ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
     });
     this.scheduleDocMetadataAck(record, path, result.data);
   }
@@ -803,7 +790,7 @@ export class LocalEnvironment {
     data: DocumentData | null,
   ): void {
     if (!record.options.includeMetadataChanges) return;
-    this.scheduleTriggeredDelivery(this.currentTrigger, () => {
+    this.scheduleTriggeredDelivery(this.triggerScope.current(), () => {
       if (!this.snapshotListeners.has(record.id)) return;
       if (record.errored) return;
       const ack = buildDocumentSnapshot(path, data, SANDBOX_METADATA);
@@ -822,7 +809,7 @@ export class LocalEnvironment {
         removedCount: 0,
         size: data !== null ? 1 : 0,
         sample: { docs: [{ path, data }] },
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
     });
   }
@@ -867,7 +854,7 @@ export class LocalEnvironment {
         listenerId: record.id,
         target: { kind: 'query', collection },
         auth: record.auth,
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       return;
     }
@@ -894,7 +881,7 @@ export class LocalEnvironment {
       removedCount,
       size: result.docs.length,
       sample: { docs: result.docs.map((d) => ({ path: d.path, data: d.data })) },
-      ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
     });
     this.scheduleQueryMetadataAck(record, collection, result.docs);
   }
@@ -911,7 +898,7 @@ export class LocalEnvironment {
     docs: { path: string; data: DocumentData }[],
   ): void {
     if (!record.options.includeMetadataChanges) return;
-    this.scheduleTriggeredDelivery(this.currentTrigger, () => {
+    this.scheduleTriggeredDelivery(this.triggerScope.current(), () => {
       if (!this.snapshotListeners.has(record.id)) return;
       if (record.errored) return;
       const ack = buildQuerySnapshot(
@@ -936,7 +923,7 @@ export class LocalEnvironment {
         removedCount: 0,
         size: docs.length,
         sample: { docs: docs.map((d) => ({ path: d.path, data: d.data })) },
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
     });
   }
@@ -969,7 +956,7 @@ export class LocalEnvironment {
         origin: 'listener',
         resourceBefore: { data, exists: data !== null },
         detail: { admin: true },
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       return { allowed: true, data };
     }
@@ -987,7 +974,7 @@ export class LocalEnvironment {
         at: evalAt, evalMs, method: 'get', path, auth, result: 'deny',
         debugMessages: [`Simulation error: ${simResult.error.message}`],
         origin: 'listener',
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       return {
         allowed: false,
@@ -1001,7 +988,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'get', path, auth, result: 'unsupported',
         debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       throw new SimulatorUnsupportedError(
         unsupportedMessage('get', path, renderLegacyDebugMessages(result)),
@@ -1016,7 +1003,7 @@ export class LocalEnvironment {
       debugMessages: renderLegacyDebugMessages(result),
       evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
       resourceBefore: { data, exists: data !== null },
-      ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
     });
     if (!isAllowed) {
       return {
@@ -1106,7 +1093,7 @@ export class LocalEnvironment {
         debugMessages: ['admin lens — rules bypassed'],
         origin: 'listener',
         ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       return { allowed: true, docs: constrained };
     }
@@ -1119,7 +1106,7 @@ export class LocalEnvironment {
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
         debugMessages: [message], origin: 'listener',
         ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       return {
         allowed: false,
@@ -1141,7 +1128,7 @@ export class LocalEnvironment {
         debugMessages: [`Simulation error: ${simResult.error.message}`],
         origin: 'listener',
         ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       return {
         allowed: false,
@@ -1156,7 +1143,7 @@ export class LocalEnvironment {
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'unsupported',
         debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
         ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       throw new SimulatorUnsupportedError(
         unsupportedMessage('list', collection, renderLegacyDebugMessages(result)),
@@ -1169,7 +1156,7 @@ export class LocalEnvironment {
         debugMessages: renderLegacyDebugMessages(result),
         evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
         ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       return {
         allowed: false,
@@ -1185,7 +1172,7 @@ export class LocalEnvironment {
       debugMessages: renderLegacyDebugMessages(result),
       evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
       ...(requestDetail ? { detail: requestDetail } : {}),
-      ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
     });
     // RULES-B11 — the proof + list-rule eval decided the WHOLE query; no
     // per-doc `get` re-evaluation. Production queries are governed by the
@@ -2151,16 +2138,12 @@ export class LocalEnvironment {
     if (isAllowed) {
       // Issue #307 — set the trigger so listener re-eval emits can
       // attribute themselves to this user op via `triggeredBy`.
-      // Save/restore (not clear-on-finally) because a listener callback
-      // may itself call execute() — that nested call's finally would
-      // otherwise wipe our trigger before subsequent listeners fire.
-      const prevTrigger = this.currentTrigger;
-      this.currentTrigger = { method, path };
-      try {
-        this.notifyListenersForPaths(new Set([path]));
-      } finally {
-        this.currentTrigger = prevTrigger;
-      }
+      // TriggerScope.run saves/restores (not clear-on-finally) because a
+      // listener callback may itself call execute() — that nested call
+      // would otherwise wipe our trigger before subsequent listeners fire.
+      this.triggerScope.run({ method, path }, () =>
+        this.notifyListenersForPaths(new Set([path])),
+      );
     }
     return out;
   }
@@ -2499,15 +2482,10 @@ export class LocalEnvironment {
       // (best-effort — batches touch N paths, the UI can join via groupId
       // if it needs to show the full set).
       const firstOp = resolvedOps[0];
-      const prevTrigger = this.currentTrigger;
-      this.currentTrigger = firstOp
-        ? { method: 'batch', path: firstOp.path }
-        : { method: 'batch', path: '' };
-      try {
-        this.notifyListenersForPaths(touched);
-      } finally {
-        this.currentTrigger = prevTrigger;
-      }
+      this.triggerScope.run(
+        { method: 'batch', path: firstOp?.path ?? '' },
+        () => this.notifyListenersForPaths(touched),
+      );
     }
     return {
       allowed: allAllowed,
@@ -3004,15 +2982,10 @@ export class LocalEnvironment {
       for (const op of resolvedOps) touched.add(op.path);
       // Issue #307 — listener re-evals attribute to the transaction.
       const firstOp = resolvedOps[0];
-      const prevTrigger = this.currentTrigger;
-      this.currentTrigger = firstOp
-        ? { method: 'transaction', path: firstOp.path }
-        : { method: 'transaction', path: '' };
-      try {
-        this.notifyListenersForPaths(touched);
-      } finally {
-        this.currentTrigger = prevTrigger;
-      }
+      this.triggerScope.run(
+        { method: 'transaction', path: firstOp?.path ?? '' },
+        () => this.notifyListenersForPaths(touched),
+      );
     }
     return result;
   }
