@@ -193,22 +193,6 @@ export const functionsRtdbRows: CompatibilityRow[] = [
 
 const INTRO = `# Firebase Functions RTDB integration compatibility
 
-This matrix describes unchanged production source imported from
-\`firebase-functions/v2/database\` and run against Pyric during development.
-It is an integration/runtime contract, not a \`pyric-functions\` package mirror.
-
-The first slice is intentionally narrow: Node, \`onValueCreated\`, one RTDB
-instance, exact paths and named single-segment wildcards, serialized handler
-execution within the current development session without a cross-event ordering
-guarantee, and Admin-capable references on the event snapshot. Every row begins
-unverified and remains a gap until its
-production observation is replayed through the unchanged source against Pyric.
-
-Explicitly deferred: other trigger types and Firebase products, retries,
-deployed concurrency settings, multiple database instances, durable delivery
-across restarts, deployment emulation, secrets, and production lifecycle
-configuration.
-
 ## Status legend
 
 | Status | Meaning |
@@ -216,7 +200,7 @@ configuration.
 | ✓ | **Conforming** — unchanged source matches production under replay |
 | ⚠ | **Diverged (documented)** — intentional difference with a written reason |
 | ✗ | **Bug** — should match production but does not |
-| — | **Unsupported** — explicitly outside the implemented slice |
+| — | **Not implemented yet** — explicitly outside the implemented slice |
 | ? | **Unverified** — production target or local replay is incomplete |
 `;
 

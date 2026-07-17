@@ -1012,3 +1012,9 @@ samp {
     padding: 0 1rem 1rem;
   }
 }
+
+/* The Reference shelf lists many short per-package sections; the guide
+   groups' section gap reads as holes here, so it tightens. */
+.docs-nav-group-body--reference {
+  gap: var(--space-3);
+}

@@ -4,12 +4,13 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "astro dev",
-    "port": "bun scripts/port-content.ts",
-    "build": "bun run port && astro build",
+    "dev": "bun run generate && astro dev",
+    "generate": "bun scripts/generate-content.ts",
+    "build": "bun run generate && astro build",
     "preview": "astro preview"
   },
   "dependencies": {
+    "@pyric/cli": "workspace:*",
     "@pyric/conformance": "workspace:*",
     "astro": "^5.0.0"
   },

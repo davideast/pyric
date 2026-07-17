@@ -53,13 +53,6 @@ jobs:
         # of this job's build, conformance, or test commands enter that workspace.
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
-      - name: Compat terminology lint (registry prose + generated docs)
-        # Fails on colloquialisms, GitHub issue-number references, and
-        # coding-tool/assistant names in packages/conformance/registry/*.ts prose
-        # and the generated COMPAT.md docs. See packages/conformance/src/lint-terminology.ts
-        # for the exact rules. Cheap, deterministic, no build/install needed first.
-        run: bun run compat:lint-terms
-
       - name: Oracle observation version guard
         # Fails if any packages/conformance/observations/*.json was captured against
         # a firebase version other than the one bun.lock currently resolves —

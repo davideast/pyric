@@ -5,7 +5,7 @@ export const firestoreRegistry = {
   label: 'Firestore',
   compatPath: "packages/pyric/docs/firestore/COMPAT.md",
   blocks: [
-    { kind: 'markdown', markdown: "# `pyric/firestore` compatibility matrix\n\nThe single readable contract for what the sandbox mirror guarantees compared\nwith the production `firebase/firestore` SDK.\n\nSee the design rationale for the methodology (vocabulary\nof conformance / oracle / matrix; how to add rows; how the runner\nattributes failures).\n\n## Status legend\n\n| Status | Meaning |\n|---|---|\n| ✓ | **Conforming** — sandbox matches prod, locked by a passing probe |\n| ⚠ | **Diverged (documented)** — intentional difference with a written reason |\n| ✗ | **Bug** — should match prod but doesn't; failing probe pins it |\n| — | **Unsupported** — not implemented yet (deliberately or pending) |\n| ? | **Unverified** — claim from docs that we haven't yet observed prod-side |\n\nProbe references: `playground:<name>` means a fixture under\n`packages/playground/scripts/fixtures/<name>.tsx`. `unit:<file>`\nmeans a Bun test in `packages/pyric/test/firestore/<file>`.\n\nTargets:\n- **sandbox** — frozen-ctx target built via `getFirestore(ctx: SandboxContext)`. Identity baked in at handle-construction.\n- **sandbox-live** — live-identity target built via `getFirestore(sandbox: Sandbox)`. Every op re-reads `sandbox.currentUser`. The playground preview always uses this flavor.\n\nProduction is not a target inside this mirror. With sandbox activation off,\npackage resolution leaves `firebase/firestore` unchanged. With activation on,\ncanonical Firebase imports resolve to this sandbox-only package.\n\n---\n" },
+    { kind: 'markdown', markdown: "# `pyric/firestore` compatibility matrix\n\n## Status legend\n\n| Status | Meaning |\n|---|---|\n| ✓ | **Conforming** — sandbox matches prod, locked by a passing probe |\n| ⚠ | **Diverged (documented)** — intentional difference with a written reason |\n| ✗ | **Bug** — should match prod but doesn't; failing probe pins it |\n| — | **Not implemented yet** — deliberately or pending |\n| ? | **Unverified** — claim from docs that we haven't yet observed prod-side |\n" },
     {
       kind: 'table',
       prefix: "## `getFirestore(target)` — initializer\n",
@@ -2695,7 +2695,7 @@ export const firestoreRegistry = {
     },
     {
       kind: 'markdown',
-      markdown: "\n## Offline / persistence / network family\n\n`enableIndexedDbPersistence`, `enableMultiTabIndexedDbPersistence`,\n`clearIndexedDbPersistence`, `enableNetwork`, `disableNetwork`, and\n`waitForPendingWrites` are exported by the sandbox mirror so unchanged\napplication initialization code can run after package resolution selects\nPyric.\n\n**Honest-mirror rationale**: the sandbox IS the backend, running\nlocal-first with persistence on by default. There is no separate cache tier\nto opt into and no network to gate. Each function resolves because its\npromise is already true or is a documented no-op because the concept has no\nlocal meaning. `disableNetwork` does not simulate an offline queue.\n\n`terminate` maps to `Sandbox.dispose()` and therefore tears down the whole\nsandbox rather than a Firestore-only slice. Production never enters these\nimplementations; inactive package resolution leaves Firebase unchanged.\n",
+      markdown: "\n## Offline / persistence / network family\n",
     },
     {
       kind: 'table',
@@ -2824,7 +2824,7 @@ export const firestoreRegistry = {
     },
     {
       kind: 'markdown',
-      markdown: "\n## Tier-1 cache-init + get-from-* family\n\n`initializeFirestore`, the cache-factory tokens, the explicit cache/server\nread variants, `setLogLevel`, and `onSnapshotsInSync` are exported from the\nsandbox mirror so canonical application code remains import-compatible.\n\nThese are honest sandbox mappings, not production forwarding. Cache settings\nare inert because persistence is already local; cache and server read variants\nshare the authoritative local read path; `setLogLevel` is a no-op; and\n`onSnapshotsInSync` approximates local delivery settle. Inactive package\nresolution leaves Firebase's production implementations unchanged.\n",
+      markdown: "\n## Tier-1 cache-init + get-from-* family\n",
     },
     {
       kind: 'table',
@@ -3267,7 +3267,6 @@ export const firestoreRegistry = {
         },
       ],
     },
-    { kind: 'markdown', markdown: "\n## Evidence and remaining gaps\n\nFrozen production observations remain the answer key for error identity, auto-id format, aggregates, listener metadata, scalar round trips, and equality semantics. This repair does not edit those observations or change any row status, numerator, or denominator.\n\nThe principal documented divergences remain error class identity, auto-id format, index validation, aggregate cost, listener metadata, transaction contention, and structural \`queryEqual\`.\n\nThe Firestore unit suite covers the sandbox surface. Canonical Node-register and Vite tests cover package selection, while the compiled-isolation test proves the sandbox artifact has no \`firebase/firestore\` dependency.\n" },
   ],
 } satisfies CompatibilitySurfaceRegistry;
 

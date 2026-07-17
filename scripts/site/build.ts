@@ -173,8 +173,9 @@ async function buildDocs(): Promise<void> {
     throw new Error(`build-site: site-docs build did not produce ${builtDocs}`);
   }
   // The whole /docs subtree: directory-format pages (<slug>/index.html), the
-  // flat .md agent twins (<slug>.md), and /docs/index.json. Directory format
-  // means a dumb static host serves /docs/<slug>/ with no rewrite rules.
+  // nested .md agent twins (<slug>.md, matching each page's nested route), and
+  // /docs/index.json. Directory format means a dumb static host serves
+  // /docs/<slug>/ with no rewrite rules.
   cpSync(builtDocs, join(DIST, 'docs'), { recursive: true });
   // The docs pages' one shared stylesheet lives at /_astro/ (base=/), while
   // Studio's own bundle uses assets/, so the two never collide at the site root.
