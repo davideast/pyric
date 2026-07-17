@@ -33,9 +33,12 @@ import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
 import type { PersistenceBackend } from 'pyric/sandbox';
-import { initializeSandbox, serializeToBuckets, bundleRecords, parseBundle } from 'pyric/sandbox';
-import { primeEventHistory } from 'pyric/sandbox/internal';
+import { initializeSandbox } from 'pyric/sandbox';
+import {
+  primeEventHistory,
+} from 'pyric/sandbox/internal';
 import type { InitPayload } from '../namespace.js';
+import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
 
@@ -360,181 +363,6 @@ export async function hydrateEventHistory(
   const capped =
     events.length > MAX_PRIMED_EVENTS ? events.slice(-MAX_PRIMED_EVENTS) : events;
   return primeEventHistory(ctx.sandbox, capped);
-}
-
-// ─── Durable persistence: the --persist server-file tier + seedState (3c.D) ─
-
-/**
- * Stable writer id the worker sends on every `/__pyric/state` POST. There is
- * exactly ONE worker per origin, so it is the sole writer — the multi-tab
- * 423 / writer-lock contention the in-page path fights does not arise. The id
- * is constant so the server's lock recognizes the same holder across writes;
- * if the worker dies (all tabs closed) the server frees the stale lock and the
- * next worker reclaims it.
- */
-const WORKER_WRITER_ID = 'pyric-shared-worker';
-
-const stateSection = (name: 'firestore' | 'auth'): string => `/__pyric/state?section=${name}`;
-
-/**
- * Build the worker's DURABLE backend for the persistence controller.
- *
- *  - **default** (no `--persist`, no `seedState`): the injected IDB backend,
- *    untouched — IDB is the durable store and the multi-tab sync point.
- *  - **`--persist`**: a composite over IDB that ALSO mirrors the controller
- *    blob to the committable server file (`/__pyric/state?section=firestore`).
- *    On a fresh worker (IDB empty) it PRIMES from the server file, so a
- *    committed `.pyric/state` restores. The blob the controller hands `write`
- *    is the SAME `serializeSnapshot(firestore, services)` the in-page path
- *    posts there, so the on-disk format is byte-identical — and auth rides it
- *    via `services` (the #629 registry).
- *  - **`seedState`** (a `--seed <state-file>` fixture WITHOUT `--persist`):
- *    primes IDB once from the fixture blob, then lives in IDB. No server file.
- *
- * IMPORTANT: this wraps ONLY the persistence-controller backend. The worker's
- * session record (`SESSION_RECORD_KEY`) is local-only and must NOT reach the
- * server file, so `entry.ts` keeps the RAW IDB backend as `ctx.sessionBackend`.
- *
- * Local IDB always wins on read: we never clobber live local state with a
- * stale server file — pyric is a single local backend (no two-source
- * reconciliation), so the server file is a prime-once source + an export sink.
- */
-export function createWorkerDurableBackend(
-  idb: PersistenceBackend,
-  payload: InitPayload,
-  env: ServeInitEnv,
-): PersistenceBackend {
-  const persist = Boolean(payload.persist);
-  const seed = (payload.seedState ?? null) as {
-    firestore?: Record<string, Record<string, unknown>>;
-    services?: Record<string, unknown>;
-  } | null;
-  // Fixture (seedState without --persist): the seed docs as v3 records, primed
-  // once into IDB. The committable v3 BUNDLE the file holds and the records IDB
-  // holds are the same data in two shapes.
-  const fixtureRecords =
-    !persist && seed != null
-      ? serializeToBuckets(seed.firestore ?? {}, seed.services ?? {}, 0)
-      : null;
-
-  // Plain IDB — nothing to layer on.
-  if (!persist && fixtureRecords === null) return idb;
-
-  // Prime IDB once from the export source (committable file / fixture) on a
-  // fresh worker. Local IDB always wins: never clobber live local state.
-  let primed = false;
-  const primeOnce = async (key: string): Promise<void> => {
-    if (primed) return;
-    primed = true;
-    if ((await idb.listRecords(key)).length > 0) return;
-    if (persist) {
-      const res = await env.fetch(stateSection('firestore'));
-      if (res.status === 200) {
-        const records = parseBundle(await res.text());
-        if (records.size > 0) await idb.putRecords(key, records);
-      }
-    } else if (fixtureRecords !== null) {
-      await idb.putRecords(key, fixtureRecords);
-    }
-  };
-
-  // Mirror the FULL current record set to the committable server file as one v3
-  // bundle. Fire-and-forget: a flaky export must never block a local write.
-  const mirror = async (key: string): Promise<void> => {
-    if (!persist) return;
-    try {
-      const ids = await idb.listRecords(key);
-      const all = new Map<string, unknown>();
-      for (const id of ids) {
-        const r = await idb.getRecord(key, id);
-        if (r != null) all.set(id, r);
-      }
-      const res = await env.fetch(stateSection('firestore'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-pyric-writer': WORKER_WRITER_ID },
-        body: bundleRecords(all),
-      });
-      if (res.status === 423) {
-        console.warn('[pyric worker] --persist: server file is held by another writer; export skipped.');
-      }
-    } catch {
-      /* export sink offline; local IDB is unaffected. */
-    }
-  };
-
-  return {
-    async getRecord(key, recordId) {
-      await primeOnce(key);
-      return idb.getRecord(key, recordId);
-    },
-    async listRecords(key) {
-      await primeOnce(key);
-      return idb.listRecords(key);
-    },
-    async putRecords(key, records) {
-      await idb.putRecords(key, records); // IDB is the live durable store.
-      await mirror(key);
-    },
-    async deleteRecords(key, recordIds) {
-      await idb.deleteRecords(key, recordIds);
-      await mirror(key);
-    },
-    async clear(key) {
-      await idb.clear(key);
-      if (!persist) return;
-      try {
-        await env.fetch(stateSection('firestore'), {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-pyric-writer': WORKER_WRITER_ID },
-          body: 'null',
-        });
-      } catch {
-        /* ignore */
-      }
-    },
-  };
-}
-
-/**
- * Mirror the auth user DB to the committable server file's `auth` section
- * (`--persist` only), matching the in-page path so a worker-written
- * `.pyric/state` is format-identical (and `pyric dev`'s init payload, which
- * reads `section=auth` for `authUsers`, stays populated). Auth ALSO rides the
- * firestore controller blob via `services`; this separate mirror is the
- * belt-and-suspenders the in-page path keeps.
- *
- * Returns a teardown that stops the subscription.
- */
-export function setupServerAuthFlush(
-  ctx: HostCtx,
-  payload: InitPayload,
-  env: ServeInitEnv,
-): () => void {
-  if (!payload.persist) return () => {};
-  const auth = ensureAuth(ctx);
-  const debounceMs = env.captureDebounceMs ?? 400;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-
-  const flush = (): void => {
-    const body = JSON.stringify({ users: authOps.exportUsers(auth) });
-    env
-      .fetch(stateSection('auth'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-pyric-writer': WORKER_WRITER_ID },
-        body,
-      })
-      .catch(() => {});
-  };
-
-  const unsub = authOps.subscribeUsers(auth, () => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(flush, debounceMs);
-  });
-
-  return () => {
-    if (timer) clearTimeout(timer);
-    unsub();
-  };
 }
 
 // ─── Worker boot: build the ONE shared HostCtx ──────────────────────────────
