@@ -167,7 +167,7 @@ function scoreRow(
   const name = href === null ? escapeCell(label) : `<a href="${href}">${escapeCell(label)}</a>`;
   const score = combined !== null
     ? meterCell(combined.pct, splitLine(coverage))
-    // No honest public-API denominator exists yet for this surface (#343).
+    // No honest public-API denominator exists yet for this surface (#344).
     : surface !== null
       ? '<span class="compat-score-tbd">Gathering metrics. Total score TBD.</span>'
       : '';
