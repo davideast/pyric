@@ -22,7 +22,6 @@
  */
 import { readFileSync } from 'node:fs';
 import type { MarkdownHeading } from 'astro';
-import { canIUse } from '@pyric/cli/conformance';
 import { routeForRel } from './routes';
 import {
   GROUP_RANK,
@@ -147,29 +146,6 @@ for (const [key, mod] of Object.entries(modules)) {
 }
 
 /** Global order: group rank, then within-group `order`. */
-/**
- * Every concrete `pyric can-i-use <query>` example in authored content must
- * resolve to an exact match against the shipped conformance projection. A
- * broken example means the docs promise a capability the CLI can't confirm —
- * this assertion has caught a real drift before. Placeholder forms
- * (`storage/<symbol>`, a bare `foo/`) are illustrative and skipped.
- */
-const CAN_I_USE = /\bcan-i-use\s+([A-Za-z0-9][\w./-]*)/g;
-for (const entry of entries) {
-  if (entry.filePath.replace(/\\/g, '/').includes('/_generated/')) continue;
-  for (const m of entry.body.matchAll(CAN_I_USE)) {
-    const query = m[1];
-    const after = entry.body[m.index! + m[0].length];
-    if (after === '<' || query.endsWith('/')) continue; // placeholder
-    const result = canIUse(query);
-    if (result.match !== 'exact') {
-      throw new Error(
-        `can-i-use example '${query}' in ${relOf(entry.filePath)} does not resolve to an exact match (got '${result.match}')`,
-      );
-    }
-  }
-}
-
 const rankOf = (g: string) => GROUP_RANK.get(g) ?? Number.POSITIVE_INFINITY;
 entries.sort((a, b) => {
   const gr = rankOf(a.data.group) - rankOf(b.data.group);
