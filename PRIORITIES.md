@@ -1,6 +1,6 @@
 # Priorities
 
-As of 2026-07-10. pyric shipped its npm alpha and the feature set works — that is the problem. The first real user, a Firebase expert, loved the prototype tab, opened the docs, and backed off: overwhelmed by how much was there. They wanted a Vite plugin and didn't know one already existed; they later asked for a verify-before-production capability that also already existed. The system is objectively strong and subjectively too much. This season is not about building more. It is about making what exists easy to enter, simple to hold in your head, and safe to trust — and nothing else. When a proposal doesn't serve one of the three, it waits.
+As of 2026-07-14. pyric shipped its npm alpha and the feature set works — that is the problem. The first real user, a Firebase expert, loved the prototype tab, opened the docs, and backed off: overwhelmed by how much was there. They wanted a Vite plugin and didn't know one already existed; they later asked for a verify-before-production capability that also already existed. The system is objectively strong and subjectively too much. This season is not about building more. It is about making what exists easy to enter, simple to hold in your head, and safe to trust — and nothing else. When a proposal doesn't serve one of the three, it waits.
 
 ## Top of Funnel
 
@@ -45,3 +45,4 @@ Two halves. Conformance states the contract and the gaps openly, proven and open
 - Close conformance Phase 2: commit observations, pin the 7 divergences as public documented gaps (#132)
 - Make `pyric verify` discoverable (#133)
 - Document the conformance contract and gaps where a user will actually find them (#134)
+- Make conformance support queryable from one canonical evidence graph while collapsing committed generated projections (#218)

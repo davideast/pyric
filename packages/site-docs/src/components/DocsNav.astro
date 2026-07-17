@@ -8,7 +8,7 @@ import {
   sectionAnchorId,
   isGuideGroup,
   groupLanding,
-} from '../lib/docs';
+} from '../lib/content';
 import DocsSearch from './DocsSearch.astro';
 
 interface Props {
@@ -30,6 +30,8 @@ const groups = await navGroups();
  *  and listed in llms.txt/index.json — they are reachable from their
  *  overview and from in-page links, just not itemized in the sidebar. */
 const guideGroups = groups.filter((g) => isGuideGroup(g.group));
+// Everything non-guide — including the generated API reference — collapses
+// into the single Reference shelf.
 const referenceGroups = groups.filter((g) => !isGuideGroup(g.group));
 
 /** Only the group holding the current page starts open — everything
@@ -114,26 +116,50 @@ const referenceHoldsCurrent = referenceGroups.some(holdsCurrent);
         open={referenceHoldsCurrent}
       >
         <summary>Reference</summary>
-        <div class="docs-nav-group-body">
-          <div class="docs-nav-section">
-            <ul>
-              {referenceGroups.map((group) => {
-                const landing = groupLanding(group);
-                return (
+        <div class="docs-nav-group-body docs-nav-group-body--reference">
+          {referenceGroups.map((group) =>
+            // The generated API reference is itemized: every package entry
+            // point links directly to its own generated page, grouped by the
+            // per-package section headings. Every other reference group
+            // (the surviving hand-written package guides) collapses to a
+            // single overview link, as before.
+            group.group === 'API reference' ? (
+              group.sections.map(({ section, entries }) => (
+                <div class="docs-nav-section">
+                  {section ? (
+                    <h2 class="docs-nav-heading">{section}</h2>
+                  ) : null}
+                  <ul>
+                    {entries.map((entry) => (
+                      <li>
+                        <a
+                          href={docPath(entry)}
+                          aria-current={
+                            slugOf(entry) === currentSlug ? 'page' : undefined
+                          }
+                        >
+                          {navLabel(entry)}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            ) : (
+              <div class="docs-nav-section">
+                <ul>
                   <li>
                     <a
-                      href={docPath(landing)}
-                      aria-current={
-                        holdsCurrent(group) ? 'true' : undefined
-                      }
+                      href={docPath(groupLanding(group))}
+                      aria-current={holdsCurrent(group) ? 'true' : undefined}
                     >
                       {group.group}
                     </a>
                   </li>
-                );
-              })}
-            </ul>
-          </div>
+                </ul>
+              </div>
+            ),
+          )}
         </div>
       </details>
     )

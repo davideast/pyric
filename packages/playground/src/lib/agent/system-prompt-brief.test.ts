@@ -51,7 +51,12 @@ describe('W2.2 environment brief', () => {
       expect(p).toContain('edit_file');
       // Generated app source stays on canonical Firebase imports.
       expect(p).toContain('pyric/*');
-      expect(p).toContain('signInWithCustomToken');
+      expect(p).toContain('pyric_can_i_use');
+      expect(p).toContain('firestore-rules/getAfter');
+      expect(p).toContain('auth/providerData');
+      expect(p).toContain('omit `importPath`');
+      expect(p).not.toContain('feature-matrix');
+      expect(p).not.toContain('signInWithCustomToken');
     }
     // Diag-gated pyric wisdom: pitfalls stay terse but present.
     expect(diagOn).toContain('RULES PITFALLS');

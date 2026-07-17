@@ -39,7 +39,13 @@ build_pkg() {
   local dir="$1"
   echo "▸ Building packages/$dir"
   rm -rf "packages/$dir/dist"
-  bun run --cwd "packages/$dir" build
+  if [ "$dir" = "cli" ]; then
+    # emit_stubs already generated both ignored conformance projections from
+    # the same checkout; package-local builds still run their normal prebuild.
+    PYRIC_CONFORMANCE_READY=1 bun run --cwd "packages/$dir" build
+  else
+    bun run --cwd "packages/$dir" build
+  fi
 }
 
 # Emit .d.ts stubs without type-checking
@@ -68,13 +74,19 @@ echo "━━━ Phase 1: Declaration stubs ━━━"
 emit_stubs "pyric"
 emit_stubs "pyric-admin"
 emit_stubs "create-pyric"
-emit_stubs "cli"
 emit_stubs "ui"
+
+# The CLI prebuild derives its ignored conformance projections from the live
+# pyric export surface. Build that dependency before emitting CLI declarations
+# so a clean checkout never needs a pre-existing runtime projection or dist.
+echo "▸ Building packages/pyric for CLI conformance bootstrap"
+build_pkg "pyric"
+emit_stubs "cli"
 
 # ── Phase 2: Full build (topological order) ────────────────────────────
 echo ""
 echo "━━━ Phase 2: Full build ━━━"
-build_pkg "pyric"
+echo "▸ packages/pyric already built for the CLI conformance bootstrap"
 build_pkg "pyric-admin"
 build_pkg "create-pyric"
 build_pkg "cli"
@@ -107,6 +119,8 @@ echo "━━━ Phase 4: Docs site ━━━"
 # /__pyric/ui/docs/index.json, and tabs back at /__pyric/ui/<tab>. The default
 # (no DOCS_BASE) build the hosted site uses is unaffected — base stays `/`.
 if $BUILD_DOCS; then
+  echo "▸ Generating site docs (conformance + API reference → _generated/)"
+  bun run --cwd packages/site-docs generate
   echo "▸ Verifying generated API reference"
   bun run docs:api:check
   echo "▸ Building packages/site-docs (base /__pyric/ui/)"

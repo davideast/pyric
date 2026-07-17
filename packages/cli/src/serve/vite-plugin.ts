@@ -278,6 +278,12 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
           // Keep firebase out of the optimizer's pre-bake; the resolver swaps it
           // per-importer at request time.
           exclude: [...SDK_MODULES],
+          // The excluded SDK is served as ESM straight from dist, so Vite never
+          // scans it for dependencies. js-md5 / js-sha256 are CJS-only (no ESM
+          // named exports); without a forced pre-bundle the browser gets the raw
+          // UMD source and `import { md5 }` throws a SyntaxError. Force-including
+          // them gives the dist imports the interop-wrapped optimized copies.
+          include: ['js-md5', 'js-sha256'],
           esbuildOptions: { plugins: [esbuildMirror] },
         },
         // Sandbox build only: the swapped-in runtime chunk uses TOP-LEVEL AWAIT

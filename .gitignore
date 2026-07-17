@@ -46,3 +46,17 @@ docs/design/
 # Claude Code worktrees — never repo content
 .claude/worktrees/
 .pyric-worktrees/
+packages/cli/src/assurance/.generated/
+packages/cli/src/conformance/.generated/
+packages/conformance/rules-language/*-report.json
+
+# Disposable conformance documentation projections. The site build derives
+# these from the registry immediately before porting them.
+packages/pyric/docs/*/COMPAT.md
+packages/pyric/docs/conformance/SCORES.md
+packages/cli/docs/functions-rtdb/COMPAT.md
+
+# Generated site docs: conformance virtual pages + generated API reference.
+# The site build (packages/site-docs) derives these into _generated/ right
+# before `astro build`; they are never committed.
+packages/site-docs/src/content/_generated/

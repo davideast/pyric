@@ -38,18 +38,15 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CensusSurface } from './surface-denylist.ts';
+import type { CensusSurface } from '../surfaces/types.ts';
 import { type Surface } from '../registry/index.ts';
-import { surfaceDescriptors } from '../surfaces/load.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, type RegistryEntry } from './ledger.ts';
+import { deriveConformanceModel, type ConformanceModel } from './conformance-model.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..');
-const CENSUS_SCRIPT = join(HERE, 'surface-census.ts');
 const ENTRY_PATH_GATE_SCRIPT = join(HERE, 'entry-path-gate.ts');
 const BASELINE_PATH = join(HERE, '..', 'baselines', 'coverage-baseline.json');
-
-// ── Surface census (subprocess — reuses surface-census.ts unmodified) ──────
 
 interface CensusRow {
   surface: CensusSurface;
@@ -57,21 +54,6 @@ interface CensusRow {
   mirrors: string[];
   runtime: { upstreamCount: number; mapped: string[] };
   types: { upstreamCount: number; mapped: string[] };
-}
-
-function runCensus(): CensusRow[] {
-  // surface-census.ts exits 1 when there are UNMAPPED gaps; that's not a
-  // coverage.ts failure (surface coverage < 100% is expected and reported,
-  // not fatal), so tolerate a non-zero exit and just read stdout.
-  let out: string;
-  try {
-    out = execFileSync('bun', ['run', CENSUS_SCRIPT, '--json'], { encoding: 'utf8', cwd: REPO_ROOT });
-  } catch (err) {
-    const e = err as { stdout?: string };
-    if (!e.stdout) throw err;
-    out = e.stdout;
-  }
-  return (JSON.parse(out) as { surfaces: CensusRow[] }).surfaces;
 }
 
 // ── Entry-path (surface-census.ts's sibling CLIFF gate — reused, not
@@ -84,8 +66,7 @@ interface EntryPathProgramSummary {
 }
 
 function runEntryPathGate(): EntryPathProgramSummary[] {
-  // Same subprocess-reuse pattern as runCensus() just above: entry-path-
-  // gate.ts exits 1 whenever a program is genuinely RED (or an
+  // entry-path-gate.ts exits 1 whenever a program is genuinely RED (or an
   // expected-failure has gone stale) — that is a real compat:check failure
   // elsewhere in the chain, not something coverage.ts re-fails on; it just
   // reports the current per-program status honestly.
@@ -107,11 +88,6 @@ function runEntryPathGate(): EntryPathProgramSummary[] {
  * which has no runtime export census in this report's scope). See each surface
  * descriptor's `scopeNote` for the per-surface rationale.
  */
-const SERVICES: Surface[] = surfaceDescriptors.filter((d) => d.coverage).map((d) => d.surface);
-
-/** Surface -> its descriptor, so the coverage math can branch on `kind`. */
-const DESCRIPTOR_FOR = new Map(surfaceDescriptors.map((d) => [d.surface, d]));
-
 /**
  * A MIRROR surface's underlying surface-census surface. Native surfaces have no
  * upstream to census and are absent from this map — the SURFACE (breadth) axis
@@ -120,10 +96,6 @@ const DESCRIPTOR_FOR = new Map(surfaceDescriptors.map((d) => [d.surface, d]));
  * lands). `rtdb-modular` is the sole owner of the `database` census now that
  * classic `rtdb` is native.
  */
-const CENSUS_SURFACE_FOR: Map<Surface, CensusSurface> = new Map(
-  surfaceDescriptors.flatMap((d) => (d.kind === 'mirror' ? [[d.surface, d.censusSurface] as const] : [])),
-);
-
 interface NamespaceCoverage {
   mapped: number;
   denominator: number;
@@ -214,20 +186,29 @@ export interface CoverageReport {
   entryPath: EntryPathProgramSummary[];
 }
 
-function buildReport(): CoverageReport {
-  const censuses = runCensus();
+function buildReport(model: ConformanceModel): CoverageReport {
+  const censuses = model.census;
   const censusBySurface = new Map(censuses.map((c) => [c.surface, c]));
-  const ledger = buildCompatibilityLedger();
+  const ledger = buildCompatibilityLedger(model);
+  const descriptors = model.documentation.descriptors;
+  const servicesInScope: Surface[] = descriptors.filter((d) => d.coverage).map((d) => d.surface);
+  const descriptorFor = new Map(descriptors.map((d) => [d.surface, d]));
+  const censusSurfaceFor: Map<Surface, CensusSurface> = new Map(
+    descriptors.flatMap((d) => (d.kind === 'mirror' ? [[d.surface, d.censusSurface] as const] : [])),
+  );
 
-  const services: ServiceCoverage[] = SERVICES.map((surface) => {
+  const services: ServiceCoverage[] = servicesInScope.map((surface) => {
     const rows = ledger.entries.filter((r) => r.surface === surface);
     const behavior = behaviorConformanceFor(rows);
-    const censusSurface = CENSUS_SURFACE_FOR.get(surface);
+    const censusSurface = censusSurfaceFor.get(surface);
     // Native surface: no upstream census. Report behavior only; the SURFACE
     // (breadth) column is 'native', not a percentage against a denominator
     // that does not exist.
     if (censusSurface === undefined) {
-      const descriptor = DESCRIPTOR_FOR.get(surface)!;
+      const descriptor = descriptorFor.get(surface)!;
+      if (descriptor.kind === 'registry-only') {
+        throw new Error(`Registry-only surface '${surface}' cannot opt into coverage`);
+      }
       return { surface, kind: descriptor.kind, censusSurface: null, surfaceCoverage: null, behavior };
     }
     const census = censusBySurface.get(censusSurface);
@@ -238,7 +219,7 @@ function buildReport(): CoverageReport {
   // Overall surface coverage: sum each UNIQUE census surface once, over MIRROR
   // services only (native surfaces have no upstream breadth to fold in).
   const uniqueCensusSurfaces = new Set(
-    SERVICES.map((s) => CENSUS_SURFACE_FOR.get(s)).filter((cs): cs is CensusSurface => cs !== undefined),
+    servicesInScope.map((s) => censusSurfaceFor.get(s)).filter((cs): cs is CensusSurface => cs !== undefined),
   );
   let runtimeMapped = 0, runtimeDenominator = 0, typeMapped = 0, typeDenominator = 0;
   for (const cs of uniqueCensusSurfaces) {
@@ -255,7 +236,7 @@ function buildReport(): CoverageReport {
   };
 
   // Overall behavior: every row across the five services (no double counting — rtdb and rtdb-modular are distinct row sets).
-  const allServiceRows = ledger.entries.filter((r) => SERVICES.includes(r.surface));
+  const allServiceRows = ledger.entries.filter((r) => servicesInScope.includes(r.surface));
   const overallBehavior = behaviorConformanceFor(allServiceRows);
 
   const highRisk = highRiskUnverifiedRows(ledger).map((r) => r.id);
@@ -278,22 +259,27 @@ function buildReport(): CoverageReport {
 // ── Human table ──────────────────────────────────────────────────────────
 
 /**
- * One-line scope statement per surface. Public gaps stay visible regardless
- * of their reviewed disposition. Authored per-surface as each descriptor's
- * `scopeNote`; see surface-denylist.ts for the full reasoning behind each entry.
+ * One-line scope statement per surface. Mirror summaries are derived from the
+ * census/dispositions; native and integration boundaries remain authored.
  */
-const SCOPE_NOTES: Record<Surface, string> = Object.fromEntries(
-  surfaceDescriptors.map((d) => [d.surface, d.scopeNote]),
-) as Record<Surface, string>;
-
-function printTable(report: CoverageReport): void {
+function printTable(report: CoverageReport, model: ConformanceModel): void {
+  const scopeNotes = Object.fromEntries(model.documentation.descriptors.map((descriptor) => {
+    if (descriptor.scopeNote) return [descriptor.surface, descriptor.scopeNote];
+    if (descriptor.kind !== 'mirror') throw new Error(`Missing scope note for ${descriptor.surface}`);
+    const census = model.census.find(({ surface }) => surface === descriptor.censusSurface);
+    if (!census) throw new Error(`Missing census for ${descriptor.surface}`);
+    const runtime = census.runtime.dispositioned.length === 0
+      ? 'all public runtime exports are mapped'
+      : `${census.runtime.dispositioned.length} absent runtime export(s) have reviewed dispositions`;
+    return [descriptor.surface, `${runtime}; ${census.types.unmapped.length} public type gap(s) remain visible in the denominator.`];
+  })) as Record<Surface, string>;
   console.log('# Compatibility coverage\n');
-  console.log('PUBLIC RUNTIME surface counts non-underscore Firebase runtime exports. PUBLIC TYPE surface counts Firebase exported types.');
+  console.log('PUBLIC RUNTIME surface counts Firebase exports not exactly reviewed as private in a surface contract. PUBLIC TYPE surface counts non-underscore Firebase exported types.');
   console.log('Deprecated, unsupported, and not-yet-built public APIs stay in their denominator. Pyric-only exports receive no credit.');
   console.log('BEHAVIOR conformance (`conforms` rows / evaluated rows) is the FIDELITY of the already-implemented slice — "of the calls that exist, do they behave like prod." It is never a standalone completeness grade.');
   console.log('Behavior `intended` excludes unsupported rows only; every five-state count remains available in the registry.\n');
   for (const s of report.services) {
-    console.log(`  ${s.surface}: ${SCOPE_NOTES[s.surface]}`);
+    console.log(`  ${s.surface}: ${scopeNotes[s.surface]}`);
   }
   console.log('');
 
@@ -460,7 +446,8 @@ async function main(): Promise<void> {
   const wantJson = process.argv.includes('--json');
   const updateBaseline = process.argv.includes('--update-baseline');
 
-  const report = buildReport();
+  const model = await deriveConformanceModel();
+  const report = buildReport(model);
 
   if (updateBaseline) {
     writeFileSync(BASELINE_PATH, JSON.stringify(toBaseline(report), null, 2) + '\n');
@@ -475,7 +462,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  printTable(report);
+  printTable(report, model);
 
   if (!existsSync(BASELINE_PATH)) {
     console.log('\n! No coverage-baseline.json found — run `bun run compat:coverage --update-baseline` to create one.');

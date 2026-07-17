@@ -17,10 +17,8 @@
  *   - Slice 8: rules support via `getStorage(ctx, { rules })`
  *   - Slice 9: end-to-end session-archive demo + README
  *
- * Out of scope for the v1 scope (see README): paginated `list`,
- * `uploadBytesResumable`, Admin SDK shape,
- * Storage emulator parity, image transformations, Cloud Functions
- * triggers.
+ * This module documents only the implemented slices. Availability policy for
+ * unimplemented Firebase APIs is owned by the conformance surface contract.
  */
 
 export { getStorageSandbox, TARGET_SYMBOL } from './service.js';

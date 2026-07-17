@@ -1,0 +1,16 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "native",
+  "developerSurface": "rtdb-rules",
+  "symbolSource": "pyric/database",
+  "observationPrefixes": [
+    "rules-rtdb-"
+  ],
+  "coverage": true,
+  "scopeNote": "native (no upstream): the RTDB rules simulator, measured against production by deploy-observe-restore (RTDB has no server-side rules test API). Captured agreement and documented divergences are reported row by row.",
+  "conformanceSuite": "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+  "captureRigs": [
+    "rtdb-rules"
+  ],
+  "registry": "rules"
+}

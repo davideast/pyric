@@ -10,7 +10,7 @@
  * the static import-set extraction that derives the critical set from these
  * programs on demand.
  */
-import type { CensusSurface } from '../src/surface-denylist.ts';
+import type { CensusSurface } from '../surfaces/types.ts';
 
 /** The shape every `entry-path/<service>.ts` module must export. */
 export interface EntryPathProgramModule {
@@ -21,14 +21,14 @@ export interface EntryPathProgramModule {
  * Why an expected-failure record's program is allowed to be RED today. Each
  * kind names an ALREADY-EXISTING, independently-tracked gap — the citation
  * cannot invent a new one; `validate-registry.ts` re-derives the same fact
- * (from the live surface census, the deny-list, or the registry ledger) and
+ * (from the live surface census, surface contracts, or the registry ledger) and
  * fails if the cited gap does not actually, currently exist.
  *
  * - `unmapped-symbol`   — the exact upstream symbol is a genuine UNMAPPED gap
  *                         in the current surface census for `surface` (not
- *                         re-exported by the mirror, not deny-listed either;
+ *                         re-exported by the mirror, with no disposition;
  *                         tolerated debt in `census-baseline.json`).
- * - `denylist-deferred` — the symbol is listed in `surface-denylist.ts` for
+ * - `disposition-deferred` — the symbol has a machine-readable disposition for
  *                         `surface` with tier `'deferred'` (intended,
  *                         buildable, not yet built).
  * - `unverified-row`    — a registry row (`rowId`) whose `status` is
@@ -37,7 +37,7 @@ export interface EntryPathProgramModule {
  */
 export type GapCitation =
   | { kind: 'unmapped-symbol'; surface: CensusSurface; symbol: string }
-  | { kind: 'denylist-deferred'; surface: CensusSurface; symbol: string }
+  | { kind: 'disposition-deferred'; surface: CensusSurface; symbol: string }
   | { kind: 'unverified-row'; rowId: string };
 
 /**

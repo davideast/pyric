@@ -1,7 +1,6 @@
 /**
- * List operations — `listAll` only. Paginated `list(ref, options)`
- * is deferred per the implementation scope (Section 6 of the survey); the
- * `ListResult` shape keeps `nextPageToken` optional so consumer
+ * List operations — `listAll` only. The `ListResult` shape keeps
+ * `nextPageToken` optional so consumer
  * code that handles pagination doesn't have to special-case the
  * sandbox.
  *
@@ -29,7 +28,8 @@ import { enforceRules } from './enforce.js';
 
 /**
  * Mirrors `firebase/storage`'s `ListResult`. `nextPageToken` is
- * `undefined` for `listAll`; pagination via `list()` is deferred.
+ * `undefined` for `listAll`; query `pyric can-i-use storage/list` for the
+ * current availability of the separate paginated operation.
  */
 export interface ListResult {
   items: StorageReference[];

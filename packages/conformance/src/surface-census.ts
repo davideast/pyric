@@ -2,24 +2,29 @@
 /**
  * Firebase public-surface census.
  *
- * Runtime and type exports are measured separately. The public denominator is
- * mechanical: every non-underscore Firebase export counts. A public export is
+ * Runtime and type exports are measured separately. The runtime denominator is
+ * fail-closed: every Firebase export counts unless its exact name is reviewed
+ * as private in the owning surface contract. A public export is
  * either mirrored, dispositioned with a reviewed reason, or unmapped. Both
  * dispositioned and unmapped public exports stay in the coverage denominator.
  *
- * Leading-underscore Firebase exports are private implementation plumbing.
- * They remain visible in the raw diagnostic but never enter public coverage
- * and never require a product-scope disposition.
+ * Reviewed private exports remain visible in the raw diagnostic but never enter
+ * public coverage. A new underscore-prefixed export is deliberately unmapped
+ * and fatal until its exact classification is reviewed.
  */
-import { denyTierFor, denylistFor, type CensusSurface, type DenyTier } from './surface-denylist.ts';
-import { isPublicExportName, publicTypeExportNames } from './public-exports.ts';
-import { loadCensusPairs } from '../surfaces/load.ts';
+import { loadCensusPairs, loadSurfaceDispositions } from '../surfaces/load.ts';
+import type { CensusSurface, DispositionAvailability } from '../surfaces/types.ts';
+import { isPublicExportName, publicRuntimeExportNamesFromSource, publicTypeExportNames } from './public-exports.ts';
 import type { CensusMirrorPair as MirrorPair } from '../surfaces/types.ts';
+import { workspaceEntryPaths } from './workspace-entry.ts';
 
 export interface DispositionedSymbol {
   symbol: string;
-  reason: string;
-  tier: DenyTier;
+  dispositionId: string;
+  availability: DispositionAvailability;
+  reasonCode: string;
+  summary: string;
+  evidenceRefs: string[];
 }
 
 export interface PublicRuntimeCensus {
@@ -28,8 +33,10 @@ export interface PublicRuntimeCensus {
   mapped: string[];
   dispositioned: DispositionedSymbol[];
   unmapped: string[];
-  /** Upstream runtime exports excluded by the public-name rule. */
+  /** Exact upstream runtime exports reviewed as private in the contract. */
   privateUpstream: string[];
+  /** Reviewed private names that no longer exist upstream. */
+  stalePrivateUpstream: string[];
   /** Mirror-only runtime exports. Informational, never coverage credit. */
   extra: string[];
   /** Dispositions whose symbol is no longer a public upstream runtime export. */
@@ -62,24 +69,34 @@ export interface SurfaceCensus {
   rawRuntime: RawRuntimeDiagnostic;
 }
 
-async function runtimeExportNames(specifier: string): Promise<string[]> {
-  const mod = await import(specifier);
+export async function runtimeExportNames(
+  specifier: string,
+  loadModule: (specifier: string) => Promise<Record<string, unknown>> = async (value) => import(value) as Promise<Record<string, unknown>>,
+): Promise<string[]> {
+  const entry = workspaceEntryPaths(specifier);
+  if (entry) return publicRuntimeExportNamesFromSource(entry.source);
+  const mod = await loadModule(specifier);
   return Object.keys(mod).sort();
 }
 
-export async function censusForPair(pair: MirrorPair): Promise<SurfaceCensus> {
-  const rawUpstream = new Set(await runtimeExportNames(pair.upstream));
+export async function censusForPair(
+  pair: MirrorPair,
+  loadRuntime: typeof runtimeExportNames = runtimeExportNames,
+): Promise<SurfaceCensus> {
+  const rawUpstream = new Set(await loadRuntime(pair.upstream));
   const rawMirror = new Set<string>();
   for (const specifier of pair.mirrors) {
-    for (const name of await runtimeExportNames(specifier)) rawMirror.add(name);
+    for (const name of await loadRuntime(specifier)) rawMirror.add(name);
   }
 
-  const publicUpstream = [...rawUpstream].filter(isPublicExportName).sort();
+  const reviewedPrivate = new Set(pair.privateRuntimeExports);
+  const publicUpstream = [...rawUpstream].filter((name) => !reviewedPrivate.has(name)).sort();
   const publicMirror = [...rawMirror].filter(isPublicExportName).sort();
   const publicUpstreamSet = new Set(publicUpstream);
   const publicMirrorSet = new Set(publicMirror);
-  const dispositions = denylistFor(pair.surface);
-  const tiers = denyTierFor(pair.surface);
+  const dispositions = new Map(loadSurfaceDispositions()
+    .filter((entry) => entry.surface === pair.surface)
+    .map((entry) => [entry.symbol, entry]));
 
   const mapped: string[] = [];
   const dispositioned: DispositionedSymbol[] = [];
@@ -88,10 +105,14 @@ export async function censusForPair(pair: MirrorPair): Promise<SurfaceCensus> {
     if (publicMirrorSet.has(symbol)) {
       mapped.push(symbol);
     } else if (dispositions.has(symbol)) {
+      const disposition = dispositions.get(symbol)!;
       dispositioned.push({
         symbol,
-        reason: dispositions.get(symbol)!,
-        tier: tiers.get(symbol)!,
+        dispositionId: disposition.dispositionId,
+        availability: disposition.availability,
+        reasonCode: disposition.reasonCode,
+        summary: disposition.summary,
+        evidenceRefs: disposition.evidenceRefs,
       });
     } else {
       unmapped.push(symbol);
@@ -113,7 +134,8 @@ export async function censusForPair(pair: MirrorPair): Promise<SurfaceCensus> {
       mapped,
       dispositioned,
       unmapped,
-      privateUpstream: [...rawUpstream].filter((name) => !isPublicExportName(name)).sort(),
+      privateUpstream: [...rawUpstream].filter((name) => reviewedPrivate.has(name)).sort(),
+      stalePrivateUpstream: pair.privateRuntimeExports.filter((name) => !rawUpstream.has(name)).sort(),
       extra: publicMirror.filter((name) => !publicUpstreamSet.has(name)),
       staleDispositions: [...dispositions.keys()].filter((name) => !publicUpstreamSet.has(name)).sort(),
       redundantDispositions: [...dispositions.keys()].filter((name) => publicMirrorSet.has(name)).sort(),
@@ -149,7 +171,7 @@ function printReport(censuses: SurfaceCensus[]): void {
     console.log(`raw runtime ${census.rawRuntime.upstreamCount} upstream · ${census.rawRuntime.mappedCount} name matches`);
     console.log(`\n  PUBLIC RUNTIME MAPPED (${runtime.mapped.length}): ${runtime.mapped.join(', ') || '—'}`);
     console.log(`\n  PUBLIC RUNTIME DISPOSITIONS (${runtime.dispositioned.length}):`);
-    for (const entry of runtime.dispositioned) console.log(`    - ${entry.symbol} [${entry.tier}]: ${entry.reason}`);
+    for (const entry of runtime.dispositioned) console.log(`    - ${entry.symbol} [${entry.availability}; ${entry.reasonCode}]: ${entry.summary}`);
     if (runtime.dispositioned.length === 0) console.log('    —');
     console.log(`\n  PUBLIC RUNTIME UNMAPPED (${runtime.unmapped.length}): ${runtime.unmapped.join(', ') || '—'}`);
     console.log(`\n  PRIVATE UPSTREAM RUNTIME (${runtime.privateUpstream.length}): ${runtime.privateUpstream.join(', ') || '—'}`);

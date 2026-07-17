@@ -7,6 +7,7 @@ const firestoreRules = JSON.parse(
   readFileSync(new URL('./src/lib/firestore-rules.tmLanguage.json', import.meta.url), 'utf8'),
 );
 import rehypeDocs from './src/lib/rehype-docs.mjs';
+import remarkDocLinks from './src/lib/remark-doc-links.ts';
 
 /**
  * Pyric docs — a pure-SSG Astro site, deliberately a *sibling* of the
@@ -47,6 +48,7 @@ export default defineConfig({
     // Build-time HTML transforms: external links open in a new tab
     // with an arrow indicator; tables get an overflow-x scroll wrapper.
     // See src/lib/rehype-docs.mjs.
+    remarkPlugins: [remarkDocLinks],
     rehypePlugins: [rehypeDocs],
     shikiConfig: {
       theme: 'one-dark-pro',

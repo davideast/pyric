@@ -29,4 +29,4 @@ export function rowsForSurface(registry: CompatibilitySurfaceRegistry): Compatib
 
 export const allCompatibilityRows = surfaceRegistries.flatMap(rowsForSurface);
 
-export type { Automation, CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus, OracleConformanceCheck, Surface } from './types.ts';
+export type { Automation, CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus, DeveloperSurface, OracleConformanceCheck, Surface } from './types.ts';

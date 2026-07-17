@@ -3,24 +3,28 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Private conformance workspace: the compatibility registry, surface descriptors, the oracle capture rigs and their observations, and the gates/reports that turn them into the published compat coverage number. Not published to npm; consumed only by root package.json scripts and CI.",
+  "description": "Private conformance workspace for trust derivation, root/CI gates, and the narrow @pyric/site-docs build adapter. Not published to npm; runtime packages consume generated projections.",
   "exports": {
+    "./docs": "./src/docs/index.ts",
     "./functions-rtdb-fixture": "./src/functions-rtdb-fixture/index.ts"
   },
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "firebase": "^12.12.0",
     "firebase-admin": "^13.0.0",
     "firebase-functions": "^7.2.5",
+    "ajv": "^8.20.0",
+    "ohm-js": "^17.1.0",
     "pyric": "workspace:*",
     "pyric-admin": "workspace:*",
-    "zod": "^3.23.0"
+    "typescript": "^5.7.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
-    "fake-indexeddb": "^6.0.0",
-    "typescript": "^5.7.0"
+    "bun-types": "latest",
+    "fake-indexeddb": "^6.0.0"
   }
 }

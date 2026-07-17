@@ -90,6 +90,8 @@ map those canonical imports to the sandbox mirrors without changing source.
 - `@pyric/cli/verify`
 - `@pyric/cli/assurance`
 - `@pyric/cli/assurance/browser`
+- `@pyric/cli/conformance`
+- `@pyric/cli/conformance/browser`
 - `@pyric/cli/bridge`
 - `@pyric/cli/bridge/client`
 - `@pyric/cli/discover`
@@ -135,6 +137,7 @@ The binary is `pyric`. General commands are:
 
 ```text
 pyric bridge
+pyric can-i-use <feature> [--json]
 pyric dev
 pyric init
 pyric vendor
@@ -168,7 +171,10 @@ pyric database rules generate [--config <path>] [--out <path>]
 
 `packages/cli/src/cli/index.ts` owns top-level dispatch and help.
 `packages/cli/src/cli/service-commands.ts` owns the service-first hierarchy.
-`packages/cli/docs/reference/cli.md` is the authored reference.
+`packages/site-docs/src/content/cli/reference/cli.md` is the authored reference.
+
+`pyric can-i-use` queries availability, Firebase fidelity, and assurance for a
+developer-facing feature. It is discovery, not a rules-verification subcommand.
 
 `pyric verify` replays captured sandbox sessions against candidate Firestore or
 RTDB rules. The default engine is local. The Firestore Rules Test API engine
@@ -193,7 +199,7 @@ the same sandbox as the open application and Studio. `pyric bridge` provides a
 standalone sandbox bridge. `pyric mcp` is the stdio editor front: it attaches to
 a running development bridge when possible or hosts a headless sandbox.
 
-The default bridge contract is exactly 25 tool names in
+The default bridge contract is exactly 26 tool names in
 `packages/cli/src/bridge/server/mcp-contract.ts`. `scripts/tool-parity.mjs`
 checks that exposed tool registries stay explicit.
 
@@ -205,9 +211,14 @@ Conformance is evidence, not a parity badge. The system separates:
 - public exported-type surface coverage; and
 - fidelity across tracked behaviour rows.
 
-Public surface is every non-underscore Firebase export. Deprecated,
-unsupported, and deferred public APIs remain in the denominator. Private
-Firebase `_` plumbing and Pyric-only helpers receive no coverage credit.
+Public runtime surface is every Firebase runtime export unless its exact name
+is classified as private in the authored surface contract. Deprecated,
+unsupported, and deferred public APIs remain in the denominator. Naming
+conventions such as a leading underscore never classify a runtime export by
+themselves; new runtime exports fail closed until the contract reviews them.
+Public type surface currently counts non-underscore Firebase exported type
+names and ratchets those gaps independently. Private Firebase plumbing and
+Pyric-only helpers receive no coverage credit.
 
 Authoritative inputs live under `packages/conformance/`:
 
@@ -216,53 +227,45 @@ Authoritative inputs live under `packages/conformance/`:
 - `observations/` stores frozen Firebase behaviour;
 - `probes/` replays observations against Pyric;
 - `rules-language/` tracks rules constructs;
-- `assurance-capabilities/` derives what the evidence can support;
+- `src/conformance-verdicts.ts` derives what the evidence can support;
 - `baselines/` ratchets regressions without turning an absolute percentage
   into an incentive to relabel gaps.
 
-Generated outputs include service `COMPAT.md` files and
-`packages/pyric/docs/conformance/SCORES.md`. Never hand-edit generated
-conformance files. Run `bun run compat:generate` and then `bun run
-compat:check`.
+Service `COMPAT.md`, `SCORES.md`, site ports, runtime lookups, and optional
+rules-language reports are ignored disposable projections. The CLI and docs
+builds derive them from the canonical model on a clean checkout; `compat:check`
+validates the authored graph and committed ratchet baselines.
 
 Any PR that changes a published number, status, denominator, snapshot, or
 assurance capability needs an adversarial coverage review.
 
 ## Documentation
 
-The documentation system has two authored inputs:
+All authored documentation lives in one home — plain nested markdown with
+plain-YAML front matter under `packages/site-docs/src/content/`: the
+outcome-first guides at the root (overview, get-started, build, secure, …) and
+the package reference trees under `pyric/`, `pyric-admin/`, `cli/`, `ui/`.
+There is no content collection and no zod schema; pages are discovered by
+`import.meta.glob` (`src/lib/content.ts`) and validated by the build's own
+assertions. Authored pages link each other by relative `.md` path; the
+`src/lib/remark-doc-links.ts` plugin resolves those to routes and fails the
+build on a broken link.
 
-- outcome-first guides in `docs/site-rewrite/content/`;
-- package documentation under each `packages/*/docs/` tree.
-
-`packages/site-docs/scripts/port-content.ts` owns the generated collection at
-`packages/site-docs/src/content/docs/` apart from its explicit keep-list. Never
-edit generated projections by hand; edit the source and run:
-
-```bash
-bun run --cwd packages/site-docs port
-```
-
-The CLI and library declaration receipts are generated by TypeDoc from the
-`types` targets in package export maps:
-
-```bash
-bun run build
-bun run docs:api:generate
-bun run docs:api:check
-```
-
-The committed `*.api.generated.md` files are mechanical reference receipts.
-Hand-written API and CLI pages carry task context and behavioural guidance.
-
-Run the complete documentation gate with:
+Generated documentation is never committed. The conformance matrices and the
+TypeDoc API reference are written into the gitignored
+`packages/site-docs/src/content/_generated/` directory by `bun run generate`
+immediately before `astro build`:
 
 ```bash
-bun run --cwd packages/site-docs test
+bun run build                 # build packages so `types` targets exist
+bun run --cwd packages/site-docs generate   # writes _generated/ (conformance + API)
+bun run docs:api:check        # verifies the API reference matches declarations
+bun run --cwd packages/site-docs build      # generate + astro build
 ```
 
-That ports sources, builds the site and Markdown twins, verifies the output and
-links, and audits documentation rhythm.
+The site build audits front matter, route clashes, conflict markers, unknown
+groups, broken links, and every `pyric can-i-use` example — a broken doc fails
+the build.
 
 ## Build and tests
 

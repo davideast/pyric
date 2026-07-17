@@ -154,10 +154,9 @@ export interface ProbeMutation {
 
 /**
  * A conformance-graph node a probe leans on: a rules-language construct or a
- * compatibility-registry row, named by id. This is the authored half of the
- * dependency shape the conformance package's capability records use — the
- * probe declares WHAT it needs; the engine resolves the node's derived verdict
- * against the graph at qualification time (a probe never carries a status).
+ * compatibility-registry row, named by id. The probe declares what it needs;
+ * the engine resolves the node's derived verdict against the graph at
+ * qualification time (a probe never carries a status).
  */
 export type CapabilityDependency =
   | { kind: 'construct'; id: string }
@@ -255,20 +254,15 @@ export interface CapabilityRequirement {
   reason: string;
 }
 
-// An engine capability is NOT declared here. Its status is derived from the
-// conformance graph and emitted into `./generated-capabilities.ts`; that module
-// is the only definition of the shape, and no status is authorable by hand. The
-// public alias `AssuranceEngineCapability` is re-exported from `./index.ts`.
-
 export interface EngineQualification {
   engine: "pyric-local-sandboxes";
   supported: boolean;
   requirements: CapabilityRequirement[];
   /** How an unsupported qualification must be classified. Absent when the
    *  qualification is supported. `engine-gap` is the default abstention (a
-   *  target-specific check failed, or a declared capability is derived
-   *  non-supported); `invalid-probe` overrides it when the campaign declared a
-   *  capability the engine does not define. */
+   *  target-specific check failed, or a required graph node is derived
+   *  non-supported); `invalid-probe` overrides it when the campaign names a
+   *  graph node the engine does not know. */
   classification?: Extract<ProbeClassification, "engine-gap" | "invalid-probe">;
 }
 

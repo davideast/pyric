@@ -36,12 +36,10 @@
  *   2  runtime error
  */
 
-import { startServer } from '@pyric/cli/bridge';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, type ParsedArgs } from './parse-args.js';
 import { runInit, runVendor } from './init.js';
-import { runServe } from './serve.js';
 import { runSnapshot } from './snapshot.js';
 import { runVerify } from './verify.js';
 import { runMcpProxy } from './mcp-proxy.js';
@@ -65,6 +63,7 @@ USAGE
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
+  pyric can-i-use <feature> [--json]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
   pyric firestore rules lint <path>
   pyric firestore rules validate <path>
@@ -116,6 +115,10 @@ COMMANDS
                              and uses --project plus the configured Google credentials.
                              --rules service=path overrides firebase.json resolution
                              (repeat for mixed captures). --json. Exit 1 on divergence.
+  can-i-use <feature>        Report Pyric availability, behavior fidelity, and assurance
+                             eligibility from the canonical conformance model. A surface
+                             prefix such as firestore-rules/getAfter disambiguates names.
+                             Exact and fuzzy queries use the same model as MCP. --json.
   verify cases [fixture]     Derive Firestore Rules Test API cases from a captured
                              fixture and print JSON, or write with --out FILE.
   firestore rules lint       Run the Firestore rules linter against a file.
@@ -237,6 +240,7 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
 
   let handle;
   try {
+    const { startServer } = await import('@pyric/cli/bridge');
     handle = await startServer({
       port,
       project,
@@ -330,11 +334,15 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
     case 'bridge':
       return await runBridge(parsed);
     case 'dev':
-      return await runServe(parsed);
+      const { runServe } = await import('./serve.js');
+      return runServe(parsed);
     case 'snapshot':
       return await runSnapshot(parsed);
     case 'verify':
       return await runVerify(parsed);
+    case 'can-i-use':
+      const { runCanIUse } = await import('./can-i-use.js');
+      return runCanIUse(parsed);
     case 'mcp':
       return await runMcpProxy(parsed);
     case 'init':

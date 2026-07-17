@@ -24,7 +24,7 @@
 #    is the only thing that issues it. A red gate withholds the tag and
 #    fails the script — no release ships silently without a compatibility
 #    claim. See
-#    packages/pyric/docs/explanation/versioning-and-compatibility.md.
+#    packages/site-docs/src/content/trust/versioning-and-compatibility.md.
 #  - `create-pyric` ships on alpha/latest with the others but does not
 #    receive an `fb*` tag (it is a scaffolder, not a Firebase mirror).
 set -euo pipefail
@@ -69,3 +69,7 @@ fi
 for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
   echo "== ${p}"; npm dist-tag ls "${p}"
 done
+
+echo ""
+echo "Published. Pin the commit so hotfixes can branch from it:"
+echo "  git tag v${V} && git push origin v${V}"

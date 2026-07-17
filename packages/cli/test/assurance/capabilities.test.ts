@@ -1,8 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import {
-  ASSURANCE_ENGINE_CAPABILITIES,
-  qualifyProbe,
-} from "../../src/assurance/capabilities.js";
+import { qualifyProbe } from "../../src/assurance/capabilities.js";
+import { CONFORMANCE_VERDICTS } from "../../src/assurance/.generated/conformance-verdicts.js";
 import type {
   AssuranceProbe,
   CapabilityDependency,
@@ -245,12 +243,13 @@ service cloud.firestore {
     match /rooms/{roomId} { allow update: if true; }
   }
 }`;
-  const nodeDeps = ASSURANCE_ENGINE_CAPABILITIES.flatMap((c) => c.dependencies).filter(
-    (d): d is Extract<(typeof d), { kind: "construct" | "registry-row" }> =>
-      d.kind === "construct" || d.kind === "registry-row",
-  );
-  const supportedNode = nodeDeps.find((d) => d.verdict === "supported");
-  const weakNode = nodeDeps.find((d) => d.verdict !== "supported");
+  const nodes = Object.entries(CONFORMANCE_VERDICTS).map(([id, verdict]) => ({
+    id,
+    verdict,
+    kind: (id.includes("#") ? "registry-row" : "construct") as CapabilityDependency["kind"],
+  }));
+  const supportedNode = nodes.find((node) => node.verdict === "supported");
+  const weakNode = nodes.find((node) => node.verdict !== "supported");
   const probeRequiring = (...requires: CapabilityDependency[]): AssuranceProbe => ({
     ...firestoreProbe,
     requires,

@@ -139,6 +139,7 @@
     },
     {
       "id": "firestore.function.getAfter",
+      "featureKeys": ["getAfter"],
       "kind": "function",
       "engine": "firestore",
       "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore#function_getAfter_",
@@ -147,6 +148,7 @@
     },
     {
       "id": "firestore.function.existsAfter",
+      "featureKeys": ["existsAfter"],
       "kind": "function",
       "engine": "firestore",
       "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore#function_existsAfter_",

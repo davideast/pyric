@@ -23,8 +23,7 @@
 
 /**
  * The unprefixed storage error codes the sandbox can raise. Mirrors
- * the subset of `StorageErrorCode` the implemented operations use;
- * resumable uploads and checksums remain out of scope.
+ * the subset of `StorageErrorCode` used by currently implemented operations.
  */
 export type StorageErrorCode =
   | 'unknown'

@@ -152,8 +152,9 @@ describe('linkWithCredential — the anonymous upgrade', () => {
   it('a disabled provider throws operation-not-allowed, ahead of the resolver check', async () => {
     const auth = freshAuth();
     await signInAnonymously(auth);
-    // google.com is off by default — that code must stay distinct from the
-    // argument-error above, which means "enabled, but nothing wired".
+    authSandbox.setAuthProviderConfig(auth, 'google.com', false);
+    // That code must stay distinct from the argument-error above, which
+    // means "enabled, but nothing wired".
     await expectCode(linkWithPopup(auth.currentUser!, new GoogleAuthProvider()), 'auth/operation-not-allowed');
   });
 });

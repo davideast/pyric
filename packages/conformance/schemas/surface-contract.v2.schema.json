@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pyric.dev/schemas/conformance/surface-contract.v2.schema.json",
+  "title": "Pyric conformance surface contract v2",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/mirror"
+    },
+    {
+      "$ref": "#/$defs/native"
+    },
+    {
+      "$ref": "#/$defs/integration"
+    },
+    {
+      "$ref": "#/$defs/registryOnly"
+    },
+    {
+      "$ref": "#/$defs/censusOnly"
+    }
+  ],
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "developerSurface": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "evidenceRef": {
+      "type": "string",
+      "pattern": "^(registry|disposition|upstream):\\S+$"
+    },
+    "stringList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "nonEmptyStringList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "evidenceImports": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "privateRuntimeExports": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^_\\S+$"
+      }
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "availability",
+        "reasonCode",
+        "summary",
+        "evidenceRefs",
+        "symbols"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "availability": {
+              "const": "out-of-scope"
+            },
+            "reasonCode": {
+              "const": "upstream-deprecated"
+            }
+          }
+        },
+        {
+          "properties": {
+            "availability": {
+              "const": "deferred"
+            },
+            "reasonCode": {
+              "const": "implementation-deferred"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+        },
+        "availability": {
+          "enum": [
+            "out-of-scope",
+            "deferred"
+          ]
+        },
+        "reasonCode": {
+          "enum": [
+            "upstream-deprecated",
+            "implementation-deferred"
+          ]
+        },
+        "summary": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidenceRef"
+          }
+        },
+        "symbols": {
+          "$ref": "#/$defs/nonEmptyStringList"
+        }
+      }
+    },
+    "descriptorProperties": {
+      "type": "object",
+      "required": [
+        "schema",
+        "kind",
+        "developerSurface",
+        "registry",
+        "observationPrefixes",
+        "coverage",
+        "captureRigs"
+      ],
+      "properties": {
+        "schema": {
+          "const": "pyric.conformance.surface.v2"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "developerSurface": {
+          "$ref": "#/$defs/developerSurface"
+        },
+        "registry": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "observationPrefixes": {
+          "$ref": "#/$defs/nonEmptyStringList"
+        },
+        "coverage": {
+          "type": "boolean"
+        },
+        "scopeNote": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "conformanceSuite": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "captureRigs": {
+          "$ref": "#/$defs/stringList"
+        },
+        "climb": {
+          "type": "boolean"
+        }
+      }
+    },
+    "mirror": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/descriptorProperties"
+        },
+        {
+          "type": "object",
+          "required": [
+            "censusSurface",
+            "upstream",
+            "mirrors",
+            "privateRuntimeExports",
+            "dispositions"
+          ],
+          "properties": {
+            "kind": {
+              "const": "mirror"
+            },
+            "censusSurface": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "upstream": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "mirrors": {
+              "$ref": "#/$defs/nonEmptyStringList"
+            },
+            "privateRuntimeExports": {
+              "$ref": "#/$defs/privateRuntimeExports"
+            },
+            "dispositions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/disposition"
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "native": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/descriptorProperties"
+        },
+        {
+          "type": "object",
+          "required": [
+            "symbolSource",
+            "scopeNote"
+          ],
+          "properties": {
+            "kind": {
+              "const": "native"
+            },
+            "symbolSource": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "evidenceImports": {
+              "$ref": "#/$defs/evidenceImports"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "integration": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/descriptorProperties"
+        },
+        {
+          "type": "object",
+          "required": [
+            "contractSource",
+            "scopeNote"
+          ],
+          "properties": {
+            "kind": {
+              "const": "integration"
+            },
+            "contractSource": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "evidenceImports": {
+              "$ref": "#/$defs/evidenceImports"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "registryOnly": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/descriptorProperties"
+        },
+        {
+          "type": "object",
+          "required": [
+            "scopeNote"
+          ],
+          "properties": {
+            "kind": {
+              "const": "registry-only"
+            },
+            "evidenceImports": {
+              "$ref": "#/$defs/evidenceImports"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "censusOnly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "kind",
+        "developerSurface",
+        "censusSurface",
+        "upstream",
+        "mirrors",
+        "privateRuntimeExports",
+        "dispositions"
+      ],
+      "properties": {
+        "schema": {
+          "const": "pyric.conformance.surface.v2"
+        },
+        "kind": {
+          "const": "census-only"
+        },
+        "developerSurface": {
+          "$ref": "#/$defs/developerSurface"
+        },
+        "censusSurface": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "upstream": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "mirrors": {
+          "$ref": "#/$defs/nonEmptyStringList"
+        },
+        "privateRuntimeExports": {
+          "$ref": "#/$defs/privateRuntimeExports"
+        },
+        "dispositions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/disposition"
+          }
+        }
+      }
+    }
+  }
+}

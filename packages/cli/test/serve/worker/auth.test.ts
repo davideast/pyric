@@ -531,9 +531,12 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
   // ── Provider gating at the shared authority (the served OAuth blocker fix):
   // the page-local sandbox delegates its gate in worker mode, so THIS op is
   // where Studio's Sign-in-provider toggles must bite.
-  it('rejects auth/operation-not-allowed for a provider the worker has NOT enabled (default)', async () => {
+  it('rejects auth/operation-not-allowed for a provider the worker has disabled', async () => {
     const ctx = await makeCtx();
     const port = fakePort();
+    okValue(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: false,
+    }));
     const res = await sendOp(ctx, port, {
       t: 'op', id: id(), method: 'auth.acceptIdentity',
       identity: { uid: 'google.com:eve@x.com', email: 'eve@x.com', displayName: null, customClaims: {}, providerId: 'google.com' },
@@ -655,20 +658,20 @@ describe('auth.getProviderConfig / auth.setProviderConfig — worker op round-tr
     const port = fakePort();
 
     await sendOp(ctx, port, {
-      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: true,
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: false,
     });
     let config = okValue<Array<{ providerId: string; enabled: boolean }>>(
       await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getProviderConfig' }),
     );
-    expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(true);
+    expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(false);
 
     await sendOp(ctx, port, {
-      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: false,
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: true,
     });
     config = okValue<Array<{ providerId: string; enabled: boolean }>>(
       await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getProviderConfig' }),
     );
-    expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(false);
+    expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(true);
   });
 
   it('a disabled provider is enforced by the sign-in ops the SAME worker serves', async () => {
@@ -691,7 +694,7 @@ describe('auth.getProviderConfig / auth.setProviderConfig — worker op round-tr
     const before = port.messages.filter((m) => m.t === 'event').length;
 
     await sendOp(ctx, port, {
-      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'github.com', enabled: true,
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'github.com', enabled: false,
     });
     await tick();
     const eventMsgs = port.messages.filter((m): m is Extract<OutboundMessage, { t: 'event' }> => m.t === 'event');
@@ -707,7 +710,7 @@ describe('auth.getProviderConfig / auth.setProviderConfig — worker op round-tr
     const ctx1 = await makeCtx({ backend, key });
     const port1 = fakePort();
     await sendOp(ctx1, port1, {
-      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: true,
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: false,
     });
     await ctx1.sandbox.flush();
 
@@ -716,6 +719,6 @@ describe('auth.getProviderConfig / auth.setProviderConfig — worker op round-tr
     const config = okValue<Array<{ providerId: string; enabled: boolean }>>(
       await sendOp(ctx2, port2, { t: 'op', id: id(), method: 'auth.getProviderConfig' }),
     );
-    expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(true);
+    expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(false);
   });
 });

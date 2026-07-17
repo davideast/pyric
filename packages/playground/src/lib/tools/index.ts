@@ -42,40 +42,18 @@ function getActiveSkillTools(): ToolHandler[] {
 
 export type ToolProfile = 'authoring' | 'diagnostic';
 
-const AUTHORING_TOOL_NAMES = new Set([
-  'list_files',
-  'search_file',
-  'read_file',
-  'edit_file',
-  'write_file',
-  'delete_file',
-  'run_workspace_tests',
-  'firestore_extract_indexes',
-  'firestore_rules_stdlib_list',
-  'firestore_rules_stdlib_get',
-  // firestore_resolve_modules is deliberately NOT allowlisted (epic
-  // #787): resolution is a COMPILE step the write_file gate performs
-  // invisibly, not an agent action. Exposing it returned the full
-  // inlined ruleset into context (token bomb) and taught agents to
-  // edit the expanded output — ejecting from the 2+modules system the
-  // stdlib exists to power.
-  'sandbox_discover_paths',
-  'inspect_denial',
-  'inspect_auth_users',
-  'seed_auth_users',
-  'seed_firestore_data_as_admin',
-  'workspace_checkpoints',
-  'bash',
-  // Git / GitHub publish tools. Registered in buildToolRegistry() but
-  // were missing from every profile allowlist, so filterToolsForProfile
-  // dropped them and the agent never saw them (bug: "Git tools are not
-  // available"). They self-gate at execution on PAT + linked-repo, so
-  // allowlisting them here is safe.
-  'workspace_git',
-  'github_create_repo',
-  'github_push_branch',
-  'github_create_pull_request',
-]);
+/** The authoring profile is the union of always-registered manifests. A tool's
+ * owning manifest is its one admission point; diagnostic and skill manifests
+ * retain their own gates and are therefore not copied into a name allowlist. */
+const AUTHORING_TOOL_NAMES = new Set(
+  [
+    ...CORE_TOOLS,
+    ...AUTH_TOOLS,
+    workspaceCheckpointsHandler,
+    workspaceGitHandler,
+    ...GITHUB_TOOLS,
+  ].map((tool) => tool.name),
+);
 
 export function filterToolsForProfile(
   tools: readonly ToolHandler[],
