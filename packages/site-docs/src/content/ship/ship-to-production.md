@@ -65,7 +65,7 @@ Use `firebase-tools` (or the Console) for production shipping. Preview channels 
 - **CI / local**: a service account via `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`.
 - **Fallback**: ambient application-default credentials.
 
-The full flag list is in the [CLI reference](../cli/reference/cli.md).
+The full flag list is in the CLI reference.
 
 ## Where to go next
 

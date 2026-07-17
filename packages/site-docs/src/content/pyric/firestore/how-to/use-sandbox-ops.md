@@ -83,5 +83,5 @@ have no production equivalents.
 
 ## Where to look next
 
-- For all four signatures and report fields, see [Sandbox-only operations](../reference/sandbox-ops.md).
+- For all four signatures and report fields, see [Sandbox-only operations](../../../_generated/pyric-firestore-reference-api.md).
 - For shipping rules to a real project, see the Firebase CLI docs (`firebase deploy --only firestore:rules`).

@@ -94,4 +94,4 @@ An agent authors and checks the same way you do: lint and simulate locally (`pyr
 
 ## Where to go next
 
-The full builder catalog, with the exact expression each one produces, is in the [constraints reference](../pyric/database/reference/constraints.md). For the data side of RTDB, see [Sync realtime data](../build/realtime-database.md).
+The full builder catalog, with the exact expression each one produces, is in the [constraints reference](../_generated/pyric-database-reference-api.md). For the data side of RTDB, see [Sync realtime data](../build/realtime-database.md).

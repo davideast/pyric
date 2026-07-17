@@ -177,4 +177,4 @@ const result = await verifyFixture(fixture, {
   },
 });
 ```
-For the full flag list, see the [`pyric verify` reference](../reference/cli.md#pyric-verify).
+For the full flag list, see the `pyric verify` reference.

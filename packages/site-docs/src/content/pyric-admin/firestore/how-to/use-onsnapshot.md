@@ -81,5 +81,5 @@ If your production code branches on these flags, the sandbox's behaviour is cons
 
 ## Where to look next
 
-- For the full overload list, see [`onSnapshot` overloads](../reference/onsnapshot.md).
+- For the full overload list, see [`onSnapshot` overloads](../../../_generated/pyric-admin-firestore-reference-api.md).
 - For listener re-evaluation when rules change, see [Listener re-evaluation on `deployRules`](../../../pyric/sandbox/explanation/listener-re-evaluation.md).

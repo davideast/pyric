@@ -94,4 +94,4 @@ Each `execute` call is one HTTP round-trip plus rule evaluation on Google's serv
 
 - For the tradeoffs between local and live evaluation, see [Simulator vs Rules Test API](../explanation/simulator-vs-rules-test-api.md).
 - For the `ProjectScope` contract and `fromServiceAccount`, see `@pyric/cli/credentials/node`.
-- For all error codes the handler can return, see [Errors](../reference/errors.md).
+- For all error codes the handler can return, see [Errors](../../../_generated/pyric-rules-reference-api.md).

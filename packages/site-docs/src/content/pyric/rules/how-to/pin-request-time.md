@@ -63,5 +63,5 @@ The linter only flags a case if its `path` actually matches a rule that reads `r
 
 ## Where to look next
 
-- For the timestamp value model, see [`Timestamp` in the value wrappers reference](../reference/value-wrappers.md#timestamp).
-- For the `TestCase` schema field, see [`requestTime` in the `TestCase` schema](../reference/test-case-schema.md#requesttime).
+- For the timestamp value model, see [`Timestamp` in the value wrappers reference](../../../_generated/pyric-rules-reference-api.md).
+- For the `TestCase` schema field, see [`requestTime` in the `TestCase` schema](../../../_generated/pyric-rules-reference-api.md).

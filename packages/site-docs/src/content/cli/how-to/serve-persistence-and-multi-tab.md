@@ -173,7 +173,7 @@ in-page fallback.
 
 The complete `pyric dev` flag set (`--port`, `--host`, `--bridge`,
 `--no-watch`, `--no-open`, `--no-cache`, `--allowed-host`, `--json`, …) lives in
-the [CLI reference](../reference/cli.md#pyric-dev).
+the CLI reference.
 
 ## See also
 

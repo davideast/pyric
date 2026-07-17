@@ -117,25 +117,49 @@ const referenceHoldsCurrent = referenceGroups.some(holdsCurrent);
       >
         <summary>Reference</summary>
         <div class="docs-nav-group-body">
-          <div class="docs-nav-section">
-            <ul>
-              {referenceGroups.map((group) => {
-                const landing = groupLanding(group);
-                return (
+          {referenceGroups.map((group) =>
+            // The generated API reference is itemized: every package entry
+            // point links directly to its own generated page, grouped by the
+            // per-package section headings. Every other reference group
+            // (the surviving hand-written package guides) collapses to a
+            // single overview link, as before.
+            group.group === 'API reference' ? (
+              group.sections.map(({ section, entries }) => (
+                <div class="docs-nav-section">
+                  {section ? (
+                    <h2 class="docs-nav-heading">{section}</h2>
+                  ) : null}
+                  <ul>
+                    {entries.map((entry) => (
+                      <li>
+                        <a
+                          href={docPath(entry)}
+                          aria-current={
+                            slugOf(entry) === currentSlug ? 'page' : undefined
+                          }
+                        >
+                          {navLabel(entry)}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            ) : (
+              <div class="docs-nav-section">
+                <ul>
                   <li>
                     <a
-                      href={docPath(landing)}
-                      aria-current={
-                        holdsCurrent(group) ? 'true' : undefined
-                      }
+                      href={docPath(groupLanding(group))}
+                      aria-current={holdsCurrent(group) ? 'true' : undefined}
                     >
                       {group.group}
                     </a>
                   </li>
-                );
-              })}
-            </ul>
-          </div>
+                </ul>
+              </div>
+            ),
+          )}
         </div>
       </details>
     )

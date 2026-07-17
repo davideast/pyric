@@ -76,5 +76,5 @@ Useful for round-tripping (capture before, restore after a destructive operation
 
 ## Where to look next
 
-- For the full `SandboxAdmin` surface, see [`SandboxSnapshot` and admin reads](../reference/snapshot-and-admin.md).
+- For the full `SandboxAdmin` surface, see [`SandboxSnapshot` and admin reads](../../../_generated/pyric-sandbox-reference-api.md).
 - For why admin reads live on `Sandbox` and not `SandboxContext`, see [Identity is a context, not a sandbox](../explanation/identity-is-a-context.md).

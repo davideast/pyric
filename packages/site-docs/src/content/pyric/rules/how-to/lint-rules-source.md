@@ -77,5 +77,5 @@ Use these to plot trends across PRs or to assert on growth in CI.
 
 ## Where to look next
 
-- Want the exact thresholds and detection algorithms? See [Lint rules reference](../reference/lint-rules.md).
+- Want the exact thresholds and detection algorithms? See [Lint rules reference](../../../_generated/pyric-rules-reference-api.md).
 - Want to know *why* these particular rules exist? See [Runtime budget and shared gates](../explanation/runtime-budget-and-shared-gates.md) and [Agent failure modes](../explanation/agent-failure-modes.md).

@@ -56,7 +56,7 @@ By default, `tc.data` IS the after-state, which is fine for shallow `create`. Fo
   writeMode: { kind: 'update' },  // ← merges data into resource
 },
 ```
-Without `writeMode`, `request.resource.data.archived` would read as `null`. With it, the simulator runs the same merge logic the admin SDK does. See [`FirestoreCase` schema](../reference/test-case-schema.md#writemode) for all four modes.
+Without `writeMode`, `request.resource.data.archived` would read as `null`. With it, the simulator runs the same merge logic the admin SDK does. See [`FirestoreCase` schema](../../../_generated/pyric-rules-reference-api.md) for all four modes.
 
 ## Pin `request.time` for date-gated rules
 
@@ -120,6 +120,6 @@ For a single case, `ruleset.explain(oneCase)` runs it and returns the same struc
 
 ## Where to look next
 
-- For the field-by-field schema of `FirestoreCase`, see [`FirestoreCase` schema](../reference/test-case-schema.md).
-- For the shape of `SimulationContext` (what your rule actually sees, engine-internal), see [Simulator context](../reference/simulator-context.md).
+- For the field-by-field schema of `FirestoreCase`, see [`FirestoreCase` schema](../../../_generated/pyric-rules-reference-api.md).
+- For the shape of `SimulationContext` (what your rule actually sees, engine-internal), see [Simulator context](../../../_generated/pyric-rules-reference-api.md).
 - For why some features return unsupported, see [Simulator vs Rules Test API](../explanation/simulator-vs-rules-test-api.md).

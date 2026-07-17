@@ -89,5 +89,5 @@ adminDb.seed({ documents: before });
 
 ## Where to look next
 
-- For lint warning shapes, see [`pyric/rules` lint rules](../../../pyric/rules/reference/lint-rules.md).
+- For lint warning shapes, see [`pyric/rules` lint rules](../../../_generated/pyric-rules-reference-api.md).
 - For why these methods live on the data-plane handle rather than the sandbox itself, see [Why mirror the admin SDK shape](../explanation/why-mirror-admin-shape.md).

@@ -71,7 +71,7 @@ IndexedDB's transaction model is single-writer-per-store. Two simultaneous `uplo
 
 IndexedDB persists until the user clears site data. Sandbox `reset()` does *not* clear it: `reset()` is about the sandbox's in-memory state, not the storage backend. To wipe a storage handle's data, build a new sandbox with a different `dbName`, or call `deleteObject` per item.
 
-This separation is deliberate but occasionally surprising. The README and the [`StorageOptions`](../reference/storage-options.md) page call out the `dbName` idiom for test isolation.
+This separation is deliberate but occasionally surprising. The README and the [`StorageOptions`](../../../_generated/pyric-storage-reference-api.md) page call out the `dbName` idiom for test isolation.
 
 ### Browser-only
 

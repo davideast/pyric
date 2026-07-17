@@ -53,7 +53,7 @@ The output uses `rules_version = '2'` and has the imported functions inlined at 
 
 Fifteen modules ship with the package: `auth`, `validation`, `lobby`, `turns`, `state`, `membership`, `lifecycle`, `transitions`, `geometry`, `counters`, `timing`, `content`, `spaces`, `joining`, `atomic`. They resolve automatically; you don't need to configure anything.
 
-For the full list of exports, see [Standard library modules](../reference/stdlib-modules.md).
+For the full list of exports, see [Standard library modules](../../../_generated/pyric-rules-reference-api.md).
 
 ## Use your own `.rules` files
 
@@ -98,5 +98,5 @@ The `modules` map takes priority over both `basePath` lookups and the stdlib, so
 
 ## Where to look next
 
-- For all stdlib modules and their exports, see [Standard library modules](../reference/stdlib-modules.md).
+- For all stdlib modules and their exports, see [Standard library modules](../../../_generated/pyric-rules-reference-api.md).
 - For the design rationale, see [The `2+modules` extension](../explanation/the-2-plus-modules-extension.md).

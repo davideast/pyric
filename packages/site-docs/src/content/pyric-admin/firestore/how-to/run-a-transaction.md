@@ -74,4 +74,4 @@ For multi-doc writes that don't need read-then-write semantics, use a `WriteBatc
 ## Where to look next
 
 - For the production-shaped `Transaction` API, see the [Firebase admin SDK docs](https://firebase.google.com/docs/reference/admin/node/firebase-admin.firestore.transaction).
-- For the substrate's read-tracking behaviour, see [`pyric/sandbox`'s internal protocol](../../../pyric/sandbox/reference/internal-protocol.md).
+- For the substrate's read-tracking behaviour, see [`pyric/sandbox`'s internal protocol](../../../_generated/pyric-sandbox-reference-api.md).

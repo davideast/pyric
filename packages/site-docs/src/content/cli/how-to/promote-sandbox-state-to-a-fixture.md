@@ -16,8 +16,8 @@ can consume.
 The flow is: build state in `dev` → run `pyric snapshot` → commit the file →
 re-seed with `pyric dev --seed <file>`.
 
-For the full flag list, see the [`pyric snapshot`
-reference](../reference/cli.md#pyric-snapshot).
+For the full flag list, see the `pyric snapshot`
+reference.
 
 ## Build up the state
 

@@ -130,7 +130,7 @@ or from the CLI, without writing a script at all:
 pyric database rules generate --config database.rules.ts --out database.rules.json
 ```
 Both routes run the same compilation `rtdbRules(rules).toJSON()` performs. See
-[RTDB rules tooling](../reference/rules-tooling.md#generating-databaserulesjson)
+[RTDB rules tooling](../../../_generated/pyric-database-reference-api.md)
 for the full reference, including the `rtdb_generate_rules` MCP tool.
 
 You have built an in-memory rules document, checked it, simulated it, and

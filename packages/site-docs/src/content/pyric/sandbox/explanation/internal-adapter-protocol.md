@@ -15,7 +15,7 @@ This page explains the gate and what it implies for adapter authors.
 
 The substrate's runtime types: `LocalEnvironment`, `EventLog`, transaction primitives, sentinel converters, error translation helpers. Adapter packages (`pyric-admin`, `pyric/firestore`) consume these to translate user-facing SDK calls into substrate operations.
 
-The full list is documented in [The `/internal` adapter protocol](../reference/internal-protocol.md).
+The full list is documented in [The `/internal` adapter protocol](../../../_generated/pyric-sandbox-reference-api.md).
 
 ## Why a gate at all
 

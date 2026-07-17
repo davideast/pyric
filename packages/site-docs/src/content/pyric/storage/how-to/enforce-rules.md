@@ -99,7 +99,7 @@ try {
   }
 }
 ```
-See [Error codes](../reference/error-codes.md) for every code the sandbox can emit.
+See [Error codes](../../../_generated/pyric-storage-reference-api.md) for every code the sandbox can emit.
 
 ## Testing rule expressions without uploading
 
@@ -120,5 +120,5 @@ Useful when iterating on rule logic. See [Test rule expressions independently](.
 
 ## Where to look next
 
-- For the supported rule grammar, see [Storage rules subset](../reference/rules-subset.md).
-- For current construct support and evidence, run `pyric can-i-use storage-rules/<construct>`.
+- For the supported rule grammar and current construct support, see the [Cloud Storage conformance page](../../../_generated/storage-compat.md).
+- For current construct support and evidence, see the [Cloud Storage conformance page](../../../_generated/storage-compat.md).

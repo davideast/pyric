@@ -87,13 +87,7 @@ One rule-shape gotcha carried over faithfully from production: `listAll` require
 
 ## Check support before choosing an operation
 
-Storage support changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
-```bash
-pyric can-i-use storage/getDownloadURL
-pyric can-i-use storage/uploadBytesResumable
-pyric can-i-use storage/list
-```
-The answer separates availability from fidelity and assurance, and points to the evidence behind the result.
+Per-feature support is tracked on the [Cloud Storage conformance page](../_generated/storage-compat.md).
 
 ## Where to go next
 

@@ -75,4 +75,4 @@ If `previousSource` fails to parse, the linter silently skips the diff and the r
 ## Where to look next
 
 - For why this check exists, see [Agent failure modes](../explanation/agent-failure-modes.md#silently-removing-predicates).
-- For the conjunct-extraction algorithm, see [`RULES_WEAKENED` in the lint rules reference](../reference/lint-rules.md#rules_weakened).
+- For the conjunct-extraction algorithm, see [`RULES_WEAKENED` in the lint rules reference](../../../_generated/pyric-rules-reference-api.md).

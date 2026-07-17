@@ -77,7 +77,7 @@ A few things we explicitly didn't build because the session archive doesn't need
 - **Cloud Functions triggers on upload.** No server-side logic to invoke.
 - **Granular allow verbs.** Read vs write is the only distinction sessions need.
 
-Each is a real Storage feature that the original session-archive use case did not require. Their current status is intentionally not frozen in this design history; query `pyric can-i-use storage/<symbol>` for today's result.
+Each is a real Storage feature that the original session-archive use case did not require. Their current status is intentionally not frozen in this design history; see the [Cloud Storage conformance page](../../../_generated/storage-compat.md) for today's result.
 
 ## Why this matters
 

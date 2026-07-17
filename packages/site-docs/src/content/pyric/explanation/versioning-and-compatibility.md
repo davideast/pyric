@@ -18,7 +18,7 @@ Three rules govern it:
 
 - **It is machine-issued.** The tag moves only when the release script runs `compat:check` against the pinned Firebase version and it comes back green. Nobody moves it by hand because they believe pyric is ready.
 - **It tracks major.minor lines, never patches.** There is no `fb12.13.1`. Old `fb` tags are never deleted or moved backward, so an install pinned to an older line stays reproducible.
-- **It links to numbers, not a slogan.** The claim behind the tag is inspectable on the [conformance scoreboard](https://pyric.dev/docs/pyric-conformance-scores/): public runtime surface, public type surface, and fidelity of tracked behavior, per service. "Tested against" is a link, never a vibe.
+- **It links to numbers, not a slogan.** The claim behind the tag is inspectable on the [conformance scoreboard](https://pyric.dev/docs/conformance-scores/): public runtime surface, public type surface, and fidelity of tracked behavior, per service. "Tested against" is a link, never a vibe.
 
 The same tested-against version appears everywhere a user forms an impression: the README badge, the npm description, `pyric --version`, and the docs header.
 

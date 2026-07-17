@@ -92,13 +92,7 @@ When a rule denies, the verdict names the rule and the data it saw. [Prove your 
 
 ## Check support before choosing a flow
 
-Auth changes too quickly for a hand-maintained deny-list to stay trustworthy. Ask the same central model that builds the conformance pages:
-```bash
-pyric can-i-use auth/signInWithEmailLink
-pyric can-i-use auth/linkWithCredential
-pyric can-i-use auth/sendPasswordResetEmail
-```
-Each result reports availability separately from behavioral fidelity and assurance, with caveats and a link to its evidence.
+Per-feature support is tracked on the [Authentication conformance page](../_generated/auth-compat.md).
 
 ## And from an agent
 

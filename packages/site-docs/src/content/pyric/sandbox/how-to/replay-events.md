@@ -60,7 +60,7 @@ The `divergences` array is a discriminated union. Filter on `kind` and handle ea
 const real = divergences.filter((d) => d.kind === 'real-divergence');
 expect(real).toHaveLength(0);    // typical CI assertion
 ```
-See the [`Divergence` reference](../reference/divergences.md) for the full union shape, per-kind semantics, and field-path syntax.
+See the [`Divergence` reference](../../../_generated/pyric-sandbox-reference-api.md) for the full union shape, per-kind semantics, and field-path syntax.
 
 ## `pinRequestTime`: the default that prevents flake
 
@@ -88,6 +88,6 @@ Consumers that index by path (a UI showing "doc X exists") should consult `pathA
 
 ## See also
 
-- [`Divergence` reference](../reference/divergences.md): the union shape and per-kind semantics.
-- [`SandboxEvent` reference](../reference/sandbox-event.md): field-by-field for each event kind.
+- [`Divergence` reference](../../../_generated/pyric-sandbox-reference-api.md): the union shape and per-kind semantics.
+- [`SandboxEvent` reference](../../../_generated/pyric-sandbox-reference-api.md): field-by-field for each event kind.
 - [Observe sandbox events](./observe-events.md): the live channel (`onEvent`) that feeds into `history()`.

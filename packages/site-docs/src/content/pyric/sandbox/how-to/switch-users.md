@@ -73,5 +73,5 @@ The reason is composability: a service handle (`FirestoreHandle` from `pyric-adm
 
 ## Where to look next
 
-- For the `AuthState` shape, see [`Sandbox`, `SandboxContext`, `AuthState`](../reference/sandbox-and-context.md#authstate).
+- For the `AuthState` shape, see [`Sandbox`, `SandboxContext`, `AuthState`](../../../_generated/pyric-sandbox-reference-api.md).
 - For why identity lives on contexts, see [Identity is a context, not a sandbox](../explanation/identity-is-a-context.md).

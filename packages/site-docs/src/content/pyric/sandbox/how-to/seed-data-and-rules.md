@@ -115,5 +115,5 @@ Rules first, then documents. If you write documents before rules, the writes eva
 
 ## Where to look next
 
-- For rules linting and the lint result shape, see [`pyric/rules`](../../rules/reference/lint-rules.md).
+- For rules linting and the lint result shape, see [`pyric/rules`](../../../_generated/pyric-rules-reference-api.md).
 - For resetting between tests, see [Reset between tests](./reset-between-tests.md).

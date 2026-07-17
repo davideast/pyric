@@ -15,12 +15,11 @@ Pyric adds a development-only resolution layer to a Firebase application. During
 
 Create a Vite application with canonical Firebase imports, Firestore rules, and the Pyric plugin already configured:
 ```bash
-npx create-pyric my-app
+npm create pyric my-app
 cd my-app
 npm install
 npm run dev
 ```
-`npm create pyric my-app` runs the same scaffold.
 
 Open the local URL printed by Vite. The application and Pyric Studio use the same local backend. Studio is mounted at `/__pyric/ui/` on that origin.
 
@@ -53,7 +52,7 @@ No application imports change. Continue using `firebase/app`, `firebase/auth`, `
 npm install --save-dev @pyric/cli
 npx pyric dev
 ```
-It can serve static files or start an existing development command. [The CLI guide](../cli/reference/cli.md) covers those paths. [Test in Node](../ship/test-in-node.md) covers an in-process sandbox for tests and scripts.
+It can serve static files or start an existing development command. The CLI guide covers those paths. [Test in Node](../ship/test-in-node.md) covers an in-process sandbox for tests and scripts.
 
 ## What remains local
 

@@ -42,12 +42,6 @@ Local engines do not reproduce model quality, safety policy, latency, quotas, bi
 
 ## Check the supported boundary
 
-AI Logic support changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
-```bash
-pyric can-i-use ai/getGenerativeModel
-pyric can-i-use ai/generateContent
-pyric can-i-use ai/generateContentStream
-```
-The answer separates availability from fidelity and assurance, and points to the evidence behind the result.
+Per-feature support is tracked on the [AI Logic conformance page](../_generated/ai-compat.md).
 
 Continue with [Inspect and correct](../observe/see-whats-happening.md) or [ship unchanged](../ship/ship-to-production.md).

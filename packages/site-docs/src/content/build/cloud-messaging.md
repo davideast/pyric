@@ -42,10 +42,4 @@ Keep this driver outside application code that ships. A visible client routes th
 
 ## Check the supported boundary
 
-Messaging support changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
-```bash
-pyric can-i-use messaging/onMessage
-pyric can-i-use messaging/getToken
-pyric can-i-use messaging/onBackgroundMessage
-```
-The answer separates availability from fidelity and assurance, and points to the evidence behind the result.
+Per-feature support is tracked on the [Cloud Messaging conformance page](../_generated/messaging-compat.md).

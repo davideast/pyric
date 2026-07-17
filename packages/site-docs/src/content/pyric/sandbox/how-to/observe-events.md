@@ -7,7 +7,7 @@ order: 40
 ---
 # How to observe sandbox events
 
-One subscription covers everything observable. `sandbox.onEvent(cb)` fires a [`SandboxEvent`](../reference/sandbox-event.md) for every rule evaluation, every committed write, every snapshot delivered to a listener callback, every suppressed re-eval, every listener attach / detach / errored, and every reset / dispose boundary. Filter on `event.kind` to recover whichever slice your code cares about.
+One subscription covers everything observable. `sandbox.onEvent(cb)` fires a [`SandboxEvent`](../../../_generated/pyric-sandbox-reference-api.md) for every rule evaluation, every committed write, every snapshot delivered to a listener callback, every suppressed re-eval, every listener attach / detach / errored, and every reset / dispose boundary. Filter on `event.kind` to recover whichever slice your code cares about.
 
 ## When to use which kind
 
@@ -156,6 +156,6 @@ The sandbox calls your callback **synchronously**, inline with the op that produ
 
 ## See also
 
-- [`SandboxEvent` reference](../reference/sandbox-event.md): field-by-field for every kind.
+- [`SandboxEvent` reference](../../../_generated/pyric-sandbox-reference-api.md): field-by-field for every kind.
 - [Listener re-evaluation on `deployRules`](../explanation/listener-re-evaluation.md): why deploy-rules-driven re-evals carry no `triggeredBy`.
 - Design rationale: the reasoning for replacing the three-channel surface with one.

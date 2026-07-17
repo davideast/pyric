@@ -115,7 +115,7 @@ The public-surface census therefore reads Firebase's public exports and compares
 
 The census proves name presence, not signature equivalence or runtime behavior. Those questions belong to types, tests, and registry evidence. Keeping the axes separate prevents a strong result on one axis from hiding a weak result on another.
 
-The current [conformance scoreboard](https://pyric.dev/docs/pyric-conformance-scores/) publishes public runtime surface, public type surface, and behavior fidelity separately.
+The current [conformance scoreboard](https://pyric.dev/docs/conformance-scores/) publishes public runtime surface, public type surface, and behavior fidelity separately.
 
 ## Five states keep the gaps visible
 
@@ -160,4 +160,4 @@ Hosted verification evaluates derived cases. It does not deploy Rules or modify 
 
 This is the final boundary of the conformance claim. Pyric supplies evidence that local behavior matches the cases it tracks. A staging or hosted verification step checks the application-specific configuration that a general conformance suite cannot know. Then the same `firebase/*` application code can proceed through the normal Firebase deployment path described in [Ship to production](../ship/ship-to-production.md).
 
-The generated matrices contain the current evidence for [App](https://pyric.dev/docs/pyric-app-compat/), [Auth](https://pyric.dev/docs/pyric-auth-compat/), [Firestore](https://pyric.dev/docs/pyric-firestore-compat/), [Realtime Database](https://pyric.dev/docs/pyric-database-compat/), [Storage](https://pyric.dev/docs/pyric-storage-compat/), [Messaging](https://pyric.dev/docs/pyric-messaging-compat/), [AI Logic](https://pyric.dev/docs/pyric-ai-compat/), [Security Rules](https://pyric.dev/docs/pyric-rules-compat/), and [Functions with Realtime Database](https://pyric.dev/docs/pyric-cli-functions-rtdb-compat/).
+The generated matrices contain the current evidence for [App](https://pyric.dev/docs/app-compat/), [Auth](https://pyric.dev/docs/auth-compat/), [Firestore](https://pyric.dev/docs/firestore-compat/), [Realtime Database](https://pyric.dev/docs/database-compat/), [Storage](https://pyric.dev/docs/storage-compat/), [Messaging](https://pyric.dev/docs/messaging-compat/), [AI Logic](https://pyric.dev/docs/ai-compat/), [Security Rules](https://pyric.dev/docs/rules-compat/), and [Functions with Realtime Database](https://pyric.dev/docs/functions-rtdb-compat/).

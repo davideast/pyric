@@ -96,4 +96,4 @@ This means one denial-UI component can render denials from anywhere (try/catch s
 ## Where to look next
 
 - For the `DenialContext` field-by-field reference, see Denial shapes in `pyric/sandbox`.
-- For the difference between `SandboxError` codes, see [`SandboxError` codes](../../../pyric/sandbox/reference/error-codes.md).
+- For the difference between `SandboxError` codes, see [`SandboxError` codes](../../../_generated/pyric-sandbox-reference-api.md).

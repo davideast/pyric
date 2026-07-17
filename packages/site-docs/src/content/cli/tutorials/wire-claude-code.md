@@ -194,5 +194,5 @@ Expected: two tool calls (`firestore_simulator_undo`, `firestore_simulator_redo`
 
 ## Next steps
 
-- Read [the bridge README](../bridge/README.md) for the bridge architecture.
+- Read [the bridge API reference](../../_generated/pyric-cli-bridge-reference-api.md) for the bridge surface.
 - The bridge audit log at `~/.pyric/projects/<project>/events.ndjson` is the durable record of every tool call: review it after agent sessions.

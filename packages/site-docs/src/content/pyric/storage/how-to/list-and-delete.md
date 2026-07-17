@@ -58,11 +58,11 @@ On sandbox this is fast (sub-millisecond per delete). On prod it makes one HTTPS
 
 ## Check pagination support
 
-Before replacing this `listAll` recipe with Firebase's paginated `list`, query `pyric can-i-use storage/list`. That central result owns availability and points to the current evidence; this how-to does not duplicate its status.
+Before replacing this `listAll` recipe with Firebase's paginated `list`, check the [Cloud Storage conformance page](../../../_generated/storage-compat.md) for its current support and evidence.
 
 ## Gating list with rules
 
-`listAll` enforces the rules engine at the *prefix path*. A denied prefix throws `storage/unauthorized`. Query `pyric can-i-use storage-rules/rule-kind.allow-list` before choosing between a granular `list` grant and the broader `read` umbrella.
+`listAll` enforces the rules engine at the *prefix path*. A denied prefix throws `storage/unauthorized`. Choose between a granular `list` grant and the broader `read` umbrella depending on how much you want to expose; the [Cloud Storage conformance page](../../../_generated/storage-compat.md) tracks current rule-construct support.
 
 A `read` rule scoped to an item (`match /sessions/{id} { allow read }`) does NOT grant list on the parent `/sessions`; give the folder its own rule:
 ```rules
