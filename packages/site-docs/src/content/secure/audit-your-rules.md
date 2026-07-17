@@ -4,63 +4,72 @@ navLabel: "Audit rules and data"
 group: "Secure & debug"
 section: ""
 order: 80
-description: "Get an evidence-backed answer to who can access what, with every serious finding proven by a simulation."
+description: "Find the rule that looks right and isn't — every finding proven by a simulation you can rerun."
 ---
 
 # Audit Security Rules and data before production
 
-Your rules are a security boundary on the public internet. Anyone who cares to probe them can.
+This rule looks right. It isn't:
 
-An audit answers three questions with evidence:
+```rules
+match /notes/{noteId} {
+  allow create: if request.auth.uid == resource.data.ownerId;
+}
+```
 
-- Who can do what?
-- Do the expressions mean what they appear to mean?
-- Where do the rules, the data, and the auth configuration disagree?
+On `create` there is no `resource.data` — the document doesn't exist yet — so the comparison never holds and the rule denies every create. Or worse, flip the intent and a sibling rule quietly grants it. The audit doesn't argue about it; it runs the request:
 
-Pyric packages each audit as a skill you or your agent runs against the real project. A finding never makes the report on a reading alone. It has to cite a simulation, a test, or a lint result that proves it.
+```ts
+firestoreRules(source).simulate([{
+  description: 'owner creates their own note',
+  expectation: 'ALLOW',
+  method: 'create',
+  path: 'notes/n1',
+  auth: { uid: 'alice' },
+  data: { ownerId: 'alice', title: 'first' },
+}]);
+// 1 failed — DENY, decided by match /notes/{noteId} allow create
+```
 
-## Audit Firestore Security Rules
+The fix is `request.resource.data.ownerId` — the incoming document, which exists. Rerun, `1 passed`. That is the audit's contract: **no finding without a simulation that proves it, no fix without a rerun that confirms it.**
 
-The `firestore-rules-audit` skill builds an access matrix first: every match block, identity by operation (get, list, create, update, delete), no blank cells. Public writes, public reads on sensitive paths, and writes with no auth check fall out immediately.
+## The traps the audit runs, not reads
 
-Then it checks each expression against its operation context, because rules have traps that parse fine:
+**Authorization from attacker-controlled fields.**
 
-- **No `resource.data` on `create`.** A rule like `request.auth.uid == resource.data.ownerId` is broken on create; it needs `request.resource.data` plus a uid comparison.
-- **Authorization must derive from what already exists.** The writer controls `request.resource.data`, so any check read from it is attacker-controlled.
-- **A `list` cannot lean on one document's fields.** Rules are not filters.
+```rules
+allow update: if request.resource.data.role == 'admin';
+```
 
-Then it checks composition. Any matching allow grants access, so a recursive wildcard like `{doc=**}` can bypass every scoped sibling rule; the audit states each wildcard's reach explicitly. It also flags user-controlled writes with no validation, undefined function calls, and role fields writable by the user they empower (privilege escalation in one line).
+The writer controls `request.resource.data`. Simulated as `mallory` sending `{ role: 'admin' }`: allowed. Authorization must derive from what already exists (`resource.data`) or from auth claims — never from the incoming write.
 
-Critical findings are proven with `firestore_simulate_rules` runs that vary the auth context. The report arrives severity-ranked, with a fix per finding.
+**The wildcard that swallows its siblings.**
 
-## Audit Realtime Database Security Rules
+```rules
+match /{doc=**} { allow read: if request.auth != null; }
+match /medical/{id} { allow read: if request.auth.uid == resource.data.patientId; }
+```
 
-RTDB fails differently: access cascades downward. A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted.
+Any matching allow grants access, so the scoped medical rule is decoration — the wildcard already granted the read. Simulated as a signed-in stranger reading `medical/x1`: allowed. The audit states every wildcard's reach explicitly.
 
-The `rtdb-security-rules` skill walks every cascade from the root, so effective access at each path is stated rather than assumed. (Authoring these rules from typed constraints is its own page: [RTDB rules in TypeScript](./rtdb-rules-in-typescript.md).)
+**RTDB: the cascade you forgot.**
 
-It also keeps the two semantics that trip people up:
+```json
+{ "rules": { ".read": true, "billing": { ".read": "auth != null" } } }
+```
 
-- **`.validate` runs only after `.write` allows.** It never rescues a `.write` that is too broad. Every open path needs both an access rule and a shape rule.
-- **`data` is pre-write, `newData` is post-write.** Identity checks ("who is acting") belong on `data`; result checks ("what must this become") belong on `newData`. Mixing them in a multi-field write authorizes against values the writer is changing.
+RTDB access cascades downward and a child cannot revoke a parent's grant — `billing` is public. Simulated anonymous read of `billing/acct1`: allowed. Every path is simulated four ways before shipping: intended actor allowed, anonymous denied, cross-user denied, invalid shape denied.
 
-Before anything ships, each path is simulated four ways: intended actor allowed, anonymous denied, cross-user denied, invalid shape denied.
+**`.validate` that rescues nothing.**
 
-## Audit the whole project
+`.validate` runs only after `.write` allows — it never narrows a `.write` that is too broad. An open path needs both an access rule and a shape rule, and the simulation shows the malformed write landing when the shape rule is missing.
 
-Rules can be individually correct and collectively wrong. The `firebase-audit` skill cross-references three sources: the deployed rules, the actual data shape found by crawling the live database, and the enabled auth providers. The disagreements are the findings:
+## Audit the whole project, not just the rules
 
-- Data paths no meaningful rule protects.
-- Rules matching paths where no data exists (dead weight that hides intent).
-- User-writable paths with no validation.
-- Rules that gate on an identity no enabled provider can produce.
+Rules can be individually correct and collectively wrong. The project audit crosses three sources — deployed rules, the actual data shape (found by crawling the sandbox), and enabled auth providers — and the disagreements are the findings: data no rule protects, rules matching paths with no data, user-writable paths with no validation, rules gating on an identity no enabled provider can produce.
 
-The report is severity-ranked, critical first, each finding citing the simulation or lint result that proves it. The audit stays read-only. Remediation is proposed in the report and applied only when you ask.
+The report is severity-ranked, critical first, each finding citing the simulation that proves it. It stays read-only; fixes are proposed, applied only when you ask.
 
-## Run the audits through an agent
+## Run it through an agent
 
-An MCP-connected agent can run the audit end to end, executing the same simulations and returning the same evidence-backed report. Start with the concrete prompts in [Work with an agent](../agent/work-with-an-agent.md).
-
-## Where to go next
-
-An audit finds the holes at a point in time. [Prove your rules protect the app](./secure-it-with-rules.md) is how they stay closed as the rules evolve.
+An MCP-connected agent runs the same audits with the same evidence contract. Start from the prompts in [Work with an agent](../agent/work-with-an-agent.md).

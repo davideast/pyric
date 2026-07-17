@@ -4,53 +4,55 @@ navLabel: "How the swap works"
 group: "Get started"
 section: ""
 order: 20
-description: "Understand how your firebase imports reached a local backend, and why production is untouched."
+description: "Follow one import from your source to the local sandbox in development and to real Firebase in a production build."
 ---
 
 # How firebase/* imports resolve locally and in production
 
-Your `firebase/*` imports resolve to a local sandbox in development and to real Firebase in production builds. Your app source never changes.
+Your app contains this line:
 
-- **In development**, they resolve to a local backend with rules enforced. No request leaves your machine.
-- **In production**, that activation is absent, so the runtime loads Firebase directly.
+```ts
+import { getFirestore, addDoc, collection } from 'firebase/firestore';
+```
 
-## Resolve imports to Pyric during development
+Where does that import actually go? The answer depends on who is resolving it — and that is the entire mechanism. Your source never changes; the resolver does.
 
-Your source says `import { getFirestore } from 'firebase/firestore'`. In development, that specifier resolves to Pyric instead of the Firebase SDK. The swap happens in one of two layers:
+## In development: the specifier resolves to Pyric
 
-| You run | Where the swap happens | Over what |
-|---|---|---|
-| `pyric dev` | at load time, through an import map on the served page | files that are already built |
-| the Vite plugin | at module resolution, before bundling, inside your normal `vite dev` loop | your source and its transitive dependencies |
+Run `pyric dev` and load your page. The served page carries an import map, so when the browser reaches `firebase/firestore`, the map hands it Pyric's mirror instead of the Firebase SDK. Your `addDoc` call lands in a local backend with your rules enforced. No request leaves your machine.
 
-The Vite path reaches libraries too. A dependency that imports `firebase/firestore` on your behalf lands on the sandbox the same way your own code does.
+Using Vite instead? The plugin does the same swap one layer earlier — at module resolution, before bundling:
 
-Either way, the call sites are identical to production. The Firebase config you pass to `initializeApp` is accepted and ignored in development, because there is no project to talk to.
+```ts
+// vite.config.ts
+import { pyric } from '@pyric/cli/vite';
+export default { plugins: [pyric()] };
+```
 
-For a Node child process, `pyric dev` sets `PYRIC_SANDBOX` and preloads `@pyric/cli/register`. While activated, that resolver maps `firebase/*` to `pyric/*` and `firebase-admin/*` to `pyric-admin/*`.
+Because resolution happens before bundling, the swap reaches your dependencies too. A library that imports `firebase/firestore` on your behalf lands on the sandbox exactly like your own code.
 
-## One backend, shared across tabs
+One detail that surprises people: `initializeApp(firebaseConfig)` still works. The config is accepted and ignored — there is no project to talk to.
 
-The sandbox runs in a SharedWorker, and three things follow:
+## In production: nothing happens
 
-- Every tab of your dev origin talks to the same backend, so a write in one tab shows up live in another.
-- The data is held in IndexedDB and survives a refresh.
-- If the browser has no SharedWorker, Pyric falls back to a per-tab sandbox automatically.
+A production build has no import map and no plugin activation, so `firebase/firestore` resolves the way it always did: to the Firebase SDK, talking to your real project. There is no Pyric code in the bundle to remove, because none was ever added — the swap lives in the resolver, not in your app.
 
-This is also why an agent and Studio see what you see. The MCP bridge and the Studio UI route into the same worker. One backend, and everything looks at it.
+That is the whole contract: same call sites, two resolvers.
 
-## Production keeps real Firebase
+## Where your writes actually live
 
-A plain `vite build` leaves the development swap inactive and ships the real `firebase` package, using the same config you passed to `initializeApp` all along. A Node production process does not set `PYRIC_SANDBOX`, so `@pyric/cli/register` is inert and normal resolution loads Firebase directly. Nothing in your app source changes.
+In development the sandbox runs in a SharedWorker, which has three consequences you will notice:
 
-- There is no graduation step and no environment flag in your source.
-- The swap lives in the toolchain on purpose. Remove Pyric from the project and you have a stock Firebase app again.
+- Every tab of your dev origin shares one backend — write in one tab, watch it appear in another.
+- Data sits in IndexedDB and survives a refresh.
+- No SharedWorker in your browser? Pyric falls back to a per-tab sandbox automatically.
 
-## Verify which one you're on
+This is also why Pyric Studio and an MCP-connected agent see exactly what your app sees: they route into the same worker.
 
-- **In the build output:** a sandbox-flavored build carries a marker in `index.html`; a production build is unmarked. Deploy only unmarked builds so a sandbox-wired dist never reaches production by accident.
-- **At runtime:** if the sandbox is active, its activity shows up in Studio and the observe view, since they route into the same worker. See [see what's happening](../observe/see-whats-happening.md).
+## Node processes
 
-## Where to go next
+For a Node child process, `pyric dev` sets `PYRIC_SANDBOX` and preloads `@pyric/cli/register`, which maps `firebase/*` to `pyric/*` and `firebase-admin/*` to `pyric-admin/*` for that process. Same rule as the browser: activation present, sandbox; activation absent, Firebase.
 
-Watch the backend work, every read, write, and verdict, in [see what's happening](../observe/see-whats-happening.md). Or start building: [sign users in](../build/authentication.md).
+## Prove which one you're on
+
+Don't take the page's word for it. In development, kill your network and run a write — it succeeds, because nothing left the machine. Open [Pyric Studio](../agent/watch-and-review.md) and the write is sitting in the local backend. A production build with the network killed fails the same call. The swap is observable, not declared.

@@ -1,37 +1,22 @@
 ---
-title: "Prove a user can access only their own data"
+title: "Security Rules in Pyric"
 navLabel: "Security Rules"
 group: "Secure & debug"
 section: ""
 order: 10
-description: "Write a rule, simulate a request against it, read the verdict, and deploy knowing what it allows."
+description: "What Pyric gives you for Security Rules: in-process enforcement, simulation, lint, verdicts that name the rule, and tests — before anything deploys."
 ---
 
-# Prove a user can access only their own data
+# Security Rules in Pyric
 
-Before you deploy a ruleset, you can ask Pyric a direct question: would this specific request, from this specific user, be allowed? You get an answer, and the answer names the rule that decided it.
+Pyric treats Security Rules as code you can run, not configuration you deploy and hope about. Everything on this page happens in-process, on your machine, with no Firebase project involved.
 
-That is the whole discipline of this wing. Not "the rules look right." Asked and answered, before production gets a vote.
+What you get:
 
-Here is the loop.
+- **Enforcement in the sandbox.** Every read and write your app makes during development is evaluated against your real ruleset — the same `firestore.rules`, `storage.rules`, and `database.rules.json` you will deploy. A denial in development is a denial you did not ship.
+- **Verdicts that name the rule.** A denied operation doesn't return a bare `permission-denied`; the verdict says which rule decided it and why. [Read a denial](./read-a-denial.md) shows the anatomy.
+- **A simulator you can ask directly.** Would this request, from this user, be allowed? Ask before deploying:
 
-## Write the rule
-
-A notes collection. Anyone signed in can read. Only the owner can write.
-```rules
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{db}/documents {
-    match /notes/{noteId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth.uid == resource.data.ownerId;
-    }
-  }
-}
-```
-## Simulate a request
-
-Now ask the question. No deploy, no network, no Firebase project. The simulator runs in-process.
 ```ts
 import { firestoreRules } from 'pyric/rules';
 
@@ -55,44 +40,20 @@ const result = firestoreRules(source).simulate([
     data: { ownerId: 'alice', title: 'stolen' },
   },
 ]);
-
-console.log(`${result.passed} passed, ${result.failed} failed`); // 2 passed, 0 failed
+// 2 passed, 0 failed
 ```
-## Read the verdict
 
-Each result carries the decision and a trace of which rule made it. When a case surprises you, the trace is where you look:
-```
-Rule #0 (read) → deny
-Rule #1 (write) → ALLOW
-Simulated: ALLOW
-```
-And this is not only a test-time thing. While `pyric dev` runs, your `firestore.rules` is loaded into the sandbox and hot-reloaded on save, and every operation your app performs carries this same verdict.
+- **Lint for the traps that parse fine.** Rules have failure modes that look correct — `resource.data` on a create, authorization read from attacker-controlled fields. The linter catches them statically.
+- **Tests that keep rules honest as they change.** Simulation cases become a suite that runs with your other tests.
+- **Typed authoring for RTDB.** RTDB rules composed from TypeScript constraints instead of raw JSON.
 
-A denial in your running app tells you the rule, the path, and the data that produced it. See [read a denial and understand it](./read-a-denial.md).
+## The workflow, page by page
 
-## Deploy
+1. [Simulate and lint](./simulate-and-lint.md) — the core loop: change a rule, ask the simulator, read the lint findings.
+2. [Read a denial](./read-a-denial.md) — what a verdict tells you when the sandbox blocks an operation.
+3. [Write a rules test suite](./write-a-rules-test-suite.md) — turn simulations into regression tests.
+4. [RTDB rules in TypeScript](./rtdb-rules-in-typescript.md) — typed constraints for the cascade-based RTDB model.
+5. [Firestore Rules limits](./firestore-rules-limits.md) — the production compiler's real limits, with corrected examples.
+6. [Audit rules and data](./audit-your-rules.md) — the pre-production sweep across rules, data, and auth config.
 
-When the answers hold, ship the same file to production with `firebase-tools`:
-```bash
-firebase deploy --only firestore:rules
-```
-Gate on error-severity lint findings in CI first (`lintFirestoreRules` / `pyric firestore rules lint`), so the mistakes that produce opaque production failures get stopped at the door.
-
-## Where the wing goes deeper
-
-That loop is the core. The wing deepens each step.
-
-- [Simulate and lint before you deploy](./simulate-and-lint.md). Catch the error before Firebase returns an unexplained 400 or 403.
-- [Write a rules test suite](./write-a-rules-test-suite.md). Turn one-off simulations into a suite that runs in CI.
-- [Read a denial and understand it](./read-a-denial.md). Every denial carries the rule, path, and data that produced it.
-- [The rules standard library](./rules-standard-library.md). Tested rule modules, composed with an import the rules language does not have.
-- [Rules limits, measured](./firestore-rules-limits.md). The production compiler's real limits, with numbers.
-- [Audit your rules and data](./audit-your-rules.md). Find the holes before someone else does.
-
-## And from an agent
-
-An agent working in your sandbox can call `firestore_simulate_rules` to check a request's verdict before it writes, so it verifies its own rules instead of guessing. [Work with an agent](../agent/work-with-an-agent.md) gives complete task prompts and names the evidence each tool returns.
-
-## Where to go next
-
-Start with [simulate and lint before you deploy](./simulate-and-lint.md). When your rules matter enough to protect, give them [a test suite](./write-a-rules-test-suite.md).
+Deploying the ruleset stays Firebase's job — `firebase-tools` or the console. Pyric's job is that by the time you run that deploy, the ruleset has already answered for itself.
