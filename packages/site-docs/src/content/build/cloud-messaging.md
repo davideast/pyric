@@ -42,4 +42,4 @@ Keep this driver outside application code that ships. A visible client routes th
 
 ## Check the supported boundary
 
-Per-feature support is tracked on the [Cloud Messaging conformance page](../_generated/messaging-compat.md).
+Per-feature support is tracked on the [Cloud Messaging conformance page](messaging-compat.md).

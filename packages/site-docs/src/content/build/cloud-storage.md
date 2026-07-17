@@ -87,7 +87,7 @@ One rule-shape gotcha carried over faithfully from production: `listAll` require
 
 ## Check support before choosing an operation
 
-Per-feature support is tracked on the [Cloud Storage conformance page](../_generated/storage-compat.md).
+Per-feature support is tracked on the [Cloud Storage conformance page](storage-compat.md).
 
 ## Where to go next
 

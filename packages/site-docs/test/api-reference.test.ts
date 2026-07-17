@@ -4,12 +4,11 @@ import { join } from 'node:path';
 import {
   GENERATED_HEADER,
   NON_USER_FACING_EXPORTS,
-  OUTPUT_ROOT,
   PUBLISHED_PACKAGE_DIRS,
   REPO_ROOT,
+  apiIndexPage,
   discoverApiDescriptors,
-  renderApiIndex,
-} from './gen-api-docs';
+} from '../src/lib/api-reference';
 
 const descriptors = discoverApiDescriptors();
 
@@ -48,9 +47,9 @@ describe('generated API reference inventory', () => {
   });
 
   test('uses unique stable routes backed by declaration entries', () => {
-    expect(descriptors).toHaveLength(48);
-    expect(new Set(descriptors.map(({ importPath }) => importPath)).size).toBe(48);
-    expect(new Set(descriptors.map(({ slug }) => slug)).size).toBe(48);
+    expect(descriptors).toHaveLength(49);
+    expect(new Set(descriptors.map(({ importPath }) => importPath)).size).toBe(49);
+    expect(new Set(descriptors.map(({ slug }) => slug)).size).toBe(49);
     for (const descriptor of descriptors) {
       expect(existsSync(descriptor.typesPath), descriptor.importPath).toBeTrue();
       expect(descriptor.slug).toMatch(/^[a-z0-9-]+-reference-api$/);
@@ -58,11 +57,10 @@ describe('generated API reference inventory', () => {
   });
 
   test('index and generated routes cover the same route universe', () => {
-    // Hermetic: _generated/ is gitignored and only exists after the site's
-    // generate step, so derive BOTH sides in memory from the generator's own
-    // pure functions rather than reading anything from disk. Content drift of
-    // the written files is `bun run docs:api:check`'s job, not this test's.
-    const index = renderApiIndex(descriptors);
+    // Hermetic: derive both sides in memory from the library's pure
+    // functions; rendered-page drift is impossible by construction (the
+    // loader renders from the same descriptors).
+    const index = apiIndexPage(descriptors).body;
     expect(index).toContain(GENERATED_HEADER);
     // Every descriptor route appears in the index exactly once, as a sibling
     // .md link in the shared flat _generated/ directory, and nothing else
@@ -71,11 +69,7 @@ describe('generated API reference inventory', () => {
       .map((match) => match[1])
       .sort();
     expect(linked).toEqual(descriptors.map(({ slug }) => slug).sort());
-    // Every route's output path lands in the shared _generated/ directory
-    // under its own slug, so the written inventory cannot diverge from the
-    // index's link universe.
     for (const descriptor of descriptors) {
-      expect(descriptor.outputPath).toBe(join(OUTPUT_ROOT, `${descriptor.slug}.md`));
       expect(index).toContain(`[\`${descriptor.importPath}\`](./${descriptor.slug}.md)`);
     }
   });

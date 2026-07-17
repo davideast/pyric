@@ -56,7 +56,6 @@ packages/pyric/docs/*/COMPAT.md
 packages/pyric/docs/conformance/SCORES.md
 packages/cli/docs/functions-rtdb/COMPAT.md
 
-# Generated site docs: conformance virtual pages + generated API reference.
-# The site build (packages/site-docs) derives these into _generated/ right
-# before `astro build`; they are never committed.
-packages/site-docs/src/content/_generated/
+# Site content-layer cache (generated conformance + API reference pages render
+# through loaders into Astro's persisted store; nothing is committed).
+packages/site-docs/.astro/
