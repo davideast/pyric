@@ -50,7 +50,7 @@ describe('pyric dev Firebase activity guard', () => {
       pattern: 'repeated-read',
       method: 'get',
       targetFingerprint: 'users/alice',
-      sourceAttribution: 'unattributed',
+      sourceAttribution: 'app',
     });
   });
 });

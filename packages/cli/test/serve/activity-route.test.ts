@@ -38,7 +38,7 @@ function incident(overrides: Partial<ActivityIncident> = {}): ActivityIncident {
       ],
     },
     evidenceEventIds: ['read-1', 'read-2'],
-    sourceAttribution: 'unattributed',
+    sourceAttribution: 'app',
     message: 'Repeated Firestore get on users/alice: 5 reads in 400ms.',
     ...overrides,
   };
@@ -64,6 +64,7 @@ describe('activity route', () => {
     const value = incident({
       fingerprint: 'f'.repeat(1_800),
       targetFingerprint: 't'.repeat(1_800),
+      sourceAttribution: 'app page-1',
     });
 
     const response = await fetch(url, {
@@ -148,6 +149,20 @@ describe('activity route', () => {
         method: 'POST',
         headers: { 'content-type': 'application/json', origin: url, 'x-pyric-activity-token': ACTIVITY_TOKEN },
         body: JSON.stringify({ ...value, ...impossibleGeneratedState }),
+      });
+      expect(response.status).toBe(400);
+    }
+
+    for (const forgedAttribution of [
+      'unattributed',
+      'studio',
+      `app ${'x'.repeat(200)}`,
+      'app \u001b[2Jforged',
+    ]) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: url, 'x-pyric-activity-token': ACTIVITY_TOKEN },
+        body: JSON.stringify({ ...value, sourceAttribution: forgedAttribution }),
       });
       expect(response.status).toBe(400);
     }

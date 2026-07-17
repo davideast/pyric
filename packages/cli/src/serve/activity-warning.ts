@@ -14,7 +14,7 @@ export function formatActivityWarning(incident: ActivityIncident): string {
   const unit = incident.usage.unit === 'document-reads' ? 'document reads' : 'listener attachments';
   return `  ⚠ Firebase Activity Guard: ${activity} on ${target} in ${incident.windowMs}ms. `
     + `Observed lower bound: ${incident.usage.lowerBound} ${unit}. `
-    + `Source: ${incident.sourceAttribution}. Possible causes include repeated render/effect `
+    + `Source: ${terminalSafe(incident.sourceAttribution)}. Possible causes include repeated render/effect `
     + 'execution or missing listener cleanup. (warning only; app behavior is unchanged)';
 }
 

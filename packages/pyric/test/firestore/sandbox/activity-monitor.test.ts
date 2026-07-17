@@ -184,7 +184,7 @@ describe('Firebase activity monitor', () => {
             'Observed sandbox reads are a lower bound; production cache and billing behavior are not measured.',
           ],
         },
-        sourceAttribution: 'unattributed',
+        sourceAttribution: 'app',
         evidenceEventIds: ['read-1', 'read-2', 'read-3', 'read-4', 'read-5'],
       }),
     ]);
@@ -276,7 +276,7 @@ describe('Firebase activity monitor', () => {
           'Listener lifecycle events count attachments; document deliveries and production billing are not measured.',
         ],
       },
-      sourceAttribution: 'unattributed',
+      sourceAttribution: 'app',
       evidenceEventIds: ['attach-1', 'attach-2', 'attach-3'],
     });
   });
@@ -458,6 +458,50 @@ describe('Firebase activity monitor', () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.message.length).toBeLessThanOrEqual(2_000);
     expect(warnings[0]!.message).toMatch(/…#[0-9a-f]{16}: 5 reads in 4ms\.$/);
+  });
+
+  it('attributes incidents to the page journey the operation context carries', () => {
+    const feed = new TestActivityFeed();
+    const warnings: ActivityIncident[] = [];
+    monitorFirebaseActivity(feed, (incident) => warnings.push(incident));
+
+    for (let index = 0; index < 5; index += 1) {
+      feed.emit({
+        ...appRead(`journey-${index}`, 100 + index),
+        operationContext: {
+          source: { kind: 'app', journeyId: 'page-1' },
+          authLens: { mode: 'app-session' },
+        },
+      });
+    }
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({
+      actor: { kind: 'app', journeyId: 'page-1' },
+      sourceAttribution: 'app page-1',
+    });
+  });
+
+  it('attributes listener incidents to the page journey as well', () => {
+    const feed = new TestActivityFeed();
+    const warnings: ActivityIncident[] = [];
+    monitorFirebaseActivity(feed, (incident) => warnings.push(incident));
+
+    for (let index = 1; index <= 3; index += 1) {
+      feed.emit({
+        ...appListener(`journey-attach-${index}`, 100 * index, 'attach', `listener-${index}`),
+        operationContext: {
+          source: { kind: 'app', journeyId: 'page-2' },
+          authLens: { mode: 'app-session' },
+        },
+      });
+    }
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({
+      pattern: 'duplicate-listener',
+      sourceAttribution: 'app page-2',
+    });
   });
 
   it('does not combine repeated reads from different application identities', () => {

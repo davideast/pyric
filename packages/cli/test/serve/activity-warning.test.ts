@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import type { ActivityIncident } from 'pyric/firestore/internal';
+import {
+  monitorFirebaseActivity,
+  type ActivityFeed,
+  type ActivityIncident,
+} from 'pyric/firestore/internal';
+import type { SandboxEvent } from 'pyric/sandbox';
 import { formatActivityWarning } from '../../src/serve/activity-warning.js';
 
 function incident(overrides: Partial<ActivityIncident> = {}): ActivityIncident {
@@ -18,10 +23,50 @@ function incident(overrides: Partial<ActivityIncident> = {}): ActivityIncident {
     windowMs: 400,
     usage: { unit: 'document-reads', lowerBound: 5, limitations: [] },
     evidenceEventIds: ['read-1', 'read-2'],
-    sourceAttribution: 'unattributed',
+    sourceAttribution: 'app',
     message: 'browser-controlled text is not rendered',
     ...overrides,
   };
+}
+
+class TestActivityFeed implements ActivityFeed {
+  readonly #listeners = new Set<(event: SandboxEvent) => void>();
+
+  history(): readonly SandboxEvent[] {
+    return [];
+  }
+
+  subscribe(listener: (event: SandboxEvent) => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  emit(event: SandboxEvent): void {
+    for (const listener of this.#listeners) listener(event);
+  }
+}
+
+function readEvent(
+  id: string,
+  at: number,
+  source: { kind: 'app'; journeyId?: string } | { kind: 'unattributed' },
+): SandboxEvent {
+  return {
+    kind: 'request',
+    id,
+    at,
+    evalMs: 1,
+    method: 'get',
+    path: 'users/alice',
+    auth: { uid: 'alice' },
+    result: 'allow',
+    reasons: [],
+    origin: 'user',
+    operationContext: {
+      source,
+      authLens: { mode: 'app-session' },
+    },
+  } as SandboxEvent;
 }
 
 describe('formatActivityWarning', () => {
@@ -71,5 +116,31 @@ describe('formatActivityWarning', () => {
     }));
     expect(churn).toContain('at least 4 Firestore listener attaches, 3 detaches, 1 still active');
     expect(churn).toContain('(listener churn)');
+  });
+
+  it('prints the attributed source for a monitor-generated incident', () => {
+    const feed = new TestActivityFeed();
+    const warnings: string[] = [];
+    monitorFirebaseActivity(feed, (generated) => warnings.push(formatActivityWarning(generated)));
+
+    for (let index = 0; index < 5; index += 1) {
+      feed.emit(readEvent(`journey-${index}`, 100 + index, { kind: 'app', journeyId: 'page-1' }));
+    }
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('Source: app page-1.');
+    expect(warnings[0]).not.toContain('unattributed');
+  });
+
+  it('produces no warning for genuinely unattributed traffic', () => {
+    const feed = new TestActivityFeed();
+    const warnings: string[] = [];
+    monitorFirebaseActivity(feed, (generated) => warnings.push(formatActivityWarning(generated)));
+
+    for (let index = 0; index < 10; index += 1) {
+      feed.emit(readEvent(`unattributed-${index}`, 100 + index, { kind: 'unattributed' }));
+    }
+
+    expect(warnings).toEqual([]);
   });
 });

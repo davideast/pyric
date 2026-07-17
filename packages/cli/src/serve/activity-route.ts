@@ -142,7 +142,9 @@ function isActivityIncident(value: unknown): value is ActivityIncident {
     && usage!.limitations.every(
       (limitation) => typeof limitation === 'string' && limitation.length <= 500,
     )
-    && incident.sourceAttribution === 'unattributed'
+    && (incident.sourceAttribution === 'app'
+      || (typeof incident.sourceAttribution === 'string'
+        && /^app [\w.-]{1,64}$/.test(incident.sourceAttribution)))
     && (listenerBalance === undefined
       || (isNonNegativeInteger(listenerBalance.attaches)
         && isNonNegativeInteger(listenerBalance.detaches)

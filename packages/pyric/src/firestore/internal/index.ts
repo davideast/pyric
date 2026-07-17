@@ -10,4 +10,5 @@ export type {
   ActivityMonitor,
   ActivityPattern,
   ActivityReport,
+  ActivitySourceAttribution,
 } from '../sandbox/activity-monitor.js';

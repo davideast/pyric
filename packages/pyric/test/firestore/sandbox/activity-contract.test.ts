@@ -21,7 +21,7 @@ function incident(overrides: Partial<ActivityIncident> = {}): ActivityIncident {
     windowMs: ACTIVITY_CONTRACT.readWindowMs,
     usage: { unit: 'document-reads', lowerBound: 5, limitations: [] },
     evidenceEventIds: ['event-1'],
-    sourceAttribution: 'unattributed',
+    sourceAttribution: 'app',
     message: 'ignored by validation',
     ...overrides,
   };

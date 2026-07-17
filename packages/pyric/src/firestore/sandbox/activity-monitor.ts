@@ -28,6 +28,9 @@ export type ActivityAuthLens =
   | { readonly mode: 'as'; readonly uid: string }
   | { readonly mode: 'app-session' }
   | { readonly mode: 'anon' };
+/** The most specific honest origin label an incident's operation context
+ * carries: `app`, or `app <journeyId>` when the host stamped a page journey. */
+export type ActivitySourceAttribution = 'app' | `app ${string}`;
 
 export interface ActivityIncident {
   readonly fingerprint: string;
@@ -55,7 +58,7 @@ export interface ActivityIncident {
     readonly limitations: readonly string[];
   };
   readonly evidenceEventIds: readonly string[];
-  readonly sourceAttribution: 'unattributed';
+  readonly sourceAttribution: ActivitySourceAttribution;
   readonly message: string;
 }
 
@@ -213,7 +216,7 @@ export function monitorFirebaseActivity(
       evidenceEventIds: Object.freeze(
         bucket.events.slice(-MAX_EVIDENCE_IDS).map((entry) => entry.id),
       ),
-      sourceAttribution: 'unattributed',
+      sourceAttribution: sourceAttributionFor(read.actor),
       message:
         `Repeated Firestore ${read.method} on ${publicPath}: `
         + `${bucket.events.length} reads in ${last.at - first.at}ms.`,
@@ -374,7 +377,7 @@ export function monitorFirebaseActivity(
         ]),
       }),
       evidenceEventIds: Object.freeze(evidenceEventIds.slice(-MAX_EVIDENCE_IDS)),
-      sourceAttribution: 'unattributed',
+      sourceAttribution: sourceAttributionFor(listener.actor),
       message,
     });
     rememberIncident(key, incident);
@@ -490,6 +493,15 @@ function appFirestoreListener(
     reauthorization: event.activityListenerLifecycle === 'reauthorize',
     ...identity,
   };
+}
+
+/** Derive the most specific honest origin label the operation context carries.
+ * The monitor only observes `app` traffic, so the label is `app`, refined by
+ * the host-stamped page journey identity when the event carries one. */
+function sourceAttributionFor(actor: EventActor): ActivitySourceAttribution {
+  return actor.kind === 'app' && actor.journeyId !== undefined
+    ? `app ${actor.journeyId}`
+    : 'app';
 }
 
 /** Keep custom-token claims inside the sandbox; diagnostics need only the lens identity. */
