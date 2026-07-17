@@ -1424,3 +1424,83 @@ service firebase.storage {
     expect(verdict('-(1.5) is float')).toBe(true);
   });
 });
+
+describe('late-failure deny reasons name the construct (parse-time → request-time shift)', () => {
+  /** Constructs the shared grammar parses but the evaluator does not model
+   *  fail at REQUEST time, not parse time. The deny reason must name the
+   *  construct so the late failure is diagnosable from the reason trace. */
+  const reasons = (rules: string, method: 'get' | 'create' = 'get') => {
+    const parsed = parseStorageRules(rules);
+    const res = evaluateStorageRules(parsed, {
+      request: {
+        auth: { uid: 'a' },
+        method,
+        path: '/b/b1/o/x/f.png',
+        resource: method === 'create' ? { size: 1, contentType: 'image/png' } : undefined,
+      },
+      resource: method === 'get' ? { size: 1 } : null,
+    });
+    expect(res.allowed).toBe(false);
+    return res.reasons.join(' ');
+  };
+
+  it('an imported function call names the import and its module', () => {
+    expect(
+      reasons(`rules_version = '2';
+import { isAdmin } from 'shared/helpers';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{fileId} {
+      allow read: if isAdmin(request.auth);
+    }
+  }
+}`),
+    ).toMatch(/isAdmin\(\) is imported from 'shared\/helpers', but import module resolution is not implemented/);
+  });
+
+  it('a locally declared function shadows an imported name and evaluates', () => {
+    const parsed = parseStorageRules(`rules_version = '2';
+import { isAdmin } from 'shared/helpers';
+function isAdmin(auth) {
+  return auth != null;
+}
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{fileId} {
+      allow read: if isAdmin(request.auth);
+    }
+  }
+}`);
+    const res = evaluateStorageRules(parsed, {
+      request: { auth: { uid: 'a' }, method: 'get', path: '/b/b1/o/x/f.png' },
+      resource: { size: 1 },
+    });
+    expect(res.allowed).toBe(true);
+  });
+
+  it('an unsupported builtin method names the method', () => {
+    expect(
+      reasons(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{fileId} {
+      allow read: if fileId.upper() == 'F.PNG';
+    }
+  }
+}`),
+    ).toMatch(/unsupported method \.upper\(\)/);
+  });
+
+  it('an unmodeled `is` type names the type', () => {
+    expect(
+      reasons(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{fileId} {
+      allow read: if request.time is timestamp;
+    }
+  }
+}`),
+    ).toMatch(/'is timestamp' is not supported by the storage evaluator/);
+  });
+});

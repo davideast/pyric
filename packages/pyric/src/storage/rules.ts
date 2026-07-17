@@ -249,6 +249,12 @@ interface FunctionDef {
    *  to those after it and to the return expression. */
   lets: { name: string; value: Expr }[];
   body: Expr;
+  /** Set for a name brought in by an `import` declaration: the module
+   *  specifier. The syntax parses, but module resolution is not implemented,
+   *  so calling the function denies with a reason naming the import — not a
+   *  bare "undefined function". A same-named locally-declared function
+   *  shadows the stub (stubs are registered first). */
+  unresolvedImport?: string;
   /** Lexical scope: the functions visible from this function's body
    *  (its declaring block's `visibleFuncs`). Resolved after parsing so
    *  a call's body uses declaration-site scope, not the caller's. */
@@ -435,6 +441,17 @@ export function parseStorageRules(source: string): StorageRules {
     children: [convertMatch(ast.service.match)],
     allows: [],
     functions: [
+      // Import stubs FIRST so any real declaration of the same name
+      // shadows them in resolveFunctions (later map.set wins).
+      ...(ast.imports ?? []).flatMap((imp) =>
+        imp.functions.map((name): FunctionDef => ({
+          name,
+          params: [],
+          lets: [],
+          body: { kind: 'literal', value: null },
+          unresolvedImport: imp.module,
+        })),
+      ),
       ...(ast.functions ?? []).map(convertFunction),
       ...(ast.service.functions ?? []).map(convertFunction),
     ],
@@ -1014,6 +1031,11 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   const fn = ctx.funcs.get(expr.name);
   if (!fn) {
     throw new RuleEvalError(`undefined function ${expr.name}()`);
+  }
+  if (fn.unresolvedImport !== undefined) {
+    throw new RuleEvalError(
+      `function ${expr.name}() is imported from '${fn.unresolvedImport}', but import module resolution is not implemented`,
+    );
   }
   if (fn.params.length !== expr.args.length) {
     throw new RuleEvalError(
