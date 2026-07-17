@@ -105,18 +105,14 @@ allow write: if firestore.exists(/databases/(default)/documents/sessions/$(reque
 
 `matches()` does whole-string-anchored regex matching, evaluated with RE2 semantics. Constructs RE2 can't express (backreferences, lookahead/lookbehind) are denied at parse time rather than silently mismatching.
 
-`split(re)` splits a string on an RE2 regex (same unsupported-construct guard as `matches()`), and `size()` returns a string's length, a list's element count, or a map's own-key count.
-
 ## Operators
 
 - **Unary**: `!`, `-`.
 - **Binary**: `&&`, `||`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `/`, `%`.
 - **Ternary**: `cond ? a : b`.
-- **Membership**: `x in list` (element membership), `x in map` (key membership — **own** keys only, matching production; prototype names like `'toString'` are never keys).
+- **Membership**: `x in list` (element membership), `x in map` (key membership).
 - **Type test**: `x is string` / `bool` / `int` / `float` / `number` / `list` / `map`. A type test against a type the evaluator does not model (`timestamp`, `duration`, `path`, `latlng`) denies with a reason.
-- **Indexing**: `a['key']`, and slice access `a[i:j]` on lists and strings. An out-of-range slice bound errors (denies), matching production — it does not clamp to length.
-- **Equality on lists and maps** is structural (element-by-element / key-by-key), matching production.
-- **Division/modulo by zero** errors (denies), matching production — never `Infinity`/`NaN`.
+- **Indexing**: `a['key']`, and slice access `a[i:j]` on lists.
 - **Parentheses** for grouping.
 - **Short-circuit** evaluation matches Firestore's rules engine.
 
