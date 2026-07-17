@@ -145,6 +145,52 @@
   color: var(--muted);
 }
 
+/* To-scale public-surface bars (runtime % + type %). Plain CSS, no script. */
+.prose .compat-meters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.prose .compat-meter {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose .compat-meter-label { color: var(--muted); }
+
+.prose .compat-meter-value {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+}
+
+.prose .compat-meter-track {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line-2);
+  overflow: hidden;
+}
+
+.prose .compat-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--diff-add);
+}
+
+.prose .compat-meter-track--mini {
+  height: 5px;
+  margin-top: var(--space-1);
+}
+
 /* The scoreboard keeps public runtime, public types, and fidelity separate. */
 .prose .compat-scoreboard {
   display: flex;

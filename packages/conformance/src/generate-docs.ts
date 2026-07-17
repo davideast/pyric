@@ -90,14 +90,41 @@ function computeSurface(spec: SurfaceScoreSpec, census: readonly SurfaceCensus[]
   return { runtime: combine('runtime'), types: combine('types') };
 }
 
+/** To-scale public-surface bars (runtime + types). Plain HTML/CSS, no script.
+ * Widths are the same percentages the model already publishes. */
+function surfaceMeters(runtimePct: number, typesPct: number): string {
+  const meter = (label: string, pct: number): string =>
+    `<div class="compat-meter"><span class="compat-meter-label">${label}</span>` +
+    `<span class="compat-meter-track"><span class="compat-meter-fill" style="width: ${pct}%"></span></span>` +
+    `<span class="compat-meter-value">${pct}%</span></div>`;
+  return [
+    '<div class="compat-meters">',
+    meter('Public runtime surface', runtimePct),
+    meter('Public type surface', typesPct),
+    '</div>',
+  ].join('\n');
+}
+
+/** One scoreboard axis cell: the published percentage plus a to-scale mini bar
+ * (mirror surfaces only; native/integration surfaces show a word instead). */
+function scoreAxisCell(label: string, axis: SurfaceScore['runtime'], noCensusLabel: string): string {
+  if (axis === null) {
+    return `<span><span class="compat-score-axis">${label}</span>${noCensusLabel}</span>`;
+  }
+  return (
+    `<span><span class="compat-score-axis">${label}</span>${axis.pct}% (${axis.mapped}/${axis.denominator})` +
+    `<span class="compat-meter-track compat-meter-track--mini"><span class="compat-meter-fill" style="width: ${axis.pct}%"></span></span></span>`
+  );
+}
+
 /** Public API breadth shown at the top of each compatibility document. */
 export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string | null {
   const spec = scoreSpec(surface, projection);
   const coverage = computeSurface(spec, projection.census);
   if (coverage.runtime === null || coverage.types === null) {
     const surfaceLine = spec.noCensusKind === 'integration'
-      ? '<p class="compat-stat-surface"><strong>Surface:</strong> integration contract. This page does not have a Firebase public API denominator.</p>'
-      : '<p class="compat-stat-surface"><strong>Surface:</strong> Pyric-owned API. This page does not mirror a Firebase public API denominator.</p>';
+      ? '<p class="compat-stat-surface">This page tracks an integration contract: unchanged Firebase code run through a Pyric runtime seam, so there is no separate Firebase public API to measure. The rows below are its signed behavior inventory.</p>'
+      : '<p class="compat-stat-surface">This is a Pyric-native API with no Firebase counterpart, so coverage is measured against its own public exports rather than a Firebase surface.</p>';
     return ['<div class="compat-stat">', surfaceLine, '</div>', ''].join('\n');
   }
   const scoreboardHref = relative(dirname(surface.compatPath), SCOREBOARD_PATH).replaceAll('\\', '/');
@@ -108,6 +135,7 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: Do
     '<span class="compat-stat-label">of public runtime exports supported</span>',
     '</p>',
     `<p class="compat-stat-denom">${coverage.runtime.mapped} of ${coverage.runtime.denominator} public runtime exports <span aria-hidden="true">·</span> ${coverage.types.mapped} of ${coverage.types.denominator} public type exports</p>`,
+    surfaceMeters(coverage.runtime.pct, coverage.types.pct),
     '</div>',
     `[See public API coverage for every service.](${scoreboardHref})`,
     '',
@@ -122,12 +150,6 @@ function scoreRow(
   overall = false,
 ): string[] {
   const noCensusLabel = noCensusKind === 'integration' ? 'integration' : 'native';
-  const runtime = coverage.runtime === null
-    ? noCensusLabel
-    : `${coverage.runtime.pct}% (${coverage.runtime.mapped}/${coverage.runtime.denominator})`;
-  const types = coverage.types === null
-    ? noCensusLabel
-    : `${coverage.types.pct}% (${coverage.types.mapped}/${coverage.types.denominator})`;
   const tag = href === null ? 'div' : 'a';
   const attrs = [
     `class="compat-score-row${overall ? ' compat-score-row--overall' : ''}"`,
@@ -137,8 +159,8 @@ function scoreRow(
     `<${tag} ${attrs}>`,
     `<span class="compat-score-name">${label}</span>`,
     '<span class="compat-score-surface">',
-    `<span><span class="compat-score-axis">Runtime</span>${runtime}</span>`,
-    `<span><span class="compat-score-axis">Types</span>${types}</span>`,
+    scoreAxisCell('Runtime', coverage.runtime, noCensusLabel),
+    scoreAxisCell('Types', coverage.types, noCensusLabel),
     '</span>',
     `</${tag}>`,
   ];
@@ -153,8 +175,8 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
     '',
     'This is the share of Firebase\'s public API that Pyric supports. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
     '',
-    '- **Public runtime surface:** mirrored Firebase runtime exports divided by all exports not exactly reviewed as private in the owning surface contract. Unsupported, deprecated, and deferred public APIs remain in the denominator.',
-    '- **Public type surface:** mirrored exported type names divided by non-underscore Firebase exported type names. This measures name presence, not structural assignability.',
+    '- **Public runtime surface:** the share of Firebase\'s public runtime exports that Pyric provides. Unsupported, deprecated, and deferred public APIs still count against the total.',
+    '- **Public type surface:** the share of Firebase\'s public exported type names that Pyric provides. This measures name presence, not structural assignability.',
     '',
     '## Services',
     '',
@@ -277,69 +299,85 @@ export function dispositionSection(
   ].join('\n');
 }
 
-/** Non-conforming statuses, in the order the climb header lists them. */
-const CLIMB_STATUS_ORDER: CompatStatus[] = ['unverified', 'diverged-documented', 'bug', 'unsupported'];
+
+
+/** Canonical status order for a rendered legend, independent of which subset
+ * of statuses a surface currently uses. */
+const LEGEND_STATUS_ORDER = ['conforms', 'diverged-documented', 'bug', 'unsupported', 'unverified'] as const;
+
+const LEGEND_GLYPHS: Record<CompatStatus, string> = {
+  conforms: '\u2713',
+  'diverged-documented': '\u26a0',
+  bug: '\u2717',
+  unsupported: '\u2014',
+  unverified: '?',
+};
 
 /**
- * The climb header for a surface admitted under CDD (cdd.md Step 7): rendered
- * above the status legend, derived from the registry's row statuses alone. A
- * non-climbing surface returns no lines, so its doc is byte-for-byte unchanged.
- * Kept identical between renderSurfaceMarkdown and generatedRowLineNumbers so
- * row line numbers stay accurate.
+ * Rewrite a "## Status legend" table so it keys only the statuses that actually
+ * occur in this surface's rows, in canonical order. A legend is a key to the
+ * page it sits on: a status that never appears in the rows below is not part
+ * of the key, and reappears automatically the moment a row carries it.
  */
-export function climbHeaderLines(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string[] {
-  const climbing = projection.descriptors.some((d) => d.registry === surface && d.climb === true);
-  if (!climbing) return [];
-  const rows = surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows : []));
-  const summary = (population: CompatibilityRow[], label?: string): string => {
-    const conforming = population.filter((row) => row.status === 'conforms').length;
-    const breakdown = CLIMB_STATUS_ORDER
-      .map((status) => ({
-        status,
-        count: population.filter((row) => row.status === status).length,
-      }))
-      .filter((entry) => entry.count > 0)
-      .map((entry) => `${entry.count} ${entry.status}`)
-      .join(', ');
-    return `> ${label ? `${label}: ` : ''}${conforming} of ${population.length} rows conforming.${breakdown ? ` ${breakdown}.` : ''}`;
-  };
-  const bySurface = Map.groupBy(rows, (row) => row.surface);
-  const populationLines = bySurface.size === 1
-    ? [summary(rows)]
-    : [...bySurface].map(([rowSurface, population]) => summary(
-        population,
-        rowSurface === 'messaging'
-          ? 'Client + service-worker mirror'
-          : rowSurface === 'messaging-admin'
-            ? 'Separately tracked Admin send plane'
-            : rowSurface,
-      ));
-  return [
-    '> **Climb status: this surface is climbing under CDD.**',
-    ...populationLines,
-    '> A `?` row below is a target with a derived failing test, not a guarantee.',
-    '',
-  ];
+function rewriteLegend(markdown: string, present: ReadonlySet<CompatStatus>): string {
+  const lines = markdown.split('\n');
+  const out: string[] = [];
+  let inLegend = false;
+  for (const line of lines) {
+    if (/^##\s+Status legend/.test(line)) {
+      inLegend = true;
+      out.push(line);
+      continue;
+    }
+    if (inLegend) {
+      const isHeader = /^\|\s*Status\s*\|/.test(line) || /^\|[\s:|-]+\|?\s*$/.test(line);
+      const cell = line.match(/^\|\s*(\S+)\s*\|/);
+      if (cell && !isHeader) {
+        const glyph = cell[1];
+        const status = LEGEND_STATUS_ORDER.find((candidate) => LEGEND_GLYPHS[candidate] === glyph);
+        if (status !== undefined && !present.has(status)) continue;
+        out.push(line);
+        continue;
+      }
+      if (!line.startsWith('|') && line.trim() !== '') inLegend = false;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
 }
 
-/** Inject the two-number score block under the H1 of the first markdown block. */
-function scoredBlocks(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): CompatibilitySurfaceRegistry['blocks'] {
+/** All of a surface's blocks with presentation derived from its own rows:
+ * the score block (coverage figure + to-scale meters) lands under the first
+ * heading, and every status legend keys only the statuses this surface
+ * actually uses. */
+function scoredBlocks(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection) {
+  const present: ReadonlySet<CompatStatus> = new Set(
+    surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows.map((row) => row.status) : [])),
+  );
   const score = scoreBlock(surface, projection);
-  if (score === null) return surface.blocks;
-  return surface.blocks.map((block, index) => {
-    if (index !== 0 || block.kind !== 'markdown') return block;
-    // Insert after the first line (H1), before the rest of the intro.
-    const lines = block.markdown.split('\n');
-    const h1End = lines.findIndex((line, i) => i > 0 && line.trim() === '') ;
-    const at = h1End === -1 ? 1 : h1End + 1;
-    const next = [...lines.slice(0, at), score, ...lines.slice(at)].join('\n');
-    return { ...block, markdown: next };
+  let scorePlaced = score === null;
+  return surface.blocks.map((block) => {
+    if (block.kind !== 'markdown') return block;
+    let markdown = rewriteLegend(block.markdown, present);
+    if (!scorePlaced) {
+      const lines = markdown.split('\n');
+      const h1 = lines.findIndex((line) => line.startsWith('# '));
+      if (h1 !== -1) {
+        lines.splice(h1 + 1, 0, '', score!);
+        markdown = lines.join('\n');
+        scorePlaced = true;
+      }
+    }
+    return { ...block, markdown };
   });
 }
 
 export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string {
   const blocks = scoredBlocks(surface, projection);
-  const parts: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface, projection)];
+  // The CDD climb header is intentionally not published on the reader-facing
+  // pages (insider methodology). Climb data still drives internal reports and
+  // gates via climb.ts; only the published line is dropped.
+  const parts: string[] = [GENERATED_HEADER, ''];
   const rows = blocks.flatMap((block) => block.kind === 'table' ? block.rows : []);
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
@@ -362,7 +400,7 @@ export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry, pro
 
 export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): Map<string, number> {
   const blocks = scoredBlocks(surface, projection);
-  const lines: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface, projection)];
+  const lines: string[] = [GENERATED_HEADER, ''];
   const out = new Map<string, number>();
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {

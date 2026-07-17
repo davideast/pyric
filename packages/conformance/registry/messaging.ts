@@ -792,7 +792,7 @@ const INTRO = [
   '| ? | **Unverified** — a target with a derived failing test, not a guarantee |',
   '',
   'Probe references: `oracle:<name>` cites an observation under',
-  '`packages/conformance/observations/<name>.json`. Under CDD a citation records that',
+  '`packages/conformance/observations/<name>.json`. A citation records that',
   'production was consulted; it does not certify the sandbox matches — that waits',
   'on the conformance suite replaying it.',
   '',

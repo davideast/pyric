@@ -1,13 +1,13 @@
 ---
-title: "Watch the agent work, then check it"
-navLabel: "Review agent activity"
+title: "Watch your agent in Pyric Studio"
+navLabel: "Watch in Pyric Studio"
 group: "Work with an agent"
 section: ""
 order: 30
 description: "See every operation your agent performs, live, with the verdict that decided it."
 ---
 
-# Watch the agent work, then check it
+# Watch your agent in Pyric Studio
 
 An agent you cannot see is an agent you cannot trust. Pyric makes the agent's work visible two ways: live, in Studio, while it happens, and after the fact, in the event stream, where every operation carries its own receipt.
 

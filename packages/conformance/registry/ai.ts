@@ -1072,7 +1072,7 @@ Evidence tiers per \`packages/conformance/docs/ai/cdd-deltas.md\`:
 72 rows conform; 6 are documented divergences from the installed
 firebase/ai 2.12.0, each with the reason pinned in its notes.
 
-Generated-content VALUES are never claims. Production output is
+Generated-content values are never claims. Production output is
 nondeterministic, so no row asserts on generated text, and the suites only
 compare text when the scripted engine was explicitly scripted to return it
 (the shape-backed tier ruling in \`packages/conformance/docs/ai/cdd-deltas.md\`).

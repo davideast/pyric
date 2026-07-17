@@ -1,9 +1,9 @@
 ---
 title: "How does Pyric know it works like Firebase?"
-navLabel: "Conformance"
-group: "Trust"
+navLabel: "How we know it matches Firebase"
+group: "Conformance"
 section: ""
-order: 10
+order: 15
 description: "See the production evidence behind Pyric's conformance claims, the gaps those claims leave open, and the checks to make before shipping."
 ---
 
@@ -111,7 +111,7 @@ Committed Rules observations are replayed locally against the matching corpus sc
 
 Behavior evidence cannot show whether an API is missing. A perfect match on a small set of calls would still leave a poor mirror if Firebase exposed much more.
 
-The public-surface census therefore reads Firebase's public exports and compares them with Pyric. Runtime values and exported type names are measured separately. A runtime export counts unless its exact name is reviewed as private in that surface's authored contract; a leading `_` never classifies it automatically, so a new name fails closed as an unmapped gap. The type-name census still excludes leading-underscore names by its structural rule while type classification remains future work. Unsupported or deprecated public APIs stay in the denominator, and Pyric-only helpers receive no credit.
+The public-surface census therefore reads Firebase's public exports and compares them with Pyric. Runtime values and exported type names are measured separately. A runtime export counts unless its exact name is reviewed as private in that surface's authored contract; a leading `_` never classifies it automatically, so a new name fails closed as an unmapped gap. The type-name census still excludes leading-underscore names by its structural rule while type classification remains future work. Unsupported or deprecated public APIs still count against the total, and Pyric-only helpers receive no credit.
 
 The census proves name presence, not signature equivalence or runtime behavior. Those questions belong to types, tests, and registry evidence. Keeping the axes separate prevents a strong result on one axis from hiding a weak result on another.
 
