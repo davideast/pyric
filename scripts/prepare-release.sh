@@ -72,8 +72,7 @@ BODY_FILE="$(mktemp)"
   echo
   echo "## After merging"
   echo
-  echo '- [ ] Full gates on merged main (`bun run test`, packaging gate)'
-  echo '- [ ] Manual tarball pass (npm install in a scratch project, can-i-use exact/fuzzy/exit codes, conformance subpaths)'
+  echo '- [ ] Manual tarball pass (npm install in a scratch project, can-i-use exact/fuzzy/exit codes, conformance subpaths) — the automated gates run inside publish-alpha.sh'
   echo "- [ ] \`bash scripts/publish-alpha.sh ${V}\` from a clean merged-main checkout (OTP-capable terminal)"
   echo "- [ ] \`git tag v${V} && git push origin v${V}\` on the published commit"
   echo '- [ ] Site deploy (`bash scripts/deploy-site.sh`) if the site should track the release'
