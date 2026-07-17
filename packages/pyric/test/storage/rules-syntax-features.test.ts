@@ -124,27 +124,6 @@ service firebase.storage {
     name: 'modulo operator',
     source: ruleset('resource.size % 2 == 0'),
   },
-  {
-    name: 'import declaration after a global function (#347 interleave)',
-    source: `rules_version = '2';
-function f() { return true; }
-import { helper } from 'shared/helpers';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /x/{id} { allow read: if f(); }
-  }
-}`,
-  },
-  {
-    name: 'version-less file with function-then-import ordering (#347)',
-    source: `function f() { return true; }
-import { helper } from 'shared/helpers';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /x/{id} { allow read: if f(); }
-  }
-}`,
-  },
 ];
 
 describe('storage rules syntax acceptance', () => {
@@ -153,4 +132,34 @@ describe('storage rules syntax acceptance', () => {
       expect(() => parseStorageRules(c.source)).not.toThrow();
     });
   }
+});
+
+describe('storage rules syntax rejection (production-pinned orderings, #347 probe)', () => {
+  /** Production rejects these orderings at parse ("Unexpected 'import'" /
+   *  "Unexpected 'rules_version'"), so the mirror must too — an accepting
+   *  local parser would pass rules that fail on deploy. */
+  it("rejects an import declaration after a global function", () => {
+    expect(() =>
+      parseStorageRules(`rules_version = '2';
+function f() { return true; }
+import { helper } from 'shared/helpers';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{id} { allow read: if f(); }
+  }
+}`),
+    ).toThrow(SyntaxError);
+  });
+
+  it('rejects a function declaration before rules_version', () => {
+    expect(() =>
+      parseStorageRules(`function f() { return true; }
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{id} { allow read: if f(); }
+  }
+}`),
+    ).toThrow(SyntaxError);
+  });
 });

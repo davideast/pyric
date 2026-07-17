@@ -14,11 +14,14 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
   // declarations above the version line working. The semantic
   // action below normalizes both into the same AST shape, so
   // downstream code doesn't have to care which path matched.
-  // Imports and functions INTERLEAVE at the top level: production accepts
-  // \`function\` then \`import\` in either order (#347), so the declarations
-  // are one mixed repetition, partitioned by kind in the semantic action.
-  RulesFile = RulesVersion? (ImportDecl | FunctionDef)* ServiceBlock            -- versionFirst
-            | ImportDecl* RulesVersion (ImportDecl | FunctionDef)* ServiceBlock -- importsFirst
+  // Declaration order is STRICT: imports, then functions (#347 probe,
+  // 2026-07-17): the production Rules Test API rejects \`import\` after a
+  // \`function\` ("Unexpected 'import'") and any declaration before
+  // \`rules_version\` ("Unexpected 'rules_version'"), under both
+  // rules_version '2' and '2+modules'. Pinned by
+  // test/rules/corpus/invalid/009-/010-.
+  RulesFile = RulesVersion? ImportDecl* FunctionDef* ServiceBlock  -- versionFirst
+            | ImportDecl* RulesVersion FunctionDef* ServiceBlock   -- importsFirst
 
   ImportDecl = "import" "{" ListOf<ident, ","> ","? "}" "from" string ";"
 

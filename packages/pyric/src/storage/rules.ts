@@ -277,6 +277,13 @@ type BinaryOp =
   | '&&' | '||' | '==' | '!=' | '<' | '>' | '<=' | '>='
   | '+' | '-' | '*' | '/' | '%';
 
+/** Runtime twin of {@link BinaryOp} — the converter validates grammar
+ *  operator strings against this set so a new operator fails the parse
+ *  loudly rather than converting silently (see convertExpr's binaryOp case). */
+const BINARY_OPS: ReadonlySet<BinaryOp> = new Set([
+  '&&', '||', '==', '!=', '<', '>', '<=', '>=', '+', '-', '*', '/', '%',
+]);
+
 type Expr =
   | { kind: 'literal'; value: number | RulesFloat | string | boolean | null }
   | { kind: 'ident'; name: string }
@@ -373,9 +380,20 @@ function convertExpr(e: SharedExpression): Expr {
     case 'sliceAccess':
       return { kind: 'slice', target: convertExpr(e.object), start: convertExpr(e.start), end: convertExpr(e.end) };
     case 'binaryOp':
+      // Operator strings are VALIDATED, not cast: the `never` backstop below
+      // only catches new Expression VARIANTS — a new operator on an existing
+      // variant would otherwise convert silently and fall off evalExpr's op
+      // switch to an undefined (silent deny), recreating the drift class the
+      // shared-grammar move exists to kill. Fail the parse loudly instead.
+      if (!BINARY_OPS.has(e.op as BinaryOp)) {
+        throw new SyntaxError(`Unsupported binary operator '${e.op}' in storage rules.`);
+      }
       return { kind: 'binary', op: e.op as BinaryOp, left: convertExpr(e.left), right: convertExpr(e.right) };
     case 'unaryOp':
-      return { kind: 'unary', op: e.op as '!' | '-', arg: convertExpr(e.operand) };
+      if (e.op !== '!' && e.op !== '-') {
+        throw new SyntaxError(`Unsupported unary operator '${e.op}' in storage rules.`);
+      }
+      return { kind: 'unary', op: e.op, arg: convertExpr(e.operand) };
     case 'ternary':
       return { kind: 'ternary', cond: convertExpr(e.condition), then: convertExpr(e.consequent), else: convertExpr(e.alternate) };
     case 'inExpr':
