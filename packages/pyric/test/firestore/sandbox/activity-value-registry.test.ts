@@ -6,7 +6,7 @@ import {
   registeredActivityValue,
   registerActivityValue,
   trustedWireActivityValue,
-} from '../../src/firestore-values/activity-value-registry.js';
+} from '../../../src/firestore/sandbox/activity-value-registry.js';
 
 describe('activity value registry', () => {
   it('builds deterministic, bounded descriptors without retaining source values', () => {

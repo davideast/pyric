@@ -14,7 +14,7 @@ import {
   boundedActivityBytes,
   boundedActivityIdentity,
   registerActivityValue,
-} from 'pyric/firestore-values/internal';
+} from './sandbox/activity-value-registry.js';
 
 export class Bytes {
   private constructor(private readonly bytes: Uint8Array) {

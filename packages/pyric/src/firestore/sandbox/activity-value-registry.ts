@@ -1,8 +1,16 @@
 /**
  * Side-effect-free activity descriptors registered by values Pyric itself
  * constructs. WeakMap lookup never observes an arbitrary operand or Proxy.
+ *
+ * The store is pinned on `globalThis` under a shared key: registration and
+ * lookup must agree even when two copies of this module load in one process
+ * (src and dist mix under bun test; a bundler may duplicate the leaf). A
+ * per-module WeakMap would silently mark every cross-copy value opaque.
  */
-const descriptors = new WeakMap<object, unknown>();
+const REGISTRY_KEY = Symbol.for('pyric.firestore.activity-value-registry');
+const globalStore = globalThis as { [REGISTRY_KEY]?: WeakMap<object, unknown> };
+const descriptors: WeakMap<object, unknown> =
+  globalStore[REGISTRY_KEY] ?? (globalStore[REGISTRY_KEY] = new WeakMap());
 
 /** Incremental bounded 128-bit content identity for trusted Pyric-owned values. */
 function createDigest(): {

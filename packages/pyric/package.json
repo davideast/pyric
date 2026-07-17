@@ -82,10 +82,6 @@
       "types": "./dist/firestore-values/index.d.ts",
       "import": "./dist/firestore-values/index.js"
     },
-    "./firestore-values/internal": {
-      "types": "./dist/firestore-values/internal.d.ts",
-      "import": "./dist/firestore-values/internal.js"
-    },
     "./rules/internal": {
       "types": "./dist/rules/internal/index.d.ts",
       "import": "./dist/rules/internal/index.js"

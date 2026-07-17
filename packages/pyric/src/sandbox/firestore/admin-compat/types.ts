@@ -19,7 +19,7 @@ import type { FirestoreErrorCode, FirestoreSimError } from 'pyric/sandbox/intern
 import {
   boundedActivityIdentity,
   registerActivityValue,
-} from 'pyric/firestore-values/internal';
+} from '../../../firestore/sandbox/activity-value-registry.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — what agent code calls.

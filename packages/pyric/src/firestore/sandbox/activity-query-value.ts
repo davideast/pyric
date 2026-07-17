@@ -2,7 +2,7 @@ import {
   boundedActivityIdentity,
   boundedActivityString,
   registeredActivityValue,
-} from 'pyric/firestore-values/internal';
+} from './activity-value-registry.js';
 
 const objectIds = new WeakMap<object, number>();
 let nextObjectId = 1;

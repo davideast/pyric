@@ -28,7 +28,7 @@ import { makeDocSnapshot } from './snapshots.js';
 import {
   boundedActivityIdentity,
   registerActivityValue,
-} from 'pyric/firestore-values/internal';
+} from '../../../firestore/sandbox/activity-value-registry.js';
 import { CollectionRefImpl } from './query.js';
 import {
   FirestoreCompatError,
