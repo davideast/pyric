@@ -1,6 +1,6 @@
 ---
 title: "Run Firebase AI Logic locally"
-navLabel: "Run AI Logic locally"
+navLabel: "AI Logic"
 group: "Build"
 section: ""
 order: 60

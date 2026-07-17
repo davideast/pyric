@@ -1,6 +1,6 @@
 ---
 title: "Run Cloud Storage locally"
-navLabel: "Store files"
+navLabel: "Cloud Storage"
 group: "Build"
 section: ""
 order: 40
@@ -97,4 +97,4 @@ The answer separates availability from fidelity and assurance, and points to the
 
 ## Where to go next
 
-For structured documents and queries, use [Store and query data](./store-and-query-data.md).
+For structured documents and queries, use [Store and query data](./cloud-firestore.md).

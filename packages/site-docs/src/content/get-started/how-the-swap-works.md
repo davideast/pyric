@@ -48,4 +48,4 @@ A plain `vite build` leaves the development swap inactive and ships the real `fi
 
 ## Where to go next
 
-Watch the backend work, every read, write, and verdict, in [see what's happening](../observe/see-whats-happening.md). Or start building: [sign users in](../build/sign-in-and-manage-users.md).
+Watch the backend work, every read, write, and verdict, in [see what's happening](../observe/see-whats-happening.md). Or start building: [sign users in](../build/authentication.md).

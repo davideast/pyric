@@ -1,6 +1,6 @@
 ---
 title: "Run Firebase Authentication locally"
-navLabel: "Sign in and manage users"
+navLabel: "Authentication"
 group: "Build"
 section: ""
 order: 10
@@ -106,4 +106,4 @@ An MCP-connected agent can inspect the current identities and simulate each Secu
 
 ## Where to go next
 
-Your users exist and your rules can see them. [Store and query data](./store-and-query-data.md) puts them to work, and [secure it with rules](../secure/secure-it-with-rules.md) proves what they can touch.
+Your users exist and your rules can see them. [Store and query data](./cloud-firestore.md) puts them to work, and [secure it with rules](../secure/secure-it-with-rules.md) proves what they can touch.

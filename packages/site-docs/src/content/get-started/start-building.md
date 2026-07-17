@@ -59,4 +59,4 @@ It can serve static files or start an existing development command. [The CLI gui
 
 The mirrored services do not connect to a production Firebase project. Local data changes stay in the sandbox. Local Security Rules changes are enforced there and are not deployed. Firebase configuration passed to `initializeApp(config)` is accepted so the application code stays unchanged, but it does not select a cloud backend during development.
 
-Continue with [How the swap works](./how-the-swap-works.md), then [develop with the Firebase APIs](../build/sign-in-and-manage-users.md).
+Continue with [How the swap works](./how-the-swap-works.md), then [develop with the Firebase APIs](../build/authentication.md).

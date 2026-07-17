@@ -1,6 +1,6 @@
 ---
 title: "Receive Firebase Cloud Messaging locally"
-navLabel: "Receive messages"
+navLabel: "Cloud Messaging"
 group: "Build"
 section: ""
 order: 50

@@ -1,6 +1,6 @@
 ---
 title: "Run Realtime Database locally"
-navLabel: "Sync realtime data"
+navLabel: "Realtime Database"
 group: "Build"
 section: ""
 order: 30

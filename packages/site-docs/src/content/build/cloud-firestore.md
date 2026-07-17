@@ -1,6 +1,6 @@
 ---
 title: "Run Cloud Firestore locally"
-navLabel: "Store and query data"
+navLabel: "Cloud Firestore"
 group: "Build"
 section: ""
 order: 20

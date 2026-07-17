@@ -13,8 +13,8 @@ Choosing between Cloud Firestore and Realtime Database is a Firebase architectur
 
 After choosing the production service, use the matching local path:
 
-- [Run Cloud Firestore locally](./store-and-query-data.md).
-- [Run Realtime Database locally](./sync-realtime-data.md).
+- [Run Cloud Firestore locally](./cloud-firestore.md).
+- [Run Realtime Database locally](./realtime-database.md).
 
 Support for each service changes as the mirror grows, so this guide does not duplicate an availability list. Ask the central conformance model instead:
 ```bash

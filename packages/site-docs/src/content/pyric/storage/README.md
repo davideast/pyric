@@ -58,7 +58,7 @@ The documentation is organised by task and reference material:
 
 ### Starting points
 
-- **Upload + download flow**: [Upload and download a session archive](../../build/store-files.md).
+- **Upload + download flow**: [Upload and download a session archive](../../build/cloud-storage.md).
 - **Enforcing rules**: [Enforce Storage rules](./how-to/enforce-rules.md).
 - **Checking current support**: run `pyric can-i-use storage/<symbol>` and follow its evidence link.
 
