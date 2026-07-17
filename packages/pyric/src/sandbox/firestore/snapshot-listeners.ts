@@ -43,6 +43,9 @@ export interface QueryConstraintApplier {
   /** Structured constraints for the query-proof gate (RULES-B11). Absent on
    *  appliers built before the query carries any provable constraints. */
   structured?: QueryConstraints;
+  /** Complete executable query identity for diagnostics. Kept separate from
+   *  `structured`, whose deliberately lossy shape exists only for rules proof. */
+  activityQuery?: unknown;
 }
 
 /**

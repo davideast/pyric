@@ -36,6 +36,7 @@ import { generateAutoId } from 'pyric/sandbox/internal';
 import { lastSegment } from './paths.js';
 import { translateReadData } from './snapshots.js';
 import { DocumentRefImpl } from './doc-ref.js';
+import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
 // Canonical Firestore value comparison (FS-B3) — type-order-aware,
 // NaN-correct. Replaces the old `String().localeCompare` fallback that
 // mis-ordered cross-type values + broke NaN. See `value-order.ts`.
@@ -556,6 +557,7 @@ export class QueryImpl implements Query {
       auth,
       this.structuredConstraints(),
       this.bypassRules,
+      this.activityQuery(),
     );
     if (!result.allowed) throw new FirestoreCompatError(result.error);
     return result.docs;
@@ -592,6 +594,36 @@ export class QueryImpl implements Query {
       offset: null,
       orderBy: this.orders.length > 0 ? this.orders[0].field : null,
     };
+  }
+
+  /**
+   * Full executable identity for activity monitoring. The rules-proof
+   * projection above intentionally drops OR branches, rich operands, cursor
+   * detail, and most ordering, so it cannot safely identify repeated reads.
+   */
+  protected activityQuery(): unknown {
+    const filter = (value: Filter): unknown => value.kind === 'where'
+      ? { kind: 'where', field: value.field, op: value.op, value: activityValue(value.value) }
+      : { kind: value.kind, filters: value.filters.map(filter) };
+    const cursor = (value: Cursor | undefined): unknown => value === undefined ? null : {
+      values: value.values.map((item) => activityValue(item)),
+      inclusive: value.inclusive,
+      fromSnapshot: value.fromSnapshot,
+    };
+    return {
+      scope: this.activityScope(),
+      filters: this.clauses.map(filter),
+      orderBy: this.orders.map((order) => ({ ...order })),
+      limit: this.limitCount ?? null,
+      limitFromEnd: this.limitFromEnd,
+      start: cursor(this.start),
+      end: cursor(this.end),
+    };
+  }
+
+  /** Distinguish direct-collection scans from collection-group scans. */
+  protected activityScope(): unknown {
+    return { kind: 'collection' };
   }
 
   /**
@@ -716,26 +748,17 @@ export class QueryImpl implements Query {
    * snapshot-listener path (FS-B2) threads this into the `SnapshotTarget`
    * so a filtered/ordered/limited `onSnapshot(query(...))` delivers the
    * same membership a one-shot `getDocs(query(...))` would — instead of
-   * the whole collection. Returns `undefined` when the query carries no
-   * constraints (a bare collection listen) so the listener path can skip
-   * the transform entirely.
+   * the whole collection. Bare collection listens retain a no-op applier so
+   * the activity monitor still receives their complete query identity.
    *
    * RULES-B11 — the applier also carries the structured constraints (see
    * {@link structuredConstraints}) so the listener read path can run the
    * query-proof gate against the matched `list` rule.
    */
-  snapshotConstraints(): QueryConstraintApplier | undefined {
-    if (
-      this.clauses.length === 0 &&
-      this.orders.length === 0 &&
-      this.limitCount === undefined &&
-      this.start === undefined &&
-      this.end === undefined
-    ) {
-      return undefined;
-    }
+  snapshotConstraints(): QueryConstraintApplier {
     const applier: QueryConstraintApplier = (rows) => this.applyConstraints(rows);
     applier.structured = this.structuredConstraints();
+    applier.activityQuery = this.activityQuery();
     return applier;
   }
 
@@ -918,6 +941,10 @@ export class CollectionGroupQueryImpl extends QueryImpl {
    */
   protected override listRulePath(): string {
     return this.collectionId;
+  }
+
+  protected override activityScope(): unknown {
+    return { kind: 'collection-group' };
   }
 }
 

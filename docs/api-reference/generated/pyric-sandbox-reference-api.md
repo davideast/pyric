@@ -425,6 +425,9 @@ consumers migrate to the canonical `operationContext`.
 
 | Property | Type | Description |
 | :------ | :------ | :------ |
+| <a id="activitygroupkind"></a> `activityGroupKind?` | `"transaction"` | Marks worker-split operations that belong to a transaction for activity diagnostics. |
+| <a id="activitylistenerid"></a> `activityListenerId?` | `string` | Stable host subscription identity used only by activity diagnostics. |
+| <a id="activitylistenerlifecycle"></a> `activityListenerLifecycle?` | `"reauthorize"` | Marks lifecycle caused by transparent auth reauthorization, not app code. |
 | <a id="actor"></a> `actor?` | [`EventActor`](#eventactor) | - |
 | <a id="authlens"></a> `authLens?` | [`AuthLens`](#authlens-2) | - |
 | <a id="operationcontext-1"></a> `operationContext?` | [`OperationContext`](#operationcontext-2) | - |
@@ -456,7 +459,7 @@ on the errored phase only.
 | <a id="id"></a> `id` | `string` | - |
 | <a id="kind"></a> `kind` | `"listener_attach"` \| `"listener_detach"` \| `"listener_errored"` | - |
 | <a id="listenerid"></a> `listenerId` | `string` | - |
-| <a id="target"></a> `target` | \| \{ `kind`: `"doc"`; `path`: `string`; \} \| \{ `collection`: `string`; `kind`: `"query"`; \} | - |
+| <a id="target"></a> `target` | \| \{ `kind`: `"doc"`; `path`: `string`; \} \| \{ `collection`: `string`; `kind`: `"query"`; `query?`: `unknown`; \} | - |
 
 ***
 
@@ -2053,7 +2056,7 @@ traffic-monitor-decision.md for the field-by-field rationale.
 | `matchedRule.operations` | `string`[] | - |
 | `matchedRule.ruleIndex` | `number` | - |
 | <a id="method-1"></a> `method` | `"get"` \| `"list"` \| `"create"` \| `"update"` \| `"delete"` \| `"set"` | - |
-| <a id="origin"></a> `origin` | `"user"` \| `"listener"` \| `"transaction"` \| `"batch"` | - |
+| <a id="origin"></a> `origin` | `"transaction"` \| `"user"` \| `"listener"` \| `"batch"` | - |
 | <a id="path-1"></a> `path` | `string` | - |
 | <a id="reasons-2"></a> `reasons` | `string`[] | Simulator debug messages — the per-rule trace (`Rule #0 (read) → ALLOW`). Same shape as `DenialEvent.reasons` so consumer code can share rendering. |
 | <a id="request-2"></a> `request?` | \{ `resourceData?`: `Record`\<`string`, `unknown`\>; \} | Proposed write payload, for create/update/set. Absent on reads + delete. Pre-resolution: `FieldValue.*` sentinels are preserved as their marker shapes (`{ __type: 'serverTimestamp' }`, etc.) so the replay engine can re-resolve them. The rule engine evaluated against the resolved form internally; that resolved form lives on [WriteSandboxEvent.nextState](#nextstate-1), not here. |
@@ -2743,7 +2746,7 @@ their state is a Firestore document.
 | <a id="id-5"></a> `id` | `string` | - |
 | <a id="kind-4"></a> `kind` | `"operation"` | - |
 | <a id="method-3"></a> `method` | `string` | - |
-| <a id="origin-1"></a> `origin` | `"admin"` \| `"user"` \| `"listener"` \| `"transaction"` \| `"batch"` \| `"system"` | - |
+| <a id="origin-1"></a> `origin` | `"admin"` \| `"transaction"` \| `"user"` \| `"listener"` \| `"batch"` \| `"system"` | - |
 | <a id="path-3"></a> `path?` | `string` | - |
 | <a id="reasons-3"></a> `reasons?` | `string`[] | - |
 | <a id="request-3"></a> `request?` | \{ `data?`: `unknown`; `query?`: `unknown`; `resourceData?`: `unknown`; \} | - |
@@ -2986,7 +2989,7 @@ scenario surfaces them.
 | <a id="resource-2"></a> `resource?` | \{ `data`: `Record`\<`string`, `unknown`\>; `exists`: `boolean`; \} |
 | `resource.data` | `Record`\<`string`, `unknown`\> |
 | `resource.exists` | `boolean` |
-| <a id="target-3"></a> `target` | \| \{ `kind`: `"doc"`; `path`: `string`; \} \| \{ `collection`: `string`; `kind`: `"query"`; \} |
+| <a id="target-3"></a> `target` | \| \{ `kind`: `"doc"`; `path`: `string`; \} \| \{ `collection`: `string`; `kind`: `"query"`; `query?`: `unknown`; \} |
 
 ***
 
@@ -3268,6 +3271,7 @@ type Divergence =
 ```ts
 type EventActor =
   | {
+  journeyId?: string;
   kind: "app";
 }
   | {

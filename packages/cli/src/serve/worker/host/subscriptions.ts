@@ -25,8 +25,15 @@ import {
 
 import type { FirestoreSubMessage, RtdbValueSubMessage, UnsubMessage } from '../protocol.js';
 import { serializeError, isRtdbSub } from '../protocol.js';
-import { type HostCtx, type PortLike, post } from '../host-context.js';
-import { lensDb, sessionDb, lensRtdb, resolveTarget, serializeDocSnap } from './core.js';
+import { activityJourneyId, type HostCtx, type PortLike, post } from '../host-context.js';
+import {
+  lensDb,
+  sessionDb,
+  lensRtdb,
+  opProvenance,
+  resolveTarget,
+  serializeDocSnap,
+} from './core.js';
 import { rtdbSnapToWire } from './rtdb.js';
 
 /**
@@ -73,13 +80,32 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
   const portSubs = ctx.subs.get(port);
   for (const [subId, msg] of [...bound]) {
     const unsub = portSubs?.get(subId);
-    if (unsub) unsub();
-    portSubs?.delete(subId);
-    bound.delete(subId); // handleSub/handleRtdbSub re-records it
     if (isRtdbSub(msg)) {
+      if (unsub) unsub();
+      portSubs?.delete(subId);
+      bound.delete(subId); // handleRtdbSub re-records it
       handleRtdbSub(ctx, port, msg);
     } else {
-      handleSub(ctx, port, msg);
+      // Auth transitions enter through host-auth rather than the dispatcher,
+      // so restore the original app/page provenance explicitly. The detach is
+      // correlated to the old accepted registration by listener id; this
+      // replacement attach must retain the same logical page attribution.
+      const provenance = {
+        ...opProvenance(msg, activityJourneyId(ctx, port)),
+        activityListenerId: subId,
+        activityListenerLifecycle: 'reauthorize' as const,
+      };
+      const reauthorize = (): void => {
+        if (unsub) unsub();
+        portSubs?.delete(subId);
+        bound.delete(subId); // handleSub re-records it
+        handleSub(ctx, port, msg);
+      };
+      if (provenance && ctx.sandbox.runWithProvenance) {
+        ctx.sandbox.runWithProvenance(provenance, reauthorize);
+      } else {
+        reauthorize();
+      }
     }
   }
 }

@@ -865,7 +865,13 @@ export class LocalEnvironment {
       listenerId: id,
       target: target.kind === 'doc'
         ? { kind: 'doc', path: target.path }
-        : { kind: 'query', collection: target.collection },
+        : {
+            kind: 'query',
+            collection: target.collection,
+            ...(target.constraints?.activityQuery
+              ? { query: target.constraints.activityQuery }
+              : {}),
+          },
       auth,
     });
 
@@ -896,7 +902,13 @@ export class LocalEnvironment {
           listenerId: id,
           target: target.kind === 'doc'
             ? { kind: 'doc', path: target.path }
-            : { kind: 'query', collection: target.collection },
+            : {
+                kind: 'query',
+                collection: target.collection,
+                ...(target.constraints?.activityQuery
+                  ? { query: target.constraints.activityQuery }
+                  : {}),
+              },
           auth,
         });
       }
@@ -1454,6 +1466,7 @@ export class LocalEnvironment {
     const detailFields = {
       ...(bypassRules ? { admin: true } : {}),
       ...(requestQuery ? { query: requestQuery } : {}),
+      ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
     };
     const requestDetail = Object.keys(detailFields).length > 0 ? detailFields : undefined;
     const evalAt = Date.now();
@@ -1960,12 +1973,14 @@ export class LocalEnvironment {
     auth: Operation['auth'],
     query?: QueryConstraints,
     bypassRules?: boolean,
+    activityQuery?: unknown,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
     const structured: QueryConstraints = query ?? {};
     const requestQuery = listQueryFromStructured(structured);
     const requestDetail = {
       ...(bypassRules ? { admin: true } : {}),
       ...(requestQuery ? { query: requestQuery } : {}),
+      ...(activityQuery !== undefined ? { activityQuery } : {}),
     };
     const detail = Object.keys(requestDetail).length > 0 ? requestDetail : undefined;
     // Studio admin lens (Gap #2): skip the query-proof gate + `list` rule

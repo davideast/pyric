@@ -336,22 +336,52 @@ export function ensureRtdb(ctx: HostCtx): Database {
  *   - `actor`: a client that DECLARED itself the issuer (`issuer: 'studio'`,
  *     stamped by Studio's worker client — `setOpIssuer` in client.ts) gets
  *     `actor: { kind: 'studio' }`. Bridge-relayed frames are forwarded
- *     verbatim without the stamp (client.ts `relayWorkerOp`), so remote
- *     admin/agent traffic is never mislabeled as Studio's.
+ *     with the stamp cleared (client.ts `relayWorkerOp`), so remote traffic
+ *     carries `relaySource: 'remote'` and remains unattributed rather than
+ *     being silently promoted to either Studio or page app traffic.
  *   - `authLens`: the op's EFFECTIVE lens (`msg.actAs`) whenever present —
  *     independent of issuer, because admin is admin regardless of who asked
  *     (an agent tool relay's admin op must classify as a rules BYPASS in
  *     Traffic, not a rules allow).
  *
- * Returns `undefined` for a plain served-app op (no issuer, no lens); its
- * app source and app-session lens come from the service handle itself.
+ * Plain served-app operations get provenance from their service handles.
+ * Firestore subscription registration is the exception: listener lifecycle
+ * envelopes originate below that handle, so a normal worker subscription is
+ * stamped here as app/app-session. Its later unattributed detach can then be
+ * correlated to the accepted registration by the activity monitor.
  */
-export function opProvenance(msg: InboundMessage): EventProvenance | undefined {
+export function opProvenance(
+  msg: InboundMessage,
+  activityJourneyId?: string,
+): EventProvenance | undefined {
   const issuer = (msg as { issuer?: 'studio' }).issuer;
+  const relaySource = (msg as { relaySource?: 'remote' }).relaySource;
   const actAs = (msg as { actAs?: AuthLens }).actAs;
-  if (issuer !== 'studio' && !actAs) return undefined;
+  const target = msg.t === 'sub' ? msg.target : undefined;
+  const isAppFirestoreSubscription = issuer !== 'studio'
+    && relaySource !== 'remote'
+    && target !== null
+    && typeof target === 'object'
+    && '__ref' in target;
+  if (
+    issuer !== 'studio'
+    && relaySource !== 'remote'
+    && !actAs
+    && !isAppFirestoreSubscription
+    && activityJourneyId === undefined
+  ) return undefined;
   return {
-    ...(issuer === 'studio' ? { actor: { kind: 'studio' } } : {}),
-    ...(actAs ? { authLens: actAs } : {}),
+    actor: relaySource === 'remote'
+      ? { kind: 'unattributed' }
+      : issuer === 'studio'
+        ? { kind: 'studio' }
+        : { kind: 'app', ...(activityJourneyId ? { journeyId: activityJourneyId } : {}) },
+    authLens: actAs ?? { mode: 'app-session' },
+    ...(isAppFirestoreSubscription
+      ? { activityListenerId: (msg as { subId: string }).subId }
+      : {}),
+    ...(msg.t === 'op' && msg.method === 'getDoc' && msg.activityGroupKind
+      ? { activityGroupKind: msg.activityGroupKind }
+      : {}),
   };
 }

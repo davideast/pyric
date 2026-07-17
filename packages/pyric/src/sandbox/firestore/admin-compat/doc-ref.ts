@@ -25,6 +25,10 @@ import { makeError } from 'pyric/sandbox/internal';
 import type { OperationResult } from 'pyric/sandbox/internal';
 import { lastSegment, parentCollectionPath } from './paths.js';
 import { makeDocSnapshot } from './snapshots.js';
+import {
+  boundedActivityIdentity,
+  registerActivityValue,
+} from 'pyric/firestore-values/internal';
 import { CollectionRefImpl } from './query.js';
 import {
   FirestoreCompatError,
@@ -71,6 +75,7 @@ export class DocumentRefImpl implements DocumentReference {
   ) {
     this.path = path;
     this.id = lastSegment(path);
+    registerActivityValue(this, boundedActivityIdentity('reference', path));
   }
 
   get parent(): CollectionReference {

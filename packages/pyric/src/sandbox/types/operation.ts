@@ -6,7 +6,7 @@ export type EventService = 'firestore' | 'auth' | 'storage' | 'rtdb' | 'messagin
 /** Who initiated the operation behind an event. Missing source is represented
  * explicitly as `unattributed`; it is never silently promoted to app traffic. */
 export type EventActor =
-  | { kind: 'app' }
+  | { kind: 'app'; journeyId?: string }
   | { kind: 'studio' }
   | { kind: 'agent'; name: string }
   | { kind: 'app-builder' }
@@ -47,4 +47,10 @@ export interface EventProvenance {
   operationContext?: OperationContext;
   /** Set when the op is part of an agent plan. */
   planId?: string;
+  /** Stable host subscription identity used only by activity diagnostics. */
+  activityListenerId?: string;
+  /** Marks lifecycle caused by transparent auth reauthorization, not app code. */
+  activityListenerLifecycle?: 'reauthorize';
+  /** Marks worker-split operations that belong to a transaction for activity diagnostics. */
+  activityGroupKind?: 'transaction';
 }

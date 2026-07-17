@@ -104,6 +104,7 @@ function recordingFetch(): typeof fetch & { calls: Array<{ url: string; body: st
 const tick = (ms = 10): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const basePayload: InitPayload = {
+  activityToken: 'activity-test-token',
   rules: null,
   rulesHash: null,
   storageRules: null,

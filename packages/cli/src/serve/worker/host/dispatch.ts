@@ -30,7 +30,7 @@ import {
 import { buildSandboxDispatcher } from '../../../bridge/client/dispatch.js';
 import { firebaseOptionsEqual } from 'pyric/app/internal';
 
-import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
+import { activityJourneyId, type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import {
   authSubsFor,
   isAuthOp,
@@ -193,7 +193,17 @@ export async function handleMessage(
   // provenance EXPLICITLY instead (see `handleOp`'s storage cases). Without the
   // lens on admin ops, `verdictFor` mislabeled a rules BYPASS as ALLOW (the
   // RTDB/Firestore asymmetry the traffic-metrics work flagged).
-  const prov = opProvenance(msg);
+  const isRemoteRelay = (msg as { relaySource?: 'remote' }).relaySource === 'remote';
+  const tracksFirestoreActivity = !isRemoteRelay && (msg.t === 'op'
+    ? isFirestoreReadOp(msg.method)
+    : msg.t === 'sub'
+      && msg.target !== null
+      && typeof msg.target === 'object'
+      && '__ref' in msg.target);
+  const prov = opProvenance(
+    msg,
+    tracksFirestoreActivity ? activityJourneyId(ctx, port) : undefined,
+  );
   if (prov && ctx.sandbox.runWithProvenance) {
     return ctx.sandbox.runWithProvenance(prov, () => dispatchMessage(ctx, port, msg));
   }

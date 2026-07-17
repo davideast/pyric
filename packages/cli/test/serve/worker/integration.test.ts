@@ -22,6 +22,7 @@ import {
 } from 'pyric/sandbox';
 import { getFirestore as ipGetFirestore } from 'pyric/firestore';
 import { getAuth as ipGetAuth } from 'pyric/auth';
+import { monitorFirebaseActivity, type ActivityIncident } from 'pyric/firestore/internal';
 import * as client from '../../../src/serve/worker/client.js';
 
 const GATE_RULES = `rules_version = '2';
@@ -116,6 +117,126 @@ describe('client↔host round-trip (gate repro)', () => {
     expect(errors).toEqual([]);
     expect(fires.length).toBeGreaterThanOrEqual(1);
     expect(fires.at(-1)).toBe(1);
+  });
+
+  it('excludes split transaction reads from activity warnings', async () => {
+    const ctx = await makeHostCtx();
+    const { a: clientPort, b: hostPort } = portPair();
+    const hostPortLike: PortLike = {
+      postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
+    };
+    hostPort.onmessage = (event) => {
+      void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
+    };
+    (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+      port = clientPort;
+      constructor(_url: unknown, _opts: unknown) {}
+    };
+
+    const db = client.getFirestore('worker://activity-transaction-test');
+    const auth = client.getAuth(db);
+    const credential = await client.createUserWithEmailAndPassword(
+      auth,
+      'transaction@example.com',
+      'pw123456',
+    );
+    const ref = client.doc(db, 'notes/transaction');
+    await client.setDoc(ref, { uid: credential.user.uid });
+
+    const warnings: ActivityIncident[] = [];
+    const monitor = monitorFirebaseActivity(
+      {
+        history: () => ctx.sandbox.history(),
+        subscribe: (listener) => ctx.sandbox.onEvent(listener),
+      },
+      (incident) => warnings.push(incident),
+    );
+
+    await client.runTransaction(db, async (transaction) => {
+      for (let index = 0; index < 5; index += 1) await transaction.get(ref);
+    });
+
+    expect(ctx.sandbox.history().filter(
+      (event) => event.kind === 'request' && event.activityGroupKind === 'transaction',
+    )).toHaveLength(5);
+    expect(warnings).toEqual([]);
+
+    for (let index = 0; index < 5; index += 1) await client.getDoc(ref);
+    expect(warnings.map((incident) => incident.pattern)).toEqual(['repeated-read']);
+    monitor.dispose();
+  });
+
+  it('excludes remote relay reads and listeners while retaining page warnings', async () => {
+    const ctx = await makeHostCtx();
+    const { a: clientPort, b: hostPort } = portPair();
+    const hostPortLike: PortLike = {
+      postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
+    };
+    hostPort.onmessage = (event) => {
+      void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
+    };
+    (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+      port = clientPort;
+      constructor(_url: unknown, _opts: unknown) {}
+    };
+
+    const db = client.getFirestore('worker://activity-remote-relay-test');
+    const auth = client.getAuth(db);
+    const credential = await client.createUserWithEmailAndPassword(
+      auth,
+      'remote-relay@example.com',
+      'pw123456',
+    );
+    const uid = credential.user.uid;
+    const path = 'notes/remote-relay';
+    const ref = client.doc(db, path);
+    await client.setDoc(ref, { uid });
+    const warnings: ActivityIncident[] = [];
+    const monitor = monitorFirebaseActivity(
+      {
+        history: () => ctx.sandbox.history(),
+        subscribe: (listener) => ctx.sandbox.onEvent(listener),
+      },
+      (incident) => warnings.push(incident),
+    );
+
+    const remoteRequestsBefore = ctx.sandbox.history().filter((event) =>
+      event.kind === 'request'
+      && event.path === path
+      && event.operationContext?.source.kind === 'unattributed'
+    ).length;
+    for (let index = 0; index < 5; index += 1) {
+      await client.relayWorkerOp(db, {
+        method: 'getDoc', path, actAs: { mode: 'as', uid },
+      });
+    }
+    expect(warnings).toEqual([]);
+    const remoteRequestsAfter = ctx.sandbox.history().filter((event) =>
+      event.kind === 'request'
+      && event.path === path
+      && event.operationContext?.source.kind === 'unattributed'
+    ).length;
+    expect(remoteRequestsAfter - remoteRequestsBefore).toBe(5);
+
+    const remoteUnsubscribes = Array.from({ length: 3 }, () => client.relayWorkerSub(
+      db,
+      { target: { __ref: 'doc', path }, actAs: { mode: 'as', uid } },
+      () => {},
+    ));
+    await sleep();
+
+    expect(warnings).toEqual([]);
+
+    for (let index = 0; index < 5; index += 1) await client.getDoc(ref);
+    const pageUnsubscribes = Array.from({ length: 3 }, () => client.onSnapshot(ref, () => {}));
+    await sleep();
+    expect(warnings.map((incident) => incident.pattern)).toEqual([
+      'repeated-read',
+      'duplicate-listener',
+    ]);
+
+    for (const unsubscribe of [...remoteUnsubscribes, ...pageUnsubscribes]) unsubscribe();
+    monitor.dispose();
   });
 });
 

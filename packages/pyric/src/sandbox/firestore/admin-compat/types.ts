@@ -16,6 +16,10 @@
  */
 
 import type { FirestoreErrorCode, FirestoreSimError } from 'pyric/sandbox/internal';
+import {
+  boundedActivityIdentity,
+  registerActivityValue,
+} from 'pyric/firestore-values/internal';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — what agent code calls.
@@ -301,7 +305,12 @@ export class Timestamp {
   constructor(
     public readonly seconds: number,
     public readonly nanoseconds: number,
-  ) {}
+  ) {
+    registerActivityValue(
+      this,
+      boundedActivityIdentity('timestamp', String(seconds), '\0', String(nanoseconds)),
+    );
+  }
   static now(): Timestamp {
     return Timestamp.fromMillis(Date.now());
   }

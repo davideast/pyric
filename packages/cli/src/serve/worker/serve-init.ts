@@ -38,6 +38,7 @@ import {
   primeEventHistory,
 } from 'pyric/sandbox/internal';
 import type { InitPayload } from '../namespace.js';
+import { setupFirebaseActivityGuard } from './activity-bootstrap.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
@@ -480,6 +481,10 @@ export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
       /* activity-log hydration is non-essential; never brick boot over it. */
     }
   }
+
+  // Default-on, warning-only. Start AFTER hydration so a restored capture can
+  // populate a report without replaying an old warning into a fresh terminal.
+  setupFirebaseActivityGuard(ctx, env, payload?.activityToken);
 
   // Apply rules / seed / authUsers / capture BEFORE any port op runs (so
   // seeded users exist and project rules govern the first write), then mirror

@@ -66,7 +66,7 @@ export interface SnapshotErrorEvent {
   message: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string };
+    | { kind: 'query'; collection: string; query?: unknown };
   auth?: AuthState;
   request?: {
     method: 'get' | 'list' | 'create' | 'update' | 'delete';
@@ -311,7 +311,7 @@ export interface ListenerLifecycleEvent {
   listenerId: string;
   target:
     | { kind: 'doc'; path: string }
-    | { kind: 'query'; collection: string };
+    | { kind: 'query'; collection: string; query?: unknown };
   auth: AuthState;
   /** Populated on `listener_errored` only. */
   error?: {

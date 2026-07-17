@@ -40,6 +40,15 @@ export function stampProvenance<E extends SandboxEvent>(
   out.actor = context.source;
   out.authLens = context.authLens;
   if (context.planId !== undefined) out.planId = context.planId;
+  if (overrides?.activityListenerId !== undefined) {
+    out.activityListenerId = overrides.activityListenerId;
+  }
+  if (overrides?.activityListenerLifecycle !== undefined) {
+    out.activityListenerLifecycle = overrides.activityListenerLifecycle;
+  }
+  if (overrides?.activityGroupKind !== undefined) {
+    out.activityGroupKind = overrides.activityGroupKind;
+  }
   if (isOperationEvent(out)) {
     out.rulesDisposition = Object.freeze({ ...rulesDispositionFor(out) });
   }

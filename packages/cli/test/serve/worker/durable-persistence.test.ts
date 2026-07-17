@@ -23,6 +23,7 @@ const PERMISSIVE_RULES = `rules_version = '2'; service cloud.firestore {
   match /databases/{database}/documents { match /{document=**} { allow read, write: if true; } }
 }`;
 const basePayload: InitPayload = {
+  activityToken: 'activity-test-token',
   rules: null,
   rulesHash: null,
   storageRules: null,

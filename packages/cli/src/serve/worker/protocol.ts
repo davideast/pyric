@@ -371,7 +371,13 @@ export type AuthPersistenceMode = 'LOCAL' | 'SESSION' | 'NONE';
  * correlation `id` that the worker echoes back in the `res` reply.
  */
 export type OpMessage = (
-  | { t: 'op'; id: string; method: 'getDoc'; path: string }
+  | {
+      t: 'op';
+      id: string;
+      method: 'getDoc';
+      path: string;
+      activityGroupKind?: 'transaction';
+    }
   | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor }
   | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; options?: { merge?: boolean; mergeFields?: string[] } }
   | { t: 'op'; id: string; method: 'updateDoc'; path: string; data: unknown }
@@ -562,13 +568,15 @@ export type OpMessage = (
    *
    * Declared at the issuing call site, never inferred: Studio's worker
    * client stamps it on every op it builds (see `setOpIssuer` in
-   * `client.ts`); the bridge relay (`relayWorkerOp`) forwards remote
-   * frames VERBATIM without stamping, so a user's own admin-SDK traffic
+   * `client.ts`); the bridge relay (`relayWorkerOp`) clears that issuer and
+   * marks remote frames separately, so a user's own admin-SDK traffic
    * through the remote bridge — which also rides this port when Studio
    * holds the peer slot — is never mislabeled as Studio's. Additive:
-   * existing senders omit it (events default to `actor: { kind: 'app' }`).
+   * existing senders omit it.
    */
   issuer?: 'studio';
+  /** Marks traffic relayed from a remote Node/agent consumer, never page app activity. */
+  relaySource?: 'remote';
 };
 
 /**
@@ -612,6 +620,8 @@ export interface FirestoreSubMessage {
    *  listener's deferred re-evals stay attributed to the app (they fire on
    *  the microtask drain, outside any provenance window). */
   issuer?: 'studio';
+  /** Marks traffic relayed from a remote Node/agent consumer, never page app activity. */
+  relaySource?: 'remote';
 }
 
 /**
@@ -658,6 +668,8 @@ export interface RtdbValueSubMessage {
   actAs?: AuthLens;
   /** Mechanical op provenance — see the field's doc on {@link OpMessage}. */
   issuer?: 'studio';
+  /** Marks traffic relayed from a remote Node/agent consumer. */
+  relaySource?: 'remote';
 }
 
 /**
