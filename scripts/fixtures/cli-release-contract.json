@@ -27,6 +27,7 @@
     "./verify",
     "./conformance",
     "./conformance/browser",
+    "./conformance/docs",
     "./assurance",
     "./assurance/browser",
     "./bridge",
