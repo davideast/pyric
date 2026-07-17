@@ -39,6 +39,26 @@ export interface ParseError {
 
 // ---- Semantics for AST generation ----
 
+/**
+ * Split the mixed top-level `(ImportDecl | FunctionDef)*` repetition (#347:
+ * imports and functions interleave in production) into the AST's separate
+ * `imports` / `functions` arrays, preserving source order within each kind.
+ */
+function partitionTopLevelDecls(decls: any): {
+  imports: FirestoreRules['imports'];
+  functions: NonNullable<FirestoreRules['functions']>;
+} {
+  const imports: FirestoreRules['imports'] = [];
+  const functions: NonNullable<FirestoreRules['functions']> = [];
+  for (const child of decls.children) {
+    // A parenthesized alternation adds no CST wrapper: each repetition
+    // element IS the matched ImportDecl or FunctionDef node.
+    if (child.ctorName === 'ImportDecl') imports.push(child.toAST());
+    else functions.push(child.toAST());
+  }
+  return { imports, functions };
+}
+
 const semantics = grammar.createSemantics();
 
 semantics.addOperation<any>('toAST', {
@@ -46,20 +66,22 @@ semantics.addOperation<any>('toAST', {
   // normalize into the same AST shape — caller code reads
   // `ast.version`, `ast.imports`, and `ast.service` regardless of
   // which order the source declared them in.
-  RulesFile_versionFirst(version, imports, functions, service) {
+  RulesFile_versionFirst(version, decls, service) {
+    const { imports, functions } = partitionTopLevelDecls(decls);
     return {
-      imports: imports.children.map((c: any) => c.toAST()),
+      imports,
       // `rules_version` is optional in production (absent means '1').
       version: version.children.length > 0 ? version.children[0].toAST() : '1',
-      functions: functions.children.map((c: any) => c.toAST()),
+      functions,
       service: service.toAST(),
     } as FirestoreRules;
   },
-  RulesFile_importsFirst(imports, version, functions, service) {
+  RulesFile_importsFirst(leadingImports, version, decls, service) {
+    const { imports, functions } = partitionTopLevelDecls(decls);
     return {
-      imports: imports.children.map((c: any) => c.toAST()),
+      imports: [...leadingImports.children.map((c: any) => c.toAST()), ...imports],
       version: version.toAST(),
-      functions: functions.children.map((c: any) => c.toAST()),
+      functions,
       service: service.toAST(),
     } as FirestoreRules;
   },

@@ -10,8 +10,11 @@ FirestoreRules {
   // declarations above the version line working. The semantic
   // action below normalizes both into the same AST shape, so
   // downstream code doesn't have to care which path matched.
-  RulesFile = RulesVersion? ImportDecl* FunctionDef* ServiceBlock  -- versionFirst
-            | ImportDecl* RulesVersion FunctionDef* ServiceBlock   -- importsFirst
+  // Imports and functions INTERLEAVE at the top level: production accepts
+  // `function` then `import` in either order (#347), so the declarations
+  // are one mixed repetition, partitioned by kind in the semantic action.
+  RulesFile = RulesVersion? (ImportDecl | FunctionDef)* ServiceBlock            -- versionFirst
+            | ImportDecl* RulesVersion (ImportDecl | FunctionDef)* ServiceBlock -- importsFirst
 
   ImportDecl = "import" "{" ListOf<ident, ","> ","? "}" "from" string ";"
 

@@ -124,6 +124,27 @@ service firebase.storage {
     name: 'modulo operator',
     source: ruleset('resource.size % 2 == 0'),
   },
+  {
+    name: 'import declaration after a global function (#347 interleave)',
+    source: `rules_version = '2';
+function f() { return true; }
+import { helper } from 'shared/helpers';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{id} { allow read: if f(); }
+  }
+}`,
+  },
+  {
+    name: 'version-less file with function-then-import ordering (#347)',
+    source: `function f() { return true; }
+import { helper } from 'shared/helpers';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{id} { allow read: if f(); }
+  }
+}`,
+  },
 ];
 
 describe('storage rules syntax acceptance', () => {
