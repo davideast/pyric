@@ -46,21 +46,12 @@ import type {
 } from './transaction-types.js';
 import type { EventProvenance } from '../../sandbox/types/events.js';
 import type {
-  DocumentSnapshot,
   ListenerAuth,
-  ListenerRecord,
   QueryConstraintApplier,
-  QuerySnapshot,
   SnapshotCallback,
   SnapshotErrorCallback,
   SnapshotListenerOptions,
   SnapshotTarget,
-} from './snapshot-listeners.js';
-import {
-  buildDocumentSnapshot,
-  buildQuerySnapshot,
-  SANDBOX_METADATA,
-  SANDBOX_METADATA_PENDING,
 } from './snapshot-listeners.js';
 
 // Register every shipped converter exactly once on module load. Idempotent
@@ -86,10 +77,10 @@ import type {
 } from './writes.js';
 import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './history.js';
 export { SimulatorUnsupportedError } from './rules-evaluation.js';
-import { docDataEqual, anyPathInCollection } from './listener-delivery.js';
 import { listQueryFromStructured } from './reads.js';
 import { FirestoreEventBus } from './event-bus.js';
 import { TriggerScope } from './trigger-scope.js';
+import { ListenerDispatch } from './listener-dispatch.js';
 import { HistoryControls } from './history-controls.js';
 import {
   SimulatorUnsupportedError,
@@ -137,37 +128,12 @@ export class LocalEnvironment {
   private parsedRulesCache: { source: string; ast: FirestoreRules | null } | null = null;
 
   /**
-   * Active `onSnapshot` listeners. Slice 1 — registry only; the dispatch
-   * path is wired in Slices 2 (initial fire), 3 (change detection), and
-   * 5 (transaction/batch deferral). Stored as a flat `Map<id, record>`
-   * per the implementation plan; query-canonicalization-based dedup
-   * (production's `EventManager` shape) is layered on later when caching
-   * actually saves work — see source survey section 2 for the eventual target
-   * shape. Each record carries its own target so future slices can scan
-   * and group on demand without restructuring the registry first.
+   * Snapshot-listener registry + delivery machinery (ADR-0009, PR B2).
+   * Constructed in the constructor so its host closures bind to the
+   * engine's rules-gated silent reads (which move to RulesReadEngine in
+   * PR B3).
    */
-  private snapshotListeners: Map<string, ListenerRecord> = new Map();
-  private nextListenerId = 0;
-
-  /**
-   * Deferred listener deliveries — the shared delivery scheduler (items
-   * 3 + 5). Production never invokes an `onSnapshot` callback synchronously
-   * on the registering/writing stack: the initial snapshot arrives after
-   * the listen round-trip (COMPAT firestore#80 — "asynchronous, never
-   * during register"), and a local write's echo + server ack arrive on the
-   * async event queue (firestore#85). The sandbox mirrors that by enqueuing
-   * every user-facing delivery here and draining it off-stack, on a
-   * `queueMicrotask` boundary — which satisfies the "asynchronous" contract
-   * without a macrotask's extra latency (the prototype in the deep-divergence
-   * review measured identical behavior for micro- vs macro-task deferral).
-   *
-   * Per-listener FIFO order is preserved: deliveries enqueued *during* a
-   * drain — a callback that itself writes, or the item-3 metadata ack a
-   * write echo schedules — are appended and drained in the same pass, so a
-   * write settles fully before control returns to the microtask loop.
-   */
-  private deliveryQueue: Array<() => void> = [];
-  private deliveryScheduled = false;
+  private readonly listeners: ListenerDispatch;
 
   constructor() {
     this.state = new LocalState();
@@ -179,6 +145,14 @@ export class LocalEnvironment {
       get state() { return engine.state; },
       capturePriors: (paths) => this.capturePriors(paths),
       applyWrite: (method, path, data, merge) => this.applyWrite(method, path, data, merge),
+    });
+    // Listener dispatch calls back into the engine only for rules-gated
+    // silent reads — injected as a narrow ListenerDispatchHost.
+    this.listeners = new ListenerDispatch(this.events, this.triggerScope, {
+      silentReadDoc: (path, auth, bypassRules) =>
+        this.silentReadDoc(path, auth, bypassRules),
+      silentReadCollection: (collection, auth, constraints, bypassRules) =>
+        this.silentReadCollection(collection, auth, constraints, bypassRules),
     });
     this.simulator = new SimulateFirestoreRulesHandler();
     // Default to an allow-all ruleset so a freshly-constructed sandbox
@@ -247,79 +221,6 @@ export class LocalEnvironment {
    *  routes through onSnapshotError separately. */
   onListenerLifecycle(cb: (event: import('../../sandbox/types/events.js').ListenerLifecycleEvent) => void): () => void {
     return this.events.lifecycle.subscribe(cb);
-  }
-
-  private emitSnapshotDelivery(input: {
-    listenerId: string;
-    target: import('../../sandbox/types/events.js').SnapshotDeliveryEvent['target'];
-    auth: ListenerAuth;
-    addedCount: number;
-    modifiedCount: number;
-    removedCount: number;
-    size: number;
-    sample?: { docs: Array<{ path: string; data: Record<string, unknown> | null }> };
-    triggeredBy?: { method: string; path: string };
-  }): void {
-    if (!this.events.delivery.hasSubscribers) return;
-    const event: import('../../sandbox/types/events.js').SnapshotDeliveryEvent = {
-      kind: 'snapshot_delivery',
-      id: nextRequestEventId().replace(/^req-/, 'snd-'),
-      at: Date.now(),
-      listenerId: input.listenerId,
-      target: input.target,
-      auth: input.auth
-        ? { uid: input.auth.uid, ...(input.auth.token ? { token: input.auth.token } : {}) }
-        : null,
-      addedCount: input.addedCount,
-      modifiedCount: input.modifiedCount,
-      removedCount: input.removedCount,
-      size: input.size,
-      ...(input.sample ? { sample: input.sample } : {}),
-      ...(input.triggeredBy ? { triggeredBy: input.triggeredBy } : {}),
-    };
-    this.events.delivery.emit(event);
-  }
-
-  private emitSnapshotSuppressed(input: {
-    listenerId: string;
-    target: import('../../sandbox/types/events.js').SnapshotSuppressedEvent['target'];
-    auth: ListenerAuth;
-    triggeredBy?: { method: string; path: string };
-  }): void {
-    if (!this.events.suppressed.hasSubscribers) return;
-    const event: import('../../sandbox/types/events.js').SnapshotSuppressedEvent = {
-      kind: 'snapshot_suppressed',
-      id: nextRequestEventId().replace(/^req-/, 'sup-'),
-      at: Date.now(),
-      listenerId: input.listenerId,
-      target: input.target,
-      auth: input.auth
-        ? { uid: input.auth.uid, ...(input.auth.token ? { token: input.auth.token } : {}) }
-        : null,
-      reason: 'no-op',
-      ...(input.triggeredBy ? { triggeredBy: input.triggeredBy } : {}),
-    };
-    this.events.suppressed.emit(event);
-  }
-
-  private emitLifecycle(input: {
-    phase: 'listener_attach' | 'listener_detach';
-    listenerId: string;
-    target: import('../../sandbox/types/events.js').ListenerLifecycleEvent['target'];
-    auth: ListenerAuth;
-  }): void {
-    if (!this.events.lifecycle.hasSubscribers) return;
-    const event: import('../../sandbox/types/events.js').ListenerLifecycleEvent = {
-      kind: input.phase,
-      id: nextRequestEventId().replace(/^req-/, 'lc-'),
-      at: Date.now(),
-      listenerId: input.listenerId,
-      target: input.target,
-      auth: input.auth
-        ? { uid: input.auth.uid, ...(input.auth.token ? { token: input.auth.token } : {}) }
-        : null,
-    };
-    this.events.lifecycle.emit(event);
   }
 
   /**
@@ -424,31 +325,14 @@ export class LocalEnvironment {
     return this.events.snapshotError.subscribe(cb);
   }
 
-  private emitSnapshotError(
-    err: FirestoreSimError,
-    target: SnapshotTarget,
-    listenerId: string,
-  ): void {
-    this.events.snapshotError.emit(err, target, listenerId);
-  }
-
   // ═══ Snapshot listeners (Slices 1+2) ═══
 
   /**
    * Register a snapshot listener. Returns an `Unsubscribe` function
-   * matching the Web SDK's contract — a zero-arg call that detaches
-   * the listener. Idempotent: calling the returned function more than
-   * once after the first detach is a no-op.
-   *
-   * Slice 2: fires the **initial snapshot** synchronously after the
-   * record is registered. The current matching docs are read under
-   * `auth`'s rules — denied reads invoke `errorCallback` and mark the
-   * listener `errored` (no further notifications). Slice 3 will add
-   * change-driven fires; Slice 5 batches them through `applyBatch`.
-   *
-   * `auth` is captured at registration so notifications later evaluate
-   * rules under the auth that subscribed — not whatever auth happens
-   * to be active when a write triggers the dispatch.
+   * matching the Web SDK's contract — idempotent after the first detach.
+   * Registration, the off-stack initial fire, delivery ordering, and
+   * metadata acks live in {@link ListenerDispatch}; the facade keeps the
+   * public signature (ADR-0009 decision 4).
    */
   addSnapshotListener(
     target: SnapshotTarget,
@@ -456,476 +340,33 @@ export class LocalEnvironment {
     options: SnapshotListenerOptions = {},
     auth: ListenerAuth = null,
     errorCallback?: SnapshotErrorCallback,
-    /**
-     * `true` when the registering Firestore handle was a `sandbox-live`
-     * (`getFirestore(sandbox)`) target — its identity follows
-     * `sandbox.currentUser`, so this listener re-evaluates on a
-     * `currentUser` change (see {@link reevaluateLiveListeners}).
-     * `false` (default) for frozen-ctx (`getFirestore(ctx)`) listeners,
-     * which stay pinned to the auth they captured at registration.
-     */
+    /** `true` when the listener follows `sandbox.currentUser` — see
+     *  {@link reevaluateLiveListeners}. */
     followsCurrentUser = false,
     /** Preserve the admin lens for the listener's full lifetime. */
     bypassRules = false,
     /** Named app session identity; undefined means the ambient session. */
     authScope?: object,
   ): () => void {
-    const id = String(this.nextListenerId++);
-    const record: ListenerRecord = {
-      id,
+    return this.listeners.addSnapshotListener(
       target,
       callback,
-      auth,
-      bypassRules,
-      followsCurrentUser,
-      ...(authScope ? { authScope } : {}),
       options,
-      currentSnapshot: undefined,
-      errored: false,
-      ...(errorCallback ? { errorCallback } : {}),
-    };
-    this.snapshotListeners.set(id, record);
-
-    // Issue #307 — emit lifecycle BEFORE the initial fire so observers
-    // see attach → delivery in causal order.
-    this.emitLifecycle({
-      phase: 'listener_attach',
-      listenerId: id,
-      target: target.kind === 'doc'
-        ? { kind: 'doc', path: target.path }
-        : { kind: 'query', collection: target.collection },
       auth,
-    });
-
-    // Items 3 + 5 — the initial snapshot is delivered off-stack through the
-    // delivery scheduler, never synchronously during register. Production's
-    // event queue schedules even a *cached* initial event asynchronously
-    // (COMPAT firestore#80: "asynchronous, never during register"), so the
-    // register-then-read-synchronously agent pattern that returns `undefined`
-    // on prod also returns `undefined` here — the sandbox no longer trains
-    // users into a pattern prod breaks. The unsubscribe-before-drain guard
-    // mirrors prod: a listener detached before its first fire never sees one.
-    // Errors still route through the listener's `errorCallback` (inside
-    // `fireInitialSnapshot`), never thrown out of `addSnapshotListener`.
-    this.scheduleDelivery(() => {
-      if (!this.snapshotListeners.has(id)) return;
-      this.fireInitialSnapshot(record);
-    });
-
-    return () => {
-      const stillRegistered = this.snapshotListeners.has(id);
-      this.snapshotListeners.delete(id);
-      // Only emit detach if the listener was actually registered when
-      // the unsubscribe was called. Idempotent calls and listeners
-      // dropped by `reset()` don't double-emit.
-      if (stillRegistered) {
-        this.emitLifecycle({
-          phase: 'listener_detach',
-          listenerId: id,
-          target: target.kind === 'doc'
-            ? { kind: 'doc', path: target.path }
-            : { kind: 'query', collection: target.collection },
-          auth,
-        });
-      }
-    };
-  }
-
-  /**
-   * Compute and deliver the initial snapshot for a freshly-registered
-   * listener. Reads under the listener's `auth` and respects the
-   * deployed rules — denied reads route to `errorCallback` and mark
-   * the record `errored`. Splits doc vs query targets along the same
-   * seam {@link execute} uses, but does **not** append to the event
-   * log: listener reads are bookkeeping, not user-visible operations,
-   * and would otherwise drown the event log under any non-trivial UI.
-   */
-  private fireInitialSnapshot(record: ListenerRecord): void {
-    if (record.target.kind === 'doc') {
-      const result = this.silentReadDoc(
-        record.target.path,
-        record.auth,
-        record.bypassRules,
-      );
-      if (!result.allowed) {
-        this.markErrored(record, result.error);
-        return;
-      }
-      const snap = buildDocumentSnapshot(record.target.path, result.data);
-      record.currentSnapshot = snap;
-      record.currentDocData = result.data;
-      try {
-        record.callback(snap);
-      } catch {
-        /* swallow — same rationale as emitDenial; a faulty consumer
-         * callback must not destabilize the simulator. */
-      }
-      // Issue #307 — initial fire counts as a delivery. No triggeredBy
-      // because there was no user op that caused this; the listener
-      // just attached.
-      this.emitSnapshotDelivery({
-        listenerId: record.id,
-        target: { kind: 'doc', path: record.target.path },
-        auth: record.auth,
-        addedCount: result.data !== null ? 1 : 0,
-        modifiedCount: 0,
-        removedCount: 0,
-        size: result.data !== null ? 1 : 0,
-        sample: { docs: [{ path: record.target.path, data: result.data }] },
-      });
-      return;
-    }
-
-    // Query target.
-    const result = this.silentReadCollection(
-      record.target.collection,
-      record.auth,
-      record.target.constraints,
-      record.bypassRules,
+      errorCallback,
+      followsCurrentUser,
+      bypassRules,
+      authScope,
     );
-    if (!result.allowed) {
-      this.markErrored(record, result.error);
-      return;
-    }
-    const snap = buildQuerySnapshot(
-      { path: record.target.collection },
-      result.docs,
-      { excludesMetadataChanges: !record.options.includeMetadataChanges },
-    );
-    record.currentSnapshot = snap;
-    record.currentDocs = result.docs;
-    try {
-      record.callback(snap);
-    } catch {
-      /* swallow — see above */
-    }
-    this.emitSnapshotDelivery({
-      listenerId: record.id,
-      target: { kind: 'query', collection: record.target.collection },
-      auth: record.auth,
-      // Initial fire: every doc surfaces as `added`.
-      addedCount: result.docs.length,
-      modifiedCount: 0,
-      removedCount: 0,
-      size: result.docs.length,
-      sample: { docs: result.docs.map((d) => ({ path: d.path, data: d.data })) },
-    });
   }
 
-  // ═══ Delivery scheduler (items 3 + 5) ═══
 
   /**
-   * Enqueue a listener delivery and ensure an off-stack drain is pending.
-   * See {@link deliveryQueue}.
-   */
-  private scheduleDelivery(deliver: () => void): void {
-    this.deliveryQueue.push(deliver);
-    if (this.deliveryScheduled) return;
-    this.deliveryScheduled = true;
-    queueMicrotask(() => this.drainDeliveries());
-  }
-
-  /**
-   * Enqueue a write-driven delivery, restoring the triggering op while it
-   * runs so listener-origin RequestEvents / delivery events still attribute
-   * to the write (`triggeredBy`) even though the callback now fires off the
-   * writing stack. See {@link triggerScope}.
-   */
-  private scheduleTriggeredDelivery(
-    trigger: { method: string; path: string } | undefined,
-    deliver: () => void,
-  ): void {
-    this.scheduleDelivery(() => this.triggerScope.run(trigger, deliver));
-  }
-
-  /**
-   * Drain queued deliveries in FIFO order. A delivery may enqueue more (a
-   * callback that writes; the item-3 metadata ack a write echo schedules) —
-   * those are appended and drained in the same pass.
-   */
-  private drainDeliveries(): void {
-    this.deliveryScheduled = false;
-    while (this.deliveryQueue.length > 0) {
-      const deliver = this.deliveryQueue.shift()!;
-      deliver();
-    }
-  }
-
-  /**
-   * Synchronously deliver all pending snapshot fires. Test-only seam:
-   * production consumers observe deliveries via the microtask drain, but a
-   * synchronous test body calls this to settle the queue deterministically
-   * before asserting fire counts / snapshot contents. Idempotent — a no-op
-   * on an empty queue, and safe when a microtask drain is also pending (that
-   * drain then finds the queue already empty).
+   * Synchronously deliver all pending snapshot fires. Test-only seam —
+   * see {@link ListenerDispatch#flushListeners}.
    */
   flushListeners(): void {
-    this.drainDeliveries();
-  }
-
-  // ═══ Slice 3 — change-driven notification ═══
-
-  /**
-   * Walk every active snapshot listener and fire those whose target
-   * intersects `touchedPaths`. Called by the write-path commit hooks
-   * — `execute` (single write) and the two `applyBatch` call-sites
-   * (batch + transaction). Suppresses no-op snapshots per findings section 5
-   * (View-level suppression rather than `isEqual`): doc listeners only
-   * fire when the underlying data shape changes; query listeners only
-   * fire when the change list is non-empty.
-   *
-   * Iteration walks a snapshotted list of records — a callback is
-   * allowed to add or remove listeners (StrictMode + HMR routinely do)
-   * and we must not iterate a mutating Map.
-   *
-   * Items 3 + 5 — each per-listener fire is enqueued on the delivery
-   * scheduler rather than run inline, so the write echo lands off the
-   * writing stack (like prod's async event queue) and stays ordered behind
-   * any still-pending initial fire for the same listener. The errored /
-   * unsubscribe checks are re-run at delivery time because a listener may
-   * detach or error between this write and the drain.
-   */
-  private notifyListenersForPaths(touchedPaths: ReadonlySet<string>): void {
-    if (touchedPaths.size === 0) return;
-    if (this.snapshotListeners.size === 0) return;
-    // Capture the triggering op now; the deliveries run off-stack, by which
-    // time `currentTrigger` has been restored to the microtask loop's state.
-    const trigger = this.triggerScope.current();
-    const records = Array.from(this.snapshotListeners.values());
-    for (const record of records) {
-      this.scheduleTriggeredDelivery(trigger, () => {
-        if (!this.snapshotListeners.has(record.id)) return;
-        if (record.errored) return;
-        if (record.target.kind === 'doc') {
-          this.notifyDocListener(record, touchedPaths);
-        } else {
-          this.notifyQueryListener(record, touchedPaths);
-        }
-      });
-    }
-  }
-
-  private notifyDocListener(record: ListenerRecord, touchedPaths: ReadonlySet<string>): void {
-    if (record.target.kind !== 'doc') return;
-    if (!touchedPaths.has(record.target.path)) return;
-
-    const result = this.silentReadDoc(
-      record.target.path,
-      record.auth,
-      record.bypassRules,
-    );
-    if (!result.allowed) {
-      this.markErrored(record, result.error);
-      return;
-    }
-
-    // Suppression: identical underlying data (existence + shape) ⇒ no
-    // fire. Production's View suppresses by absence rather than by
-    // building-then-comparing snapshots; we approximate the same shape
-    // by comparing the raw data we'd hand to `buildDocumentSnapshot`.
-    const prev = record.currentDocData ?? null;
-    if (docDataEqual(prev, result.data)) {
-      // Issue #307 — surface the suppressed re-eval so inspector-style
-      // consumers can answer "the listener woke up but had nothing to
-      // deliver".
-      this.emitSnapshotSuppressed({
-        listenerId: record.id,
-        target: { kind: 'doc', path: record.target.path },
-        auth: record.auth,
-        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-      });
-      return;
-    }
-
-    // Item 3 — the local write echo carries hasPendingWrites:true (prod's
-    // optimistic local fire, delivered before the server round-trip). The
-    // settled server ack (hasPendingWrites:false) is scheduled below, but
-    // only includeMetadataChanges listeners observe it — a default listener's
-    // last-seen snapshot stays `pending:true` (COMPAT firestore#85).
-    const path = record.target.path;
-    const snap = buildDocumentSnapshot(path, result.data, SANDBOX_METADATA_PENDING);
-    record.currentSnapshot = snap;
-    record.currentDocData = result.data;
-    // Compute change shape for the delivery event. Doc listeners deliver
-    // exactly one of added / modified / removed per fire.
-    const wasExists = prev !== null;
-    const isExists = result.data !== null;
-    const addedCount = !wasExists && isExists ? 1 : 0;
-    const removedCount = wasExists && !isExists ? 1 : 0;
-    const modifiedCount = wasExists && isExists ? 1 : 0;
-    try {
-      record.callback(snap);
-    } catch {
-      /* swallow — see fireInitialSnapshot doc */
-    }
-    // Emit delivery AFTER the user callback runs so subscribers see
-    // the same ordering as the user code: callback first, observer second.
-    this.emitSnapshotDelivery({
-      listenerId: record.id,
-      target: { kind: 'doc', path },
-      auth: record.auth,
-      addedCount,
-      modifiedCount,
-      removedCount,
-      size: isExists ? 1 : 0,
-      sample: { docs: [{ path, data: result.data }] },
-      ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-    });
-    this.scheduleDocMetadataAck(record, path, result.data);
-  }
-
-  /**
-   * Item 3 — schedule the server-ack fire that follows a write echo. Only
-   * fires for includeMetadataChanges listeners (default listeners never see
-   * the metadata-only ack; their snapshot stays `pending:true`). Re-delivers
-   * the just-echoed data with `hasPendingWrites:false`, as a metadata-only
-   * change (no added/modified/removed). Rides the delivery scheduler so it
-   * lands off the echo's stack, matching prod's async ack rather than a
-   * synchronous same-tick fire. `data` is captured from the echo so a later
-   * write can't retroactively change what this ack reports. COMPAT firestore#85.
-   */
-  private scheduleDocMetadataAck(
-    record: ListenerRecord,
-    path: string,
-    data: DocumentData | null,
-  ): void {
-    if (!record.options.includeMetadataChanges) return;
-    this.scheduleTriggeredDelivery(this.triggerScope.current(), () => {
-      if (!this.snapshotListeners.has(record.id)) return;
-      if (record.errored) return;
-      const ack = buildDocumentSnapshot(path, data, SANDBOX_METADATA);
-      record.currentSnapshot = ack;
-      try {
-        record.callback(ack);
-      } catch {
-        /* swallow — see fireInitialSnapshot doc */
-      }
-      this.emitSnapshotDelivery({
-        listenerId: record.id,
-        target: { kind: 'doc', path },
-        auth: record.auth,
-        addedCount: 0,
-        modifiedCount: 0,
-        removedCount: 0,
-        size: data !== null ? 1 : 0,
-        sample: { docs: [{ path, data }] },
-        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-      });
-    });
-  }
-
-  private notifyQueryListener(record: ListenerRecord, touchedPaths: ReadonlySet<string>): void {
-    if (record.target.kind !== 'query') return;
-    // Cheap pre-filter: if no touched path lives in this collection,
-    // skip the rules eval entirely. {@link silentReadCollection}'s
-    // query-proof gate handles read-side visibility; this filter is
-    // purely a write-path optimization.
-    if (!anyPathInCollection(touchedPaths, record.target.collection)) return;
-
-    const result = this.silentReadCollection(
-      record.target.collection,
-      record.auth,
-      record.target.constraints,
-      record.bypassRules,
-    );
-    if (!result.allowed) {
-      this.markErrored(record, result.error);
-      return;
-    }
-
-    const collection = record.target.collection;
-    const prevDocs = record.currentDocs ?? [];
-    // Item 3 — the write echo carries hasPendingWrites:true; the settled ack
-    // (scheduled below for includeMetadataChanges listeners) carries false.
-    const snap = buildQuerySnapshot(
-      { path: collection },
-      result.docs,
-      { excludesMetadataChanges: !record.options.includeMetadataChanges },
-      prevDocs,
-      SANDBOX_METADATA_PENDING,
-    );
-    // Suppression: empty change set ⇒ nothing observable changed for
-    // this listener (e.g., a write that landed under a different
-    // collection but tripped the cheap pre-filter, or a write whose
-    // post-image equals its pre-image). Match findings section 5.
-    const changes = snap.docChanges();
-    if (changes.length === 0) {
-      this.emitSnapshotSuppressed({
-        listenerId: record.id,
-        target: { kind: 'query', collection },
-        auth: record.auth,
-        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-      });
-      return;
-    }
-
-    record.currentSnapshot = snap;
-    record.currentDocs = result.docs;
-    let addedCount = 0, modifiedCount = 0, removedCount = 0;
-    for (const c of changes) {
-      if (c.type === 'added') addedCount++;
-      else if (c.type === 'modified') modifiedCount++;
-      else if (c.type === 'removed') removedCount++;
-    }
-    try {
-      record.callback(snap);
-    } catch {
-      /* swallow — see fireInitialSnapshot doc */
-    }
-    this.emitSnapshotDelivery({
-      listenerId: record.id,
-      target: { kind: 'query', collection },
-      auth: record.auth,
-      addedCount,
-      modifiedCount,
-      removedCount,
-      size: result.docs.length,
-      sample: { docs: result.docs.map((d) => ({ path: d.path, data: d.data })) },
-      ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-    });
-    this.scheduleQueryMetadataAck(record, collection, result.docs);
-  }
-
-  /**
-   * Item 3 — query counterpart of {@link scheduleDocMetadataAck}. Re-delivers
-   * the echoed doc set with `hasPendingWrites:false` as a metadata-only change
-   * (no added/modified/removed — `prevDocs` equals the current docs), for
-   * includeMetadataChanges listeners only. COMPAT firestore#85.
-   */
-  private scheduleQueryMetadataAck(
-    record: ListenerRecord,
-    collection: string,
-    docs: { path: string; data: DocumentData }[],
-  ): void {
-    if (!record.options.includeMetadataChanges) return;
-    this.scheduleTriggeredDelivery(this.triggerScope.current(), () => {
-      if (!this.snapshotListeners.has(record.id)) return;
-      if (record.errored) return;
-      const ack = buildQuerySnapshot(
-        { path: collection },
-        docs,
-        { excludesMetadataChanges: false },
-        docs,
-        SANDBOX_METADATA,
-      );
-      record.currentSnapshot = ack;
-      try {
-        record.callback(ack);
-      } catch {
-        /* swallow — see fireInitialSnapshot doc */
-      }
-      this.emitSnapshotDelivery({
-        listenerId: record.id,
-        target: { kind: 'query', collection },
-        auth: record.auth,
-        addedCount: 0,
-        modifiedCount: 0,
-        removedCount: 0,
-        size: docs.length,
-        sample: { docs: docs.map((d) => ({ path: d.path, data: d.data })) },
-        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-      });
-    });
+    this.listeners.flushListeners();
   }
 
   /**
@@ -1218,35 +659,12 @@ export class LocalEnvironment {
   }
 
   /**
-   * Mark a listener as errored and fan the error out to two channels:
-   *   1. The listener's own `errorCallback` (per-listener handler the
-   *      Web SDK consumer registered via `onSnapshot(next, error)`).
-   *   2. Every env-level `onSnapshotError` subscriber (Slice 7) — the
-   *      playground UI surfaces stream errors here without each
-   *      listener needing to register its own toast handler.
-   *
-   * Fan-out is unconditional even when `errorCallback` is missing: the
-   * env-level channel is the catch-all so the host environment can
-   * surface errors from listeners that didn't supply their own handler.
-   */
-  private markErrored(record: ListenerRecord, error: FirestoreSimError): void {
-    record.errored = true;
-    this.emitSnapshotError(error, record.target, record.id);
-    if (!record.errorCallback) return;
-    try {
-      record.errorCallback(error);
-    } catch {
-      /* see emitDenial doc */
-    }
-  }
-
-  /**
    * Test seam — exposes registry size without leaking the records.
    * Slice 2+ may add a richer accessor when the diff path needs to
    * iterate; for now this is enough to assert add/remove correctness.
    */
   getSnapshotListenerCount(): number {
-    return this.snapshotListeners.size;
+    return this.listeners.getSnapshotListenerCount();
   }
 
   /**
@@ -1266,12 +684,8 @@ export class LocalEnvironment {
    * `LocalEnvironment` (or call `seed()`) to reset data.
    */
   dispose(): void {
-    this.snapshotListeners.clear();
+    this.listeners.dispose();
     this.events.clear();
-    // Drop any queued-but-undelivered fires so a disposed env can't invoke
-    // an outgoing consumer's callback on a later microtask drain.
-    this.deliveryQueue.length = 0;
-    this.deliveryScheduled = false;
   }
 
   /** Seed the environment with rules and initial data. */
@@ -1324,181 +738,18 @@ export class LocalEnvironment {
     // the lint result still get it back; the `sandbox_inspect`
     // MCP tool surfaces it for agents.
     this.rulesSource = source;
-    this.reEvaluateAllListeners();
+    this.listeners.reEvaluateAllListeners();
     return lint;
   }
 
   /**
-   * Walk every active listener and recompute its snapshot under the
-   * current rules. Called by {@link deployRules} after a successful
-   * rules swap (Slice 6 section 4.1). Iteration follows the same
-   * snapshot-then-skip-orphans pattern as {@link notifyListenersForPaths}
-   * — a callback may add or remove listeners (StrictMode + HMR both
-   * routinely do this), and the dispatch loop must not iterate a
-   * mutating Map.
-   */
-  private reEvaluateAllListeners(): void {
-    if (this.snapshotListeners.size === 0) return;
-    const records = Array.from(this.snapshotListeners.values());
-    for (const record of records) {
-      if (!this.snapshotListeners.has(record.id)) continue;
-      if (record.target.kind === 'doc') {
-        this.reEvaluateDocListener(record);
-      } else {
-        this.reEvaluateQueryListener(record);
-      }
-    }
-  }
-
-  /**
-   * Re-evaluate every LIVE listener against a new session auth.
-   *
-   * Called when the sandbox's `currentUser` changes (sign-out / sign-in
-   * as a different user). Production re-establishes the listen stream on
-   * a session auth change — an auth-gated listener loses access on
-   * sign-out and re-reads under the new identity on sign-in. The sandbox
-   * matches that here: for each listener with `followsCurrentUser`, we
-   * set `record.auth = newAuth` and re-run the SAME per-listener
-   * evaluation `deployRules` uses ({@link reEvaluateDocListener} /
-   * {@link reEvaluateQueryListener}) — which re-reads under the new auth
-   * and flips allowed↔denied (delivering a fresh snapshot, or marking
-   * the listener errored with `permission-denied` when the new auth
-   * can't read).
-   *
-   * Frozen-ctx listeners (`followsCurrentUser === false`) are left
-   * untouched — they stay pinned to the identity chosen at
-   * `getFirestore(ctx)` time. WRITE-driven re-eval is unaffected: a
-   * write by another user still re-evaluates each listener against ITS
-   * OWN captured `auth` (this method only runs on auth change, and only
-   * touches live listeners' captured auth).
-   *
-   * No-op when there are no live listeners. Iteration follows the same
-   * snapshot-then-skip-orphans pattern as {@link notifyListenersForPaths}
-   * — a callback may add or remove listeners during dispatch.
+   * Re-evaluate every LIVE listener against a new session auth (sign-out /
+   * sign-in as a different user). Frozen-ctx listeners stay pinned to the
+   * identity captured at registration. See
+   * {@link ListenerDispatch#reevaluateLiveListeners} for the full contract.
    */
   reevaluateLiveListeners(newAuth: ListenerAuth, authScope?: object): void {
-    if (this.snapshotListeners.size === 0) return;
-    const records = Array.from(this.snapshotListeners.values());
-    for (const record of records) {
-      if (!record.followsCurrentUser) continue;
-      if (record.authScope !== authScope) continue;
-      if (!this.snapshotListeners.has(record.id)) continue;
-      // Re-capture the session's new auth, then re-read under it. This is
-      // the live-listener counterpart to prod re-establishing the stream
-      // under the new identity.
-      record.auth = newAuth;
-      if (record.target.kind === 'doc') {
-        this.reEvaluateDocListener(record);
-      } else {
-        this.reEvaluateQueryListener(record);
-      }
-    }
-  }
-
-  /**
-   * Doc-listener re-evaluation. Three flip cases matter:
-   *   - Allowed → denied: mark errored (unless already errored, in which
-   *     case the error is not re-delivered — matches production's
-   *     once-per-stream error contract).
-   *   - Errored → allowed: clear `errored` and fire as an initial
-   *     snapshot (the listener gets a fresh baseline; suppression cannot
-   *     apply because there is no comparable `currentDocData` from the
-   *     errored state).
-   *   - Allowed → allowed: behaves like a write-driven re-fire — diff
-   *     against `currentDocData` and suppress if unchanged.
-   */
-  private reEvaluateDocListener(record: ListenerRecord): void {
-    if (record.target.kind !== 'doc') return;
-    const result = this.silentReadDoc(
-      record.target.path,
-      record.auth,
-      record.bypassRules,
-    );
-    if (!result.allowed) {
-      if (record.errored) return;
-      this.markErrored(record, result.error);
-      return;
-    }
-    if (record.errored) {
-      record.errored = false;
-      const snap = buildDocumentSnapshot(record.target.path, result.data);
-      record.currentSnapshot = snap;
-      record.currentDocData = result.data;
-      try {
-        record.callback(snap);
-      } catch {
-        /* swallow — see fireInitialSnapshot doc */
-      }
-      return;
-    }
-    const prev = record.currentDocData ?? null;
-    if (docDataEqual(prev, result.data)) return;
-    const snap = buildDocumentSnapshot(record.target.path, result.data);
-    record.currentSnapshot = snap;
-    record.currentDocData = result.data;
-    try {
-      record.callback(snap);
-    } catch {
-      /* swallow — see fireInitialSnapshot doc */
-    }
-  }
-
-  /**
-   * Query-listener re-evaluation. Flip semantics mirror the doc path:
-   * {@link silentReadCollection} re-runs the query-proof gate + `list`
-   * rule under the new rules — a query that flipped unprovable/denied
-   * surfaces as a stream error, one that flipped allowed re-delivers,
-   * and the diff against `currentDocs` is computed by the same
-   * `buildQuerySnapshot` path the write-driven notifier uses.
-   */
-  private reEvaluateQueryListener(record: ListenerRecord): void {
-    if (record.target.kind !== 'query') return;
-    const result = this.silentReadCollection(
-      record.target.collection,
-      record.auth,
-      record.target.constraints,
-      record.bypassRules,
-    );
-    if (!result.allowed) {
-      if (record.errored) return;
-      this.markErrored(record, result.error);
-      return;
-    }
-    if (record.errored) {
-      record.errored = false;
-      // No prevDocs — every readable doc surfaces as `added`, matching
-      // initial-fire semantics. The errored state had no comparable
-      // baseline, so a clean reset is the correct contract.
-      const snap = buildQuerySnapshot(
-        { path: record.target.collection },
-        result.docs,
-        { excludesMetadataChanges: !record.options.includeMetadataChanges },
-      );
-      record.currentSnapshot = snap;
-      record.currentDocs = result.docs;
-      try {
-        record.callback(snap);
-      } catch {
-        /* swallow — see fireInitialSnapshot doc */
-      }
-      return;
-    }
-    const prevDocs = record.currentDocs ?? [];
-    const snap = buildQuerySnapshot(
-      { path: record.target.collection },
-      result.docs,
-      { excludesMetadataChanges: !record.options.includeMetadataChanges },
-      prevDocs,
-    );
-    const changes = snap.docChanges();
-    if (changes.length === 0) return;
-    record.currentSnapshot = snap;
-    record.currentDocs = result.docs;
-    try {
-      record.callback(snap);
-    } catch {
-      /* swallow — see fireInitialSnapshot doc */
-    }
+    this.listeners.reevaluateLiveListeners(newAuth, authScope);
   }
 
   /** Get current rules source. */
@@ -1723,7 +974,7 @@ export class LocalEnvironment {
    */
   adminSetDocument(path: string, data: DocumentData): void {
     this.state.set(path, data ?? {});
-    this.notifyListenersForPaths(new Set([path]));
+    this.listeners.notifyListenersForPaths(new Set([path]));
   }
 
   /**
@@ -1735,7 +986,7 @@ export class LocalEnvironment {
   adminDeleteDocument(path: string): { deleted: boolean } {
     const r = this.state.delete(path);
     if (r.success) {
-      this.notifyListenersForPaths(new Set([path]));
+      this.listeners.notifyListenersForPaths(new Set([path]));
     }
     return { deleted: r.success };
   }
@@ -2142,7 +1393,7 @@ export class LocalEnvironment {
       // listener callback may itself call execute() — that nested call
       // would otherwise wipe our trigger before subsequent listeners fire.
       this.triggerScope.run({ method, path }, () =>
-        this.notifyListenersForPaths(new Set([path])),
+        this.listeners.notifyListenersForPaths(new Set([path])),
       );
     }
     return out;
@@ -2484,7 +1735,7 @@ export class LocalEnvironment {
       const firstOp = resolvedOps[0];
       this.triggerScope.run(
         { method: 'batch', path: firstOp?.path ?? '' },
-        () => this.notifyListenersForPaths(touched),
+        () => this.listeners.notifyListenersForPaths(touched),
       );
     }
     return {
@@ -2984,7 +2235,7 @@ export class LocalEnvironment {
       const firstOp = resolvedOps[0];
       this.triggerScope.run(
         { method: 'transaction', path: firstOp?.path ?? '' },
-        () => this.notifyListenersForPaths(touched),
+        () => this.listeners.notifyListenersForPaths(touched),
       );
     }
     return result;
