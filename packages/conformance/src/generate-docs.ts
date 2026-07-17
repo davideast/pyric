@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from '../registry/index.ts';
 import {
@@ -36,6 +36,14 @@ export const STATUS_GLYPHS: Record<CompatStatus, string> = {
 
 function escapeCell(value: string): string {
   return value.replace(/\|/g, '\\|');
+}
+
+/** HTML-escape text emitted directly into a raw-HTML block. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 // ── Public API surface coverage ─────────────────────────────────────────────
@@ -90,54 +98,53 @@ function computeSurface(spec: SurfaceScoreSpec, census: readonly SurfaceCensus[]
   return { runtime: combine('runtime'), types: combine('types') };
 }
 
-/** To-scale public-surface bars (runtime + types). Plain HTML/CSS, no script.
- * Widths are the same percentages the model already publishes. */
-function surfaceMeters(runtimePct: number, typesPct: number): string {
-  const meter = (label: string, pct: number): string =>
-    `<div class="compat-meter"><span class="compat-meter-label">${label}</span>` +
-    `<span class="compat-meter-track"><span class="compat-meter-fill" style="width: ${pct}%"></span></span>` +
-    `<span class="compat-meter-value">${pct}%</span></div>`;
-  return [
-    '<div class="compat-meters">',
-    meter('Public runtime surface', runtimePct),
-    meter('Public type surface', typesPct),
-    '</div>',
-  ].join('\n');
+/** Combined public-API score: runtime and type exports pooled into one
+ * fraction, the single number shown to readers. */
+interface CombinedScore { mapped: number; denominator: number; pct: number }
+
+function combinedScore(coverage: SurfaceScore): CombinedScore | null {
+  if (coverage.runtime === null || coverage.types === null) return null;
+  const mapped = coverage.runtime.mapped + coverage.types.mapped;
+  const denominator = coverage.runtime.denominator + coverage.types.denominator;
+  return { mapped, denominator, pct: denominator === 0 ? 0 : Math.round((mapped / denominator) * 1000) / 10 };
 }
 
-/** One scoreboard axis cell: the published percentage plus a to-scale mini bar
- * (mirror surfaces only; native/integration surfaces show a word instead). */
-function scoreAxisCell(label: string, axis: SurfaceScore['runtime'], noCensusLabel: string): string {
-  if (axis === null) {
-    return `<span><span class="compat-score-axis">${label}</span>${noCensusLabel}</span>`;
-  }
-  return (
-    `<span><span class="compat-score-axis">${label}</span>${axis.pct}% (${axis.mapped}/${axis.denominator})` +
-    `<span class="compat-meter-track compat-meter-track--mini"><span class="compat-meter-fill" style="width: ${axis.pct}%"></span></span></span>`
-  );
+/** The runtime · types split, shown as one small-print line under the bar. */
+function splitLine(coverage: SurfaceScore): string {
+  const runtime = coverage.runtime!;
+  const types = coverage.types!;
+  return `${runtime.mapped} of ${runtime.denominator} runtime exports <span aria-hidden="true">·</span> ${types.mapped} of ${types.denominator} type exports`;
+}
+
+/** One to-scale combined public-surface bar. Plain HTML/CSS, no script. */
+function surfaceMeter(pct: number): string {
+  return [
+    '<div class="compat-meters">',
+    `<span class="compat-meter-track"><span class="compat-meter-fill" style="width: ${pct}%"></span></span>`,
+    '</div>',
+  ].join('\n');
 }
 
 /** Public API breadth shown at the top of each compatibility document. */
 export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string | null {
   const spec = scoreSpec(surface, projection);
   const coverage = computeSurface(spec, projection.census);
-  if (coverage.runtime === null || coverage.types === null) {
+  const combined = combinedScore(coverage);
+  if (combined === null) {
     const surfaceLine = spec.noCensusKind === 'integration'
       ? '<p class="compat-stat-surface">This page tracks an integration contract: unchanged Firebase code run through a Pyric runtime seam, so there is no separate Firebase public API to measure. The rows below are its signed behavior inventory.</p>'
       : '<p class="compat-stat-surface">This is a Pyric-native API with no Firebase counterpart, so coverage is measured against its own public exports rather than a Firebase surface.</p>';
     return ['<div class="compat-stat">', surfaceLine, '</div>', ''].join('\n');
   }
-  const scoreboardHref = relative(dirname(surface.compatPath), SCOREBOARD_PATH).replaceAll('\\', '/');
   return [
     '<div class="compat-stat">',
     '<p class="compat-stat-figure">',
-    `<span class="compat-stat-pct">${coverage.runtime.pct}%</span>`,
-    '<span class="compat-stat-label">of public runtime exports supported</span>',
+    `<span class="compat-stat-pct">${combined.pct}%</span>`,
+    '<span class="compat-stat-label">of the public API supported</span>',
     '</p>',
-    `<p class="compat-stat-denom">${coverage.runtime.mapped} of ${coverage.runtime.denominator} public runtime exports <span aria-hidden="true">·</span> ${coverage.types.mapped} of ${coverage.types.denominator} public type exports</p>`,
-    surfaceMeters(coverage.runtime.pct, coverage.types.pct),
+    surfaceMeter(combined.pct),
+    `<p class="compat-stat-denom">${splitLine(coverage)}</p>`,
     '</div>',
-    `[See public API coverage for every service.](${scoreboardHref})`,
     '',
   ].join('\n');
 }
@@ -150,17 +157,22 @@ function scoreRow(
   overall = false,
 ): string[] {
   const noCensusLabel = noCensusKind === 'integration' ? 'integration' : 'native';
+  const combined = combinedScore(coverage);
   const tag = href === null ? 'div' : 'a';
   const attrs = [
     `class="compat-score-row${overall ? ' compat-score-row--overall' : ''}"`,
     href === null ? '' : `href="${href}"`,
   ].filter(Boolean).join(' ');
+  const surface = combined === null
+    ? `<span class="compat-score-pct">${noCensusLabel}</span>`
+    : `<span><span class="compat-score-pct">${combined.pct}%</span>` +
+      `<span class="compat-meter-track compat-meter-track--mini"><span class="compat-meter-fill" style="width: ${combined.pct}%"></span></span></span>` +
+      `<span class="compat-score-breakdown">${splitLine(coverage)}</span>`;
   return [
     `<${tag} ${attrs}>`,
     `<span class="compat-score-name">${label}</span>`,
     '<span class="compat-score-surface">',
-    scoreAxisCell('Runtime', coverage.runtime, noCensusLabel),
-    scoreAxisCell('Types', coverage.types, noCensusLabel),
+    surface,
     '</span>',
     `</${tag}>`,
   ];
@@ -175,7 +187,7 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
     '',
     'This is the share of Firebase\'s public API that Pyric supports. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
     '',
-    '- **Public runtime surface:** the share of Firebase\'s public runtime exports that Pyric provides. Unsupported, deprecated, and deferred public APIs still count against the total.',
+    '- **Public runtime surface:** the share of Firebase\'s public runtime exports that Pyric provides. Not-implemented-yet, deprecated, and deferred public APIs still count against the total.',
     '- **Public type surface:** the share of Firebase\'s public exported type names that Pyric provides. This measures name presence, not structural assignability.',
     '',
     '## Services',
@@ -240,7 +252,7 @@ const GAP_SECTIONS: Array<{ status: Exclude<CompatStatus, 'conforms'>; title: st
   },
   {
     status: 'unsupported',
-    title: 'Unsupported',
+    title: 'Not implemented yet',
     intro: 'Tracked behavior that is not implemented in the current contract.',
   },
   {
@@ -285,17 +297,30 @@ export function dispositionSection(
     .flatMap((entry) => entry.runtime.dispositioned);
   if (dispositions.length === 0) return '';
   const groups = Map.groupBy(dispositions, (entry) => entry.dispositionId);
+  const rows = [...groups].map(([id, entries]) => {
+    const first = entries[0]!;
+    const symbols = entries.map(({ symbol }) => `<code>${escapeHtml(symbol)}</code>`).join(', ');
+    const evidence = first.evidenceRefs.length > 0
+      ? `<div class="compat-note">${escapeHtml(first.evidenceRefs.join(', '))}</div>`
+      : '';
+    return [
+      '<div class="compat-row" data-status="unsupported">',
+      '<div class="compat-line"><span class="compat-main">' +
+        `<code class="compat-api">${escapeHtml(id)}</code>` +
+        `<span class="compat-sub"><span class="compat-behavior">${escapeHtml(first.availability)}</span></span></span></div>`,
+      '<div class="compat-evidence">' +
+        `<div class="compat-note">${escapeHtml(first.summary).replace(/`([^`]+)`/g, '<code>$1</code>')} — ${symbols}</div>` +
+        evidence +
+        '</div>',
+      '</div>',
+    ].join('\n');
+  });
   return [
     '## Reviewed public-runtime gaps',
     '',
-    'These classifications are generated from the machine-readable surface contract used by the census and `can-i-use`.',
-    '',
-    '| Disposition | Availability | Symbols | Reason | Evidence |',
-    '|---|---|---|---|---|',
-    ...[...groups].map(([id, entries]) => {
-      const first = entries[0]!;
-      return `| ${escapeCell(id)} | ${first.availability} | ${escapeCell(entries.map(({ symbol }) => `\`${symbol}\``).join(', '))} | ${escapeCell(first.summary)} | ${escapeCell(first.evidenceRefs.join(', '))} |`;
-    }),
+    '<div class="compat-list">',
+    ...rows,
+    '</div>',
   ].join('\n');
 }
 

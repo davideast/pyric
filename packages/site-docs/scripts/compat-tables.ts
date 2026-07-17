@@ -16,7 +16,7 @@ const STATUS_META: Record<string, { key: string; label: string }> = {
   '✓': { key: 'ok', label: 'Conforming' },
   '⚠': { key: 'diverged', label: 'Diverged (documented)' },
   '✗': { key: 'bug', label: 'Bug' },
-  '—': { key: 'unsupported', label: 'Unsupported' },
+  '—': { key: 'unsupported', label: 'Not implemented yet' },
   '?': { key: 'unverified', label: 'Unverified' },
 };
 

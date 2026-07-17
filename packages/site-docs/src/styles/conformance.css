@@ -200,7 +200,7 @@
 
 .prose .compat-score-row {
   display: grid;
-  grid-template-columns: minmax(8rem, 1fr) minmax(12rem, 1.35fr) auto;
+  grid-template-columns: minmax(8rem, 1fr) minmax(12rem, 1.35fr);
   align-items: center;
   gap: var(--space-2) var(--space-4);
   padding: var(--space-3) 0;
@@ -227,8 +227,8 @@
 
 .prose .compat-score-surface {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
+  grid-template-columns: 1fr;
+  gap: var(--space-1) var(--space-3);
   font-size: var(--fs-caption);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
