@@ -16,10 +16,9 @@ import {
 import { OverlayBacking } from './overlay-backing.js';
 import { EventLog, type AgentEvent } from './event-log.js';
 import { SimulateFirestoreRulesHandler, renderLegacyDebugMessages, projectEvaluatedRule, type EvaluatedRuleInfo } from 'pyric/rules/internal';
-import { lintFirestoreRules, parseToAST, type LintResult } from 'pyric/rules/internal';
+import { lintFirestoreRules, type LintResult } from 'pyric/rules/internal';
 import type {
   TestCase,
-  FirestoreRules,
   ListQuery,
   TestResult,
   TestFirestoreRulesResult,
@@ -82,6 +81,7 @@ import { FirestoreEventBus } from './event-bus.js';
 import { TriggerScope } from './trigger-scope.js';
 import { ListenerDispatch } from './listener-dispatch.js';
 import { HistoryControls } from './history-controls.js';
+import { RulesState } from './rules-state.js';
 import {
   SimulatorUnsupportedError,
   unsupportedMessage,
@@ -101,7 +101,12 @@ export class LocalEnvironment {
   private eventLog: EventLog;
   private readonly history: HistoryControls;
   private simulator: SimulateFirestoreRulesHandler;
-  private rulesSource: string;
+  /**
+   * Deployed rules source + parsed-AST cache (ADR-0009 decision 5).
+   * Shared by the rules-gated read paths and the write engine's
+   * simulate path; invalidated by `seed` / `deployRules` via `set()`.
+   */
+  private readonly rules: RulesState;
   private seedSnapshot: Record<string, DocumentData>;
   /**
    * The engine's seven observational event channels — subscriptions and
@@ -117,15 +122,6 @@ export class LocalEnvironment {
    * emit sites via `current()`. See {@link TriggerScope} for semantics.
    */
   private readonly triggerScope = new TriggerScope();
-
-  /**
-   * RULES-B11 — parsed-AST cache for the query-proof gate. The proof
-   * needs the matched `list` rule's condition AST on EVERY list read;
-   * re-parsing the (unchanging) rules source per read would be O(source)
-   * on the listener hot path. Keyed on the exact source string so
-   * `deployRules` / `seed` invalidate it for free.
-   */
-  private parsedRulesCache: { source: string; ast: FirestoreRules | null } | null = null;
 
   /**
    * Snapshot-listener registry + delivery machinery (ADR-0009, PR B2).
@@ -164,7 +160,7 @@ export class LocalEnvironment {
     // about real rule enforcement still call `setRules(...)` explicitly;
     // the default is just "don't blow up before you've thought about
     // rules."
-    this.rulesSource = DEFAULT_OPEN_RULES;
+    this.rules = new RulesState(DEFAULT_OPEN_RULES);
     this.seedSnapshot = {};
   }
 
@@ -406,7 +402,7 @@ export class LocalEnvironment {
     // Issue #307 — time the simulate call for listener-origin RequestEvents.
     const evalAt = Date.now();
     const evalStart = performance.now();
-    const simResult = this.simulator.simulate(this.rulesSource, [testCase], {
+    const simResult = this.simulator.simulate(this.rules.source, [testCase], {
       getDoc: (path) => this.state.get(path),
     });
     const evalMs = performance.now() - evalStart;
@@ -456,21 +452,6 @@ export class LocalEnvironment {
       };
     }
     return { allowed: true, data };
-  }
-
-  /**
-   * RULES-B11 — the parsed rules AST for the query-proof gate, cached
-   * per source string. `null` when the source doesn't parse (the
-   * simulate() call then reports the failure on its own).
-   */
-  private rulesAst(): FirestoreRules | null {
-    if (this.parsedRulesCache?.source !== this.rulesSource) {
-      this.parsedRulesCache = {
-        source: this.rulesSource,
-        ast: parseToAST(this.rulesSource),
-      };
-    }
-    return this.parsedRulesCache.ast;
   }
 
   /**
@@ -539,7 +520,7 @@ export class LocalEnvironment {
       return { allowed: true, docs: constrained };
     }
     // ── RULES-B11 gate: prove the query before evaluating the rule. ──
-    const proof = proveListQuery(this.rulesAst(), listPath, auth, structured);
+    const proof = proveListQuery(this.rules.ast(), listPath, auth, structured);
     if (proof.kind === 'unprovable') {
       const evalMs = performance.now() - evalStart;
       const message = `list ${collection} denied: unprovable query — rules are not filters (${proof.reason})`;
@@ -559,7 +540,7 @@ export class LocalEnvironment {
     const testCase = this.buildTestCase({ method: 'list', path: listPath, auth }, readServerTime);
     this.applyListProof(testCase, proof, structured);
     // Issue #307 — time the outer list eval.
-    const simResult = this.simulator.simulate(this.rulesSource, [testCase], {
+    const simResult = this.simulator.simulate(this.rules.source, [testCase], {
       getDoc: (path) => this.state.get(path),
     });
     const evalMs = performance.now() - evalStart;
@@ -694,7 +675,7 @@ export class LocalEnvironment {
     documents?: Record<string, DocumentData>;
     baseDocuments?: Record<string, DocumentData>;
   }): LintResult {
-    this.rulesSource = options.rules;
+    this.rules.set(options.rules);
     // `baseDocuments` (branch fork): wrap the snapshot as an immutable CoW base
     // instead of cloning it, so the fork is O(1). Reads fall through to the base;
     // branch writes land in the overlay.
@@ -737,7 +718,7 @@ export class LocalEnvironment {
     // stricter policy before shipping. Callers that care about
     // the lint result still get it back; the `sandbox_inspect`
     // MCP tool surfaces it for agents.
-    this.rulesSource = source;
+    this.rules.set(source);
     this.listeners.reEvaluateAllListeners();
     return lint;
   }
@@ -754,7 +735,7 @@ export class LocalEnvironment {
 
   /** Get current rules source. */
   getRules(): string {
-    return this.rulesSource;
+    return this.rules.source;
   }
 
   // ═══ Read operations (bypass rules — admin access) ═══
@@ -854,7 +835,7 @@ export class LocalEnvironment {
     const evalAt = Date.now();
     const evalStart = performance.now();
     // ── RULES-B11 gate: prove the query before evaluating the rule. ──
-    const proof = proveListQuery(this.rulesAst(), placeholderPath, auth, structured);
+    const proof = proveListQuery(this.rules.ast(), placeholderPath, auth, structured);
     if (proof.kind === 'unprovable') {
       const evalMs = performance.now() - evalStart;
       const message = `list ${listPath} denied: unprovable query — rules are not filters (${proof.reason})`;
@@ -871,7 +852,7 @@ export class LocalEnvironment {
     }
     const testCase = this.buildTestCase({ method: 'list', path: placeholderPath, auth }, readServerTime);
     this.applyListProof(testCase, proof, structured);
-    const simResult = this.simulator.simulate(this.rulesSource, [testCase], {
+    const simResult = this.simulator.simulate(this.rules.source, [testCase], {
       getDoc: (path) => this.state.get(path),
     });
     const evalMs = performance.now() - evalStart;
@@ -1017,7 +998,7 @@ export class LocalEnvironment {
         data: { passed: results.length, failed: 0, unsupported: 0, results },
       };
     }
-    return this.simulator.simulate(this.rulesSource, testCases, {
+    return this.simulator.simulate(this.rules.source, testCases, {
       getDoc: (path) => this.state.get(path),
       ...(batchProjection ? { batchProjection } : {}),
     });
