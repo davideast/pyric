@@ -73,6 +73,12 @@
  */
 
 import { parseToASTOrError } from '../rules/grammar/FirestoreParser.js';
+// RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
+// tagged with this wrapper while a bare JS `number` means INT (see the
+// wrapper's header for why floats are the wrapped case). The storage evaluator
+// adopts the same model so `1.0 is float`, truncating int division, and
+// int-vs-float promotion match production instead of JS numerics.
+import { RulesFloat } from '../rules/simulator/wrappers/float.js';
 import type {
   FirestoreRules as SharedRules,
   MatchBlock as SharedMatchBlock,
@@ -266,7 +272,7 @@ type BinaryOp =
   | '+' | '-' | '*' | '/' | '%';
 
 type Expr =
-  | { kind: 'literal'; value: number | string | boolean | null }
+  | { kind: 'literal'; value: number | RulesFloat | string | boolean | null }
   | { kind: 'ident'; name: string }
   | { kind: 'member'; target: Expr; name: string }
   | { kind: 'index'; target: Expr; index: Expr }
@@ -342,6 +348,13 @@ function convertFunction(fn: SharedFunctionDef): FunctionDef {
 function convertExpr(e: SharedExpression): Expr {
   switch (e.type) {
     case 'literal':
+      // A numeric literal written with a decimal point is a FLOAT even when
+      // integral (`1.0`); the grammar preserves the source text in `raw`, so
+      // a `.` there is the float signal. Bare integer literals stay raw
+      // numbers (= int), mirroring the simulator's literal handling.
+      if (typeof e.value === 'number' && e.raw.includes('.')) {
+        return { kind: 'literal', value: new RulesFloat(e.value) };
+      }
       return { kind: 'literal', value: e.value };
     case 'identifier':
       return { kind: 'ident', name: e.name };
@@ -858,6 +871,7 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       const a = evalExpr(expr.arg, ctx);
       if (isErr(a)) return a;
       if (expr.op === '-') {
+        if (a instanceof RulesFloat) return new RulesFloat(-a.value);
         if (typeof a !== 'number') return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
         return -a;
       }
@@ -879,7 +893,7 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // maps never expose prototype names (`'toString' in map` is false;
       // live-pinned by rules-firestore-prototype-chain-keys), so JS `in`
       // (which walks the prototype chain) would false-ALLOW here.
-      if (Array.isArray(coll)) return coll.some((v) => v === el || (v == null && el == null));
+      if (Array.isArray(coll)) return coll.some((v) => rulesEquals(v, el));
       if (coll !== null && typeof coll === 'object') return typeof el === 'string' && Object.prototype.hasOwnProperty.call(coll, el);
       return new RuleError(`'in' applied to ${describeType(coll)} (expected a list or map).`);
     }
@@ -968,11 +982,21 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
         case '+':  return numOp(l, r, (a, b) => a + b);
         case '-':  return numOp(l, r, (a, b) => a - b);
         case '*':  return numOp(l, r, (a, b) => a * b);
-        // A zero divisor ERRORS in production (deny; `10 / 0 || true` still
-        // absorbs to allow) — JS would yield Infinity/NaN, and Infinity leaks
-        // through comparisons as a false-ALLOW.
-        case '/':  return r === 0 ? new RuleError('Division by zero.') : numOp(l, r, (a, b) => a / b);
-        case '%':  return r === 0 ? new RuleError('Modulo by zero.') : numOp(l, r, (a, b) => a % b);
+        // Division: int ÷ int TRUNCATES toward zero and an int zero divisor
+        // ERRORS (deny; `10 / 0 || true` still absorbs to allow) — JS float
+        // division would yield 2.5 / Infinity, and Infinity leaks through
+        // comparisons as a false-ALLOW. Float division stays float (÷ 0 →
+        // ±Infinity/NaN, the simulator's CEL-pinned behavior).
+        case '/': {
+          if (isFloatNum(l) || isFloatNum(r)) return numOp(l, r, (a, b) => a / b);
+          return numVal(r) === 0
+            ? new RuleError('Division by zero.')
+            : numOp(l, r, (a, b) => Math.trunc(a / b));
+        }
+        case '%': {
+          if (isFloatNum(l) || isFloatNum(r)) return numOp(l, r, (a, b) => a % b);
+          return numVal(r) === 0 ? new RuleError('Modulo by zero.') : numOp(l, r, (a, b) => a % b);
+        }
       }
     }
   }
@@ -1026,18 +1050,20 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
 }
 
 /**
- * `value is <type>` check. JS numbers cannot preserve the int/float
- * distinction a rules literal carries, so `int` means integral-valued and
- * `float` means fractional — `1.0 is float` diverges from production
- * (which types by literal form, not value). `number` accepts either.
+ * `value is <type>` check. Numbers use the RULES-B5 model: a `RulesFloat`
+ * wrapper is a FLOAT, a bare number is an INT — so `1.0 is float` and
+ * `!(1.0 is int)` type by literal form exactly as production does. A bare
+ * NON-integral number (a fractional value that arrived from data rather than
+ * a literal, e.g. a Firestore-lookup double) still reads as float. `number`
+ * accepts either.
  */
 function typeMatches(v: unknown, typeName: string): boolean | RuleError {
   switch (typeName) {
     case 'string': return typeof v === 'string';
     case 'bool': return typeof v === 'boolean';
     case 'int': return typeof v === 'number' && Number.isInteger(v);
-    case 'float': return typeof v === 'number' && !Number.isInteger(v);
-    case 'number': return typeof v === 'number';
+    case 'float': return v instanceof RulesFloat || (typeof v === 'number' && !Number.isInteger(v));
+    case 'number': return v instanceof RulesFloat || typeof v === 'number';
     case 'list': return Array.isArray(v);
     case 'map': return v !== null && typeof v === 'object' && !Array.isArray(v);
     default:
@@ -1048,15 +1074,35 @@ function typeMatches(v: unknown, typeName: string): boolean | RuleError {
   }
 }
 
+/** Raw numeric value of an int (bare number) or float (RulesFloat); undefined
+ *  for anything else. */
+function numVal(v: unknown): number | undefined {
+  if (typeof v === 'number') return v;
+  if (v instanceof RulesFloat) return v.value;
+  return undefined;
+}
+
+function isFloatNum(v: unknown): boolean {
+  return v instanceof RulesFloat;
+}
+
 function cmp(a: unknown, b: unknown): number {
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  const an = numVal(a);
+  const bn = numVal(b);
+  // CEL compares int and float by numeric value (`1 < 1.5` is well-typed).
+  if (an !== undefined && bn !== undefined) return an - bn;
   if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
   return Number.NaN; // mismatched types → NaN → all comparisons return false
 }
 
+/** Arithmetic over ints and floats: unwraps, computes, and RE-TAGS the result
+ *  as a float when either operand was one (int op float promotes to float). */
 function numOp(a: unknown, b: unknown, fn: (x: number, y: number) => number): unknown {
-  if (typeof a !== 'number' || typeof b !== 'number') return undefined;
-  return fn(a, b);
+  const an = numVal(a);
+  const bn = numVal(b);
+  if (an === undefined || bn === undefined) return undefined;
+  const result = fn(an, bn);
+  return isFloatNum(a) || isFloatNum(b) ? new RulesFloat(result) : result;
 }
 
 /**
@@ -1431,6 +1477,10 @@ function evalSize(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): un
 function rulesEquals(l: unknown, r: unknown): boolean {
   if (l === r) return true;
   if (l == null || r == null) return l == null && r == null;
+  // CEL compares int and float by numeric value: `1 == 1.0` is true.
+  const ln = numVal(l);
+  const rn = numVal(r);
+  if (ln !== undefined && rn !== undefined) return ln === rn;
   if (Array.isArray(l) && Array.isArray(r)) {
     return l.length === r.length && l.every((v, i) => rulesEquals(v, r[i]));
   }
@@ -1449,5 +1499,6 @@ function rulesEquals(l: unknown, r: unknown): boolean {
 function describeType(v: unknown): string {
   if (v === null) return 'null';
   if (v === undefined) return 'undefined';
+  if (v instanceof RulesFloat) return 'float';
   return typeof v;
 }

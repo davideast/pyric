@@ -66,8 +66,6 @@ service firebase.storage {
       path: 'math/data.bin',
       auth: { uid: 'alice' },
       existingResource: { size: 100 },
-      knownGap:
-        'the evaluator types numbers by value (JS numbers), so int division does not truncate — documented divergence, same root cause as `1.0 is float`',
     },
     {
       description: '-7 / 2 truncates toward zero (== -3) → ALLOW',
@@ -77,8 +75,6 @@ service firebase.storage {
       auth: { uid: 'alice' },
       resource: { size: 100, contentType: 'application/octet-stream' },
       existingResource: { size: 100 },
-      knownGap:
-        'the evaluator types numbers by value (JS numbers), so int division does not truncate — documented divergence, same root cause as `1.0 is float`',
     },
     {
       description: '-7 % 2 == -1 (dividend sign) → ALLOW',

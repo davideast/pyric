@@ -49,8 +49,6 @@ service firebase.storage {
       auth: { uid: 'alice' },
       resource: { size: 100, contentType: 'image/png' },
       existingResource: { size: 100 },
-      knownGap:
-        'the evaluator types numbers by value (integral JS number → int), so `1.0 is float` is false locally — documented divergence at typeMatches()',
     },
     {
       description: 'path wildcard is int → DENY',

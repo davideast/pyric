@@ -1376,3 +1376,51 @@ service firebase.storage {
     expect(verdict(`request.resource.size.size() > 0`)).toBe(false);
   });
 });
+
+describe('int/float literal typing (RULES-B5 float model)', () => {
+  const verdict = (cond: string) => {
+    const rules = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{fileId} {
+      allow create: if ${cond};
+    }
+  }
+}`);
+    return evaluateStorageRules(rules, {
+      request: {
+        auth: { uid: 'a' },
+        method: 'create',
+        path: '/b/b1/o/x/f.png',
+        resource: { size: 100, contentType: 'image/png' },
+      },
+      resource: null,
+    }).allowed;
+  };
+
+  /** The regression this guards: JS numbers carry no int/float distinction,
+   *  so a value-typed `is` called `1.0` an int and int division produced
+   *  2.5 — production types by literal form and truncates int ÷ int
+   *  (pinned by oracle:rules-storage-type-checks-is and
+   *  oracle:rules-storage-float-modulo-unary-minus). */
+  it('types numeric literals by form: 1.0 is float, 1 is int', () => {
+    expect(verdict('1.0 is float')).toBe(true);
+    expect(verdict('1 is int')).toBe(true);
+    expect(verdict('1.0 is int')).toBe(false);
+    expect(verdict('1 is float')).toBe(false);
+  });
+
+  it('int / int truncates toward zero; float division stays float', () => {
+    expect(verdict('10 / 4 == 2')).toBe(true);
+    expect(verdict('-7 / 2 == -3')).toBe(true);
+    expect(verdict('10.0 / 4.0 == 2.5')).toBe(true);
+    expect(verdict('10 / 4.0 == 2.5')).toBe(true);
+  });
+
+  it('int and float compare by numeric value across the tag', () => {
+    expect(verdict('1 == 1.0')).toBe(true);
+    expect(verdict('1 < 1.5')).toBe(true);
+    expect(verdict('request.resource.size * 0.5 == 50.0')).toBe(true);
+    expect(verdict('-(1.5) is float')).toBe(true);
+  });
+});

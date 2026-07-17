@@ -154,14 +154,14 @@ Every fidelity bar shows the full five-state distribution. Public surface values
 <span><span class="compat-score-axis">Types</span>native</span>
 </span>
 <span class="compat-score-fidelity">
-<strong class="compat-score-pct">83.3%</strong>
-<span>55/66 conform</span>
+<strong class="compat-score-pct">86.4%</strong>
+<span>57/66 conform</span>
 </span>
-<div class="compat-stat-bar compat-stat-bar--mini" role="img" aria-label="Behavior distribution: 55 conform, 11 documented divergences, 0 bugs, 0 unsupported, 0 unverified.">
-<span class="compat-stat-seg" data-status="ok" style="flex-grow: 55" aria-hidden="true"></span>
-<span class="compat-stat-seg" data-status="diverged" style="flex-grow: 11" aria-hidden="true"></span>
+<div class="compat-stat-bar compat-stat-bar--mini" role="img" aria-label="Behavior distribution: 57 conform, 9 documented divergences, 0 bugs, 0 unsupported, 0 unverified.">
+<span class="compat-stat-seg" data-status="ok" style="flex-grow: 57" aria-hidden="true"></span>
+<span class="compat-stat-seg" data-status="diverged" style="flex-grow: 9" aria-hidden="true"></span>
 </div>
-<span class="compat-score-breakdown">55 conform · 11 documented divergences · 0 bugs · 0 unsupported · 0 unverified</span>
+<span class="compat-score-breakdown">57 conform · 9 documented divergences · 0 bugs · 0 unsupported · 0 unverified</span>
 </a>
 <div class="compat-score-row compat-score-row--overall">
 <span class="compat-score-name">Overall</span>
@@ -170,15 +170,15 @@ Every fidelity bar shows the full five-state distribution. Public surface values
 <span><span class="compat-score-axis">Types</span>54.8% (193/352)</span>
 </span>
 <span class="compat-score-fidelity">
-<strong class="compat-score-pct">84.1%</strong>
-<span>659/784 conform</span>
+<strong class="compat-score-pct">84.3%</strong>
+<span>661/784 conform</span>
 </span>
-<div class="compat-stat-bar compat-stat-bar--mini" role="img" aria-label="Behavior distribution: 659 conform, 70 documented divergences, 0 bugs, 40 unsupported, 15 unverified.">
-<span class="compat-stat-seg" data-status="ok" style="flex-grow: 659" aria-hidden="true"></span>
-<span class="compat-stat-seg" data-status="diverged" style="flex-grow: 70" aria-hidden="true"></span>
+<div class="compat-stat-bar compat-stat-bar--mini" role="img" aria-label="Behavior distribution: 661 conform, 68 documented divergences, 0 bugs, 40 unsupported, 15 unverified.">
+<span class="compat-stat-seg" data-status="ok" style="flex-grow: 661" aria-hidden="true"></span>
+<span class="compat-stat-seg" data-status="diverged" style="flex-grow: 68" aria-hidden="true"></span>
 <span class="compat-stat-seg" data-status="unsupported" style="flex-grow: 40" aria-hidden="true"></span>
 <span class="compat-stat-seg" data-status="unverified" style="flex-grow: 15" aria-hidden="true"></span>
 </div>
-<span class="compat-score-breakdown">659 conform · 70 documented divergences · 0 bugs · 40 unsupported · 15 unverified</span>
+<span class="compat-score-breakdown">661 conform · 68 documented divergences · 0 bugs · 40 unsupported · 15 unverified</span>
 </div>
 </div>
