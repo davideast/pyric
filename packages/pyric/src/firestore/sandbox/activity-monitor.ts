@@ -59,7 +59,6 @@ export interface ActivityIncident {
   };
   readonly evidenceEventIds: readonly string[];
   readonly sourceAttribution: ActivitySourceAttribution;
-  readonly message: string;
 }
 
 export interface ActivityReport {
@@ -192,7 +191,6 @@ export function monitorFirebaseActivity(
 
     const first = bucket.events[0]!;
     const last = bucket.events[bucket.events.length - 1]!;
-    const publicPath = compactActivityFingerprint(read.path);
     const incident: ActivityIncident = Object.freeze({
       fingerprint: publicIdentity.incidentFingerprint(key),
       pattern: 'repeated-read',
@@ -217,9 +215,6 @@ export function monitorFirebaseActivity(
         bucket.events.slice(-MAX_EVIDENCE_IDS).map((entry) => entry.id),
       ),
       sourceAttribution: sourceAttributionFor(read.actor),
-      message:
-        `Repeated Firestore ${read.method} on ${publicPath}: `
-        + `${bucket.events.length} reads in ${last.at - first.at}ms.`,
     });
     rememberIncident(key, incident);
 
@@ -309,7 +304,6 @@ export function monitorFirebaseActivity(
         active.length,
         event.at - first.at,
         active.map((entry) => entry.id),
-        `Duplicate Firestore listener on ${publicTarget}: ${active.length} active subscriptions.`,
         historical,
         listener,
         publicTarget,
@@ -327,8 +321,6 @@ export function monitorFirebaseActivity(
         attachCount,
         event.at - first.at,
         bucket.lifecycle.map((entry) => entry.id),
-        `Firestore listener churn on ${publicTarget}: `
-          + `${attachCount} attaches and ${detachCount} detaches in ${event.at - first.at}ms.`,
         historical,
         listener,
         publicTarget,
@@ -343,7 +335,6 @@ export function monitorFirebaseActivity(
     count: number,
     windowMs: number,
     evidenceEventIds: readonly string[],
-    message: string,
     historical: boolean,
     listener: AppFirestoreListener,
     targetFingerprint: string,
@@ -378,7 +369,6 @@ export function monitorFirebaseActivity(
       }),
       evidenceEventIds: Object.freeze(evidenceEventIds.slice(-MAX_EVIDENCE_IDS)),
       sourceAttribution: sourceAttributionFor(listener.actor),
-      message,
     });
     rememberIncident(key, incident);
     if (!historical && shouldNotify(key, incident.severity)) {

@@ -22,7 +22,6 @@ function incident(overrides: Partial<ActivityIncident> = {}): ActivityIncident {
     usage: { unit: 'document-reads', lowerBound: 5, limitations: [] },
     evidenceEventIds: ['event-1'],
     sourceAttribution: 'app',
-    message: 'ignored by validation',
     ...overrides,
   };
 }

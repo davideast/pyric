@@ -445,7 +445,7 @@ describe('Firebase activity monitor', () => {
     expect(JSON.stringify(warnings[0])).not.toContain('x'.repeat(103));
   });
 
-  it('compacts long document paths into route-valid incident messages', () => {
+  it('compacts long document paths into route-valid incident fingerprints', () => {
     const feed = new TestActivityFeed();
     const warnings: ActivityIncident[] = [];
     monitorFirebaseActivity(feed, (incident) => warnings.push(incident));
@@ -456,8 +456,8 @@ describe('Firebase activity monitor', () => {
     }
 
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]!.message.length).toBeLessThanOrEqual(2_000);
-    expect(warnings[0]!.message).toMatch(/…#[0-9a-f]{16}: 5 reads in 4ms\.$/);
+    expect(warnings[0]!.targetFingerprint.length).toBeLessThanOrEqual(2_000);
+    expect(warnings[0]!.targetFingerprint).toMatch(/…#[0-9a-f]{16}$/);
   });
 
   it('attributes incidents to the page journey the operation context carries', () => {

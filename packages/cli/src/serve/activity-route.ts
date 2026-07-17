@@ -128,8 +128,6 @@ function isActivityIncident(value: unknown): value is ActivityIncident {
     && isNonNegativeInteger(incident.count)
     && incident.count > 0
     && isNonNegativeInteger(incident.windowMs)
-    && typeof incident.message === 'string'
-    && incident.message.length <= 2_000
     && Array.isArray(incident.evidenceEventIds)
     && incident.evidenceEventIds.length <= 8
     && incident.evidenceEventIds.every((id) => typeof id === 'string')

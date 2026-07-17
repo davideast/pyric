@@ -24,7 +24,6 @@ function incident(overrides: Partial<ActivityIncident> = {}): ActivityIncident {
     usage: { unit: 'document-reads', lowerBound: 5, limitations: [] },
     evidenceEventIds: ['read-1', 'read-2'],
     sourceAttribution: 'app',
-    message: 'browser-controlled text is not rendered',
     ...overrides,
   };
 }
@@ -70,13 +69,20 @@ function readEvent(
 }
 
 describe('formatActivityWarning', () => {
+  it('is the single source of truth for the warning text', () => {
+    expect(formatActivityWarning(incident({ sourceAttribution: 'app page-1' }))).toBe(
+      '  \u26a0 Firebase Activity Guard: 5 repeated Firestore get operations on users/alice '
+      + 'in 400ms. Observed lower bound: 5 document reads. Source: app page-1. '
+      + 'Possible causes include repeated render/effect execution or missing listener '
+      + 'cleanup. (warning only; app behavior is unchanged)',
+    );
+  });
+
   it('does not trust browser-provided terminal text or control sequences', () => {
     const warning = formatActivityWarning(incident({
       targetFingerprint: 'users/\u001b]8;;https://example.invalid\u0007alice',
-      message: '\u001b[2Jforged terminal warning',
     }));
 
-    expect(warning).not.toContain('forged terminal warning');
     expect(warning).not.toContain('\u001b');
     expect(warning).not.toContain('\u0007');
     expect(warning).toContain('5 repeated Firestore get operations');

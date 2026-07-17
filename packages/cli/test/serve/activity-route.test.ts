@@ -39,7 +39,6 @@ function incident(overrides: Partial<ActivityIncident> = {}): ActivityIncident {
     },
     evidenceEventIds: ['read-1', 'read-2'],
     sourceAttribution: 'app',
-    message: 'Repeated Firestore get on users/alice: 5 reads in 400ms.',
     ...overrides,
   };
 }
