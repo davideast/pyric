@@ -75,7 +75,7 @@ describe('canonical can-i-use query runtime', () => {
   });
 
   it('resolves documentation evidence by exact published import', () => {
-    const evidence = [{ importPath: 'pyric/storage', evidenceSlug: 'pyric-storage-compat' }] as const;
+    const evidence = [{ importPath: 'pyric/storage', evidenceSlug: 'storage-compat' }] as const;
     expect(resolveImportEvidence(evidence, 'pyric/storage')).toEqual(evidence[0]);
     expect(resolveImportEvidence(evidence, ' pyric/storage ')).toBeUndefined();
     expect(resolveImportEvidence(evidence, 'pyric/firestore')).toBeUndefined();

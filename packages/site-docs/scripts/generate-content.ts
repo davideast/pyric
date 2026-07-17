@@ -4,7 +4,7 @@
  *
  *   1. The conformance matrices (loadConformancePages + transformCompatTables),
  *      written under their stable flat slug filenames so their public URLs
- *      (/docs/pyric-firestore-compat/ …) do not change.
+ *      (/docs/firestore-compat/ …) stay stable.
  *   2. The generated API reference (scripts/gen-api-docs.ts --write), which
  *      writes its own flat-slug files into the same directory.
  *
@@ -24,17 +24,17 @@ const siteRoot = resolve(here, '..');
 const repoRoot = resolve(siteRoot, '..', '..');
 const outDir = join(siteRoot, 'src', 'content', '_generated');
 
-/** Flat slug for a virtual conformance source, matching the historical
- *  port slug and docs-routes.compatibilitySlug so URLs are unchanged. */
-function conformanceSlug(pkg: 'pyric' | 'cli', path: string): string {
-  const prefix = pkg === 'cli' ? 'pyric-cli' : 'pyric';
+/** Flat slug for a virtual conformance source, matching
+ *  docs-routes.compatibilitySlug (prefix-free: ai-compat, functions-rtdb-compat,
+ *  conformance-scores). */
+function conformanceSlug(path: string): string {
   const rel = path
     .replace(/^packages\/pyric\/docs\//, '')
     .replace(/^packages\/cli\/docs\//, '')
     .replace(/\.md$/, '');
   const segs = rel.split('/');
   if (segs[segs.length - 1] === 'README') segs.pop();
-  return [prefix, ...segs].join('-').toLowerCase();
+  return segs.join('-').toLowerCase();
 }
 
 function yamlQuote(s: string): string {
@@ -47,7 +47,7 @@ function yamlQuote(s: string): string {
 function rewriteConformanceLinks(body: string): string {
   return body.replace(
     /\]\((?:\.\.\/)*[\w./-]*conformance\/SCORES\.md\)/g,
-    '](../pyric-conformance-scores/)',
+    '](../conformance-scores/)',
   );
 }
 
@@ -56,8 +56,7 @@ async function writeConformancePages(): Promise<number> {
   const catalogSlug = (src: string): string => {
     // src is resolve(repoRoot, path); recover the repo-relative virtual path.
     const rel = src.slice(repoRoot.length + 1).replaceAll('\\', '/');
-    const pkg = rel.startsWith('packages/cli/') ? 'cli' : 'pyric';
-    return conformanceSlug(pkg, rel);
+    return conformanceSlug(rel);
   };
   let order = 0;
   for (const page of pages) {

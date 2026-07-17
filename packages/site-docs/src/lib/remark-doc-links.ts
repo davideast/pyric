@@ -4,7 +4,7 @@
  *
  * Rules:
  *   - Only relative links whose path ends in `.md` are touched. Directory URLs
- *     (`../pyric-firestore-compat/`), absolute URLs, and `#fragment` links pass
+ *     (`../firestore-compat/`), absolute URLs, and `#fragment` links pass
  *     through untouched.
  *   - The target file must exist under src/content (authored or _generated) —
  *     a link to a nonexistent file FAILS THE BUILD (no silent plain-texting).
