@@ -90,6 +90,16 @@ function rewrite(url: string, filePath: string, fromDir: string, fromUrlDir: str
   if (!/\.md$/.test(path)) return url; // only authored .md links
   const target = resolveTarget(fromDir, path);
   if (!target) {
+    // Authored pages may legitimately link into _generated/ (conformance
+    // matrices, the API reference), but that directory only exists after the
+    // generate step. A missing generated target is an environment problem,
+    // not a broken authored link — say so.
+    const intended = toContentRel(resolve(fromDir, decodeURI(path)));
+    if (intended.startsWith('_generated/')) {
+      throw new Error(
+        `generated content missing (run \`bun run generate\` in packages/site-docs; requires built packages): '${url}' in ${toContentRel(filePath)}`,
+      );
+    }
     throw new Error(
       `broken doc link in ${toContentRel(filePath)}: '${url}' resolves to no file under src/content`,
     );

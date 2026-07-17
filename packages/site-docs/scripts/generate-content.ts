@@ -12,7 +12,7 @@
  * content is never touched.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConformancePages } from './conformance-pages';
@@ -81,6 +81,19 @@ async function writeConformancePages(): Promise<number> {
 }
 
 async function main() {
+  // Preflight: both producers need built package dists — the API reference
+  // reads every manifest's `types` target, and the conformance projection is
+  // shipped inside @pyric/cli's dist. Fail with the fix, not a module error.
+  const cliConformanceDist = join(repoRoot, 'packages', 'cli', 'dist', 'conformance', 'index.js');
+  if (!existsSync(cliConformanceDist)) {
+    console.error(
+      'generate-content: packages are not built (missing packages/cli/dist/conformance).\n' +
+        'Build packages first, from the repo root:\n\n' +
+        '  bun run build --packages-only\n',
+    );
+    process.exit(1);
+  }
+
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 

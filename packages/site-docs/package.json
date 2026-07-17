@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "astro dev",
+    "dev": "bun run generate && astro dev",
     "generate": "bun scripts/generate-content.ts",
     "build": "bun run generate && astro build",
     "preview": "astro preview"
