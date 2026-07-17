@@ -12,6 +12,7 @@ import type {
   RulesDisposition,
 } from './operation.js';
 export type {
+  ActivityEventProvenance,
   AuthLens,
   EventActor,
   EventProvenance,

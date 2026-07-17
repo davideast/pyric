@@ -38,6 +38,18 @@ export type RulesDisposition =
       reason: 'no-rules' | 'unsupported' | 'not-a-rules-operation' | 'runtime-error';
     };
 
+/** Provenance consumed only by the firestore activity diagnostics. Bundled in
+ * one optional record so the shared operation type carries a single
+ * activity-owned seam rather than loose per-feature fields. */
+export interface ActivityEventProvenance {
+  /** Stable host subscription identity used only by activity diagnostics. */
+  listenerId?: string;
+  /** Marks lifecycle caused by transparent auth reauthorization, not app code. */
+  listenerLifecycle?: 'reauthorize';
+  /** Marks worker-split operations that belong to a transaction for activity diagnostics. */
+  groupKind?: 'transaction';
+}
+
 /** Compatibility provenance carried by sandbox events while producers and
  * consumers migrate to the canonical `operationContext`. */
 export interface EventProvenance {
@@ -47,10 +59,6 @@ export interface EventProvenance {
   operationContext?: OperationContext;
   /** Set when the op is part of an agent plan. */
   planId?: string;
-  /** Stable host subscription identity used only by activity diagnostics. */
-  activityListenerId?: string;
-  /** Marks lifecycle caused by transparent auth reauthorization, not app code. */
-  activityListenerLifecycle?: 'reauthorize';
-  /** Marks worker-split operations that belong to a transaction for activity diagnostics. */
-  activityGroupKind?: 'transaction';
+  /** Firestore activity-diagnostics provenance; absent outside that flow. */
+  activity?: ActivityEventProvenance;
 }

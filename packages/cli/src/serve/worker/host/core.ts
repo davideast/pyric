@@ -378,10 +378,10 @@ export function opProvenance(
         : { kind: 'app', ...(activityJourneyId ? { journeyId: activityJourneyId } : {}) },
     authLens: actAs ?? { mode: 'app-session' },
     ...(isAppFirestoreSubscription
-      ? { activityListenerId: (msg as { subId: string }).subId }
+      ? { activity: { listenerId: (msg as { subId: string }).subId } }
       : {}),
-    ...(msg.t === 'op' && msg.method === 'getDoc' && msg.activityGroupKind
-      ? { activityGroupKind: msg.activityGroupKind }
+    ...(msg.t === 'op' && msg.method === 'getDoc' && msg.activity?.groupKind
+      ? { activity: { groupKind: msg.activity.groupKind } }
       : {}),
   };
 }

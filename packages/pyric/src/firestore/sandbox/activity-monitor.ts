@@ -472,7 +472,7 @@ function appFirestoreListener(
     !isKnownAppTermination
     && (context.source.kind !== 'app' || context.authLens.mode === 'admin')
   ) return null;
-  const logicalListenerId = event.activityListenerId ?? knownIdentity?.listenerId ?? event.listenerId;
+  const logicalListenerId = event.activity?.listenerId ?? knownIdentity?.listenerId ?? event.listenerId;
   const identity: AppListenerIdentity = knownIdentity ?? {
     listenerId: logicalListenerId,
     target: event.target,
@@ -490,7 +490,7 @@ function appFirestoreListener(
   return {
     phase,
     physicalListenerId: event.listenerId,
-    reauthorization: event.activityListenerLifecycle === 'reauthorize',
+    reauthorization: event.activity?.listenerLifecycle === 'reauthorize',
     ...identity,
   };
 }
@@ -527,7 +527,7 @@ function appFirestoreRead(
   if (
     event.groupId
     || event.groupKind
-    || event.activityGroupKind
+    || event.activity?.groupKind
     || event.planId
     || event.detail?.admin === true
   ) return null;

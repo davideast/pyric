@@ -376,7 +376,7 @@ export type OpMessage = (
       id: string;
       method: 'getDoc';
       path: string;
-      activityGroupKind?: 'transaction';
+      activity?: { groupKind?: 'transaction' };
     }
   | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor }
   | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; options?: { merge?: boolean; mergeFields?: string[] } }

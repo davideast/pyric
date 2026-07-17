@@ -64,20 +64,20 @@ describe('opProvenance', () => {
       expected: {
         actor: { kind: 'app', journeyId: 'page-2' },
         authLens: { mode: 'app-session' },
-        activityListenerId: 'listener-7',
+        activity: { listenerId: 'listener-7' },
       },
     },
     {
       name: 'transaction read activity group',
       message: {
         t: 'op', id: 'txn-read', method: 'getDoc', path: 'items/one',
-        activityGroupKind: 'transaction',
+        activity: { groupKind: 'transaction' },
       },
       journeyId: 'page-2',
       expected: {
         actor: { kind: 'app', journeyId: 'page-2' },
         authLens: { mode: 'app-session' },
-        activityGroupKind: 'transaction',
+        activity: { groupKind: 'transaction' },
       },
     },
   ];

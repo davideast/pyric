@@ -42,6 +42,7 @@ export type {
   WriteSandboxEvent,
 } from './events.js';
 export type {
+  ActivityEventProvenance,
   AuthLens,
   EventActor,
   EventProvenance,

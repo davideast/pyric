@@ -92,8 +92,7 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
       // replacement attach must retain the same logical page attribution.
       const provenance = {
         ...opProvenance(msg, activityJourneyId(ctx, port)),
-        activityListenerId: subId,
-        activityListenerLifecycle: 'reauthorize' as const,
+        activity: { listenerId: subId, listenerLifecycle: 'reauthorize' as const },
       };
       const reauthorize = (): void => {
         if (unsub) unsub();

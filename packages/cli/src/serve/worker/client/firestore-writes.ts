@@ -175,7 +175,7 @@ export async function runTransaction<R>(
           id: nextId(),
           method: 'getDoc',
           path: ref.descriptor.path,
-          activityGroupKind: 'transaction',
+          activity: { groupKind: 'transaction' },
         }) as RawDocResult;
 
         // Record the raw serialized data (or null) in the read-set.

@@ -7,7 +7,7 @@ kind: "api"
 apiPackage: "pyric"
 apiImportPath: "pyric/sandbox"
 apiSubpath: "sandbox"
-apiSymbolCount: 72
+apiSymbolCount: 73
 ---
 
 <!-- Generated from published package declarations via TypeDoc. Do not edit by hand; run bun run docs:api:generate. -->
@@ -226,6 +226,24 @@ Error.constructor
 
 ## Interfaces
 
+<a id="activityeventprovenance"></a>
+
+### ActivityEventProvenance
+
+Provenance consumed only by the firestore activity diagnostics. Bundled in
+one optional record so the shared operation type carries a single
+activity-owned seam rather than loose per-feature fields.
+
+#### Properties
+
+| Property | Type | Description |
+| :------ | :------ | :------ |
+| <a id="groupkind"></a> `groupKind?` | `"transaction"` | Marks worker-split operations that belong to a transaction for activity diagnostics. |
+| <a id="listenerid"></a> `listenerId?` | `string` | Stable host subscription identity used only by activity diagnostics. |
+| <a id="listenerlifecycle"></a> `listenerLifecycle?` | `"reauthorize"` | Marks lifecycle caused by transparent auth reauthorization, not app code. |
+
+***
+
 <a id="branch"></a>
 
 ### Branch
@@ -425,9 +443,7 @@ consumers migrate to the canonical `operationContext`.
 
 | Property | Type | Description |
 | :------ | :------ | :------ |
-| <a id="activitygroupkind"></a> `activityGroupKind?` | `"transaction"` | Marks worker-split operations that belong to a transaction for activity diagnostics. |
-| <a id="activitylistenerid"></a> `activityListenerId?` | `string` | Stable host subscription identity used only by activity diagnostics. |
-| <a id="activitylistenerlifecycle"></a> `activityListenerLifecycle?` | `"reauthorize"` | Marks lifecycle caused by transparent auth reauthorization, not app code. |
+| <a id="activity"></a> `activity?` | [`ActivityEventProvenance`](#activityeventprovenance) | Firestore activity-diagnostics provenance; absent outside that flow. |
 | <a id="actor"></a> `actor?` | [`EventActor`](#eventactor) | - |
 | <a id="authlens"></a> `authLens?` | [`AuthLens`](#authlens-2) | - |
 | <a id="operationcontext-1"></a> `operationContext?` | [`OperationContext`](#operationcontext-2) | - |
@@ -458,7 +474,7 @@ on the errored phase only.
 | `error.reasons?` | `string`[] | - |
 | <a id="id"></a> `id` | `string` | - |
 | <a id="kind"></a> `kind` | `"listener_attach"` \| `"listener_detach"` \| `"listener_errored"` | - |
-| <a id="listenerid"></a> `listenerId` | `string` | - |
+| <a id="listenerid-1"></a> `listenerId` | `string` | - |
 | <a id="target"></a> `target` | \| \{ `kind`: `"doc"`; `path`: `string`; \} \| \{ `collection`: `string`; `kind`: `"query"`; `query?`: `unknown`; \} | - |
 
 ***
@@ -2049,7 +2065,7 @@ traffic-monitor-decision.md for the field-by-field rationale.
 | <a id="evalms"></a> `evalMs` | `number` | Wall-clock duration of the simulator.simulate(...) call, in ms. |
 | <a id="evaluatedrule"></a> `evaluatedRule?` | `EvaluatedRuleInfo` | The DECIDING rule's verdict + 1-indexed source line + full sub-expression trace, projected from the simulator's structured `RuleEvaluation` (additive: present on `result: 'allow' | 'deny'` Firestore events when the simulator produced a per-rule trace — the allowing rule on an allow, the denying rule on a deny). Studio's rules inspector reads this to mark the deciding line and render the evaluation step-through ("show the work"). Absent on an implicit deny (no rule evaluated), a simulator-error deny, and unsupported results. |
 | <a id="groupid"></a> `groupId?` | `string` | Shared across ops in one batch or transaction. Opaque to consumers. |
-| <a id="groupkind"></a> `groupKind?` | `"transaction"` \| `"batch"` | Disambiguates `origin: 'transaction' | 'batch'` cases when consumers need to tell them apart without inspecting `origin` directly. |
+| <a id="groupkind-1"></a> `groupKind?` | `"transaction"` \| `"batch"` | Disambiguates `origin: 'transaction' | 'batch'` cases when consumers need to tell them apart without inspecting `origin` directly. |
 | <a id="id-2"></a> `id` | `string` | Unique within a sandbox process. Useful for React list keys. |
 | <a id="kind-1"></a> `kind` | `"request"` | Discriminator. |
 | <a id="matchedrule"></a> `matchedRule?` | \{ `operations`: `string`[]; `ruleIndex`: `number`; \} | Parsed from the simulator's "Rule #N → …" debug line. Absent when no rule matched (e.g. no allow rules at the path — implicit deny). |
@@ -2594,7 +2610,7 @@ these service adapters instead of filtering Firestore-only `write` events.
 | <a id="data"></a> `data?` | `unknown` |
 | <a id="detail-1"></a> `detail?` | `Record`\<`string`, `unknown`\> |
 | <a id="groupid-1"></a> `groupId?` | `string` |
-| <a id="groupkind-1"></a> `groupKind?` | `"transaction"` \| `"batch"` |
+| <a id="groupkind-2"></a> `groupKind?` | `"transaction"` \| `"batch"` |
 | <a id="id-3"></a> `id` | `string` |
 | <a id="kind-2"></a> `kind` | `"commit"` |
 | <a id="method-2"></a> `method` | `string` |
@@ -2700,7 +2716,7 @@ service listeners the same debuggable surface.
 | `error.reasons?` | `string`[] |
 | <a id="id-4"></a> `id` | `string` |
 | <a id="kind-3"></a> `kind` | `"listener"` |
-| <a id="listenerid-1"></a> `listenerId` | `string` |
+| <a id="listenerid-2"></a> `listenerId` | `string` |
 | <a id="phase"></a> `phase` | `"attach"` \| `"detach"` \| `"delivery"` \| `"suppressed"` \| `"errored"` |
 | <a id="reason"></a> `reason?` | `string` |
 | <a id="result-2"></a> `result?` | `"allow"` \| `"deny"` \| `"unsupported"` \| `"error"` |
@@ -2742,11 +2758,11 @@ their state is a Firestore document.
 | <a id="detail-3"></a> `detail?` | `Record`\<`string`, `unknown`\> | - |
 | <a id="durationms"></a> `durationMs?` | `number` | - |
 | <a id="groupid-2"></a> `groupId?` | `string` | - |
-| <a id="groupkind-2"></a> `groupKind?` | `"transaction"` \| `"batch"` | - |
+| <a id="groupkind-3"></a> `groupKind?` | `"transaction"` \| `"batch"` | - |
 | <a id="id-5"></a> `id` | `string` | - |
 | <a id="kind-4"></a> `kind` | `"operation"` | - |
 | <a id="method-3"></a> `method` | `string` | - |
-| <a id="origin-1"></a> `origin` | `"admin"` \| `"transaction"` \| `"user"` \| `"listener"` \| `"batch"` \| `"system"` | - |
+| <a id="origin-1"></a> `origin` | `"transaction"` \| `"admin"` \| `"user"` \| `"listener"` \| `"batch"` \| `"system"` | - |
 | <a id="path-3"></a> `path?` | `string` | - |
 | <a id="reasons-3"></a> `reasons?` | `string`[] | - |
 | <a id="request-3"></a> `request?` | \{ `data?`: `unknown`; `query?`: `unknown`; `resourceData?`: `unknown`; \} | - |
@@ -2939,7 +2955,7 @@ scenario produces large snapshots.
 | `auth.uid` | `string` | - |
 | <a id="id-9"></a> `id` | `string` | - |
 | <a id="kind-8"></a> `kind` | `"snapshot_delivery"` | - |
-| <a id="listenerid-2"></a> `listenerId` | `string` | Opaque listener id assigned at attach time. |
+| <a id="listenerid-3"></a> `listenerId` | `string` | Opaque listener id assigned at attach time. |
 | <a id="modifiedcount"></a> `modifiedCount` | `number` | - |
 | <a id="removedcount"></a> `removedCount` | `number` | - |
 | <a id="sample-1"></a> `sample?` | \{ `docs`: \{ `data`: `Record`\<`string`, `unknown`\>; `path`: `string`; \}[]; \} | Doc payloads, in the order the user callback saw them. |
@@ -3015,7 +3031,7 @@ them.
 | `auth.uid` | `string` | - |
 | <a id="id-10"></a> `id` | `string` | - |
 | <a id="kind-9"></a> `kind` | `"snapshot_suppressed"` | - |
-| <a id="listenerid-3"></a> `listenerId` | `string` | - |
+| <a id="listenerid-4"></a> `listenerId` | `string` | - |
 | <a id="reason-1"></a> `reason` | `"no-op"` | Why this re-eval was suppressed. v1 only emits `'no-op'`. |
 | <a id="target-4"></a> `target` | \| \{ `kind`: `"doc"`; `path`: `string`; \} \| \{ `collection`: `string`; `kind`: `"query"`; \} | - |
 | <a id="triggeredby-4"></a> `triggeredBy?` | \{ `method`: `string`; `path`: `string`; \} | - |
@@ -3145,7 +3161,7 @@ sentinel/auto-id capture lands.
 | <a id="data-1"></a> `data?` | `Record`\<`string`, `unknown`\> | Pre-resolution write payload — `FieldValue.*` sentinels preserved as marker shapes (`{ __type: 'serverTimestamp' }`, etc.) so the replay engine can re-resolve them. The rule engine evaluated against the resolved form internally; the resolved form lives on [nextState](#nextstate-1). Absent on `delete`. |
 | <a id="detail-6"></a> `detail?` | \{ `admin?`: `boolean`; \} & `Record`\<`string`, `unknown`\> | Free-form write metadata. `admin: true` marks a rules-bypassing setup/admin commit so replay can apply it as context without asking candidate rules to permit it. |
 | <a id="groupid-3"></a> `groupId?` | `string` | - |
-| <a id="groupkind-3"></a> `groupKind?` | `"transaction"` \| `"batch"` | - |
+| <a id="groupkind-4"></a> `groupKind?` | `"transaction"` \| `"batch"` | - |
 | <a id="id-11"></a> `id` | `string` | - |
 | <a id="kind-10"></a> `kind` | `"write"` | - |
 | <a id="method-5"></a> `method` | `"create"` \| `"update"` \| `"delete"` \| `"set"` | - |

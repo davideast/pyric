@@ -157,7 +157,7 @@ describe('client↔host round-trip (gate repro)', () => {
     });
 
     expect(ctx.sandbox.history().filter(
-      (event) => event.kind === 'request' && event.activityGroupKind === 'transaction',
+      (event) => event.kind === 'request' && event.activity?.groupKind === 'transaction',
     )).toHaveLength(5);
     expect(warnings).toEqual([]);
 
