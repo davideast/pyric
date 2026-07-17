@@ -111,9 +111,8 @@ function combinedScore(coverage: SurfaceScore): CombinedScore | null {
 
 /** The runtime · types split, shown as one small-print line under the bar. */
 function splitLine(coverage: SurfaceScore): string {
-  const runtime = coverage.runtime!;
-  const types = coverage.types!;
-  return `${runtime.mapped} of ${runtime.denominator} runtime exports <span aria-hidden="true">·</span> ${types.mapped} of ${types.denominator} type exports`;
+  const combined = combinedScore(coverage)!;
+  return `${combined.mapped} of ${combined.denominator} public API`;
 }
 
 /** One to-scale combined public-surface bar. Plain HTML/CSS, no script. */
@@ -187,10 +186,7 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
     '',
     '# Public API coverage',
     '',
-    'This is the share of Firebase\'s public API that Pyric supports. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
-    '',
-    '- **Public runtime surface:** the share of Firebase\'s public runtime exports that Pyric provides. Not-implemented-yet, deprecated, and deferred public APIs still count against the total.',
-    '- **Public type surface:** the share of Firebase\'s public exported type names that Pyric provides. This measures name presence, not structural assignability.',
+    'This is the share of Firebase\'s public API that Pyric supports. Not-implemented-yet, deprecated, and deferred APIs still count against the total. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
     '',
     '## Services',
     '',
@@ -303,27 +299,33 @@ export function dispositionSection(
   const groups = Map.groupBy(dispositions, (entry) => entry.dispositionId);
   const availabilityLabel = (availability: string): string =>
     availability === 'deferred' ? 'Not implemented yet' : 'Out of scope';
-  const items = [...groups].map(([id, entries]) => {
+  // The same row component the entry tables render (via compat-tables.ts):
+  // status dot, a code identifier, a behavior sub-line, and an expandable
+  // evidence body. Gaps are ordinary rows with a not-available status.
+  const rows = [...groups].map(([id, entries]) => {
     const first = entries[0]!;
+    const label = availabilityLabel(first.availability);
+    const summary = escapeHtml(first.summary).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>');
     const symbols = entries.map(({ symbol }) => `<code>${escapeHtml(symbol)}</code>`).join(' ');
-    const evidence = first.evidenceRefs.length > 0
-      ? `<p class="compat-gap-evidence">${escapeHtml(first.evidenceRefs.join(', '))}</p>`
-      : '';
+    const notes = [
+      `<div class="compat-note">${symbols}</div>`,
+      first.evidenceRefs.length > 0 ? `<div class="compat-note">${escapeHtml(first.evidenceRefs.join(', '))}</div>` : '',
+    ].filter(Boolean).join('\n');
+    const dot = `<span class="compat-dot" data-status="unsupported" role="img" aria-label="${label}" title="${label}"></span>`;
+    const main = `<span class="compat-main"><code class="compat-api">${escapeHtml(id)}</code>` +
+      `<span class="compat-sub"><span class="compat-behavior">${summary}</span></span></span>`;
     return [
-      '<article class="compat-gap">',
-      `<header class="compat-gap-header"><code>${escapeHtml(id)}</code>` +
-        `<span class="compat-gap-availability">${availabilityLabel(first.availability)}</span></header>`,
-      `<p class="compat-gap-summary">${escapeHtml(first.summary).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>')}</p>`,
-      `<p class="compat-gap-symbols">${symbols}</p>`,
-      evidence,
-      '</article>',
+      '<details class="compat-row" data-status="unsupported">',
+      `<summary class="compat-line">${dot}${main}</summary>`,
+      `<div class="compat-evidence">${notes}</div>`,
+      '</details>',
     ].join('\n');
   });
   return [
     '## Reviewed public-runtime gaps',
     '',
-    '<div class="compat-gaps">',
-    ...items,
+    '<div class="compat-list">',
+    ...rows,
     '</div>',
   ].join('\n');
 }

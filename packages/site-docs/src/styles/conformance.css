@@ -257,50 +257,6 @@
   font-style: italic;
 }
 
-/* Reviewed public-runtime gaps: plain block flow — id + availability
-   on the header line, summary as wrapping prose, symbols as chips. */
-.prose .compat-gaps {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.prose .compat-gap {
-  border-left: 2px solid var(--line);
-  padding-left: var(--space-3);
-}
-
-.prose .compat-gap-header {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.prose .compat-gap-availability {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-3, #667);
-}
-
-.prose .compat-gap-summary {
-  margin: var(--space-1) 0 0;
-}
-
-.prose .compat-gap-symbols {
-  margin: var(--space-1) 0 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-.prose .compat-gap-evidence {
-  margin: var(--space-1) 0 0;
-  font-size: 0.8125rem;
-  color: var(--ink-3, #667);
-}
-
 /* Scoreboard: the bar owns the row width; the basis tucks beneath it. */
 .prose .compat-score-stack {
   display: grid;
