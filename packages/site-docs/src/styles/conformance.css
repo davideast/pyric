@@ -250,3 +250,9 @@
   border-bottom: 0;
 }
 }
+
+.prose .compat-score-tbd {
+  color: var(--ink-3, #667);
+  font-size: 0.8125rem;
+  font-style: italic;
+}

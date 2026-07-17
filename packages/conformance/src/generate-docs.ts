@@ -149,15 +149,6 @@ export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: Do
   ].join('\n');
 }
 
-/** Share of a surface's tracked behaviors that conform — the published score
- * for native/integration surfaces, which have no Firebase export denominator. */
-function fidelityScore(surface: CompatibilitySurfaceRegistry): { pct: string; conforming: number; total: number } {
-  const rows = surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows : []));
-  const conforming = rows.filter((row) => row.status === 'conforms').length;
-  const pct = rows.length === 0 ? '0' : ((conforming / rows.length) * 100).toFixed(1).replace(/\.0$/, '');
-  return { pct, conforming, total: rows.length };
-}
-
 function meterCell(pct: number | string): string {
   return `<span class="compat-score-pct">${pct}%</span>` +
     `<span class="compat-meter-track compat-meter-track--mini"><span class="compat-meter-fill" style="width: ${pct}%"></span></span>`;
@@ -178,9 +169,9 @@ function scoreRow(
     score = meterCell(combined.pct);
     detail = splitLine(coverage);
   } else if (surface !== null) {
-    const fidelity = fidelityScore(surface);
-    score = meterCell(fidelity.pct);
-    detail = `${fidelity.conforming} of ${fidelity.total} tracked behaviors conform`;
+    // No honest public-API denominator exists yet for this surface (#343).
+    score = '<span class="compat-score-tbd">Gathering metrics. Total score TBD.</span>';
+    detail = '';
   } else {
     score = '';
     detail = '';
