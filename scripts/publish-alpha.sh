@@ -39,6 +39,16 @@ node "$ROOT/scripts/lib/check-publish-version.mjs" "$V" "$ROOT"
 
 cd "$ROOT"
 
+# Publishing is irreversible. Prove the exact tree before the first registry
+# mutation; the escape hatch is only for rerunning the same tree after an
+# interrupted publish (for example, an OTP failure).
+if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
+  echo "━━━ pre-publish gates: bun run test ━━━"
+  bun run test
+  echo "━━━ pre-publish gates: bun run test:packaging ━━━"
+  bun run test:packaging
+fi
+
 bash scripts/pack-packages.sh
 
 for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do

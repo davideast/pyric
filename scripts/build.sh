@@ -125,7 +125,7 @@ if $BUILD_DOCS; then
   bun run docs:api:check
   echo "▸ Building packages/site-docs (base /__pyric/ui/)"
   rm -rf packages/site-docs/dist
-  DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build
+  DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build:site
   echo "▸ Embedding docs site → packages/cli/dist/serve/docs-ui/"
   rm -rf packages/cli/dist/serve/docs-ui
   mkdir -p packages/cli/dist/serve/docs-ui
