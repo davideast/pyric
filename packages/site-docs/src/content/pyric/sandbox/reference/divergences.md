@@ -8,6 +8,10 @@ order: 110
 
 What `replay(events, rules, opts, originalState)` returns when the replayed state doesn't perfectly match the captured state. A discriminated union; filter on `kind` to handle each case.
 
+> **API reference:** the `Divergence` type is generated from source in the
+> [`pyric/sandbox` API reference](../../../_generated/pyric-sandbox-reference-api.md).
+> This page documents the classifier contract each `kind` encodes.
+
 ## What is a divergence?
 
 A divergence is a single classified difference between what the original sandbox stored and what the replayed sandbox produced after re-issuing every captured write.

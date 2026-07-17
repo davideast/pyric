@@ -6,94 +6,16 @@ order: 100
 ---
 # Query constraints
 
-`pyric/firestore` mirrors `firebase/firestore`'s constraint factories. Compose them via `query(...)`.
+`pyric/firestore` mirrors `firebase/firestore`'s constraint factories
+(`where`, `or`, `and`, `orderBy`, `limit`, `limitToLast`, `startAt`,
+`startAfter`, `endAt`, `endBefore`). Compose them via `query(...)`.
 
-## Filters
+The factory signatures and parameters are generated from source in the
+[`pyric/firestore` API reference](../../../_generated/pyric-firestore-reference-api.md),
+and their query semantics match the upstream SDK — see the
+[Firebase Web SDK docs](https://firebase.google.com/docs/reference/js/firestore_).
+What follows is the one behaviour specific to the sandbox mirror.
 
-### `where(field, op, value)`
-```ts
-where('ownerId', '==', 'alice')
-where('priority', '>=', 5)
-where('tags', 'array-contains', 'urgent')
-where('status', 'in', ['open', 'pending'])
-```
-`op` is one of `==`, `!=`, `<`, `<=`, `>`, `>=`, `array-contains`, `array-contains-any`, `in`, `not-in`.
-
-### `or(...filters)`
-
-Compose multiple filters with OR semantics. The combined constraint matches a doc when any inner filter matches.
-```ts
-query(
-  collection(db, 'notes'),
-  or(
-    where('priority', '>=', 5),
-    where('flagged', '==', true),
-  ),
-);
-```
-### `and(...filters)`
-
-Compose multiple filters with AND semantics. Top-level constraints already AND together, so `and` is only needed inside an `or`.
-```ts
-or(
-  and(where('priority', '>=', 5), where('archived', '==', false)),
-  where('flagged', '==', true),
-)
-```
-## Ordering
-
-### `orderBy(field, direction?)`
-```ts
-orderBy('createdAt')              // default 'asc'
-orderBy('createdAt', 'desc')
-orderBy('priority', 'desc')
-```
-`direction` is `'asc'` or `'desc'`. Multiple `orderBy` calls in one query stack; later constraints are tiebreakers.
-
-## Limits
-
-### `limit(n)`
-
-Cap the result set to `n` documents.
-
-### `limitToLast(n)`
-
-Cap to the last `n` documents in the query's ordering. Requires at least one `orderBy`. Reverses internally to fetch the tail.
-
-## Cursors
-
-Four constraints for pagination. Each accepts either a `DocumentSnapshot` (start at / after this doc) or positional field values matching the `orderBy` constraints.
-
-### `startAt(snapshot)` / `startAt(...values)`
-
-Include the matching doc and everything after.
-
-### `startAfter(snapshot)` / `startAfter(...values)`
-
-Exclude the matching doc; start at the next one.
-
-### `endAt(snapshot)` / `endAt(...values)`
-
-Include everything up to and including the matching doc.
-
-### `endBefore(snapshot)` / `endBefore(...values)`
-
-Exclude the matching doc; end just before it.
-```ts
-const firstPage = await getDocs(query(
-  collection(db, 'notes'),
-  orderBy('createdAt'),
-  limit(20),
-));
-const lastDoc = firstPage.docs[firstPage.docs.length - 1];
-
-const secondPage = await getDocs(query(
-  collection(db, 'notes'),
-  orderBy('createdAt'),
-  startAfter(lastDoc),
-  limit(20),
-));
-```
 ## Sandbox-backend caveat
 
 Chained queries (`.where`, `.orderBy`, `.limit`) currently route to the underlying `LocalEnvironment` as whole-collection listeners when used with `onSnapshot`. The simulator fires for any change in the collection and the callback receives every document. Filter / order honouring at the listener layer is in a later slice. For `getDocs` calls, the constraints apply normally.

@@ -9,6 +9,11 @@ order: 10
 
 Firebase Storage mirror for the Pyric sandbox. Its modular Web-SDK shape (`getStorage`, `ref`, `uploadBytes`, `getBytes`, `getDownloadURL`, `listAll`, `deleteObject`) is backed by IndexedDB. Production selection happens outside this package: normal builds resolve `firebase/storage`, while Pyric development swaps that import to this sandbox mirror.
 
+> **API reference:** the exported symbols, signatures, and types are generated
+> from source in the
+> [`pyric/storage` API reference](../../_generated/pyric-storage-reference-api.md).
+> The pages under Reference here cover semantics TypeDoc can't express.
+
 Built for the agent-session-archive use case. The scope is bounded; the architecture validates the broader pattern for adding file-based services to `pyric/sandbox`.
 
 ## Check feature support

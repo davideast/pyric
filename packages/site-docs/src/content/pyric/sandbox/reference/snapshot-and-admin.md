@@ -9,6 +9,10 @@ order: 160
 
 Two related surfaces. `SandboxSnapshot` is the shape returned by `Sandbox.snapshot()`. `SandboxAdmin` is the rule-bypass read surface exposed on `Sandbox.admin`.
 
+> **API reference:** the type signatures are generated from source in the
+> [`pyric/sandbox` API reference](../../../_generated/pyric-sandbox-reference-api.md).
+> This page covers what the shapes mean and the phantom-document contract.
+
 ## `SandboxSnapshot`
 ```ts
 interface SandboxSnapshot {

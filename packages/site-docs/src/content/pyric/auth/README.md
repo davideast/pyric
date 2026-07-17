@@ -11,6 +11,11 @@ Sandbox-only modular Web SDK Auth mirror. It implements `firebase/auth`'s tree-s
 
 Application code keeps canonical `firebase/auth` imports. Pyric's Vite/import-map or Node register boundary swaps those imports to this mirror in sandbox mode; production installs no swap and continues loading Firebase itself. Direct `pyric/auth` imports always select sandbox behavior.
 
+> **API reference:** the exported symbols, signatures, and types are generated
+> from source in the
+> [`pyric/auth` API reference](../../_generated/pyric-auth-reference-api.md).
+> The pages under Reference here cover semantics TypeDoc can't express.
+
 ## Install
 ```bash
 bun add pyric firebase

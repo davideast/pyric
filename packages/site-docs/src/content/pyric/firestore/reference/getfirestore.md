@@ -8,13 +8,10 @@ order: 90
 
 Constructs a Firestore handle owned by the Pyric sandbox mirror.
 
-## Signatures
-```ts
-function getFirestore(): Firestore;
-function getFirestore(context: SandboxContext): Firestore;
-function getFirestore(sandbox: Sandbox): Firestore;
-function getFirestore(app: FirebaseApp): Firestore;
-```
+The overload signatures are generated from source in the
+[`pyric/firestore` API reference](../../../_generated/pyric-firestore-reference-api.md).
+This page documents what each argument form *means* in the sandbox.
+
 The `FirebaseApp` overload accepts the Firebase-shaped app returned after
 package resolution swaps canonical `firebase/app` imports to `pyric/app`.
 With no argument, `getFirestore()` resolves the registered default app,

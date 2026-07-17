@@ -9,6 +9,10 @@ order: 140
 
 The three core types. Every other surface in the package builds on them.
 
+> **API reference:** the type signatures are generated from source in the
+> [`pyric/sandbox` API reference](../../../_generated/pyric-sandbox-reference-api.md).
+> This page covers their lifecycle and identity semantics.
+
 ## `Sandbox`
 
 The data + rules + lifecycle handle.

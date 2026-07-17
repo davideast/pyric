@@ -10,29 +10,12 @@ The handle returned from `getFirestore(ctx)`. Extends `Firestore` from `firebase
 
 ## Production-shaped methods
 
-These mirror `firebase-admin/firestore` exactly. The production docs and types apply.
-
-### `collection(path: string): CollectionReference`
-
-Get a `CollectionReference` for the given path. Chain `.doc`, `.where`, `.orderBy`, `.limit`, `.get`, `.add`, etc.
-
-### `doc(path: string): DocumentReference`
-
-Get a `DocumentReference` for the given path. Chain `.get`, `.set`, `.update`, `.delete`, `.collection` (subcollection).
-
-### `collectionGroup(collectionId: string): Query`
-
-Build a collection-group query: matches every collection named `collectionId` anywhere in the database.
-
-### `batch(): WriteBatch`
-
-Construct a write batch. Chain `.set`, `.update`, `.delete`, `.commit`.
-
-### `runTransaction<R>(fn, opts?): Promise<R>`
-
-Run a transaction. The callback receives a `Transaction` object with `.get` (ref or query), `.set`, `.update`, `.delete`. Reads inside the callback are tracked for read-after-write detection.
-
-`opts` is accepted for shape parity with `firebase-admin/firestore`'s `OperationOptions`. The sandbox ignores per-op options that don't apply.
+The production-shaped methods (`collection`, `doc`, `collectionGroup`, `batch`,
+`runTransaction`) mirror `firebase-admin/firestore` exactly, so the production
+docs and types apply. Their signatures are generated from source in the
+[`pyric-admin/firestore` API reference](../../../_generated/pyric-admin-firestore-reference-api.md).
+One sandbox note: `runTransaction`'s `opts` is accepted for shape parity with
+`OperationOptions`, and the sandbox ignores per-op options that don't apply.
 
 ## Sandbox-only methods
 

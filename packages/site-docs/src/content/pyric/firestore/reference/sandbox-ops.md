@@ -9,6 +9,10 @@ order: 110
 Firestore-specific controls are top-level exports from
 `pyric/sandbox/firestore`. They operate on the owning local `Sandbox`, not on a
 Firestore data-plane handle.
+
+> **API reference:** these functions' signatures are generated from source in the
+> [`pyric/sandbox/firestore` API reference](../../../_generated/pyric-sandbox-firestore-reference-api.md).
+> This page covers what they do and the ownership contract.
 ```ts
 import {
   inspect,

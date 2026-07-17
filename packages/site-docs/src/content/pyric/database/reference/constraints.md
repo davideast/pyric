@@ -1,13 +1,19 @@
 ---
-title: "API reference: RTDB rules constraints"
-navLabel: "API reference"
+title: "RTDB rules constraints DSL"
+navLabel: "Constraints DSL"
 group: "pyric / database"
 section: "Reference"
 order: 30
 ---
-# API reference: RTDB rules constraints
+# RTDB rules constraints DSL
 
 Typed builders that produce Realtime Database security-rule expressions, plus the assembly layer that places them in a path tree and compiles the tree to Firebase rules JSON. Everything on this page is importable directly from `pyric/rules`, the public front door. The dedicated constraints-only subpaths that used to exist (`pyric/rules/rtdb/constraints`, `pyric/rules/rtdb-constraints`) no longer do; there is one place to import the DSL from now. The engine that compiles and simulates against it (the parser, linter, simulator, and tool factories) lives on the internal `pyric/rules/internal/rtdb` subpath instead.
+
+> **API reference:** the exported builder signatures and types are generated from
+> source in the
+> [`pyric/rules` API reference](../../../_generated/pyric-rules-reference-api.md).
+> This page additionally documents the exact rules-language expression each
+> builder *produces* — a spec-pinned contract TypeDoc can't express.
 
 Every builder returns an `Expr`, which is a plain string of RTDB rules language. The produced expressions below are pinned by spec tests, so they are safe to rely on byte for byte.
 

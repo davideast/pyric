@@ -11,6 +11,11 @@ Admin-SDK-shaped Firestore adapter for the Pyric sandbox. Mirrors `firebase-admi
 
 Use this package when your production code uses `firebase-admin/firestore` (Node services, Cloud Functions). For the modular Web SDK shape, use [`pyric/firestore`](./README.md) instead.
 
+> **API reference:** the exported symbols, signatures, and types are generated
+> from source in the
+> [`pyric-admin/firestore` API reference](../../_generated/pyric-admin-firestore-reference-api.md).
+> The pages under Reference here cover semantics TypeDoc can't express.
+
 ## Install
 ```bash
 bun add pyric-admin pyric/sandbox

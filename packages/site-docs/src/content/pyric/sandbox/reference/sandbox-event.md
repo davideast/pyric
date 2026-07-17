@@ -10,6 +10,10 @@ The discriminated union `sandbox.onEvent(cb)` delivers. Filter on `kind` to
 recover any individual event family. The unified channel replaces the prior
 `onRequest` / `onDenial` / `onSnapshotError` triplet.
 
+> **API reference:** the `SandboxEvent` type is generated from source in the
+> [`pyric/sandbox` API reference](../../../_generated/pyric-sandbox-reference-api.md).
+> This page documents the event wire shapes and when each fires.
+
 ## The union
 ```ts
 type SandboxEvent =

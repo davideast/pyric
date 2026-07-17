@@ -12,6 +12,12 @@ Firestore surface. It provides reads, writes, queries, listeners,
 transactions, batches, converters, aggregates, sentinels, and local scalar
 value classes without loading the production Firebase SDK.
 
+> **API reference:** the exported symbols, signatures, and types are generated
+> from source in the
+> [`pyric/firestore` API reference](../../_generated/pyric-firestore-reference-api.md)
+> (scalar value classes: [`pyric/firestore/values`](../../_generated/pyric-firestore-values-reference-api.md)).
+> The pages under Reference here cover semantics TypeDoc can't express.
+
 Backend selection belongs to package resolution:
 
 - Without Pyric activation, `firebase/firestore` is Firebase.

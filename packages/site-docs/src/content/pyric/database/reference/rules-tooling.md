@@ -11,6 +11,13 @@ re-exported directly from `pyric/rules`. The engine underneath it (expression
 parser, validator, linter, compile/simulate/serialize, and replay) is
 engine-internal, on the `pyric/rules/internal/rtdb` subpath. That subpath isn't
 covered by the public `pyric/rules` contract and may change without notice.
+
+> **API reference:** the public DSL signatures and types are generated from
+> source in the
+> [`pyric/rules` API reference](../../../_generated/pyric-rules-reference-api.md)
+> (and the sandbox mirror in the
+> [`pyric/database` API reference](../../../_generated/pyric-database-reference-api.md)).
+> This page covers the tooling behaviour and the internal engine seams.
 ```ts
 import { defineRtdbRules, rtdbRules } from 'pyric/rules';
 import {

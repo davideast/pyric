@@ -8,8 +8,10 @@ order: 90
 
 `pyric-admin/firestore` re-exports a large surface of types from the sandbox
 admin-firestore implementation and `pyric/sandbox` so most consumers can import
-the Firestore admin surface from one place. This page lists what comes from
-where and why.
+the Firestore admin surface from one place. This page explains what comes from
+where and why. The exhaustive export list with each type's shape is generated
+from source in the
+[`pyric-admin/firestore` API reference](../../../_generated/pyric-admin-firestore-reference-api.md).
 
 ## From `pyric/sandbox`
 
@@ -23,20 +25,12 @@ Foundation types you'll always need alongside the data plane:
 Anyone needing more reaches into `pyric/sandbox` directly.
 
 ## Production-shaped types
-```ts
-export type {
-  AggregateField, AggregateQuerySnapshot, AggregateSpec, Filter,
-  CollectionReference, DocumentData, DocumentReference,
-  DocumentSnapshot as AdminDocumentSnapshot,
-  FieldValueSentinel, Firestore,
-  LintResult, LintWarning, OrderDirection,
-  Query,
-  QueryDocumentSnapshot as AdminQueryDocumentSnapshot,
-  QuerySnapshot as AdminQuerySnapshot,
-  RulesMetrics, SetOptions, Transaction, WhereFilterOp, WriteBatch,
-} from 'pyric/sandbox/admin-firestore';
-```
-These mirror `firebase-admin/firestore`. The shapes match production exactly; the implementations are sandbox-aware.
+
+The production-shaped type exports (`AggregateField`, `CollectionReference`,
+`DocumentReference`, `Firestore`, `Query`, `Transaction`, `WriteBatch`, and the
+`Admin*`-prefixed snapshot aliases, among others) come from
+`pyric/sandbox/admin-firestore`. They mirror `firebase-admin/firestore`: the
+shapes match production exactly; the implementations are sandbox-aware.
 
 ### Why the `Admin*` prefixes
 
@@ -49,18 +43,11 @@ The three snapshot types appear with `Admin*` prefixes:
 This is because the Web SDK has differently-shaped snapshot types with the same canonical names, and `onSnapshot` callbacks consume the Web shape. Aliasing the admin variants with the `Admin*` prefix keeps the canonical names available for the Web shape (see next section), so call sites copied from a `firebase/firestore` codebase typecheck without renaming.
 
 ## Web-SDK-shaped snapshot types
-```ts
-export type {
-  LiveDocumentSnapshot as DocumentSnapshot,
-  LiveQueryDocumentSnapshot as QueryDocumentSnapshot,
-  LiveQuerySnapshot as QuerySnapshot,
-  DocumentChange,
-  DocumentChangeType,
-  DocChangesOptions,
-  SnapshotMetadata,
-} from 'pyric/sandbox/admin-firestore';
-```
-Spelled with the conventional Web SDK names. Use these when typing `onSnapshot` callbacks:
+
+The live snapshot types are also re-exported under the conventional Web SDK
+names (`DocumentSnapshot`, `QueryDocumentSnapshot`, `QuerySnapshot`,
+`DocumentChange`, `SnapshotMetadata`, and friends), aliased from their
+`Live*` source names. Use these when typing `onSnapshot` callbacks:
 ```ts
 import { onSnapshot, type DocumentSnapshot } from 'pyric-admin/firestore';
 

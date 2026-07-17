@@ -32,6 +32,14 @@ npx pyric --help
 The package manifest is the authority for this list. An import that is not in
 `exports` is private and may not resolve from a packed release.
 
+> **API reference:** each subpath's exported symbols, signatures, and types are
+> generated from source under the "API reference" group (for example
+> [`@pyric/cli/verify`](../../_generated/pyric-cli-verify-reference-api.md),
+> [`@pyric/cli/discover`](../../_generated/pyric-cli-discover-reference-api.md),
+> [`@pyric/cli/bridge`](../../_generated/pyric-cli-bridge-reference-api.md)).
+> This page and the [CLI reference](./cli.md) cover the binary surface and
+> resolution semantics TypeDoc can't express.
+
 ## Activated development resolution
 
 Application and server source keeps canonical imports such as

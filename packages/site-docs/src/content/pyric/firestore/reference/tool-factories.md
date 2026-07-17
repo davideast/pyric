@@ -7,6 +7,10 @@ order: 120
 # Tool factories
 
 `createFirestoreDataTools(deps)` wraps the modular Firestore data plane as `@inbrowser/agent` tool handlers.
+
+> **API reference:** the exported signatures and types are generated from source
+> in the [`pyric/firestore` API reference](../../../_generated/pyric-firestore-reference-api.md).
+> This page covers the resolver contract and the `as` auth model.
 ```ts
 import { createFirestoreDataTools } from 'pyric/firestore';
 import { createToolRegistry } from '@inbrowser/agent';

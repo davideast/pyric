@@ -9,6 +9,12 @@ order: 10
 
 Pyric-native Firestore Security Rules tooling. A browser-safe parser, linter, modules resolver, in-process simulator, and Rules Test API client, packaged so the data-plane swap-in (`pyric/firestore`) stays minimal.
 
+> **API reference:** the exported symbols, signatures, and types are generated
+> from source in the
+> [`pyric/rules` API reference](../../_generated/pyric-rules-reference-api.md).
+> The pages under Reference here cover semantics TypeDoc can't express (lint and
+> validator finding catalogs, the rules-language stdlib, conformance gaps).
+
 The surface is grouped around the things you can do with a rules source:
 
 - **Parse** it into a typed AST you can walk.

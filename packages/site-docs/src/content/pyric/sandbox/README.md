@@ -9,6 +9,12 @@ order: 10
 
 An in-process Firebase sandbox, the foundation every other `@pyric/*` data-plane package plugs into. It holds documents, rules, and listener state for a single isolated environment. It is identity-agnostic by design: every operation flows through a `SandboxContext` that names the auth identity it should evaluate under.
 
+> **API reference:** the exported symbols, signatures, and types are generated
+> from source in the
+> [`pyric/sandbox` API reference](../../_generated/pyric-sandbox-reference-api.md).
+> The pages under Reference here cover semantics TypeDoc can't express (event
+> wire shapes, error-code meanings, the replay divergence contract).
+
 Three concepts:
 
 - **`Sandbox`**: the data + rules + lifecycle handle. One per isolated environment. Also the observability surface: `onDenial`, `onSnapshotError`, and `onRequest` emit traffic events, while `reset`, `dispose`, and `snapshot` manage lifecycle.

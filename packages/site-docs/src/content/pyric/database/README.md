@@ -7,6 +7,13 @@ order: 10
 ---
 # Realtime Database
 
+> **API reference:** the exported symbols, signatures, and types are generated
+> from source in the
+> [`pyric/database` API reference](../../_generated/pyric-database-reference-api.md)
+> (the RTDB rules constraints DSL is re-exported from
+> [`pyric/rules`](../../_generated/pyric-rules-reference-api.md)). The pages
+> under Reference here cover semantics TypeDoc can't express.
+
 Pyric's Realtime Database surface has three deliberately separate parts:
 
 - `pyric/database` is the sandbox-only mirror of the Firebase Database modular
