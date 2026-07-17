@@ -262,18 +262,41 @@ const GAP_SECTIONS: Array<{ status: Exclude<CompatStatus, 'conforms'>; title: st
   },
 ];
 
+const GAP_STATUS_KEYS: Record<string, { key: string; label: string }> = {
+  'diverged-documented': { key: 'diverged', label: 'Diverged (documented)' },
+  bug: { key: 'bug', label: 'Bug' },
+  unsupported: { key: 'unsupported', label: 'Not implemented yet' },
+  unverified: { key: 'unverified', label: 'Unverified' },
+};
+
 export function consolidatedGapSections(rows: CompatibilityRow[]): string {
   const sections = GAP_SECTIONS.flatMap(({ status, title, intro }) => {
     const matches = rows.filter((row) => row.status === status);
     if (matches.length === 0) return [];
+    const meta = GAP_STATUS_KEYS[status]!;
+    // Same row component as the entry tables: status dot, api name,
+    // behavior sub-line, evidence behind the disclosure.
+    const items = matches.map((row) => {
+      const { name } = apiParts(row);
+      const dot = `<span class="compat-dot" data-status="${meta.key}" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`;
+      const main = '<span class="compat-main">' +
+        (name === '' ? '' : `<code class="compat-api">${escapeHtml(name)}</code>`) +
+        `<span class="compat-sub"><span class="compat-behavior">${escapeHtml(row.behavior).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>')}</span></span></span>`;
+      const evidence = row.evidence.trim() === ''
+        ? ''
+        : `<div class="compat-evidence"><div class="compat-note">${escapeHtml(row.evidence).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>')}</div></div>`;
+      return evidence === ''
+        ? `<div class="compat-row" data-status="${meta.key}"><div class="compat-line">${dot}${main}</div></div>`
+        : `<details class="compat-row" data-status="${meta.key}"><summary class="compat-line">${dot}${main}</summary>\n${evidence}</details>`;
+    });
     return [[
       `### ${title}`,
       '',
       intro,
       '',
-      '| API | Behavior |',
-      '|---|---|',
-      ...matches.map((row) => `| ${escapeCell(apiParts(row).name)} | ${escapeCell(row.behavior)} |`),
+      '<div class="compat-list">',
+      ...items,
+      '</div>',
       '',
     ].join('\n')];
   });
