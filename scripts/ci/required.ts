@@ -9,7 +9,7 @@ interface RequiredInput {
 }
 
 const CHECK_SET_JOBS: Record<PrCheckSet, readonly string[]> = {
-  full: ['build-and-test', 'library-tests', 'browser-conformance', 'playground-caniuse', 'docs-only'],
+  full: ['build-and-test', 'library-tests', 'browser-conformance', 'docs-only'],
   'release-only': ['release-contract'],
   'docs-only': ['docs-only'],
 };

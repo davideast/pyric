@@ -9,9 +9,11 @@
  *
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
+import { randomBytes } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ActivityIncident } from 'pyric/firestore/internal';
 import { collectBody } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
@@ -19,6 +21,7 @@ import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
 import { contentTypeFor, pipeFileToResponse, resolveStaticFile, type ServeLogger } from './server.js';
 import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
 import type { InitPayload } from './init-payload.js';
+import { handleActivity } from './activity-route.js';
 export type { InitPayload } from './init-payload.js';
 
 /**
@@ -71,6 +74,9 @@ export interface NamespaceOptions {
   initPayload: () => InitPayload;
   /** Hot-reload channel; serves `/__pyric/events` when present. */
   events?: ServeEventHub;
+  /** Default-on Firebase Activity Guard sink. The served worker posts bounded,
+   *  deduplicated incidents here so the host can surface them in its terminal. */
+  activity?: (incident: ActivityIncident) => void;
   /** `--persist`: mounts GET/POST /__pyric/state (the state channel). */
   state?: StateStore;
   /** `--capture`: mounts GET/POST /__pyric/capture. POST — the page/worker
@@ -462,6 +468,9 @@ export function createPyricNamespace(opts: NamespaceOptions) {
   const writerLock = createWriterLock();
   const studioRoutes = opts.studio ? createStudioRoutes(opts.studio) : null;
   const denialThrottle = createDenialThrottle();
+  // Issued once per server boot. The outer static/Vite host guard protects
+  // init.json before this capability is disclosed to the served runtime.
+  const activityToken = opts.activity ? randomBytes(24).toString('base64url') : undefined;
   return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
     if (
       studioRoutes &&
@@ -476,6 +485,9 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     if (opts.capture && url.pathname === '/__pyric/capture') {
       return handleCapture(opts.capture, req, res).then(() => true);
     }
+    if (opts.activity && url.pathname === '/__pyric/activity') {
+      return handleActivity(opts.activity, req, res, activityToken!).then(() => true);
+    }
     if (opts.events && url.pathname === '/__pyric/events') {
       opts.events.handle(req, res);
       return true;
@@ -488,7 +500,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     if (url.pathname === '/__pyric/init.json') {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(JSON.stringify(opts.initPayload()));
+      res.end(JSON.stringify({ ...opts.initPayload(), ...(activityToken ? { activityToken } : {}) }));
       return true;
     }
     if (url.pathname.startsWith('/__pyric/sdk/')) {

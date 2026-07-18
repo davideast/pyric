@@ -3,7 +3,11 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPyricNamespace, injectServeTags, sdkImportMap } from '../../src/serve/namespace.js';
+import {
+  createPyricNamespace,
+  injectServeTags,
+  sdkImportMap,
+} from '../../src/serve/namespace.js';
 import { loopbackHosts, silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
 
 function fixture() {
@@ -103,6 +107,46 @@ describe('loopbackHosts (dual-family bind — the IPv4/IPv6 trap fix)', () => {
 });
 
 describe('namespace over the real server', () => {
+  it('issues one activity capability per boot and requires it on reports', async () => {
+    const { site, sdk } = fixture();
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      activity: () => {},
+    });
+    const h = await startStaticServer({
+      publicDir: site,
+      port: 0,
+      host: '127.0.0.1',
+      portScanLimit: 200,
+      logger: silentServeLogger(),
+      namespaceHandler: ns,
+    });
+    handles.push(h);
+
+    const first = await (await fetch(h.url + '/__pyric/init.json')).json() as { activityToken: string };
+    const second = await (await fetch(h.url + '/__pyric/init.json')).json() as { activityToken: string };
+    expect(first.activityToken).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(second.activityToken).toBe(first.activityToken);
+
+    const withoutCapability = await fetch(h.url + '/__pyric/activity', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: h.url },
+      body: '{}',
+    });
+    expect(withoutCapability.status).toBe(403);
+    const withCapability = await fetch(h.url + '/__pyric/activity', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: h.url,
+        'x-pyric-activity-token': first.activityToken,
+      },
+      body: '{}',
+    });
+    expect(withCapability.status).toBe(400);
+  });
+
   it('serves init.json (live payload), sdk files, 404s unknowns, injects into HTML', async () => {
     const { site, sdk } = fixture();
     let rules: string | null = null;

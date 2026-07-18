@@ -55,6 +55,12 @@ export async function handleStudioOp(
             ? firestoreRules.source
             : firestoreRules?.lastKnownGood;
         if (typeof source === 'string') setRules(ctx.sandbox, source);
+        // The server capture (`.pyric/last-session.json`) persists the event
+        // history a rebooting worker re-primes into Traffic. Flush it NOW —
+        // reset just emptied `sandbox.history()`, and waiting out the
+        // capture debounce leaves a window where a worker death resurrects
+        // the wiped session's events on the next boot.
+        ctx.captureFlush?.();
         ok(port, msg.id, { errors });
       } catch (e) {
         fail(port, msg.id, e instanceof Error ? e : new Error(String(e)));

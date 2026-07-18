@@ -10,9 +10,16 @@ import {
   Timestamp as ChainTimestamp,
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-firestore';
+import {
+  boundedActivityBytes,
+  boundedActivityIdentity,
+  registerActivityValue,
+} from './sandbox/activity-value-registry.js';
 
 export class Bytes {
-  private constructor(private readonly bytes: Uint8Array) {}
+  private constructor(private readonly bytes: Uint8Array) {
+    registerActivityValue(this, boundedActivityBytes(bytes));
+  }
 
   static fromBase64String(base64: string): Bytes {
     const binary = atob(base64);
@@ -69,6 +76,10 @@ export class GeoPoint {
     if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
       throw new TypeError('Longitude must be a number between -180 and 180.');
     }
+    registerActivityValue(
+      this,
+      boundedActivityIdentity('geo-point', String(lat), '\0', String(lng)),
+    );
   }
 
   get latitude(): number { return this.lat; }

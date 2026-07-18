@@ -32,7 +32,6 @@
  */
 import type {
   AllowRule,
-  Expression,
   FirestoreRules,
   FunctionDef,
   MatchBlock,
@@ -41,9 +40,10 @@ import {
   evaluateQueryProof,
   referencesResourceData,
   type QueryConstraints,
+  type QueryProofResidual,
 } from '../../rules/simulator/query-proof.js';
 
-export type { QueryConstraints };
+export type { QueryConstraints, QueryProofResidual };
 
 /** Auth shape the sandbox threads through reads (`Operation['auth']`). */
 type ReadAuth = { uid: string; token?: Record<string, unknown> } | null;
@@ -56,8 +56,10 @@ export type ListProofVerdict =
    *  simulate() evaluation sees the query-pinned field values. */
   | { kind: 'provable'; syntheticResource?: Record<string, unknown> }
   /** Every matching rule depends on per-document data the query's
-   *  constraints cannot guarantee — prod rejects the WHOLE query. */
-  | { kind: 'unprovable'; reason: string }
+   *  constraints cannot guarantee — prod rejects the WHOLE query.
+   *  `residual` is the structured account (missing / mismatched equalities,
+   *  or an out-of-scope shape) that the denial site renders remediation from. */
+  | { kind: 'unprovable'; reason: string; residual: QueryProofResidual }
   /** No match block / no list rules — let simulate() default-deny exactly
    *  as it does today (the proof has nothing to add). */
   | { kind: 'no-rule' };
@@ -95,30 +97,30 @@ export function proveListQuery(
 
   // OR semantics across allow rules: ANY provable rule makes the query
   // provable (the residual simulate() run still has to evaluate it ALLOW).
-  const reasons: string[] = [];
+  const failures: { reason: string; residual: QueryProofResidual }[] = [];
   let provable = false;
   let needsSynthetic = false;
   for (const rule of listRules) {
-    // Pin `request.auth.uid` to the actual uid BEFORE asking the proof, so
-    // the canonical owner pattern — `resource.data.owner == request.auth.uid`
-    // with a `where('owner', '==', <uid>)` clause — is provable, exactly as
-    // the prod docs' example promises (rules-query: "secure and query
-    // documents based on auth.uid").
-    const condition = auth?.uid !== undefined
-      ? substituteAuthUid(rule.condition, auth.uid)
-      : rule.condition;
-    const result = evaluateQueryProof(condition, constraints, fnMap);
+    // `auth.uid` is threaded into the proof so the canonical owner pattern —
+    // `resource.data.owner == request.auth.uid` (directly or via a helper) with
+    // a `where('owner', '==', <uid>)` clause — is provable, exactly as the prod
+    // docs' example promises (rules-query: "secure and query documents based on
+    // auth.uid"). The residual simulate() run still evaluates the real
+    // `request.auth.uid` against the synthetic representative resource.
+    const result = evaluateQueryProof(rule.condition, constraints, fnMap, auth?.uid);
     if (result.provable) {
       provable = true;
-      if (referencesResourceData(condition, fnMap)) needsSynthetic = true;
+      if (referencesResourceData(rule.condition, fnMap)) needsSynthetic = true;
     } else {
-      reasons.push(result.reason);
+      failures.push({ reason: result.reason, residual: result.residual });
     }
   }
   if (!provable) {
+    const first = failures[0];
     return {
       kind: 'unprovable',
-      reason: reasons[0] ?? 'list rule depends on per-document data the query cannot guarantee',
+      reason: first?.reason ?? 'list rule depends on per-document data the query cannot guarantee',
+      residual: first?.residual ?? { missing: [], mismatched: [] },
     };
   }
   if (!needsSynthetic) return { kind: 'provable' };
@@ -184,63 +186,36 @@ function syntheticResourceFromWheres(constraints: QueryConstraints): Record<stri
   return out;
 }
 
-// ─── request.auth.uid substitution ───────────────────────────────────────
-
-/** True for the exact member chain `request.auth.uid`. */
-function isRequestAuthUid(e: Expression): boolean {
-  return (
-    e.type === 'memberAccess' &&
-    e.property === 'uid' &&
-    e.object.type === 'memberAccess' &&
-    e.object.property === 'auth' &&
-    e.object.object.type === 'identifier' &&
-    e.object.object.name === 'request'
-  );
-}
+// ─── Remediation rendering ───────────────────────────────────────────────
 
 /**
- * Return a copy of `expr` with every `request.auth.uid` replaced by the
- * string literal `uid`. Pure structural map — the original AST (shared with
- * the simulator) is never mutated. Only the top-level rule condition is
- * substituted: `evaluateQueryProof` does not inline user functions when
- * extracting equalities, so substituting inside function bodies would not
- * change its verdict.
+ * Render query-side, narrowing-only remediation from an unprovable query's
+ * residual — the `where(...)` clauses the caller can ADD (or correct) so the
+ * `list` rule's per-doc equalities are discharged. The suggestion never touches
+ * the rule (weakening a rule is never the right fix for an over-broad query).
+ *
+ * Returns `undefined` when the residual is only an out-of-scope shape
+ * (disjunction / range / `in` / nested path): no equality constraint can prove
+ * it, so there is nothing narrowing to suggest.
  */
-export function substituteAuthUid(expr: Expression, uid: string): Expression {
-  const lit: Expression = { type: 'literal', value: uid, raw: JSON.stringify(uid) };
-  const sub = (e: Expression): Expression => {
-    if (isRequestAuthUid(e)) return lit;
-    switch (e.type) {
-      case 'literal':
-      case 'identifier':
-        return e;
-      case 'memberAccess':
-        return { ...e, object: sub(e.object) };
-      case 'methodCall':
-        return { ...e, object: sub(e.object), args: e.args.map(sub) };
-      case 'bracketAccess':
-        return { ...e, object: sub(e.object), index: sub(e.index) };
-      case 'sliceAccess':
-        return { ...e, object: sub(e.object), start: sub(e.start), end: sub(e.end) };
-      case 'binaryOp':
-        return { ...e, left: sub(e.left), right: sub(e.right) };
-      case 'unaryOp':
-        return { ...e, operand: sub(e.operand) };
-      case 'ternary':
-        return { ...e, condition: sub(e.condition), consequent: sub(e.consequent), alternate: sub(e.alternate) };
-      case 'inExpr':
-        return { ...e, element: sub(e.element), collection: sub(e.collection) };
-      case 'isExpr':
-        return { ...e, value: sub(e.value) };
-      case 'listLiteral':
-        return { ...e, elements: e.elements.map(sub) };
-      case 'mapLiteral':
-        return { ...e, entries: e.entries.map((en) => ({ key: sub(en.key), value: sub(en.value) })) };
-      case 'pathLiteral':
-        return { ...e, segments: e.segments.map((s) => (typeof s === 'string' ? s : sub(s))) };
-      case 'functionCall':
-        return { ...e, args: e.args.map(sub) };
+export function renderQueryRemediation(residual: QueryProofResidual): string | undefined {
+  const lines: string[] = [];
+  for (const m of residual.missing) {
+    if (m.fromAuthUid) {
+      lines.push(`  .where('${m.field}', '==', request.auth.uid)   // request.auth.uid is ${JSON.stringify(m.expectedValue)}`);
+    } else {
+      lines.push(`  .where('${m.field}', '==', ${JSON.stringify(m.expectedValue)})`);
     }
-  };
-  return sub(expr);
+  }
+  for (const m of residual.mismatched) {
+    lines.push(
+      `  .where('${m.field}', '==', ${JSON.stringify(m.expectedValue)})   ` +
+      `// the query pins ${JSON.stringify(m.actualValue)}, but the rule requires ${JSON.stringify(m.expectedValue)}`,
+    );
+  }
+  if (lines.length === 0) return undefined;
+  const header =
+    'The list rule requires per-document equalities the query does not guarantee. ' +
+    'Add the matching where(...) constraint(s) so every returned document satisfies the rule:';
+  return `${header}\n${lines.join('\n')}`;
 }

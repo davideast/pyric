@@ -44,6 +44,16 @@ export interface PortLike {
   postMessage(msg: OutboundMessage): void;
 }
 
+/** Stable worker-lifetime activity identity for an app page/port. */
+export function activityJourneyId(ctx: HostCtx, port: PortLike): string {
+  const ids = (ctx.activityJourneyIds ??= new WeakMap());
+  const existing = ids.get(port);
+  if (existing) return existing;
+  const id = `page-${(ctx.activityJourneySequence = (ctx.activityJourneySequence ?? 0) + 1)}`;
+  ids.set(port, id);
+  return id;
+}
+
 // ─── Host context ─────────────────────────────────────────────────────────
 
 export interface HostCtx {
@@ -51,6 +61,9 @@ export interface HostCtx {
   db: Firestore;
   /** The underlying Sandbox, for setRules + direct sandbox ops. */
   sandbox: LocalSandbox;
+  /** Stable worker-lifetime activity identity for each page/app port. */
+  activityJourneyIds?: WeakMap<PortLike, string>;
+  activityJourneySequence?: number;
   /** Stable per-SharedWorker instance id (see {@link INSTANCE_ID_KEY}). Reported
    *  via `getVersion` so the UI can identify which sandbox instance this is. */
   instanceId: string;
@@ -147,6 +160,16 @@ export interface HostCtx {
    * SessionStore honors the mode (which web storage slot, or none).
    */
   sessionMode?: AuthPersistenceMode;
+  /**
+   * Force an IMMEDIATE session-capture flush, bypassing the debounce — set
+   * by `applyServeInit` when `--capture` is on (see the capture block in
+   * serve-init.ts). The `resetAll` op invokes it so the server-persisted
+   * capture (`.pyric/last-session.json`) records the post-reset (empty)
+   * event history instead of the wiped session's traffic, which a rebooting
+   * worker would otherwise re-prime via `hydrateEventHistory` (issue #359
+   * extension). Absent when capture is off.
+   */
+  captureFlush?: () => void;
   /**
    * Per-uid impersonation Firestore handles (Pyric Studio auth lens, T2).
    * Keyed by the impersonated uid. Each is a FROZEN-identity

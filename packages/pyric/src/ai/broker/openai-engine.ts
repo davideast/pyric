@@ -447,6 +447,8 @@ export class OpenAiEngine implements AnswerEngine {
   private readonly fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   private readonly synth: Synthesizer;
 
+  private warnedDroppedFields = false;
+
   constructor(options: OpenAiEngineOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.defaultModel = options.model;
@@ -458,6 +460,26 @@ export class OpenAiEngine implements AnswerEngine {
     this.synth = options.synthesizer ?? new Synthesizer();
   }
 
+  /**
+   * `thinkingConfig` and `topK` are visible on the request HERE, before
+   * {@link geminiToOpenAIRequest} silently drops them (no OpenAI-compat
+   * equivalent for either). Fires once per engine instance; production still
+   * honors both fields — only the local openai engine does not.
+   */
+  private warnDroppedFieldsOnce(req: GenerateContentRequest): void {
+    if (this.warnedDroppedFields) return;
+    const g = req.generationConfig;
+    const hasThinking = g?.thinkingConfig !== undefined;
+    const hasTopK = g?.topK !== undefined;
+    if (!hasThinking && !hasTopK) return;
+    this.warnedDroppedFields = true;
+    const fields = [hasThinking && 'thinkingConfig', hasTopK && 'topK'].filter(Boolean).join(' and ');
+    console.warn(
+      `[pyric/ai] the openai engine drops ${fields} — no OpenAI-compatible equivalent on the upstream request.\n` +
+        `Production still honors ${fields}; switch to a real Gemini-backed engine if this must take effect in development.`,
+    );
+  }
+
   /** Gemini model id → upstream model: modelMap[model] ?? config.model ?? passthrough. */
   resolveUpstreamModel(model: string): string {
     const bare = model.startsWith('models/') ? model.slice('models/'.length) : model;
@@ -465,6 +487,7 @@ export class OpenAiEngine implements AnswerEngine {
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
+    this.warnDroppedFieldsOnce(req);
     const body = geminiToOpenAIRequest(this.resolveUpstreamModel(model), req, false);
     const res = await this.post(body);
     const upstream = (await res.json()) as OpenAIResponse;
@@ -473,6 +496,7 @@ export class OpenAiEngine implements AnswerEngine {
   }
 
   streamGenerateContent(req: GenerateContentRequest, model: string): AsyncIterable<WireChunk> {
+    this.warnDroppedFieldsOnce(req);
     const body = geminiToOpenAIRequest(this.resolveUpstreamModel(model), req, true);
     const opts = { model, promptText: promptTextOf(req) };
     const synth = this.synth;

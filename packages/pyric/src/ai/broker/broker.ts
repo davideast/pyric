@@ -74,20 +74,53 @@ function isAnswerEngine(value: EngineConfig | AnswerEngine): value is AnswerEngi
   return typeof (value as AnswerEngine).generateContent === 'function';
 }
 
+/** What Studio's stream (and the construction log line) name the engine. */
+type EngineKind = 'scripted' | 'openai' | 'custom';
+
 export class AiBroker {
   readonly engine: AnswerEngine;
   private readonly sandbox: Sandbox | undefined;
+  private readonly engineKind: EngineKind;
+  private readonly engineModel: string | undefined;
+  private readonly engineBaseUrl: string | undefined;
 
   constructor(options: AiBrokerOptions = {}) {
     this.sandbox = options.sandbox;
     const engine = options.engine ?? { kind: 'scripted' as const };
     if (isAnswerEngine(engine)) {
       this.engine = engine;
+      this.engineKind = 'custom';
     } else if (engine.kind === 'scripted') {
       this.engine = new ScriptedEngine(engine.script ?? [], new Synthesizer());
+      this.engineKind = 'scripted';
     } else {
       this.engine = new OpenAiEngine(engine);
+      this.engineKind = 'openai';
+      this.engineModel = engine.model;
+      this.engineBaseUrl = engine.baseUrl;
     }
+    console.info(this.describeEngine());
+  }
+
+  /** One-line construction-time summary of what this broker resolved to. */
+  private describeEngine(): string {
+    if (this.engineKind === 'openai') {
+      return `[pyric/ai] engine resolved: openai (model=${this.engineModel ?? 'passthrough'}, upstream=${this.engineBaseUrl})`;
+    }
+    if (this.engineKind === 'custom') {
+      return '[pyric/ai] engine resolved: custom AnswerEngine';
+    }
+    return '[pyric/ai] engine resolved: scripted (zero-config unless a script is queued)';
+  }
+
+  /** Additive detail fields every emitted event carries so Studio can show the engine. */
+  private engineDetail(): Record<string, unknown> {
+    return {
+      engine: this.engineKind,
+      ...(this.engineKind === 'openai'
+        ? { model: this.engineModel, baseUrl: this.engineBaseUrl }
+        : {}),
+    };
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
@@ -191,7 +224,7 @@ export class AiBroker {
           op,
           path: model,
           auth: null,
-          detail,
+          detail: { ...detail, ...this.engineDetail() },
         }),
         { service: 'ai' },
       );

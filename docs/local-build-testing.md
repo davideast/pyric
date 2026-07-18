@@ -112,6 +112,43 @@ touched package(s) → restart `vite dev` / `pyric dev`. Both resolve the
 mirrors and the plugin at server start from `dist/`, so a restart (not just a
 browser reload) picks up the rebuild.
 
+## Verify you are actually on the local build
+
+The version string cannot tell you. Local tarballs carry whatever `version`
+the checkout's manifests hold — identical to the last npm release until a
+release bumps it — so `pyric --version` and `package.json` look unchanged even
+when the vendoring worked. Worse, a setup that quietly fell back to published
+npm dependencies (no `vendor/` laid, or an install that resolved the registry)
+looks exactly the same at a glance. Verify by content and provenance:
+
+```bash
+# 1. Are file: tarballs actually installed (not registry packages)?
+grep '"pyric"' package.json          # must be a file:vendor/... specifier
+ls -la vendor/*.tgz                  # exist, with a build-time mtime you expect
+
+# 2. Does the installed pyric contain the change under test?
+#    (pick any symbol your branch adds — example: the resetAll seam)
+#    NAME THE EXACT TARBALL: vendor/ holds pyric.tgz AND pyric-cli.tgz, and a
+#    wildcard matching both makes tar treat the second file as a member name
+#    ("Not found in archive" — a false negative, not a missing fix).
+tar -xzOf vendor/pyric.tgz package/dist/sandbox/internal/sandbox-impl.js | grep -c resetAll
+
+# 3. Definitive: the local tarball's checksum differs from npm's
+#    (compare pyric.tgz against the pyric package — not the cli tarball)
+shasum vendor/pyric.tgz
+npm view pyric dist.shasum
+```
+
+Two rules that prevent the silent-fallback failure mode:
+
+- **Compile from the branch under test.** The tarballs are baked into the
+  standalone binary at compile time — a binary compiled from `main` cannot
+  contain an unmerged fix branch's changes, no matter how it is vendored.
+  Check out the branch, rebuild, recompile, re-vendor, reinstall.
+- **Re-vendor after every recompile.** `vendor` copies the embedded tarballs;
+  the app does not track the binary. Recompile without re-vendoring and the
+  app keeps the previous build.
+
 ## Verifying the packaging story without an app
 
 Three gates prove the publishable artifacts without hand-testing:

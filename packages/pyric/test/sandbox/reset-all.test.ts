@@ -16,6 +16,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from '../../src/sandbox/index.js';
+import { getInternalEnv } from '../../src/sandbox/internal/sandbox-impl.js';
 import { getAuth, sandbox as authSandbox } from '../../src/auth/index.js';
 import { getDatabase, ref as rtdbRef, set as rtdbSet, get as rtdbGet } from '../../src/database/modular.js';
 import { getStorageSandbox, getStorageService } from '../../src/storage/service.js';
@@ -84,6 +85,44 @@ describe('Sandbox.resetAll', () => {
     const sandbox = initializeSandbox();
     getStorageSandbox(sandbox, { dbName: uniqueDbName('registry') });
     expect(Object.keys(sandbox.snapshot().services)).toContain('storage');
+  });
+
+  it('empties the event history — the traffic/event record does not survive a total reset', async () => {
+    // Pin (issue #359 extension): the sandbox event log is cleared by the
+    // `reset()` inside resetAll — the closing session_boundary is emitted to
+    // live subscribers but NOT retained in `history()`, and the Firestore
+    // env's own event log dies with the env swap. Post-reset, `history()`
+    // reads EXACTLY empty; consumers (Studio Traffic / Action Center) rely
+    // on this rather than re-clearing engine state themselves.
+    const sandbox = initializeSandbox();
+    getInternalEnv(sandbox).execute({
+      method: 'set',
+      path: 'rooms/general',
+      auth: { uid: 'alice' },
+      data: { name: 'General' },
+    });
+    expect(sandbox.history().length).toBeGreaterThan(0);
+
+    const boundaries: unknown[] = [];
+    sandbox.onEvent((event) => {
+      if (event.kind === 'session_boundary') boundaries.push(event);
+    });
+
+    await sandbox.resetAll();
+
+    expect(sandbox.history()).toEqual([]);
+    // The boundary DID fire (live consumers see the session close)…
+    expect(boundaries).toHaveLength(1);
+    // …and post-reset activity starts a fresh log (the swapped-in env's log,
+    // with no boundary carried over).
+    getInternalEnv(sandbox).execute({
+      method: 'set',
+      path: 'rooms/next',
+      auth: { uid: 'alice' },
+      data: { name: 'Next' },
+    });
+    expect(sandbox.history().length).toBeGreaterThan(0);
+    expect(sandbox.history().every((e) => e.kind !== 'session_boundary')).toBe(true);
   });
 
   it('clears the signed-in session like reset() does', async () => {

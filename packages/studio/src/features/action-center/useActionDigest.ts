@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { EventFeed } from './feed.js';
+import { isSessionResetBoundary } from '../../events/fold.js';
 import { digestFromEvents, type DigestItem } from './reducer.js';
 
 export interface UseActionDigestOptions {
@@ -46,6 +47,10 @@ export function useActionDigest(
 
     const unsubscribe = feed.subscribe((event) => {
       setEvents((prev) => {
+        // A reset session_boundary wipes the buffer down to the boundary
+        // itself (see `events/fold.ts`): the digest must not keep summarizing
+        // a session the sandbox just erased (issue #359 extension).
+        if (isSessionResetBoundary(event)) return [event];
         const next =
           prev.length >= bufferSizeRef.current ? prev.slice(1) : prev.slice();
         next.push(event);

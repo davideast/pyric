@@ -57,6 +57,10 @@ fi
 
 bash scripts/pack-packages.sh
 
+# Behavioral smoke against the exact tarballs about to ship: installed-CLI
+# can-i-use exit codes and both conformance subpaths (scripts/release-smoke.sh).
+bash scripts/release-smoke.sh "$V"
+
 for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do
   npm publish "dist/packages/${t}-${V}.tgz" --tag alpha --access public
 done

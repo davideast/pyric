@@ -83,6 +83,33 @@ export interface FirestoreSimError {
    * non-denial codes.
    */
   resource?: FirestoreEvalResource;
+  /**
+   * Query-side, narrowing-only guidance (RULES-B11) — populated when a
+   * `list`/query is denied because it is statically unprovable and the
+   * missing/mismatched per-doc equalities suggest a concrete `where(...)`
+   * fix. Absent when no actionable suggestion exists (out-of-scope shapes)
+   * or for non-query denials.
+   */
+  remediation?: string;
+  /**
+   * Machine-readable descriptor of the denied query's where/orderBy/limit
+   * shape (RULES-B11) — the structured constraints the engine proved
+   * against. Lets consumers render "why did this query deny" without
+   * re-deriving the query. Absent for non-query denials.
+   */
+  query?: QueryDenialDescriptor;
+}
+
+/**
+ * The where/orderBy/limit shape of a denied query — structurally the
+ * `QueryConstraints` the proof consumed, surfaced on the error so the
+ * denial site carries the exact query it rejected.
+ */
+export interface QueryDenialDescriptor {
+  where?: Array<{ field: string; op: string; value: string | number | boolean | null }>;
+  limit?: number | null;
+  offset?: number | null;
+  orderBy?: string | null;
 }
 
 /**
@@ -94,10 +121,17 @@ export interface FirestoreSimError {
 export function makeError(
   code: FirestoreErrorCode,
   message: string,
-  extras?: { request?: FirestoreEvalRequest; resource?: FirestoreEvalResource },
+  extras?: {
+    request?: FirestoreEvalRequest;
+    resource?: FirestoreEvalResource;
+    remediation?: string;
+    query?: QueryDenialDescriptor;
+  },
 ): FirestoreSimError {
   const out: FirestoreSimError = { code, message };
   if (extras?.request) out.request = extras.request;
   if (extras?.resource) out.resource = extras.resource;
+  if (extras?.remediation) out.remediation = extras.remediation;
+  if (extras?.query) out.query = extras.query;
   return out;
 }
