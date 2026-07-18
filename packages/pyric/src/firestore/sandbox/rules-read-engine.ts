@@ -25,7 +25,7 @@ import type { DocStore, DocumentData } from './local-state.js';
 import type { SimulateFirestoreRulesHandler, TestCase } from 'pyric/rules/internal';
 import { renderLegacyDebugMessages, projectEvaluatedRule, Timestamp } from 'pyric/rules/internal';
 // RULES-B11 — query-proof gate for list reads ("rules are not filters").
-import { proveListQuery, type QueryConstraints } from './list-query-proof.js';
+import { proveListQuery, renderQueryRemediation, type QueryConstraints } from './list-query-proof.js';
 import { makeError, type FirestoreSimError } from './errors.js';
 import type { Operation } from './writes.js';
 import type { ListenerAuth, QueryConstraintApplier } from './snapshot-listeners.js';
@@ -202,6 +202,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const detailFields = {
       ...(bypassRules ? { admin: true } : {}),
       ...(requestQuery ? { query: requestQuery } : {}),
+      ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
     };
     const requestDetail = Object.keys(detailFields).length > 0 ? detailFields : undefined;
     const evalAt = Date.now();
@@ -229,7 +230,10 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const proof = proveListQuery(this.rules.ast(), listPath, auth, structured);
     if (proof.kind === 'unprovable') {
       const evalMs = performance.now() - evalStart;
-      const message = `list ${collection} denied: unprovable query — rules are not filters (${proof.reason})`;
+      const message =
+        `list ${collection} denied: the query is statically unprovable for every possible ` +
+        `result (rules are not filters), so the whole query is rejected — ${proof.reason}`;
+      const remediation = renderQueryRemediation(proof.residual);
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
         debugMessages: [message], origin: 'listener',
@@ -240,6 +244,8 @@ export class RulesReadEngine implements ListenerDispatchHost {
         allowed: false,
         error: makeError('permission-denied', message, {
           request: { method: 'list', path: collection, auth },
+          query: structured,
+          ...(remediation ? { remediation } : {}),
         }),
       };
     }
@@ -383,12 +389,14 @@ export class RulesReadEngine implements ListenerDispatchHost {
     auth: Operation['auth'],
     query?: QueryConstraints,
     bypassRules?: boolean,
+    activityQuery?: unknown,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
     const structured: QueryConstraints = query ?? {};
     const requestQuery = listQueryFromStructured(structured);
     const requestDetail = {
       ...(bypassRules ? { admin: true } : {}),
       ...(requestQuery ? { query: requestQuery } : {}),
+      ...(activityQuery !== undefined ? { activityQuery } : {}),
     };
     const detail = Object.keys(requestDetail).length > 0 ? requestDetail : undefined;
     // Studio admin lens (Gap #2): skip the query-proof gate + `list` rule
@@ -415,7 +423,10 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const proof = proveListQuery(this.rules.ast(), placeholderPath, auth, structured);
     if (proof.kind === 'unprovable') {
       const evalMs = performance.now() - evalStart;
-      const message = `list ${listPath} denied: unprovable query — rules are not filters (${proof.reason})`;
+      const message =
+        `list ${listPath} denied: the query is statically unprovable for every possible ` +
+        `result (rules are not filters), so the whole query is rejected — ${proof.reason}`;
+      const remediation = renderQueryRemediation(proof.residual);
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'deny',
         debugMessages: [message], origin: 'user',
@@ -423,6 +434,8 @@ export class RulesReadEngine implements ListenerDispatchHost {
       });
       const error = makeError('permission-denied', message, {
         request: { method: 'list', path: listPath, auth },
+        query: structured,
+        ...(remediation ? { remediation } : {}),
       });
       this.emitDenial(error);
       return { allowed: false, error };

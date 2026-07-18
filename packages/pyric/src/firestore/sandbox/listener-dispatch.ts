@@ -245,7 +245,13 @@ export class ListenerDispatch {
       listenerId: id,
       target: target.kind === 'doc'
         ? { kind: 'doc', path: target.path }
-        : { kind: 'query', collection: target.collection },
+        : {
+            kind: 'query',
+            collection: target.collection,
+            ...(target.constraints?.activityQuery
+              ? { query: target.constraints.activityQuery }
+              : {}),
+          },
       auth,
     });
 
@@ -276,7 +282,13 @@ export class ListenerDispatch {
           listenerId: id,
           target: target.kind === 'doc'
             ? { kind: 'doc', path: target.path }
-            : { kind: 'query', collection: target.collection },
+            : {
+                kind: 'query',
+                collection: target.collection,
+                ...(target.constraints?.activityQuery
+                  ? { query: target.constraints.activityQuery }
+                  : {}),
+              },
           auth,
         });
       }

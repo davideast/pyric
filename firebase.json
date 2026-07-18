@@ -9,11 +9,27 @@
     ],
     "rewrites": [
       {
-        "source": "/docs/**",
-        "destination": "/docs/index.html"
+        "source": "/firestore/**",
+        "destination": "/index.html"
       },
       {
-        "source": "**",
+        "source": "/auth/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/rtdb/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/storage/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/traffic/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/settings/**",
         "destination": "/index.html"
       }
     ],

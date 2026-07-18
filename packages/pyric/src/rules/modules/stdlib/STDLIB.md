@@ -36,7 +36,7 @@ Access control primitives.
 | Function | Params | Returns | Description |
 |----------|--------|---------|-------------|
 | `isAuthenticated()` | — | bool | `request.auth != null` |
-| `isOwner(userId)` | userId: string field path | bool | `request.auth.uid == userId` |
+| `isOwner(userId)` | userId: string field path | bool | `request.auth.uid == userId` — when `isOwner(resource.data.<field>)` guards a `list` rule, queries must carry `where('<field>', '==', request.auth.uid)` (rules are not filters) |
 
 File: `auth.rules` | Tests: `auth.test.json`
 

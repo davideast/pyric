@@ -64,6 +64,38 @@ RTDB access cascades downward and a child cannot revoke a parent's grant — `bi
 
 `.validate` runs only after `.write` allows — it never narrows a `.write` that is too broad. An open path needs both an access rule and a shape rule, and the simulation shows the malformed write landing when the shape rule is missing.
 
+## Rules are not filters
+
+A query is not a single read. When your app runs a `list` query, Firestore must prove from the query's filters alone that every possible result is readable, and it never quietly filters out the documents a rule would deny. So a rule can be exactly right for one `get` and still reject the `list` query that returns the same documents.
+
+Passing for one document is not the same as being provable for every possible result of a query. The fix is to carry the rule's condition into the query as a filter.
+
+Take an owner-scoped collection where the rule allows a list only to the owner:
+
+```rules
+match /notes/{noteId} {
+  allow list: if isOwner(resource.data.ownerUid);
+}
+```
+
+A query that carries the matching equality filter is provable, and the same shape works for a one-shot read or a live listener:
+
+```ts
+const mine = query(collection(db, 'notes'), where('ownerUid', '==', uid));
+const page = await getDocs(mine);        // allowed
+const stop = onSnapshot(mine, render);   // same proof, same result
+```
+
+Drop the filter and Firestore can no longer show every note belongs to the caller, so it denies the whole query:
+
+```ts
+const all = query(collection(db, 'notes'));
+await getDocs(all);
+// deny: unprovable query — rules are not filters
+```
+
+The sandbox enforces the same proof production does, so a query that lists in development lists in production.
+
 ## Audit the whole project, not just the rules
 
 Rules can be individually correct and collectively wrong. The project audit crosses three sources — deployed rules, the actual data shape (found by crawling the sandbox), and enabled auth providers — and the disagreements are the findings: data no rule protects, rules matching paths with no data, user-writable paths with no validation, rules gating on an identity no enabled provider can produce.

@@ -9,7 +9,7 @@ import path, { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
-import { pyricSandbox } from '../../src/serve/vite-plugin.js';
+import { pyricSandbox, engineConfigToWire } from '../../src/serve/vite-plugin.js';
 import {
   SDK_MODULES,
   defaultSdkEntries,
@@ -67,6 +67,19 @@ describe('pyricSandbox — plugin shape', () => {
     const forcedOff = pyricSandbox({ swapInBuild: false });
     expect(applies(forcedOff, 'build', 'development')).toBe(false); // never swap in build
     expect(applies(forcedOff, 'serve', 'production')).toBe(true); // dev still always on
+  });
+
+  it('engineConfigToWire: openai passes model/modelMap and keeps baseUrl', () => {
+    expect(
+      engineConfigToWire({ kind: 'openai', baseUrl: 'http://host/v1', model: 'm', modelMap: { a: 'b' } }),
+    ).toEqual({ kind: 'openai', baseUrl: 'http://host/v1', model: 'm', modelMap: { a: 'b' } });
+  });
+
+  it('engineConfigToWire: scripted script passes through as plain JSON entries', () => {
+    expect(engineConfigToWire({ kind: 'scripted', script: [{ respond: { text: 'hi' } }] })).toEqual({
+      kind: 'scripted',
+      script: [{ respond: { text: 'hi' } }],
+    });
   });
 
   it('sandbox build: transformIndexHtml stamps ONLY the marker (no init/@fs, no force-in-page)', () => {
@@ -178,6 +191,23 @@ describe('transformIndexHtml — sandbox boot injection', () => {
     const once = xform('<html><head></head></html>');
     const twice = xform(once);
     expect(twice).toBe(once);
+  });
+
+  it('injects the plugin AI engine as a synchronous global for the in-page path', () => {
+    const p = pyricSandbox({
+      ai: { engine: { kind: 'openai', baseUrl: '/__pyric/ai-proxy', model: 'llama3.2' } },
+    });
+    const out = (p.transformIndexHtml as (h: string) => string)('<html><head></head></html>');
+    expect(out).toContain('__PYRIC_AI_ENGINE__');
+    // The wire config is embedded verbatim (baseUrl + model), and the init
+    // module still boots. The inline script precedes the deferred module so
+    // the served getAI reads it synchronously.
+    expect(out).toContain('llama3.2');
+    expect(out.indexOf('__PYRIC_AI_ENGINE__')).toBeLessThan(out.indexOf('/@fs/'));
+  });
+
+  it('omits the AI global when no plugin engine is configured', () => {
+    expect(xform('<html><head></head></html>')).not.toContain('__PYRIC_AI_ENGINE__');
   });
 });
 
@@ -348,6 +378,22 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
   it('serves null rules when the project has none (no firebase.json, no firestore.rules)', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-norules-'));
     expect((await initJson(await bootPlugin({}, tmp))).rules).toBeNull();
+  });
+
+  it('carries the plugin AI engine into /__pyric/init.json (→ worker ctx.aiEngine)', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-ai-'));
+    const init = await initJson(
+      await bootPlugin(
+        { ai: { engine: { kind: 'openai', baseUrl: '/__pyric/ai-proxy', model: 'llama3.2' } } },
+        tmp,
+      ),
+    );
+    expect(init.ai).toEqual({ engine: { kind: 'openai', baseUrl: '/__pyric/ai-proxy', model: 'llama3.2' } });
+  });
+
+  it('serves ai: null in init.json when no plugin engine is configured', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-noai-'));
+    expect((await initJson(await bootPlugin({}, tmp))).ai).toBeNull();
   });
 
   it('serves configured Storage rules and their hash in the shared init payload', async () => {

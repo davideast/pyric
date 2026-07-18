@@ -1250,6 +1250,7 @@ describe('cleanupPort', () => {
     await tick();
     expect(port.snapMessages.length).toBe(0);
   });
+
 });
 
 describe('getVersion (staleness guard)', () => {

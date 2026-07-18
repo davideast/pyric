@@ -125,6 +125,54 @@ export function disconnectPort(port: ClientPort): void {
   port.onmessage = null;
 }
 
+// ─── Denial relay (headless dev visibility) ────────────────────────────────
+//
+// An agent driving `pyric dev` headlessly never sees the browser console, so
+// a rules denial is otherwise invisible to it. Relay every denial (an error
+// carrying `denialContext`) to the dev server, which prints it to the
+// terminal — regardless of whether the app itself catches/handles the
+// error. Fire-and-forget: never throws, never awaited into app flow, and a
+// relay failure (dev server down, no `fetch`, non-pyric host) is swallowed
+// silently — this is a diagnostics side channel, not a correctness path.
+
+/** Shape POSTed to the dev server's `/__pyric/denials` endpoint. */
+interface DenialRelayPayload {
+  kind: 'listener' | 'read';
+  code: string;
+  message: string;
+  denialContext: unknown;
+  /** Sibling of denialContext on the sandbox error (query-proof denials
+   *  attach the suggested where() fix there); forwarded when present. */
+  remediation?: string;
+}
+
+/** POST a denial to the dev server for terminal visibility. No-op when the
+ *  error carries no `denialContext` (only rules denials are relayed) or when
+ *  `fetch` isn't available (non-browser host). */
+function relayDenial(
+  kind: 'listener' | 'read',
+  err: { message: string; code: string; denialContext?: unknown; remediation?: unknown },
+): void {
+  if (err.denialContext === undefined) return;
+  if (typeof fetch !== 'function') return;
+  const payload: DenialRelayPayload = {
+    kind,
+    code: err.code,
+    message: err.message,
+    denialContext: err.denialContext,
+    ...(typeof err.remediation === 'string' ? { remediation: err.remediation } : {}),
+  };
+  try {
+    void fetch('/__pyric/denials', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  } catch {
+    /* fire-and-forget — never let the relay disturb app flow */
+  }
+}
+
 /** Wire up the port's onmessage handler (idempotent per-port). */
 export function wirePort(port: ClientPort): void {
   port.onmessage = (ev: MessageEvent<OutboundMessage>) => {
@@ -154,6 +202,7 @@ export function wirePort(port: ClientPort): void {
         if (msg.error.aiEnvelope !== undefined) {
           err.aiEnvelope = msg.error.aiEnvelope;
         }
+        relayDenial('read', err);
         pending.reject(err);
       }
     } else if (msg.t === 'snap') {
@@ -168,6 +217,7 @@ export function wirePort(port: ClientPort): void {
         err.code = errPayload.code;
         if (errPayload.denialContext !== undefined) err.denialContext = errPayload.denialContext;
         if (errPayload.aiEnvelope !== undefined) err.aiEnvelope = errPayload.aiEnvelope;
+        relayDenial('listener', err);
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).
@@ -234,9 +284,9 @@ export function getLens(): AuthLens | undefined {
  *
  * Studio's live plane sets this once at connect (`connectWorkerLive`);
  * the served APP page never calls it (its service handles remain the source
- * of app attribution), and RELAYED frames bypass Studio stamping entirely — the bridge
- * relay ({@link relayWorkerOp} / {@link relayWorkerSub}) forwards remote
- * frames verbatim through {@link rawRpc} / a direct postMessage, so a
+ * of app attribution), and RELAYED frames bypass Studio stamping entirely —
+ * the bridge relay ({@link relayWorkerOp} / {@link relayWorkerSub}) clears the
+ * Studio issuer and marks remote frames through {@link rawRpc} / a direct postMessage, so a
  * user's own admin-SDK traffic through the remote bridge is never
  * mislabeled as Studio's even though it rides the same port.
  */
@@ -259,8 +309,8 @@ export function stampIssuer<T extends { t?: string }>(msg: T): T {
 
 /**
  * Send an already-final message and return a promise for its result — no
- * stamping. The RELAY path ({@link relayWorkerOp}) sends through this so
- * remote frames pass verbatim.
+ * implicit stamping. The RELAY path ({@link relayWorkerOp}) explicitly owns
+ * the final remote provenance fields before sending through this function.
  */
 export function rawRpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
   if (disconnectedPorts.has(port)) return Promise.reject(appDeletedError());

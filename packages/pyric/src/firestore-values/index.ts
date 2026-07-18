@@ -60,6 +60,14 @@ import { Path } from '../rules/simulator/wrappers/path.js';
 import { Reference } from '../rules/simulator/wrappers/reference.js';
 import { Timestamp } from '../rules/simulator/wrappers/timestamp.js';
 import { Vector } from '../rules/simulator/wrappers/vector.js';
+// Sideways leaf import into the firestore surface (same character as the
+// wrapper imports above): the activity value registry is a zero-dependency
+// leaf owned by `firestore/sandbox/`, consumed here only to stamp trusted
+// wire identities on rehydrated values. It pulls no backend code.
+import {
+  registerActivityValue,
+  trustedWireActivityValue,
+} from '../firestore/sandbox/activity-value-registry.js';
 
 /**
  * Decode a base64url string (`-`/`_` alphabet, no padding) back into a
@@ -96,30 +104,46 @@ function base64StdDecode(s: string): Uint8Array {
  * MessagePort wire format are guaranteed identical.
  */
 export function rehydrateDocValue(value: unknown): unknown {
+  return rehydrateValue(value, true);
+}
+
+function rehydrateValue(value: unknown, registerRootIdentity: boolean): unknown {
   if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map(rehydrateDocValue);
+  if (Array.isArray(value)) {
+    const hydrated = value.map((item) => rehydrateValue(item, false));
+    if (registerRootIdentity) {
+      registerActivityValue(hydrated, trustedWireActivityValue(value));
+    }
+    return hydrated;
+  }
 
   const obj = value as Record<string, unknown>;
+  const withActivityIdentity = <T extends object>(hydrated: T): T => {
+    if (registerRootIdentity) {
+      registerActivityValue(hydrated, trustedWireActivityValue(value));
+    }
+    return hydrated;
+  };
 
   if (obj.__type__ === '__vector__' && Array.isArray(obj.value)) {
-    return new Vector(obj.value as number[]);
+    return withActivityIdentity(new Vector(obj.value as number[]));
   }
 
   // pyric/rules wrapper marker form (used for IDB persistence + wire).
   if (typeof obj.__type === 'string') {
     switch (obj.__type) {
       case 'timestamp':
-        return new Timestamp(obj.seconds as number, obj.nanos as number);
+        return withActivityIdentity(new Timestamp(obj.seconds as number, obj.nanos as number));
       case 'bytes':
-        return new Bytes(base64UrlDecode(obj.base64 as string));
+        return withActivityIdentity(new Bytes(base64UrlDecode(obj.base64 as string)));
       case 'latlng':
-        return new LatLng(obj.lat as number, obj.lng as number);
+        return withActivityIdentity(new LatLng(obj.lat as number, obj.lng as number));
       case 'duration':
-        return new Duration(obj.seconds as number, obj.nanos as number);
+        return withActivityIdentity(new Duration(obj.seconds as number, obj.nanos as number));
       case 'reference':
-        return new Reference(obj.path as string);
+        return withActivityIdentity(new Reference(obj.path as string));
       case 'path':
-        return new Path(obj.segments as string[]);
+        return withActivityIdentity(new Path(obj.segments as string[]));
     }
   }
 
@@ -132,20 +156,20 @@ export function rehydrateDocValue(value: unknown): unknown {
         // The rules Timestamp uses nanos (not nanoseconds) — same value.
         const seconds = obj.seconds as number;
         const nanoseconds = obj.nanoseconds as number;
-        return new Timestamp(seconds, nanoseconds);
+        return withActivityIdentity(new Timestamp(seconds, nanoseconds));
       }
       case 'firestore/bytes/1.0': {
         // fb.Bytes.toJSON() emits { type, bytes } where bytes is standard base64.
-        return new Bytes(base64StdDecode(obj.bytes as string));
+        return withActivityIdentity(new Bytes(base64StdDecode(obj.bytes as string)));
       }
       case 'firestore/geoPoint/1.0': {
         // fb.GeoPoint.toJSON() emits { latitude, longitude, type }.
-        return new LatLng(obj.latitude as number, obj.longitude as number);
+        return withActivityIdentity(new LatLng(obj.latitude as number, obj.longitude as number));
       }
     }
   }
 
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) out[k] = rehydrateDocValue(v);
-  return out;
+  for (const [k, v] of Object.entries(obj)) out[k] = rehydrateValue(v, false);
+  return withActivityIdentity(out);
 }

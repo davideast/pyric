@@ -157,6 +157,14 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
   if (sim?.resource) {
     denialContext.resource = { data: sim.resource.data, exists: sim.resource.exists };
   }
+  // RULES-B11 — a statically-unprovable query denial carries the query shape it
+  // rejected and (when actionable) narrowing remediation; relay both.
+  if (sim?.query) {
+    denialContext.query = sim.query;
+  }
+  if (sim?.remediation !== undefined) {
+    return new SandboxError({ code, message: err.message, denialContext, remediation: sim.remediation });
+  }
   return new SandboxError(code, err.message, denialContext);
 }
 

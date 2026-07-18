@@ -121,3 +121,61 @@ describe('ai: initialization and dispatch', () => {
     }
   });
 });
+
+describe('ai: getAI ignored-options warning (diagnostics)', () => {
+  async function withWarnSpy(fn: () => void | Promise<void>): Promise<string[]> {
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = ((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    }) as typeof console.warn;
+    try {
+      await fn();
+    } finally {
+      console.warn = original;
+    }
+    return warnings;
+  }
+
+  test('warns once when a later call passes a structurally different engine option', async () => {
+    seam = await aiSeam();
+    const isolated = seam.sandboxMod.initializeSandbox();
+    const warnings = await withWarnSpy(() => {
+      seam.ai.getAI(isolated, { engine: { kind: 'scripted' } });
+      seam.ai.getAI(isolated, { engine: { kind: 'openai', baseUrl: 'http://x/v1' } });
+      seam.ai.getAI(isolated, { engine: { kind: 'openai', baseUrl: 'http://x/v1' } });
+    });
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('ignored');
+    expect(warnings[0]).toContain('first getAI() call');
+  });
+
+  test('never warns when the repeated engine option is structurally identical', async () => {
+    seam = await aiSeam();
+    const isolated = seam.sandboxMod.initializeSandbox();
+    const warnings = await withWarnSpy(() => {
+      seam.ai.getAI(isolated, { engine: { kind: 'scripted' } });
+      seam.ai.getAI(isolated, { engine: { kind: 'scripted' } });
+    });
+    expect(warnings.length).toBe(0);
+  });
+
+  test('never warns when a later call omits the engine option', async () => {
+    seam = await aiSeam();
+    const isolated = seam.sandboxMod.initializeSandbox();
+    const warnings = await withWarnSpy(() => {
+      seam.ai.getAI(isolated, { engine: { kind: 'openai', baseUrl: 'http://x/v1' } });
+      seam.ai.getAI(isolated);
+    });
+    expect(warnings.length).toBe(0);
+  });
+
+  test('never warns on the very first call for a sandbox', async () => {
+    seam = await aiSeam();
+    const isolated = seam.sandboxMod.initializeSandbox();
+    const warnings = await withWarnSpy(() => {
+      seam.ai.getAI(isolated, { engine: { kind: 'openai', baseUrl: 'http://x/v1' } });
+    });
+    expect(warnings.length).toBe(0);
+  });
+});

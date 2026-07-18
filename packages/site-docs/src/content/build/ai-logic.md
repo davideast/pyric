@@ -40,19 +40,31 @@ Keep scripted setup outside application code that ships.
 
 ## Answer with a real local model (Ollama)
 
-The sandbox can answer through any OpenAI-compatible server — a local [Ollama](https://ollama.com), llama.cpp, anything speaking `/v1/chat/completions` — while your application keeps making unchanged Firebase AI Logic calls. Pass the `engine` option to `getAI`:
+The sandbox can answer through any OpenAI-compatible server — a local [Ollama](https://ollama.com), llama.cpp, anything speaking `/v1/chat/completions` — while your application keeps making unchanged Firebase AI Logic calls. Pass the `engine` option on the app's own `getAI` call from `firebase/ai`, the handle the application actually queries, so the setting reaches the code that answers:
 
 ```ts
-import { getAI } from 'pyric/ai';
+import { getAI, type AIOptions } from 'firebase/ai';
 
 const ai = getAI(app, {
   engine: { kind: 'openai', model: 'llama3.2' },
-});
+} as AIOptions);
 ```
 
-`engine` is a pyric extension that only the sandbox reads — upstream `firebase/ai` ignores unknown options, so the same call is production-safe. With no `baseUrl`, answering routes through `pyric dev`'s same-origin AI proxy at `/__pyric/ai-proxy`, which forwards to `http://localhost:11434/v1` — a locally running Ollama works with zero CORS setup, no `OLLAMA_ORIGINS`, nothing. Point the proxy at a different server with the `PYRIC_AI_PROXY_UPSTREAM` environment variable on `pyric dev`.
+The first `getAI` call for an app decides its engine; later calls with different options are ignored, so configure it where the app first creates its AI handle.
 
-The translation is wire-level: Gemini-shaped requests in, OpenAI-compatible upstream out, Gemini-shaped responses back — so streaming, chat history, and function calling flow through. The [AI chat example](https://github.com/davideast/pyric/tree/main/examples/ai-chat) runs both engines side by side.
+`engine` is a pyric extension that only the sandbox reads. At runtime, production `firebase/ai` ignores the extra option; in TypeScript, `AIOptions` has no `engine` member, so a typed build needs the options object cast — the `as AIOptions` above — or the engine kept in a development-only branch.
+
+With no `baseUrl`, answering routes through `pyric dev`'s same-origin AI proxy at `/__pyric/ai-proxy`, which forwards to `http://localhost:11434/v1` — a locally running Ollama works with zero CORS setup, no `OLLAMA_ORIGINS`, nothing. Point the proxy at a different server with the `PYRIC_AI_PROXY_UPSTREAM` environment variable on `pyric dev`.
+
+Use `modelMap` to send specific Gemini model ids to specific upstream models; `model` stays the catch-all for anything unmatched.
+
+```ts
+engine: { kind: 'openai', modelMap: { 'gemini-2.5-flash': 'llama3.2' } }
+```
+
+`maxOutputTokens`, `temperature`, `topP`, `stopSequences`, and JSON response formatting carry over to the OpenAI request. `topK` and `thinkingConfig` have no equivalent and are dropped in development, though production still honors them. When a local thinking model returns its reasoning, it surfaces as thought parts.
+
+Gemini-shaped requests go out as OpenAI-compatible ones and come back Gemini-shaped, so streaming, chat history, and function calling all flow through. The [AI chat example](https://github.com/davideast/pyric/tree/main/examples/ai-chat) runs both engines side by side.
 
 Local engines do not reproduce model quality, safety policy, latency, quotas, billing, or service availability. Verify model-dependent behavior against the production backend before release.
 

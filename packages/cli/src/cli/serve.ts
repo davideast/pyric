@@ -24,7 +24,13 @@ import {
 } from '../serve/standalone-assets.js';
 import { loadProjectDatabaseRules, loadProjectRules, loadProjectStorageRules, watchProjectRules } from '../serve/rules.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
-import { createEventHub, createPyricNamespace, injectServeTags, type InitPayload } from '../serve/namespace.js';
+import {
+  createEventHub,
+  createPyricNamespace,
+  injectServeTags,
+  type InitPayload,
+} from '../serve/namespace.js';
+import { formatActivityWarning } from '../serve/activity-warning.js';
 import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from '../serve/state-store.js';
 import { diskProjectStore, diskWorkspace } from '../serve/studio/index.js';
 import { createCaptureStore } from '../serve/capture-store.js';
@@ -415,11 +421,13 @@ export async function startServe(opts: {
     sdkDir: bundle.outDir,
     initPayload: payload,
     events,
+    activity: (incident) => logger.note(formatActivityWarning(incident)),
     state: state ?? undefined,
     capture: capture ?? undefined,
     studio,
     studioUiDir,
     docsUiDir,
+    logger,
   });
   let handle: Awaited<ReturnType<typeof startStaticServer>>;
   try {

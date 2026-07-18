@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -13,6 +14,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const sourceScript = new URL('./deploy-site.sh', import.meta.url);
+const repoRoot = new URL('../', import.meta.url);
 const fixtures = [];
 
 afterEach(() => {
@@ -75,5 +77,42 @@ describe('deploy-site.sh', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('dist/site/index.html');
     expect(trace).toEqual(['bun run build --packages-only', 'build-site']);
+  });
+});
+
+describe('firebase.json hosting rewrites', () => {
+  const firebaseJson = JSON.parse(readFileSync(new URL('firebase.json', repoRoot), 'utf8'));
+
+  test('has no /docs/** (or other **) catch-all rewrite', () => {
+    // A catch-all under /docs/** (or a bare `**`) turns any dead docs URL —
+    // typo'd, removed, crawled by a stale link — into a 200'd app shell
+    // instead of a real 404 (issue #375). The docs are pure static output
+    // (Astro `directory` format: every page is its own <slug>/index.html),
+    // so real docs URLs need no rewrite at all; Firebase Hosting serves
+    // them, and dist/site/404.html, natively. Only the Studio SPA's own
+    // client-routed tabs get scoped rewrites.
+    const sources = firebaseJson.hosting.rewrites.map((rewrite) => rewrite.source);
+    expect(sources).not.toContain('/docs/**');
+    expect(sources).not.toContain('**');
+  });
+
+  test('scopes remaining rewrites to Studio SPA tab prefixes, all pointing at /index.html', () => {
+    for (const rewrite of firebaseJson.hosting.rewrites) {
+      expect(rewrite.destination).toBe('/index.html');
+      expect(rewrite.source).toMatch(/^\/[a-z]+\/\*\*$/);
+    }
+  });
+});
+
+describe('dist/site/404.html', () => {
+  // The composed site build (`bash scripts/build-site.sh`) is not part of
+  // this suite's `pretest` (packages-only). Skip when dist/site hasn't been
+  // composed rather than failing the root suite; run `bash scripts/build.sh
+  // --packages-only && bash scripts/build-site.sh` first to exercise this.
+  const distSite = new URL('../dist/site/', import.meta.url);
+  const built = existsSync(new URL('index.html', distSite));
+
+  test.skipIf(!built)('is a real file Firebase Hosting serves for any dead path', () => {
+    expect(existsSync(new URL('404.html', distSite))).toBe(true);
   });
 });

@@ -139,10 +139,16 @@ export async function callTool(
  * the worker's `res.value`, rejects with an Error carrying `.code`.
  */
 export function relayWorkerOp(db: ClientDb, op: WorkerOpPayload): Promise<unknown> {
-  // rawRpc, NOT rpc: relayed frames must pass verbatim — the declared op
-  // source (`setOpIssuer`) covers only ops THIS client constructs, so
-  // bridge-relayed admin/agent traffic is never mislabeled as Studio's.
-  return rawRpc(db.port, { ...op, t: 'op', id: nextId() } as InboundMessage);
+  // rawRpc, NOT rpc: the relay owns provenance and must not inherit this
+  // browser page's Studio issuer. Override any untrusted incoming marker so
+  // Node/agent/system traffic can never be attributed to page app activity.
+  return rawRpc(db.port, {
+    ...op,
+    issuer: undefined,
+    relaySource: 'remote',
+    t: 'op',
+    id: nextId(),
+  } as InboundMessage);
 }
 
 /**
@@ -178,7 +184,13 @@ export function relayWorkerSub(
           message: err instanceof Error ? err.message : String(err),
         },
       }),
-  }, { ...sub, t: 'sub', subId } as InboundMessage);
+  }, {
+    ...sub,
+    issuer: undefined,
+    relaySource: 'remote',
+    t: 'sub',
+    subId,
+  } as InboundMessage);
   if (!opened) {
     queueMicrotask(() => onValue({
       __error: { code: 'app/app-deleted', message: 'Firebase App was deleted' },
