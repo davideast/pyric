@@ -55,7 +55,12 @@ import {
   NODE_BUILTIN_RE,
   NODE_BUILTIN_SHIMS,
 } from './bundler.js';
-import { createEventHub, createPyricNamespace, type InitPayload } from './namespace.js';
+import {
+  createEventHub,
+  createPyricNamespace,
+  type InitPayload,
+} from './namespace.js';
+import { formatActivityWarning } from './activity-warning.js';
 import { diskWorkspace, diskProjectStore } from './studio/index.js';
 import { createBridgeMount } from './bridge-mount.js';
 import {
@@ -515,6 +520,7 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         sdkDir,
         initPayload,
         events,
+        activity: (incident) => server.config.logger.warn(formatActivityWarning(incident)),
         state,
         capture,
         studio,

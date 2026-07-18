@@ -33,6 +33,7 @@ import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
 import type { InitPayload } from '../init-payload.js';
+import { setupFirebaseActivityGuard } from '../activity-guard.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
 
@@ -103,6 +104,7 @@ const diagnostics: ServeDiagnostics = {
 globalThis.__pyricServe = diagnostics;
 
 let bridgeUrlFromPayload: string | null = null;
+let activityTokenFromPayload: string | null = null;
 
 // ── init payload: fetch + apply (top-level await — see header) ────────
 // WORKER PATH: skipped — the worker fetches the same init.json and owns
@@ -113,6 +115,7 @@ if (!useWorker) try {
   if (!res.ok) throw new Error(`/__pyric/init.json → ${res.status}`);
   const payload = (await res.json()) as InitPayload;
   bridgeUrlFromPayload = payload.bridgeUrl;
+  activityTokenFromPayload = payload.activityToken ?? null;
   // Register RTDB with the persistence registry BEFORE enablePersistence
   // (below) so the restored tree rides the controller blob and is applied
   // during restore-on-attach — same eager-registration reasoning as the
@@ -359,6 +362,20 @@ if (!useWorker) try {
   console.error(
     '[pyric dev] init failed — the sandbox is running WITHOUT your project rules:',
     diagnostics.initError,
+  );
+}
+
+// Unsupported/forced-in-page browsers own a real page-local sandbox rather
+// than the SharedWorker backend, so they install the same default-on guard at
+// this feed seam. Top-level await keeps this in place before application code.
+if (!useWorker && activityTokenFromPayload) {
+  setupFirebaseActivityGuard(
+    {
+      history: () => sandbox.history(),
+      subscribe: (listener) => sandbox.onEvent(listener),
+    },
+    fetch,
+    activityTokenFromPayload,
   );
 }
 

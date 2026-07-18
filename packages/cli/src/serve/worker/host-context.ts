@@ -44,6 +44,16 @@ export interface PortLike {
   postMessage(msg: OutboundMessage): void;
 }
 
+/** Stable worker-lifetime activity identity for an app page/port. */
+export function activityJourneyId(ctx: HostCtx, port: PortLike): string {
+  const ids = (ctx.activityJourneyIds ??= new WeakMap());
+  const existing = ids.get(port);
+  if (existing) return existing;
+  const id = `page-${(ctx.activityJourneySequence = (ctx.activityJourneySequence ?? 0) + 1)}`;
+  ids.set(port, id);
+  return id;
+}
+
 // ─── Host context ─────────────────────────────────────────────────────────
 
 export interface HostCtx {
@@ -51,6 +61,9 @@ export interface HostCtx {
   db: Firestore;
   /** The underlying Sandbox, for setRules + direct sandbox ops. */
   sandbox: LocalSandbox;
+  /** Stable worker-lifetime activity identity for each page/app port. */
+  activityJourneyIds?: WeakMap<PortLike, string>;
+  activityJourneySequence?: number;
   /** Stable per-SharedWorker instance id (see {@link INSTANCE_ID_KEY}). Reported
    *  via `getVersion` so the UI can identify which sandbox instance this is. */
   instanceId: string;

@@ -19,6 +19,7 @@ import { SandboxImpl } from './internal/sandbox-impl.js';
 import type { LocalSandbox, SandboxConfig } from './types/service.js';
 
 export type {
+  ActivityEventProvenance,
   AuthLens,
   AuthState,
   DenialContext,

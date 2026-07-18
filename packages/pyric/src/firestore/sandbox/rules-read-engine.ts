@@ -202,6 +202,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const detailFields = {
       ...(bypassRules ? { admin: true } : {}),
       ...(requestQuery ? { query: requestQuery } : {}),
+      ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
     };
     const requestDetail = Object.keys(detailFields).length > 0 ? detailFields : undefined;
     const evalAt = Date.now();
@@ -388,12 +389,14 @@ export class RulesReadEngine implements ListenerDispatchHost {
     auth: Operation['auth'],
     query?: QueryConstraints,
     bypassRules?: boolean,
+    activityQuery?: unknown,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
     const structured: QueryConstraints = query ?? {};
     const requestQuery = listQueryFromStructured(structured);
     const requestDetail = {
       ...(bypassRules ? { admin: true } : {}),
       ...(requestQuery ? { query: requestQuery } : {}),
+      ...(activityQuery !== undefined ? { activityQuery } : {}),
     };
     const detail = Object.keys(requestDetail).length > 0 ? requestDetail : undefined;
     // Studio admin lens (Gap #2): skip the query-proof gate + `list` rule

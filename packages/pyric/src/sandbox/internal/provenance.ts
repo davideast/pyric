@@ -40,6 +40,9 @@ export function stampProvenance<E extends SandboxEvent>(
   out.actor = context.source;
   out.authLens = context.authLens;
   if (context.planId !== undefined) out.planId = context.planId;
+  if (overrides?.activity !== undefined) {
+    out.activity = { ...out.activity, ...overrides.activity };
+  }
   if (isOperationEvent(out)) {
     out.rulesDisposition = Object.freeze({ ...rulesDispositionFor(out) });
   }
