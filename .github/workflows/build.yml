@@ -339,11 +339,46 @@ jobs:
           PYRIC_PACKAGE_ARTIFACT_DIR: dist/packages
         run: bash scripts/install-matrix.sh ${{ matrix.pm }}
 
+  standalone:
+    name: Standalone binary smoke (compile + vendor)
+    runs-on: ubuntu-latest
+    needs: plan
+    # Cost: compiling a host-target binary is heavy (~100 MB executable), so
+    # this runs under the same `ci-packaging` label policy as `packaging` —
+    # apply the label on release PRs or ones touching the standalone/vendor
+    # pipeline (scripts/compile.ts, the smokes, the workspace-dep rewrite).
+    if: needs.plan.outputs.check-set == 'full' && contains(github.event.pull_request.labels.*.name, 'ci-packaging')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15'
+
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+
+      - name: Build (packages + studio, no docs)
+        run: bash scripts/build.sh --skip-docs
+
+      - name: Compile the host-target standalone binary
+        run: bun run --cwd packages/cli compile host
+
+      - name: Standalone smoke (portable commands + embedded serve)
+        run: bun run --cwd packages/cli smoke:standalone
+
+      - name: Vendor smoke (vendor + init consumer install story)
+        run: bun run --cwd packages/cli smoke:vendor
+
   required:
     name: CI / required
     runs-on: ubuntu-latest
     if: always()
-    needs: [plan, playground-caniuse, build-and-test, library-tests, browser-conformance, release-contract, docs-only, packaging, install-matrix]
+    needs: [plan, playground-caniuse, build-and-test, library-tests, browser-conformance, release-contract, docs-only, packaging, install-matrix, standalone]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

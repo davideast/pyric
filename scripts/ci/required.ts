@@ -17,7 +17,7 @@ const CHECK_SET_JOBS: Record<PrCheckSet, readonly string[]> = {
 export function requiredFailures(input: RequiredInput): string[] {
   const required = [
     ...CHECK_SET_JOBS[input.checkSet],
-    ...(input.requirePackaging ? ['packaging', 'install-matrix'] : []),
+    ...(input.requirePackaging ? ['packaging', 'install-matrix', 'standalone'] : []),
   ];
   return required.flatMap((job) => input.results[job] === 'success'
     ? []
