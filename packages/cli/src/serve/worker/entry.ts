@@ -20,9 +20,13 @@
  *
  * PERSISTENCE KEY
  * ---------------
- * Using `'pyric-shared-worker'` as the IDB persistence key. This is a
- * package-level default; serve integration (Phase 3) may want to scope
- * it per-project or per-port. Phase 1 keeps it simple.
+ * Project-scoped: `'pyric-shared-worker:<projectKey>'`, derived inside
+ * `buildWorkerCtx` from the init payload's `projectKey` (issue #359 family —
+ * IndexedDB is origin-scoped, so the old fixed key shared one sandbox
+ * snapshot database across every project on a localhost port). The legacy
+ * `'pyric-shared-worker'` key applies only when no project identity exists
+ * (older servers, standalone workers); see `workerPersistenceKey` in
+ * serve-init.ts for the orphan-don't-delete migration decision.
  *
  * RULES
  * -----

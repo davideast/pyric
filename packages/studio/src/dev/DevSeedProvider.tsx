@@ -22,6 +22,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { SandboxEvent } from 'pyric/sandbox';
+import { foldSessionEventLog } from '../events/fold.js';
 import type { SeededHandles } from './seed.js';
 
 export type DevSeedState =
@@ -66,7 +67,10 @@ function DevSeedProviderImpl({ children }: { children: ReactNode }) {
         // Seed the event log from history, then stay live on the stream.
         setEvents(resolved.sandbox.history());
         unsubscribe = resolved.sandbox.onEvent((event) => {
-          setEvents((prev) => [...prev, event]);
+          // Fold through the session rule: "Reset session" emits a reset
+          // session_boundary and clears sandbox.history(); this accumulated
+          // mirror must drop the wiped session too (see `events/fold.ts`).
+          setEvents((prev) => foldSessionEventLog(prev, event));
         });
       } catch (e) {
         if (!cancelled) {
