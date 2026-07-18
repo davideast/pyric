@@ -11,7 +11,7 @@
  * obvious in code review.
  *
  * Run:
- *   bun packages/sdk/scripts/inline-grammar.ts
+ *   bun run inline-grammar (packages/pyric)
  *
  * Wired into `prebuild` so `bun run build` always picks up grammar
  * edits without the developer having to remember.
@@ -61,7 +61,7 @@ for (const src of sources) {
     .replace(/\$\{/g, '\\${');
   const body =
     `// AUTO-GENERATED — do not edit by hand. Regenerate via:\n` +
-    `//   bun packages/sdk/scripts/inline-grammar.ts\n` +
+    `//   bun run inline-grammar (packages/pyric)\n` +
     `// Source: ${basename(src)}\n` +
     `\n` +
     `export const ${exportName} = \`${escaped}\`;\n`;

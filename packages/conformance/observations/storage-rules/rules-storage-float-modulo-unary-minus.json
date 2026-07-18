@@ -1,0 +1,19 @@
+{
+  "name": "rules-storage-float-modulo-unary-minus",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#123"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"float-modulo-unary-minus\" (Coverage: float literals, %, unary minus, negative modulo). Float multiplication/division, modulo, and unary minus must evaluate with production numeric semantics, including truncating int division and dividend-signed negative modulo.",
+  "observedAt": "2026-07-17T19:19:07.870Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "even size passes float/modulo/unary-minus chain \u2192 ALLOW": "ALLOW",
+    "odd size fails size % 2 == 0 \u2192 DENY": "DENY",
+    "oversized float product fails bound \u2192 DENY": "DENY",
+    "int / int truncates (10 / 4 == 2) \u2192 ALLOW": "ALLOW",
+    "-7 / 2 truncates toward zero (== -3) \u2192 ALLOW": "ALLOW",
+    "-7 % 2 == -1 (dividend sign) \u2192 ALLOW": "ALLOW"
+  }
+}
