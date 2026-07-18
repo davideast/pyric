@@ -88,6 +88,8 @@ import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './
 export { SimulatorUnsupportedError } from './rules-evaluation.js';
 import { docDataEqual, anyPathInCollection } from './listener-delivery.js';
 import { listQueryFromStructured } from './reads.js';
+import { FirestoreEventBus } from './event-bus.js';
+import { HistoryControls } from './history-controls.js';
 import {
   SimulatorUnsupportedError,
   unsupportedMessage,
@@ -105,59 +107,16 @@ import {
 export class LocalEnvironment {
   private state: DocStore;
   private eventLog: EventLog;
+  private readonly history: HistoryControls;
   private simulator: SimulateFirestoreRulesHandler;
   private rulesSource: string;
   private seedSnapshot: Record<string, DocumentData>;
   /**
-   * Subscribers notified after every `permission-denied` is constructed,
-   * regardless of whether downstream user code catches the resulting
-   * throw. Lets host environments (the playground runner, tests) surface
-   * denials with full eval context even when test code wraps the call
-   * in try/catch — the catch otherwise hides everything past `e.code`.
+   * The engine's seven observational event channels — subscriptions and
+   * dispatch live in {@link FirestoreEventBus}; payload building stays at
+   * the emit* call sites here (lazy allocation + trigger-context access).
    */
-  private denialListeners: Set<(err: FirestoreSimError) => void> = new Set();
-
-  /**
-   * Subscribers notified for every evaluated op (issue #307). Each
-   * receives a public-shape `RequestEvent`. Re-shape from the internal
-   * eval payload happens in {@link emitRequest} so the env's hot path
-   * doesn't allocate the event object until we know someone's listening.
-   *
-   * Listener throws are swallowed (same rationale as `denialListeners`).
-   */
-  private requestListeners: Set<(event: import('../../sandbox/types/events.js').RequestEvent) => void> = new Set();
-
-  /**
-   * Subscribers notified for every COMMITTED write (issue #307). Fires
-   * after the keyspace successfully applied the write — denied or
-   * rolled-back writes don't emit here (they surface as a request-deny
-   * RequestEvent instead). Bridged to `Sandbox.onEvent` consumers via
-   * SandboxImpl's attachToEnv.
-   */
-  private writeListeners: Set<(event: import('../../sandbox/types/events.js').WriteSandboxEvent) => void> = new Set();
-
-  /**
-   * Subscribers notified for every snapshot DELIVERED to a user
-   * `onSnapshot` callback. Fires after the suppress-check in
-   * notify*Listener, so this count tracks real callback invocations
-   * (in contrast to `requestListeners[origin='listener']`, which used
-   * to over-count before the step-5 refactor).
-   */
-  private deliveryListeners: Set<(event: import('../../sandbox/types/events.js').SnapshotDeliveryEvent) => void> = new Set();
-
-  /**
-   * Subscribers notified for every listener re-eval that was suppressed
-   * before reaching the user callback — Slice 3's no-op suppression
-   * surfaces here. Useful for "why didn't my listener fire" debugging.
-   */
-  private suppressedListeners: Set<(event: import('../../sandbox/types/events.js').SnapshotSuppressedEvent) => void> = new Set();
-
-  /**
-   * Subscribers notified for listener attach / detach lifecycle. Errored
-   * still routes through onSnapshotError (bridged to listener_errored
-   * in SandboxImpl) so this channel only carries attach + detach.
-   */
-  private lifecycleListeners: Set<(event: import('../../sandbox/types/events.js').ListenerLifecycleEvent) => void> = new Set();
+  private readonly events = new FirestoreEventBus();
 
   /**
    * The user-origin op that's currently triggering a listener re-eval,
@@ -181,19 +140,6 @@ export class LocalEnvironment {
    * `deployRules` / `seed` invalidate it for free.
    */
   private parsedRulesCache: { source: string; ast: FirestoreRules | null } | null = null;
-
-  /**
-   * Subscribers notified when a snapshot listener is marked errored
-   * (Slice 7). Mirrors `denialListeners` but fires from the listener
-   * dispatch path, not from one-shot operation evaluation. Two-level
-   * model per source survey section 9: the listener's own `errorCallback`
-   * receives the error AND every env-level subscriber receives it —
-   * the playground subscribes here to surface stream errors as toasts
-   * the same way it surfaces denials today.
-   */
-  private snapshotErrorListeners: Set<
-    (err: FirestoreSimError, target: SnapshotTarget, listenerId: string) => void
-  > = new Set();
 
   /**
    * Active `onSnapshot` listeners. Slice 1 — registry only; the dispatch
@@ -231,6 +177,14 @@ export class LocalEnvironment {
   constructor() {
     this.state = new LocalState();
     this.eventLog = new EventLog();
+    // Undo/redo needs live keyspace access (`seed()` replaces `state`) and
+    // the engine's write application — injected as a narrow HistoryHost.
+    const engine = this;
+    this.history = new HistoryControls(this.eventLog, {
+      get state() { return engine.state; },
+      capturePriors: (paths) => this.capturePriors(paths),
+      applyWrite: (method, path, data, merge) => this.applyWrite(method, path, data, merge),
+    });
     this.simulator = new SimulateFirestoreRulesHandler();
     // Default to an allow-all ruleset so a freshly-constructed sandbox
     // works for the quickstart `addDoc` / `getDoc` flow without forcing
@@ -255,15 +209,11 @@ export class LocalEnvironment {
    * resilient — a faulty subscriber should not change rule semantics.
    */
   onDenial(cb: (err: FirestoreSimError) => void): () => void {
-    this.denialListeners.add(cb);
-    return () => { this.denialListeners.delete(cb); };
+    return this.events.denial.subscribe(cb);
   }
 
   private emitDenial(err: FirestoreSimError): void {
-    if (this.denialListeners.size === 0) return;
-    for (const cb of this.denialListeners) {
-      try { cb(err); } catch { /* ignore — see onDenial doc */ }
-    }
+    this.events.denial.emit(err);
   }
 
   /**
@@ -273,8 +223,7 @@ export class LocalEnvironment {
    * no subscribers are attached, eval doesn't pay the allocation cost.
    */
   onRequest(cb: (event: import('../../sandbox/types/events.js').RequestEvent) => void): () => void {
-    this.requestListeners.add(cb);
-    return () => { this.requestListeners.delete(cb); };
+    return this.events.request.subscribe(cb);
   }
 
   /**
@@ -284,29 +233,25 @@ export class LocalEnvironment {
    * emit here.
    */
   onWrite(cb: (event: import('../../sandbox/types/events.js').WriteSandboxEvent) => void): () => void {
-    this.writeListeners.add(cb);
-    return () => { this.writeListeners.delete(cb); };
+    return this.events.write.subscribe(cb);
   }
 
   /** Internal — bridge for sandbox-level `onEvent` to receive
    *  snapshot-delivery events. Fires after the user callback runs. */
   onSnapshotDelivery(cb: (event: import('../../sandbox/types/events.js').SnapshotDeliveryEvent) => void): () => void {
-    this.deliveryListeners.add(cb);
-    return () => { this.deliveryListeners.delete(cb); };
+    return this.events.delivery.subscribe(cb);
   }
 
   /** Internal bridge for snapshot_suppressed events — re-evals that
    *  didn't deliver because diffing found no observable change. */
   onSnapshotSuppressed(cb: (event: import('../../sandbox/types/events.js').SnapshotSuppressedEvent) => void): () => void {
-    this.suppressedListeners.add(cb);
-    return () => { this.suppressedListeners.delete(cb); };
+    return this.events.suppressed.subscribe(cb);
   }
 
   /** Internal bridge for listener attach/detach lifecycle. Errored
    *  routes through onSnapshotError separately. */
   onListenerLifecycle(cb: (event: import('../../sandbox/types/events.js').ListenerLifecycleEvent) => void): () => void {
-    this.lifecycleListeners.add(cb);
-    return () => { this.lifecycleListeners.delete(cb); };
+    return this.events.lifecycle.subscribe(cb);
   }
 
   private emitSnapshotDelivery(input: {
@@ -320,7 +265,7 @@ export class LocalEnvironment {
     sample?: { docs: Array<{ path: string; data: Record<string, unknown> | null }> };
     triggeredBy?: { method: string; path: string };
   }): void {
-    if (this.deliveryListeners.size === 0) return;
+    if (!this.events.delivery.hasSubscribers) return;
     const event: import('../../sandbox/types/events.js').SnapshotDeliveryEvent = {
       kind: 'snapshot_delivery',
       id: nextRequestEventId().replace(/^req-/, 'snd-'),
@@ -337,9 +282,7 @@ export class LocalEnvironment {
       ...(input.sample ? { sample: input.sample } : {}),
       ...(input.triggeredBy ? { triggeredBy: input.triggeredBy } : {}),
     };
-    for (const cb of this.deliveryListeners) {
-      try { cb(event); } catch { /* swallow */ }
-    }
+    this.events.delivery.emit(event);
   }
 
   private emitSnapshotSuppressed(input: {
@@ -348,7 +291,7 @@ export class LocalEnvironment {
     auth: ListenerAuth;
     triggeredBy?: { method: string; path: string };
   }): void {
-    if (this.suppressedListeners.size === 0) return;
+    if (!this.events.suppressed.hasSubscribers) return;
     const event: import('../../sandbox/types/events.js').SnapshotSuppressedEvent = {
       kind: 'snapshot_suppressed',
       id: nextRequestEventId().replace(/^req-/, 'sup-'),
@@ -361,9 +304,7 @@ export class LocalEnvironment {
       reason: 'no-op',
       ...(input.triggeredBy ? { triggeredBy: input.triggeredBy } : {}),
     };
-    for (const cb of this.suppressedListeners) {
-      try { cb(event); } catch { /* swallow */ }
-    }
+    this.events.suppressed.emit(event);
   }
 
   private emitLifecycle(input: {
@@ -372,7 +313,7 @@ export class LocalEnvironment {
     target: import('../../sandbox/types/events.js').ListenerLifecycleEvent['target'];
     auth: ListenerAuth;
   }): void {
-    if (this.lifecycleListeners.size === 0) return;
+    if (!this.events.lifecycle.hasSubscribers) return;
     const event: import('../../sandbox/types/events.js').ListenerLifecycleEvent = {
       kind: input.phase,
       id: nextRequestEventId().replace(/^req-/, 'lc-'),
@@ -383,9 +324,7 @@ export class LocalEnvironment {
         ? { uid: input.auth.uid, ...(input.auth.token ? { token: input.auth.token } : {}) }
         : null,
     };
-    for (const cb of this.lifecycleListeners) {
-      try { cb(event); } catch { /* swallow */ }
-    }
+    this.events.lifecycle.emit(event);
   }
 
   /**
@@ -422,7 +361,7 @@ export class LocalEnvironment {
     detail?: { admin?: boolean } & Record<string, unknown>;
     provenance?: EventProvenance;
   }): void {
-    if (this.writeListeners.size === 0) return;
+    if (!this.events.write.hasSubscribers) return;
     const event: import('../../sandbox/types/events.js').WriteSandboxEvent = {
       kind: 'write',
       id: nextRequestEventId().replace(/^req-/, 'wr-'),
@@ -443,14 +382,7 @@ export class LocalEnvironment {
       ...(input.detail !== undefined ? { detail: input.detail } : {}),
       ...(input.provenance ?? {}),
     };
-    for (const cb of this.writeListeners) {
-      try {
-        const result = cb(event) as unknown;
-        if (result && typeof (result as { then?: unknown }).then === 'function') {
-          (result as Promise<unknown>).catch(() => { /* see emitRequest doc */ });
-        }
-      } catch { /* see emitRequest doc */ }
-    }
+    this.events.write.emit(event);
   }
 
   /**
@@ -472,16 +404,8 @@ export class LocalEnvironment {
    * them and doesn't propagate their errors.
    */
   private emitRequest(input: EmitRequestInput): void {
-    if (this.requestListeners.size === 0) return;
-    const event = buildRequestEvent(input);
-    for (const cb of this.requestListeners) {
-      try {
-        const result = cb(event) as unknown;
-        if (result && typeof (result as { then?: unknown }).then === 'function') {
-          (result as Promise<unknown>).catch(() => { /* see method doc */ });
-        }
-      } catch { /* see method doc */ }
-    }
+    if (!this.events.request.hasSubscribers) return;
+    this.events.request.emit(buildRequestEvent(input));
   }
 
   /**
@@ -502,8 +426,7 @@ export class LocalEnvironment {
   onSnapshotError(
     cb: (err: FirestoreSimError, target: SnapshotTarget, listenerId: string) => void,
   ): () => void {
-    this.snapshotErrorListeners.add(cb);
-    return () => { this.snapshotErrorListeners.delete(cb); };
+    return this.events.snapshotError.subscribe(cb);
   }
 
   private emitSnapshotError(
@@ -511,10 +434,7 @@ export class LocalEnvironment {
     target: SnapshotTarget,
     listenerId: string,
   ): void {
-    if (this.snapshotErrorListeners.size === 0) return;
-    for (const cb of this.snapshotErrorListeners) {
-      try { cb(err, target, listenerId); } catch { /* ignore — see onSnapshotError doc */ }
-    }
+    this.events.snapshotError.emit(err, target, listenerId);
   }
 
   // ═══ Snapshot listeners (Slices 1+2) ═══
@@ -1360,13 +1280,7 @@ export class LocalEnvironment {
    */
   dispose(): void {
     this.snapshotListeners.clear();
-    this.denialListeners.clear();
-    this.snapshotErrorListeners.clear();
-    this.requestListeners.clear();
-    this.writeListeners.clear();
-    this.deliveryListeners.clear();
-    this.suppressedListeners.clear();
-    this.lifecycleListeners.clear();
+    this.events.clear();
     // Drop any queued-but-undelivered fires so a disposed env can't invoke
     // an outgoing consumer's callback on a later microtask drain.
     this.deliveryQueue.length = 0;
@@ -3138,63 +3052,25 @@ export class LocalEnvironment {
   /** Undo the last write operation. Restores the affected paths (single-write /
    *  batch) or the whole keyspace (transaction) to their pre-write state. */
   undo(): AgentEvent | null {
-    const event = this.eventLog.popLastWrite();
-    if (!event) return null;
-    if (event.priorDocs) this.state.restorePaths(event.priorDocs);
-    else if (event.snapshot) this.state.restore(event.snapshot);
-    else return null;
-    return event;
+    return this.history.undo();
   }
 
   /** Redo the last undone operation. Re-applies the write directly
    *  without going through execute() (which would clear the redo stack). */
   redo(): OperationResult | null {
-    const event = this.eventLog.popLastUndo();
-    if (!event) return null;
-
-    // Capture prior state BEFORE re-applying (for a future undo of this redo),
-    // matching the kind the event used: affected paths for single-write / batch,
-    // the whole keyspace for a transaction.
-    const affectedPaths = (event.type === 'batch' && event.operations)
-      ? event.operations.map((op) => op.path)
-      : event.path ? [event.path] : [];
-    const useFullSnapshot = !!event.snapshot;
-    const priorDocs = useFullSnapshot ? undefined : this.capturePriors(affectedPaths);
-    const snapshot = useFullSnapshot ? this.state.snapshot() : undefined;
-
-    // Re-apply the write directly to state
-    if (event.type === 'batch' && event.operations) {
-      for (const op of event.operations) {
-        if (op.allowed) this.applyWrite(op.method, op.path, op.data);
-      }
-    } else if (event.allowed) {
-      this.applyWrite(event.method, event.path, event.data);
-    }
-
-    // Re-append with preserveRedo=true so remaining redos aren't lost
-    const newEvent = this.eventLog.append({
-      ...event,
-      snapshot,
-      priorDocs,
-    }, true);
-
-    return {
-      allowed: event.allowed,
-      debugMessages: ['Redo: ' + (event.allowed ? 'applied' : 'skipped (was denied)')],
-      event: newEvent,
-    };
+    return this.history.redo();
   }
 
   // ═══ Event log access ═══
 
   /** Get all events. */
   getEvents(): AgentEvent[] {
-    return this.eventLog.getEvents();
+    return this.history.getEvents();
   }
 
   /** Get event count. */
   getEventCount(): number {
-    return this.eventLog.size();
+    return this.history.getEventCount();
   }
 
   // ═══ Private helpers ═══
