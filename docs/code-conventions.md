@@ -405,7 +405,7 @@ every rule in this section mechanically.
    that grows inline implementation.
 
 2. **No sideways surface imports.** For any file under `src/<A>/`, a relative
-   import that crosses into another surface `src/<B>/` fails, with two
+   import that crosses into another surface `src/<B>/` fails, with four
    whitelisted exceptions: (a) `database/sandbox/rules-eval.ts` importing the
    private `rules/rtdb` engine described in 8.3; (b) the
    `firestore-values -> rules/simulator/wrappers/*` leaf edge, listed explicitly
