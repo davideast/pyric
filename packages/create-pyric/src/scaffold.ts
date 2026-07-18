@@ -39,8 +39,18 @@ export function applyDepsMode(
     }
     return next;
   };
+  // Vendor mode pins EVERY vendored package via overrides (not just direct
+  // deps): @pyric/cli's packed manifest depends on pyric / pyric-admin /
+  // create-pyric as version ranges (workspace:* is rewritten at pack time),
+  // and those names are unpublished — only an override to the local tarball
+  // lets the install resolve them offline. @pyric/cli itself is always a
+  // direct dep with a file: spec, so it needs no override.
+  const vendorOverrides =
+    mode === 'vendor' && opts.vendorSpecs
+      ? Object.fromEntries(Object.entries(opts.vendorSpecs).filter(([pkg]) => pkg !== '@pyric/cli'))
+      : undefined;
   const overrides =
-    mode === 'vendor' && opts.vendorSpecs?.pyric ? { pyric: opts.vendorSpecs.pyric } : t.overrides;
+    vendorOverrides && Object.keys(vendorOverrides).length > 0 ? vendorOverrides : t.overrides;
   return {
     ...t,
     dependencies: rewrite(t.dependencies),

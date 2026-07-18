@@ -383,7 +383,17 @@ export function isDirectRun(): boolean {
   }
 }
 
-if (isDirectRun()) {
+/**
+ * Explicit executable entry: parse argv, dispatch, flush, exit.
+ *
+ * The compiled standalone binary calls this from its generated entry
+ * (scripts/compile.ts) instead of relying on {@link isDirectRun}: inside a
+ * `bun build --compile` binary this module is an import (import.meta.main is
+ * false) and `process.argv[1]` is the user's first argument, not a path — so
+ * direct-run detection is structurally false there and the binary would
+ * otherwise exit 0 silently.
+ */
+export function runDirect(): void {
   main().then(
     (code) => exitAfterFlush(code),
     (err) => {
@@ -394,6 +404,8 @@ if (isDirectRun()) {
     },
   );
 }
+
+if (isDirectRun()) runDirect();
 
 /**
  * Drain stdout + stderr before exiting. `process.exit()` does NOT wait

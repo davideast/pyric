@@ -9,6 +9,7 @@ const success = {
   'docs-only': 'success',
   packaging: 'skipped',
   'install-matrix': 'skipped',
+  standalone: 'skipped',
 };
 
 describe('required CI result', () => {
@@ -45,12 +46,12 @@ describe('required CI result', () => {
     },
   );
 
-  test('requires both packaging consumers when the packaging policy is active', () => {
+  test('requires every packaging consumer (incl. the standalone smoke) when the packaging policy is active', () => {
     expect(requiredFailures({
       checkSet: 'full',
       requirePackaging: true,
       results: success,
-    })).toEqual(['packaging: skipped', 'install-matrix: skipped']);
+    })).toEqual(['packaging: skipped', 'install-matrix: skipped', 'standalone: skipped']);
   });
 });
 

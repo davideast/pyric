@@ -49,10 +49,10 @@ writeFileSync(
   'rules_version = "2";\nservice cloud.firestore {\n  match /databases/{db}/documents {\n' +
     '    match /{doc=**} { allow read, write: if false; }\n  }\n}\n',
 );
-const lint = run(['rules:lint', rulesPath]);
-check('rules:lint', lint.code === 0 && lint.out.includes('"metrics"'));
-const validate = run(['rules:validate', rulesPath]);
-check('rules:validate', validate.code === 0);
+const lint = run(['firestore', 'rules', 'lint', rulesPath]);
+check('firestore rules lint', lint.code === 0 && lint.out.includes('"metrics"'));
+const validate = run(['firestore', 'rules', 'validate', rulesPath]);
+check('firestore rules validate', validate.code === 0);
 
 // ── Embedded serve (the headline path) ────────────────────────────────
 writeFileSync(join(work, 'index.html'), '<!doctype html><html><body>smoke</body></html>');
