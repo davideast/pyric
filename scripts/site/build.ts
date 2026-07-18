@@ -16,6 +16,10 @@
  *                                  + /docs/index.json), built with DOCS_BASE=/
  *     _astro/…                     the docs pages' one shared stylesheet
  *     llms.txt                     the docs' generated agent entry point
+ *     404.html                     the docs' 404 page, copied to the site
+ *                                  root so Firebase Hosting serves it for
+ *                                  any dead path (no catch-all rewrite
+ *                                  swallows misses into a 200'd app shell)
  *
  * Every piece here is already output:'static'/pure-esbuild; this script's only
  * job is to run each build with the right base path and copy bytes into one
@@ -188,7 +192,18 @@ async function buildDocs(): Promise<void> {
   // root index.html (`dist/index.html`, "Pyric docs") — Studio owns / in the
   // composed site.
   cpSync(join(docsDist, 'llms.txt'), join(DIST, 'llms.txt'));
-  log('Docs + llms.txt composed → dist/site/docs, /_astro, /llms.txt');
+  // The site's real 404 page (packages/site-docs/src/pages/404.astro).
+  // Astro always emits this at the build root regardless of `format`, so it
+  // lands at dist/404.html here — copy it to the composed site's root, where
+  // Firebase Hosting serves it automatically whenever no static file and no
+  // rewrite matches a request (see firebase.json: no more `/docs/**` catch-all
+  // swallowing dead docs paths into a 200'd app shell).
+  const docs404 = join(docsDist, '404.html');
+  if (!existsSync(docs404)) {
+    throw new Error(`build-site: site-docs build did not produce ${docs404}`);
+  }
+  cpSync(docs404, join(DIST, '404.html'));
+  log('Docs + llms.txt + 404.html composed → dist/site/docs, /_astro, /llms.txt, /404.html');
 }
 
 await main();
