@@ -9,6 +9,7 @@ function sourceUrl(path: string): string {
 function runProbe(source: string): string {
   const result = Bun.spawnSync([process.execPath, '--eval', source], {
     cwd: resolve(import.meta.dir, '../../../../..'),
+    env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
     stdout: 'pipe',
     stderr: 'pipe',
   });
