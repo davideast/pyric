@@ -1,0 +1,61 @@
+# Visible, non-blocking contract for the Playground prototype.
+#
+# This workflow intentionally remains outside the required CI aggregate. Its
+# failures should be investigated, but they must never prevent a merge.
+
+name: Playground Contract
+
+on:
+  pull_request:
+    paths:
+      - 'packages/playground/**'
+      - 'packages/conformance/**'
+      - 'packages/cli/src/conformance/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'scripts/build.sh'
+      - '.github/workflows/playground-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/playground/**'
+      - 'packages/conformance/**'
+      - 'packages/cli/src/conformance/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'scripts/build.sh'
+      - '.github/workflows/playground-contract.yml'
+  schedule:
+    - cron: '43 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playground-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playground-caniuse:
+    name: Playground can-i-use browser contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Scheduled and manually dispatched audits exercise the current main
+          # branch; PRs and pushes exercise the triggering revision.
+          ref: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'main' || github.sha }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install browser workspace
+        run: bun install --frozen-lockfile
+
+      - name: Build clean-checkout package graph and conformance projections
+        run: bash scripts/build.sh --packages-only
+
+      - name: Test tool, prompt, registration, and browser bundle budget
+        run: bun run --cwd packages/playground test:can-i-use

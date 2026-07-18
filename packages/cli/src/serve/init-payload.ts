@@ -2,6 +2,8 @@ import type { AiEngineConfigWire } from './worker/protocol.js';
 
 /** Browser-safe wire contract served by `/__pyric/init.json`. */
 export interface InitPayload {
+  /** Per-server capability for the warning-only activity report endpoint. */
+  activityToken?: string;
   rules: string | null;
   rulesHash: string | null;
   databaseRules?: { rules: Record<string, unknown> } | null;

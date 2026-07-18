@@ -234,9 +234,9 @@ export function getLens(): AuthLens | undefined {
  *
  * Studio's live plane sets this once at connect (`connectWorkerLive`);
  * the served APP page never calls it (its service handles remain the source
- * of app attribution), and RELAYED frames bypass Studio stamping entirely — the bridge
- * relay ({@link relayWorkerOp} / {@link relayWorkerSub}) forwards remote
- * frames verbatim through {@link rawRpc} / a direct postMessage, so a
+ * of app attribution), and RELAYED frames bypass Studio stamping entirely —
+ * the bridge relay ({@link relayWorkerOp} / {@link relayWorkerSub}) clears the
+ * Studio issuer and marks remote frames through {@link rawRpc} / a direct postMessage, so a
  * user's own admin-SDK traffic through the remote bridge is never
  * mislabeled as Studio's even though it rides the same port.
  */
@@ -259,8 +259,8 @@ export function stampIssuer<T extends { t?: string }>(msg: T): T {
 
 /**
  * Send an already-final message and return a promise for its result — no
- * stamping. The RELAY path ({@link relayWorkerOp}) sends through this so
- * remote frames pass verbatim.
+ * implicit stamping. The RELAY path ({@link relayWorkerOp}) explicitly owns
+ * the final remote provenance fields before sending through this function.
  */
 export function rawRpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
   if (disconnectedPorts.has(port)) return Promise.reject(appDeletedError());

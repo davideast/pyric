@@ -62,6 +62,8 @@ export interface GenerateContentRequest {
     responseSchema?: Record<string, unknown>;
     frequencyPenalty?: number;
     presencePenalty?: number;
+    /** Gemini 2.5+ thinking-budget config; no OpenAI-compat equivalent (dropped by the openai engine). */
+    thinkingConfig?: { thinkingBudget?: number; thinkingLevel?: string; includeThoughts?: boolean };
   };
 }
 

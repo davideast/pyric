@@ -33,7 +33,7 @@ import type {
   Query,
   SnapshotListenerOptions,
 } from 'pyric/sandbox/admin-compat';
-import { getInternalEnv } from 'pyric/sandbox/internal';
+import { getInternalEnv, provenanceForOperationContext } from 'pyric/sandbox/internal';
 import {
   BYPASS_RULES_SYMBOL,
   CONTEXT_SYMBOL,
@@ -327,7 +327,7 @@ export function onSnapshot(
   // A `next`-less (error-only) observer registers with a no-op data handler
   // so the listener machinery stays on its non-optional callback contract;
   // denials still route to `onError` (FS-B14).
-  return env.addSnapshotListener(
+  const register = (): Unsubscribe => env.addSnapshotListener(
     target,
     onNext ?? (() => {}),
     options,
@@ -337,6 +337,10 @@ export function onSnapshot(
     bypassRules,
     authScope,
   );
+  return ctx.sandbox.runWithProvenance?.(
+    provenanceForOperationContext(ctx.operationContext),
+    register,
+  ) ?? register();
 }
 
 /**

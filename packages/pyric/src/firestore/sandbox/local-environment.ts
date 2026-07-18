@@ -515,8 +515,9 @@ export class LocalEnvironment {
     auth: Operation['auth'],
     query?: QueryConstraints,
     bypassRules?: boolean,
+    activityQuery?: unknown,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
-    return this.reads.readQueryCandidates(candidates, listPath, auth, query, bypassRules);
+    return this.reads.readQueryCandidates(candidates, listPath, auth, query, bypassRules, activityQuery);
   }
 
   /**

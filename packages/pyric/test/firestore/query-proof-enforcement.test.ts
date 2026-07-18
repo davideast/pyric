@@ -76,6 +76,20 @@ service cloud.firestore {
   }
 }`;
 
+// Helper-based owner rule — the doc example's `authorOrPublished()` shape:
+// a user function inlined during the proof reduces to `owner == auth.uid`,
+// provable ONLY with a `where('owner', '==', <the caller's uid>)`.
+const OWNER_HELPER_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /notes/{id} {
+      function isOwner(uid) { return resource.data.owner == uid; }
+      allow read: if request.auth != null && isOwner(request.auth.uid);
+      allow write: if true;
+    }
+  }
+}`;
+
 // request.query-gated rule — doc-independent, but only satisfiable when the
 // query actually carries a small-enough limit.
 const QUERY_LIMIT_RULES = `rules_version = '2';
@@ -246,6 +260,213 @@ describe('RULES-B11 — onSnapshot under a doc-data-dependent list rule', () => 
     const last = calls[calls.length - 1]!;
     expect(last.size).toBe(3);
     expect(last.docs.some((d) => d.id === 'p4')).toBe(true);
+  });
+});
+
+describe('RULES-B11 — helper-based (function-inlined) list rule', () => {
+  it('getDocs PROVABLE: where(owner == my uid) discharges the inlined helper → succeeds', async () => {
+    const { db } = setup(OWNER_HELPER_RULES);
+    const snap = await getDocs(query(collection(db, 'notes'), where('owner', '==', 'alice')));
+    expect(snap.size).toBe(1);
+    expect(snap.docs[0]!.id).toBe('n1');
+  });
+
+  it('getDocs UNPROVABLE: no discharging where → whole-query denied, carrying remediation + query descriptor', async () => {
+    const { db } = setup(OWNER_HELPER_RULES);
+    let caught: unknown;
+    try {
+      await getDocs(collection(db, 'notes'));
+    } catch (e) {
+      caught = e;
+    }
+    // The web-modular path surfaces a translated SandboxError: remediation on
+    // the instance, the query descriptor under `denialContext`.
+    const err = caught as {
+      code?: string;
+      remediation?: string;
+      denialContext?: { query?: unknown };
+    };
+    expect(err.code).toBe('permission-denied');
+    // Remediation is query-side and narrowing: suggest the missing where, with
+    // the concrete uid shown for the auth-pinned owner field.
+    expect(err.remediation).toBeDefined();
+    expect(err.remediation).toContain(".where('owner', '==', request.auth.uid)");
+    expect(err.remediation).toContain('"alice"');
+    // Machine-readable query descriptor: the bare collection query has no wheres.
+    expect(err.denialContext?.query).toEqual({ where: [], limit: null, offset: null, orderBy: null });
+  });
+
+  it('onSnapshot PROVABLE: filtered listener attaches and delivers the owner subset', () => {
+    const { db, env } = setup(OWNER_HELPER_RULES);
+    const calls: QuerySnapshot[] = [];
+    const errors: unknown[] = [];
+    onSnapshot(
+      query(collection(db, 'notes'), where('owner', '==', 'alice')),
+      (snap) => { calls.push(snap as QuerySnapshot); },
+      (err) => { errors.push(err); },
+    );
+    env.flushListeners();
+    expect(errors).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.size).toBe(1);
+    expect(calls[0]!.docs[0]!.id).toBe('n1');
+  });
+
+  it('onSnapshot UNPROVABLE: bare collection listen → stream error carrying remediation', () => {
+    const { db, env } = setup(OWNER_HELPER_RULES);
+    const calls: QuerySnapshot[] = [];
+    // The listener error callback receives the structured sim error directly:
+    // remediation and the query descriptor are top-level fields.
+    const errors: { code?: string; remediation?: string; query?: unknown }[] = [];
+    onSnapshot(
+      collection(db, 'notes'),
+      (snap) => { calls.push(snap as QuerySnapshot); },
+      (err) => { errors.push(err as { code?: string; remediation?: string; query?: unknown }); },
+    );
+    env.flushListeners();
+    expect(calls).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.code).toBe('permission-denied');
+    expect(errors[0]!.remediation).toContain(".where('owner', '==', request.auth.uid)");
+    expect(errors[0]!.query).toBeDefined();
+  });
+});
+
+describe('RULES-B11 — full accounting: mixed equality + non-equality doc predicates deny whole', () => {
+  // A doc-dependent conjunct the equality analysis cannot discharge makes the
+  // whole query unprovable, even when the equality IS discharged by a where().
+  // These shapes are absent-tolerant: they evaluate truthy against the
+  // synthetic representative resource (which carries only the where-pinned
+  // fields) while a real matching doc can violate them — pre-fix, that was a
+  // false allow that leaked rule-violating docs.
+  function mixedSetup(listCondition: string, helperBody?: string) {
+    const rulesSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      ${helperBody ? `function ok() { return ${helperBody}; }` : ''}
+      allow list: if ${listCondition};
+      allow write: if true;
+    }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    setRules(sandbox, rulesSource);
+    seedDocuments(sandbox, {
+      'items/i1': { a: 1 },
+      'items/i2': { a: 1, secret: 'top' },
+    });
+    return { db, env: getInternalEnv(sandbox) };
+  }
+
+  const dischargedQuery = (db: ReturnType<typeof mixedSetup>['db']) =>
+    query(collection(db, 'items'), where('a', '==', 1));
+
+  const SHAPES: Array<[label: string, conjunct: string]> = [
+    ['negated in (absence check)', "!('secret' in resource.data)"],
+    ['positive in (membership check)', "'flag' in resource.data"],
+    ['get with default', "resource.data.get('kind', 'open') == 'open'"],
+    ['keys().hasOnly', "resource.data.keys().hasOnly(['a'])"],
+  ];
+
+  for (const [label, conjunct] of SHAPES) {
+    it(`inline: equality + ${label} → whole query denied despite discharged where()`, async () => {
+      const { db } = mixedSetup(`resource.data.a == 1 && ${conjunct}`);
+      expect(await denied(getDocs(dischargedQuery(db)))).toBe('permission-denied');
+    });
+
+    it(`helper: equality + ${label} → whole query denied despite discharged where()`, async () => {
+      const { db } = mixedSetup('ok()', `resource.data.a == 1 && ${conjunct}`);
+      expect(await denied(getDocs(dischargedQuery(db)))).toBe('permission-denied');
+    });
+  }
+
+  it('seeded attack: doc with the forbidden field present → denied whole, zero documents returned', async () => {
+    // The demonstrated false-allow: rule requires a == 1 and forbids `secret`;
+    // the seed contains {a: 1, secret: 'top'}. Pre-fix the helper form allowed
+    // the query and returned BOTH docs, secret field included. Production
+    // denies the whole query; so must the sandbox.
+    const { db } = mixedSetup('ok()', "resource.data.a == 1 && !('secret' in resource.data)");
+    let caught: unknown;
+    let snapDocs: unknown[] | undefined;
+    try {
+      const snap = await getDocs(dischargedQuery(db));
+      snapDocs = snap.docs;
+    } catch (e) {
+      caught = e;
+    }
+    expect(snapDocs).toBeUndefined();
+    expect((caught as { code?: string }).code).toBe('permission-denied');
+  });
+
+  it("bracket access: `resource['data']` disguise → whole query denied, zero docs (leaked pre-fix)", async () => {
+    // Same absence-check attack routed through bracket access instead of
+    // member access — the fail-closed classifier must see through the syntax.
+    const { db } = mixedSetup("resource.data.a == 1 && !('secret' in resource['data'])");
+    let caught: unknown;
+    let snapDocs: unknown[] | undefined;
+    try {
+      const snap = await getDocs(dischargedQuery(db));
+      snapDocs = snap.docs;
+    } catch (e) {
+      caught = e;
+    }
+    expect(snapDocs).toBeUndefined();
+    expect((caught as { code?: string }).code).toBe('permission-denied');
+  });
+
+  it('path literal: exists(...) keyed by resource.data → whole query denied, zero docs (leaked pre-fix)', async () => {
+    // A doc lookup whose path depends on per-doc data: the banned-owner doc
+    // exists, so production would deny; pre-fix the unwalked path-literal
+    // segments classified the conjunct doc-independent and both docs leaked.
+    const rulesSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow list: if resource.data.a == 1 && !exists(/databases/$(db)/documents/banned/$(resource.data.get('owner', 'none')));
+      allow write: if true;
+    }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    setRules(sandbox, rulesSource);
+    seedDocuments(sandbox, {
+      'items/i1': { a: 1, owner: 'ok' },
+      'items/i2': { a: 1, owner: 'evil' },
+      'banned/evil': { why: 'banned' },
+    });
+    let caught: unknown;
+    let snapDocs: unknown[] | undefined;
+    try {
+      const snap = await getDocs(query(collection(db, 'items'), where('a', '==', 1)));
+      snapDocs = snap.docs;
+    } catch (e) {
+      caught = e;
+    }
+    expect(snapDocs).toBeUndefined();
+    expect((caught as { code?: string }).code).toBe('permission-denied');
+  });
+
+  it('slice access: equality + doc-data slice conjunct → whole query denied', async () => {
+    const { db } = mixedSetup('resource.data.a == 1 && resource.data.tags[0:1].size() == 1');
+    expect(await denied(getDocs(dischargedQuery(db)))).toBe('permission-denied');
+  });
+
+  it('onSnapshot: the attack shape errors the stream instead of delivering docs', () => {
+    const { db, env } = mixedSetup('ok()', "resource.data.a == 1 && !('secret' in resource.data)");
+    const calls: QuerySnapshot[] = [];
+    const errors: { code?: string }[] = [];
+    onSnapshot(
+      dischargedQuery(db),
+      (snap) => { calls.push(snap as QuerySnapshot); },
+      (err) => { errors.push(err as { code?: string }); },
+    );
+    env.flushListeners();
+    expect(calls).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.code).toBe('permission-denied');
   });
 });
 

@@ -3,10 +3,14 @@ import 'fake-indexeddb/auto';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { ViteDevServer } from 'vite';
 
-import { bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
+import {
+  bundleWorker,
+  defaultSdkEntries,
+  workerSourceHash,
+} from '../../src/serve/bundler.js';
 import { pyricSandbox } from '../../src/serve/vite-plugin.js';
 
 let server: ViteDevServer | undefined;
@@ -38,12 +42,17 @@ export async function run() {
   const db = getFirestore(app);
   const ref = doc(db, 'package-resolution/firestore');
   await setDoc(ref, { selected: 'sandbox' });
-  return (await getDoc(ref)).data()?.selected;
+  let selected;
+  for (let index = 0; index < 5; index += 1) {
+    selected = (await getDoc(ref)).data()?.selected;
+  }
+  return selected;
 }
 `,
     );
 
     const originalFetch = globalThis.fetch;
+    const activityRequests: RequestInit[] = [];
     const runtimeGlobal = globalThis as typeof globalThis & {
       __PYRIC_FORCE_INPAGE__?: boolean;
     };
@@ -57,7 +66,12 @@ export async function run() {
           bridgeUrl: null,
           seed: null,
           persist: false,
+          activityToken: 'vite-activity-token',
         });
+      }
+      if (String(input) === '/__pyric/activity') {
+        activityRequests.push(init ?? {});
+        return new Response(null, { status: 204 });
       }
       return originalFetch(input, init);
     }) as typeof fetch;
@@ -73,10 +87,24 @@ export async function run() {
         server: { middlewareMode: true },
         optimizeDeps: { noDiscovery: true },
       });
+      const initEntry = defaultSdkEntries().init;
+      const runtimeEntry = join(
+        dirname(initEntry),
+        initEntry.endsWith('.js') ? 'runtime.js' : 'runtime.ts',
+      );
+      await server.ssrLoadModule(runtimeEntry);
       const fixture = await server.ssrLoadModule('/firestore-smoke.ts') as {
         run(): Promise<string | undefined>;
       };
       await expect(fixture.run()).resolves.toBe('sandbox');
+      expect(activityRequests).toHaveLength(1);
+      expect(new Headers(activityRequests[0]?.headers).get('x-pyric-activity-token'))
+        .toBe('vite-activity-token');
+      expect(JSON.parse(String(activityRequests[0]?.body))).toMatchObject({
+        pattern: 'repeated-read',
+        method: 'get',
+        count: 5,
+      });
     } finally {
       globalThis.fetch = originalFetch;
       if (originalForceInPage === undefined) {
