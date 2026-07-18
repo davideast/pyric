@@ -1,0 +1,18 @@
+{
+  "name": "rules-storage-ternary-and-error-absorption",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#119"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"ternary-and-error-absorption\" (Coverage: ternary ?:, error-in-condition, || absorption). Ternary must select by condition; an erroring condition denies even with identical branches; error || true absorbs to allow \u2014 mirrors captured Firestore engine truth.",
+  "observedAt": "2026-07-17T19:19:08.892Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "authed read, true-branch condition holds \u2192 ALLOW": "ALLOW",
+    "authed read, true-branch condition fails \u2192 DENY": "DENY",
+    "anonymous read takes false branch \u2192 DENY": "DENY",
+    "erroring ternary condition denies despite true branches \u2192 DENY": "DENY",
+    "erroring ternary absorbed by || true \u2192 ALLOW": "ALLOW"
+  }
+}
