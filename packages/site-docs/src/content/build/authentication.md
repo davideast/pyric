@@ -92,7 +92,7 @@ When a rule denies, the verdict names the rule and the data it saw. [Prove your 
 
 ## Check support before choosing a flow
 
-Per-feature support is tracked on the [Authentication conformance page](../_generated/auth-compat.md).
+Per-feature support is tracked on the [Authentication conformance page](auth-compat.md).
 
 ## And from an agent
 

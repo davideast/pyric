@@ -1,4 +1,4 @@
-import { splitFences } from '../src/lib/markdown-structure';
+import { splitFences } from './markdown-structure';
 
 /* ── Conformance row lists ─────────────────────────────────────────── */
 //

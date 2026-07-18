@@ -8,7 +8,7 @@ import {
   type ConformanceModel,
 } from './conformance-model.ts';
 import type { SurfaceCensus } from './surface-census.ts';
-import { compatibilityHref } from './docs-routes.ts';
+import { compatibilityHref, compatibilitySlug } from './docs-routes.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
@@ -501,6 +501,39 @@ export function compatibilityPageCatalog(model: ConformanceModel): readonly Comp
     { path: SCOREBOARD_PATH, label: 'Public API coverage' },
     ...model.documentation.registries.map(({ compatPath, label }) => ({ path: compatPath, label })),
   ];
+}
+
+/** Bake the rendered conformance pages into a typed data module — the docs
+ * projection consumed by the site (and any other tool) through the published
+ * `@pyric/cli/conformance/docs` subpath. Rendering happens here, once, at
+ * package build; consumers display, they never re-derive. */
+export function renderDocsProjectionModule(model: ConformanceModel): string {
+  const catalog = compatibilityPageCatalog(model);
+  const rendered = renderAllCompatibilityMarkdown(model);
+  const pages = catalog.map(({ path, label }) => {
+    const markdown = rendered.get(path);
+    if (markdown === undefined) throw new Error(`docs projection: renderer produced no page for ${path}`);
+    const slug = path === SCOREBOARD_PATH ? 'conformance-scores' : compatibilitySlug(path);
+    const title = markdown.match(/^#\s+(.+)$/m)?.[1]?.replace(/`/g, '') ?? label;
+    return { slug, label, title, markdown };
+  });
+  return [
+    '// GENERATED FILE. Do not edit or commit.',
+    '// Regenerate: bun run compat:conformance',
+    '// Source: the central conformance model; pages are rendered projections.',
+    'export interface ConformanceDocsPage {',
+    '  /** Public docs route slug under /docs/. */',
+    '  slug: string;',
+    '  /** Short catalog label (nav / listings). */',
+    '  label: string;',
+    '  /** The page h1, plain text. */',
+    '  title: string;',
+    '  /** Full page markdown, ready to render. */',
+    '  markdown: string;',
+    '}',
+    `export const CONFORMANCE_DOCS_PAGES: readonly ConformanceDocsPage[] = ${JSON.stringify(pages)};`,
+    '',
+  ].join('\n');
 }
 
 export function checkGeneratedMarkdown(model: ConformanceModel): string[] {

@@ -30,6 +30,10 @@
       "types": "./dist/conformance/browser.d.ts",
       "import": "./dist/conformance/browser.js"
     },
+    "./conformance/docs": {
+      "types": "./dist/conformance/docs.d.ts",
+      "import": "./dist/conformance/docs.js"
+    },
     "./assurance": {
       "types": "./dist/assurance/index.d.ts",
       "import": "./dist/assurance/index.js"

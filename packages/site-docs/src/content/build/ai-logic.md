@@ -42,6 +42,6 @@ Local engines do not reproduce model quality, safety policy, latency, quotas, bi
 
 ## Check the supported boundary
 
-Per-feature support is tracked on the [AI Logic conformance page](../_generated/ai-compat.md).
+Per-feature support is tracked on the [AI Logic conformance page](ai-compat.md).
 
 Continue with [Inspect and correct](../observe/see-whats-happening.md) or [ship unchanged](../ship/ship-to-production.md).
