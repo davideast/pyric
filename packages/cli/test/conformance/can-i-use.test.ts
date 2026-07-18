@@ -37,7 +37,7 @@ describe('packaged conformance query', () => {
       match: 'exact',
       supports: [expect.objectContaining({
         importPaths: ['pyric/storage'],
-        evidenceSlug: 'pyric-storage-compat',
+        evidenceSlug: 'storage-compat',
       })],
     });
     expect(canIUse('getDownloadURL', { importPath: 'pyric/firestore' }).match).toBe('none');
@@ -64,7 +64,7 @@ describe('packaged conformance query', () => {
     expect(canIUseImport('pyric/rules')).toEqual({
       importPath: 'pyric/rules',
       surface: 'firestore-rules',
-      evidenceSlug: 'pyric-rules-compat',
+      evidenceSlug: 'rules-compat',
     });
     expect(canIUseImport(' pyric/rules ')).toBeUndefined();
     expect(canIUseImport('pyric/unknown')).toBeUndefined();

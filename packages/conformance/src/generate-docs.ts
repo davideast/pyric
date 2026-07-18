@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from '../registry/index.ts';
 import {
@@ -14,7 +14,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
 export const GENERATED_HEADER = '<!-- Generated from the conformance model (registry rows + surface contracts). Do not edit by hand; run bun run compat:generate. -->';
 
-/** The generated central scoreboard, ported into the Compatibility nav group. */
+/**
+ * Canonical virtual identifier for the generated central scoreboard. Authored
+ * docs no longer live under packages/pyric/docs, but this string is a neutral
+ * virtual path, not a filesystem target: it seeds the stable public slug
+ * (docs-routes.compatibilitySlug) and the relative scoreboard hrefs the site
+ * rewrites. It must not change, or the published /docs/ URLs would move.
+ */
 export const SCOREBOARD_PATH = 'packages/pyric/docs/conformance/SCORES.md';
 
 export type DocumentationProjection = ConformanceModel['documentation'];
@@ -30,6 +36,14 @@ export const STATUS_GLYPHS: Record<CompatStatus, string> = {
 
 function escapeCell(value: string): string {
   return value.replace(/\|/g, '\\|');
+}
+
+/** HTML-escape text emitted directly into a raw-HTML block. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 // ── Public API surface coverage ─────────────────────────────────────────────
@@ -84,57 +98,84 @@ function computeSurface(spec: SurfaceScoreSpec, census: readonly SurfaceCensus[]
   return { runtime: combine('runtime'), types: combine('types') };
 }
 
+/** Combined public-API score: runtime and type exports pooled into one
+ * fraction, the single number shown to readers. */
+interface CombinedScore { mapped: number; denominator: number; pct: number }
+
+function combinedScore(coverage: SurfaceScore): CombinedScore | null {
+  if (coverage.runtime === null || coverage.types === null) return null;
+  const mapped = coverage.runtime.mapped + coverage.types.mapped;
+  const denominator = coverage.runtime.denominator + coverage.types.denominator;
+  return { mapped, denominator, pct: denominator === 0 ? 0 : Math.round((mapped / denominator) * 1000) / 10 };
+}
+
+/** The runtime · types split, shown as one small-print line under the bar. */
+function splitLine(coverage: SurfaceScore): string {
+  const combined = combinedScore(coverage)!;
+  return `${combined.mapped} of ${combined.denominator} public API`;
+}
+
+/** One to-scale combined public-surface bar. Plain HTML/CSS, no script. */
+function surfaceMeter(pct: number): string {
+  return [
+    '<div class="compat-meters">',
+    `<span class="compat-meter-track"><span class="compat-meter-fill" style="width: ${pct}%"></span></span>`,
+    '</div>',
+  ].join('\n');
+}
+
 /** Public API breadth shown at the top of each compatibility document. */
 export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string | null {
   const spec = scoreSpec(surface, projection);
   const coverage = computeSurface(spec, projection.census);
-  if (coverage.runtime === null || coverage.types === null) {
+  const combined = combinedScore(coverage);
+  if (combined === null) {
     const surfaceLine = spec.noCensusKind === 'integration'
-      ? '<p class="compat-stat-surface"><strong>Surface:</strong> integration contract. This page does not have a Firebase public API denominator.</p>'
-      : '<p class="compat-stat-surface"><strong>Surface:</strong> Pyric-owned API. This page does not mirror a Firebase public API denominator.</p>';
+      ? '<p class="compat-stat-surface">This page tracks an integration contract: unchanged Firebase code run through a Pyric runtime seam, so there is no separate Firebase public API to measure. The rows below are its signed behavior inventory.</p>'
+      : '<p class="compat-stat-surface">This is a Pyric-native API with no Firebase counterpart, so coverage is measured against its own public exports rather than a Firebase surface.</p>';
     return ['<div class="compat-stat">', surfaceLine, '</div>', ''].join('\n');
   }
-  const scoreboardHref = relative(dirname(surface.compatPath), SCOREBOARD_PATH).replaceAll('\\', '/');
   return [
     '<div class="compat-stat">',
     '<p class="compat-stat-figure">',
-    `<span class="compat-stat-pct">${coverage.runtime.pct}%</span>`,
-    '<span class="compat-stat-label">of public runtime exports supported</span>',
+    `<span class="compat-stat-pct">${combined.pct}%</span>`,
+    '<span class="compat-stat-label">of the public API supported</span>',
     '</p>',
-    `<p class="compat-stat-denom">${coverage.runtime.mapped} of ${coverage.runtime.denominator} public runtime exports <span aria-hidden="true">·</span> ${coverage.types.mapped} of ${coverage.types.denominator} public type exports</p>`,
+    surfaceMeter(combined.pct),
+    `<p class="compat-stat-denom">${splitLine(coverage)}</p>`,
     '</div>',
-    `[See public API coverage for every service.](${scoreboardHref})`,
     '',
   ].join('\n');
+}
+
+function meterCell(pct: number | string, basis: string): string {
+  return '<div class="compat-score-stack">' +
+    `<div class="compat-score-bar"><span class="compat-meter-track"><span class="compat-meter-fill" style="width: ${pct}%"></span></span>` +
+    `<span class="compat-score-pct">${pct}%</span></div>` +
+    (basis === '' ? '' : `<div class="compat-score-basis">${basis}</div>`) +
+    '</div>';
 }
 
 function scoreRow(
   label: string,
   href: string | null,
+  surface: CompatibilitySurfaceRegistry | null,
   coverage: SurfaceScore,
-  noCensusKind: SurfaceScoreSpec['noCensusKind'],
   overall = false,
 ): string[] {
-  const noCensusLabel = noCensusKind === 'integration' ? 'integration' : 'native';
-  const runtime = coverage.runtime === null
-    ? noCensusLabel
-    : `${coverage.runtime.pct}% (${coverage.runtime.mapped}/${coverage.runtime.denominator})`;
-  const types = coverage.types === null
-    ? noCensusLabel
-    : `${coverage.types.pct}% (${coverage.types.mapped}/${coverage.types.denominator})`;
-  const tag = href === null ? 'div' : 'a';
-  const attrs = [
-    `class="compat-score-row${overall ? ' compat-score-row--overall' : ''}"`,
-    href === null ? '' : `href="${href}"`,
-  ].filter(Boolean).join(' ');
+  const combined = combinedScore(coverage);
+  const name = href === null ? escapeCell(label) : `<a href="${href}">${escapeCell(label)}</a>`;
+  const score = combined !== null
+    ? meterCell(combined.pct, splitLine(coverage))
+    // No honest public-API denominator exists yet for this surface (#344).
+    : surface !== null
+      ? '<span class="compat-score-tbd">Gathering metrics. Total score TBD.</span>'
+      : '';
   return [
-    `<${tag} ${attrs}>`,
-    `<span class="compat-score-name">${label}</span>`,
-    '<span class="compat-score-surface">',
-    `<span><span class="compat-score-axis">Runtime</span>${runtime}</span>`,
-    `<span><span class="compat-score-axis">Types</span>${types}</span>`,
-    '</span>',
-    `</${tag}>`,
+    `<tr${overall ? ' class="compat-score-row--overall"' : ''}>`,
+    `<th scope="row" class="compat-score-name">${name}</th>`,
+    `<td class="compat-score-cell">${score}</td>`,
+    '</tr>',
   ];
 }
 
@@ -145,14 +186,13 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
     '',
     '# Public API coverage',
     '',
-    'This is the share of Firebase\'s public API that Pyric supports. [How does Pyric know it works like Firebase?](../../../../docs/site-rewrite/content/trust/how-we-know-it-matches-firebase.md) explains the evidence and its limits.',
-    '',
-    '- **Public runtime surface:** mirrored Firebase runtime exports divided by all exports not exactly reviewed as private in the owning surface contract. Unsupported, deprecated, and deferred public APIs remain in the denominator.',
-    '- **Public type surface:** mirrored exported type names divided by non-underscore Firebase exported type names. This measures name presence, not structural assignability.',
+    'This is the share of Firebase\'s public API that Pyric supports. Not-implemented-yet, deprecated, and deferred APIs still count against the total. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
     '',
     '## Services',
     '',
-    '<div class="compat-scoreboard">',
+    '<table class="compat-score-table">',
+    '<thead><tr><th>Service</th><th>Public API supported</th></tr></thead>',
+    '<tbody>',
   ];
   for (const surface of projection.registries) {
     const spec = scoreSpec(surface, projection);
@@ -160,8 +200,8 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
     lines.push(...scoreRow(
       spec.label,
       compatibilityHref(surface.compatPath),
+      surface,
       coverage,
-      spec.noCensusKind,
     ));
   }
   const coverageCensusSurfaces = projection.descriptors.flatMap((descriptor) =>
@@ -171,11 +211,11 @@ export function renderScoreboardMarkdown(projection: DocumentationProjection): s
   lines.push(...scoreRow(
     'Overall',
     null,
+    null,
     overallCoverage,
-    undefined,
     true,
   ));
-  lines.push('</div>', '');
+  lines.push('</tbody>', '</table>', '');
   return lines.join('\n');
 }
 
@@ -212,7 +252,7 @@ const GAP_SECTIONS: Array<{ status: Exclude<CompatStatus, 'conforms'>; title: st
   },
   {
     status: 'unsupported',
-    title: 'Unsupported',
+    title: 'Not implemented yet',
     intro: 'Tracked behavior that is not implemented in the current contract.',
   },
   {
@@ -222,18 +262,41 @@ const GAP_SECTIONS: Array<{ status: Exclude<CompatStatus, 'conforms'>; title: st
   },
 ];
 
+const GAP_STATUS_KEYS: Record<string, { key: string; label: string }> = {
+  'diverged-documented': { key: 'diverged', label: 'Diverged (documented)' },
+  bug: { key: 'bug', label: 'Bug' },
+  unsupported: { key: 'unsupported', label: 'Not implemented yet' },
+  unverified: { key: 'unverified', label: 'Unverified' },
+};
+
 export function consolidatedGapSections(rows: CompatibilityRow[]): string {
   const sections = GAP_SECTIONS.flatMap(({ status, title, intro }) => {
     const matches = rows.filter((row) => row.status === status);
     if (matches.length === 0) return [];
+    const meta = GAP_STATUS_KEYS[status]!;
+    // Same row component as the entry tables: status dot, api name,
+    // behavior sub-line, evidence behind the disclosure.
+    const items = matches.map((row) => {
+      const { name } = apiParts(row);
+      const dot = `<span class="compat-dot" data-status="${meta.key}" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`;
+      const main = '<span class="compat-main">' +
+        (name === '' ? '' : `<code class="compat-api">${escapeHtml(name)}</code>`) +
+        `<span class="compat-sub"><span class="compat-behavior">${escapeHtml(row.behavior).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>')}</span></span></span>`;
+      const evidence = row.evidence.trim() === ''
+        ? ''
+        : `<div class="compat-evidence"><div class="compat-note">${escapeHtml(row.evidence).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>')}</div></div>`;
+      return evidence === ''
+        ? `<div class="compat-row" data-status="${meta.key}"><div class="compat-line">${dot}${main}</div></div>`
+        : `<details class="compat-row" data-status="${meta.key}"><summary class="compat-line">${dot}${main}</summary>\n${evidence}</details>`;
+    });
     return [[
       `### ${title}`,
       '',
       intro,
       '',
-      '| API | Behavior |',
-      '|---|---|',
-      ...matches.map((row) => `| ${escapeCell(apiParts(row).name)} | ${escapeCell(row.behavior)} |`),
+      '<div class="compat-list">',
+      ...items,
+      '</div>',
       '',
     ].join('\n')];
   });
@@ -257,83 +320,118 @@ export function dispositionSection(
     .flatMap((entry) => entry.runtime.dispositioned);
   if (dispositions.length === 0) return '';
   const groups = Map.groupBy(dispositions, (entry) => entry.dispositionId);
+  const availabilityLabel = (availability: string): string =>
+    availability === 'deferred' ? 'Not implemented yet' : 'Out of scope';
+  // The same row component the entry tables render (via compat-tables.ts):
+  // status dot, a code identifier, a behavior sub-line, and an expandable
+  // evidence body. Gaps are ordinary rows with a not-available status.
+  const rows = [...groups].map(([id, entries]) => {
+    const first = entries[0]!;
+    const label = availabilityLabel(first.availability);
+    const summary = escapeHtml(first.summary).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>');
+    const symbols = entries.map(({ symbol }) => `<code>${escapeHtml(symbol)}</code>`).join(' ');
+    const notes = [
+      `<div class="compat-note">${symbols}</div>`,
+      first.evidenceRefs.length > 0 ? `<div class="compat-note">${escapeHtml(first.evidenceRefs.join(', '))}</div>` : '',
+    ].filter(Boolean).join('\n');
+    const dot = `<span class="compat-dot" data-status="unsupported" role="img" aria-label="${label}" title="${label}"></span>`;
+    const main = `<span class="compat-main"><code class="compat-api">${escapeHtml(id)}</code>` +
+      `<span class="compat-sub"><span class="compat-behavior">${summary}</span></span></span>`;
+    return [
+      '<details class="compat-row" data-status="unsupported">',
+      `<summary class="compat-line">${dot}${main}</summary>`,
+      `<div class="compat-evidence">${notes}</div>`,
+      '</details>',
+    ].join('\n');
+  });
   return [
     '## Reviewed public-runtime gaps',
     '',
-    'These classifications are generated from the machine-readable surface contract used by the census and `can-i-use`.',
-    '',
-    '| Disposition | Availability | Symbols | Reason | Evidence |',
-    '|---|---|---|---|---|',
-    ...[...groups].map(([id, entries]) => {
-      const first = entries[0]!;
-      return `| ${escapeCell(id)} | ${first.availability} | ${escapeCell(entries.map(({ symbol }) => `\`${symbol}\``).join(', '))} | ${escapeCell(first.summary)} | ${escapeCell(first.evidenceRefs.join(', '))} |`;
-    }),
+    '<div class="compat-list">',
+    ...rows,
+    '</div>',
   ].join('\n');
 }
 
-/** Non-conforming statuses, in the order the climb header lists them. */
-const CLIMB_STATUS_ORDER: CompatStatus[] = ['unverified', 'diverged-documented', 'bug', 'unsupported'];
+
+
+/** Canonical status order for a rendered legend, independent of which subset
+ * of statuses a surface currently uses. */
+const LEGEND_STATUS_ORDER = ['conforms', 'diverged-documented', 'bug', 'unsupported', 'unverified'] as const;
+
+const LEGEND_GLYPHS: Record<CompatStatus, string> = {
+  conforms: '\u2713',
+  'diverged-documented': '\u26a0',
+  bug: '\u2717',
+  unsupported: '\u2014',
+  unverified: '?',
+};
 
 /**
- * The climb header for a surface admitted under CDD (cdd.md Step 7): rendered
- * above the status legend, derived from the registry's row statuses alone. A
- * non-climbing surface returns no lines, so its doc is byte-for-byte unchanged.
- * Kept identical between renderSurfaceMarkdown and generatedRowLineNumbers so
- * row line numbers stay accurate.
+ * Rewrite a "## Status legend" table so it keys only the statuses that actually
+ * occur in this surface's rows, in canonical order. A legend is a key to the
+ * page it sits on: a status that never appears in the rows below is not part
+ * of the key, and reappears automatically the moment a row carries it.
  */
-export function climbHeaderLines(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string[] {
-  const climbing = projection.descriptors.some((d) => d.registry === surface && d.climb === true);
-  if (!climbing) return [];
-  const rows = surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows : []));
-  const summary = (population: CompatibilityRow[], label?: string): string => {
-    const conforming = population.filter((row) => row.status === 'conforms').length;
-    const breakdown = CLIMB_STATUS_ORDER
-      .map((status) => ({
-        status,
-        count: population.filter((row) => row.status === status).length,
-      }))
-      .filter((entry) => entry.count > 0)
-      .map((entry) => `${entry.count} ${entry.status}`)
-      .join(', ');
-    return `> ${label ? `${label}: ` : ''}${conforming} of ${population.length} rows conforming.${breakdown ? ` ${breakdown}.` : ''}`;
-  };
-  const bySurface = Map.groupBy(rows, (row) => row.surface);
-  const populationLines = bySurface.size === 1
-    ? [summary(rows)]
-    : [...bySurface].map(([rowSurface, population]) => summary(
-        population,
-        rowSurface === 'messaging'
-          ? 'Client + service-worker mirror'
-          : rowSurface === 'messaging-admin'
-            ? 'Separately tracked Admin send plane'
-            : rowSurface,
-      ));
-  return [
-    '> **Climb status: this surface is climbing under CDD.**',
-    ...populationLines,
-    '> A `?` row below is a target with a derived failing test, not a guarantee.',
-    '',
-  ];
+function rewriteLegend(markdown: string, present: ReadonlySet<CompatStatus>): string {
+  const lines = markdown.split('\n');
+  const out: string[] = [];
+  let inLegend = false;
+  for (const line of lines) {
+    if (/^##\s+Status legend/.test(line)) {
+      inLegend = true;
+      out.push(line);
+      continue;
+    }
+    if (inLegend) {
+      const isHeader = /^\|\s*Status\s*\|/.test(line) || /^\|[\s:|-]+\|?\s*$/.test(line);
+      const cell = line.match(/^\|\s*(\S+)\s*\|/);
+      if (cell && !isHeader) {
+        const glyph = cell[1];
+        const status = LEGEND_STATUS_ORDER.find((candidate) => LEGEND_GLYPHS[candidate] === glyph);
+        if (status !== undefined && !present.has(status)) continue;
+        out.push(line);
+        continue;
+      }
+      if (!line.startsWith('|') && line.trim() !== '') inLegend = false;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
 }
 
-/** Inject the two-number score block under the H1 of the first markdown block. */
-function scoredBlocks(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): CompatibilitySurfaceRegistry['blocks'] {
+/** All of a surface's blocks with presentation derived from its own rows:
+ * the score block (coverage figure + to-scale meters) lands under the first
+ * heading, and every status legend keys only the statuses this surface
+ * actually uses. */
+function scoredBlocks(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection) {
+  const present: ReadonlySet<CompatStatus> = new Set(
+    surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows.map((row) => row.status) : [])),
+  );
   const score = scoreBlock(surface, projection);
-  if (score === null) return surface.blocks;
-  return surface.blocks.map((block, index) => {
-    if (index !== 0 || block.kind !== 'markdown') return block;
-    // Insert after the first line (H1), before the rest of the intro.
-    const lines = block.markdown.split('\n');
-    const h1End = lines.findIndex((line, i) => i > 0 && line.trim() === '') ;
-    const at = h1End === -1 ? 1 : h1End + 1;
-    const next = [...lines.slice(0, at), score, ...lines.slice(at)].join('\n');
-    return { ...block, markdown: next };
+  let scorePlaced = score === null;
+  return surface.blocks.map((block) => {
+    if (block.kind !== 'markdown') return block;
+    let markdown = rewriteLegend(block.markdown, present);
+    if (!scorePlaced) {
+      const lines = markdown.split('\n');
+      const h1 = lines.findIndex((line) => line.startsWith('# '));
+      if (h1 !== -1) {
+        lines.splice(h1 + 1, 0, '', score!);
+        markdown = lines.join('\n');
+        scorePlaced = true;
+      }
+    }
+    return { ...block, markdown };
   });
 }
 
 export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string {
   const blocks = scoredBlocks(surface, projection);
-  const parts: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface, projection)];
+  // The CDD climb header is intentionally not published on the reader-facing
+  // pages (insider methodology). Climb data still drives internal reports and
+  // gates via climb.ts; only the published line is dropped.
+  const parts: string[] = [GENERATED_HEADER, ''];
   const rows = blocks.flatMap((block) => block.kind === 'table' ? block.rows : []);
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
@@ -356,7 +454,7 @@ export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry, pro
 
 export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): Map<string, number> {
   const blocks = scoredBlocks(surface, projection);
-  const lines: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface, projection)];
+  const lines: string[] = [GENERATED_HEADER, ''];
   const out = new Map<string, number>();
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {

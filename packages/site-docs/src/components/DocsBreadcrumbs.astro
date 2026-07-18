@@ -1,13 +1,13 @@
 ---
 /**
  * Package / Section / Page breadcrumb above the h1. Built from
- * `breadcrumbsFor()` (src/lib/docs.ts) — see that function's doc
+ * `breadcrumbsFor()` (src/lib/content.ts) — see that function's doc
  * comment for the ancestor-link decision (landing page when the group
  * has one, a same-page nav anchor fallback otherwise). Spacing to the
  * article below is a single rhythm token, matching every other
  * block-to-block gap on the page.
  */
-import type { Breadcrumb } from '../lib/docs';
+import type { Breadcrumb } from '../lib/content';
 
 interface Props {
   crumbs: Breadcrumb[];

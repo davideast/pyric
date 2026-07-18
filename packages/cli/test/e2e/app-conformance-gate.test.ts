@@ -21,8 +21,16 @@ const browserJobEnd = workflow.indexOf('\n  packaging:', browserJobStart);
 const browserJob = workflow.slice(browserJobStart, browserJobEnd);
 
 describe('served app conformance merge gate', () => {
-  test('required CI splits CLI and library tests without building documentation', () => {
+  test('required CI splits CLI and library tests; the docs build runs as its own job', () => {
     expect(workflow).not.toContain('\n  documentation:');
+    // The test lanes never build docs (--skip-docs below), but the
+    // documentation build itself must be selected for BOTH docs-only and
+    // full runs — a full PR must not be able to break `site-docs build`
+    // undetected (regression: the selector originally gated it to
+    // docs-only, so full runs skipped the docs build entirely).
+    expect(workflow).toContain(
+      `contains(fromJSON('["docs-only", "full"]'), needs.plan.outputs.predicted-check-set)`,
+    );
     expect(mainJobStart).toBeGreaterThanOrEqual(0);
     expect(mainJobEnd).toBeGreaterThan(mainJobStart);
     expect(mainJob).toContain('bash scripts/build.sh --skip-docs');

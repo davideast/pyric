@@ -1,6 +1,6 @@
 {
   "name": "pyric",
-  "version": "0.1.0-alpha.9",
+  "version": "0.1.0-alpha.10",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -129,7 +129,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "inline-grammar": "bun run scripts/inline-grammar.ts",
+    "inline-grammar": "bun run scripts/inline-grammar-rules.ts",
     "inline-stdlib": "bun run scripts/inline-stdlib.ts",
     "prebuild": "(bun run inline-grammar 2>/dev/null || true) && (bun run inline-stdlib 2>/dev/null || true)",
     "build": "tsc && bun run scripts/copy-assets.ts 2>/dev/null || tsc",

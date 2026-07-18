@@ -14,7 +14,7 @@ describe('conformance MCP tools', () => {
         availability: 'available',
         fidelity: 'diverged',
         assurance: 'qualified',
-        evidenceSlug: 'pyric-storage-compat',
+        evidenceSlug: 'storage-compat',
       }],
     });
   });

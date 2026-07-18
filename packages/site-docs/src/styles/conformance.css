@@ -145,95 +145,135 @@
   color: var(--muted);
 }
 
-/* The scoreboard keeps public runtime, public types, and fidelity separate. */
-.prose .compat-scoreboard {
+/* To-scale public-surface bars (runtime % + type %). Plain CSS, no script. */
+.prose .compat-meters {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--line);
+  gap: var(--space-2);
 }
 
-.prose .compat-score-row {
+.prose .compat-meter {
   display: grid;
-  grid-template-columns: minmax(8rem, 1fr) minmax(12rem, 1.35fr) auto;
+  grid-template-columns: minmax(9rem, auto) 1fr auto;
   align-items: center;
-  gap: var(--space-2) var(--space-4);
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--line);
-  color: inherit;
-  text-decoration: none;
-}
-
-.prose .compat-score-row--overall {
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--line-2);
-}
-
-.prose .compat-score-name {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.prose a.compat-score-row:hover .compat-score-name {
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
-  text-underline-offset: 2px;
-}
-
-.prose .compat-score-surface {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: var(--space-3);
   font-size: var(--fs-caption);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-.prose .compat-score-surface > span {
-  display: flex;
-  flex-direction: column;
-}
+.prose .compat-meter-label { color: var(--muted); }
 
-.prose .compat-score-axis {
-  color: var(--faint);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-micro, 0.06em);
-  font-size: 0.625rem;
-}
-
-.prose .compat-score-fidelity {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  color: var(--muted);
-  font-size: var(--fs-caption);
-  font-variant-numeric: tabular-nums;
-}
-
-.prose .compat-score-pct {
-  font-size: 1.25rem;
-  line-height: 1.1;
+.prose .compat-meter-value {
   color: var(--ink);
+  font-weight: 600;
+  text-align: right;
 }
 
-.prose .compat-stat-bar--mini {
-  grid-column: 1 / -1;
-  height: 6px;
+.prose .compat-meter-track {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line-2);
+  overflow: hidden;
 }
 
-.prose .compat-score-breakdown {
-  grid-column: 1 / -1;
-  color: var(--faint);
+.prose .compat-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--diff-add);
+}
+
+.prose .compat-meter-track--mini {
+  height: 5px;
+  margin-top: var(--space-1);
+}
+
+/* The scoreboard keeps public runtime, public types, and fidelity separate. */
+.prose .compat-score-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.prose .compat-score-table thead th {
+  text-align: left;
   font-size: 0.6875rem;
-  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3, #667);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
 }
 
-@media (max-width: 640px) {
-  .prose .conformance-flow { flex-direction: column; }
-  .prose .flow-step { width: 100%; }
-  .prose .flow-arrow {
-    justify-content: center;
-    transform: rotate(90deg);
-  }
-  .prose .compat-score-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .prose .compat-score-surface { grid-column: 1 / -1; }
+.prose .compat-score-table td,
+.prose .compat-score-table th[scope="row"] {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+  text-align: left;
+}
+
+.prose .compat-score-table th[scope="row"] {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.prose .compat-score-cell {
+  white-space: nowrap;
+}
+
+.prose .compat-score-cell .compat-score-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-right: var(--space-2);
+}
+
+.prose .compat-score-cell .compat-meter-track--mini {
+  display: inline-block;
+  width: 8rem;
+  vertical-align: middle;
+}
+
+.prose .compat-score-detail {
+  color: var(--ink-3, #667);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.prose .compat-score-row--overall th[scope="row"],
+.prose .compat-score-row--overall td {
+  border-top: 2px solid var(--line);
+  border-bottom: 0;
+}
+}
+
+.prose .compat-score-tbd {
+  color: var(--ink-3, #667);
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+/* Scoreboard: the bar owns the row width; the basis tucks beneath it. */
+.prose .compat-score-stack {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.prose .compat-score-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.prose .compat-score-bar .compat-meter-track {
+  flex: 1 1 auto;
+}
+
+.prose .compat-score-basis {
+  font-size: 0.8125rem;
+  color: var(--ink-3, #667);
 }
