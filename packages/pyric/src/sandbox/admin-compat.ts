@@ -16,7 +16,7 @@
  * already on `/internal`.
  */
 
-export * from './firestore/admin-compat/index.js';
+export * from '../firestore/sandbox/admin-compat/index.js';
 
 // Web-SDK-shaped snapshot aliases — what onSnapshot listener callbacks
 // receive. Re-exported here with `Live*` prefixes to disambiguate from

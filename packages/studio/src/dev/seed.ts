@@ -257,10 +257,15 @@ async function seedTraffic(sandbox: LocalSandbox): Promise<void> {
 }
 
 /**
- * Build + seed a fresh sandbox and return the resolved handles. Idempotent per
- * call: each invocation creates its own sandbox, so callers should create one
- * and share it (see {@link DevSeedProvider}).
+ * Re-deploy the dev-seed ruleset. Studio's "Reset session" calls this after
+ * `sandbox.resetAll()` (which swaps the env and wipes env-owned Firestore
+ * rules) so the reseeded fixture lands under the same governance the boot
+ * seeding deployed.
  */
+export function deploySeedRules(sandbox: LocalSandbox): void {
+  setRules(sandbox, RULES);
+}
+
 /**
  * (Re)apply the fixture DATA (firestore + auth + storage) through the given
  * handles. Reused by {@link createSeededSandbox} on boot and by the Studio's
@@ -277,6 +282,11 @@ export async function applySeed(
 
 let seedAppSeq = 0;
 
+/**
+ * Build + seed a fresh sandbox and return the resolved handles. Idempotent per
+ * call: each invocation creates its own sandbox, so callers should create one
+ * and share it (see {@link DevSeedProvider}).
+ */
 export async function createSeededSandbox(): Promise<SeededHandles> {
   const sandbox = initializeSandbox();
   // Unique app name: pyric/app mirrors firebase's registry (a repeated default

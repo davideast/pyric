@@ -203,6 +203,25 @@ The default bridge contract is exactly 26 tool names in
 `packages/cli/src/bridge/server/mcp-contract.ts`. `scripts/tool-parity.mjs`
 checks that exposed tool registries stay explicit.
 
+### Firestore sandbox engine
+
+The **Firestore sandbox engine** is the module behind `LocalEnvironment`
+(`packages/pyric/src/sandbox/firestore/`). `LocalEnvironment` is its permanent
+interface; `SandboxImpl` and the admin-compat wrappers are its only callers.
+Its internal seams, named by ADR-0009 and used only by the engine's own tests:
+
+- **WriteEngine** — execute/batch/transaction and write application.
+- **ListenerDispatch** — snapshot listener registry, delivery scheduling,
+  metadata acks, and rules-flip re-evaluation.
+- **RulesReadEngine** — rules-gated document and collection reads.
+- **EventBus** — sandbox event emission; **History** — undo/redo over the
+  event log.
+- **TriggerScope** — stack-scoped trigger attribution (`run`/`current`,
+  capture-at-schedule); written by WriteEngine and re-evaluation, read by
+  ListenerDispatch and EventBus.
+- **RulesState** — the deployed rules source and parsed AST, invalidated by
+  seed and rules deploys, shared by the read and write engines.
+
 ## Conformance
 
 Conformance is evidence, not a parity badge. The system separates:

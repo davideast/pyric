@@ -36,7 +36,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'listRootCollections', 'listSubcollections', 'listUsers', 'listWorkerBranches',
   'mintPresenceClientId',
   'onAuthStateChanged', 'onIdTokenChanged', 'onSnapshot', 'or', 'orderBy', 'query',
-  'ref', 'relayWorkerOp', 'relayWorkerSub', 'restorePortSession', 'rtdbChild',
+  'ref', 'relayWorkerOp', 'relayWorkerSub', 'resetAll', 'restorePortSession', 'rtdbChild',
   'rtdbConnectDatabaseEmulator', 'rtdbGet', 'rtdbGetDatabase', 'rtdbOff', 'rtdbOnValue',
   'rtdbPush', 'rtdbRef', 'rtdbRemove', 'rtdbServerTimestamp', 'rtdbSet', 'rtdbUpdate',
   'runTransaction', 'saveWorkerBranch', 'serverTimestamp', 'setDatabaseRules', 'setDoc',

@@ -16,8 +16,8 @@ import {
   isCollectionPath,
   lastSegment,
   parentCollectionPath,
-} from '../../firestore/admin-compat/paths.js';
-import { generateAutoId } from '../../firestore/auto-id.js';
+} from '../../../firestore/sandbox/admin-compat/paths.js';
+import { generateAutoId } from '../../../firestore/sandbox/auto-id.js';
 import { armOp, type RemoteArm } from './channel.js';
 import { invalidArgument } from './errors.js';
 import { encodeWriteData } from './value-codec.js';

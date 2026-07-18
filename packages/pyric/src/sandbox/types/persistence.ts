@@ -36,6 +36,19 @@ export interface PersistableService {
   restore(data: unknown): void;
 
   /**
+   * Optional: clear this service's state to empty. Called by
+   * {@link Sandbox.resetAll} after the Firestore environment swap, so a
+   * single sandbox-owned call wipes EVERY registered service (auth users,
+   * RTDB tree, storage objects) — a consumer (Pyric Studio's reset) can't
+   * forget a service it never knew about. May be async (storage clears an
+   * IndexedDB store); `resetAll` awaits it. A service that omits `reset`
+   * is skipped — its state deliberately survives `resetAll` (e.g. the
+   * per-app auth-session hooks, whose signed-in identity the sandbox core
+   * already clears in `reset()`).
+   */
+  reset?(): void | Promise<void>;
+
+  /**
    * Optional: subscribe to changes in this service's state. When
    * provided, the persistence controller hooks it up and schedules
    * a debounced flush on each change — ensuring auth-user edits reach

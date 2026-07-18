@@ -119,10 +119,8 @@ echo "━━━ Phase 4: Docs site ━━━"
 # /__pyric/ui/docs/index.json, and tabs back at /__pyric/ui/<tab>. The default
 # (no DOCS_BASE) build the hosted site uses is unaffected — base stays `/`.
 if $BUILD_DOCS; then
-  echo "▸ Generating site docs (conformance + API reference → _generated/)"
-  bun run --cwd packages/site-docs generate
-  echo "▸ Verifying generated API reference"
-  bun run docs:api:check
+  # Generated pages (conformance + API reference) render inside the Astro
+  # build through content loaders; no pre-generation step exists.
   echo "▸ Building packages/site-docs (base /__pyric/ui/)"
   rm -rf packages/site-docs/dist
   DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build

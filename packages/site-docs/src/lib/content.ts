@@ -22,6 +22,7 @@
  */
 import { readFileSync } from 'node:fs';
 import type { MarkdownHeading } from 'astro';
+import { getCollection, render } from 'astro:content';
 import { routeForRel } from './routes';
 import {
   GROUP_RANK,
@@ -186,12 +187,56 @@ export const STUDIO_TABS = [
   { id: 'docs', label: 'Docs', path: '/docs' },
 ] as const;
 
+/** Generated pages (conformance + API reference) arrive through content-layer
+ * loaders; adapt them to the same DocEntry shape the authored glob produces,
+ * through the same front-matter validation and route-clash checks. */
+async function loadGeneratedEntries(): Promise<DocEntry[]> {
+  const collections = [
+    ...(await getCollection('conformance')),
+    ...(await getCollection('apiReference')),
+  ];
+  const generated: DocEntry[] = [];
+  for (const entry of collections) {
+    const rel = `[${entry.collection}] ${entry.id}`;
+    const data = coerce(rel, entry.data as Record<string, unknown>);
+    const route = entry.id;
+    const clash = byRoute.get(route);
+    if (clash) {
+      throw new Error(`route clash '/docs/${route}/': ${relOf(clash.filePath)} vs ${rel}`);
+    }
+    const { Content, headings } = await render(entry);
+    generated.push({
+      route,
+      filePath: rel,
+      data,
+      Content,
+      headings,
+      body: entry.body ?? '',
+    });
+  }
+  return generated;
+}
+
+let merged: Promise<DocEntry[]> | undefined;
+
+function mergedDocs(): Promise<DocEntry[]> {
+  merged ??= loadGeneratedEntries().then((generated) => {
+    const all = [...entries, ...generated];
+    all.sort((a, b) => {
+      const gr = rankOf(a.data.group) - rankOf(b.data.group);
+      return gr !== 0 ? gr : a.data.order - b.data.order;
+    });
+    return all;
+  });
+  return merged;
+}
+
 export async function allDocs(): Promise<DocEntry[]> {
-  return entries;
+  return mergedDocs();
 }
 
 export async function publicDocs(): Promise<DocEntry[]> {
-  return entries.filter((e) => !e.data.internal);
+  return (await mergedDocs()).filter((e) => !e.data.internal);
 }
 
 export interface NavSection {

@@ -10,8 +10,8 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { FirestoreImpl } from '../../../../src/sandbox/firestore/admin-compat/firestore.js';
-import type { Filter } from '../../../../src/sandbox/firestore/admin-compat/types.js';
+import { FirestoreImpl } from '../../../../src/firestore/sandbox/admin-compat/firestore.js';
+import type { Filter } from '../../../../src/firestore/sandbox/admin-compat/types.js';
 
 const RULES_AUTH_OPEN = `rules_version = '2';
 service cloud.firestore {

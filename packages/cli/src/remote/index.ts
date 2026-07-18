@@ -687,6 +687,11 @@ export function createRemoteSandboxHandle(opts: {
         'reset()',
         `reset the sandbox from the browser tab at ${serveUrl} or from Pyric Studio`,
       ),
+    resetAll: () =>
+      throwMember(
+        'resetAll()',
+        "use the async worker op instead: channel.op({ method: 'resetAll' })",
+      ),
     snapshot: () =>
       throwMember(
         'snapshot()',

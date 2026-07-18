@@ -174,6 +174,17 @@ export function applyServeInit(
       );
     } else {
       result.rulesDeployed = true;
+      // Record the deployed source on ctx (mirrors the database branch below)
+      // so diagnostics report it AND the `resetAll` op can re-deploy it —
+      // `sandbox.resetAll()` swaps the env, which wipes env-owned Firestore
+      // rules; a data reset must not silently de-govern writes.
+      ctx.activeRules ??= {};
+      ctx.activeRules.firestore = {
+        source: payload.rules,
+        updatedAt: Date.now(),
+        status: 'active',
+        messages: [],
+      };
     }
   }
   if (payload.databaseRules) {
@@ -198,8 +209,15 @@ export function applyServeInit(
   //     configure it. `payload.storageRules` is null when the project has no
   //     storage.rules, matching the same open-by-default posture as no
   //     firestore.rules / no database.rules.
+  //     The open ALSO claims the project-scoped IDB name
+  //     (`pyric-storage:<projectKey>`, issue #359) — which is why it now runs
+  //     unconditionally: a lazy first open from `ensureStorage`/`lensStorage`
+  //     would land on the legacy shared database.
+  getStorageSandbox(ctx.sandbox, {
+    ...(payload.storageRules ? { rules: payload.storageRules } : {}),
+    ...(payload.projectKey ? { projectId: payload.projectKey } : {}),
+  });
   if (payload.storageRules) {
-    getStorageSandbox(ctx.sandbox, { rules: payload.storageRules });
     result.storageRulesDeployed = true;
   }
 
@@ -279,9 +297,24 @@ export function applyServeInit(
     });
 
     result.captureEnabled = true;
+    // Immediate-flush seam for the `resetAll` op (issue #359 extension):
+    // reset clears `sandbox.history()`, and the SERVER-persisted capture
+    // (`.pyric/last-session.json`) must follow NOW — inside the debounce
+    // window a dying worker leaves the wiped session's events on disk, and
+    // the next boot's `hydrateEventHistory` would prime them straight back
+    // into Traffic. Bypasses the debounce; cancels any pending flush (it
+    // would only re-write the same post-reset history).
+    ctx.captureFlush = (): void => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      flush();
+    };
     result.dispose = (): void => {
       if (timer) clearTimeout(timer);
       unsub();
+      ctx.captureFlush = undefined;
     };
   }
 
@@ -539,10 +572,32 @@ export function setupServerAuthFlush(
 
 // ─── Worker boot: build the ONE shared HostCtx ──────────────────────────────
 
-/** Default persistence key — also the IndexedDB database name. Package-level
- *  default; stable across reloads (never derived from the page path, so every
- *  boot on an origin opens the SAME database). */
+/** Legacy shared persistence key — also the IndexedDB database name. Stable
+ *  across reloads (never derived from the page path). Used ONLY when no
+ *  project identity exists (older servers without `InitPayload.projectKey`,
+ *  standalone workers) — see {@link workerPersistenceKey}. */
 export const WORKER_PERSISTENCE_KEY = 'pyric-shared-worker';
+
+/**
+ * Resolve the worker's persistence key (= IndexedDB database name) for a
+ * project identity: `pyric-shared-worker:<projectKey>`, or the legacy shared
+ * {@link WORKER_PERSISTENCE_KEY} when none is available.
+ *
+ * IndexedDB is origin-scoped, so the FIXED key made every project served on
+ * one localhost port share ONE sandbox snapshot database — another app's auth
+ * users, Firestore docs, and RTDB tree appeared in an unrelated project
+ * (issue #359's storage defect, same family; identity flows from the same
+ * `InitPayload.projectKey` the storage fix uses).
+ *
+ * Migration decision — mirrors `storageDbName` in pyric's
+ * `storage/persistence.ts`, recorded here deliberately: the legacy shared
+ * `pyric-shared-worker` database is ORPHANED, not migrated (cross-project
+ * state disappearing from the sandbox is the point of the fix) and not
+ * deleted (older pyric versions on the same origin may still read it).
+ */
+export function workerPersistenceKey(projectKey?: string | null): string {
+  return projectKey ? `${WORKER_PERSISTENCE_KEY}:${projectKey}` : WORKER_PERSISTENCE_KEY;
+}
 
 const PERMISSIVE_RULES = `
   rules_version = '2';
@@ -561,7 +616,9 @@ export interface WorkerBootEnv extends ServeInitEnv {
   /** The raw local backend (IndexedDB in the real worker). Also used for the
    *  instance id + branches + (via the durable wrapper) the controller blob. */
   idb: PersistenceBackend;
-  /** Persistence key / IDB database name. Default {@link WORKER_PERSISTENCE_KEY}. */
+  /** Persistence key / IDB database name. An explicit key always wins (tests
+   *  isolate per-case state with it); the default is project-scoped via
+   *  {@link workerPersistenceKey} from the init payload's `projectKey`. */
   persistenceKey?: string;
   /** Hot-reload EventSource factory. Omit/null when unavailable (tests, hosts
    *  without EventSource). */
@@ -582,7 +639,24 @@ export interface WorkerBootEnv extends ServeInitEnv {
  * gets no beforeunload/beforeterminate, so anything not committed to IDB when
  * the last tab closes is lost.
  */
-export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
+export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
+  // Detach `fetch` from the env record before ANY use (issue #364). Every call
+  // site in this module invokes it as `env.fetch(...)`, which binds `this` to
+  // the env object — and the real browser/worker `fetch` is this-sensitive:
+  // it throws "Illegal invocation" unless `this` is undefined or the global.
+  // That silent throw meant the capture flush never POSTed and
+  // `hydrateEventHistory`'s GET failed into its catch, so a REBOOTED worker
+  // always answered Studio's first event subscription with an EMPTY history —
+  // the Activity/Traffic first open showed nothing until new live events
+  // arrived. The wrapper restores a plain call (`this` undefined ⇒ the
+  // global); injected test stubs are unaffected.
+  const ambientFetch = bootEnv.fetch;
+  const env: WorkerBootEnv = {
+    ...bootEnv,
+    // Cast: Bun's `typeof fetch` also declares a `preconnect` member the
+    // plain-call wrapper doesn't need (nothing in this module uses it).
+    fetch: ((...args: Parameters<typeof fetch>) => ambientFetch(...args)) as typeof fetch,
+  };
   const sandbox = initializeSandbox();
 
   // Deploy permissive starter rules via admin-firestore.
@@ -592,9 +666,14 @@ export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
   adminDb.setRules(PERMISSIVE_RULES);
 
   // Fetch serve's init payload FIRST — it decides the DURABLE strategy before
-  // we attach: `--persist` mirrors the controller blob to the committable
-  // server file (and primes from it on a fresh worker); a `seedState` fixture
-  // primes IDB once. Null when standalone (no `pyric dev` behind us).
+  // we attach (`--persist` mirrors the controller blob to the committable
+  // server file and primes from it on a fresh worker; a `seedState` fixture
+  // primes IDB once) AND it carries `projectKey`, which must exist BEFORE the
+  // first restore/save below: the persistence key is chosen exactly once at
+  // enablePersistence, so a lazy identity here would claim the legacy shared
+  // database — the same eager-vs-lazy trap the storage DB scoping hit (see
+  // applyServeInit's unconditional storage open). Null when standalone (no
+  // `pyric dev` behind us) — the legacy shared key then applies.
   const payload = await fetchInitPayload(env.fetch);
 
   // The persistence-controller backend. `--persist`/`seedState` wrap IDB (see
@@ -603,7 +682,7 @@ export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
   // file), so that is what we hand the host as `sessionBackend`.
   const durable = payload ? createWorkerDurableBackend(env.idb, payload, env) : env.idb;
   await sandbox.enablePersistence({
-    key: env.persistenceKey ?? WORKER_PERSISTENCE_KEY,
+    key: env.persistenceKey ?? workerPersistenceKey(payload?.projectKey),
     injectedBackend: durable,
   });
 

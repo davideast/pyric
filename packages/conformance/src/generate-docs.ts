@@ -8,7 +8,7 @@ import {
   type ConformanceModel,
 } from './conformance-model.ts';
 import type { SurfaceCensus } from './surface-census.ts';
-import { compatibilityHref } from './docs-routes.ts';
+import { compatibilityHref, compatibilitySlug } from './docs-routes.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
@@ -426,59 +426,63 @@ function scoredBlocks(surface: CompatibilitySurfaceRegistry, projection: Documen
   });
 }
 
-export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string {
+/** The single source of truth for a surface's rendered projection: the exact
+ * sequence of output lines, plus the 1-based line number each registry row
+ * lands on. Both the published markdown and the line-number index derive from
+ * this one pass, so a renderer change (a heading, a legend row, whitespace)
+ * can never shift the line numbers the ledger points at without moving the
+ * rendered rows in lockstep — there is no parallel render to drift out of sync
+ * with. The row identity keyed here is `row.id` (a stable surface + entry-slug
+ * string, e.g. `auth#31`); line numbers are a derived read-time coordinate. */
+function renderSurfaceLines(
+  surface: CompatibilitySurfaceRegistry,
+  projection: DocumentationProjection,
+): { lines: string[]; rowLines: Map<string, number> } {
   const blocks = scoredBlocks(surface, projection);
   // The CDD climb header is intentionally not published on the reader-facing
   // pages (insider methodology). Climb data still drives internal reports and
   // gates via climb.ts; only the published line is dropped.
-  const parts: string[] = [GENERATED_HEADER, ''];
+  const lines: string[] = [];
+  const rowLines = new Map<string, number>();
+  // Append a part exactly as the published markdown would (parts joined with
+  // '\n'), while keeping each output line addressable for the row index. Split
+  // then join is an identity, so `lines.join('\n')` equals the flat-part join.
+  const emit = (part: string) => { for (const line of part.split('\n')) lines.push(line); };
+  emit(GENERATED_HEADER);
+  emit('');
   const rows = blocks.flatMap((block) => block.kind === 'table' ? block.rows : []);
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
-      parts.push(block.markdown);
+      emit(block.markdown);
       continue;
     }
-    parts.push(block.prefix);
-    parts.push('| API | Category | Behavior | Status | Probe | # |');
-    parts.push('|---|---|---|---|---|---|');
-    for (const row of block.rows) parts.push(renderRow(row));
+    emit(block.prefix);
+    emit('| API | Category | Behavior | Status | Probe | # |');
+    emit('|---|---|---|---|---|---|');
+    for (const row of block.rows) {
+      emit(renderRow(row));
+      rowLines.set(row.id, lines.length);
+    }
     const next = blocks[index + 1];
-    if (next?.kind === 'table' || (next?.kind === 'markdown' && !next.markdown.startsWith('\n'))) parts.push('');
+    if (next?.kind === 'table' || (next?.kind === 'markdown' && !next.markdown.startsWith('\n'))) emit('');
   }
   const gaps = consolidatedGapSections(rows);
-  if (gaps) parts.push('', gaps);
+  if (gaps) { emit(''); emit(gaps); }
   const dispositions = dispositionSection(surface, projection);
-  if (dispositions) parts.push('', dispositions);
-  return parts.join('\n').replace(/\s+$/, '') + '\n';
+  if (dispositions) { emit(''); emit(dispositions); }
+  return { lines, rowLines };
 }
 
+export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string {
+  return renderSurfaceLines(surface, projection).lines.join('\n').replace(/\s+$/, '') + '\n';
+}
+
+/** The 1-based line number, in the rendered surface page, of each registry
+ * row's table entry — keyed by the stable `row.id`. Derived from the same pass
+ * as {@link renderSurfaceMarkdown} so the coordinates can never desynchronize
+ * from the projection they describe. */
 export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): Map<string, number> {
-  const blocks = scoredBlocks(surface, projection);
-  const lines: string[] = [GENERATED_HEADER, ''];
-  const out = new Map<string, number>();
-  for (const [index, block] of blocks.entries()) {
-    if (block.kind === 'markdown') {
-      const markdown = block.markdown;
-      if (markdown) lines.push(...markdown.split('\n'));
-      continue;
-    }
-    const prefix = block.prefix;
-    if (prefix) lines.push(...prefix.split('\n'));
-    lines.push('| API | Category | Behavior | Status | Probe | # |');
-    lines.push('|---|---|---|---|---|---|');
-    for (const row of block.rows) {
-      lines.push(renderRow(row));
-      out.set(row.id, lines.length);
-    }
-    const next = blocks[index + 1];
-    if (next?.kind === 'table' || (next?.kind === 'markdown' && !next.markdown.startsWith('\n'))) lines.push('');
-  }
-  const rows = blocks.flatMap((block) => block.kind === 'table' ? block.rows : []);
-  const gaps = consolidatedGapSections(rows);
-  if (gaps) lines.push('', ...gaps.split('\n'));
-  const dispositions = dispositionSection(surface, projection);
-  if (dispositions) lines.push('', ...dispositions.split('\n'));
-  return out;
+  return renderSurfaceLines(surface, projection).rowLines;
 }
 
 export function renderAllCompatibilityMarkdown(model: ConformanceModel): Map<string, string> {
@@ -501,6 +505,39 @@ export function compatibilityPageCatalog(model: ConformanceModel): readonly Comp
     { path: SCOREBOARD_PATH, label: 'Public API coverage' },
     ...model.documentation.registries.map(({ compatPath, label }) => ({ path: compatPath, label })),
   ];
+}
+
+/** Bake the rendered conformance pages into a typed data module — the docs
+ * projection consumed by the site (and any other tool) through the published
+ * `@pyric/cli/conformance/docs` subpath. Rendering happens here, once, at
+ * package build; consumers display, they never re-derive. */
+export function renderDocsProjectionModule(model: ConformanceModel): string {
+  const catalog = compatibilityPageCatalog(model);
+  const rendered = renderAllCompatibilityMarkdown(model);
+  const pages = catalog.map(({ path, label }) => {
+    const markdown = rendered.get(path);
+    if (markdown === undefined) throw new Error(`docs projection: renderer produced no page for ${path}`);
+    const slug = path === SCOREBOARD_PATH ? 'conformance-scores' : compatibilitySlug(path);
+    const title = markdown.match(/^#\s+(.+)$/m)?.[1]?.replace(/`/g, '') ?? label;
+    return { slug, label, title, markdown };
+  });
+  return [
+    '// GENERATED FILE. Do not edit or commit.',
+    '// Regenerate: bun run compat:conformance',
+    '// Source: the central conformance model; pages are rendered projections.',
+    'export interface ConformanceDocsPage {',
+    '  /** Public docs route slug under /docs/. */',
+    '  slug: string;',
+    '  /** Short catalog label (nav / listings). */',
+    '  label: string;',
+    '  /** The page h1, plain text. */',
+    '  title: string;',
+    '  /** Full page markdown, ready to render. */',
+    '  markdown: string;',
+    '}',
+    `export const CONFORMANCE_DOCS_PAGES: readonly ConformanceDocsPage[] = ${JSON.stringify(pages)};`,
+    '',
+  ].join('\n');
 }
 
 export function checkGeneratedMarkdown(model: ConformanceModel): string[] {

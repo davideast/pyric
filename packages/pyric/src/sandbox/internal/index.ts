@@ -55,7 +55,7 @@ export {
 // local-state one to disambiguate. Same trick for DocumentData
 // (one canonical export from local-state; local-environment
 // re-exports it).
-export * from '../firestore/local-environment.js';
+export * from '../../firestore/sandbox/local-environment.js';
 export {
   LocalState,
   type BatchOperation,
@@ -64,26 +64,26 @@ export {
   type UpdateResult,
   type SetResult,
   type DeleteResult,
-} from '../firestore/local-state.js';
-export * from '../firestore/event-log.js';
-export * from '../firestore/auto-id.js';
-export * from '../firestore/transaction.js';
-export * from '../firestore/transaction-merge.js';
-export * from '../firestore/transaction-types.js';
-export * from '../firestore/errors.js';
-export * from '../firestore/value-resolver.js';
-export * from '../firestore/converters/timestamp.js';
-export * from '../firestore/converters/user-timestamp.js';
-export * from '../firestore/converters/reference.js';
-export * from '../firestore/converters/vector.js';
-export * from '../firestore/converters/fieldvalue.js';
-export * from '../firestore/converters/bytes-geopoint.js';
-export * from '../firestore/snapshot-listeners.js';
+} from '../../firestore/sandbox/local-state.js';
+export * from '../../firestore/sandbox/event-log.js';
+export * from '../../firestore/sandbox/auto-id.js';
+export * from '../../firestore/sandbox/transaction.js';
+export * from '../../firestore/sandbox/transaction-merge.js';
+export * from '../../firestore/sandbox/transaction-types.js';
+export * from '../../firestore/sandbox/errors.js';
+export * from '../../firestore/sandbox/value-resolver.js';
+export * from '../../firestore/sandbox/converters/timestamp.js';
+export * from '../../firestore/sandbox/converters/user-timestamp.js';
+export * from '../../firestore/sandbox/converters/reference.js';
+export * from '../../firestore/sandbox/converters/vector.js';
+export * from '../../firestore/sandbox/converters/fieldvalue.js';
+export * from '../../firestore/sandbox/converters/bytes-geopoint.js';
+export * from '../../firestore/sandbox/snapshot-listeners.js';
 // Wire-encoder: produces Firestore JSON wire-format from sandbox
 // values. Used by the discover crawler's sandbox adapter (in
 // pyric/firestore/discover) to bridge LocalEnvironment ↔ the wire
 // decoder.
-export * from '../firestore/wire-encoder.js';
+export * from '../../firestore/sandbox/wire-encoder.js';
 
 // Pre-mortem H3 — the star re-exports above are NOT auditable by
 // reading this file. If two of the re-exported modules introduce a

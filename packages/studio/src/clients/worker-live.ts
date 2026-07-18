@@ -25,6 +25,7 @@
  */
 
 import type { SandboxEvent, SandboxSnapshot } from 'pyric/sandbox';
+import { isSessionResetBoundary } from '../events/fold.js';
 import type { Auth } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
 import type { FirestoreApi } from '@pyric/ui/firestore';
@@ -42,6 +43,7 @@ import {
   uploadBytes as workerStorageUploadBytes,
   deleteObject as workerStorageDeleteObject,
   getSnapshot as workerGetSnapshot,
+  resetAll as workerResetAll,
   getWorkerInstanceId,
   exportWorkerState,
   importWorkerState,
@@ -168,6 +170,11 @@ export interface WorkerLivePlane {
    *  locally to test a denied op against edited rules / re-issue as the user,
    *  on a throwaway branch (no live mutation). */
   getSnapshot(): Promise<SandboxSnapshot>;
+  /** Sandbox-owned full reset (issue #359): `sandbox.resetAll()` on the worker
+   *  — Firestore env + signed-in session + EVERY registered persistable
+   *  service (auth users, RTDB tree, storage objects). Resolves once the
+   *  worker acks (all services finished clearing). */
+  resetAll(): Promise<{ errors: string[] }>;
   /** Stable per-SharedWorker instance id, so the UI can tell WHICH sandbox
    *  instance this is — the same `localhost:<port>` in a different browser
    *  profile is a separate instance. Studio renders a human-friendly slug. */
@@ -231,14 +238,19 @@ export function workerEventFeed(db: ClientDb): LiveEventFeed {
     if (workerUnsub) return;
     workerUnsub = subscribeEvents(db, (events) => {
       const isHistoryBatch = !sawHistory;
-      if (isHistoryBatch) {
-        sawHistory = true;
-        // The first batch is the full `history()` snapshot: seed it…
-        historySnapshot = events;
-      } else {
-        // …subsequent batches are live; append to the running snapshot.
-        historySnapshot = [...historySnapshot, ...events];
+      sawHistory = true;
+      // The first batch is the full `history()` snapshot (REPLACES the
+      // snapshot); subsequent batches are live (append). Either way each
+      // event folds through the session rule: a reset `session_boundary`
+      // drops everything before it (see `events/fold.ts`) so the running
+      // snapshot mirrors the worker's now-cleared `history()` — pre-fix it
+      // kept the wiped session's traffic forever (issue #359 extension).
+      const next: SandboxEvent[] = isHistoryBatch ? [] : [...historySnapshot];
+      for (const event of events) {
+        if (isSessionResetBoundary(event)) next.length = 0;
+        next.push(event);
       }
+      historySnapshot = next;
       // Fan EVERY event (history backlog included) out to subscribers, so an
       // early subscriber that read an empty `history()` still gets the backlog.
       for (const event of events) {
@@ -399,5 +411,6 @@ export function connectWorkerLive(
       deleteObject: workerStorageDeleteObject,
     } as unknown as StorageApi,
     getSnapshot: () => workerGetSnapshot(db),
+    resetAll: () => workerResetAll(db),
   };
 }

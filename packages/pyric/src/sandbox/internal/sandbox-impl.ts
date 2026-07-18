@@ -18,7 +18,7 @@
  * to {@link SandboxContext}, derived via `withAuth`.
  */
 
-import { LocalEnvironment } from '../firestore/local-environment.js';
+import { LocalEnvironment } from '../../firestore/sandbox/local-environment.js';
 import type { AuthState } from '../types/auth-state.js';
 import type { SandboxContext } from '../types/context.js';
 import { SandboxError } from '../types/errors.js';
@@ -397,6 +397,34 @@ export class SandboxImpl implements LocalSandbox {
     this._env.dispose();
     this._env = new LocalEnvironment();
     this.attachToEnv();
+  }
+
+  async resetAll(): Promise<{ errors: string[] }> {
+    // Firestore env + signed-in session first (emits the session_boundary),
+    // then every registered service that opted into `reset`. Iterating the
+    // REGISTRY — not a hand-maintained service list — is the point: a service
+    // that registers with a `reset` hook is cleared automatically, so a
+    // consumer-side reset (Pyric Studio) can't silently skip one.
+    this.reset();
+    const errors: string[] = [];
+    const clears: Promise<void>[] = [];
+    for (const [name, svc] of this.serviceRegistry) {
+      if (!svc.reset) continue;
+      // Isolate each service (sync throw or async rejection) so one broken
+      // service doesn't abort the wipe — mirrors loadSnapshot's isolation.
+      // Failures are REPORTED, not just logged: a reset that leaves data
+      // behind must never look successful to the caller (issue #359 was
+      // exactly that experience).
+      clears.push(
+        Promise.resolve()
+          .then(() => svc.reset!())
+          .catch((e) => {
+            errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+          }),
+      );
+    }
+    await Promise.all(clears);
+    return { errors };
   }
 
   dispose(): void {

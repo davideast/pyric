@@ -244,6 +244,47 @@ describe('workerEventFeed (F1 live-feed adapter)', () => {
     );
     expect(unsubMsg).toBeDefined();
   });
+
+  it('a reset session_boundary clears the running snapshot down to the boundary (issue #359 extension)', () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const db: ClientDb = workerGetFirestore('worker://test');
+    const feed = workerEventFeed(db);
+    const seen: string[] = [];
+    feed.subscribe((e) => seen.push(e.id));
+
+    const subMsg = sw.port.sent.find(
+      (m): m is { t: 'sub'; subId: string; target: string } =>
+        (m as { t?: string }).t === 'sub' &&
+        (m as { target?: string }).target === 'events',
+    );
+    const subId = subMsg!.subId;
+
+    // Accumulate a session, then the worker resets: `sandbox.reset()` emits
+    // the boundary live and clears its own history. Pre-fix the feed's
+    // running snapshot kept the wiped session's traffic forever — Studio's
+    // Traffic pane still showed old requests after Settings → Reset.
+    sw.deliver({ t: 'event', subId, events: [fakeWrite('h1'), fakeWrite('h2')] });
+    sw.deliver({ t: 'event', subId, events: [fakeWrite('l1')] });
+    const boundary = {
+      kind: 'session_boundary',
+      id: 'b1',
+      at: 1,
+      phase: 'reset',
+      priorOpCount: 3,
+    } as unknown as SandboxEvent;
+    sw.deliver({ t: 'event', subId, events: [boundary] });
+
+    // Pinned decision (events/fold.ts): the live view keeps EXACTLY the
+    // boundary as a "session reset" marker — nothing else survives.
+    expect(feed.history().map((e) => e.id)).toEqual(['b1']);
+    // Subscribers still see every delivery (the boundary included).
+    expect(seen).toEqual(['h1', 'h2', 'l1', 'b1']);
+
+    // The next session accumulates fresh on top of the marker.
+    sw.deliver({ t: 'event', subId, events: [fakeWrite('n1')] });
+    expect(feed.history().map((e) => e.id)).toEqual(['b1', 'n1']);
+  });
 });
 
 describe('listDocuments (F2 phantom-inclusive browse)', () => {

@@ -9,7 +9,8 @@
 import { surfaceRegistries, type CompatibilityRow, type CompatStatus, type DeveloperSurface, type Surface } from '../registry/index.ts';
 import { loadAllSnapshots } from '../rules-language/load.ts';
 import type { LanguageConstruct } from '../rules-language/types.ts';
-import { buildSurfaceCensus, type SurfaceCensus } from './surface-census.ts';
+import type { SurfaceCensus } from './surface-census.ts';
+import { loadOrBuildSurfaceCensus } from './surface-census-cache.ts';
 import {
   deriveAllNodeVerdicts,
   deriveConformanceEvidence,
@@ -240,7 +241,7 @@ export function deriveConformanceModel(options: DeriveConformanceModelOptions = 
 }
 
 async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<ConformanceModel> {
-  const census = await buildSurfaceCensus();
+  const census = await loadOrBuildSurfaceCensus();
   const censusProblems = [
     ...censusGapProblems(census, censusBaselineJson as CensusGapBaseline),
     ...censusIntegrityProblems(census),

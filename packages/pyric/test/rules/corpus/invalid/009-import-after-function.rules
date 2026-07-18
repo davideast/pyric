@@ -1,0 +1,12 @@
+// INVALID: an `import` declaration may not follow a `function` declaration.
+// Production-pinned (#347 probe, 2026-07-17): the Rules Test API rejects this
+// ordering with "Unexpected 'import'." under both rules_version '2' and
+// '2+modules'. Top-level declaration order is strict: imports, then functions.
+rules_version = '2';
+function f() { return true; }
+import { g } from 'm';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} { allow read: if f(); }
+  }
+}
