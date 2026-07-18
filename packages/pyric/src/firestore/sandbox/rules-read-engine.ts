@@ -30,7 +30,7 @@ import { makeError, type FirestoreSimError } from './errors.js';
 import type { Operation } from './writes.js';
 import type { ListenerAuth, QueryConstraintApplier } from './snapshot-listeners.js';
 import type { ListenerDispatchHost } from './listener-dispatch.js';
-import { buildRequestEvent, type EmitRequestInput } from './history.js';
+import { buildRequestEvent, type EmitRequestInput } from './request-events.js';
 import { listQueryFromStructured } from './reads.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import type { TriggerScope } from './trigger-scope.js';

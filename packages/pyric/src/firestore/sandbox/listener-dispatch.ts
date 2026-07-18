@@ -31,7 +31,7 @@ import {
   SANDBOX_METADATA_PENDING,
 } from './snapshot-listeners.js';
 import { docDataEqual, anyPathInCollection } from './listener-delivery.js';
-import { nextRequestEventId } from './history.js';
+import { nextRequestEventId } from './request-events.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import type { TriggerScope } from './trigger-scope.js';
 import type {

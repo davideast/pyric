@@ -73,7 +73,7 @@ import type {
   BatchOperationInput,
   BatchResult,
 } from './writes.js';
-import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './history.js';
+import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './request-events.js';
 export { SimulatorUnsupportedError } from './rules-evaluation.js';
 import { FirestoreEventBus } from './event-bus.js';
 import { TriggerScope } from './trigger-scope.js';
@@ -393,7 +393,7 @@ export class LocalEnvironment {
    * still holds a reference to the old instance.
    *
    * Idempotent: clearing already-empty sets is a no-op. Does not touch
-   * data state (`state` / `eventLog` / `rulesSource`) — `dispose()` is
+   * data state (`state` / `eventLog` / `rules`) — `dispose()` is
    * about *callback ownership*, not data lifecycle. Construct a fresh
    * `LocalEnvironment` (or call `seed()`) to reset data.
    */
