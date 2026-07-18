@@ -715,6 +715,12 @@ export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
     }
   }
 
+  // Plugin-level engine config (`@pyric/cli/vite`'s `ai.engine`) → the host
+  // engine slot. It wins over any op-carried `engine` field (see ensureAiBroker
+  // in host-ai.ts) and is honored on the FIRST ai op — mirroring getAI's
+  // first-call-wins idempotence. Absent under `pyric dev` (no CLI surface).
+  if (payload?.ai?.engine) ctx.aiEngine = payload.ai.engine;
+
   // Apply rules / seed / authUsers / capture BEFORE any port op runs (so
   // seeded users exist and project rules govern the first write), then mirror
   // auth to the committable server file (`--persist` only).

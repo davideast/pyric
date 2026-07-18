@@ -56,6 +56,8 @@ import {
   NODE_BUILTIN_SHIMS,
 } from './bundler.js';
 import { createEventHub, createPyricNamespace, type InitPayload } from './namespace.js';
+import type { AiEngineConfigWire } from './worker/protocol.js';
+import type { AIOptions } from 'pyric/ai';
 import { diskWorkspace, diskProjectStore } from './studio/index.js';
 import { createBridgeMount } from './bridge-mount.js';
 import {
@@ -87,6 +89,42 @@ function swapsInBuild(env: ConfigEnv, swapInBuild: boolean | undefined): boolean
 
 /** Any `firebase/<sub>` specifier. */
 const FB_ANY = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
+
+/** The serve proxy route the browser openai engine defaults to (#98.2). */
+const AI_PROXY_PATH = '/__pyric/ai-proxy';
+
+/**
+ * The plugin-level engine config surface = `pyric/ai`'s `EngineConfig` (what an
+ * app passes to `getAI`), minus the custom `AnswerEngine` object variant — a
+ * live object cannot cross to the SharedWorker host or serialize into the page,
+ * so the plugin's declarative surface is the JSON-able `scripted` / `openai`
+ * configs only (the same restriction the worker path already enforces).
+ */
+export type PyricAiEngineConfig = Extract<NonNullable<AIOptions['engine']>, { kind: string }>;
+
+/**
+ * Node-side `EngineConfig` → JSON-safe {@link AiEngineConfigWire}. Mirrors the
+ * browser `toEngineWire` (entries/ai.ts): an openai config with no `baseUrl`
+ * targets the same-origin proxy; scripted `script` entries pass through (plain
+ * authoring shapes — function/RegExp matchers can't survive JSON and are not a
+ * plugin-config use case).
+ */
+export function engineConfigToWire(engine: PyricAiEngineConfig): AiEngineConfigWire {
+  if (engine.kind === 'openai') {
+    return {
+      kind: 'openai',
+      baseUrl: engine.baseUrl ?? AI_PROXY_PATH,
+      ...(engine.model !== undefined ? { model: engine.model } : {}),
+      ...(engine.modelMap !== undefined ? { modelMap: engine.modelMap } : {}),
+    };
+  }
+  return {
+    kind: 'scripted',
+    ...(engine.script !== undefined
+      ? { script: engine.script as unknown as Array<Record<string, unknown>> }
+      : {}),
+  };
+}
 /** The firebase subpaths with swap entries. */
 const SERVED = new Set(SDK_MODULES.map((specifier) => specifier.slice('firebase/'.length)));
 const entryKey = (subpath: string): string => subpath.replaceAll('/', '-');
@@ -145,6 +183,39 @@ export interface PyricSandboxOptions {
    *  `false` = never swap in build (real firebase regardless of mode). `vite
    *  dev` is unaffected — the swap is always on there. */
   swapInBuild?: boolean;
+  /**
+   * Dev-server-level AI configuration for `pyric/ai` (the sanctioned
+   * replacement for threading `engine` through every app `getAI(...)` call,
+   * which is first-call-wins and easy to get wrong).
+   *
+   *   pyricSandbox({
+   *     ai: {
+   *       engine: { kind: 'openai', model: 'llama3.2', baseUrl: '/__pyric/ai-proxy' },
+   *       proxyUpstream: 'http://localhost:11434/v1', // your Ollama
+   *     },
+   *   })
+   *
+   * - `engine` is `pyric/ai`'s `EngineConfig` (scripted | openai), applied on
+   *   both the SharedWorker and in-page paths. An openai `baseUrl` of
+   *   `/__pyric/ai-proxy` (or omitted) routes through the same-origin proxy so a
+   *   localhost upstream needs zero CORS setup.
+   * - `proxyUpstream` sets what `/__pyric/ai-proxy` forwards to (beats the
+   *   `PYRIC_AI_PROXY_UPSTREAM` env var; default `http://localhost:11434/v1`).
+   *
+   * Precedence: a plugin-level `engine`, when set, always wins over an engine an
+   * app's own `getAI()` passes (host-side via `ctx.aiEngine` on the worker path,
+   * page-side via an injected global on the in-page fallback); with no plugin
+   * engine the first `getAI()` call's engine is honored (first-call-wins), and
+   * with neither the zero-config scripted default applies.
+   */
+  ai?: {
+    /** Engine config (scripted | openai). Custom `AnswerEngine` objects are not
+     *  supported at the plugin level — they can't cross to the worker/page. */
+    engine?: PyricAiEngineConfig;
+    /** OpenAI-compatible upstream `/__pyric/ai-proxy` forwards to. Beats
+     *  `PYRIC_AI_PROXY_UPSTREAM`; default `http://localhost:11434/v1`. */
+    proxyUpstream?: string;
+  };
 }
 
 /**
@@ -253,6 +324,12 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
   // sandbox path — the bridge peer is the in-page sandbox, never the SharedWorker,
   // so multi-tab is disabled under bridge to keep agent + app on one backend.
   const bridgeOpts = options.bridge === true ? {} : options.bridge || null;
+
+  // Plugin-level AI engine, normalized once to the JSON-safe wire shape. Travels
+  // to the worker host via the init payload (→ ctx.aiEngine) AND to the in-page
+  // fallback via an injected synchronous global (see transformIndexHtml). Undefined
+  // when the `ai.engine` option is unset.
+  const aiEngineWire = options.ai?.engine ? engineConfigToWire(options.ai.engine) : undefined;
 
   return {
     name: 'pyric:sandbox',
@@ -484,6 +561,9 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
           : seedUsers,
         // Messaging is part of the canonical firebase/* sandbox swap.
         messaging: true,
+        // Plugin-level engine → the worker host's ctx.aiEngine (host-ai.ts),
+        // which wins over any op-carried engine. Null when unset.
+        ai: aiEngineWire ? { engine: aiEngineWire } : null,
       });
       // Pyric Studio: mount the disk-backed workspace/project routes that
       // Studio's `local` mode talks to + serve the built Studio app at
@@ -519,6 +599,9 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         capture,
         studio,
         studioUiDir,
+        // `ai.proxyUpstream`: what `/__pyric/ai-proxy` forwards to (beats the
+        // PYRIC_AI_PROXY_UPSTREAM env var; falls back to the default when unset).
+        aiProxyUpstream: options.ai?.proxyUpstream,
       });
 
       // DNS-rebinding guard for the /__pyric/* surface. Vite has its own host
@@ -738,10 +821,19 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       const head = workerReady
         ? `<meta name="pyric-worker-v" content="${workerVersion}" ${MARKER}>`
         : `<script ${MARKER}>globalThis.__PYRIC_FORCE_INPAGE__=true;</script>`;
+      // Plugin-level engine for the IN-PAGE path: a classic inline script runs
+      // before the deferred init module AND before app code's `getAI`, so the
+      // served `getAI` (entries/ai.ts) reads it synchronously — init.json can't
+      // be awaited there. Harmless on the worker path (that branch ignores the
+      // global; the worker reads ctx.aiEngine from init.json). `<` is escaped so
+      // an engine value can never break out of the script tag.
+      const aiEngineTag = aiEngineWire
+        ? `<script ${MARKER}>globalThis.__PYRIC_AI_ENGINE__=${JSON.stringify(aiEngineWire).replace(/</g, '\\u003c')};</script>`
+        : '';
       // Boot the sandbox by loading the real init entry as a module (Vite
       // serves + transforms it). The init module's top-level await deploys rules
       // before app code runs. Mirrors serve's injectServeTags.
-      const tag = head + `<script type="module" src="/@fs/${entries.init}" ${MARKER}></script>`;
+      const tag = head + aiEngineTag + `<script type="module" src="/@fs/${entries.init}" ${MARKER}></script>`;
       return html.includes('</head>') ? html.replace('</head>', `${tag}</head>`) : tag + html;
     },
   };

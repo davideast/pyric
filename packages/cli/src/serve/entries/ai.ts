@@ -114,6 +114,39 @@ function toEngineWire(engine: EngineOption | undefined): AiEngineConfigWire | un
   };
 }
 
+/**
+ * The plugin-level engine (`@pyric/cli/vite`'s `ai.engine`) for the IN-PAGE
+ * path, injected as a synchronous global BEFORE any app code runs (the plugin's
+ * transformIndexHtml — a classic inline script). The served `getAI` is
+ * synchronous and can't await init.json, so the worker path's init.json channel
+ * (→ ctx.aiEngine) has this page-side twin. Undefined outside the plugin.
+ */
+function pluginEngineWire(): AiEngineConfigWire | undefined {
+  return (globalThis as { __PYRIC_AI_ENGINE__?: AiEngineConfigWire }).__PYRIC_AI_ENGINE__;
+}
+
+/**
+ * Resolve a plugin wire engine to the mirror's `EngineOption` — an openai
+ * config with no `baseUrl` targets the serve proxy (mirrors resolveEngineConfig
+ * host-side and toEngineWire's inverse).
+ */
+function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
+  if (wire.kind === 'openai') {
+    return {
+      kind: 'openai',
+      baseUrl: wire.baseUrl ?? AI_PROXY_PATH,
+      ...(wire.model !== undefined ? { model: wire.model } : {}),
+      ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
+    } as EngineOption;
+  }
+  return {
+    kind: 'scripted',
+    ...(wire.script !== undefined
+      ? { script: wire.script as unknown as Extract<EngineOption, { kind: 'scripted' }>['script'] }
+      : {}),
+  } as EngineOption;
+}
+
 /** In-page path: default an openai config's absent baseUrl to the proxy. */
 function withProxyDefault(options?: ipAi.AIOptions): ipAi.AIOptions | undefined {
   const engine = options?.engine;
@@ -248,5 +281,12 @@ export const getAI = (
           assertAlive,
         );
       }
-    : (app?: unknown, options?: ipAi.AIOptions) => mirrorGetAI(app, withProxyDefault(options))
+    : (app?: unknown, options?: ipAi.AIOptions) => {
+        // Plugin-level engine wins over an app-code `getAI` engine (mirrors the
+        // worker host's ctx.aiEngine precedence). Absent ⇒ app options as-is.
+        const pluginWire = pluginEngineWire();
+        return pluginWire
+          ? mirrorGetAI(app, { ...options, engine: wireToEngineOption(pluginWire) })
+          : mirrorGetAI(app, withProxyDefault(options));
+      }
 ) as typeof pyricGetAI;

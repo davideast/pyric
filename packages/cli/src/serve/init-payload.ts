@@ -1,3 +1,5 @@
+import type { AiEngineConfigWire } from './worker/protocol.js';
+
 /** Browser-safe wire contract served by `/__pyric/init.json`. */
 export interface InitPayload {
   rules: string | null;
@@ -24,4 +26,15 @@ export interface InitPayload {
   authUsers?: ReadonlyArray<Record<string, unknown>> | null;
   capture?: boolean;
   messaging?: boolean;
+  /**
+   * Plugin-level AI config (`@pyric/cli/vite`'s `ai.engine`). Only the ENGINE
+   * travels here — the OpenAI proxy upstream is a server-side namespace option
+   * that never reaches the page. The worker host reads `ai.engine` into
+   * `ctx.aiEngine`, which wins over any op-carried `engine` (see host-ai.ts).
+   * Absent under `pyric dev` (no CLI surface) and whenever the plugin sets no
+   * engine. The in-page fallback path receives the same engine synchronously
+   * via the injected `globalThis.__PYRIC_AI_ENGINE__` (init.json can't be read
+   * synchronously by the served `getAI`).
+   */
+  ai?: { engine?: AiEngineConfigWire } | null;
 }

@@ -704,6 +704,28 @@ describe('buildWorkerCtx — boot-time hydration + reset non-resurrection', () =
     }) as unknown as typeof fetch;
   }
 
+  it('wires the plugin-level engine (payload.ai.engine) into ctx.aiEngine', async () => {
+    const engine = { kind: 'openai', baseUrl: '/__pyric/ai-proxy', model: 'llama3.2' } as const;
+    const aiFetch = ((url: string) => {
+      if (String(url) === '/__pyric/init.json') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({ rules: null, rulesHash: null, bridgeUrl: null, seed: null, ai: { engine } }),
+        } as Response);
+      }
+      return Promise.resolve({ status: 204, ok: true, text: () => Promise.resolve(''), json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+    const ctx = await buildWorkerCtx({ fetch: aiFetch, idb: createMemoryBackend() });
+    expect(ctx.aiEngine).toEqual(engine);
+  });
+
+  it('leaves ctx.aiEngine unset when the payload carries no ai config (pyric dev)', async () => {
+    const ctx = await buildWorkerCtx({ fetch: bootFetch(null), idb: createMemoryBackend() });
+    expect(ctx.aiEngine).toBeUndefined();
+  });
+
   it('a booted worker re-hydrates its own session history from the capture', async () => {
     const idb = createMemoryBackend();
     const instanceId = await (await import('../../../src/serve/worker/host.js')).getOrCreateInstanceId(idb);
