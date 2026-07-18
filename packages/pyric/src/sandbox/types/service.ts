@@ -207,10 +207,11 @@ export interface Sandbox {
    *
    * Service resets may be async (storage clears IndexedDB stores); the
    * returned promise resolves when every service has finished clearing.
-   * A service whose `reset` throws is isolated (warned, others still
-   * clear) — mirroring `loadSnapshot`'s per-service isolation.
+   * A service whose `reset` throws is isolated (others still clear) and
+   * REPORTED in the returned `errors` (as `name: message`) — a reset that
+   * leaves data behind must never look successful to the caller.
    */
-  resetAll(): Promise<void>;
+  resetAll(): Promise<{ errors: string[] }>;
 
   /**
    * Tear down listener registries on this sandbox's environment without

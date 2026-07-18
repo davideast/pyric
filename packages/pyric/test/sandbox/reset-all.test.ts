@@ -63,7 +63,8 @@ describe('Sandbox.resetAll', () => {
     expect(await service.backend.listByPrefix('')).toHaveLength(1);
 
     // ── The one sandbox-owned reset ─────────────────────────────────
-    await sandbox.resetAll();
+    const { errors } = await sandbox.resetAll();
+    expect(errors).toEqual([]); // a clean wipe reports no errors
 
     // Every service is empty afterwards.
     expect(Object.keys(sandbox.snapshot().firestore)).toHaveLength(0);
@@ -92,7 +93,7 @@ describe('Sandbox.resetAll', () => {
     expect(sandbox.currentUser).toBeNull();
   });
 
-  it('isolates a failing service reset so the others still clear', async () => {
+  it('isolates a failing service reset so the others still clear — and reports it', async () => {
     const sandbox = initializeSandbox();
     sandbox.registerPersistableService('broken', {
       snapshot: () => null,
@@ -104,7 +105,10 @@ describe('Sandbox.resetAll', () => {
     const auth = getAuth(sandbox);
     authSandbox.createUser(auth, { email: 'b@example.com', password: 'pw123456' });
 
-    await sandbox.resetAll();
+    const { errors } = await sandbox.resetAll();
     expect(authSandbox.listUsers(auth)).toHaveLength(0);
+    // The failure is REPORTED, not swallowed — a half-clear must never look
+    // like a clean reset (issue #359 was exactly that experience).
+    expect(errors).toEqual(['broken: boom']);
   });
 });
