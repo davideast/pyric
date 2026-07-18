@@ -27,7 +27,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { connectBridge, type ConnectedBridge } from '../../src/bridge/client/bridge.js';
 import { DEFAULT_MCP_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
 import { defaultSdkEntries, bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
-import { pyricSandbox } from '../../src/serve/vite-plugin.js';
+import { pyric } from '../../src/serve/vite-plugin.js';
 
 const GATED = !process.env.PYRIC_BRIDGE_E2E;
 const entries = defaultSdkEntries();
@@ -90,7 +90,7 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
         configFile: false,
         logLevel: 'silent',
         root: path.dirname(entries.init),
-        plugins: [pyricSandbox({ bridge: { disableAuditLog: true } })],
+        plugins: [pyric({ bridge: { disableAuditLog: true } })],
         server: { port: 0, host: 'localhost' },
         optimizeDeps: { noDiscovery: true },
       }),

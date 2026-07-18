@@ -73,7 +73,7 @@ describe('pyric init v2 — web template (default, Vite)', () => {
     // the swap lives in vite.config, not the app
     const viteConfig = readFileSync(join(dir, 'vite.config.ts'), 'utf8');
     expect(viteConfig).toContain("from '@pyric/cli/vite'");
-    expect(viteConfig).toContain('pyricSandbox(');
+    expect(viteConfig).toContain('pyric(');
 
     // hosting serves Vite's build output
     const fb = JSON.parse(readFileSync(join(dir, 'firebase.json'), 'utf8'));

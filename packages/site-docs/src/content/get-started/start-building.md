@@ -33,10 +33,10 @@ Add it to the Vite configuration:
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
-import { pyricSandbox } from '@pyric/cli/vite';
+import { pyric } from '@pyric/cli/vite';
 
 export default defineConfig({
-  plugins: [pyricSandbox()],
+  plugins: [pyric()],
 });
 ```
 Start the normal development server:

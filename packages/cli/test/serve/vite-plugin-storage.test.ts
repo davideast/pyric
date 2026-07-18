@@ -7,7 +7,7 @@ import { dirname, extname, join } from 'node:path';
 import type { ViteDevServer } from 'vite';
 
 import { bundleWorker, defaultSdkEntries, workerSourceHash } from '../../src/serve/bundler.js';
-import { pyricSandbox } from '../../src/serve/vite-plugin.js';
+import { pyric } from '../../src/serve/vite-plugin.js';
 
 let server: ViteDevServer | undefined;
 let fixtureRoot: string | undefined;
@@ -66,7 +66,7 @@ export async function run() {
         configFile: false,
         logLevel: 'silent',
         root: fixtureRoot,
-        plugins: [pyricSandbox({ ui: false })],
+        plugins: [pyric({ ui: false })],
         server: { middlewareMode: true },
         optimizeDeps: { noDiscovery: true },
       });
