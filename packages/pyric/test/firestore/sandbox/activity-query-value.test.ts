@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { activityValue } from '../../../src/firestore/sandbox/activity-query-value.js';
-import { FirestoreImpl } from '../../../src/sandbox/firestore/admin-compat/firestore.js';
-import { Timestamp as AdminTimestamp } from '../../../src/sandbox/firestore/admin-compat/types.js';
+import { FirestoreImpl } from '../../../src/firestore/sandbox/admin-compat/firestore.js';
+import { Timestamp as AdminTimestamp } from '../../../src/firestore/sandbox/admin-compat/types.js';
 import { LocalEnvironment } from '../../../src/sandbox/internal/index.js';
 import { Bytes, GeoPoint, Timestamp } from '../../../src/firestore/field-values.js';
 
