@@ -1,4 +1,4 @@
-import { splitFences } from './markdown-structure';
+import { splitFences } from '../src/lib/markdown-structure';
 
 /* ── Conformance row lists ─────────────────────────────────────────── */
 //
@@ -16,7 +16,7 @@ const STATUS_META: Record<string, { key: string; label: string }> = {
   '✓': { key: 'ok', label: 'Conforming' },
   '⚠': { key: 'diverged', label: 'Diverged (documented)' },
   '✗': { key: 'bug', label: 'Bug' },
-  '—': { key: 'unsupported', label: 'Unsupported' },
+  '—': { key: 'unsupported', label: 'Not implemented yet' },
   '?': { key: 'unverified', label: 'Unverified' },
 };
 

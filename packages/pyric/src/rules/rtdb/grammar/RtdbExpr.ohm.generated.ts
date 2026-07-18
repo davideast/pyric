@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit by hand. Regenerate via:
-//   bun packages/rtdb/scripts/inline-grammar.ts
+//   bun run inline-grammar (packages/pyric)
 // Source: RtdbExpr.ohm
 
 export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {

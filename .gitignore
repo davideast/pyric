@@ -55,5 +55,8 @@ packages/conformance/rules-language/*-report.json
 packages/pyric/docs/*/COMPAT.md
 packages/pyric/docs/conformance/SCORES.md
 packages/cli/docs/functions-rtdb/COMPAT.md
-packages/site-docs/src/content/docs/pyric-*-compat.md
-packages/site-docs/src/content/docs/pyric-conformance-scores.md
+
+# Generated site docs: conformance virtual pages + generated API reference.
+# The site build (packages/site-docs) derives these into _generated/ right
+# before `astro build`; they are never committed.
+packages/site-docs/src/content/_generated/

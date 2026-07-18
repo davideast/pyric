@@ -1,0 +1,11 @@
+// INVALID: no declaration may precede `rules_version`. Production-pinned
+// (#347 probe, 2026-07-17): the Rules Test API rejects a `function` above the
+// version line with "Unexpected 'rules_version'." (and a bare import above it
+// the same way). rules_version, when present, is the first statement.
+function f() { return true; }
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} { allow read: if f(); }
+  }
+}

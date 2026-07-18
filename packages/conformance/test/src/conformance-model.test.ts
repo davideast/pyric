@@ -17,7 +17,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1067);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1083);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
@@ -46,7 +46,7 @@ describe('multi-axis conformance model', () => {
       supports: [expect.objectContaining({
         surface: 'storage',
         importPaths: ['pyric/storage'],
-        evidenceSlug: 'pyric-storage-compat',
+        evidenceSlug: 'storage-compat',
       })],
     });
     expect(canIUse(model, 'onDisconnect', { importPath: 'pyric/database' })).toMatchObject({
@@ -74,12 +74,12 @@ describe('multi-axis conformance model', () => {
 
   it('fails closed when one published import is assigned to different evidence surfaces', () => {
     const evidence = new Map();
-    const firestore = { importPath: 'pyric/rules', surface: 'firestore-rules', evidenceSlug: 'pyric-rules-compat' } as const;
+    const firestore = { importPath: 'pyric/rules', surface: 'firestore-rules', evidenceSlug: 'rules-compat' } as const;
     registerImportEvidence(evidence, firestore);
     expect(() => registerImportEvidence(evidence, {
       importPath: 'pyric/rules',
       surface: 'storage-rules',
-      evidenceSlug: 'pyric-rules-compat',
+      evidenceSlug: 'rules-compat',
     })).toThrow('conflicting evidence associations');
     expect(() => registerImportEvidence(evidence, firestore)).not.toThrow();
     expect(evidence.size).toBe(1);

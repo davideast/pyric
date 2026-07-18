@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve Firebase"
+  short_description: "Audit Firebase apps with Pyric evidence"
+  default_prompt: "Use $improve-firebase to audit this Firebase app and prioritize evidence-backed improvements."

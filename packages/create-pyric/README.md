@@ -4,7 +4,6 @@ Scaffold a Pyric app. Used by:
 
 ```bash
 npm create pyric [dir]
-npx create-pyric [dir]
 ```
 
 Default template is **web**: a Vite app wired to `@pyric/cli/vite`. Then:

@@ -1,0 +1,16 @@
+{
+  "name": "rules-storage-type-checks-is",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#121"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"type-checks-is\" (Coverage: is (int/float/string/map/list), literal typing). `is` must type storage bindings correctly, and literal 1.0 must be float / 1 must be int (distinct types) per captured Firestore engine truth \u2014 the value-typed evaluator diverges on 1.0 is float.",
+  "observedAt": "2026-07-17T19:19:08.973Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "storage bindings type as int/string/map/list \u2192 ALLOW": "ALLOW",
+    "1.0 is float / 1 is int, cross checks false \u2192 ALLOW": "ALLOW",
+    "path wildcard is int \u2192 DENY": "DENY"
+  }
+}

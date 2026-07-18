@@ -19,13 +19,11 @@ The mirrored data services do not connect to a production Firebase project. Loca
 Create a Vite application with canonical Firebase imports, Firestore rules, and the Pyric development plugin already configured:
 
 ```bash
-npx create-pyric my-app
+npm create pyric my-app
 cd my-app
 npm install
 npm run dev
 ```
-
-`npm create pyric my-app` runs the same scaffold.
 
 ## Run an existing Firebase application locally
 
@@ -162,7 +160,7 @@ import-to-evidence join used by generated API documentation. An unrelated
 import path returns no exact match rather than borrowing another surface's trust
 claim.
 
-Read the generated [conformance scores](https://pyric.dev/docs/pyric-conformance-scores/) and the service matrices in the site's Conformance section. They are built from the same canonical registry used by assurance and `canIUse`, without committing duplicate Markdown. The [versioning and compatibility policy](packages/pyric/docs/explanation/versioning-and-compatibility.md) explains the release boundary.
+Read the generated [conformance scores](https://pyric.dev/docs/conformance-scores/) and the service matrices in the site's Conformance section. They are built from the same canonical registry used by assurance and `canIUse`, without committing duplicate Markdown. The [versioning and compatibility policy](packages/pyric/docs/explanation/versioning-and-compatibility.md) explains the release boundary.
 
 ## Stability
 
