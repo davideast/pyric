@@ -32,6 +32,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { embeddedAssetVersion as hashEmbeddedAssets } from './embedded-asset-version.js';
+import { generatedEntrySource } from './standalone-embed.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = resolve(__dirname, '..');
@@ -190,17 +191,12 @@ writeFileSync(join(BUILD, 'embedded-docs.js'), banner + `export default ${JSON.s
 writeFileSync(join(BUILD, 'embedded-tarballs.js'), banner + `export default ${JSON.stringify(tarballBlob)};\n`);
 writeFileSync(
   join(BUILD, 'standalone-entry.js'),
-  banner +
-    `globalThis.__PYRIC_EMBEDDED__ = {\n` +
-    `  version: ${JSON.stringify(version)},\n` +
-    `  assetVersion: ${JSON.stringify(assetVersion)},\n` +
-    `  workerVersion: ${JSON.stringify(workerVersion)},\n` +
-    `  sdk: () => import('./embedded-sdk.js').then((m) => m.default),\n` +
-    `  studio: () => import('./embedded-studio.js').then((m) => m.default),\n` +
-    `  docs: () => import('./embedded-docs.js').then((m) => m.default),\n` +
-    `  tarballs: () => import('./embedded-tarballs.js').then((m) => m.default),\n` +
-    `};\n` +
-    `await import(${JSON.stringify('../dist/cli/index.js')});\n`,
+  generatedEntrySource({
+    version,
+    assetVersion,
+    workerVersion,
+    cliImportSpecifier: '../dist/cli/index.js',
+  }),
 );
 const entry = join(BUILD, 'standalone-entry.js');
 
