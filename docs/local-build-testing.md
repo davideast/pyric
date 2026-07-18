@@ -128,10 +128,14 @@ ls -la vendor/*.tgz                  # exist, with a build-time mtime you expect
 
 # 2. Does the installed pyric contain the change under test?
 #    (pick any symbol your branch adds — example: the resetAll seam)
-tar -xzOf vendor/pyric-*.tgz package/dist/sandbox/internal/sandbox-impl.js | grep -c resetAll
+#    NAME THE EXACT TARBALL: vendor/ holds pyric.tgz AND pyric-cli.tgz, and a
+#    wildcard matching both makes tar treat the second file as a member name
+#    ("Not found in archive" — a false negative, not a missing fix).
+tar -xzOf vendor/pyric.tgz package/dist/sandbox/internal/sandbox-impl.js | grep -c resetAll
 
 # 3. Definitive: the local tarball's checksum differs from npm's
-shasum vendor/pyric-*.tgz
+#    (compare pyric.tgz against the pyric package — not the cli tarball)
+shasum vendor/pyric.tgz
 npm view pyric dist.shasum
 ```
 
