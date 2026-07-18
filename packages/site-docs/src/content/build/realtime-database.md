@@ -30,7 +30,7 @@ onValue(ref(db, 'status'), (snap) => {
   renderPresence(snap.val());
 });
 ```
-`push` appends with chronologically sortable IDs, `update` patches, `remove` deletes. One boundary to know: the Vite plugin does not swap `firebase/database` yet, so this path runs under `pyric dev`. In Node, import the same functions from `pyric/database` and hand `getDatabase` a sandbox:
+`push` appends with chronologically sortable IDs, `update` patches, `remove` deletes. This path runs the same under `pyric dev` and the Vite plugin — both swap `firebase/database` for the sandbox, and both run your `onValueCreated` functions against it, so a write here can trip a trigger just like production. In Node, import the same functions from `pyric/database` and hand `getDatabase` a sandbox:
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getDatabase, ref, set } from 'pyric/database';
