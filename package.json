@@ -17,12 +17,7 @@
     "build:cli": "bun run --cwd packages/cli build",
     "build:ui": "bun run --cwd packages/ui build",
     "pretest": "bash scripts/build.sh --packages-only",
-<<<<<<< HEAD
     "test": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun test --cwd packages/cli && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun run --cwd packages/site-docs test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs scripts/check-publish-version.test.mjs scripts/deploy-site.test.mjs",
-    "pretest:ci:cli": "bun run compat:conformance",
-=======
-    "test": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun test --cwd packages/cli && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs scripts/check-publish-version.test.mjs scripts/deploy-site.test.mjs scripts/gen-api-docs.test.ts",
->>>>>>> origin/main
     "test:ci:cli": "bun test --cwd packages/cli",
     "test:ci:libraries": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun run --cwd packages/site-docs test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs scripts/check-publish-version.test.mjs scripts/deploy-site.test.mjs",
     "tool:parity": "bun run scripts/tool-parity.mjs",
