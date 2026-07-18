@@ -136,8 +136,15 @@ if (!useWorker) try {
     diagnostics.databaseRulesDeployed = true;
     diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
   }
+  // Open the ONE per-sandbox storage service eagerly: the FIRST open wins the
+  // rules AND the project-scoped IDB name (`pyric-storage:<projectKey>`,
+  // issue #359) — a lazy first open from app code would land on the legacy
+  // shared database. `projectKey` is absent on older servers → legacy name.
+  getStorageSandbox(sandbox, {
+    ...(payload.storageRules ? { rules: payload.storageRules } : {}),
+    ...(payload.projectKey ? { projectId: payload.projectKey } : {}),
+  });
   if (payload.storageRules) {
-    getStorageSandbox(sandbox, { rules: payload.storageRules });
     diagnostics.storageRulesDeployed = true;
     diagnostics.storageRulesHash = payload.storageRulesHash;
   }

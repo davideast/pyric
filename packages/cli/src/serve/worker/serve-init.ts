@@ -209,8 +209,15 @@ export function applyServeInit(
   //     configure it. `payload.storageRules` is null when the project has no
   //     storage.rules, matching the same open-by-default posture as no
   //     firestore.rules / no database.rules.
+  //     The open ALSO claims the project-scoped IDB name
+  //     (`pyric-storage:<projectKey>`, issue #359) — which is why it now runs
+  //     unconditionally: a lazy first open from `ensureStorage`/`lensStorage`
+  //     would land on the legacy shared database.
+  getStorageSandbox(ctx.sandbox, {
+    ...(payload.storageRules ? { rules: payload.storageRules } : {}),
+    ...(payload.projectKey ? { projectId: payload.projectKey } : {}),
+  });
   if (payload.storageRules) {
-    getStorageSandbox(ctx.sandbox, { rules: payload.storageRules });
     result.storageRulesDeployed = true;
   }
 
