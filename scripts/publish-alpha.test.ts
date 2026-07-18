@@ -10,7 +10,7 @@ afterEach(() => {
   for (const directory of workDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-function runPublish(options: { skip?: boolean; failBunCommand?: string } = {}) {
+function runPublish(options: { skip?: boolean; dryRun?: boolean; failBunCommand?: string } = {}) {
   const work = mkdtempSync(join(tmpdir(), 'pyric-publish-contract-'));
   workDirs.push(work);
   const bin = join(work, 'bin');
@@ -28,7 +28,10 @@ if [ -n "\${FAIL_BUN_COMMAND:-}" ] && [ "$name $*" = "bun $FAIL_BUN_COMMAND" ]; 
     writeFileSync(path, fake);
     chmodSync(path, 0o755);
   }
-  const result = spawnSync('/bin/bash', [join(root, 'scripts/publish-alpha.sh'), '0.1.0-alpha.9'], {
+  const args = [join(root, 'scripts/publish-alpha.sh')];
+  if (options.dryRun) args.push('--dry-run');
+  args.push('0.1.0-alpha.9');
+  const result = spawnSync('/bin/bash', args, {
     cwd: root,
     encoding: 'utf8',
     env: {
@@ -69,5 +72,20 @@ describe('alpha publish safety contract', () => {
     expect(commands).not.toContain('bun run test:packaging');
     expect(commands).toContain('bash scripts/pack-packages.sh');
     expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(5);
+  });
+
+  test('dry-run proves authentication and package shape without mutating the registry', () => {
+    const { result, commands } = runPublish({ dryRun: true });
+    expect(result.status).toBe(0);
+    expect(commands).toContain('npm whoami --registry=https://registry.npmjs.org/');
+    expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(5);
+    expect(
+      commands
+        .filter((command) => command.startsWith('npm publish '))
+        .every((command) => command.includes(' --dry-run')),
+    ).toBe(true);
+    expect(commands).toContain('bun run compat:check');
+    expect(commands).toContain('bun run packages/conformance/src/print-fb-tag.ts');
+    expect(commands.some((command) => command.startsWith('npm dist-tag add '))).toBe(false);
   });
 });

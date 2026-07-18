@@ -44,6 +44,7 @@
     "compat:climb-ai": "bun test packages/pyric/test/ai",
     "pack": "bash scripts/pack-packages.sh",
     "pack:skip-build": "bash scripts/pack-packages.sh --skip-build",
+    "release:preflight": "bash scripts/publish-alpha.sh --dry-run",
     "compile:standalone": "bun run build && bun packages/cli/scripts/compile.ts",
     "release:standalone": "bun run build && bun packages/cli/scripts/release.ts",
     "smoke:standalone": "bun packages/cli/scripts/standalone-smoke.ts",

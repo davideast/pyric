@@ -2,6 +2,7 @@
 # Publish all lockstep pyric packages at a given version.
 #
 #   bash scripts/publish-alpha.sh 0.1.0-alpha.9
+#   bash scripts/publish-alpha.sh --dry-run 0.1.0-alpha.9
 #
 # Steps: gates (`bun run test` + `bun run test:packaging` — publishing is
 # irreversible, so the tree proves itself first; skip with
@@ -32,7 +33,13 @@
 #    receive an `fb*` tag (it is a scaffolder, not a Firebase mirror).
 set -euo pipefail
 
-V="${1:?usage: bash scripts/publish-alpha.sh <version> (e.g. 0.1.0-alpha.9)}"
+DRY_RUN=0
+if [ "${1:-}" = "--dry-run" ]; then
+  DRY_RUN=1
+  shift
+fi
+
+V="${1:?usage: bash scripts/publish-alpha.sh [--dry-run] <version> (e.g. 0.1.0-alpha.9)}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # The argument controls publish filenames and dist-tags, while npm pack names
@@ -60,6 +67,28 @@ bash scripts/pack-packages.sh
 # Behavioral smoke against the exact tarballs about to ship: installed-CLI
 # can-i-use exit codes and both conformance subpaths (scripts/release-smoke.sh).
 bash scripts/release-smoke.sh "$V"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo ""
+  echo "━━━ npm authentication (read-only) ━━━"
+  npm whoami --registry=https://registry.npmjs.org/
+
+  echo ""
+  echo "━━━ npm publish validation (dry-run; no upload) ━━━"
+  for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do
+    npm publish "dist/packages/${t}-${V}.tgz" --tag alpha --access public --dry-run
+  done
+
+  echo ""
+  echo "━━━ compat:check (dry-run; no dist-tag mutation) ━━━"
+  bun run compat:check
+  FB_TAG="$(bun run packages/conformance/src/print-fb-tag.ts)"
+
+  echo ""
+  echo "Preflight complete. No packages or dist-tags were published or changed."
+  echo "A real release would move alpha and latest to ${V}, and ${FB_TAG} on compatible packages."
+  exit 0
+fi
 
 for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do
   npm publish "dist/packages/${t}-${V}.tgz" --tag alpha --access public
