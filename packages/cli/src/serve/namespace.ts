@@ -16,7 +16,7 @@ import { collectBody } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { contentTypeFor, pipeFileToResponse, resolveStaticFile } from './server.js';
+import { contentTypeFor, pipeFileToResponse, resolveStaticFile, type ServeLogger } from './server.js';
 import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
 import type { InitPayload } from './init-payload.js';
 export type { InitPayload } from './init-payload.js';
@@ -101,6 +101,10 @@ export interface NamespaceOptions {
    *  (local Ollama). Always mounted — the route only touches the network
    *  when a request arrives. */
   aiProxyUpstream?: string;
+  /** Where hot-reload/diagnostic lines print (rules reload, denial relay).
+   *  Absent ⇒ diagnostics are dropped (a caller that wires no logger opts out
+   *  silently rather than falling back to raw `console`). */
+  logger?: ServeLogger;
 }
 
 // ─── AI proxy (`/__pyric/ai-proxy` — pyric/ai, cdd-deltas #98.2) ───────────
@@ -360,9 +364,104 @@ async function handleCapture(
   }
 }
 
+// ─── Denial relay (`POST /__pyric/denials` — headless dev visibility) ─────
+//
+// The worker client (`serve/worker/client/core.ts`) fire-and-forget POSTs
+// here whenever it reconstructs an error carrying `denialContext` (a rules
+// denial) — from a one-shot rejection or an unobserved listener error alike.
+// An agent driving `pyric dev` headlessly has no browser console to watch;
+// this is that visibility, printed to the terminal instead.
+//
+// A denied listener re-fires on every auth/rules change, so printing is
+// throttled per (path, message) pair — at most one line per window, and
+// silent (no output at all) on suppression rather than a "suppressed N more"
+// line, to keep this a diagnostics side channel, not its own log noise.
+
+const DENIAL_THROTTLE_MS = 5_000;
+
+/** Loosely-typed mirror of the client's relay payload — JSON from the served
+ *  page, read defensively since nothing here enforces the wire shape. */
+interface DenialRelayPayload {
+  kind?: unknown;
+  code?: unknown;
+  message?: unknown;
+  /** Sibling of `denialContext` on the sandbox error — query-proof denials
+   *  attach the suggested `where()` fix there; the client forwards it. */
+  remediation?: unknown;
+  denialContext?: {
+    auth?: { uid?: string } | null;
+    request?: { method?: string; path?: string };
+    /** Fallback position, in case a denial path nests it in the context. */
+    remediation?: string;
+  } | null;
+}
+
+/** Per-dev-server-instance throttle: at most one printed line per (path,
+ *  message) pair within {@link DENIAL_THROTTLE_MS}. Exported for unit tests. */
+export function createDenialThrottle(windowMs: number = DENIAL_THROTTLE_MS): {
+  shouldPrint(key: string, now: number): boolean;
+} {
+  const lastPrinted = new Map<string, number>();
+  return {
+    shouldPrint(key, now) {
+      const last = lastPrinted.get(key);
+      if (last !== undefined && now - last < windowMs) return false;
+      lastPrinted.set(key, now);
+      return true;
+    },
+  };
+}
+type DenialThrottle = ReturnType<typeof createDenialThrottle>;
+
+/** Format a relayed denial into the compact terminal block: the message,
+ *  then (when present) the request method/path, the auth uid, and any
+ *  remediation guidance. A few lines, never a JSON dump. */
+export function formatDenialBlock(payload: DenialRelayPayload): string {
+  const message = typeof payload.message === 'string' ? payload.message : 'permission denied';
+  const lines = [`  ⚠ [pyric] denied: ${message}`];
+  const ctx = payload.denialContext;
+  const request = ctx?.request;
+  if (request?.method && request?.path) {
+    lines.push(`      ${request.method} ${request.path}`);
+  }
+  const uid = ctx?.auth?.uid;
+  lines.push(`      auth: ${uid ?? 'anonymous'}`);
+  const remediation = typeof payload.remediation === 'string' ? payload.remediation : ctx?.remediation;
+  if (remediation) lines.push(`      ${remediation}`);
+  return lines.join('\n');
+}
+
+/** Handle `POST /__pyric/denials`. Always 204s (best-effort diagnostics —
+ *  a malformed body or a caller with no logger wired must never fail the
+ *  page that reported the denial). */
+async function handleDenials(
+  throttle: DenialThrottle,
+  logger: ServeLogger | undefined,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    res.writeHead(405, { allow: 'POST' }).end('method not allowed');
+    return;
+  }
+  try {
+    const payload = (await collectBody(req)) as DenialRelayPayload;
+    const message = typeof payload.message === 'string' ? payload.message : 'permission denied';
+    const path = payload.denialContext?.request?.path ?? '';
+    const key = `${path} ${message}`;
+    if (logger && throttle.shouldPrint(key, Date.now())) {
+      logger.note(formatDenialBlock(payload));
+    }
+  } catch {
+    /* malformed body — drop it; this is a diagnostics side channel */
+  }
+  res.writeHead(204).end();
+}
+
 export function createPyricNamespace(opts: NamespaceOptions) {
   const writerLock = createWriterLock();
   const studioRoutes = opts.studio ? createStudioRoutes(opts.studio) : null;
+  const denialThrottle = createDenialThrottle();
   return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
     if (
       studioRoutes &&
@@ -383,6 +482,9 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     if (url.pathname === '/__pyric/ai-proxy' || url.pathname.startsWith('/__pyric/ai-proxy/')) {
       return handleAiProxy(opts.aiProxyUpstream, req, res, url).then(() => true);
+    }
+    if (url.pathname === '/__pyric/denials') {
+      return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
     }
     if (url.pathname === '/__pyric/init.json') {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });

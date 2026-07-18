@@ -519,6 +519,14 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         capture,
         studio,
         studioUiDir,
+        // Adapt Vite's logger to the plain info/note shape the namespace's
+        // diagnostics (denial relay, future hot-reload lines) expect —
+        // matches the `↻`/`⚠ [pyric]` lines already logged elsewhere in this
+        // plugin via `server.config.logger` directly.
+        logger: {
+          info: (m) => server.config.logger.info(m),
+          note: (m) => server.config.logger.warn(m),
+        },
       });
 
       // DNS-rebinding guard for the /__pyric/* surface. Vite has its own host

@@ -420,6 +420,7 @@ export async function startServe(opts: {
     studio,
     studioUiDir,
     docsUiDir,
+    logger,
   });
   let handle: Awaited<ReturnType<typeof startStaticServer>>;
   try {
