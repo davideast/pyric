@@ -55,6 +55,19 @@ The God-object rule. A single class longer than 400 lines is a design smell, not
 - Test files are the source file name plus `.test.ts`, at the mirrored path under `test/`. A test file tests exactly one source file.
 - No file is named `utils`, `helpers`, `misc`, `common`, `shared`, or `index` with implementation in it. These names are the audit signal for a junk drawer.
 
+## 3a. Documentation lives in one home
+
+- All authored documentation lives under `packages/site-docs/src/content/`, as
+  plain nested markdown with plain-YAML front matter (`title`, `group`, `order`,
+  …). There is no second copy in a package's own `docs/` tree, and no content
+  collection or zod schema — pages are discovered by `import.meta.glob` and
+  validated by the site build's own assertions.
+- Generated documentation is never committed: the conformance matrices and the
+  TypeDoc API reference are written into `packages/site-docs/src/content/_generated/`
+  (gitignored) by `bun run generate` immediately before `astro build`.
+- Authored pages link each other by relative `.md` path; the site's remark
+  plugin resolves those to routes and fails the build on a broken link.
+
 ## 4. Barrel-file policy
 
 The ratified rule is: the directory is the index, and aggregation is computed, not hand-maintained. Source barrels align to it with one carve-out.
@@ -281,15 +294,29 @@ Today's sideways edges, enumerated:
    (low priority, no climb blocks on it): host the wrapper classes as a shared
    leaf (fold them into `firestore-values`, or a new `values/` leaf) and have
    `rules/simulator` import them from there. That dissolves the sideways edge.
-   Until then it is the one whitelisted exception (8.7 check 2).
+   Until then it is a whitelisted exception (8.7 check 2). `storage/rules.ts`
+   became the wrapper leaf's SECOND sideways consumer when it adopted the
+   RULES-B5 float model (`wrappers/float.js`, PR #333) — same ruling, and a
+   second vote for the shared-leaf move: when the leaf lands, both edges
+   dissolve together.
 
-3. **app/dispatch.test.ts -> firestore/auth/database barrels.** An app-registry
+3. **storage -> rules/grammar, shared syntax layer only.** Firebase Security
+   Rules is one language (#150); `storage/rules.ts` parses via the shared Ohm
+   grammar (`rules/grammar/FirestoreParser.js`, `rules/grammar/FirestoreAST.js`)
+   and converts the shared AST into its own evaluator shapes. Ruling: permitted,
+   because the syntax layer is engine-neutral by design (its `serviceName` and
+   `Operation` productions are generic) and the alternative is the hand-rolled
+   parser drift #150 exists to kill. The dependency is parse-only: storage
+   imports no simulator, linter, or evaluation code from `rules/` (the float
+   wrapper edge above is tracked separately). Encode narrowly (8.7 check 2).
+
+4. **app/dispatch.test.ts -> firestore/auth/database barrels.** An app-registry
    integration test importing surface barrels to exercise their public service
    factories. Test-only composition is the intended direction. Not a violation.
 
 No mirror surface imports another mirror surface's family or backend files. The
-direction rule holds today except for the two documented native-engine edges
-above.
+direction rule holds today except for the documented native-engine and
+shared-syntax edges above (cases 1–3).
 
 ## 8.4 Native (non-mirror) surfaces
 
@@ -378,11 +405,16 @@ every rule in this section mechanically.
    that grows inline implementation.
 
 2. **No sideways surface imports.** For any file under `src/<A>/`, a relative
-   import that crosses into another surface `src/<B>/` fails, with two
+   import that crosses into another surface `src/<B>/` fails, with four
    whitelisted exceptions: (a) `database/sandbox/rules-eval.ts` importing the
    private `rules/rtdb` engine described in 8.3; (b) the
    `firestore-values -> rules/simulator/wrappers/*` leaf edge, listed explicitly
-   so it is visible and removable. Any other cross-surface deep import fails.
+   so it is visible and removable; (c) `storage/rules.ts` importing the shared
+   syntax layer `rules/grammar/{FirestoreParser,FirestoreAST}.js` (8.3 case 3,
+   parse-only); (d) `storage/rules.ts` importing
+   `rules/simulator/wrappers/float.js` (8.3 case 2's misfiled shared primitive,
+   second consumer — dissolves with the shared-leaf move). Any other
+   cross-surface deep import fails.
 
 3. **Central-sandbox whitelist.** The top-level entries of `src/sandbox/` must
    match the whitelist in 8.2 (`index.ts`, `internal`, `sandbox-context.ts`,

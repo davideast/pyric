@@ -1,18 +1,18 @@
 /**
- * Storage rules — standalone subset.
+ * Storage rules — shared syntax, storage-specific evaluation.
  *
- * Why a separate evaluator (not the Firestore one):
+ * Firebase Security Rules is ONE language across Firestore and Storage.
+ * Parsing goes through the shared Ohm grammar
+ * (`../rules/grammar/FirestoreRules.ohm`), whose syntax layer is
+ * service-agnostic; a converter in this module maps the shared AST into
+ * the evaluator's internal shapes. What is genuinely storage-specific —
+ * and why this module keeps its OWN evaluator — is the binding layer:
+ * `request.resource.size` / `contentType`, `resource.metadata`, the GCS
+ * object-identity fields, and the error-value semantics probed against
+ * production Storage. Firestore's evaluator is instead shaped around
+ * `resource.data` and document snapshots.
  *
- * Firestore's grammar header is `service cloud.firestore` and its
- * bindings (`request.method` enum of get/list/create/update/delete,
- * `resource.data`, etc.) are deeply Firestore-shaped. Storage uses
- * `service firebase.storage` with different bindings
- * (`request.resource.size`, `request.resource.contentType`,
- * `resource.metadata`). The user's call (recorded in the v1 scope
- * plan): keep them independent so neither battles the other for
- * grammar generality.
- *
- * Subset implemented in Slice 8 (Section 5 of the v1 scope):
+ * Evaluation surface:
  *
  *   - `service firebase.storage { match … }` header
  *   - Nested `match` blocks with path segments:
@@ -24,11 +24,13 @@
  *     get + list; `write` grants create + update + delete; a granular
  *     grant covers only its own verb.
  *   - Expressions:
- *       literals: number, string, boolean, null
+ *       literals: number (int + float), string (with escapes), boolean,
+ *         null, list, map
  *       identifiers: `request`, `resource`, plus path parameters
- *       member access (`a.b`), index access (`a['b']`)
- *       unary: `!`
- *       binary: `&& || == != < > <= >= + - * /`
+ *       member access (`a.b`), index access (`a['b']`), slice (`a[x:y]`)
+ *       unary: `!`, `-`
+ *       binary: `&& || == != < > <= >= + - * / %`
+ *       ternary `?:`, `in` (list membership / map keys), `is` (type test)
  *       parens
  *       user-defined function calls (`isOwner(uid)`)
  *       `request.time` compared against the timestamp constructors
@@ -45,7 +47,8 @@
  *         map is a plain string→string object, so both resolve identically
  *         and a missing key is `undefined` (falsy → deny).
  *   - `function name(params) { let …; return expr; }` declarations at
- *     service scope or inside a `match` block. Lexically scoped (visible
+ *     global scope, service scope, or inside a `match` block (with
+ *     optional `export`). Lexically scoped (visible
  *     within the declaring block and nested blocks; inner shadows
  *     outer), may call other functions, support `let` bindings, and are
  *     depth-capped. Any function-eval failure denies with a reason.
@@ -68,6 +71,21 @@
  * than false-allow. Hooks for adding more live at the obvious extension seams in
  * the parser + evaluator.
  */
+
+import { parseToASTOrError } from '../rules/grammar/FirestoreParser.js';
+// RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
+// tagged with this wrapper while a bare JS `number` means INT (see the
+// wrapper's header for why floats are the wrapped case). The storage evaluator
+// adopts the same model so `1.0 is float`, truncating int division, and
+// int-vs-float promotion match production instead of JS numerics.
+import { RulesFloat } from '../rules/simulator/wrappers/float.js';
+import type {
+  FirestoreRules as SharedRules,
+  MatchBlock as SharedMatchBlock,
+  PathSegment as SharedPathSegment,
+  FunctionDef as SharedFunctionDef,
+  Expression as SharedExpression,
+} from '../rules/grammar/FirestoreAST.js';
 
 // ═══════════════════════════════════════════════════════════════
 // Public types
@@ -231,6 +249,12 @@ interface FunctionDef {
    *  to those after it and to the return expression. */
   lets: { name: string; value: Expr }[];
   body: Expr;
+  /** Set for a name brought in by an `import` declaration: the module
+   *  specifier. The syntax parses, but module resolution is not implemented,
+   *  so calling the function denies with a reason naming the import — not a
+   *  bare "undefined function". A same-named locally-declared function
+   *  shadows the stub (stubs are registered first). */
+  unresolvedImport?: string;
   /** Lexical scope: the functions visible from this function's body
    *  (its declaring block's `visibleFuncs`). Resolved after parsing so
    *  a call's body uses declaration-site scope, not the caller's. */
@@ -249,14 +273,29 @@ interface AllowRule {
   condition: Expr | null;
 }
 
-type BinaryOp = '&&' | '||' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '+' | '-' | '*' | '/';
+type BinaryOp =
+  | '&&' | '||' | '==' | '!=' | '<' | '>' | '<=' | '>='
+  | '+' | '-' | '*' | '/' | '%';
+
+/** Runtime twin of {@link BinaryOp} — the converter validates grammar
+ *  operator strings against this set so a new operator fails the parse
+ *  loudly rather than converting silently (see convertExpr's binaryOp case). */
+const BINARY_OPS: ReadonlySet<BinaryOp> = new Set([
+  '&&', '||', '==', '!=', '<', '>', '<=', '>=', '+', '-', '*', '/', '%',
+]);
 
 type Expr =
-  | { kind: 'literal'; value: number | string | boolean | null }
+  | { kind: 'literal'; value: number | RulesFloat | string | boolean | null }
   | { kind: 'ident'; name: string }
   | { kind: 'member'; target: Expr; name: string }
   | { kind: 'index'; target: Expr; index: Expr }
-  | { kind: 'unary'; op: '!'; arg: Expr }
+  | { kind: 'slice'; target: Expr; start: Expr; end: Expr }
+  | { kind: 'unary'; op: '!' | '-'; arg: Expr }
+  | { kind: 'ternary'; cond: Expr; then: Expr; else: Expr }
+  | { kind: 'in'; element: Expr; collection: Expr }
+  | { kind: 'is'; value: Expr; typeName: string }
+  | { kind: 'list'; elements: Expr[] }
+  | { kind: 'map'; entries: { key: Expr; value: Expr }[] }
   | { kind: 'binary'; op: BinaryOp; left: Expr; right: Expr }
   | { kind: 'call'; name: string; args: Expr[] }
   /** A method / namespace call: `<target>.<method>(args)`. Covers
@@ -278,499 +317,111 @@ type PathArgSegment =
   | { kind: 'interp'; expr: Expr };
 
 // ═══════════════════════════════════════════════════════════════
-// Lexer
+// Shared-grammar front end
 // ═══════════════════════════════════════════════════════════════
+//
+// Storage rules are parsed by the SAME Ohm grammar as Firestore rules
+// (Firebase Security Rules is one language; the grammar's serviceName
+// and Operation productions are service-agnostic). The functions below
+// convert the shared AST into this module's internal shapes, which the
+// evaluator consumes. The expression converter is exhaustive over the
+// shared Expression union, so a construct added to the grammar without
+// a storage mapping fails loudly at parse time instead of drifting
+// silently.
 
-type Token =
-  | { kind: 'ident'; value: string; pos: number }
-  | { kind: 'number'; value: number; pos: number }
-  | { kind: 'string'; value: string; pos: number }
-  | { kind: 'punct'; value: string; pos: number }
-  | { kind: 'eof'; pos: number };
-
-const KEYWORDS = new Set([
-  'service', 'match', 'allow', 'if', 'true', 'false', 'null',
-  'read', 'write', 'get', 'list', 'create', 'update', 'delete',
-  'function', 'let', 'return',
-]);
-
-/** Verb tokens accepted in an `allow` clause. */
-const GRANT_VERBS = new Set<StorageGrantVerb>([
-  'read', 'write', 'get', 'list', 'create', 'update', 'delete',
-]);
-const MULTI_CHAR_OPS = ['==', '!=', '<=', '>=', '&&', '||'];
-
-function tokenize(source: string): Token[] {
-  const tokens: Token[] = [];
-  let i = 0;
-  while (i < source.length) {
-    const ch = source[i];
-    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
-      i++;
-      continue;
-    }
-    // Line comments
-    if (ch === '/' && source[i + 1] === '/') {
-      while (i < source.length && source[i] !== '\n') i++;
-      continue;
-    }
-    // String literals — single or double quoted, no escapes for the
-    // v1 scope (rules examples are short and use plain ASCII strings).
-    if (ch === "'" || ch === '"') {
-      const quote = ch;
-      const start = i;
-      i++;
-      let value = '';
-      while (i < source.length && source[i] !== quote) {
-        value += source[i];
-        i++;
-      }
-      if (i >= source.length) {
-        throw new SyntaxError(`Unterminated string literal starting at offset ${start}.`);
-      }
-      i++; // skip closing quote
-      tokens.push({ kind: 'string', value, pos: start });
-      continue;
-    }
-    // Numbers — integer only; the v1 scope's only number usage is size
-    // literals like `10 * 1024 * 1024`. Floats can extend later.
-    if (ch >= '0' && ch <= '9') {
-      const start = i;
-      let n = '';
-      while (i < source.length && source[i] >= '0' && source[i] <= '9') {
-        n += source[i];
-        i++;
-      }
-      tokens.push({ kind: 'number', value: Number(n), pos: start });
-      continue;
-    }
-    // Identifiers / keywords
-    if (isIdentStart(ch)) {
-      const start = i;
-      let name = '';
-      while (i < source.length && isIdentPart(source[i])) {
-        name += source[i];
-        i++;
-      }
-      tokens.push({ kind: 'ident', value: name, pos: start });
-      continue;
-    }
-    // Multi-char operators
-    const two = source.slice(i, i + 2);
-    if (MULTI_CHAR_OPS.includes(two)) {
-      tokens.push({ kind: 'punct', value: two, pos: i });
-      i += 2;
-      continue;
-    }
-    // Single-char punctuation. `$` is here for `$(expr)` interpolation
-    // segments inside a Firestore path literal (`firestore.get(/…/$(x))`).
-    if ('{}()[].,;:=*+-/<>!|&$'.includes(ch)) {
-      tokens.push({ kind: 'punct', value: ch, pos: i });
-      i++;
-      continue;
-    }
-    throw new SyntaxError(`Unexpected character "${ch}" at offset ${i}.`);
-  }
-  tokens.push({ kind: 'eof', pos: source.length });
-  return tokens;
+function convertMatch(block: SharedMatchBlock): MatchBlock {
+  return {
+    segments: block.path.segments.map(convertSegment),
+    children: block.children.map(convertMatch),
+    allows: block.allows.map((a) => ({
+      verbs: a.operations,
+      condition: convertExpr(a.condition),
+    })),
+    functions: block.functions.map(convertFunction),
+  };
 }
 
-function isIdentStart(ch: string): boolean {
-  return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_';
-}
-function isIdentPart(ch: string): boolean {
-  return isIdentStart(ch) || (ch >= '0' && ch <= '9');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Parser
-// ═══════════════════════════════════════════════════════════════
-
-class Parser {
-  private pos = 0;
-  constructor(private readonly tokens: Token[]) {}
-
-  parseService(): MatchBlock {
-    // Optional leading `rules_version = '<n>';`. Production REQUIRES it for
-    // v2 features (functions, `let`, `matches()`); a real storage.rules file
-    // that uses them declares it. Accept and ignore the declaration — the
-    // evaluator implements v2 semantics regardless of the stated version.
-    if (this.atIdent('rules_version')) {
-      this.pos++; // rules_version
-      this.expectPunct('=');
-      this.expect('string'); // the version literal, e.g. '2'
-      this.expectPunct(';');
-    }
-    this.expectIdent('service');
-    this.expectIdent('firebase');
-    this.expectPunct('.');
-    this.expectIdent('storage');
-    this.expectPunct('{');
-    const root: MatchBlock = { segments: [], children: [], allows: [], functions: [] };
-    while (!this.atPunct('}')) {
-      if (this.atIdent('function')) {
-        root.functions.push(this.parseFunction());
-      } else {
-        this.parseMatchInto(root);
-      }
-    }
-    this.expectPunct('}');
-    return root;
-  }
-
-  /** Parse `function name(p1, p2) { let x = e; … return e; }`. */
-  private parseFunction(): FunctionDef {
-    this.expectIdent('function');
-    const name = this.expectIdentValue();
-    this.expectPunct('(');
-    const params: string[] = [];
-    if (!this.atPunct(')')) {
-      params.push(this.expectIdentValue());
-      while (this.atPunct(',')) {
-        this.expectPunct(',');
-        params.push(this.expectIdentValue());
-      }
-    }
-    this.expectPunct(')');
-    this.expectPunct('{');
-    const lets: { name: string; value: Expr }[] = [];
-    while (this.atIdent('let')) {
-      this.expectIdent('let');
-      const bindName = this.expectIdentValue();
-      this.expectPunct('=');
-      const value = this.parseExpression();
-      this.expectPunct(';');
-      lets.push({ name: bindName, value });
-    }
-    this.expectIdent('return');
-    const body = this.parseExpression();
-    this.expectPunct(';');
-    this.expectPunct('}');
-    return { name, params, lets, body };
-  }
-
-  /** Parse a `match /path/segments { ... }` block as a child of
-   *  `parent`. Empty path (just `match { ... }`) is illegal. */
-  private parseMatchInto(parent: MatchBlock): void {
-    this.expectIdent('match');
-    const segments = this.parsePath();
-    this.expectPunct('{');
-    const block: MatchBlock = { segments, children: [], allows: [], functions: [] };
-    while (!this.atPunct('}')) {
-      if (this.atIdent('match')) {
-        this.parseMatchInto(block);
-      } else if (this.atIdent('allow')) {
-        block.allows.push(this.parseAllow());
-      } else if (this.atIdent('function')) {
-        block.functions.push(this.parseFunction());
-      } else {
-        const t = this.peek();
-        throw new SyntaxError(
-          `Expected 'match', 'allow', or 'function' inside match block at offset ${t.pos}, got "${describeToken(t)}".`,
-        );
-      }
-    }
-    this.expectPunct('}');
-    parent.children.push(block);
-  }
-
-  /** Parse a path like `/b/{bucket}/o/{allPaths=**}` into segments. */
-  private parsePath(): PathSegment[] {
-    const segments: PathSegment[] = [];
-    while (this.atPunct('/')) {
-      this.expectPunct('/');
-      const t = this.peek();
-      if (t.kind === 'punct' && t.value === '{') {
-        this.expectPunct('{');
-        const name = this.expectIdentValue();
-        // `{name=**}` wildcard form
-        if (this.atPunct('=')) {
-          this.expectPunct('=');
-          this.expectPunct('*');
-          this.expectPunct('*');
-          this.expectPunct('}');
-          segments.push({ kind: 'wildcard', name });
-        } else {
-          this.expectPunct('}');
-          segments.push({ kind: 'param', name });
-        }
-      } else if (t.kind === 'ident') {
-        // Literal segment — `match /sessions/{id}` etc.
-        segments.push({ kind: 'literal', value: t.value });
-        this.pos++;
-      } else {
-        throw new SyntaxError(
-          `Expected path segment after '/' at offset ${t.pos}.`,
-        );
-      }
-    }
-    if (segments.length === 0) {
-      throw new SyntaxError(
-        `Empty match path at offset ${this.peek().pos}.`,
-      );
-    }
-    return segments;
-  }
-
-  /** Parse `allow <verb>[, <verb>]*: if <expr>;` */
-  private parseAllow(): AllowRule {
-    this.expectIdent('allow');
-    const verbs: StorageGrantVerb[] = [];
-    verbs.push(this.parseVerb());
-    while (this.atPunct(',')) {
-      this.expectPunct(',');
-      verbs.push(this.parseVerb());
-    }
-    this.expectPunct(':');
-    let condition: Expr | null = null;
-    if (this.atIdent('if')) {
-      this.expectIdent('if');
-      condition = this.parseExpression();
-    }
-    this.expectPunct(';');
-    return { verbs, condition };
-  }
-
-  private parseVerb(): StorageGrantVerb {
-    const t = this.expect('ident');
-    if (GRANT_VERBS.has(t.value as StorageGrantVerb)) {
-      return t.value as StorageGrantVerb;
-    }
-    throw new SyntaxError(
-      `Unsupported verb "${t.value}" at offset ${t.pos}. Storage rules support read, write, get, list, create, update, and delete.`,
-    );
-  }
-
-  // Expression precedence (loose → tight):
-  //   OR (||)  →  AND (&&)  →  EQ (==/!=)  →  REL (</>/<=/>=)  →
-  //   ADD (+/-)  →  MUL (*//)  →  UNARY (!) →  PRIMARY
-  private parseExpression(): Expr { return this.parseOr(); }
-  private parseOr(): Expr {
-    let left = this.parseAnd();
-    while (this.atPunct('||')) {
-      this.expectPunct('||');
-      left = { kind: 'binary', op: '||', left, right: this.parseAnd() };
-    }
-    return left;
-  }
-  private parseAnd(): Expr {
-    let left = this.parseEq();
-    while (this.atPunct('&&')) {
-      this.expectPunct('&&');
-      left = { kind: 'binary', op: '&&', left, right: this.parseEq() };
-    }
-    return left;
-  }
-  private parseEq(): Expr {
-    let left = this.parseRel();
-    while (this.atPunct('==') || this.atPunct('!=')) {
-      const op = this.expect('punct').value as '==' | '!=';
-      left = { kind: 'binary', op, left, right: this.parseRel() };
-    }
-    return left;
-  }
-  private parseRel(): Expr {
-    let left = this.parseAdd();
-    while (this.atPunct('<') || this.atPunct('>') || this.atPunct('<=') || this.atPunct('>=')) {
-      const op = this.expect('punct').value as '<' | '>' | '<=' | '>=';
-      left = { kind: 'binary', op, left, right: this.parseAdd() };
-    }
-    return left;
-  }
-  private parseAdd(): Expr {
-    let left = this.parseMul();
-    while (this.atPunct('+') || this.atPunct('-')) {
-      const op = this.expect('punct').value as '+' | '-';
-      left = { kind: 'binary', op, left, right: this.parseMul() };
-    }
-    return left;
-  }
-  private parseMul(): Expr {
-    let left = this.parseUnary();
-    while (this.atPunct('*') || this.atPunct('/')) {
-      const op = this.expect('punct').value as '*' | '/';
-      left = { kind: 'binary', op, left, right: this.parseUnary() };
-    }
-    return left;
-  }
-  private parseUnary(): Expr {
-    if (this.atPunct('!')) {
-      this.expectPunct('!');
-      return { kind: 'unary', op: '!', arg: this.parseUnary() };
-    }
-    return this.parsePostfix();
-  }
-  /** `.name` and `[expr]` chain after a primary. */
-  private parsePostfix(): Expr {
-    let target = this.parsePrimary();
-    for (;;) {
-      if (this.atPunct('.')) {
-        this.expectPunct('.');
-        const name = this.expectIdentValue();
-        target = { kind: 'member', target, name };
-      } else if (this.atPunct('[')) {
-        this.expectPunct('[');
-        const index = this.parseExpression();
-        this.expectPunct(']');
-        target = { kind: 'index', target, index };
-      } else if (this.atPunct('(')) {
-        // Call. Two shapes are accepted:
-        //   - bare ident `f(...)`   → user-defined function call
-        //   - member `x.m(...)`     → method / namespace call
-        //     (`string.matches(re)`, `timestamp.date(...)`, …)
-        // Anything else (e.g. `x['k'](...)`) is not callable.
-        this.expectPunct('(');
-        const args: Expr[] = [];
-        if (!this.atPunct(')')) {
-          args.push(this.parseExpression());
-          while (this.atPunct(',')) {
-            this.expectPunct(',');
-            args.push(this.parseExpression());
-          }
-        }
-        this.expectPunct(')');
-        if (target.kind === 'ident') {
-          target = { kind: 'call', name: target.name, args };
-        } else if (target.kind === 'member') {
-          target = { kind: 'methodcall', target: target.target, method: target.name, args };
-        } else {
-          throw new SyntaxError(
-            `Call expression at offset ${this.peek().pos} must target a function name or a member.`,
-          );
-        }
-      } else {
-        return target;
-      }
-    }
-  }
-  private parsePrimary(): Expr {
-    const t = this.peek();
-    // A leading `/` in primary position can only be a Firestore path
-    // literal (division needs a left operand, which primary position lacks).
-    // Only `firestore.get()/exists()` accept one; anywhere else it parses
-    // fine but denies at eval (see `evalExpr` 'path').
-    if (t.kind === 'punct' && t.value === '/') {
-      return this.parsePathArg();
-    }
-    if (t.kind === 'punct' && t.value === '(') {
-      this.expectPunct('(');
-      const e = this.parseExpression();
-      this.expectPunct(')');
-      return e;
-    }
-    if (t.kind === 'number') {
-      this.pos++;
-      return { kind: 'literal', value: t.value };
-    }
-    if (t.kind === 'string') {
-      this.pos++;
-      return { kind: 'literal', value: t.value };
-    }
-    if (t.kind === 'ident') {
-      this.pos++;
-      if (t.value === 'true') return { kind: 'literal', value: true };
-      if (t.value === 'false') return { kind: 'literal', value: false };
-      if (t.value === 'null') return { kind: 'literal', value: null };
-      return { kind: 'ident', name: t.value };
-    }
-    throw new SyntaxError(`Unexpected token "${describeToken(t)}" at offset ${t.pos}.`);
-  }
-
-  /**
-   * Parse a Firestore path literal — the `firestore.get()/exists()`
-   * argument. Grammar (each segment preceded by `/`):
-   *
-   *   - `$(expr)`      — an interpolation resolved at eval time
-   *   - `(name)`       — the parenthesized database sentinel, e.g. `(default)`
-   *   - `ident`/number — a fixed path segment (`databases`, `documents`, …)
-   *
-   * The full path is assembled and prefix-validated at eval (see
-   * `buildFirestoreDocPath`); the parser only captures structure.
-   */
-  private parsePathArg(): Expr {
-    const segments: PathArgSegment[] = [];
-    while (this.atPunct('/')) {
-      this.expectPunct('/');
-      if (this.atPunct('$')) {
-        this.expectPunct('$');
-        this.expectPunct('(');
-        const expr = this.parseExpression();
-        this.expectPunct(')');
-        segments.push({ kind: 'interp', expr });
-      } else if (this.atPunct('(')) {
-        // Database sentinel like `(default)`; kept verbatim (parens included)
-        // so the eval-time prefix check sees the exact production form.
-        this.expectPunct('(');
-        const name = this.expectIdentValue();
-        this.expectPunct(')');
-        segments.push({ kind: 'literal', value: `(${name})` });
-      } else {
-        const t = this.peek();
-        if (t.kind === 'ident') {
-          this.pos++;
-          segments.push({ kind: 'literal', value: t.value });
-        } else if (t.kind === 'number') {
-          this.pos++;
-          segments.push({ kind: 'literal', value: String(t.value) });
-        } else {
-          throw new SyntaxError(
-            `Expected a path segment after '/' at offset ${t.pos}, got "${describeToken(t)}".`,
-          );
-        }
-      }
-    }
-    if (segments.length === 0) {
-      throw new SyntaxError(`Empty Firestore path literal at offset ${this.peek().pos}.`);
-    }
-    return { kind: 'path', segments };
-  }
-
-  // ─── Token helpers ─────────────────────────────────────────
-  private peek(): Token { return this.tokens[this.pos]; }
-  private atPunct(value: string): boolean {
-    const t = this.tokens[this.pos];
-    return t.kind === 'punct' && t.value === value;
-  }
-  private atIdent(value: string): boolean {
-    const t = this.tokens[this.pos];
-    return t.kind === 'ident' && t.value === value;
-  }
-  private expect<K extends Token['kind']>(kind: K): Extract<Token, { kind: K }> {
-    const t = this.tokens[this.pos];
-    if (t.kind !== kind) {
-      throw new SyntaxError(
-        `Expected ${kind} at offset ${t.pos}, got "${describeToken(t)}".`,
-      );
-    }
-    this.pos++;
-    return t as Extract<Token, { kind: K }>;
-  }
-  private expectIdent(value: string): void {
-    const t = this.expect('ident');
-    if (t.value !== value) {
-      throw new SyntaxError(
-        `Expected keyword "${value}" at offset ${t.pos}, got "${t.value}".`,
-      );
-    }
-  }
-  private expectIdentValue(): string {
-    const t = this.expect('ident');
-    return t.value;
-  }
-  private expectPunct(value: string): void {
-    const t = this.expect('punct');
-    if (t.value !== value) {
-      throw new SyntaxError(
-        `Expected "${value}" at offset ${t.pos}, got "${t.value}".`,
-      );
-    }
+function convertSegment(seg: SharedPathSegment): PathSegment {
+  switch (seg.type) {
+    case 'literal': return { kind: 'literal', value: seg.value };
+    case 'wildcard': return { kind: 'param', name: seg.name };
+    case 'recursive': return { kind: 'wildcard', name: seg.name };
   }
 }
 
-function describeToken(t: Token): string {
-  if (t.kind === 'eof') return '<eof>';
-  if (t.kind === 'string') return JSON.stringify(t.value);
-  return String((t as { value: unknown }).value);
+function convertFunction(fn: SharedFunctionDef): FunctionDef {
+  return {
+    name: fn.name,
+    params: fn.parameters,
+    lets: fn.lets.map((l) => ({ name: l.name, value: convertExpr(l.value) })),
+    body: convertExpr(fn.body),
+  };
+}
+
+function convertExpr(e: SharedExpression): Expr {
+  switch (e.type) {
+    case 'literal':
+      // A numeric literal written with a decimal point is a FLOAT even when
+      // integral (`1.0`); the grammar preserves the source text in `raw`, so
+      // a `.` there is the float signal. Bare integer literals stay raw
+      // numbers (= int), mirroring the simulator's literal handling.
+      if (typeof e.value === 'number' && e.raw.includes('.')) {
+        return { kind: 'literal', value: new RulesFloat(e.value) };
+      }
+      return { kind: 'literal', value: e.value };
+    case 'identifier':
+      return { kind: 'ident', name: e.name };
+    case 'memberAccess':
+      return { kind: 'member', target: convertExpr(e.object), name: e.property };
+    case 'methodCall':
+      return { kind: 'methodcall', target: convertExpr(e.object), method: e.method, args: e.args.map(convertExpr) };
+    case 'bracketAccess':
+      return { kind: 'index', target: convertExpr(e.object), index: convertExpr(e.index) };
+    case 'sliceAccess':
+      return { kind: 'slice', target: convertExpr(e.object), start: convertExpr(e.start), end: convertExpr(e.end) };
+    case 'binaryOp':
+      // Operator strings are VALIDATED, not cast: the `never` backstop below
+      // only catches new Expression VARIANTS — a new operator on an existing
+      // variant would otherwise convert silently and fall off evalExpr's op
+      // switch to an undefined (silent deny), recreating the drift class the
+      // shared-grammar move exists to kill. Fail the parse loudly instead.
+      if (!BINARY_OPS.has(e.op as BinaryOp)) {
+        throw new SyntaxError(`Unsupported binary operator '${e.op}' in storage rules.`);
+      }
+      return { kind: 'binary', op: e.op as BinaryOp, left: convertExpr(e.left), right: convertExpr(e.right) };
+    case 'unaryOp':
+      if (e.op !== '!' && e.op !== '-') {
+        throw new SyntaxError(`Unsupported unary operator '${e.op}' in storage rules.`);
+      }
+      return { kind: 'unary', op: e.op, arg: convertExpr(e.operand) };
+    case 'ternary':
+      return { kind: 'ternary', cond: convertExpr(e.condition), then: convertExpr(e.consequent), else: convertExpr(e.alternate) };
+    case 'inExpr':
+      return { kind: 'in', element: convertExpr(e.element), collection: convertExpr(e.collection) };
+    case 'isExpr':
+      return { kind: 'is', value: convertExpr(e.value), typeName: e.typeName };
+    case 'listLiteral':
+      return { kind: 'list', elements: e.elements.map(convertExpr) };
+    case 'mapLiteral':
+      return { kind: 'map', entries: e.entries.map((en) => ({ key: convertExpr(en.key), value: convertExpr(en.value) })) };
+    case 'pathLiteral':
+      return {
+        kind: 'path',
+        segments: e.segments.map((seg): PathArgSegment =>
+          typeof seg === 'string'
+            ? { kind: 'literal', value: seg }
+            : { kind: 'interp', expr: convertExpr(seg) },
+        ),
+      };
+    case 'functionCall':
+      return { kind: 'call', name: e.name, args: e.args.map(convertExpr) };
+    default: {
+      // Exhaustiveness backstop: a NEW grammar construct with no storage
+      // mapping must fail the parse, never evaluate wrong.
+      const unhandled: never = e;
+      throw new SyntaxError(`Unsupported expression construct: ${JSON.stringify(unhandled)}`);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -783,9 +434,46 @@ function describeToken(t: Token): string {
  * `getStorage(ctx, { rules })` to validate upfront.
  */
 export function parseStorageRules(source: string): StorageRules {
-  const tokens = tokenize(source);
-  const parser = new Parser(tokens);
-  const root = parser.parseService();
+  const parsed = parseToASTOrError(source);
+  if (!parsed.ok) {
+    throw new SyntaxError(
+      `Storage rules parse error at line ${parsed.error.line}, column ${parsed.error.column}: expected ${parsed.error.expected}.`,
+    );
+  }
+  const ast: SharedRules = parsed.ast;
+  if (ast.service.name !== 'firebase.storage') {
+    throw new SyntaxError(
+      `Expected 'service firebase.storage', got 'service ${ast.service.name}'.`,
+    );
+  }
+  // The service's own DocumentsMatch (`match /b/{bucket}/o`) becomes a child
+  // of a synthetic path-less root so path matching starts at the request
+  // path's first segment, as before.
+  //
+  // Global and service-scope function declarations attach to the root block:
+  // root visibility equals everywhere-in-service visibility, and the array
+  // order (global, then service, then none of root's own) preserves
+  // inner-shadows-outer resolution in `resolveFunctions`.
+  const root: MatchBlock = {
+    segments: [],
+    children: [convertMatch(ast.service.match)],
+    allows: [],
+    functions: [
+      // Import stubs FIRST so any real declaration of the same name
+      // shadows them in resolveFunctions (later map.set wins).
+      ...(ast.imports ?? []).flatMap((imp) =>
+        imp.functions.map((name): FunctionDef => ({
+          name,
+          params: [],
+          lets: [],
+          body: { kind: 'literal', value: null },
+          unresolvedImport: imp.module,
+        })),
+      ),
+      ...(ast.functions ?? []).map(convertFunction),
+      ...(ast.service.functions ?? []).map(convertFunction),
+    ],
+  };
   resolveFunctions(root, new Map());
   return { _root: root };
 }
@@ -1217,7 +905,79 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // `name` absent DENIES). Propagate rather than flipping it to `true`.
       const a = evalExpr(expr.arg, ctx);
       if (isErr(a)) return a;
+      if (expr.op === '-') {
+        if (a instanceof RulesFloat) return new RulesFloat(-a.value);
+        if (typeof a !== 'number') return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
+        return -a;
+      }
       return !truthy(a);
+    }
+    case 'ternary': {
+      const c = evalExpr(expr.cond, ctx);
+      // An error condition denies the whole conditional; it must not fall
+      // through to the alternate branch and potentially allow.
+      if (isErr(c)) return c;
+      return truthy(c) ? evalExpr(expr.then, ctx) : evalExpr(expr.else, ctx);
+    }
+    case 'in': {
+      const el = evalExpr(expr.element, ctx);
+      if (isErr(el)) return el;
+      const coll = evalExpr(expr.collection, ctx);
+      if (isErr(coll)) return coll;
+      // `x in list` is membership; `x in map` tests OWN keys only — production
+      // maps never expose prototype names (`'toString' in map` is false;
+      // live-pinned by rules-firestore-prototype-chain-keys), so JS `in`
+      // (which walks the prototype chain) would false-ALLOW here.
+      if (Array.isArray(coll)) return coll.some((v) => rulesEquals(v, el));
+      if (coll !== null && typeof coll === 'object') return typeof el === 'string' && Object.prototype.hasOwnProperty.call(coll, el);
+      return new RuleError(`'in' applied to ${describeType(coll)} (expected a list or map).`);
+    }
+    case 'is': {
+      const v = evalExpr(expr.value, ctx);
+      if (isErr(v)) return v;
+      return typeMatches(v, expr.typeName);
+    }
+    case 'list': {
+      const out: unknown[] = [];
+      for (const el of expr.elements) {
+        const v = evalExpr(el, ctx);
+        if (isErr(v)) return v;
+        out.push(v);
+      }
+      return out;
+    }
+    case 'map': {
+      const out: Record<string, unknown> = {};
+      for (const entry of expr.entries) {
+        const k = evalExpr(entry.key, ctx);
+        if (isErr(k)) return k;
+        if (typeof k !== 'string') return new RuleError(`Map literal key is ${describeType(k)} (expected a string).`);
+        const v = evalExpr(entry.value, ctx);
+        if (isErr(v)) return v;
+        out[k] = v;
+      }
+      return out;
+    }
+    case 'slice': {
+      const t = evalExpr(expr.target, ctx);
+      if (isErr(t)) return t;
+      const start = evalExpr(expr.start, ctx);
+      if (isErr(start)) return start;
+      const end = evalExpr(expr.end, ctx);
+      if (isErr(end)) return end;
+      if (typeof start !== 'number' || typeof end !== 'number' || !Number.isInteger(start) || !Number.isInteger(end)) {
+        return new RuleError(`Slice bounds must be integers.`);
+      }
+      // Production slices lists AND strings, but an out-of-range bound ERRORS
+      // (deny) — it does NOT clamp the way JS `.slice()` does (live-pinned by
+      // rules-firestore-range-slice-list-and-string: end past length → DENY).
+      if (Array.isArray(t) || typeof t === 'string') {
+        if (start < 0 || end < start || end > t.length) {
+          return new RuleError(`Slice bounds [${start}:${end}] out of range for ${describeType(t)} of size ${t.length}.`);
+        }
+        return t.slice(start, end);
+      }
+      return new RuleError(`Slice applied to ${describeType(t)} (expected a list or string).`);
     }
     case 'binary': {
       // Short-circuit && / || so half-undefined chains don't trip
@@ -1244,10 +1004,12 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       switch (expr.op) {
         // Firebase rules treat `null` and `undefined` as
         // equivalent (helpful for `request.resource == null` on
-        // deletes, which don't carry a resource payload). Mirror
-        // that semantic; everything else is strict equality.
-        case '==': return l === r || (l == null && r == null);
-        case '!=': return !(l === r || (l == null && r == null));
+        // deletes, which don't carry a resource payload). Lists and
+        // maps compare STRUCTURALLY (production `[a] == [a]` is true;
+        // JS reference identity would make every literal comparison
+        // false). Everything else is strict equality.
+        case '==': return rulesEquals(l, r);
+        case '!=': return !rulesEquals(l, r);
         case '<':  return cmp(l, r) < 0;
         case '>':  return cmp(l, r) > 0;
         case '<=': return cmp(l, r) <= 0;
@@ -1255,7 +1017,21 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
         case '+':  return numOp(l, r, (a, b) => a + b);
         case '-':  return numOp(l, r, (a, b) => a - b);
         case '*':  return numOp(l, r, (a, b) => a * b);
-        case '/':  return numOp(l, r, (a, b) => a / b);
+        // Division: int ÷ int TRUNCATES toward zero and an int zero divisor
+        // ERRORS (deny; `10 / 0 || true` still absorbs to allow) — JS float
+        // division would yield 2.5 / Infinity, and Infinity leaks through
+        // comparisons as a false-ALLOW. Float division stays float (÷ 0 →
+        // ±Infinity/NaN, the simulator's CEL-pinned behavior).
+        case '/': {
+          if (isFloatNum(l) || isFloatNum(r)) return numOp(l, r, (a, b) => a / b);
+          return numVal(r) === 0
+            ? new RuleError('Division by zero.')
+            : numOp(l, r, (a, b) => Math.trunc(a / b));
+        }
+        case '%': {
+          if (isFloatNum(l) || isFloatNum(r)) return numOp(l, r, (a, b) => a % b);
+          return numVal(r) === 0 ? new RuleError('Modulo by zero.') : numOp(l, r, (a, b) => a % b);
+        }
       }
     }
   }
@@ -1273,6 +1049,11 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   const fn = ctx.funcs.get(expr.name);
   if (!fn) {
     throw new RuleEvalError(`undefined function ${expr.name}()`);
+  }
+  if (fn.unresolvedImport !== undefined) {
+    throw new RuleEvalError(
+      `function ${expr.name}() is imported from '${fn.unresolvedImport}', but import module resolution is not implemented`,
+    );
   }
   if (fn.params.length !== expr.args.length) {
     throw new RuleEvalError(
@@ -1308,15 +1089,60 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   return evalExpr(fn.body, bodyCtx);
 }
 
+/**
+ * `value is <type>` check. Numbers use the RULES-B5 model: a `RulesFloat`
+ * wrapper is a FLOAT, a bare number is an INT — so `1.0 is float` and
+ * `!(1.0 is int)` type by literal form exactly as production does. A bare
+ * NON-integral number (a fractional value that arrived from data rather than
+ * a literal, e.g. a Firestore-lookup double) still reads as float. `number`
+ * accepts either.
+ */
+function typeMatches(v: unknown, typeName: string): boolean | RuleError {
+  switch (typeName) {
+    case 'string': return typeof v === 'string';
+    case 'bool': return typeof v === 'boolean';
+    case 'int': return typeof v === 'number' && Number.isInteger(v);
+    case 'float': return v instanceof RulesFloat || (typeof v === 'number' && !Number.isInteger(v));
+    case 'number': return v instanceof RulesFloat || typeof v === 'number';
+    case 'list': return Array.isArray(v);
+    case 'map': return v !== null && typeof v === 'object' && !Array.isArray(v);
+    default:
+      // timestamp/duration/path/latlng are modeled as plain millis/strings
+      // here — a type test against them cannot answer honestly, so deny
+      // with a reason rather than false-allow.
+      return new RuleError(`'is ${typeName}' is not supported by the storage evaluator.`);
+  }
+}
+
+/** Raw numeric value of an int (bare number) or float (RulesFloat); undefined
+ *  for anything else. */
+function numVal(v: unknown): number | undefined {
+  if (typeof v === 'number') return v;
+  if (v instanceof RulesFloat) return v.value;
+  return undefined;
+}
+
+function isFloatNum(v: unknown): boolean {
+  return v instanceof RulesFloat;
+}
+
 function cmp(a: unknown, b: unknown): number {
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  const an = numVal(a);
+  const bn = numVal(b);
+  // CEL compares int and float by numeric value (`1 < 1.5` is well-typed).
+  if (an !== undefined && bn !== undefined) return an - bn;
   if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
   return Number.NaN; // mismatched types → NaN → all comparisons return false
 }
 
+/** Arithmetic over ints and floats: unwraps, computes, and RE-TAGS the result
+ *  as a float when either operand was one (int op float promotes to float). */
 function numOp(a: unknown, b: unknown, fn: (x: number, y: number) => number): unknown {
-  if (typeof a !== 'number' || typeof b !== 'number') return undefined;
-  return fn(a, b);
+  const an = numVal(a);
+  const bn = numVal(b);
+  if (an === undefined || bn === undefined) return undefined;
+  const result = fn(an, bn);
+  return isFloatNum(a) || isFloatNum(b) ? new RulesFloat(result) : result;
 }
 
 /**
@@ -1423,6 +1249,14 @@ function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCt
 
   if (expr.method === 'matches') {
     return evalMatches(expr, ctx);
+  }
+
+  if (expr.method === 'split') {
+    return evalSplit(expr, ctx);
+  }
+
+  if (expr.method === 'size') {
+    return evalSize(expr, ctx);
   }
 
   throw new RuleEvalError(`unsupported method .${expr.method}()`);
@@ -1625,8 +1459,86 @@ function evalMatches(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx):
   return re.test(subject);
 }
 
+/**
+ * Evaluate `string.split(re)` — RE2 regex split, the storage-rules idiom for
+ * segmenting object names (`fileId.split('-')[0:2]`). Shares matches()'s
+ * RE2-vs-JS guard: constructs RE2 rejects (backreferences, lookaround) deny
+ * with a reason rather than silently (mis)compiling under JS semantics.
+ */
+function evalSplit(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
+  const subject = evalExpr(expr.target, ctx);
+  if (isErr(subject)) return subject;
+  if (typeof subject !== 'string') {
+    throw new RuleEvalError(`split() requires a string target, got ${describeType(subject)}`);
+  }
+  if (expr.args.length !== 1) {
+    throw new RuleEvalError(`split() expects a single pattern argument`);
+  }
+  const pattern = evalExpr(expr.args[0], ctx);
+  if (typeof pattern !== 'string') {
+    throw new RuleEvalError(`split() pattern must be a string`);
+  }
+  const backref = /\\[1-9]/.test(pattern);
+  const lookaround = /\(\?<?[=!]/.test(pattern);
+  if (backref || lookaround) {
+    throw new RuleEvalError(
+      `split() pattern uses an RE2-unsupported construct (${backref ? 'backreference' : 'lookaround'}) that production would reject`,
+    );
+  }
+  let re: RegExp;
+  try {
+    re = new RegExp(pattern);
+  } catch (err) {
+    throw new RuleEvalError(`split() invalid regex pattern: ${(err as Error).message}`);
+  }
+  return subject.split(re);
+}
+
+/**
+ * Evaluate `.size()` on the three sized types (string → length, list →
+ * element count, map → own-key count). Anything else denies with a reason.
+ */
+function evalSize(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
+  const subject = evalExpr(expr.target, ctx);
+  if (isErr(subject)) return subject;
+  if (expr.args.length !== 0) {
+    throw new RuleEvalError(`size() expects no arguments`);
+  }
+  if (typeof subject === 'string' || Array.isArray(subject)) return subject.length;
+  if (subject !== null && typeof subject === 'object') return Object.keys(subject).length;
+  throw new RuleEvalError(`size() requires a string, list, or map target, got ${describeType(subject)}`);
+}
+
+/**
+ * Rules `==` semantics: `null`/`undefined` are equivalent, lists and maps
+ * compare structurally (element-by-element / own-key-by-own-key), everything
+ * else is strict identity.
+ */
+function rulesEquals(l: unknown, r: unknown): boolean {
+  if (l === r) return true;
+  if (l == null || r == null) return l == null && r == null;
+  // CEL compares int and float by numeric value: `1 == 1.0` is true.
+  const ln = numVal(l);
+  const rn = numVal(r);
+  if (ln !== undefined && rn !== undefined) return ln === rn;
+  if (Array.isArray(l) && Array.isArray(r)) {
+    return l.length === r.length && l.every((v, i) => rulesEquals(v, r[i]));
+  }
+  if (typeof l === 'object' && typeof r === 'object' && !Array.isArray(l) && !Array.isArray(r)) {
+    const lk = Object.keys(l as Record<string, unknown>);
+    const rk = Object.keys(r as Record<string, unknown>);
+    return lk.length === rk.length && lk.every(
+      (k) =>
+        Object.prototype.hasOwnProperty.call(r, k) &&
+        rulesEquals((l as Record<string, unknown>)[k], (r as Record<string, unknown>)[k]),
+    );
+  }
+  return false;
+}
+
 function describeType(v: unknown): string {
   if (v === null) return 'null';
   if (v === undefined) return 'undefined';
+  if (v instanceof RulesFloat) return 'float';
   return typeof v;
 }

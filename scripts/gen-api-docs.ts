@@ -8,9 +8,12 @@
  * which exported implementation seams are excluded, stable route names, and
  * the generated front matter consumed by the API-reference template.
  *
- * `--write` updates docs/api-reference/generated/*.md. `--check` (the
- * default) regenerates in memory and fails on drift. Build the packages first
- * so every manifest `types` target exists.
+ * `--write` writes the API-reference pages into the site's gitignored
+ * packages/site-docs/src/content/_generated/ directory (flat slug filenames
+ * plus the api-reference index). `--check` (the default) regenerates in memory
+ * and fails on drift. Build the packages first so every manifest `types`
+ * target exists, and generate the pages (bun run docs:api:generate, or the
+ * site's `bun run generate`) before checking.
  */
 import { execFileSync } from 'node:child_process';
 import {
@@ -18,7 +21,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -29,7 +31,22 @@ import { canIUseImport } from '@pyric/cli/conformance';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..');
-export const OUTPUT_ROOT = join(REPO_ROOT, 'docs', 'api-reference', 'generated');
+/**
+ * The generated API reference is written into the site's gitignored generated
+ * content directory, flat, one file per route slug (plus the api-reference
+ * index). The site build (`bun run generate` in packages/site-docs) invokes
+ * this generator right before `astro build`; nothing here is committed.
+ */
+export const OUTPUT_ROOT = join(
+  REPO_ROOT,
+  'packages',
+  'site-docs',
+  'src',
+  'content',
+  '_generated',
+);
+/** Group label + base order the API-reference pages carry as front matter. */
+export const API_REFERENCE_GROUP = 'API reference';
 
 export const GENERATED_HEADER =
   '<!-- Generated from published package declarations via TypeDoc. Do not edit by hand; run bun run docs:api:generate. -->';
@@ -179,7 +196,7 @@ function evidenceSlug(descriptor: ApiDescriptor): string | null {
   return canIUseImport(descriptor.importPath)?.evidenceSlug ?? null;
 }
 
-export function renderApiMarkdown(descriptor: ApiDescriptor): string {
+export function renderApiMarkdown(descriptor: ApiDescriptor, order: number): string {
   if (!existsSync(descriptor.typesPath)) {
     throw new Error(
       `missing declaration entry: ${descriptor.typesPath}\n  Build first: bun run build`,
@@ -249,7 +266,10 @@ export function renderApiMarkdown(descriptor: ApiDescriptor): string {
       '---',
       `title: ${yamlString(`API reference: ${descriptor.importPath}`)}`,
       `navLabel: ${yamlString(descriptor.importPath)}`,
-      `outcome: ${yamlString(`Published declarations for ${descriptor.importPath}.`)}`,
+      `description: ${yamlString(`Published declarations for ${descriptor.importPath}.`)}`,
+      `group: ${yamlString(API_REFERENCE_GROUP)}`,
+      `section: ${yamlString(descriptor.packageName)}`,
+      `order: ${order}`,
       `slug: ${yamlString(descriptor.slug)}`,
       'kind: "api"',
       `apiPackage: ${yamlString(descriptor.packageName)}`,
@@ -276,7 +296,10 @@ export function renderApiIndex(descriptors: ApiDescriptor[]): string {
     '---',
     'title: "API reference"',
     'navLabel: "API reference"',
-    'outcome: "Published declarations for every supported Pyric package entry point."',
+    'description: "Published declarations for every supported Pyric package entry point."',
+    `group: ${yamlString(API_REFERENCE_GROUP)}`,
+    'section: ""',
+    'order: 10',
     'slug: "api-reference"',
     'kind: "api-index"',
     '---',
@@ -291,7 +314,7 @@ export function renderApiIndex(descriptors: ApiDescriptor[]): string {
   for (const [packageName, entries] of byPackage) {
     body.push(`## \`${packageName}\``, '');
     for (const descriptor of entries) {
-      body.push(`- [\`${descriptor.importPath}\`](./generated/${descriptor.slug}.md)`);
+      body.push(`- [\`${descriptor.importPath}\`](./${descriptor.slug}.md)`);
     }
     body.push('');
   }
@@ -319,13 +342,6 @@ function selected(descriptors: ApiDescriptor[], only: Set<string> | null): ApiDe
   return descriptors.filter((descriptor) => only.has(descriptor.importPath));
 }
 
-function generatedFiles(): string[] {
-  if (!existsSync(OUTPUT_ROOT)) return [];
-  return readdirSync(OUTPUT_ROOT)
-    .filter((file) => file.endsWith('.md'))
-    .sort();
-}
-
 if (import.meta.main) {
   const { write, check, only } = parseArgs(process.argv.slice(2));
   const allDescriptors = discoverApiDescriptors();
@@ -335,35 +351,35 @@ if (import.meta.main) {
     process.exit(1);
   }
 
+  // Stable per-route order (front matter) derived from position in the full
+  // descriptor list, independent of any --only selection. The api-reference
+  // index is order 10; pages follow, spaced by 10s.
+  const orderBySlug = new Map(allDescriptors.map((d, i) => [d.slug, 20 + i * 10]));
+  const indexPath = join(OUTPUT_ROOT, 'api-reference.md');
+
   if (write) {
     mkdirSync(OUTPUT_ROOT, { recursive: true });
+    // No directory-wide cleanup: _generated is shared with the conformance
+    // pages and is cleared as a whole by scripts/generate-content.ts before a
+    // build. Here we only write the API-reference files this generator owns.
     if (!only) {
-      const expected = new Set(descriptors.map((descriptor) => `${descriptor.slug}.md`));
-      for (const file of generatedFiles()) {
-        if (!expected.has(file)) rmSync(join(OUTPUT_ROOT, file));
-      }
-      writeFileSync(join(REPO_ROOT, 'docs', 'api-reference', 'index.md'), renderApiIndex(descriptors));
+      writeFileSync(indexPath, renderApiIndex(descriptors));
     }
     for (const descriptor of descriptors) {
-      writeFileSync(descriptor.outputPath, renderApiMarkdown(descriptor));
+      writeFileSync(descriptor.outputPath, renderApiMarkdown(descriptor, orderBySlug.get(descriptor.slug)!));
       console.log(`Generated ${descriptor.outputPath.replace(`${REPO_ROOT}/`, '')}`);
     }
   }
 
   if (check) {
     const problems: string[] = [];
-    const expectedFiles = allDescriptors.map((descriptor) => `${descriptor.slug}.md`).sort();
-    if (generatedFiles().join('\n') !== expectedFiles.join('\n')) {
-      problems.push('docs/api-reference/generated: route inventory drifted');
-    }
-    const indexPath = join(REPO_ROOT, 'docs', 'api-reference', 'index.md');
-    if (!existsSync(indexPath)) problems.push('docs/api-reference/index.md: missing');
+    if (!existsSync(indexPath)) problems.push('_generated/api-reference.md: missing');
     else if (readFileSync(indexPath, 'utf8') !== renderApiIndex(allDescriptors)) {
-      problems.push('docs/api-reference/index.md: drifted');
+      problems.push('_generated/api-reference.md: drifted');
     }
     for (const descriptor of descriptors) {
       const rel = descriptor.outputPath.replace(`${REPO_ROOT}/`, '');
-      const generated = renderApiMarkdown(descriptor);
+      const generated = renderApiMarkdown(descriptor, orderBySlug.get(descriptor.slug)!);
       if (!existsSync(descriptor.outputPath)) problems.push(`${rel}: missing`);
       else if (readFileSync(descriptor.outputPath, 'utf8') !== generated) {
         problems.push(`${rel}: drifted`);

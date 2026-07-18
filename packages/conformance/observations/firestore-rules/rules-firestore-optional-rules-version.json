@@ -1,0 +1,16 @@
+{
+  "name": "rules-firestore-optional-rules-version",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#185"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"optional-rules-version\" (Coverage: rules_version omitted (production defaults to v1)). A ruleset without rules_version must be accepted and evaluate (production defaults it to v1); the old grammar rejected the file at parse.",
+  "observedAt": "2026-07-17T19:19:43.854Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "version-less ruleset: authed read \u2192 ALLOW": "ALLOW",
+    "version-less ruleset: anonymous read \u2192 DENY": "DENY",
+    "version-less ruleset: wrong uid write \u2192 DENY": "DENY"
+  }
+}

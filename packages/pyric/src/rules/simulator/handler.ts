@@ -599,7 +599,16 @@ export class SimulateFirestoreRulesHandler {
       // The root match is /databases/{database}/documents — skip it,
       // start matching from its children directly.
       const pathSegments = tc.path.split('/').filter(Boolean);
-      const rootFunctions = ast.service.match.functions;
+      // Functions declared at GLOBAL scope (above `service`) and SERVICE
+      // scope (inside `service`, outside the documents match) seed the walk
+      // alongside the documents-match's own (#346). Declaration order
+      // global → service → match preserves inner-shadows-outer resolution,
+      // since a later same-named entry wins in the evaluation context.
+      const rootFunctions = [
+        ...(ast.functions ?? []),
+        ...(ast.service.functions ?? []),
+        ...ast.service.match.functions,
+      ];
       // Collect EVERY match block that resolves this path (not just the
       // first). Production OR-combines allows across all overlapping
       // blocks, so we must evaluate them all. Order is preserved in source
