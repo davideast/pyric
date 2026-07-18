@@ -322,6 +322,12 @@ jobs:
         if: matrix.pm == 'pnpm'
         run: corepack enable
 
+      # The audit step (scripts/audit-packed-cli.mjs) imports typescript from
+      # the repo root; the check-set consolidation dropped this install and the
+      # label-gated matrix hid the break until the next labeled run.
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+
       - name: Download tarballs proven by the packaging gate
         uses: actions/download-artifact@v4
         with:
