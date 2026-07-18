@@ -561,7 +561,13 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
     }
   }
 
-  // Default-on, warning-only. Start AFTER hydration so a restored capture can
+  // Plugin-level engine config (`@pyric/cli/vite`'s `ai.engine`) → the host
+  // engine slot. It wins over any op-carried `engine` field (see ensureAiBroker
+  // in host-ai.ts) and is honored on the first ai op — mirroring getAI's
+  // first-call-wins idempotence. Absent under `pyric dev` (no CLI surface).
+  if (payload?.ai?.engine) ctx.aiEngine = payload.ai.engine;
+
+  // Default-on, warning-only. Start after hydration so a restored capture can
   // populate a report without replaying an old warning into a fresh terminal.
   setupFirebaseActivityGuard(ctx, env, payload?.activityToken);
 
