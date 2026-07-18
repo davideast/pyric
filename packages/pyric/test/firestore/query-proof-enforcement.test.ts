@@ -332,6 +332,90 @@ describe('RULES-B11 — helper-based (function-inlined) list rule', () => {
   });
 });
 
+describe('RULES-B11 — full accounting: mixed equality + non-equality doc predicates deny whole', () => {
+  // A doc-dependent conjunct the equality analysis cannot discharge makes the
+  // whole query unprovable, even when the equality IS discharged by a where().
+  // These shapes are absent-tolerant: they evaluate truthy against the
+  // synthetic representative resource (which carries only the where-pinned
+  // fields) while a real matching doc can violate them — pre-fix, that was a
+  // false allow that leaked rule-violating docs.
+  function mixedSetup(listCondition: string, helperBody?: string) {
+    const rulesSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      ${helperBody ? `function ok() { return ${helperBody}; }` : ''}
+      allow list: if ${listCondition};
+      allow write: if true;
+    }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    setRules(sandbox, rulesSource);
+    seedDocuments(sandbox, {
+      'items/i1': { a: 1 },
+      'items/i2': { a: 1, secret: 'top' },
+    });
+    return { db, env: getInternalEnv(sandbox) };
+  }
+
+  const dischargedQuery = (db: ReturnType<typeof mixedSetup>['db']) =>
+    query(collection(db, 'items'), where('a', '==', 1));
+
+  const SHAPES: Array<[label: string, conjunct: string]> = [
+    ['negated in (absence check)', "!('secret' in resource.data)"],
+    ['positive in (membership check)', "'flag' in resource.data"],
+    ['get with default', "resource.data.get('kind', 'open') == 'open'"],
+    ['keys().hasOnly', "resource.data.keys().hasOnly(['a'])"],
+  ];
+
+  for (const [label, conjunct] of SHAPES) {
+    it(`inline: equality + ${label} → whole query denied despite discharged where()`, async () => {
+      const { db } = mixedSetup(`resource.data.a == 1 && ${conjunct}`);
+      expect(await denied(getDocs(dischargedQuery(db)))).toBe('permission-denied');
+    });
+
+    it(`helper: equality + ${label} → whole query denied despite discharged where()`, async () => {
+      const { db } = mixedSetup('ok()', `resource.data.a == 1 && ${conjunct}`);
+      expect(await denied(getDocs(dischargedQuery(db)))).toBe('permission-denied');
+    });
+  }
+
+  it('seeded attack: doc with the forbidden field present → denied whole, zero documents returned', async () => {
+    // The demonstrated false-allow: rule requires a == 1 and forbids `secret`;
+    // the seed contains {a: 1, secret: 'top'}. Pre-fix the helper form allowed
+    // the query and returned BOTH docs, secret field included. Production
+    // denies the whole query; so must the sandbox.
+    const { db } = mixedSetup('ok()', "resource.data.a == 1 && !('secret' in resource.data)");
+    let caught: unknown;
+    let snapDocs: unknown[] | undefined;
+    try {
+      const snap = await getDocs(dischargedQuery(db));
+      snapDocs = snap.docs;
+    } catch (e) {
+      caught = e;
+    }
+    expect(snapDocs).toBeUndefined();
+    expect((caught as { code?: string }).code).toBe('permission-denied');
+  });
+
+  it('onSnapshot: the attack shape errors the stream instead of delivering docs', () => {
+    const { db, env } = mixedSetup('ok()', "resource.data.a == 1 && !('secret' in resource.data)");
+    const calls: QuerySnapshot[] = [];
+    const errors: { code?: string }[] = [];
+    onSnapshot(
+      dischargedQuery(db),
+      (snap) => { calls.push(snap as QuerySnapshot); },
+      (err) => { errors.push(err as { code?: string }); },
+    );
+    env.flushListeners();
+    expect(calls).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.code).toBe('permission-denied');
+  });
+});
+
 describe('RULES-B11 — request.query is populated from the structured constraints', () => {
   it('limit(10) satisfies `request.query.limit <= 50` (failed pre-fix: query was never threaded)', async () => {
     const { db } = setup(QUERY_LIMIT_RULES);

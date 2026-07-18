@@ -32,12 +32,15 @@
  *    prod rejects it — we return `provable: false`.
  *
  * Out of scope (documented as conservative REJECT, never a false ALLOW): rules
- * with disjunctions over doc data, inequality/range proofs, and any predicate
- * that still can't be reduced to a top-level equality after user functions are
- * inlined (helpers ARE inlined — a helper whose body is an equality spine is
- * proven the same as if it were written inline). When the rule's doc-dependence
- * can't be discharged by a direct `where` equality match, we reject — the safe
- * direction (prod also rejects an unprovable query).
+ * with disjunctions over doc data, inequality/range proofs, membership/type
+ * checks, and any predicate that can't be reduced to a top-level equality after
+ * user functions are inlined (helpers ARE inlined — a helper whose body is an
+ * equality spine is proven the same as if it were written inline). The proof
+ * demands FULL accounting: a rule is provable only when its entire
+ * doc-dependence reduces to equality conjuncts the query discharges — one
+ * doc-dependent non-equality conjunct anywhere on the spine rejects the whole
+ * query, even if every equality is discharged. That is the safe direction
+ * (prod also rejects an unprovable query).
  */
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 
@@ -123,26 +126,29 @@ export function evaluateQueryProof(
     };
   }
 
-  // 2. Doc-dependent rule. Extract the per-doc equality predicates the rule
-  //    REQUIRES (top-level `&&` conjuncts of the form `resource.data.F == V`,
-  //    inlining helper calls along the spine), and check each is guaranteed by
-  //    a matching `where` equality constraint.
-  const required = extractRequiredDataEqualities(listCondition, fnMap, authUid);
-  if (required.length === 0) {
-    // The rule touches resource.data but not via a discharge-able top-level
-    // equality — even after inlining helpers — so the shape is out of scope
-    // (inequality, disjunction, `in`, nested path). Conservatively reject; prod
-    // also rejects a query it can't prove.
+  // 2. Doc-dependent rule. Walk the full inlined `&&` spine: extract the
+  //    per-doc equality predicates the rule REQUIRES and verify they fully
+  //    account for the rule's doc-dependence — every conjunct must be either
+  //    doc-independent or an extracted equality. Any doc-dependent conjunct
+  //    that is not an equality makes the whole rule out of scope, no matter
+  //    how many equalities the query discharges: the residual simulate() run
+  //    evaluates against a synthetic resource carrying only the where-pinned
+  //    fields, and absent-tolerant predicates (`in`, negated `in`, `get(...,
+  //    default)`, `keys().hasOnly`, `is`) pass vacuously on it — a false allow.
+  const extraction = extractRequiredDataEqualities(listCondition, fnMap, authUid);
+  if (!extraction.ok || extraction.required.length === 0) {
     const outOfScope =
       'list rule depends on per-document data through a predicate the query cannot discharge ' +
-      '(only top-level `resource.data.field == value` conjunctions, including through inlined ' +
-      'helpers, are provable here — disjunctions, ranges, `in`, and nested paths are not)';
+      '(a rule is provable only when its entire doc-dependence reduces to top-level ' +
+      '`resource.data.field == value` conjunctions, including through inlined helpers — ' +
+      'disjunctions, ranges, `in`, membership/type checks, and nested paths are not provable)';
     return {
       provable: false,
       reason: `${outOfScope} — prod rejects the whole query rather than filtering`,
       residual: { missing: [], mismatched: [], outOfScope },
     };
   }
+  const required = extraction.required;
 
   const wheres = constraints.where ?? [];
   const missing: QueryProofMissing[] = [];
@@ -245,29 +251,46 @@ interface RequiredEquality {
 }
 
 /**
- * Pull out the per-doc EQUALITY predicates the rule requires: top-level `&&`
+ * Outcome of walking the rule's full inlined `&&` spine. `ok: false` means the
+ * spine carries at least one doc-dependent conjunct that is not a dischargeable
+ * equality — the proof must reject regardless of how many equalities the query
+ * pins. The residual simulate() run cannot be trusted to catch such a conjunct:
+ * the synthetic representative resource carries only the where-pinned fields,
+ * so an absent-tolerant predicate (`'f' in resource.data`, `!('f' in ...)`,
+ * `.get('k', default)`, `.keys().hasOnly(...)`, `is` type checks) evaluates
+ * truthy against it while a real matching doc can violate the rule — a false
+ * allow production would never grant.
+ */
+type ExtractionResult =
+  | { ok: true; required: RequiredEquality[] }
+  | { ok: false };
+
+/**
+ * Pull out the per-doc EQUALITY predicates the rule requires — top-level `&&`
  * conjuncts shaped `resource.data.<field> == <literal>` or `resource.data.<field>
- * == request.auth.uid` (either operand order). User functions on the spine are
+ * == request.auth.uid` (either operand order) — and verify those equalities
+ * fully account for the rule's doc-dependence. User functions on the spine are
  * INLINED — a `functionCall` in `fnMap` has its argument expressions substituted
  * for the function's parameters (and its `let` bindings resolved in that scope),
  * then the inlined body's own `&&` spine is walked. A `visited` set guards
  * against recursion (helper calling helper, or a self-referential helper).
  *
- * Only the conjunctive (AND) spine is walked — a disjunction (`||`) anywhere
- * means the predicate isn't unconditionally required, so we don't extract from
- * under it (the caller then conservatively rejects).
+ * Full accounting: every leaf conjunct must be either (a) doc-independent — no
+ * `resource.data` reference, checked through function calls — or (b) an
+ * extracted data equality. A conjunct that is doc-dependent but neither (a
+ * disjunction, range, `in`, membership/type/default-tolerant check, nested
+ * path, or a call the guard refused to inline) fails the whole extraction
+ * (`ok: false`), and the caller conservatively rejects the query.
  */
 function extractRequiredDataEqualities(
   expr: Expression,
   fnMap: Map<string, FunctionDef>,
   authUid: string | undefined,
-): RequiredEquality[] {
-  const out: RequiredEquality[] = [];
-  const walkAnd = (e: Expression, visited: Set<string>) => {
+): ExtractionResult {
+  const required: RequiredEquality[] = [];
+  const walkAnd = (e: Expression, visited: Set<string>): boolean => {
     if (e.type === 'binaryOp' && e.op === '&&') {
-      walkAnd(e.left, visited);
-      walkAnd(e.right, visited);
-      return;
+      return walkAnd(e.left, visited) && walkAnd(e.right, visited);
     }
     if (e.type === 'functionCall' && fnMap.has(e.name) && !visited.has(e.name)) {
       const fn = fnMap.get(e.name)!;
@@ -281,14 +304,19 @@ function extractRequiredDataEqualities(
       for (const b of fn.lets) bindings.set(b.name, substituteIdentifiers(b.value, bindings));
       const inlined = substituteIdentifiers(fn.body, bindings);
       const nextVisited = new Set(visited).add(e.name);
-      walkAnd(inlined, nextVisited);
-      return;
+      return walkAnd(inlined, nextVisited);
     }
     const eq = asDataEquality(e, authUid);
-    if (eq) out.push(eq);
+    if (eq) {
+      required.push(eq);
+      return true;
+    }
+    // Not an equality: acceptable only when the conjunct is doc-independent —
+    // the residual simulate() run evaluates those faithfully (auth / time /
+    // request.query). A doc-dependent non-equality fails the extraction.
+    return !referencesResourceData(e, fnMap);
   };
-  walkAnd(expr, new Set());
-  return out;
+  return walkAnd(expr, new Set()) ? { ok: true, required } : { ok: false };
 }
 
 /**

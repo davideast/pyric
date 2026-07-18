@@ -287,6 +287,97 @@ service cloud.firestore {
     });
   });
 
+  describe('full accounting: doc-dependent non-equality conjuncts reject even with discharged equalities', () => {
+    // The synthetic representative resource carries only the where-pinned
+    // fields, so an absent-tolerant conjunct (`in`, negated `in`, `get(...,
+    // default)`, `keys().hasOnly`) would evaluate truthy against it while a
+    // real matching doc violates the rule — the proof must reject up front.
+    const DISCHARGED: QueryConstraints = { where: [{ field: 'a', op: '==', value: 1 }] };
+
+    const expectOutOfScope = (source: string) => {
+      const { condition, fnMap } = listConditionOf(source);
+      const r = evaluateQueryProof(condition, DISCHARGED, fnMap);
+      expect(r.provable).toBe(false);
+      if (r.provable) throw new Error('unreachable');
+      expect(r.residual.outOfScope).toBeDefined();
+      expect(r.residual.missing).toHaveLength(0);
+      expect(r.residual.mismatched).toHaveLength(0);
+    };
+
+    const helperRules = (body: string) => `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /c/{id} {
+      function ok() { return ${body}; }
+      allow list: if ok();
+    }
+  }
+}`;
+
+    test('inline: equality + negated `in` (absence check) → out-of-scope reject', () => {
+      expectOutOfScope(rules("allow list: if resource.data.a == 1 && !('secret' in resource.data);"));
+    });
+
+    test('helper: equality + negated `in` (the demonstrated attack shape) → out-of-scope reject', () => {
+      expectOutOfScope(helperRules("resource.data.a == 1 && !('secret' in resource.data)"));
+    });
+
+    test('inline: equality + positive `in` membership check → out-of-scope reject', () => {
+      expectOutOfScope(rules("allow list: if resource.data.a == 1 && 'flag' in resource.data;"));
+    });
+
+    test('helper: equality + positive `in` membership check → out-of-scope reject', () => {
+      expectOutOfScope(helperRules("resource.data.a == 1 && 'flag' in resource.data"));
+    });
+
+    test('inline: equality + `get(key, default)` comparison → out-of-scope reject', () => {
+      expectOutOfScope(rules("allow list: if resource.data.a == 1 && resource.data.get('kind', 'open') == 'open';"));
+    });
+
+    test('helper: equality + `get(key, default)` comparison → out-of-scope reject', () => {
+      expectOutOfScope(helperRules("resource.data.a == 1 && resource.data.get('kind', 'open') == 'open'"));
+    });
+
+    test('inline: equality + `keys().hasOnly(...)` → out-of-scope reject', () => {
+      expectOutOfScope(rules("allow list: if resource.data.a == 1 && resource.data.keys().hasOnly(['a']);"));
+    });
+
+    test('helper: equality + `keys().hasOnly(...)` → out-of-scope reject', () => {
+      expectOutOfScope(helperRules("resource.data.a == 1 && resource.data.keys().hasOnly(['a'])"));
+    });
+
+    test('inline: equality + doc-data range conjunct → out-of-scope reject (not the eval-error net)', () => {
+      expectOutOfScope(rules('allow list: if resource.data.a == 1 && resource.data.b > 5;'));
+    });
+
+    test('inline: equality + `is` type check → out-of-scope reject', () => {
+      expectOutOfScope(rules('allow list: if resource.data.a == 1 && resource.data.b is string;'));
+    });
+
+    test('boundary: pure-equality helper conjoined with doc-independent conjuncts stays provable', () => {
+      // The point of function inlining — full accounting must not regress it:
+      // doc-independent conjuncts (auth, request.query) are fine alongside
+      // discharged equalities.
+      const { condition, fnMap } = listConditionOf(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /c/{id} {
+      function isOwner(uid) { return resource.data.ownerUid == uid; }
+      allow list: if request.auth != null && isOwner(request.auth.uid) && request.query.limit <= 100;
+    }
+  }
+}`);
+      expect(
+        evaluateQueryProof(
+          condition,
+          { where: [{ field: 'ownerUid', op: '==', value: 'alice' }], limit: 10 },
+          fnMap,
+          'alice',
+        ).provable,
+      ).toBe(true);
+    });
+  });
+
   describe('referencesResourceData', () => {
     test('detects resource.data through a user function', () => {
       const { condition, fnMap } = listConditionOf(`rules_version = '2';
