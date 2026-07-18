@@ -29,9 +29,9 @@ import { describe, test, expect } from 'bun:test';
 import {
   bytesConverter,
   geoPointConverter,
-} from '../../../src/sandbox/firestore/converters/bytes-geopoint.js';
-import { KEEP } from '../../../src/sandbox/firestore/value-resolver.js';
-import { LocalEnvironment } from '../../../src/sandbox/firestore/local-environment.js';
+} from '../../../src/firestore/sandbox/converters/bytes-geopoint.js';
+import { KEEP } from '../../../src/firestore/sandbox/value-resolver.js';
+import { LocalEnvironment } from '../../../src/firestore/sandbox/local-environment.js';
 import { Bytes as RulesBytes, LatLng } from 'pyric/rules/internal';
 
 const baseCtx = (

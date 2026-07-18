@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { topK } from '../../../src/sandbox/firestore/topk.js';
+import { topK } from '../../../src/firestore/sandbox/topk.js';
 
 const numCmp = (a: number, b: number) => a - b;
 

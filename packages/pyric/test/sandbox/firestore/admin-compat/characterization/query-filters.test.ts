@@ -15,7 +15,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { createCompatFirestore } from '../../../../../src/sandbox/firestore/admin-compat/index.js';
+import { createCompatFirestore } from '../../../../../src/firestore/sandbox/admin-compat/index.js';
 
 const RULES = `rules_version = '2';
 service cloud.firestore {

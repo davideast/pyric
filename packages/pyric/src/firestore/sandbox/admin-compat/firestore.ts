@@ -31,7 +31,7 @@
  */
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
-import type { EventProvenance } from '../../types/events.js';
+import type { EventProvenance } from '../../../sandbox/types/events.js';
 import { makeError } from 'pyric/sandbox/internal';
 import { ReadAfterWriteError } from 'pyric/sandbox/internal';
 import { isCollectionPath, isDocumentPath } from './paths.js';

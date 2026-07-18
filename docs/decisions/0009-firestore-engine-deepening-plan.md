@@ -1,0 +1,84 @@
+# 0009: Deepen the Firestore sandbox engine behind a permanent facade
+
+Status: Accepted plan; extends ADR-0007
+
+Date: 2026-07-16
+
+## Context
+
+ADR-0007 accepted the mechanical split of
+`packages/pyric/src/sandbox/firestore/local-environment.ts` (3,605 lines) as a
+follow-up but did not settle the target design. An architecture review found
+the file bundles eight concept families behind ~30 public methods, coupled by
+shared mutable instance state: the document store is touched from every family,
+the event log from writes and history, and `currentTrigger` — a save/restore
+trigger-attribution baton — is written by the write paths *and* the rules
+re-evaluation path and read at ~25 emit/schedule sites. Delivery ordering,
+trigger attribution, metadata-ack timing, and rules-flip re-evaluation are
+reachable only end-to-end and are barely pinned by the existing suites.
+
+The admin-compat query adapter also reaches across the seam for raw candidates
+(`readQueryCandidates`, `scanDocuments`) and executes queries on its own side.
+
+## Decisions
+
+1. **Two phases, separate PRs.** The ADR-0007 mechanical split (characterize,
+   then pure moves, zero behavior change) lands first and alone. Deepening —
+   interface narrowing inside the implementation, trigger-context redesign,
+   unit tests at new seams — lands only after the move merges. Mechanical and
+   behavioral diffs stay separately auditable.
+
+2. **Targeted characterization pins precede any move.** Before PR A moves
+   code, add a characterization suite through the existing public interface
+   pinning: delivery FIFO ordering across nested/triggered writes,
+   `triggeredBy` attribution including the save/restore stack and the
+   re-evaluation path, metadata-ack scheduling, and rules-flip listener
+   re-evaluation. These tests must survive every later phase unchanged; they
+   are the audit contract for the whole plan.
+
+3. **`TriggerScope` replaces the `currentTrigger` field.** A small module with
+   the baton's exact semantics: `run(trigger, fn)` pushes/pops a stack,
+   `current()` reads it, and deliveries capture the trigger at schedule time.
+   One instance is injected into the write engine (writer) and the listener
+   dispatch and event bus (readers). Explicit per-call parameter threading was
+   rejected: it rewrites ~30 call sites on the path whose microtask-ordering
+   subtlety is the primary regression risk. Relocating the bare field into the
+   write engine was rejected because re-evaluation also sets the trigger,
+   which would recreate the cross-module write under a new name.
+
+4. **`LocalEnvironment` is the permanent interface.** The extracted modules —
+   WriteEngine, ListenerDispatch, RulesReadEngine, EventBus with History — are
+   internal seams: private to the implementation and exercised directly only
+   by the engine's own unit tests. Callers (`SandboxImpl`, admin-compat) keep
+   one interface. Future reviews should not re-propose dissolving the facade
+   or exposing the internal modules; no second adapter justifies making those
+   seams external.
+
+5. **PR B is a stack of small PRs in coupling order.**
+   - B1: EventBus + History (lowest coupling).
+   - B2: TriggerScope + ListenerDispatch (delivery queue, notify,
+     metadata-ack, re-evaluation hooks) reviewed alone.
+   - B3: RulesReadEngine plus a `RulesState` holder (`{ source, ast() }`,
+     invalidated by seed/deployRules, shared with the write engine's simulate
+     path). WriteEngine remains as the residual owner of `TriggerScope.run`.
+   Each PR leaves the engine green through the full simulator, persistence,
+   app lifecycle, worker, conformance, and packaging gates.
+
+6. **Admin query absorption is deferred to PR C.** Giving the engine a real
+   `runQuery(collection, constraints)` and deleting the candidate-passing
+   across the seam is a behavior-sensitive change requiring its own
+   characterization of admin query semantics. It must not be folded into the
+   internal-only PR B stack. Until then the candidate methods are documented
+   as engine-internal.
+
+## Consequences
+
+- Delivery-ordering and attribution bugs concentrate in ListenerDispatch and
+  TriggerScope, which gain unit-level interfaces for the first time.
+- The facade's external interface does not change in phases A or B; no public
+  package subpath or protocol changes anywhere in the plan.
+- CONTEXT.md carries the engine vocabulary (Firestore sandbox engine,
+  WriteEngine, ListenerDispatch, RulesReadEngine, EventBus, TriggerScope,
+  RulesState) so code, tests, and reviews use one name per concept.
+- Any correctness defect discovered during the work is fixed independently,
+  test-first, per ADR-0007.

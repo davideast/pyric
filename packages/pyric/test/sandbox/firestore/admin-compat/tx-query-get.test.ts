@@ -18,7 +18,7 @@ import { LocalEnvironment } from 'pyric/sandbox/internal';
 import {
   createCompatFirestore,
   FirestoreCompatError,
-} from '../../../../src/sandbox/firestore/admin-compat/index.js';
+} from '../../../../src/firestore/sandbox/admin-compat/index.js';
 
 const RULES = `rules_version = '2';
 service cloud.firestore {

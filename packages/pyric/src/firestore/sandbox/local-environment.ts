@@ -44,7 +44,7 @@ import type {
   TransactionOptions,
   TransactionResult,
 } from './transaction-types.js';
-import type { EventProvenance } from '../types/events.js';
+import type { EventProvenance } from '../../sandbox/types/events.js';
 import type {
   DocumentSnapshot,
   ListenerAuth,
@@ -68,326 +68,39 @@ import {
 // Items 1+ add converters here.
 registerDefaultConverters();
 
-/**
- * Wallclock-aligned ISO string for `tc.requestTime`. Both `request.time`
- * and any `serverTimestamp()` sentinel in this write must resolve to a
- * field-equal Timestamp; we accomplish that by computing a single
- * Timestamp here and forwarding the millisecond-precise ISO to handler.ts
- * (which parses it back into a Timestamp via `Timestamp.fromIsoString`,
- * lossless on the millisecond grid).
- */
-function isoFromTimestamp(ts: Timestamp): string {
-  return new Date(ts.toMillis()).toISOString();
-}
 
-/**
- * Thrown by `LocalEnvironment.execute` / `.batch` when the simulator
- * abstained on a rule (state: UNSUPPORTED). The agent's rule may be
- * correct — the simulator just doesn't implement the feature it uses.
- *
- * Returning `allowed: false` here would silently re-create the
- * misleading-DENY pattern that Item 0.A is designed to prevent (the
- * agent can't tell sim-gap apart from real rule bug). Throwing forces
- * the test to fail loudly with an actionable message pointing at the
- * production Test API as the workaround.
- */
-export class SimulatorUnsupportedError extends Error {
-  constructor(
-    message: string,
-    public readonly method: string,
-    public readonly path: string,
-    public readonly debugMessages: string[],
-  ) {
-    super(message);
-    this.name = 'SimulatorUnsupportedError';
-  }
-}
 
-function unsupportedMessage(method: string, path: string, debugMessages: string[]): string {
-  const reasons = debugMessages
-    .filter(m => m.includes('unsupported:'))
-    .map(m => m.replace(/^.*unsupported:\s*/, ''))
-    .join('; ');
-  const reasonClause = reasons ? ` Reason(s): ${reasons}.` : '';
-  return (
-    `Simulator cannot decide ${method} on ${path} — the rule uses a feature ` +
-    `the local simulator does not yet implement.${reasonClause} ` +
-    `Verify this rule against production using TestFirestoreRulesHandler, ` +
-    `or file a sim-gap entry in REBUILD_PLAN.md.`
-  );
-}
 
-/**
- * Compare two doc payloads for snapshot-suppression purposes. `null`
- * means the doc is absent. Equality test uses `JSON.stringify` to
- * mirror `computeChanges` in `snapshot-listeners.ts` — keeps the two
- * change-detection paths consistent and good enough for sandbox data
- * (all `DocumentData` is JSON-serialisable post-sentinel-resolution).
- */
-function docDataEqual(a: DocumentData | null, b: DocumentData | null): boolean {
-  if (a === null && b === null) return true;
-  if (a === null || b === null) return false;
-  return JSON.stringify(a) === JSON.stringify(b);
-}
 
-/**
- * True if any path in `paths` is a direct child document of
- * `collection`. Used as a cheap pre-filter for query-listener
- * notifications: we only re-read the collection when something it
- * could plausibly contain was just touched. Slice 6 may revisit when
- * subcollection-aware queries land — current shape keeps the filter
- * conservative (no false negatives) at the cost of an occasional
- * false positive that the change-set diff then suppresses.
- */
-function anyPathInCollection(paths: ReadonlySet<string>, collection: string): boolean {
-  const prefix = `${collection}/`;
-  for (const p of paths) {
-    if (!p.startsWith(prefix)) continue;
-    const remaining = p.slice(prefix.length);
-    if (remaining.length > 0 && !remaining.includes('/')) return true;
-  }
-  return false;
-}
+export type {
+  Operation,
+  OperationResult,
+  BatchOperationInput,
+  BatchResult,
+} from './writes.js';
+import type {
+  Operation,
+  OperationResult,
+  BatchOperationInput,
+  BatchResult,
+} from './writes.js';
+import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './history.js';
+export { SimulatorUnsupportedError } from './rules-evaluation.js';
+import { docDataEqual, anyPathInCollection } from './listener-delivery.js';
+import { listQueryFromStructured } from './reads.js';
+import {
+  SimulatorUnsupportedError,
+  unsupportedMessage,
+  adminBypassResult,
+  isoFromTimestamp,
+  DEFAULT_OPEN_RULES,
+} from './rules-evaluation.js';
 
-export interface Operation {
-  /**
-   * `'set'` is the replace-semantics single-write counterpart of the
-   * batch `'set'` op: storage replaces, rule eval translates to
-   * `'create'` (doc absent) or `'update'` (doc exists). Use it for
-   * `DocumentReference.set(data)` without merge options.
-   */
-  method: 'get' | 'list' | 'create' | 'update' | 'set' | 'delete';
-  path: string;
-  auth: { uid: string; token?: Record<string, unknown> } | null;
-  data?: DocumentData;
-  /** Signals that this `create`'s path-last-segment was minted by
-   *  `LocalEnvironment.createWithAutoId` (not user-supplied). The
-   *  replay engine reads `WriteSandboxEvent.autoId` and mints a fresh
-   *  ID on replay rather than preserving the original. Only meaningful
-   *  on `method: 'create'`; ignored otherwise. */
-  autoId?: boolean;
-  /** Pin the server-time the rule engine sees for this op (replaces
-   *  `Timestamp.fromMillis(Date.now())`). Used by the replay engine
-   *  with `pinRequestTime: true` so `serverTimestamp()` sentinels
-   *  resolve to the captured value and rules that branch on
-   *  `request.time` evaluate identically on replay. */
-  requestTime?: Timestamp;
-  /** FS-B6 — `setDoc(data, {merge})` storage semantics. When set, an
-   *  `update`/`create` op DEEP-merges (`merge: true`) or projects to the
-   *  listed field paths (`{ mergeFields }`) instead of the shallow
-   *  field-path update. Rule evaluation is unaffected (merge still
-   *  evaluates as create-when-absent / update-when-present). Only
-   *  meaningful when `doc-ref.set` routes a merge write through here. */
-  merge?: boolean | { mergeFields: readonly string[] };
-  /**
-   * Studio admin lens (Pyric Studio Gap #2). When `true`, rule
-   * evaluation is SKIPPED for this op — `simulate()` is never called and
-   * the op is treated as ALLOW. The write still goes through `applyWrite`
-   * (so structural preconditions like create-already-exists / update-
-   * missing STILL apply, matching real Firestore admin) and still emits
-   * the same `request`/`write` events + wakes listeners. This is the
-   * modular-shaped sibling of the path-string `adminSetDocument` /
-   * `adminDeleteDocument` bypass — same effect (rules off, store + events
-   * on), reachable through the chainable/modular op surface. Default
-   * (absent/false) is the unchanged rules-enforced path. */
-  bypassRules?: boolean;
-}
 
-// ─── RequestEvent emission (issue #307) ───────────────────────────────
 
-/**
- * Input to {@link LocalEnvironment.emitRequest}. The internal shape the
- * env's emit sites assemble; `buildRequestEvent` converts to the public
- * `RequestEvent` shape consumers see.
- */
-interface EmitRequestInput {
-  at: number;
-  evalMs: number;
-  method: Operation['method'];
-  path: string;
-  auth: Operation['auth'];
-  result: 'allow' | 'deny' | 'unsupported';
-  debugMessages: string[];
-  /** The deciding rule's verdict + line + sub-expression trace (from
-   *  `projectEvaluatedRule`). Surfaced on allow AND deny events (see
-   *  `buildRequestEvent`); never on unsupported. */
-  evaluatedRule?: EvaluatedRuleInfo;
-  resourceData?: DocumentData;
-  resourceBefore?: { data: DocumentData | null; exists: boolean };
-  resourceAfter?: { data: DocumentData | null; exists: boolean };
-  origin: 'user' | 'listener' | 'transaction' | 'batch';
-  groupId?: string;
-  triggeredBy?: { method: string; path: string };
-  detail?: { admin?: boolean } & Record<string, unknown>;
-  provenance?: EventProvenance;
-}
 
-let _requestEventSeq = 0;
 
-function nextRequestEventId(): string {
-  // Monotonic + random tail. Stable for the lifetime of the JS process;
-  // doesn't try to be cryptographically unique because consumers use it
-  // as a React list key, not a security token.
-  _requestEventSeq = (_requestEventSeq + 1) >>> 0;
-  return `req-${_requestEventSeq.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-}
 
-/**
- * Parse `Rule #N (ops...) → ALLOW/deny` lines out of the simulator's
- * debug messages. The simulator emits one such line per evaluated rule
- * in the matched match block (see `evaluateRules` in
- * `pyric/rules/handler.ts`). For allowed outcomes
- * the last `→ ALLOW` rule wins; for denials we surface the first rule
- * that even tried to match this op-set.
- */
-function parseMatchedRule(
-  debugMessages: string[],
-  result: 'allow' | 'deny' | 'unsupported',
-): { ruleIndex: number; operations: string[] } | undefined {
-  const wantAllow = result === 'allow';
-  let last: { ruleIndex: number; operations: string[] } | undefined;
-  for (const msg of debugMessages) {
-    const m = /^Rule #(\d+) \(([^)]+)\) → (ALLOW|deny|unsupported)/.exec(msg);
-    if (!m) continue;
-    const candidate = {
-      ruleIndex: Number(m[1]),
-      operations: m[2].split(',').map((s) => s.trim()),
-    };
-    if (wantAllow && m[3] === 'ALLOW') return candidate;
-    last = candidate;
-  }
-  return last;
-}
-
-function buildRequestEvent(input: EmitRequestInput): import('../types/events.js').RequestEvent {
-  const out: import('../types/events.js').RequestEvent = {
-    kind: 'request',
-    id: nextRequestEventId(),
-    at: input.at,
-    evalMs: input.evalMs,
-    method: input.method,
-    path: input.path,
-    auth: input.auth ? { uid: input.auth.uid, ...(input.auth.token ? { token: input.auth.token } : {}) } : null,
-    result: input.result,
-    reasons: input.debugMessages,
-    origin: input.origin,
-  };
-  if (input.resourceData !== undefined) {
-    out.request = { resourceData: input.resourceData };
-  }
-  if (input.resourceBefore !== undefined) {
-    out.resourceBefore = input.resourceBefore;
-  }
-  if (input.resourceAfter !== undefined) {
-    out.resourceAfter = input.resourceAfter;
-  }
-  const matched = parseMatchedRule(input.debugMessages, input.result);
-  if (matched) out.matchedRule = matched;
-  // The structured deciding-rule projection (verdict + line + expression
-  // trace) rides alongside the flat `reasons` on rules-evaluated results —
-  // the allowing rule on an allow, the denying rule on a deny. Unsupported
-  // results have no deciding rule (the simulator abstained).
-  if (input.result !== 'unsupported' && input.evaluatedRule) {
-    out.evaluatedRule = input.evaluatedRule;
-  }
-  if (input.groupId !== undefined) {
-    out.groupId = input.groupId;
-    // Disambiguates 'origin' for consumers that want the group kind
-    // without re-parsing the prefix.
-    if (input.origin === 'batch') out.groupKind = 'batch';
-    else if (input.origin === 'transaction') out.groupKind = 'transaction';
-  }
-  if (input.triggeredBy !== undefined) out.triggeredBy = input.triggeredBy;
-  if (input.detail !== undefined) out.detail = input.detail;
-  if (input.provenance !== undefined) Object.assign(out, input.provenance);
-  return out;
-}
-
-function listQueryFromStructured(structured: QueryConstraints): ListQuery | undefined {
-  if (structured.limit == null && structured.offset == null && structured.orderBy == null) {
-    return undefined;
-  }
-  return {
-    ...(structured.limit != null ? { limit: structured.limit } : {}),
-    ...(structured.offset != null ? { offset: structured.offset } : {}),
-    ...(structured.orderBy != null ? { orderBy: structured.orderBy } : {}),
-  };
-}
-
-export interface OperationResult {
-  allowed: boolean;
-  data?: DocumentData | null;
-  debugMessages: string[];
-  event: AgentEvent;
-  /**
-   * Item 6 — typed error code present on every denial / structural
-   * failure. Absent when `allowed: true`. See {@link FirestoreSimError}
-   * for the canonical code set and {@link makeError} for construction.
-   */
-  error?: FirestoreSimError;
-}
-
-export interface BatchOperationInput {
-  method: 'create' | 'update' | 'delete';
-  path: string;
-  data?: DocumentData;
-}
-
-/**
- * A synthetic all-ALLOW {@link TestResult} for the admin-bypass path
- * (Pyric Studio Gap #2). Returned by {@link LocalEnvironment.runSimulate}
- * instead of calling the rules engine when an op carries `bypassRules`.
- * `state: 'PASSED'` + `decision: 'ALLOW'` is exactly the shape every
- * write/read site downstream of a `simulate()` call already branches on,
- * so the bypass reuses the entire existing execute/batch/transaction
- * apply + emit machinery unchanged — only the rule decision is forced.
- * The `notes` line makes the bypass legible in the `debugMessages` trail
- * that surfaces on the traffic log.
- */
-function adminBypassResult(description = ''): TestResult {
-  return {
-    description,
-    expectation: 'ALLOW',
-    state: 'PASSED',
-    decision: 'ALLOW',
-    trace: [],
-    notes: ['admin lens — rules bypassed (Studio Gap #2)'],
-  };
-}
-
-export interface BatchResult {
-  allowed: boolean;
-  results: {
-    path: string;
-    allowed: boolean;
-    debugMessages: string[];
-    /** Item 6 — populated for any per-op denial inside the batch. */
-    error?: FirestoreSimError;
-  }[];
-  event: AgentEvent;
-  /**
-   * Item 6 — top-level batch error. Set when the batch as a whole was
-   * rejected (atomic rollback) — typically the first per-op error, or
-   * a sentinel-resolution error that aborted before per-op evaluation.
-   */
-  error?: FirestoreSimError;
-}
-
-/**
- * Default ruleset for a freshly-constructed sandbox. Open read+write
- * on every path — the right behavior for the quickstart / local dev
- * loop where rules haven't been considered yet. Callers tighten this
- * via `setRules(...)`; production code never relies on the default.
- */
-const DEFAULT_OPEN_RULES = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
-    }
-  }
-}
-`;
 
 export class LocalEnvironment {
   private state: DocStore;
@@ -412,7 +125,7 @@ export class LocalEnvironment {
    *
    * Listener throws are swallowed (same rationale as `denialListeners`).
    */
-  private requestListeners: Set<(event: import('../types/events.js').RequestEvent) => void> = new Set();
+  private requestListeners: Set<(event: import('../../sandbox/types/events.js').RequestEvent) => void> = new Set();
 
   /**
    * Subscribers notified for every COMMITTED write (issue #307). Fires
@@ -421,7 +134,7 @@ export class LocalEnvironment {
    * RequestEvent instead). Bridged to `Sandbox.onEvent` consumers via
    * SandboxImpl's attachToEnv.
    */
-  private writeListeners: Set<(event: import('../types/events.js').WriteSandboxEvent) => void> = new Set();
+  private writeListeners: Set<(event: import('../../sandbox/types/events.js').WriteSandboxEvent) => void> = new Set();
 
   /**
    * Subscribers notified for every snapshot DELIVERED to a user
@@ -430,21 +143,21 @@ export class LocalEnvironment {
    * (in contrast to `requestListeners[origin='listener']`, which used
    * to over-count before the step-5 refactor).
    */
-  private deliveryListeners: Set<(event: import('../types/events.js').SnapshotDeliveryEvent) => void> = new Set();
+  private deliveryListeners: Set<(event: import('../../sandbox/types/events.js').SnapshotDeliveryEvent) => void> = new Set();
 
   /**
    * Subscribers notified for every listener re-eval that was suppressed
    * before reaching the user callback — Slice 3's no-op suppression
    * surfaces here. Useful for "why didn't my listener fire" debugging.
    */
-  private suppressedListeners: Set<(event: import('../types/events.js').SnapshotSuppressedEvent) => void> = new Set();
+  private suppressedListeners: Set<(event: import('../../sandbox/types/events.js').SnapshotSuppressedEvent) => void> = new Set();
 
   /**
    * Subscribers notified for listener attach / detach lifecycle. Errored
    * still routes through onSnapshotError (bridged to listener_errored
    * in SandboxImpl) so this channel only carries attach + detach.
    */
-  private lifecycleListeners: Set<(event: import('../types/events.js').ListenerLifecycleEvent) => void> = new Set();
+  private lifecycleListeners: Set<(event: import('../../sandbox/types/events.js').ListenerLifecycleEvent) => void> = new Set();
 
   /**
    * The user-origin op that's currently triggering a listener re-eval,
@@ -559,7 +272,7 @@ export class LocalEnvironment {
    * `silentReadCollection` build the public-shape event lazily — when
    * no subscribers are attached, eval doesn't pay the allocation cost.
    */
-  onRequest(cb: (event: import('../types/events.js').RequestEvent) => void): () => void {
+  onRequest(cb: (event: import('../../sandbox/types/events.js').RequestEvent) => void): () => void {
     this.requestListeners.add(cb);
     return () => { this.requestListeners.delete(cb); };
   }
@@ -570,35 +283,35 @@ export class LocalEnvironment {
    * keyspace applies the write; denied / rolled-back writes don't
    * emit here.
    */
-  onWrite(cb: (event: import('../types/events.js').WriteSandboxEvent) => void): () => void {
+  onWrite(cb: (event: import('../../sandbox/types/events.js').WriteSandboxEvent) => void): () => void {
     this.writeListeners.add(cb);
     return () => { this.writeListeners.delete(cb); };
   }
 
   /** Internal — bridge for sandbox-level `onEvent` to receive
    *  snapshot-delivery events. Fires after the user callback runs. */
-  onSnapshotDelivery(cb: (event: import('../types/events.js').SnapshotDeliveryEvent) => void): () => void {
+  onSnapshotDelivery(cb: (event: import('../../sandbox/types/events.js').SnapshotDeliveryEvent) => void): () => void {
     this.deliveryListeners.add(cb);
     return () => { this.deliveryListeners.delete(cb); };
   }
 
   /** Internal bridge for snapshot_suppressed events — re-evals that
    *  didn't deliver because diffing found no observable change. */
-  onSnapshotSuppressed(cb: (event: import('../types/events.js').SnapshotSuppressedEvent) => void): () => void {
+  onSnapshotSuppressed(cb: (event: import('../../sandbox/types/events.js').SnapshotSuppressedEvent) => void): () => void {
     this.suppressedListeners.add(cb);
     return () => { this.suppressedListeners.delete(cb); };
   }
 
   /** Internal bridge for listener attach/detach lifecycle. Errored
    *  routes through onSnapshotError separately. */
-  onListenerLifecycle(cb: (event: import('../types/events.js').ListenerLifecycleEvent) => void): () => void {
+  onListenerLifecycle(cb: (event: import('../../sandbox/types/events.js').ListenerLifecycleEvent) => void): () => void {
     this.lifecycleListeners.add(cb);
     return () => { this.lifecycleListeners.delete(cb); };
   }
 
   private emitSnapshotDelivery(input: {
     listenerId: string;
-    target: import('../types/events.js').SnapshotDeliveryEvent['target'];
+    target: import('../../sandbox/types/events.js').SnapshotDeliveryEvent['target'];
     auth: ListenerAuth;
     addedCount: number;
     modifiedCount: number;
@@ -608,7 +321,7 @@ export class LocalEnvironment {
     triggeredBy?: { method: string; path: string };
   }): void {
     if (this.deliveryListeners.size === 0) return;
-    const event: import('../types/events.js').SnapshotDeliveryEvent = {
+    const event: import('../../sandbox/types/events.js').SnapshotDeliveryEvent = {
       kind: 'snapshot_delivery',
       id: nextRequestEventId().replace(/^req-/, 'snd-'),
       at: Date.now(),
@@ -631,12 +344,12 @@ export class LocalEnvironment {
 
   private emitSnapshotSuppressed(input: {
     listenerId: string;
-    target: import('../types/events.js').SnapshotSuppressedEvent['target'];
+    target: import('../../sandbox/types/events.js').SnapshotSuppressedEvent['target'];
     auth: ListenerAuth;
     triggeredBy?: { method: string; path: string };
   }): void {
     if (this.suppressedListeners.size === 0) return;
-    const event: import('../types/events.js').SnapshotSuppressedEvent = {
+    const event: import('../../sandbox/types/events.js').SnapshotSuppressedEvent = {
       kind: 'snapshot_suppressed',
       id: nextRequestEventId().replace(/^req-/, 'sup-'),
       at: Date.now(),
@@ -656,11 +369,11 @@ export class LocalEnvironment {
   private emitLifecycle(input: {
     phase: 'listener_attach' | 'listener_detach';
     listenerId: string;
-    target: import('../types/events.js').ListenerLifecycleEvent['target'];
+    target: import('../../sandbox/types/events.js').ListenerLifecycleEvent['target'];
     auth: ListenerAuth;
   }): void {
     if (this.lifecycleListeners.size === 0) return;
-    const event: import('../types/events.js').ListenerLifecycleEvent = {
+    const event: import('../../sandbox/types/events.js').ListenerLifecycleEvent = {
       kind: input.phase,
       id: nextRequestEventId().replace(/^req-/, 'lc-'),
       at: Date.now(),
@@ -710,7 +423,7 @@ export class LocalEnvironment {
     provenance?: EventProvenance;
   }): void {
     if (this.writeListeners.size === 0) return;
-    const event: import('../types/events.js').WriteSandboxEvent = {
+    const event: import('../../sandbox/types/events.js').WriteSandboxEvent = {
       kind: 'write',
       id: nextRequestEventId().replace(/^req-/, 'wr-'),
       at: Date.now(),
