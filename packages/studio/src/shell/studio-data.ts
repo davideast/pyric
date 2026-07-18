@@ -36,6 +36,7 @@ import type {
 } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
+import { foldSessionEventLog } from '../events/fold.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
 import type { WorkerLivePlane } from '../env.js';
@@ -238,9 +239,12 @@ export function useStudioEvents(): readonly SandboxEvent[] {
       return;
     }
     // Cap BOTH accumulation paths (the history seed and the live appends).
+    // Live appends fold through the session rule: a reset boundary drops the
+    // wiped session's events (see `events/fold.ts`) so Traffic/Session read
+    // (near-)empty after Settings → Reset — issue #359 extension.
     setLiveEvents(capNewest(liveFeed.history()));
     const unsub = liveFeed.subscribe((event) =>
-      setLiveEvents((prev) => capNewest([...prev, event])),
+      setLiveEvents((prev) => capNewest(foldSessionEventLog(prev, event))),
     );
     return unsub;
   }, [seedReady, liveFeed]);

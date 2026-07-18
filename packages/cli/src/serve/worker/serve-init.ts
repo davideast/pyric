@@ -297,9 +297,24 @@ export function applyServeInit(
     });
 
     result.captureEnabled = true;
+    // Immediate-flush seam for the `resetAll` op (issue #359 extension):
+    // reset clears `sandbox.history()`, and the SERVER-persisted capture
+    // (`.pyric/last-session.json`) must follow NOW — inside the debounce
+    // window a dying worker leaves the wiped session's events on disk, and
+    // the next boot's `hydrateEventHistory` would prime them straight back
+    // into Traffic. Bypasses the debounce; cancels any pending flush (it
+    // would only re-write the same post-reset history).
+    ctx.captureFlush = (): void => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      flush();
+    };
     result.dispose = (): void => {
       if (timer) clearTimeout(timer);
       unsub();
+      ctx.captureFlush = undefined;
     };
   }
 
