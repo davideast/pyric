@@ -572,10 +572,32 @@ export function setupServerAuthFlush(
 
 // ─── Worker boot: build the ONE shared HostCtx ──────────────────────────────
 
-/** Default persistence key — also the IndexedDB database name. Package-level
- *  default; stable across reloads (never derived from the page path, so every
- *  boot on an origin opens the SAME database). */
+/** Legacy shared persistence key — also the IndexedDB database name. Stable
+ *  across reloads (never derived from the page path). Used ONLY when no
+ *  project identity exists (older servers without `InitPayload.projectKey`,
+ *  standalone workers) — see {@link workerPersistenceKey}. */
 export const WORKER_PERSISTENCE_KEY = 'pyric-shared-worker';
+
+/**
+ * Resolve the worker's persistence key (= IndexedDB database name) for a
+ * project identity: `pyric-shared-worker:<projectKey>`, or the legacy shared
+ * {@link WORKER_PERSISTENCE_KEY} when none is available.
+ *
+ * IndexedDB is origin-scoped, so the FIXED key made every project served on
+ * one localhost port share ONE sandbox snapshot database — another app's auth
+ * users, Firestore docs, and RTDB tree appeared in an unrelated project
+ * (issue #359's storage defect, same family; identity flows from the same
+ * `InitPayload.projectKey` the storage fix uses).
+ *
+ * Migration decision — mirrors `storageDbName` in pyric's
+ * `storage/persistence.ts`, recorded here deliberately: the legacy shared
+ * `pyric-shared-worker` database is ORPHANED, not migrated (cross-project
+ * state disappearing from the sandbox is the point of the fix) and not
+ * deleted (older pyric versions on the same origin may still read it).
+ */
+export function workerPersistenceKey(projectKey?: string | null): string {
+  return projectKey ? `${WORKER_PERSISTENCE_KEY}:${projectKey}` : WORKER_PERSISTENCE_KEY;
+}
 
 const PERMISSIVE_RULES = `
   rules_version = '2';
@@ -594,7 +616,9 @@ export interface WorkerBootEnv extends ServeInitEnv {
   /** The raw local backend (IndexedDB in the real worker). Also used for the
    *  instance id + branches + (via the durable wrapper) the controller blob. */
   idb: PersistenceBackend;
-  /** Persistence key / IDB database name. Default {@link WORKER_PERSISTENCE_KEY}. */
+  /** Persistence key / IDB database name. An explicit key always wins (tests
+   *  isolate per-case state with it); the default is project-scoped via
+   *  {@link workerPersistenceKey} from the init payload's `projectKey`. */
   persistenceKey?: string;
   /** Hot-reload EventSource factory. Omit/null when unavailable (tests, hosts
    *  without EventSource). */
@@ -625,9 +649,14 @@ export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
   adminDb.setRules(PERMISSIVE_RULES);
 
   // Fetch serve's init payload FIRST — it decides the DURABLE strategy before
-  // we attach: `--persist` mirrors the controller blob to the committable
-  // server file (and primes from it on a fresh worker); a `seedState` fixture
-  // primes IDB once. Null when standalone (no `pyric dev` behind us).
+  // we attach (`--persist` mirrors the controller blob to the committable
+  // server file and primes from it on a fresh worker; a `seedState` fixture
+  // primes IDB once) AND it carries `projectKey`, which must exist BEFORE the
+  // first restore/save below: the persistence key is chosen exactly once at
+  // enablePersistence, so a lazy identity here would claim the legacy shared
+  // database — the same eager-vs-lazy trap the storage DB scoping hit (see
+  // applyServeInit's unconditional storage open). Null when standalone (no
+  // `pyric dev` behind us) — the legacy shared key then applies.
   const payload = await fetchInitPayload(env.fetch);
 
   // The persistence-controller backend. `--persist`/`seedState` wrap IDB (see
@@ -636,7 +665,7 @@ export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
   // file), so that is what we hand the host as `sessionBackend`.
   const durable = payload ? createWorkerDurableBackend(env.idb, payload, env) : env.idb;
   await sandbox.enablePersistence({
-    key: env.persistenceKey ?? WORKER_PERSISTENCE_KEY,
+    key: env.persistenceKey ?? workerPersistenceKey(payload?.projectKey),
     injectedBackend: durable,
   });
 
