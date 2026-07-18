@@ -815,3 +815,202 @@ describe('broker sandbox event emission', () => {
     );
   });
 });
+
+// ── Diagnostics: console signals for silent gaps ────────────────────────────
+
+/** Capture console.warn/info calls for the duration of `fn`, then restore. */
+async function captureConsole<T extends 'warn' | 'info'>(
+  method: T,
+  fn: () => Promise<void> | void,
+): Promise<string[]> {
+  const original = console[method];
+  const calls: string[] = [];
+  console[method] = ((...args: unknown[]) => {
+    calls.push(args.map(String).join(' '));
+  }) as typeof console[T];
+  try {
+    await fn();
+  } finally {
+    console[method] = original;
+  }
+  return calls;
+}
+
+describe('scripted-default warning (silent-gap signal)', () => {
+  it('warns once when zero-config synthesizes a default answer for a real request', async () => {
+    const engine = new ScriptedEngine();
+    const warnings = await captureConsole('warn', async () => {
+      await engine.generateContent(userReq('first'), MODEL);
+      await engine.generateContent(userReq('second'), MODEL);
+    });
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('no script was ever queued');
+    expect(warnings[0]).toContain('pyric/ai/scripting');
+  });
+
+  it('never warns when a script was queued, even after it runs out mid-list', async () => {
+    const engine = new ScriptedEngine([{ respond: { text: 'only entry' } }]);
+    const warnings = await captureConsole('warn', async () => {
+      await engine.generateContent(userReq('consumes the only entry'), MODEL); // matches
+      await engine.generateContent(userReq('queue now empty'), MODEL); // falls to synthetic default
+    });
+    expect(warnings.length).toBe(0);
+  });
+
+  it('never warns when entries were queued via push after construction', async () => {
+    const engine = new ScriptedEngine();
+    engine.push({ respond: { text: 'pushed' } });
+    const warnings = await captureConsole('warn', async () => {
+      await engine.generateContent(userReq('consumes it'), MODEL);
+      await engine.generateContent(userReq('runs dry'), MODEL);
+    });
+    expect(warnings.length).toBe(0);
+  });
+
+  it('warns once for zero-config streaming too, and only once across generate + stream', async () => {
+    const engine = new ScriptedEngine();
+    const warnings = await captureConsole('warn', async () => {
+      await collect(engine.streamGenerateContent(userReq('stream default'), MODEL));
+      await engine.generateContent(userReq('unary default'), MODEL);
+    });
+    expect(warnings.length).toBe(1);
+  });
+});
+
+describe('openai dropped-fields warning (silent-gap signal)', () => {
+  function reqWith(generationConfig: Record<string, unknown>): GenerateContentRequest {
+    return { ...userReq('hi'), generationConfig: generationConfig as any };
+  }
+
+  it('warns once when thinkingConfig is present, naming the field and the fix', async () => {
+    const engine = new OpenAiEngine({
+      baseUrl: 'http://up/v1',
+      fetch: jsonFetch(() =>
+        Response.json({
+          id: 'x',
+          model: 'm',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        }),
+      ),
+    });
+    const warnings = await captureConsole('warn', async () => {
+      await engine.generateContent(reqWith({ thinkingConfig: { thinkingBudget: 100 } }), MODEL);
+      await engine.generateContent(reqWith({ thinkingConfig: { thinkingBudget: 100 } }), MODEL);
+    });
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('thinkingConfig');
+    expect(warnings[0]).toContain('Production still honors thinkingConfig');
+  });
+
+  it('warns once when topK is present, naming the field', async () => {
+    const engine = new OpenAiEngine({
+      baseUrl: 'http://up/v1',
+      fetch: jsonFetch(() =>
+        Response.json({
+          id: 'x',
+          model: 'm',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        }),
+      ),
+    });
+    const warnings = await captureConsole('warn', async () => {
+      await engine.generateContent(reqWith({ topK: 40 }), MODEL);
+    });
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('topK');
+  });
+
+  it('names both fields in one warning when both are present', async () => {
+    const engine = new OpenAiEngine({
+      baseUrl: 'http://up/v1',
+      fetch: jsonFetch(() =>
+        Response.json({
+          id: 'x',
+          model: 'm',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        }),
+      ),
+    });
+    const warnings = await captureConsole('warn', async () => {
+      await engine.generateContent(reqWith({ topK: 40, thinkingConfig: { thinkingBudget: 1 } }), MODEL);
+    });
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('thinkingConfig and topK');
+  });
+
+  it('never warns when neither field is present', async () => {
+    const engine = new OpenAiEngine({
+      baseUrl: 'http://up/v1',
+      fetch: jsonFetch(() =>
+        Response.json({
+          id: 'x',
+          model: 'm',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        }),
+      ),
+    });
+    const warnings = await captureConsole('warn', async () => {
+      await engine.generateContent(reqWith({ temperature: 0.5 }), MODEL);
+    });
+    expect(warnings.length).toBe(0);
+  });
+});
+
+describe('engine construction visibility (console.info + event detail)', () => {
+  it('logs one info line at construction naming the resolved engine', async () => {
+    const infos = await captureConsole('info', () => {
+      new AiBroker({ engine: { kind: 'scripted' } });
+    });
+    expect(infos.length).toBe(1);
+    expect(infos[0]).toContain('engine resolved: scripted');
+  });
+
+  it('the info line for an openai engine names the model and upstream', async () => {
+    const infos = await captureConsole('info', () => {
+      new AiBroker({ engine: { kind: 'openai', baseUrl: 'http://up/v1', model: 'llama3' } });
+    });
+    expect(infos[0]).toContain('openai');
+    expect(infos[0]).toContain('llama3');
+    expect(infos[0]).toContain('http://up/v1');
+  });
+
+  it('emitted events carry the resolved engine kind (additive detail field)', async () => {
+    const sandbox = initializeSandbox();
+    const events: any[] = [];
+    sandbox.onEvent((e: any) => {
+      if (e.kind === 'service_mutation' && e.service === 'ai') events.push(e);
+    });
+    const broker = new AiBroker({ sandbox, engine: { kind: 'scripted' } });
+    await broker.generateContent(userReq('hello'), MODEL);
+    expect(events[0].detail.engine).toBe('scripted');
+    // Original fields are still there — additive, not replaced.
+    expect(events[0].detail.finishReason).toBe('STOP');
+  });
+
+  it('emitted events for an openai engine carry model and baseUrl in detail', async () => {
+    const sandbox = initializeSandbox();
+    const events: any[] = [];
+    sandbox.onEvent((e: any) => {
+      if (e.kind === 'service_mutation' && e.service === 'ai') events.push(e);
+    });
+    const broker = new AiBroker({
+      sandbox,
+      engine: {
+        kind: 'openai',
+        baseUrl: 'http://up/v1',
+        model: 'llama3',
+        fetch: jsonFetch(() =>
+          Response.json({
+            id: 'x',
+            model: 'llama3',
+            choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+          }),
+        ),
+      },
+    });
+    await broker.generateContent(userReq('hello'), MODEL);
+    expect(events[0].detail.engine).toBe('openai');
+    expect(events[0].detail.model).toBe('llama3');
+    expect(events[0].detail.baseUrl).toBe('http://up/v1');
+  });
+});
