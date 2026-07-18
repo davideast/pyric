@@ -465,6 +465,9 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         databaseUrl: live.databaseUrl,
         storageRules: live.storageRules,
         storageRulesHash: live.storageRulesHash,
+        // Project identity: scopes the storage IDB name per served project
+        // (issue #359). Local-only — a dev path never leaves the machine.
+        projectKey: cwd,
         // The bound port is known only after `listen`; initPayload runs per
         // request (after listen), so resolve it lazily here. Absolute ws://host:port
         // mirrors serve (the browser reads this as the bridge peer URL).

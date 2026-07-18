@@ -18,10 +18,14 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): AppFirebaseSt
   if (!runtime) throw new TypeError('pyric/storage: unrecognized FirebaseApp handle');
   return runtime.service(`storage/${bucketUrl ?? 'default'}`, () => {
     const { sandbox, session } = runtime;
+    // Project-scope the storage database by the app's projectId (issue #359)
+    // — first-call-per-Sandbox semantics apply, so a host that already opened
+    // the service (e.g. `pyric dev` with the served project's key) wins.
+    const projectId = resolvedApp.options?.projectId;
     const handle = getStorageSandbox(bindOperationContext(sandbox.withAuth(session.currentUser), {
       source: { kind: 'app' },
       authLens: { mode: 'app-session' },
-    }));
+    }), projectId ? { projectId } : {});
     return Object.freeze({
       [TARGET_SYMBOL]: { ...handle[TARGET_SYMBOL], currentAuth: () => session.currentUser },
       app: resolvedApp,

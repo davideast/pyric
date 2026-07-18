@@ -26,7 +26,7 @@ import {
   provenanceForOperationContext,
   resolveOperationContext,
 } from 'pyric/sandbox/internal';
-import { openStorageBackend, type StorageBackend } from './persistence.js';
+import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
 import { parseStorageRules, type StorageRules } from './rules.js';
 
 /**
@@ -114,6 +114,16 @@ export interface StorageOptions {
    */
   dbName?: string;
   /**
+   * Project identity used to derive the default IndexedDB database name
+   * (`pyric-storage:<projectId>` — see {@link storageDbName}). IndexedDB is
+   * origin-scoped, so without this every project served on the same
+   * localhost port shared one storage database (issue #359). Ignored when
+   * an explicit `dbName` is given; only honored on the FIRST call per
+   * `Sandbox`. Hosts pass their project identity here (`pyric dev` passes
+   * the served project's key; app handles pass `options.projectId`).
+   */
+  projectId?: string;
+  /**
    * Storage rules source. Parsed eagerly so a malformed string
    * throws at config time. Only honored on the FIRST call per
    * `Sandbox`.
@@ -175,11 +185,29 @@ function ensureService(
     return existing;
   }
   const rules = options.rules ? parseStorageRules(options.rules) : null;
-  const servicePromise = openStorageBackend(options.dbName).then(
+  // Explicit dbName wins; otherwise scope the default by project identity so
+  // two projects on one origin never share a storage database (issue #359).
+  const servicePromise = openStorageBackend(
+    options.dbName ?? storageDbName(options.projectId),
+  ).then(
     (backend) => new StorageService(backend, rules),
   );
   SERVICES.set(sandbox, servicePromise);
   SERVICE_RULES_SOURCE.set(sandbox, options.rules ?? null);
+  // Join the sandbox's persistable-service REGISTRY so `sandbox.resetAll()`
+  // reaches storage (issue #359: Studio's reset cleared Firestore + auth but
+  // never storage — storage was invisible to the sandbox). Storage does NOT
+  // ride the persistence blob: it owns its durability (IndexedDB), and blobs
+  // aren't JSON-serializable — so snapshot/restore are deliberate no-ops and
+  // `reset` is the only live hook (clears both IDB object stores).
+  sandbox.registerPersistableService('storage', {
+    snapshot: () => null,
+    restore: () => {},
+    reset: async () => {
+      const service = await servicePromise;
+      await service.backend.reset();
+    },
+  });
   return servicePromise;
 }
 

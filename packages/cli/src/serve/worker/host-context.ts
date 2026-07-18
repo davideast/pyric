@@ -161,6 +161,16 @@ export interface HostCtx {
    */
   sessionMode?: AuthPersistenceMode;
   /**
+   * Force an IMMEDIATE session-capture flush, bypassing the debounce — set
+   * by `applyServeInit` when `--capture` is on (see the capture block in
+   * serve-init.ts). The `resetAll` op invokes it so the server-persisted
+   * capture (`.pyric/last-session.json`) records the post-reset (empty)
+   * event history instead of the wiped session's traffic, which a rebooting
+   * worker would otherwise re-prime via `hydrateEventHistory` (issue #359
+   * extension). Absent when capture is off.
+   */
+  captureFlush?: () => void;
+  /**
    * Per-uid impersonation Firestore handles (Pyric Studio auth lens, T2).
    * Keyed by the impersonated uid. Each is a FROZEN-identity
    * `getFirestore(sandbox.withAuth({ uid }))` handle whose ops evaluate

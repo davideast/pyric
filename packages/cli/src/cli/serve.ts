@@ -362,6 +362,9 @@ export async function startServe(opts: {
     databaseUrl: live.databaseUrl,
     storageRules: loadedStorage.rules,
     storageRulesHash: loadedStorage.rulesHash,
+    // Project identity: scopes the storage IDB name per served project
+    // (issue #359). Local-only — a dev path never leaves the machine.
+    projectKey: opts.cwd,
     bridgeUrl: mount && origin.port > 0 ? mount.wsUrl(origin) : null,
     // Precedence: once a state file exists, the lived state is the truth —
     // --seed applies only on the first (state-less) run.

@@ -26,7 +26,32 @@
  * in Slice 8 inside `errors.ts`. Keep this layer mechanical.
  */
 
+/**
+ * Legacy shared database name — used only when NO project identity is
+ * available (bare library use, tests that don't pass a name).
+ *
+ * IndexedDB is origin-scoped, so under this fixed name every project served
+ * on the same localhost port shared ONE storage database (issue #359,
+ * defect B) — "old data" from unrelated projects surfaced in Studio.
+ * Project-scoped callers now open `pyric-storage:<projectId>` via
+ * {@link storageDbName} instead.
+ *
+ * Migration decision (deliberate, recorded here): the old shared
+ * `pyric-storage` database is ORPHANED, not migrated — cross-project data
+ * disappearing from Studio is the desired outcome of the fix. It is not
+ * deleted either: other pyric versions on the same origin may still read it.
+ */
 const DEFAULT_DB_NAME = 'pyric-storage';
+
+/**
+ * Resolve the default IndexedDB database name for a project identity:
+ * `pyric-storage:<projectId>`, or the legacy shared {@link DEFAULT_DB_NAME}
+ * when no identity is available. An explicit `dbName` option always wins
+ * over this derivation (see `StorageOptions`).
+ */
+export function storageDbName(projectId?: string | null): string {
+  return projectId ? `${DEFAULT_DB_NAME}:${projectId}` : DEFAULT_DB_NAME;
+}
 /**
  * Schema version. Bump and add an `upgradeneeded` branch when the
  * store layout changes. Slice 3 ships v1: two object stores keyed by

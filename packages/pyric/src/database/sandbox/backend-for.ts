@@ -25,6 +25,11 @@ export function getOrCreateBackend(sandbox: Sandbox): RtdbBackend {
       capturedBackend.restoreTree(data as JsonValue);
     },
     subscribe: (onChange: () => void) => capturedBackend.subscribeWrites(onChange),
+    // Sandbox.resetAll: clear the whole tree (restoreTree fans listeners out,
+    // so live views converge on the emptied state).
+    reset: () => {
+      capturedBackend.restoreTree(null);
+    },
   });
 
   return backend;

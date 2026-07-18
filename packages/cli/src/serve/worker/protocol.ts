@@ -498,6 +498,13 @@ export type OpMessage = (
   // on a throwaway branch (no live mutation). The reply is the serializable
   // `SandboxSnapshot` (the persistence format).
   | { t: 'op'; id: string; method: 'getSnapshot' }
+  // Sandbox-owned full reset (issue #359): `sandbox.resetAll()` on the worker —
+  // Firestore env + signed-in session + EVERY registered persistable service
+  // (auth users, RTDB tree, storage objects). The reply is `{ errors }` once
+  // every service finished clearing — per-service reset failures are listed
+  // as `name: message` (empty array = clean wipe). Studio's Settings/Session reset rides this so
+  // served mode wipes the same surface area as the in-process path.
+  | { t: 'op'; id: string; method: 'resetAll' }
   // ── Messaging ops (surface: 'messaging'; host-capability gated) ──
   // The broker's documented worker-host seam (pyric/src/messaging/broker/
   // broker.ts header): each public broker method is one op here. All payloads
