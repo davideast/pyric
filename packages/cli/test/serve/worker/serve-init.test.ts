@@ -711,6 +711,64 @@ describe('buildWorkerCtx — boot-time hydration + reset non-resurrection', () =
     expect(ctx.sandbox.history().filter((e) => e.id.startsWith('cap-'))).toHaveLength(4);
   });
 
+  /**
+   * Issue #364 characterization. The REAL browser `fetch` is this-sensitive:
+   * invoked as a member call (`env.fetch(...)`) it sees `this === env` and
+   * throws "Illegal invocation" (verified against Chromium). Every capture /
+   * hydration call site in serve-init.ts invokes it exactly that way, so in a
+   * real worker the capture flush never POSTed and `hydrateEventHistory`'s GET
+   * failed into its catch — a rebooted worker answered Studio's first event
+   * subscription with an EMPTY history, and the Activity/Traffic first open
+   * showed nothing. Plain stub fetches can't catch this; this wrapper replays
+   * the browser's `this` contract.
+   */
+  function browserishFetch(impl: typeof fetch): typeof fetch {
+    return function (this: unknown, ...args: Parameters<typeof fetch>) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError(
+          "Failed to execute 'fetch' on 'WorkerGlobalScope': Illegal invocation",
+        );
+      }
+      return impl(...args);
+    } as typeof fetch;
+  }
+
+  it('hydrates boot history through a browser-faithful (this-sensitive) fetch — issue #364', async () => {
+    const idb = createMemoryBackend();
+    const instanceId = await (await import('../../../src/serve/worker/host.js')).getOrCreateInstanceId(idb);
+    const ctx = await buildWorkerCtx({
+      fetch: browserishFetch(bootFetch(captureFixture(4, instanceId))),
+      idb,
+    });
+    expect(ctx.sandbox.history().filter((e) => e.id.startsWith('cap-'))).toHaveLength(4);
+  });
+
+  it('POSTs the capture through a browser-faithful (this-sensitive) fetch — issue #364', async () => {
+    const posts: string[] = [];
+    const impl = ((url: string, init?: { method?: string; body?: string }) => {
+      const u = String(url);
+      if (u === '/__pyric/init.json') {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(initJson(true))) } as Response);
+      }
+      if (u === '/__pyric/capture' && init?.method === 'POST') {
+        posts.push(String(init.body ?? ''));
+        return Promise.resolve({ status: 204, ok: true, text: () => Promise.resolve('') } as Response);
+      }
+      return Promise.resolve({ status: 404, ok: false, text: () => Promise.resolve('null'), json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+
+    const ctx = await buildWorkerCtx({
+      fetch: browserishFetch(impl),
+      idb: createMemoryBackend(),
+      captureDebounceMs: 1,
+    });
+    const port = fakePort();
+    await handleMessage(ctx, port, { t: 'op', id: 'w1', method: 'setDoc', path: 'notes/x', data: { v: 1 } });
+    await tick(20);
+    expect(posts.length).toBeGreaterThanOrEqual(1);
+    expect((JSON.parse(posts.at(-1)!) as { events: { kind: string }[] }).events.some((e) => e.kind === 'write')).toBe(true);
+  });
+
   it('does NOT resurrect pre-reset events: a post-reset capture reflects the cleared log', async () => {
     // 1. Boot, write, capture reflects the write.
     const store = { body: null as string | null };

@@ -639,7 +639,24 @@ export interface WorkerBootEnv extends ServeInitEnv {
  * gets no beforeunload/beforeterminate, so anything not committed to IDB when
  * the last tab closes is lost.
  */
-export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
+export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
+  // Detach `fetch` from the env record before ANY use (issue #364). Every call
+  // site in this module invokes it as `env.fetch(...)`, which binds `this` to
+  // the env object — and the real browser/worker `fetch` is this-sensitive:
+  // it throws "Illegal invocation" unless `this` is undefined or the global.
+  // That silent throw meant the capture flush never POSTed and
+  // `hydrateEventHistory`'s GET failed into its catch, so a REBOOTED worker
+  // always answered Studio's first event subscription with an EMPTY history —
+  // the Activity/Traffic first open showed nothing until new live events
+  // arrived. The wrapper restores a plain call (`this` undefined ⇒ the
+  // global); injected test stubs are unaffected.
+  const ambientFetch = bootEnv.fetch;
+  const env: WorkerBootEnv = {
+    ...bootEnv,
+    // Cast: Bun's `typeof fetch` also declares a `preconnect` member the
+    // plain-call wrapper doesn't need (nothing in this module uses it).
+    fetch: ((...args: Parameters<typeof fetch>) => ambientFetch(...args)) as typeof fetch,
+  };
   const sandbox = initializeSandbox();
 
   // Deploy permissive starter rules via admin-firestore.
