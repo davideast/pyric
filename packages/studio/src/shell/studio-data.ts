@@ -453,11 +453,10 @@ export function useStudioClear(): () => Promise<{ errors: string[] }> {
     if (data.status !== 'ready') throw new Error('No sandbox to clear.');
     const errors: string[] = [];
     try {
-      if (live) {
-        await live.resetAll();
-      } else {
-        await data.handles.sandbox.resetAll();
-      }
+      const result = live
+        ? await live.resetAll()
+        : await data.handles.sandbox.resetAll();
+      errors.push(...(result?.errors ?? []));
     } catch (e) {
       errors.push(`reset: ${e instanceof Error ? e.message : String(e)}`);
     }

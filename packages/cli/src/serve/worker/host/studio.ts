@@ -40,10 +40,12 @@ export async function handleStudioOp(
       // `resetAll` iterates the worker sandbox's persistable-service registry,
       // so auth users, the RTDB tree, AND storage objects clear along with the
       // Firestore env — Studio can't forget a service the sandbox knows about.
-      // Awaited (storage clears IndexedDB stores) before the ack, and failures
-      // reply as errors instead of silently half-clearing.
+      // Awaited (storage clears IndexedDB stores) before the ack. Op-level
+      // failures reply as errors; per-service reset failures ride the reply
+      // payload's `errors` so Studio can surface a half-clear instead of
+      // reporting a clean reset.
       try {
-        await ctx.sandbox.resetAll();
+        const { errors } = await ctx.sandbox.resetAll();
         // `resetAll` swapped the env, wiping env-owned FIRESTORE rules (RTDB /
         // storage rules live on their service objects and survive). Re-deploy
         // the active project rules so a DATA reset never de-governs writes.
@@ -53,7 +55,7 @@ export async function handleStudioOp(
             ? firestoreRules.source
             : firestoreRules?.lastKnownGood;
         if (typeof source === 'string') setRules(ctx.sandbox, source);
-        ok(port, msg.id, null);
+        ok(port, msg.id, { errors });
       } catch (e) {
         fail(port, msg.id, e instanceof Error ? e : new Error(String(e)));
       }

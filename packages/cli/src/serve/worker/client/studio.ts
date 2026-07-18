@@ -82,6 +82,7 @@ export async function getSnapshot(db: ClientDb): Promise<SandboxSnapshot> {
  * once the worker acks (all services finished clearing). This is the served
  * counterpart of calling `sandbox.resetAll()` on an in-process sandbox.
  */
-export async function resetAll(db: ClientDb): Promise<void> {
-  await rpc(db.port, { t: 'op', id: nextId(), method: 'resetAll' });
+export async function resetAll(db: ClientDb): Promise<{ errors: string[] }> {
+  const reply = await rpc(db.port, { t: 'op', id: nextId(), method: 'resetAll' });
+  return (reply ?? { errors: [] }) as { errors: string[] };
 }

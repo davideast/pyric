@@ -173,7 +173,7 @@ export interface WorkerLivePlane {
    *  — Firestore env + signed-in session + EVERY registered persistable
    *  service (auth users, RTDB tree, storage objects). Resolves once the
    *  worker acks (all services finished clearing). */
-  resetAll(): Promise<void>;
+  resetAll(): Promise<{ errors: string[] }>;
   /** Stable per-SharedWorker instance id, so the UI can tell WHICH sandbox
    *  instance this is — the same `localhost:<port>` in a different browser
    *  profile is a separate instance. Studio renders a human-friendly slug. */
