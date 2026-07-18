@@ -226,7 +226,7 @@ jobs:
     name: Authored documentation
     runs-on: ubuntu-latest
     needs: plan
-    if: needs.plan.outputs.predicted-check-set == 'docs-only'
+    if: contains(fromJSON('["docs-only", "full"]'), needs.plan.outputs.predicted-check-set)
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
