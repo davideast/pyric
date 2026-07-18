@@ -118,8 +118,10 @@ export function evaluateQueryProof(
   authUid?: string,
 ): QueryProofResult {
   // 1. Doc-independent rule → any query is provable. This is the common
-  //    `allow list: if request.auth != null` / `if true` case.
-  if (!referencesResourceData(listCondition, fnMap)) {
+  //    `allow list: if request.auth != null` / `if true` case. The check is the
+  //    fail-closed classifier: the rule counts as doc-independent only when
+  //    every node is positively known not to touch the candidate doc.
+  if (isProvablyDocIndependent(listCondition, fnMap)) {
     return {
       provable: true,
       reason: 'list rule does not depend on per-document data; every doc is equally readable',
@@ -205,6 +207,12 @@ function buildResidualReason(missing: QueryProofMissing[], mismatched: QueryProo
  * the candidate doc) — directly or via an inlined user function. Mirrors the
  * shape of `referencesRequestTime` in linter/ast-utils. `request.resource.data`
  * (the WRITE payload) is NOT per-doc-read data, so it's intentionally excluded.
+ *
+ * Polarity warning: this detector fails OPEN (an unrecognized shape reads as
+ * "no reference"), so it must only gate deny-safe decisions — e.g. whether the
+ * provable path injects a synthetic resource (a miss there under-populates the
+ * test case and the rule denies). Anything that gates an ALLOW must use the
+ * fail-closed {@link isProvablyDocIndependent} instead.
  */
 export function referencesResourceData(
   expr: Expression,
@@ -243,6 +251,91 @@ export function referencesResourceData(
   return check(expr);
 }
 
+/**
+ * Fail-closed doc-independence classifier — the polarity opposite of
+ * {@link referencesResourceData}, and the only check allowed to gate an ALLOW.
+ *
+ * Returns true only for expressions positively known not to depend on the
+ * candidate document: literals, `request.*` chains (including
+ * `request.resource.data`, the write payload), path-variable and stdlib
+ * identifiers, and boolean/comparison/arithmetic/method/call compositions
+ * whose every child is itself provably doc-independent. Every child position
+ * is walked — bracket-access object and index, slice-access object/start/end,
+ * path-literal segment expressions, method and function arguments, user
+ * function bodies and `let` bindings (recursion-guarded; a cycle fails
+ * closed).
+ *
+ * Any touch of the `resource` root — `resource.data` in every syntactic form
+ * (`resource['data']`, inside a path literal, sliced), and also `resource.id`
+ * / `resource.__name__` (per-doc identity) — classifies doc-dependent. So
+ * does any node type this switch doesn't enumerate: a future AST addition is
+ * doc-dependent (deny) until this classifier positively learns it, never
+ * silently doc-independent (allow). Consequence for callers: document lookups
+ * (`exists`/`get`/`getAfter`/`existsAfter`) whose path argument touches
+ * `resource` classify doc-dependent via the walked path-literal segments —
+ * such predicates can never be discharged by a `where` filter.
+ */
+export function isProvablyDocIndependent(
+  expr: Expression,
+  fnMap: Map<string, FunctionDef> = new Map(),
+  visited = new Set<string>(),
+): boolean {
+  const safe = (e: Expression): boolean => {
+    switch (e.type) {
+      case 'literal':
+        return true;
+      case 'identifier':
+        // The bare `resource` root is the candidate doc; every other
+        // identifier (request, path variables, stdlib namespaces, function
+        // params — already substituted away when inlined) is doc-independent.
+        return e.name !== 'resource';
+      case 'memberAccess':
+        return safe(e.object);
+      case 'bracketAccess':
+        return safe(e.object) && safe(e.index);
+      case 'sliceAccess':
+        return safe(e.object) && safe(e.start) && safe(e.end);
+      case 'binaryOp':
+        return safe(e.left) && safe(e.right);
+      case 'unaryOp':
+        return safe(e.operand);
+      case 'ternary':
+        return safe(e.condition) && safe(e.consequent) && safe(e.alternate);
+      case 'inExpr':
+        return safe(e.element) && safe(e.collection);
+      case 'isExpr':
+        return safe(e.value);
+      case 'listLiteral':
+        return e.elements.every(safe);
+      case 'mapLiteral':
+        return e.entries.every((en) => safe(en.key) && safe(en.value));
+      case 'pathLiteral':
+        return e.segments.every((s) => typeof s === 'string' || safe(s));
+      case 'methodCall':
+        return safe(e.object) && e.args.every(safe);
+      case 'functionCall': {
+        if (!e.args.every(safe)) return false;
+        const fn = fnMap.get(e.name);
+        // Unknown name → a builtin (exists/get/debug/…): its verdict is the
+        // same for every candidate doc as long as its arguments are
+        // doc-independent, which was just checked.
+        if (!fn) return true;
+        // Recursive helper → fail closed.
+        if (visited.has(e.name)) return false;
+        const nextVisited = new Set(visited).add(e.name);
+        return (
+          isProvablyDocIndependent(fn.body, fnMap, nextVisited) &&
+          fn.lets.every((b) => isProvablyDocIndependent(b.value, fnMap, nextVisited))
+        );
+      }
+      default:
+        // Unknown node shape → doc-dependent (fail closed).
+        return false;
+    }
+  };
+  return safe(expr);
+}
+
 /** A per-doc equality required by the rule, with provenance for remediation. */
 interface RequiredEquality {
   field: string;
@@ -275,12 +368,13 @@ type ExtractionResult =
  * then the inlined body's own `&&` spine is walked. A `visited` set guards
  * against recursion (helper calling helper, or a self-referential helper).
  *
- * Full accounting: every leaf conjunct must be either (a) doc-independent — no
- * `resource.data` reference, checked through function calls — or (b) an
- * extracted data equality. A conjunct that is doc-dependent but neither (a
+ * Full accounting: every leaf conjunct must be either (a) provably
+ * doc-independent per the fail-closed {@link isProvablyDocIndependent}
+ * classifier or (b) an extracted data equality. A conjunct that is neither (a
  * disjunction, range, `in`, membership/type/default-tolerant check, nested
- * path, or a call the guard refused to inline) fails the whole extraction
- * (`ok: false`), and the caller conservatively rejects the query.
+ * path, a call the guard refused to inline, or any unrecognized shape) fails
+ * the whole extraction (`ok: false`), and the caller conservatively rejects
+ * the query.
  */
 function extractRequiredDataEqualities(
   expr: Expression,
@@ -311,10 +405,12 @@ function extractRequiredDataEqualities(
       required.push(eq);
       return true;
     }
-    // Not an equality: acceptable only when the conjunct is doc-independent —
-    // the residual simulate() run evaluates those faithfully (auth / time /
-    // request.query). A doc-dependent non-equality fails the extraction.
-    return !referencesResourceData(e, fnMap);
+    // Not an equality: acceptable only when the conjunct is provably
+    // doc-independent — the residual simulate() run evaluates those
+    // faithfully (auth / time / request.query). Anything else, including any
+    // node shape the classifier doesn't positively recognize, fails the
+    // extraction (fail closed).
+    return isProvablyDocIndependent(e, fnMap);
   };
   return walkAnd(expr, new Set()) ? { ok: true, required } : { ok: false };
 }

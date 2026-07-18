@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import {
   evaluateQueryProof,
+  isProvablyDocIndependent,
   referencesResourceData,
   type QueryConstraints,
 } from '../../../src/rules/simulator/query-proof.js';
@@ -375,6 +376,83 @@ service cloud.firestore {
           'alice',
         ).provable,
       ).toBe(true);
+    });
+  });
+
+  describe('fail-closed classifier: every syntactic resource touch is doc-dependent', () => {
+    // The classifier gates every allow: it must recognize `resource` in each
+    // syntactic disguise, and treat any shape it does not positively know as
+    // doc-dependent. Both review rounds found leaks by feeding the previous
+    // fail-open enumeration a shape outside it.
+    const DISCHARGED: QueryConstraints = { where: [{ field: 'a', op: '==', value: 1 }] };
+
+    const expectOutOfScope = (source: string) => {
+      const { condition, fnMap } = listConditionOf(source);
+      const r = evaluateQueryProof(condition, DISCHARGED, fnMap);
+      expect(r.provable).toBe(false);
+      if (r.provable) throw new Error('unreachable');
+      expect(r.residual.outOfScope).toBeDefined();
+    };
+
+    test("bracket access: equality + `!('secret' in resource['data'])` → reject", () => {
+      expectOutOfScope(rules("allow list: if resource.data.a == 1 && !('secret' in resource['data']);"));
+    });
+
+    test('path literal: equality + exists(...) with a resource.data-dependent segment → reject', () => {
+      // A document lookup whose path depends on doc data can never be
+      // discharged by a where filter — the walked path-literal segments make
+      // it doc-dependent.
+      expectOutOfScope(rules(
+        "allow list: if resource.data.a == 1 && !exists(/databases/$(database)/documents/banned/$(resource.data.get('owner', 'none')));",
+      ));
+    });
+
+    test('slice access: equality + `resource.data.tags[0:1].size() == 1` → reject', () => {
+      expectOutOfScope(rules('allow list: if resource.data.a == 1 && resource.data.tags[0:1].size() == 1;'));
+    });
+
+    test('resource identity (`resource.id`) is doc-dependent, not silently doc-independent', () => {
+      expectOutOfScope(rules("allow list: if resource.data.a == 1 && resource.id != 'blocked';"));
+      // …and alone it is unprovable too (per-doc identity, no where can discharge it).
+      const { condition, fnMap } = listConditionOf(rules("allow list: if resource.id != 'blocked';"));
+      expect(evaluateQueryProof(condition, {}, fnMap).provable).toBe(false);
+    });
+
+    test('unrecognized expression shape classifies doc-dependent (fail closed)', () => {
+      // Simulate a future AST addition the classifier has not learned: an
+      // unknown node type must classify doc-dependent (deny), never silently
+      // doc-independent (allow).
+      const exotic = { type: 'futureNode' } as unknown as Expression;
+      expect(isProvablyDocIndependent(exotic)).toBe(false);
+      const condition: Expression = {
+        type: 'binaryOp',
+        op: '&&',
+        left: {
+          type: 'binaryOp',
+          op: '==',
+          left: {
+            type: 'memberAccess',
+            property: 'a',
+            object: {
+              type: 'memberAccess',
+              property: 'data',
+              object: { type: 'identifier', name: 'resource' },
+            },
+          },
+          right: { type: 'literal', value: 1, raw: '1' },
+        },
+        right: exotic,
+      };
+      const r = evaluateQueryProof(condition, DISCHARGED);
+      expect(r.provable).toBe(false);
+    });
+
+    test('positive coverage: request.* chains, path variables, and stdlib calls stay doc-independent', () => {
+      const { condition, fnMap } = listConditionOf(rules(
+        "allow list: if request.auth != null && request.query.limit <= 50 && database != 'x';",
+      ));
+      expect(isProvablyDocIndependent(condition, fnMap)).toBe(true);
+      expect(evaluateQueryProof(condition, { limit: 10 }, fnMap).provable).toBe(true);
     });
   });
 

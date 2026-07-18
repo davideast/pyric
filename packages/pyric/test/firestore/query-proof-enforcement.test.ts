@@ -400,6 +400,60 @@ service cloud.firestore {
     expect((caught as { code?: string }).code).toBe('permission-denied');
   });
 
+  it("bracket access: `resource['data']` disguise → whole query denied, zero docs (leaked pre-fix)", async () => {
+    // Same absence-check attack routed through bracket access instead of
+    // member access — the fail-closed classifier must see through the syntax.
+    const { db } = mixedSetup("resource.data.a == 1 && !('secret' in resource['data'])");
+    let caught: unknown;
+    let snapDocs: unknown[] | undefined;
+    try {
+      const snap = await getDocs(dischargedQuery(db));
+      snapDocs = snap.docs;
+    } catch (e) {
+      caught = e;
+    }
+    expect(snapDocs).toBeUndefined();
+    expect((caught as { code?: string }).code).toBe('permission-denied');
+  });
+
+  it('path literal: exists(...) keyed by resource.data → whole query denied, zero docs (leaked pre-fix)', async () => {
+    // A doc lookup whose path depends on per-doc data: the banned-owner doc
+    // exists, so production would deny; pre-fix the unwalked path-literal
+    // segments classified the conjunct doc-independent and both docs leaked.
+    const rulesSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{id} {
+      allow list: if resource.data.a == 1 && !exists(/databases/$(db)/documents/banned/$(resource.data.get('owner', 'none')));
+      allow write: if true;
+    }
+  }
+}`;
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    setRules(sandbox, rulesSource);
+    seedDocuments(sandbox, {
+      'items/i1': { a: 1, owner: 'ok' },
+      'items/i2': { a: 1, owner: 'evil' },
+      'banned/evil': { why: 'banned' },
+    });
+    let caught: unknown;
+    let snapDocs: unknown[] | undefined;
+    try {
+      const snap = await getDocs(query(collection(db, 'items'), where('a', '==', 1)));
+      snapDocs = snap.docs;
+    } catch (e) {
+      caught = e;
+    }
+    expect(snapDocs).toBeUndefined();
+    expect((caught as { code?: string }).code).toBe('permission-denied');
+  });
+
+  it('slice access: equality + doc-data slice conjunct → whole query denied', async () => {
+    const { db } = mixedSetup('resource.data.a == 1 && resource.data.tags[0:1].size() == 1');
+    expect(await denied(getDocs(dischargedQuery(db)))).toBe('permission-denied');
+  });
+
   it('onSnapshot: the attack shape errors the stream instead of delivering docs', () => {
     const { db, env } = mixedSetup('ok()', "resource.data.a == 1 && !('secret' in resource.data)");
     const calls: QuerySnapshot[] = [];
