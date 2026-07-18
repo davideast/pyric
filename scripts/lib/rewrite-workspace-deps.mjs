@@ -57,7 +57,7 @@ const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf-8'));
 const unresolved = [];
 let rewrites = 0;
 
-for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
+for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
   if (!pkg[field]) continue;
   for (const [name, spec] of Object.entries(pkg[field])) {
     if (typeof spec !== 'string' || !spec.startsWith('workspace:')) continue;

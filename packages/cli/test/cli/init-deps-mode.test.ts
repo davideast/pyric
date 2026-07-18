@@ -52,6 +52,23 @@ describe('applyDepsMode — vendor', () => {
     expect(out.devDependencies['@pyric/cli']).toBe('file:vendor/pyric-cli.tgz');
   });
 
+  it('pins every vendored package via overrides (not just pyric) so @pyric/cli deps resolve offline', () => {
+    const full = {
+      ...specs,
+      'pyric-admin': 'file:vendor/pyric-admin.tgz',
+      'create-pyric': 'file:vendor/create-pyric.tgz',
+    };
+    const out = applyDepsMode(TEMPLATES.web, 'vendor', { vendorSpecs: full });
+    expect(out.overrides).toEqual({
+      pyric: 'file:vendor/pyric.tgz',
+      'pyric-admin': 'file:vendor/pyric-admin.tgz',
+      'create-pyric': 'file:vendor/create-pyric.tgz',
+    });
+    // @pyric/cli stays a direct file: dep, never an override.
+    expect(out.overrides).not.toHaveProperty('@pyric/cli');
+    expect(out.devDependencies['@pyric/cli']).toBe('file:vendor/pyric-cli.tgz');
+  });
+
   it('does not mutate the shared template object', () => {
     const before = JSON.stringify(TEMPLATES.web.devDependencies);
     applyDepsMode(TEMPLATES.web, 'vendor', { vendorSpecs: specs });

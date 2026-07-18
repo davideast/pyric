@@ -32,7 +32,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { embeddedAssetVersion as hashEmbeddedAssets } from './embedded-asset-version.js';
-import { generatedEntrySource } from './standalone-embed.js';
+import { EMBEDDED_WORKSPACE_PACKAGES, generatedEntrySource } from './standalone-embed.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = resolve(__dirname, '..');
@@ -138,14 +138,18 @@ process.stdout.write(
     `(pyric ${version}, worker ${workerVersion})\n`,
 );
 
-// ── 2b. Pack pyric + @pyric/cli into installable tarballs ────────────
-// `pyric init --deps vendor` lays these into a scaffold so `bun install`
-// resolves the still-unpublished packages offline (no registry 404). `pyric`
-// packs clean (no workspace deps); `@pyric/cli` depends on `pyric` via
-// workspace:* — rewrite that to `*` so it resolves from the co-installed local
-// `pyric` tarball under npm/bun/pnpm alike (^0.0.0 doesn't resolve everywhere).
+// ── 2b. Pack every runtime workspace package into installable tarballs ─
+// `pyric init --deps vendor` / `pyric vendor` lay these into a project so
+// `bun install` resolves the still-unpublished packages offline (no registry
+// 404). `npm pack` does NOT rewrite `workspace:*` deps — a consumer install
+// of a manifest that still carries them dies with EUNSUPPORTEDPROTOCOL — so
+// each tarball is repacked through the same rewrite the packaging gate uses
+// (scripts/lib/rewrite-workspace-deps.mjs: workspace:* → ^<version>), then
+// verified to contain no `workspace:` strings at all. Version ranges alone
+// can't resolve unpublished packages; the scaffold pins every vendored name
+// to its `file:vendor/*.tgz` via overrides (create-pyric applyDepsMode).
 const MONO_ROOT = resolve(PKG_ROOT, '..', '..');
-const PYRIC_DIR = join(MONO_ROOT, 'packages', 'pyric');
+const REWRITE_SCRIPT = join(MONO_ROOT, 'scripts', 'lib', 'rewrite-workspace-deps.mjs');
 const TARBALL_STAGE = join(BUILD, '.tarball-stage');
 rmSync(TARBALL_STAGE, { recursive: true, force: true });
 mkdirSync(TARBALL_STAGE, { recursive: true });
@@ -160,28 +164,40 @@ function npmPack(pkgDir: string): string {
   return join(TARBALL_STAGE, file);
 }
 
-const pyricTgz = npmPack(PYRIC_DIR);
-// @pyric/cli: temporarily rewrite its `pyric` dep, pack, restore.
-const cliPkgJson = join(PKG_ROOT, 'package.json');
-const cliPkgOrig = readFileSync(cliPkgJson, 'utf8');
-let cliTgz: string;
-try {
-  const parsed = JSON.parse(cliPkgOrig) as { dependencies?: Record<string, string> };
-  if (parsed.dependencies?.pyric) parsed.dependencies.pyric = '*';
-  writeFileSync(cliPkgJson, JSON.stringify(parsed, null, 2) + '\n');
-  cliTgz = npmPack(PKG_ROOT);
-} finally {
-  writeFileSync(cliPkgJson, cliPkgOrig); // restore exact bytes
+/** Extract → rewrite workspace:* deps → repack, mirroring packaging-test.sh. */
+function rewriteWorkspaceDeps(tarball: string): void {
+  const tmp = join(TARBALL_STAGE, '.rewrite');
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(tmp, { recursive: true });
+  let r = spawnSync('tar', ['-xzf', tarball, '-C', tmp], { encoding: 'utf8' });
+  if (r.status !== 0) die(`tar extract failed for ${tarball}: ${r.stderr}`);
+  const manifest = join(tmp, 'package', 'package.json');
+  if (readFileSync(manifest, 'utf8').includes('workspace:')) {
+    r = spawnSync('node', [REWRITE_SCRIPT, manifest, MONO_ROOT], { encoding: 'utf8' });
+    if (r.status !== 0) die(`rewrite-workspace-deps failed for ${tarball}: ${r.stderr}`);
+    r = spawnSync('tar', ['-czf', tarball, 'package'], { cwd: tmp, encoding: 'utf8' });
+    if (r.status !== 0) die(`tar repack failed for ${tarball}: ${r.stderr}`);
+  }
+  rmSync(tmp, { recursive: true, force: true });
+  // Load-bearing verification (same as packaging-test.sh): the embedded
+  // tarball's manifest MUST NOT contain workspace: deps. If this fires, the
+  // rewrite helper missed a dep field — fix scripts/lib/rewrite-workspace-deps.mjs.
+  const check = spawnSync('tar', ['-xzOf', tarball, 'package/package.json'], { encoding: 'utf8' });
+  if (check.status !== 0) die(`tar verify failed for ${tarball}: ${check.stderr}`);
+  if (check.stdout.includes('workspace:')) {
+    die(`${tarball} still contains workspace: deps after rewrite`);
+  }
 }
 
-const tarballBlob: Record<string, string> = {
-  'pyric.tgz': readFileSync(pyricTgz).toString('base64'),
-  'pyric-cli.tgz': readFileSync(cliTgz).toString('base64'),
-};
-process.stdout.write(
-  `  embedded tarballs: pyric.tgz (${(statSync(pyricTgz).size / 1e6).toFixed(1)} MB), ` +
-    `pyric-cli.tgz (${(statSync(cliTgz).size / 1e6).toFixed(1)} MB)\n`,
-);
+const tarballBlob: Record<string, string> = {};
+const tarballSizes: string[] = [];
+for (const pkg of EMBEDDED_WORKSPACE_PACKAGES) {
+  const tgz = npmPack(join(MONO_ROOT, pkg.dir));
+  rewriteWorkspaceDeps(tgz);
+  tarballBlob[pkg.tarball] = readFileSync(tgz).toString('base64');
+  tarballSizes.push(`${pkg.tarball} (${(statSync(tgz).size / 1e6).toFixed(1)} MB)`);
+}
+process.stdout.write(`  embedded tarballs: ${tarballSizes.join(', ')}\n`);
 
 // ── 3. Generate the embedded modules + the compile entry ──────────────
 const banner = '// GENERATED by scripts/compile.ts — do not edit.\n';
