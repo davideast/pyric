@@ -72,21 +72,42 @@ function isRawEnvelope(respond: ScriptRespond): respond is RawEnvelope {
 export class ScriptedEngine implements AnswerEngine {
   private readonly queue: Array<{ entry: ScriptEntry; consumed: boolean }>;
   private readonly synth: Synthesizer;
+  /** True only if this engine has NEVER had a script entry (constructor or push). */
+  private everScripted: boolean;
+  private warnedSyntheticDefault = false;
 
   constructor(script: ScriptEntry[] = [], synthesizer: Synthesizer = new Synthesizer()) {
     this.queue = script.map((entry) => ({ entry, consumed: false }));
     this.synth = synthesizer;
+    this.everScripted = script.length > 0;
   }
 
   /** Append entries after construction (test-driver convenience). */
   push(...entries: ScriptEntry[]): void {
+    if (entries.length > 0) this.everScripted = true;
     for (const entry of entries) this.queue.push({ entry, consumed: false });
+  }
+
+  /**
+   * Fires once, ever, per engine — and only for the true zero-config case: no
+   * script entry was ever queued (constructor or {@link push}). A script that
+   * simply ran out mid-list is a deliberate authoring choice, not a silent
+   * gap, so it never warns.
+   */
+  private warnSyntheticDefaultOnce(): void {
+    if (this.everScripted || this.warnedSyntheticDefault) return;
+    this.warnedSyntheticDefault = true;
+    console.warn(
+      '[pyric/ai] no script was ever queued, so this request got a synthetic placeholder answer.\n' +
+        'Queue a response with pyric/ai/scripting, or pass a real engine to getAI().',
+    );
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
     const opts = this.opts(req, model);
     const respond = this.take(req);
     if (respond === undefined) {
+      this.warnSyntheticDefaultOnce();
       return specialDefault(this.synth, req, opts) ?? this.synth.text(defaultText(req), opts);
     }
     if (isRawEnvelope(respond)) return structuredClone(respond);
@@ -97,6 +118,7 @@ export class ScriptedEngine implements AnswerEngine {
     const opts = this.opts(req, model);
     const respond = this.take(req);
     const synth = this.synth;
+    if (respond === undefined) this.warnSyntheticDefaultOnce();
 
     return (async function* stream(): AsyncGenerator<WireChunk> {
       if (respond === undefined) {
