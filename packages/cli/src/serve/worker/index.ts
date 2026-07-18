@@ -160,6 +160,8 @@ export {
   type PresenceVisibility,
   // Sandbox snapshot export (Pyric Studio rules re-run: fork + test edited rules)
   getSnapshot,
+  // Sandbox-owned full reset (issue #359): Firestore + every registered service
+  resetAll,
   // RTDB shared-worker preview bridge. Aliased to avoid colliding with Storage
   // `ref` and Firestore sentinels in this worker barrel.
   rtdbGetDatabase,

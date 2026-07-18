@@ -43,6 +43,13 @@ function registerAccountStore(sandbox: Sandbox, backend: SandboxBackend): void {
       }
       backend.restoreProviderConfig(restored?.providers);
     },
+    // Sandbox.resetAll: wipe the user DB + provider config back to defaults —
+    // identical to restoring an empty snapshot. The signed-in session is the
+    // sandbox core's job (reset() clears currentUser before services run).
+    reset: () => {
+      backend.clearUsers();
+      backend.restoreProviderConfig(undefined);
+    },
     subscribe: (onChange) => {
       const unsubscribeUsers = backend.subscribeUsers(onChange);
       const unsubscribeProviders = backend.subscribeProviderConfig(onChange);

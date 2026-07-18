@@ -399,6 +399,29 @@ export class SandboxImpl implements LocalSandbox {
     this.attachToEnv();
   }
 
+  async resetAll(): Promise<void> {
+    // Firestore env + signed-in session first (emits the session_boundary),
+    // then every registered service that opted into `reset`. Iterating the
+    // REGISTRY — not a hand-maintained service list — is the point: a service
+    // that registers with a `reset` hook is cleared automatically, so a
+    // consumer-side reset (Pyric Studio) can't silently skip one.
+    this.reset();
+    const clears: Promise<void>[] = [];
+    for (const [name, svc] of this.serviceRegistry) {
+      if (!svc.reset) continue;
+      // Isolate each service (sync throw or async rejection) so one broken
+      // service doesn't abort the wipe — mirrors loadSnapshot's isolation.
+      clears.push(
+        Promise.resolve()
+          .then(() => svc.reset!())
+          .catch((e) => {
+            console.warn(`Sandbox.resetAll: service '${name}' failed to reset:`, e);
+          }),
+      );
+    }
+    await Promise.all(clears);
+  }
+
   dispose(): void {
     // Emit dispose boundary so consumers can flush their buffers /
     // close out forensic logs cleanly.

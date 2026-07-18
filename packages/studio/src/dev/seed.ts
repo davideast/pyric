@@ -267,6 +267,16 @@ async function seedTraffic(sandbox: LocalSandbox): Promise<void> {
  * "Reset session" in dev-seed mode. Traffic is deliberately NOT replayed -
  * reset restores data, not the denial/activity log (replaying would double it).
  */
+/**
+ * Re-deploy the dev-seed ruleset. Studio's "Reset session" calls this after
+ * `sandbox.resetAll()` (which swaps the env and wipes env-owned Firestore
+ * rules) so the reseeded fixture lands under the same governance the boot
+ * seeding deployed.
+ */
+export function deploySeedRules(sandbox: LocalSandbox): void {
+  setRules(sandbox, RULES);
+}
+
 export async function applySeed(
   handles: Pick<SeededHandles, 'adminFirestore' | 'auth' | 'storage'>,
 ): Promise<void> {

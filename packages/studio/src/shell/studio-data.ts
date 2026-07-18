@@ -24,7 +24,6 @@ import { setRules as setInProcessFirestoreRules } from 'pyric/sandbox/firestore'
 import {
   doc as inProcessDoc,
   setDoc as inProcessSetDoc,
-  deleteDoc as inProcessDeleteDoc,
 } from 'pyric/firestore';
 import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
 import { setRules as workerSetRules } from '@pyric/cli/serve/worker';
@@ -41,7 +40,6 @@ import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
 import type { WorkerLivePlane } from '../env.js';
 import {
-  collectAllDocPaths,
   listDocumentsForBrowse,
   useStudioData,
   type StudioDataHandles,
@@ -437,48 +435,41 @@ export function useStudioSeedAuth(): (
 }
 
 /**
- * Clear the sandbox: delete every Firestore document (root collections +
- * recursive subcollections, via the admin handle) and clear all auth users.
- * The walk rides the handles' path-based listing seams — phantom-inclusive
- * (see {@link collectAllDocPaths}), so data under "missing" parents is
- * reached — and works unchanged in both in-process and served modes.
+ * Clear the sandbox through the ONE sandbox-owned path (issue #359):
+ * `sandbox.resetAll()` — Firestore env + signed-in session + EVERY registered
+ * persistable service (auth users, the RTDB tree, storage objects). Because
+ * the sandbox iterates its own service registry, Studio cannot forget a
+ * service (the old doc-walk + clearUsers approach here never touched storage).
+ *
+ * Routing: served mode calls the worker's `resetAll` op so the SHARED worker
+ * sandbox clears (the same one the app + agent use); dev-seed and the
+ * HTTP-mirror fallback call `resetAll()` on the in-process sandbox handle.
  */
-export function useStudioClear(): () => Promise<{ cleared: number; errors: string[] }> {
+export function useStudioClear(): () => Promise<{ errors: string[] }> {
   const data = useStudioDataSource();
+  const env = useEnvironment();
+  const live = env.status === 'ready' ? env.env.live : undefined;
   return useCallback(async () => {
     if (data.status !== 'ready') throw new Error('No sandbox to clear.');
-    const adminDb = data.handles.adminFirestore as unknown as Parameters<typeof inProcessDoc>[0];
-    const docFn = (data.firestoreApi?.doc ?? inProcessDoc) as typeof inProcessDoc;
-    const deleteDocFn = (data.firestoreApi?.deleteDoc ?? inProcessDeleteDoc) as typeof inProcessDeleteDoc;
-    const { docPaths, errors } = await collectAllDocPaths(data.handles);
-
-    let cleared = 0;
-    for (const path of docPaths) {
-      try {
-        await deleteDocFn(docFn(adminDb, path));
-        cleared += 1;
-      } catch (e) {
-        errors.push(`delete ${path}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-
-    // Clear auth users (one shot). clearUsers takes the auth handle (Pick over
-    // the sandbox ops); data.handles.auth is the worker handle in served mode.
+    const errors: string[] = [];
     try {
-      const clearUsersFn = data.authApi?.clearUsers ?? authSandbox.clearUsers;
-      clearUsersFn(data.handles.auth as Parameters<typeof authSandbox.clearUsers>[0]);
+      if (live) {
+        await live.resetAll();
+      } else {
+        await data.handles.sandbox.resetAll();
+      }
     } catch (e) {
-      errors.push(`auth: ${e instanceof Error ? e.message : String(e)}`);
+      errors.push(`reset: ${e instanceof Error ? e.message : String(e)}`);
     }
-    return { cleared, errors };
-  }, [data]);
+    return { errors };
+  }, [data, live]);
 }
 
 /**
  * Reset the session: clear the sandbox, then re-apply the seed. Dev-seed mode
  * re-runs the in-process fixture; served mode re-applies `/__pyric/init.json`.
  */
-export function useStudioReset(): () => Promise<{ cleared: number; errors: string[] }> {
+export function useStudioReset(): () => Promise<{ errors: string[] }> {
   const clear = useStudioClear();
   const seedDocs = useStudioSeed();
   const seedAuthUsers = useStudioSeedAuth();
@@ -486,7 +477,10 @@ export function useStudioReset(): () => Promise<{ cleared: number; errors: strin
   return useCallback(async () => {
     const result = await clear();
     if (dev.status === 'ready') {
-      const { applySeed } = await import('../dev/seed.js');
+      const { applySeed, deploySeedRules } = await import('../dev/seed.js');
+      // resetAll swapped the env, wiping the deployed dev ruleset — re-deploy
+      // it BEFORE reseeding so the fixture lands under the same governance.
+      deploySeedRules(dev.handles.sandbox);
       await applySeed(dev.handles);
     } else {
       try {
