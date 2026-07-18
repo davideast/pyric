@@ -1,0 +1,44 @@
+---
+import { withBase } from '../lib/content';
+import '../styles/site.css';
+
+const docsHome = withBase('/docs/');
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Page not found · Pyric Studio</title>
+  </head>
+  <body>
+    <main class="not-found">
+      <h1>Page not found</h1>
+      <p>That page does not exist. <a href={docsHome}>Go to the docs</a>.</p>
+    </main>
+    <style>
+      .not-found {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        gap: 8px;
+        padding: 24px;
+      }
+      .not-found h1 {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--ink);
+        margin: 0;
+      }
+      .not-found p {
+        color: var(--muted);
+        margin: 0;
+      }
+      .not-found a {
+        color: var(--accent);
+      }
+    </style>
+  </body>
+</html>
