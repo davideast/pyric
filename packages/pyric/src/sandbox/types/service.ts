@@ -197,6 +197,22 @@ export interface Sandbox {
   reset(): void;
 
   /**
+   * Reset the WHOLE sandbox: {@link reset} (Firestore env + signed-in
+   * session), then clear every registered persistable service that
+   * provides a {@link PersistableService.reset} hook — auth users, the
+   * RTDB tree, storage objects. This is the one sandbox-owned "wipe
+   * everything" path: because it iterates the service registry, a new
+   * service that registers with a `reset` hook is cleared automatically,
+   * and a consumer (Pyric Studio's reset) cannot forget one.
+   *
+   * Service resets may be async (storage clears IndexedDB stores); the
+   * returned promise resolves when every service has finished clearing.
+   * A service whose `reset` throws is isolated (warned, others still
+   * clear) — mirroring `loadSnapshot`'s per-service isolation.
+   */
+  resetAll(): Promise<void>;
+
+  /**
    * Tear down listener registries on this sandbox's environment without
    * replacing it. Use this when you're about to discard the sandbox
    * itself (e.g. `runner.reseed()` builds a fresh sandbox rather than

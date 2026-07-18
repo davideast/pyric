@@ -74,3 +74,14 @@ export function eventHistory(db: ClientDb): Promise<readonly SandboxEvent[]> {
 export async function getSnapshot(db: ClientDb): Promise<SandboxSnapshot> {
   return (await rpc(db.port, { t: 'op', id: nextId(), method: 'getSnapshot' })) as SandboxSnapshot;
 }
+
+/**
+ * Sandbox-owned full reset (issue #359): `sandbox.resetAll()` on the worker.
+ * Clears the Firestore env, the signed-in session, and EVERY registered
+ * persistable service — auth users, the RTDB tree, storage objects. Resolves
+ * once the worker acks (all services finished clearing). This is the served
+ * counterpart of calling `sandbox.resetAll()` on an in-process sandbox.
+ */
+export async function resetAll(db: ClientDb): Promise<void> {
+  await rpc(db.port, { t: 'op', id: nextId(), method: 'resetAll' });
+}

@@ -180,6 +180,20 @@ function ensureService(
   );
   SERVICES.set(sandbox, servicePromise);
   SERVICE_RULES_SOURCE.set(sandbox, options.rules ?? null);
+  // Join the sandbox's persistable-service REGISTRY so `sandbox.resetAll()`
+  // reaches storage (issue #359: Studio's reset cleared Firestore + auth but
+  // never storage — storage was invisible to the sandbox). Storage does NOT
+  // ride the persistence blob: it owns its durability (IndexedDB), and blobs
+  // aren't JSON-serializable — so snapshot/restore are deliberate no-ops and
+  // `reset` is the only live hook (clears both IDB object stores).
+  sandbox.registerPersistableService('storage', {
+    snapshot: () => null,
+    restore: () => {},
+    reset: async () => {
+      const service = await servicePromise;
+      await service.backend.reset();
+    },
+  });
   return servicePromise;
 }
 

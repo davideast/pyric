@@ -174,6 +174,17 @@ export function applyServeInit(
       );
     } else {
       result.rulesDeployed = true;
+      // Record the deployed source on ctx (mirrors the database branch below)
+      // so diagnostics report it AND the `resetAll` op can re-deploy it —
+      // `sandbox.resetAll()` swaps the env, which wipes env-owned Firestore
+      // rules; a data reset must not silently de-govern writes.
+      ctx.activeRules ??= {};
+      ctx.activeRules.firestore = {
+        source: payload.rules,
+        updatedAt: Date.now(),
+        status: 'active',
+        messages: [],
+      };
     }
   }
   if (payload.databaseRules) {

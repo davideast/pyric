@@ -42,6 +42,7 @@ import {
   uploadBytes as workerStorageUploadBytes,
   deleteObject as workerStorageDeleteObject,
   getSnapshot as workerGetSnapshot,
+  resetAll as workerResetAll,
   getWorkerInstanceId,
   exportWorkerState,
   importWorkerState,
@@ -168,6 +169,11 @@ export interface WorkerLivePlane {
    *  locally to test a denied op against edited rules / re-issue as the user,
    *  on a throwaway branch (no live mutation). */
   getSnapshot(): Promise<SandboxSnapshot>;
+  /** Sandbox-owned full reset (issue #359): `sandbox.resetAll()` on the worker
+   *  — Firestore env + signed-in session + EVERY registered persistable
+   *  service (auth users, RTDB tree, storage objects). Resolves once the
+   *  worker acks (all services finished clearing). */
+  resetAll(): Promise<void>;
   /** Stable per-SharedWorker instance id, so the UI can tell WHICH sandbox
    *  instance this is — the same `localhost:<port>` in a different browser
    *  profile is a separate instance. Studio renders a human-friendly slug. */
@@ -399,5 +405,6 @@ export function connectWorkerLive(
       deleteObject: workerStorageDeleteObject,
     } as unknown as StorageApi,
     getSnapshot: () => workerGetSnapshot(db),
+    resetAll: () => workerResetAll(db),
   };
 }
