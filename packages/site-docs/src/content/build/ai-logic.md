@@ -36,7 +36,23 @@ script(ai, [
   },
 ]);
 ```
-Keep scripted setup outside application code that ships. Pyric also supports an OpenAI-compatible local engine through the `engine` option and the `pyric dev` AI proxy. This can connect the same Firebase AI Logic calls to Ollama or another local server. The [AI chat example](https://github.com/davideast/pyric/tree/main/examples/ai-chat) shows both engines with streaming, chat history, and function calling.
+Keep scripted setup outside application code that ships.
+
+## Answer with a real local model (Ollama)
+
+The sandbox can answer through any OpenAI-compatible server — a local [Ollama](https://ollama.com), llama.cpp, anything speaking `/v1/chat/completions` — while your application keeps making unchanged Firebase AI Logic calls. Pass the `engine` option to `getAI`:
+
+```ts
+import { getAI } from 'pyric/ai';
+
+const ai = getAI(app, {
+  engine: { kind: 'openai', model: 'llama3.2' },
+});
+```
+
+`engine` is a pyric extension that only the sandbox reads — upstream `firebase/ai` ignores unknown options, so the same call is production-safe. With no `baseUrl`, answering routes through `pyric dev`'s same-origin AI proxy at `/__pyric/ai-proxy`, which forwards to `http://localhost:11434/v1` — a locally running Ollama works with zero CORS setup, no `OLLAMA_ORIGINS`, nothing. Point the proxy at a different server with the `PYRIC_AI_PROXY_UPSTREAM` environment variable on `pyric dev`.
+
+The translation is wire-level: Gemini-shaped requests in, OpenAI-compatible upstream out, Gemini-shaped responses back — so streaming, chat history, and function calling flow through. The [AI chat example](https://github.com/davideast/pyric/tree/main/examples/ai-chat) runs both engines side by side.
 
 Local engines do not reproduce model quality, safety policy, latency, quotas, billing, or service availability. Verify model-dependent behavior against the production backend before release.
 

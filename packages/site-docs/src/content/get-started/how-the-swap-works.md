@@ -25,8 +25,8 @@ Using Vite instead? The plugin does the same swap one layer earlier — at modul
 
 ```ts
 // vite.config.ts
-import { pyric } from '@pyric/cli/vite';
-export default { plugins: [pyric()] };
+import { pyricSandbox } from '@pyric/cli/vite';
+export default { plugins: [pyricSandbox()] };
 ```
 
 Because resolution happens before bundling, the swap reaches your dependencies too. A library that imports `firebase/firestore` on your behalf lands on the sandbox exactly like your own code.
