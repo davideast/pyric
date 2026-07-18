@@ -1,4 +1,11 @@
-import 'fake-indexeddb/auto';
+// Deterministic IDB global: the `fake-indexeddb/auto` side-effect import is
+// evaluated once per process, so when another suite in the same bun run
+// clobbers `globalThis.indexedDB` after that first evaluation, a cached
+// re-import here does NOT restore it (observed as `indexedDB is not
+// defined` in the CI library lane only). Assign a fresh factory explicitly.
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+globalThis.indexedDB = new IDBFactory();
+globalThis.IDBKeyRange = IDBKeyRange;
 import { describe, expect, it } from 'bun:test';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
