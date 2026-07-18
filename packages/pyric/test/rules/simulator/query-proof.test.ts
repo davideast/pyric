@@ -141,6 +141,152 @@ describe('RULES-B11 (rules-side): query-proof evaluation', () => {
     });
   });
 
+  describe('function inlining during extraction (RULES-B11)', () => {
+    // Helper wrapping the canonical public-doc predicate. Detection already
+    // saw through the helper; extraction now does too.
+    const PUBLIC_HELPER = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /c/{id} {
+      function isPublic() { return resource.data.visibility == 'public'; }
+      allow list: if isPublic();
+    }
+  }
+}`;
+
+    test('helper-wrapped rule with NO discharging where stays unprovable (missing residual)', () => {
+      const { condition, fnMap } = listConditionOf(PUBLIC_HELPER);
+      const r = evaluateQueryProof(condition, {}, fnMap);
+      expect(r.provable).toBe(false);
+      if (r.provable) throw new Error('unreachable');
+      expect(r.residual.missing).toEqual([
+        { field: 'visibility', expectedValue: 'public', fromAuthUid: false },
+      ]);
+      expect(r.residual.mismatched).toHaveLength(0);
+      expect(r.residual.outOfScope).toBeUndefined();
+    });
+
+    test('helper + matching where → provable (was conservative-rejected pre-fix)', () => {
+      const { condition, fnMap } = listConditionOf(PUBLIC_HELPER);
+      const r = evaluateQueryProof(condition, {
+        where: [{ field: 'visibility', op: '==', value: 'public' }],
+      }, fnMap);
+      expect(r.provable).toBe(true);
+    });
+
+    test('helper with a parameter, auth-pinned owner → provable with where(owner == uid)', () => {
+      const { condition, fnMap } = listConditionOf(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /c/{id} {
+      function isOwner(uid) { return resource.data.ownerUid == uid; }
+      allow list: if isOwner(request.auth.uid);
+    }
+  }
+}`);
+      // Unprovable without the discharging where; the missing equality is
+      // flagged fromAuthUid so remediation can suggest request.auth.uid.
+      const bare = evaluateQueryProof(condition, {}, fnMap, 'alice');
+      expect(bare.provable).toBe(false);
+      if (bare.provable) throw new Error('unreachable');
+      expect(bare.residual.missing).toEqual([
+        { field: 'ownerUid', expectedValue: 'alice', fromAuthUid: true },
+      ]);
+      // Provable once the query pins owner == the caller's uid.
+      expect(
+        evaluateQueryProof(condition, { where: [{ field: 'ownerUid', op: '==', value: 'alice' }] }, fnMap, 'alice').provable,
+      ).toBe(true);
+      // A where pinning someone else's uid does not discharge it.
+      expect(
+        evaluateQueryProof(condition, { where: [{ field: 'ownerUid', op: '==', value: 'bob' }] }, fnMap, 'alice').provable,
+      ).toBe(false);
+    });
+
+    test('nested helpers (helper calling helper) inline through both', () => {
+      const { condition, fnMap } = listConditionOf(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /c/{id} {
+      function visibilityIs(v) { return resource.data.visibility == v; }
+      function isPublic() { return visibilityIs('public'); }
+      allow list: if isPublic();
+    }
+  }
+}`);
+      expect(evaluateQueryProof(condition, {}, fnMap).provable).toBe(false);
+      expect(
+        evaluateQueryProof(condition, { where: [{ field: 'visibility', op: '==', value: 'public' }] }, fnMap).provable,
+      ).toBe(true);
+    });
+
+    test('flipped equality order inside a helper (literal == resource.data.field)', () => {
+      const { condition, fnMap } = listConditionOf(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /c/{id} {
+      function isPublic() { return 'public' == resource.data.visibility; }
+      allow list: if isPublic();
+    }
+  }
+}`);
+      expect(
+        evaluateQueryProof(condition, { where: [{ field: 'visibility', op: '==', value: 'public' }] }, fnMap).provable,
+      ).toBe(true);
+    });
+
+    test('helper body with && of two data equalities requires both wheres', () => {
+      const { condition, fnMap } = listConditionOf(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /c/{id} {
+      function ok() { return resource.data.a == 1 && resource.data.b == 2; }
+      allow list: if ok();
+    }
+  }
+}`);
+      expect(
+        evaluateQueryProof(condition, { where: [{ field: 'a', op: '==', value: 1 }] }, fnMap).provable,
+      ).toBe(false); // b uncovered
+      expect(
+        evaluateQueryProof(condition, {
+          where: [
+            { field: 'a', op: '==', value: 1 },
+            { field: 'b', op: '==', value: 2 },
+          ],
+        }, fnMap).provable,
+      ).toBe(true);
+    });
+
+    test('out-of-scope helper body (disjunction) stays unprovable with outOfScope residual', () => {
+      const { condition, fnMap } = listConditionOf(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /c/{id} {
+      function ok() { return resource.data.a == 1 || resource.data.b == 2; }
+      allow list: if ok();
+    }
+  }
+}`);
+      const r = evaluateQueryProof(condition, { where: [{ field: 'a', op: '==', value: 1 }] }, fnMap);
+      expect(r.provable).toBe(false);
+      if (r.provable) throw new Error('unreachable');
+      expect(r.residual.outOfScope).toBeDefined();
+      expect(r.residual.missing).toHaveLength(0);
+      expect(r.residual.mismatched).toHaveLength(0);
+    });
+
+    test('mismatched value residual: where on the field, wrong value', () => {
+      const { condition, fnMap } = listConditionOf(PUBLIC_HELPER);
+      const r = evaluateQueryProof(condition, { where: [{ field: 'visibility', op: '==', value: 'private' }] }, fnMap);
+      expect(r.provable).toBe(false);
+      if (r.provable) throw new Error('unreachable');
+      expect(r.residual.mismatched).toEqual([
+        { field: 'visibility', expectedValue: 'public', actualValue: 'private' },
+      ]);
+      expect(r.residual.missing).toHaveLength(0);
+    });
+  });
+
   describe('referencesResourceData', () => {
     test('detects resource.data through a user function', () => {
       const { condition, fnMap } = listConditionOf(`rules_version = '2';
@@ -153,7 +299,8 @@ service cloud.firestore {
   }
 }`);
       expect(referencesResourceData(condition, fnMap)).toBe(true);
-      // …and is therefore not provable without a where() (function-wrapped → conservative reject).
+      // …and is therefore not provable without a where() (helper inlines to a
+      // required equality no query constraint discharges).
       expect(evaluateQueryProof(condition, {}, fnMap).provable).toBe(false);
     });
 

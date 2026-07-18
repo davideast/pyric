@@ -76,6 +76,20 @@ service cloud.firestore {
   }
 }`;
 
+// Helper-based owner rule — the doc example's `authorOrPublished()` shape:
+// a user function inlined during the proof reduces to `owner == auth.uid`,
+// provable ONLY with a `where('owner', '==', <the caller's uid>)`.
+const OWNER_HELPER_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /notes/{id} {
+      function isOwner(uid) { return resource.data.owner == uid; }
+      allow read: if request.auth != null && isOwner(request.auth.uid);
+      allow write: if true;
+    }
+  }
+}`;
+
 // request.query-gated rule — doc-independent, but only satisfiable when the
 // query actually carries a small-enough limit.
 const QUERY_LIMIT_RULES = `rules_version = '2';
@@ -246,6 +260,75 @@ describe('RULES-B11 — onSnapshot under a doc-data-dependent list rule', () => 
     const last = calls[calls.length - 1]!;
     expect(last.size).toBe(3);
     expect(last.docs.some((d) => d.id === 'p4')).toBe(true);
+  });
+});
+
+describe('RULES-B11 — helper-based (function-inlined) list rule', () => {
+  it('getDocs PROVABLE: where(owner == my uid) discharges the inlined helper → succeeds', async () => {
+    const { db } = setup(OWNER_HELPER_RULES);
+    const snap = await getDocs(query(collection(db, 'notes'), where('owner', '==', 'alice')));
+    expect(snap.size).toBe(1);
+    expect(snap.docs[0]!.id).toBe('n1');
+  });
+
+  it('getDocs UNPROVABLE: no discharging where → whole-query denied, carrying remediation + query descriptor', async () => {
+    const { db } = setup(OWNER_HELPER_RULES);
+    let caught: unknown;
+    try {
+      await getDocs(collection(db, 'notes'));
+    } catch (e) {
+      caught = e;
+    }
+    // The web-modular path surfaces a translated SandboxError: remediation on
+    // the instance, the query descriptor under `denialContext`.
+    const err = caught as {
+      code?: string;
+      remediation?: string;
+      denialContext?: { query?: unknown };
+    };
+    expect(err.code).toBe('permission-denied');
+    // Remediation is query-side and narrowing: suggest the missing where, with
+    // the concrete uid shown for the auth-pinned owner field.
+    expect(err.remediation).toBeDefined();
+    expect(err.remediation).toContain(".where('owner', '==', request.auth.uid)");
+    expect(err.remediation).toContain('"alice"');
+    // Machine-readable query descriptor: the bare collection query has no wheres.
+    expect(err.denialContext?.query).toEqual({ where: [], limit: null, offset: null, orderBy: null });
+  });
+
+  it('onSnapshot PROVABLE: filtered listener attaches and delivers the owner subset', () => {
+    const { db, env } = setup(OWNER_HELPER_RULES);
+    const calls: QuerySnapshot[] = [];
+    const errors: unknown[] = [];
+    onSnapshot(
+      query(collection(db, 'notes'), where('owner', '==', 'alice')),
+      (snap) => { calls.push(snap as QuerySnapshot); },
+      (err) => { errors.push(err); },
+    );
+    env.flushListeners();
+    expect(errors).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.size).toBe(1);
+    expect(calls[0]!.docs[0]!.id).toBe('n1');
+  });
+
+  it('onSnapshot UNPROVABLE: bare collection listen → stream error carrying remediation', () => {
+    const { db, env } = setup(OWNER_HELPER_RULES);
+    const calls: QuerySnapshot[] = [];
+    // The listener error callback receives the structured sim error directly:
+    // remediation and the query descriptor are top-level fields.
+    const errors: { code?: string; remediation?: string; query?: unknown }[] = [];
+    onSnapshot(
+      collection(db, 'notes'),
+      (snap) => { calls.push(snap as QuerySnapshot); },
+      (err) => { errors.push(err as { code?: string; remediation?: string; query?: unknown }); },
+    );
+    env.flushListeners();
+    expect(calls).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.code).toBe('permission-denied');
+    expect(errors[0]!.remediation).toContain(".where('owner', '==', request.auth.uid)");
+    expect(errors[0]!.query).toBeDefined();
   });
 });
 

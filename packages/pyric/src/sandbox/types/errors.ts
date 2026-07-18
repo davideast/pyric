@@ -81,6 +81,19 @@ export interface DenialContext {
     data: Record<string, unknown> | null;
     exists: boolean;
   };
+  /**
+   * Machine-readable descriptor of the denied query's where/orderBy/limit
+   * shape (RULES-B11). Populated when a `list`/query is denied as
+   * statically unprovable ("rules are not filters"), so consumers can
+   * render the exact query the engine rejected without re-deriving it.
+   * Absent for single-doc and non-query denials.
+   */
+  query?: {
+    where?: Array<{ field: string; op: string; value: string | number | boolean | null }>;
+    limit?: number | null;
+    offset?: number | null;
+    orderBy?: string | null;
+  };
 }
 
 /**

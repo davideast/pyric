@@ -32,10 +32,12 @@
  *    prod rejects it — we return `provable: false`.
  *
  * Out of scope (documented as conservative REJECT, never a false ALLOW): rules
- * with disjunctions over doc data, inequality/range proofs, function-inlined
- * data predicates. When the rule's doc-dependence can't be discharged by a
- * direct `where` equality match, we reject — the safe direction (prod also
- * rejects an unprovable query).
+ * with disjunctions over doc data, inequality/range proofs, and any predicate
+ * that still can't be reduced to a top-level equality after user functions are
+ * inlined (helpers ARE inlined — a helper whose body is an equality spine is
+ * proven the same as if it were written inline). When the rule's doc-dependence
+ * can't be discharged by a direct `where` equality match, we reject — the safe
+ * direction (prod also rejects an unprovable query).
  */
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 
@@ -56,9 +58,41 @@ export interface QueryConstraints {
   orderBy?: string | null;
 }
 
+/** A per-doc equality the rule requires that no query `where` guarantees. */
+export interface QueryProofMissing {
+  /** The `resource.data.<field>` the rule pins. */
+  field: string;
+  /** The value the rule requires the field to equal. When `fromAuthUid` is
+   *  true this is the caller's uid (the rule pinned `== request.auth.uid`). */
+  expectedValue: unknown;
+  /** True when the required value came from `request.auth.uid` — the remediation
+   *  then suggests `where(field, '==', request.auth.uid)` rather than a literal. */
+  fromAuthUid: boolean;
+}
+
+/** A required equality the query filters on the RIGHT field but the WRONG value. */
+export interface QueryProofMismatch {
+  field: string;
+  expectedValue: unknown;
+  actualValue: unknown;
+}
+
+/**
+ * Structured account of WHY a doc-dependent query is unprovable — the machine
+ * -readable companion to `reason` (which is derived from this). Empty `missing`
+ * + `mismatched` with `outOfScope` set means the rule's doc-dependence is a
+ * shape equality analysis can't discharge (disjunction / range / `in` / nested
+ * path), so no query constraint could prove it — no suggestion is possible.
+ */
+export interface QueryProofResidual {
+  missing: QueryProofMissing[];
+  mismatched: QueryProofMismatch[];
+  outOfScope?: string;
+}
+
 export type QueryProofResult =
   | { provable: true; reason: string }
-  | { provable: false; reason: string };
+  | { provable: false; reason: string; residual: QueryProofResidual };
 
 /**
  * Decide whether `listCondition` is PROVABLE for every doc the query could
@@ -67,12 +101,18 @@ export type QueryProofResult =
  * @param listCondition the `allow list/read` rule's condition AST (already the
  *   specific list rule; OR-of-rules is the caller's concern — it asks per rule).
  * @param constraints   the query's where/limit/offset/orderBy.
- * @param fnMap         user-defined functions, for inlining doc-dependence checks.
+ * @param fnMap         user-defined functions, inlined during both the
+ *   doc-dependence check and the required-equality extraction.
+ * @param authUid       the caller's uid, so a rule pinning `resource.data.F ==
+ *   request.auth.uid` (directly or through a helper) is dischargeable by a
+ *   `where(F, '==', <that uid>)` clause. Absent (unauthenticated) → an
+ *   `== request.auth.uid` predicate is not recognized as a required equality.
  */
 export function evaluateQueryProof(
   listCondition: Expression,
   constraints: QueryConstraints,
   fnMap: Map<string, FunctionDef> = new Map(),
+  authUid?: string,
 ): QueryProofResult {
   // 1. Doc-independent rule → any query is provable. This is the common
   //    `allow list: if request.auth != null` / `if true` case.
@@ -84,40 +124,74 @@ export function evaluateQueryProof(
   }
 
   // 2. Doc-dependent rule. Extract the per-doc equality predicates the rule
-  //    REQUIRES (top-level `&&` conjuncts of the form `resource.data.F == V`),
-  //    and check each is guaranteed by a matching `where` equality constraint.
-  const required = extractRequiredDataEqualities(listCondition);
+  //    REQUIRES (top-level `&&` conjuncts of the form `resource.data.F == V`,
+  //    inlining helper calls along the spine), and check each is guaranteed by
+  //    a matching `where` equality constraint.
+  const required = extractRequiredDataEqualities(listCondition, fnMap, authUid);
   if (required.length === 0) {
     // The rule touches resource.data but not via a discharge-able top-level
-    // equality (e.g. inequality, disjunction, function-wrapped). Conservatively
-    // reject — prod also rejects a query it can't prove.
+    // equality — even after inlining helpers — so the shape is out of scope
+    // (inequality, disjunction, `in`, nested path). Conservatively reject; prod
+    // also rejects a query it can't prove.
+    const outOfScope =
+      'list rule depends on per-document data through a predicate the query cannot discharge ' +
+      '(only top-level `resource.data.field == value` conjunctions, including through inlined ' +
+      'helpers, are provable here — disjunctions, ranges, `in`, and nested paths are not)';
     return {
       provable: false,
-      reason:
-        'list rule depends on per-document data through a predicate the query cannot discharge ' +
-        '(only top-level `resource.data.field == value` conjunctions are provable here) — ' +
-        'prod rejects the whole query rather than filtering',
+      reason: `${outOfScope} — prod rejects the whole query rather than filtering`,
+      residual: { missing: [], mismatched: [], outOfScope },
     };
   }
 
   const wheres = constraints.where ?? [];
-  const unproven = required.filter(
-    req => !wheres.some(w => w.field === req.field && w.op === '==' && valuesEqual(w.value, req.value)),
-  );
-  if (unproven.length > 0) {
-    const list = unproven.map(r => `resource.data.${r.field} == ${JSON.stringify(r.value)}`).join(', ');
+  const missing: QueryProofMissing[] = [];
+  const mismatched: QueryProofMismatch[] = [];
+  for (const req of required) {
+    const discharged = wheres.some(
+      w => w.field === req.field && w.op === '==' && valuesEqual(w.value, req.value),
+    );
+    if (discharged) continue;
+    // A `where(field, '==', other)` on the same field with a different value is
+    // a mismatch (actionable: the wrong value); anything else is simply missing.
+    const conflict = wheres.find(w => w.field === req.field && w.op === '==');
+    if (conflict) {
+      mismatched.push({ field: req.field, expectedValue: req.value, actualValue: conflict.value });
+    } else {
+      missing.push({ field: req.field, expectedValue: req.value, fromAuthUid: req.fromAuthUid });
+    }
+  }
+
+  if (missing.length === 0 && mismatched.length === 0) {
     return {
-      provable: false,
-      reason:
-        `list rule requires [${list}] but the query has no matching where(...) ` +
-        `equality to guarantee it — prod rejects the query ("rules are not filters")`,
+      provable: true,
+      reason: 'every per-document predicate the rule requires is guaranteed by a query where(...) constraint',
     };
   }
 
   return {
-    provable: true,
-    reason: 'every per-document predicate the rule requires is guaranteed by a query where(...) constraint',
+    provable: false,
+    reason: buildResidualReason(missing, mismatched),
+    residual: { missing, mismatched },
   };
+}
+
+/** Prose derived from the structured residual, for logs and legacy consumers. */
+function buildResidualReason(missing: QueryProofMissing[], mismatched: QueryProofMismatch[]): string {
+  const parts: string[] = [];
+  if (missing.length > 0) {
+    const list = missing
+      .map(m => `resource.data.${m.field} == ${m.fromAuthUid ? 'request.auth.uid' : JSON.stringify(m.expectedValue)}`)
+      .join(', ');
+    parts.push(`the query has no matching where(...) equality for [${list}]`);
+  }
+  if (mismatched.length > 0) {
+    const list = mismatched
+      .map(m => `resource.data.${m.field} == ${JSON.stringify(m.expectedValue)} but the query pins ${JSON.stringify(m.actualValue)}`)
+      .join(', ');
+    parts.push(`the query where(...) value does not match [${list}]`);
+  }
+  return `${parts.join('; ')} — prod rejects the query ("rules are not filters")`;
 }
 
 /**
@@ -163,39 +237,133 @@ export function referencesResourceData(
   return check(expr);
 }
 
+/** A per-doc equality required by the rule, with provenance for remediation. */
+interface RequiredEquality {
+  field: string;
+  value: unknown;
+  fromAuthUid: boolean;
+}
+
 /**
  * Pull out the per-doc EQUALITY predicates the rule requires: top-level `&&`
- * conjuncts shaped `resource.data.<field> == <literal>` (either operand order).
+ * conjuncts shaped `resource.data.<field> == <literal>` or `resource.data.<field>
+ * == request.auth.uid` (either operand order). User functions on the spine are
+ * INLINED — a `functionCall` in `fnMap` has its argument expressions substituted
+ * for the function's parameters (and its `let` bindings resolved in that scope),
+ * then the inlined body's own `&&` spine is walked. A `visited` set guards
+ * against recursion (helper calling helper, or a self-referential helper).
+ *
  * Only the conjunctive (AND) spine is walked — a disjunction (`||`) anywhere
  * means the predicate isn't unconditionally required, so we don't extract from
  * under it (the caller then conservatively rejects).
  */
-function extractRequiredDataEqualities(expr: Expression): QueryWhereConstraint[] {
-  const out: QueryWhereConstraint[] = [];
-  const walkAnd = (e: Expression) => {
+function extractRequiredDataEqualities(
+  expr: Expression,
+  fnMap: Map<string, FunctionDef>,
+  authUid: string | undefined,
+): RequiredEquality[] {
+  const out: RequiredEquality[] = [];
+  const walkAnd = (e: Expression, visited: Set<string>) => {
     if (e.type === 'binaryOp' && e.op === '&&') {
-      walkAnd(e.left);
-      walkAnd(e.right);
+      walkAnd(e.left, visited);
+      walkAnd(e.right, visited);
       return;
     }
-    const eq = asDataEquality(e);
+    if (e.type === 'functionCall' && fnMap.has(e.name) && !visited.has(e.name)) {
+      const fn = fnMap.get(e.name)!;
+      // Bind parameters to the call's argument expressions, then resolve `let`
+      // bindings in that scope (a let can reference params + earlier lets).
+      const bindings = new Map<string, Expression>();
+      fn.parameters.forEach((p, i) => {
+        const arg = e.args[i];
+        if (arg) bindings.set(p, arg);
+      });
+      for (const b of fn.lets) bindings.set(b.name, substituteIdentifiers(b.value, bindings));
+      const inlined = substituteIdentifiers(fn.body, bindings);
+      const nextVisited = new Set(visited).add(e.name);
+      walkAnd(inlined, nextVisited);
+      return;
+    }
+    const eq = asDataEquality(e, authUid);
     if (eq) out.push(eq);
   };
-  walkAnd(expr);
+  walkAnd(expr, new Set());
   return out;
 }
 
-/** Match `resource.data.<field> == <literal>` (either operand order) → constraint. */
-function asDataEquality(e: Expression): QueryWhereConstraint | null {
+/**
+ * Match `resource.data.<field> == <literal>` or `resource.data.<field> ==
+ * request.auth.uid` (either operand order) → the required equality. The auth
+ * form is only recognized when `authUid` is known; its value is that uid and
+ * `fromAuthUid` is set so remediation can suggest `request.auth.uid`.
+ */
+function asDataEquality(e: Expression, authUid: string | undefined): RequiredEquality | null {
   if (e.type !== 'binaryOp' || e.op !== '==') return null;
-  const fromSide = (data: Expression, lit: Expression): QueryWhereConstraint | null => {
+  const fromSide = (data: Expression, other: Expression): RequiredEquality | null => {
     const field = dataFieldPath(data);
-    if (field !== null && lit.type === 'literal') {
-      return { field, op: '==', value: lit.value };
-    }
+    if (field === null) return null;
+    if (other.type === 'literal') return { field, value: other.value, fromAuthUid: false };
+    if (authUid !== undefined && isRequestAuthUid(other)) return { field, value: authUid, fromAuthUid: true };
     return null;
   };
   return fromSide(e.left, e.right) ?? fromSide(e.right, e.left);
+}
+
+/** True for the exact member chain `request.auth.uid`. */
+function isRequestAuthUid(e: Expression): boolean {
+  return (
+    e.type === 'memberAccess' &&
+    e.property === 'uid' &&
+    e.object.type === 'memberAccess' &&
+    e.object.property === 'auth' &&
+    e.object.object.type === 'identifier' &&
+    e.object.object.name === 'request'
+  );
+}
+
+/**
+ * Return a copy of `expr` with every free `identifier` whose name is a key in
+ * `bindings` replaced by the bound expression. Used to inline a function body:
+ * its parameters and `let` names are identifiers, and this substitutes the
+ * call's argument expressions for them. Pure structural map — the shared AST is
+ * never mutated.
+ */
+function substituteIdentifiers(expr: Expression, bindings: Map<string, Expression>): Expression {
+  const sub = (e: Expression): Expression => {
+    switch (e.type) {
+      case 'identifier':
+        return bindings.get(e.name) ?? e;
+      case 'literal':
+        return e;
+      case 'memberAccess':
+        return { ...e, object: sub(e.object) };
+      case 'methodCall':
+        return { ...e, object: sub(e.object), args: e.args.map(sub) };
+      case 'bracketAccess':
+        return { ...e, object: sub(e.object), index: sub(e.index) };
+      case 'sliceAccess':
+        return { ...e, object: sub(e.object), start: sub(e.start), end: sub(e.end) };
+      case 'binaryOp':
+        return { ...e, left: sub(e.left), right: sub(e.right) };
+      case 'unaryOp':
+        return { ...e, operand: sub(e.operand) };
+      case 'ternary':
+        return { ...e, condition: sub(e.condition), consequent: sub(e.consequent), alternate: sub(e.alternate) };
+      case 'inExpr':
+        return { ...e, element: sub(e.element), collection: sub(e.collection) };
+      case 'isExpr':
+        return { ...e, value: sub(e.value) };
+      case 'listLiteral':
+        return { ...e, elements: e.elements.map(sub) };
+      case 'mapLiteral':
+        return { ...e, entries: e.entries.map((en) => ({ key: sub(en.key), value: sub(en.value) })) };
+      case 'pathLiteral':
+        return { ...e, segments: e.segments.map((s) => (typeof s === 'string' ? s : sub(s))) };
+      case 'functionCall':
+        return { ...e, args: e.args.map(sub) };
+    }
+  };
+  return sub(expr);
 }
 
 /**

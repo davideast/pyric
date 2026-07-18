@@ -474,9 +474,9 @@ export const firestoreRegistry = {
         }),
         row4({
           rowRef: "24c",
-          behavior: "Query-proof **prover scope is conservative** — only top-level AND-conjunct `resource.data.<field> == <literal>` predicates (with `request.auth.uid` pinned to the caller) are dischargeable by `where(field, '==', value)`. Disjunctions over doc data, inequality/range proofs (`resource.data.score > 10` + `where('score','>',10)`), `in`-operand proofs, and nested-path predicates conservatively DENY the whole query where production's prover may allow it. Never a false ALLOW — the conservative direction prod also takes for unprovable queries.",
+          behavior: "Query-proof **prover scope is conservative** — top-level AND-conjunct `resource.data.<field> == <literal>` predicates (with `request.auth.uid` pinned to the caller) are dischargeable by `where(field, '==', value)`, and **user functions are inlined**: a helper whose body reduces to such equalities (including nested helper-calling-helper and multi-parameter helpers, matching production's rules-function inlining) is proven exactly as if written inline. Remaining conservative rejects are shapes no equality analysis can discharge: disjunctions over doc data, inequality/range proofs (`resource.data.score > 10` + `where('score','>',10)`), `in`-operand proofs, and nested-path predicates — these DENY the whole query where production's prover may allow it. Never a false ALLOW — the conservative direction prod also takes for unprovable queries.",
           status: "diverged-documented",
-          evidence: "`unit:rules/simulator/query-proof.test.ts` (conservative-reject cases); divergence is deny-only (no rule-violating doc can leak)",
+          evidence: "`unit:rules/simulator/query-proof.test.ts` (function-inlining provable cases + remaining conservative-reject shapes with structured residuals); divergence is deny-only (no rule-violating doc can leak)",
           conformanceTests: ["packages/pyric/test/rules/simulator/query-proof.test.ts"],
           rowNumber: 24,
         }),
