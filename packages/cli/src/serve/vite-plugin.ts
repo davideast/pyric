@@ -76,7 +76,20 @@ import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from './sta
 import { createCaptureStore } from './capture-store.js';
 import { isAllowedHost } from './server.js';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
-import { readFirebaseJson, type FirebaseJson } from '../cli/firebase-json.js';
+import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
+import {
+  discoverFunctionsRtdbProject,
+  type FunctionsRtdbProject,
+} from '../functions-rtdb/project.js';
+import {
+  spawnFunctionsRtdbChild,
+  type FunctionsRtdbChildHandle,
+} from '../functions-rtdb/child.js';
+import {
+  buildChildEnv,
+  createLinePrefixer,
+  registerModuleUrl,
+} from '../cli/dev-runner.js';
 
 /**
  * Whether a `vite build` should run the firebase→pyric swap (produce a SANDBOX
@@ -508,6 +521,26 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         );
       }
 
+      // ── Functions (RTDB triggers) — the `pyric dev` parity fold ───────────
+      // Discover the one supported Functions codebase from the same resolved
+      // firebase.json the rules used (project.ts reads it itself). Reuses the
+      // exact serve module, so absent `functions` → null (silently off) and a
+      // malformed config throws serve's own error text — which, thrown from an
+      // async configureServer, fails the dev start the same way serve's
+      // `return 2` aborts. The Functions child connects to the sandbox over the
+      // bridge WS, so a discovered codebase forces the bridge mount on (mirrors
+      // serve's `bridgeEnabledFor(..., functionsProject)`).
+      let functionsProject: FunctionsRtdbProject | null = null;
+      try {
+        functionsProject = discoverFunctionsRtdbProject(cwd);
+      } catch (error) {
+        // Malformed functions config: fail the start with serve's exact message.
+        throw error instanceof Error ? error : new Error(String(error));
+      }
+      const functionsProjectId = functionsProject
+        ? (process.env.PYRIC_PROJECT ?? (await readFirebaseRc(cwd))?.projects?.default ?? 'demo-project')
+        : null;
+
       // ── M3 MCP bridge (mirrors serve.ts:221–274) ─────────────────────────
       // The mount is long-lived (one bridge per dev session); its MCP transport
       // is rebuilt per request (stateless). Composed into the /__pyric middleware
@@ -516,9 +549,12 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       // Guard the WS upgrade with the SAME allow rule Vite's own host check
       // uses (host + allowedHosts, where `true` = opted into all hosts). Vite's
       // upgrade path bypasses connect middleware, so this is the only guard on it.
-      const mount = bridgeOpts
+      const mount = bridgeOpts || functionsProject
         ? createBridgeMount({
-            ...bridgeOpts,
+            ...(bridgeOpts ?? {}),
+            // A functions-only session still needs a labeled bridge; prefer an
+            // explicit bridge project, else the resolved functions project id.
+            project: bridgeOpts?.project ?? functionsProjectId ?? undefined,
             upgradeGuard: {
               boundHost: typeof server.config.server.host === 'string' ? server.config.server.host : 'localhost',
               allowedHosts:
@@ -744,6 +780,122 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
             /* gone already */
           }
         });
+      }
+
+      // ── Functions child lifecycle (mirrors serve's runServe) ─────────────
+      // The Functions runtime executes in an isolated node child (child.ts),
+      // exactly as `pyric dev` runs it: the child loads the user's unchanged
+      // functions module, and `--import @pyric/cli/register` + `PYRIC_SANDBOX=
+      // remote:<serveUrl>` route its `firebase-admin/app` to a RemoteSandbox that
+      // dials the bridge WS (`/__pyric/sandbox`). onValueCreated triggers observe
+      // RTDB writes and write their effects back through that one shared sandbox.
+      // Started once a sandbox peer (a browser tab / SharedWorker relay) has
+      // connected — the trigger's baseline needs a live backend — and stopped on
+      // server close. Vite restarts re-run configureServer, so the child respawns
+      // with the new server. Parity: like `pyric dev`, the functions source is
+      // not watched — editing a function needs a dev-server restart to re-spawn
+      // the child (serve has no functions hot-reload to mirror).
+      if (functionsProject && functionsProjectId && mount && server.httpServer) {
+        const httpServer = server.httpServer;
+        const project = functionsProject;
+        const projectId = functionsProjectId;
+        const bridgeMount = mount;
+        const host =
+          (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
+        // Prefer the compiled child (node cannot execute the .ts source when the
+        // plugin runs from source in tests); fall back to spawnFunctionsRtdbChild's
+        // own default (correct when the plugin runs from dist in production).
+        const builtChild = path.join(cliRoot, 'dist/functions-rtdb/child.js');
+        const childModuleUrl = existsSync(builtChild) ? builtChild : undefined;
+        let functionsChild: FunctionsRtdbChildHandle | null = null;
+        let disposed = false;
+
+        const start = async (): Promise<void> => {
+          const addr = httpServer.address();
+          const port = addr && typeof addr === 'object' ? addr.port : 0;
+          if (!port || disposed) return;
+          const serveUrl = `http://${host}:${port}`;
+
+          // Wait (bounded) for a sandbox peer — the SharedWorker relay / browser
+          // tab that holds the backend. Poll the mount directly (no self-fetch).
+          const deadline = Date.now() + 30_000;
+          while (!disposed && !bridgeMount.sandboxConnected()) {
+            if (Date.now() >= deadline) break;
+            await new Promise((r) => setTimeout(r, 250));
+          }
+          if (disposed) return;
+          if (!bridgeMount.sandboxConnected()) {
+            server.config.logger.warn(
+              `  ⚠ [pyric] functions not started — no browser tab connected after 30s. ` +
+                `Open ${serveUrl} and restart the dev server.`,
+            );
+            return;
+          }
+
+          functionsChild = spawnFunctionsRtdbChild({
+            cwd: project.sourceDir,
+            entry: project.entry,
+            env: buildChildEnv(process.env, { serveUrl, registerUrl: registerModuleUrl() }),
+            instance: `${projectId}-default-rtdb`,
+            location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
+            ...(childModuleUrl ? { childModuleUrl } : {}),
+            onEvent(event) {
+              if (event.type === 'execution') {
+                const params = Object.entries(event.params)
+                  .map(([name, value]) => `${name}=${value}`)
+                  .join(', ');
+                const suffix = params ? ` (${params})` : '';
+                if (event.status === 'fulfilled') {
+                  server.config.logger.info(`  ✔ [pyric] function ${event.exportName} ← /${event.ref}${suffix}`);
+                } else {
+                  server.config.logger.error(
+                    `  ✖ [pyric] function ${event.exportName} ← /${event.ref}${suffix}: ${event.error.message}`,
+                  );
+                }
+              } else {
+                server.config.logger.error(
+                  `  ✖ [pyric] functions delivery for ${event.exportName}: ${event.error.message}`,
+                );
+              }
+            },
+          });
+
+          const out = createLinePrefixer('[functions] ', (line) => server.config.logger.info(line.replace(/\n$/, '')));
+          const err = createLinePrefixer('[functions] ', (line) => server.config.logger.warn(line.replace(/\n$/, '')));
+          functionsChild.child.stdout?.setEncoding('utf8');
+          functionsChild.child.stderr?.setEncoding('utf8');
+          functionsChild.child.stdout?.on('data', (chunk: string) => out.push(chunk));
+          functionsChild.child.stderr?.on('data', (chunk: string) => err.push(chunk));
+          functionsChild.child.stdout?.once('end', () => out.flush());
+          functionsChild.child.stderr?.once('end', () => err.flush());
+
+          try {
+            const ready = await functionsChild.ready;
+            server.config.logger.info(
+              `  ✔ [pyric] functions ${ready.triggerCount} onValueCreated ` +
+                `trigger${ready.triggerCount === 1 ? '' : 's'} from ${path.relative(cwd, project.entry)}`,
+            );
+            for (const unsupported of ready.unsupportedTriggers) {
+              server.config.logger.warn(
+                `  ⚠ [pyric] functions export ${unsupported.exportName} uses unsupported trigger ` +
+                  `${unsupported.eventType}; it will not run.`,
+              );
+            }
+          } catch (error) {
+            server.config.logger.error(
+              `  ✖ [pyric] functions failed to start: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            await functionsChild.stop().catch(() => undefined);
+            functionsChild = null;
+          }
+        };
+
+        httpServer.once('close', () => {
+          disposed = true;
+          void functionsChild?.stop().catch(() => undefined);
+        });
+        if ((httpServer as unknown as { listening?: boolean }).listening) void start();
+        else httpServer.once('listening', () => void start());
       }
 
       // Rules hot-reload from Vite's OWN watcher (no second fs watcher). Reuse
