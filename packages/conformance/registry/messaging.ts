@@ -1,3 +1,4 @@
+import { defineRows } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
 
 /**
@@ -64,32 +65,25 @@ const UNOBSERVED_REASON =
 const CITED_NOT_REPLAYED_REASON =
   'Production observed and cited (see evidence), but not yet replayed offline against a sandbox; status stays unverified until the conformance suite replays it.';
 
+const buildRow = defineRows({ surface: 'messaging' });
+
 function row(seed: RowSeed): CompatibilityRow {
-  const observations = seed.observations ?? [];
+  const { ref, observations = [], tests = [], flipped, ...rest } = seed;
   const observed = observations.length > 0;
-  return {
-    id: `${seed.surface}#${seed.ref}`,
-    surface: seed.surface,
-    aliases: [],
-    featureKeys: seed.featureKeys,
-    rowRef: String(seed.ref),
-    rowNumber: seed.ref,
-    section: seed.section,
-    api: seed.api,
-    behavior: seed.behavior,
-    status: seed.flipped ? 'conforms' : 'unverified',
-    evidence: seed.evidence,
-    // Climb risk applies only while a row is unverified: a flipped row's
-    // assertion set passes in the blocking test path, so 'cited-not-replayed'
-    // and 'unobserved' no longer describe it.
-    risk: seed.flipped ? [] : observed ? ['cited-not-replayed'] : ['unobserved'],
-    riskScore: seed.flipped ? 0 : observed ? 1 : 2,
-    riskReasons: seed.flipped ? [] : [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
-    automation: seed.flipped ?? 'unverified',
-    oracleObservations: observations,
-    conformanceTests: seed.flipped ? [SUITE[seed.surface], ...(seed.tests ?? [])] : [],
-    ...(seed.notes ? { notes: seed.notes } : {}),
-  };
+  // Climb risk applies only while a row is unverified: a flipped row's
+  // assertion set passes in the blocking test path, so 'cited-not-replayed'
+  // and 'unobserved' no longer describe it (the builder's zero-risk defaults
+  // are exactly the flipped state).
+  const climb = flipped
+    ? { status: 'conforms' as const, automation: flipped, conformanceTests: [SUITE[seed.surface], ...tests] }
+    : {
+        status: 'unverified' as const,
+        automation: 'unverified' as const,
+        risk: [observed ? 'cited-not-replayed' : 'unobserved'],
+        riskScore: observed ? 1 : 2,
+        riskReasons: [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
+      };
+  return buildRow({ ...rest, rowRef: String(ref), oracleObservations: observations, ...climb });
 }
 
 // ─── firebase/messaging (client) — surface 'messaging' ───────────────────────
@@ -770,17 +764,6 @@ const adminErrorRows: CompatibilityRow[] = [
 const INTRO = [
   '# `pyric` messaging compatibility matrix',
   '',
-  '> **Published and conformance-held.** The client, service-worker, and admin',
-  '> messaging entry points ship in the published `pyric` and `pyric-admin`',
-  '> packages. Every row below is replayed by conformance suites that run in',
-  '> blocking CI, so the statuses are live guarantees against this repository.',
-  '',
-  'The single readable contract for "what `pyric` will guarantee vs the production',
-  'Firebase Cloud Messaging surface" — the client (`firebase/messaging`) and',
-  'service-worker (`firebase/messaging/sw`) receive planes, and the admin',
-  '(`firebase-admin/messaging`) send plane. The signed row universe is',
-  '`packages/conformance/docs/messaging/surface-inventory.md` (wayfinder #44).',
-  '',
   '## Status legend',
   '',
   '| Status | Meaning |',
@@ -788,15 +771,8 @@ const INTRO = [
   '| ✓ | **Conforming** — sandbox matches prod, locked by a passing probe |',
   '| ⚠ | **Diverged (documented)** — intentional difference with a written reason |',
   '| ✗ | **Bug** — should match prod but doesn\'t; failing probe pins it |',
-  '| — | **Unsupported** — not implemented (deliberately or pending) |',
+  '| — | **Not implemented yet** — deliberately or pending |',
   '| ? | **Unverified** — a target with a derived failing test, not a guarantee |',
-  '',
-  'Probe references: `oracle:<name>` cites an observation under',
-  '`packages/conformance/observations/<name>.json`. Under CDD a citation records that',
-  'production was consulted; it does not certify the sandbox matches — that waits',
-  'on the conformance suite replaying it.',
-  '',
-  '---',
 ].join('\n');
 
 const rows: CompatibilityRow[] = [

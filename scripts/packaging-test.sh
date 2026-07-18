@@ -733,9 +733,15 @@ console.log('  ✓ module-system contract OK — ESM-only + subpath-only hold');
 NODECONTRACT
 ( cd "$WORK/consumer" && node __contract.mjs )
 
-# ─── Phase 6: cleanup on success ───────────────────────────────────────
+# ─── Phase 6: export artifacts + cleanup on success ───────────────────
 echo ""
 echo "━━━ Phase 6: cleanup ━━━"
+if [ -n "${PYRIC_PACKAGING_ARTIFACT_DIR:-}" ]; then
+  mkdir -p "$PYRIC_PACKAGING_ARTIFACT_DIR"
+  cp "$TARBALL_PYRIC" "$TARBALL_PYRIC_ADMIN" "$TARBALL_CREATE_PYRIC" \
+    "$TARBALL_PYRIC_CLI" "$TARBALL_UI" "$PYRIC_PACKAGING_ARTIFACT_DIR/"
+  echo "  ✓ exported the five proven tarballs to $PYRIC_PACKAGING_ARTIFACT_DIR"
+fi
 rm -rf "$WORK"
 
 trap - ERR

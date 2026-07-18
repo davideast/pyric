@@ -9,7 +9,7 @@
  * excluded.
  */
 import type { APIRoute } from 'astro';
-import { publicDocs, docMdPath, firstParagraph } from '../lib/docs';
+import { publicDocs, docMdPath, firstParagraph } from '../lib/content';
 
 export const GET: APIRoute = async () => {
   const entries = await publicDocs();

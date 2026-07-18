@@ -910,8 +910,9 @@ reading what changed.
 - `packages/cli/src/conformance/.generated/can-i-use.ts` (ignored; via CLI prebuild or `compat:conformance`)
 - `packages/cli/src/conformance/.generated/can-i-use-browser.ts` (ignored; compact Playground query via CLI prebuild or `compat:conformance`)
 - `packages/conformance/rules-language/{coverage,capability,acceptance}-report.json` (via the three report scripts)
-- the ten conformance pages under `packages/site-docs/src/content/docs/`
-  (via the docs-site port, which consumes the renderer in memory)
+- the conformance pages under `packages/site-docs/src/content/_generated/`
+  (gitignored; via the site's `bun run generate`, which consumes the renderer
+  in memory)
 
 Committed `packages/conformance/baselines/*.json` files are different: they
 are reviewed ratchet state, updated only through each gate's `--update` path.
