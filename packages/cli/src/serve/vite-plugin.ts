@@ -608,6 +608,14 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         // `ai.proxyUpstream`: what `/__pyric/ai-proxy` forwards to (beats the
         // PYRIC_AI_PROXY_UPSTREAM env var; falls back to the default when unset).
         aiProxyUpstream: options.ai?.proxyUpstream,
+        // Adapt Vite's logger to the plain info/note shape the namespace's
+        // diagnostics (denial relay, future hot-reload lines) expect —
+        // matches the `↻`/`⚠ [pyric]` lines already logged elsewhere in this
+        // plugin via `server.config.logger` directly.
+        logger: {
+          info: (m) => server.config.logger.info(m),
+          note: (m) => server.config.logger.warn(m),
+        },
       });
 
       // DNS-rebinding guard for the /__pyric/* surface. Vite has its own host
