@@ -72,14 +72,27 @@ describe('EventChannel', () => {
   test('async subscriber rejections are swallowed when configured', async () => {
     const ch = new EventChannel<[]>(true);
     let settled = false;
-    ch.subscribe(async () => {
-      settled = true;
-      throw new Error('async boom');
-    });
-    expect(() => ch.emit()).not.toThrow();
-    // Drain the microtask queue; an unhandled rejection would fail the run.
-    await Promise.resolve();
-    expect(settled).toBe(true);
+    // Assert the .catch attachment directly: a temporary unhandledRejection
+    // listener must never fire. (Merely awaiting a microtask can pass even
+    // without the attachment — bun reports unhandled rejections between
+    // tests rather than failing the assertion.)
+    const rejections: unknown[] = [];
+    const onRejection = (err: unknown) => { rejections.push(err); };
+    process.on('unhandledRejection', onRejection);
+    try {
+      ch.subscribe(async () => {
+        settled = true;
+        throw new Error('async boom');
+      });
+      expect(() => ch.emit()).not.toThrow();
+      // Two turns: one for the subscriber's rejection, one for the noop catch.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toBe(true);
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
   });
 
   test('clear drops every subscriber', () => {

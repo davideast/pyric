@@ -82,3 +82,13 @@ The admin-compat query adapter also reaches across the seam for raw candidates
   RulesState) so code, tests, and reviews use one name per concept.
 - Any correctness defect discovered during the work is fixed independently,
   test-first, per ADR-0007.
+
+## Amendment (2026-07-18): ListenerDispatch file size accepted
+
+`firestore/sandbox/listener-dispatch.ts` (902 lines) exceeds the 600-line
+structural trigger. Accepted deliberately: the file is one concept — the
+listener registry, delivery scheduler, notify paths, metadata acks, and
+rules-flip re-evaluation form a single dispatch machine with one injected
+host seam — and splitting it would separate the scheduler from the notify
+paths that are its only callers. Architecture scans should not re-flag
+this file absent a second concept accreting into it.

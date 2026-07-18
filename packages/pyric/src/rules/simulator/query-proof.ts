@@ -16,7 +16,7 @@
  * THIS MODULE is the pure rules-side decision: given a collection's `list`
  * allow-rule condition and the query's constraints, decide PROVABLE or REJECT.
  * It is the function the firestore-track listener/read path
- * (`sandbox/firestore/local-environment.ts:silentReadCollection`) should call
+ * (`firestore/sandbox/rules-read-engine.ts silentReadCollection`) should call
  * INSTEAD of the current per-doc "rules-as-filters" loop — wiring that lives in
  * T2's carve-out and is STOP-documented for hand-off (see the round-2 step doc).
  *
