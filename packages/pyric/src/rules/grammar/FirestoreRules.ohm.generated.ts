@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit by hand. Regenerate via:
-//   bun packages/sdk/scripts/inline-grammar.ts
+//   bun run inline-grammar (packages/pyric)
 // Source: FirestoreRules.ohm
 
 export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
@@ -14,14 +14,20 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
   // declarations above the version line working. The semantic
   // action below normalizes both into the same AST shape, so
   // downstream code doesn't have to care which path matched.
-  RulesFile = RulesVersion ImportDecl* ServiceBlock  -- versionFirst
-            | ImportDecl* RulesVersion ServiceBlock  -- importsFirst
+  // Declaration order is STRICT: imports, then functions (#347 probe,
+  // 2026-07-17): the production Rules Test API rejects \`import\` after a
+  // \`function\` ("Unexpected 'import'") and any declaration before
+  // \`rules_version\` ("Unexpected 'rules_version'"), under both
+  // rules_version '2' and '2+modules'. Pinned by
+  // test/rules/corpus/invalid/009-/010-.
+  RulesFile = RulesVersion? ImportDecl* FunctionDef* ServiceBlock  -- versionFirst
+            | ImportDecl* RulesVersion FunctionDef* ServiceBlock   -- importsFirst
 
   ImportDecl = "import" "{" ListOf<ident, ","> ","? "}" "from" string ";"
 
   RulesVersion = "rules_version" "=" string ";"
 
-  ServiceBlock = "service" serviceName "{" DocumentsMatch "}"
+  ServiceBlock = "service" serviceName "{" FunctionDef* DocumentsMatch FunctionDef* "}"
 
   DocumentsMatch = "match" matchPath "{" MatchBody "}"
 
@@ -152,9 +158,10 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
   PathLiteral = "/" PathLitSegment ("/" PathLitSegment)*
 
   PathLitSegment
-    = "$(" Expr ")"    -- interpolation
-    | "{" ident "}"    -- captureRef
-    | pathIdent        -- literal
+    = "$(" Expr ")"          -- interpolation
+    | "{" ident "}"          -- captureRef
+    | "(" pathIdent ")"      -- parenLiteral
+    | pathIdent              -- literal
 
   // === Literals ===
 

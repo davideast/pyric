@@ -22,9 +22,10 @@ describe('@pyric/cli package manifest', () => {
     expect(Object.keys(manifest.exports)).not.toContain('./discover/production');
   });
 
-  it('generates ignored conformance modules before clean-checkout test and typecheck commands', () => {
+  it('generates ignored conformance modules locally while CI reuses its existing build', () => {
     expect(rootManifest.scripts.pretest).toContain('build.sh --packages-only');
-    expect(rootManifest.scripts['pretest:ci:cli']).toContain('compat:conformance');
+    expect(rootManifest.scripts['pretest:ci:cli']).toBeUndefined();
+    expect(rootManifest.scripts['test:ci:cli']).toBe('bun test --cwd packages/cli');
     expect(manifestWithScripts.scripts.pretest).toContain('build.sh --packages-only');
     expect(manifestWithScripts.scripts.pretypecheck).toContain('build.sh --packages-only');
   });

@@ -51,4 +51,4 @@ same sandbox backend.
 - [Storage](docs/storage/)
 - [Rules](docs/rules/)
 - [Sandbox](docs/sandbox/)
-- [Conformance scores](https://pyric.dev/docs/pyric-conformance-scores/)
+- [Conformance scores](https://pyric.dev/docs/conformance-scores/)
