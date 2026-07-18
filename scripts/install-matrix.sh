@@ -25,17 +25,37 @@ cd "$ROOT"
 
 echo "━━━ install matrix: $PM ($("$PM" --version 2>/dev/null | head -1)) ━━━"
 
-# 1. The real publish artifacts (rewritten workspace:* → ^version). Build+pack if
-#    they aren't already present (CI builds first, then runs the matrix).
-if [ ! -f dist/packages/manifest.json ]; then
+# 1. The real publish artifacts (rewritten workspace:* → ^version). CI passes
+#    the tarballs already proven by packaging-test.sh; local use falls back to
+#    building and packing when dist/packages has not been prepared.
+if [ -z "${PYRIC_PACKAGE_ARTIFACT_DIR:-}" ] && [ ! -f dist/packages/manifest.json ]; then
   echo "▸ packing publishable libraries (npm run pack)…"
   bash scripts/pack-packages.sh >/dev/null
 fi
 
 TARBALLS=()
-while IFS= read -r tb; do
-  TARBALLS+=("$tb")
-done < <(node -e "
+if [ -n "${PYRIC_PACKAGE_ARTIFACT_DIR:-}" ]; then
+  while IFS= read -r tb; do
+    TARBALLS+=("$tb")
+  done < <(ARTIFACT_DIR="$PYRIC_PACKAGE_ARTIFACT_DIR" node -e "
+const path = require('path');
+const fs = require('fs');
+const packages = ['packages/pyric', 'packages/pyric-admin', 'packages/create-pyric', 'packages/cli', 'packages/ui'];
+for (const dir of packages) {
+  const manifest = require(path.join(process.cwd(), dir, 'package.json'));
+  const file = manifest.name.replace(/^@/, '').replaceAll('/', '-') + '-' + manifest.version + '.tgz';
+  const full = path.resolve(process.env.ARTIFACT_DIR, file);
+  if (!fs.existsSync(full)) {
+    console.error('missing proven package artifact: ' + full);
+    process.exit(1);
+  }
+  console.log(full);
+}
+")
+else
+  while IFS= read -r tb; do
+    TARBALLS+=("$tb")
+  done < <(node -e "
 const path = require('path');
 const manifest = require(path.join(process.cwd(), 'dist/packages/manifest.json'));
 const names = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui'];
@@ -48,6 +68,7 @@ for (const name of names) {
   console.log(path.join(process.cwd(), entry.tarball));
 }
 ")
+fi
 for tb in "${TARBALLS[@]}"; do
   [ -f "$tb" ] || { echo "✗ missing tarball $tb (run: npm run pack)" >&2; exit 1; }
 done

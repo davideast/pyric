@@ -11,6 +11,18 @@ name: Build & Test
 
 on:
   pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Flip to "enforce" after five audited shadow decisions.
+  CI_SELECTION_MODE: shadow
 
 concurrency:
   # A new push to the same branch/PR cancels the in-flight run instead of
@@ -19,9 +31,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Select required proof
+    runs-on: ubuntu-latest
+    outputs:
+      check-set: ${{ steps.plan.outputs.check-set }}
+      predicted-check-set: ${{ steps.plan.outputs.predicted-check-set }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Test fail-closed selection policy
+        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts
+      - name: Select proof
+        id: plan
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: bun scripts/ci/plan.ts
+
   playground-caniuse:
     name: Playground can-i-use browser contract
     runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +79,8 @@ jobs:
   build-and-test:
     name: Build all packages + run tests
     runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
 
@@ -60,6 +100,9 @@ jobs:
         # the COMPAT matrices cite (INF-3/INF-4). Cheap, deterministic.
         run: bun run packages/conformance/src/check-observation-versions.ts
 
+      - name: Configure job-local surface census cache
+        run: echo "PYRIC_SURFACE_CENSUS_PATH=$RUNNER_TEMP/pyric-surface-census.json" >> "$GITHUB_ENV"
+
       - name: Build packages + embedded Studio (documentation omitted)
         # scripts/build.sh handles the cycle-tolerant bootstrap pass
         # (declaration stubs for every package) then the strict
@@ -77,42 +120,6 @@ jobs:
       - name: Run CLI tests
         # The other workspace suites run concurrently in library-tests.
         run: bun run test:ci:cli
-
-      - name: Upload built workspace for conformance gates
-        uses: actions/upload-artifact@v4
-        with:
-          name: workspace-build-${{ github.sha }}
-          retention-days: 1
-          include-hidden-files: true
-          path: |
-            packages/pyric/dist
-            packages/pyric-admin/dist
-            packages/create-pyric/dist
-            packages/cli/dist
-            packages/ui/dist
-            packages/cli/src/assurance/.generated
-            packages/cli/src/conformance/.generated
-
-  conformance-gates:
-    name: Derive and verify trust model
-    runs-on: ubuntu-latest
-    needs: build-and-test
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.11'
-
-      - name: Install
-        run: bun install --frozen-lockfile --filter '!@pyric/playground'
-
-      - name: Download built workspace
-        uses: actions/download-artifact@v4
-        with:
-          name: workspace-build-${{ github.sha }}
-          # upload-artifact strips the common `packages/` ancestor.
-          path: packages
 
       - name: Oracle audit gate (no NEW uncited ✓ COMPAT rows)
         # Runs the shared conformance model after workspace packages exist and
@@ -147,6 +154,8 @@ jobs:
   library-tests:
     name: Run library + UI tests
     runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
 
@@ -166,6 +175,8 @@ jobs:
   browser-conformance:
     name: Served app + SharedWorker conformance
     runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
 
@@ -199,14 +210,43 @@ jobs:
         # and the worker-owned AI boundary. These are blocking oracle claims.
         run: bun run --cwd packages/cli test:app-conformance
 
+  release-contract:
+    name: Release wrapper contract
+    runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.predicted-check-set == 'release-only'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - run: bun test scripts/publish-alpha.test.ts
+
+  docs-only:
+    name: Authored documentation
+    runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.predicted-check-set == 'docs-only'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - run: bash scripts/build.sh --packages-only
+      - name: Generate and build documentation
+        run: bun run --cwd packages/site-docs build
+      - name: Generated content must not dirty authored sources
+        run: git diff --exit-code
+
   packaging:
     name: Packaging gate (pack + install + subpath resolution)
     runs-on: ubuntu-latest
-    needs: [build-and-test, conformance-gates, library-tests, browser-conformance]
+    needs: plan
     # Cost: the publish-shape gate runs only when the PR carries the
     # `ci-packaging` label (apply it on release PRs or ones touching package
     # manifests / exports / dist layout). Most code PRs do not need it.
-    if: contains(github.event.pull_request.labels.*.name, 'ci-packaging')
+    if: needs.plan.outputs.check-set == 'full' && contains(github.event.pull_request.labels.*.name, 'ci-packaging')
     steps:
       - uses: actions/checkout@v4
 
@@ -241,14 +281,23 @@ jobs:
         # asserts every advertised subpath import resolves + the export shapes,
         # exercises the bin, runs a serve smoke, RUNS the libraries (runtime
         # asset paths), and pins the ESM-only + subpath-only module contract.
+        env:
+          PYRIC_PACKAGING_ARTIFACT_DIR: ${{ runner.temp }}/proven-packages
         run: npm run test:packaging
+
+      - name: Upload the exact proven tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: proven-packages-${{ github.sha }}
+          retention-days: 1
+          path: ${{ runner.temp }}/proven-packages
 
   install-matrix:
     name: Install matrix (${{ matrix.pm }})
     runs-on: ubuntu-latest
-    needs: [build-and-test, conformance-gates, library-tests, browser-conformance]
+    needs: [plan, packaging]
     # Cost: same as `packaging`, only runs under the `ci-packaging` label.
-    if: contains(github.event.pull_request.labels.*.name, 'ci-packaging')
+    if: needs.plan.outputs.check-set == 'full' && contains(github.event.pull_request.labels.*.name, 'ci-packaging')
     # Package managers resolve exports / scoped names / local tarballs differently;
     # a lib that installs under npm can fail under pnpm or bun. Each leg installs
     # the REAL tarballs, imports every advertised subpath, and executes a small
@@ -273,11 +322,30 @@ jobs:
         if: matrix.pm == 'pnpm'
         run: corepack enable
 
-      - name: Install workspace deps
-        run: bun install --frozen-lockfile
-
-      - name: Pack the publishable libraries
-        run: npm run pack
+      - name: Download tarballs proven by the packaging gate
+        uses: actions/download-artifact@v4
+        with:
+          name: proven-packages-${{ github.sha }}
+          path: dist/packages
 
       - name: Install matrix — ${{ matrix.pm }}
+        env:
+          PYRIC_PACKAGE_ARTIFACT_DIR: dist/packages
         run: bash scripts/install-matrix.sh ${{ matrix.pm }}
+
+  required:
+    name: CI / required
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [plan, playground-caniuse, build-and-test, library-tests, browser-conformance, release-contract, docs-only, packaging, install-matrix]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Verify every selected proof passed
+        env:
+          CI_CHECK_SET: ${{ needs.plan.outputs.check-set }}
+          CI_REQUIRE_PACKAGING: ${{ contains(github.event.pull_request.labels.*.name, 'ci-packaging') }}
+          CI_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: bun scripts/ci/required.ts

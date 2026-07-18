@@ -1,3 +1,4 @@
+import { defineRows } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
 
 interface RowSeed {
@@ -19,32 +20,31 @@ const UNOBSERVED_REASON =
 const CITED_NOT_REPLAYED_REASON =
   'Production observed and cited, but Pyric has no local Functions runtime to replay it yet.';
 
+const buildRow = defineRows({
+  surface: 'functions-rtdb',
+  defaults: { section: '`firebase-functions/v2/database.onValueCreated`' },
+});
+
 function row(seed: RowSeed): CompatibilityRow {
-  const observations = seed.observations ?? [];
+  const { ref, observations = [], flipped, ...rest } = seed;
   const observed = observations.length > 0;
-  return {
-    id: `functions-rtdb#${seed.ref}`,
-    surface: 'functions-rtdb',
-    aliases: [],
-    featureKeys: seed.featureKeys,
-    rowRef: String(seed.ref),
-    rowNumber: seed.ref,
-    section: '`firebase-functions/v2/database.onValueCreated`',
-    api: seed.api,
-    behavior: seed.behavior,
-    status: seed.flipped ? 'conforms' : 'unverified',
-    evidence: seed.flipped
-      ? `${seed.evidence} Local replay: \`${CONFORMANCE_SUITE}\` assertion set \`functions-rtdb#${seed.ref}\`.`
-      : seed.evidence,
-    risk: seed.flipped ? [] : [observed ? 'cited-not-replayed' : 'unobserved'],
-    riskScore: seed.flipped ? 0 : observed ? 1 : 2,
-    riskReasons: seed.flipped
-      ? []
-      : [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
-    automation: seed.flipped ?? 'unverified',
-    oracleObservations: observations,
-    conformanceTests: seed.flipped ? [CONFORMANCE_SUITE] : [],
-  };
+  // A flipped row's assertion set passes in the blocking test path; the
+  // builder's zero-risk defaults describe exactly that state.
+  const climb = flipped
+    ? {
+        status: 'conforms' as const,
+        automation: flipped,
+        evidence: `${seed.evidence} Local replay: \`${CONFORMANCE_SUITE}\` assertion set \`functions-rtdb#${ref}\`.`,
+        conformanceTests: [CONFORMANCE_SUITE],
+      }
+    : {
+        status: 'unverified' as const,
+        automation: 'unverified' as const,
+        risk: [observed ? 'cited-not-replayed' : 'unobserved'],
+        riskScore: observed ? 1 : 2,
+        riskReasons: [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
+      };
+  return buildRow({ ...rest, rowRef: String(ref), oracleObservations: observations, ...climb });
 }
 
 export const functionsRtdbRows: CompatibilityRow[] = [

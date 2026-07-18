@@ -1,0 +1,19 @@
+{
+  "name": "rules-storage-list-map-literals-and-slice",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#122"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"list-map-literals-and-slice\" (Coverage: list/map literals, slice [i:j], OOB slice errors). Slices on split() lists and on strings must evaluate, list literals must compare by value, and an out-of-bounds slice end must error \u2192 deny (production does not clamp).",
+  "observedAt": "2026-07-17T19:19:08.292Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "list mid-slice of split() \u2192 size 2 \u2192 ALLOW": "ALLOW",
+    "slice end beyond split() length errors \u2192 DENY": "DENY",
+    "slice == list literal \u2192 ALLOW": "ALLOW",
+    "slice == list literal (different segments) \u2192 DENY": "DENY",
+    "OOB slice end [0:9] errors, does not clamp \u2192 DENY": "DENY",
+    "string slice [1:4] is substring \u2192 ALLOW": "ALLOW"
+  }
+}

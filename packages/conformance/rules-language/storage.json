@@ -125,7 +125,7 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/resource#name",
       "status": "accepted",
-      "note": "resource.name is the object's FULL path within the bucket (GCS object-name convention, e.g. `uploads/pic.png`), sourced from the persisted record's fullPath — NOT the client SDK's last-path-segment name. Production returns it as a literal on the resource map; an absent name is an evaluation error that denies."
+      "note": "resource.name is the object's FULL path within the bucket (GCS object-name convention, e.g. `uploads/pic.png`), sourced from the persisted record's fullPath \u2014 NOT the client SDK's last-path-segment name. Production returns it as a literal on the resource map; an absent name is an evaluation error that denies."
     },
     {
       "id": "storage.binding.resource.timeCreated",
@@ -141,7 +141,7 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/resource#updated",
       "status": "accepted",
-      "note": "resource.updated is the object's last-update timestamp. The field is `updated` — the Storage rules language has NO `resource.timeUpdated` (live-probed: `timeUpdated` reads as an absent property). Renamed from the earlier mis-identified `storage.binding.resource.timeUpdated`."
+      "note": "resource.updated is the object's last-update timestamp. The field is `updated` \u2014 the Storage rules language has NO `resource.timeUpdated` (live-probed: `timeUpdated` reads as an absent property). Renamed from the earlier mis-identified `storage.binding.resource.timeUpdated`."
     },
     {
       "id": "storage.binding.resource.bucket",
@@ -171,7 +171,7 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/duration#value",
       "status": "accepted",
-      "note": "duration.value(magnitude, unit) — a duration the evaluator returns as milliseconds so it adds to / subtracts from the millis-modeled timestamps, enabling the freshness idiom `request.time < resource.timeCreated + duration.value(1, 'h')`."
+      "note": "duration.value(magnitude, unit) \u2014 a duration the evaluator returns as milliseconds so it adds to / subtracts from the millis-modeled timestamps, enabling the freshness idiom `request.time < resource.timeCreated + duration.value(1, 'h')`."
     },
     {
       "id": "storage.function.firestore.get",
@@ -187,13 +187,29 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/storage/security/rules-conditions#firestore",
       "status": "accepted",
-      "note": "Discrepancy: firestore.exists() — same standalone limitation as firestore.get(); resolved only with an injected FirestoreLookup, otherwise denies-with-reason."
+      "note": "Discrepancy: firestore.exists() \u2014 same standalone limitation as firestore.get(); resolved only with an injected FirestoreLookup, otherwise denies-with-reason."
     },
     {
       "id": "storage.method.string.matches",
       "kind": "method",
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/string#matches",
+      "status": "accepted",
+      "receiverType": "string"
+    },
+    {
+      "id": "storage.method.size",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "accepted",
+      "receiverType": "string|list|map"
+    },
+    {
+      "id": "storage.method.string.split",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "receiverType": "string"
     },
@@ -303,6 +319,48 @@
       "status": "accepted"
     },
     {
+      "id": "storage.operator.slice",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "storage.operator.is",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "storage.operator.in",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "storage.operator.ternary",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "storage.operator.unary-minus",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "storage.operator.mod",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
       "id": "storage.rule-kind.allow-read",
       "kind": "rule-kind",
       "engine": "storage",
@@ -406,7 +464,7 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
-      "unattributable": "Pure meta-semantic: the engine denies any request no `allow` matches. It is not written anywhere in a ruleset's source — there is no expression, operator, or declaration form that turns it on, so the AST walker (rules-language-analyzer.ts) has no node to credit it from. It could only be observed by evaluating a scenario's cases against the ruleset (a request whose path/verb no allow rule covers, expecting DENY) — a runtime/behavioral check, not a static-source fact, and this analyzer deliberately only walks parsed rules source, never evaluates. Crediting it to every ruleset unconditionally (since the fallback is unconditional) would be a hollow credit with no distinguishing AST evidence behind it, so it is intentionally left out of exercisedBy/verifiedBy rather than papered over as attributed."
+      "unattributable": "Pure meta-semantic: the engine denies any request no `allow` matches. It is not written anywhere in a ruleset's source \u2014 there is no expression, operator, or declaration form that turns it on, so the AST walker (rules-language-analyzer.ts) has no node to credit it from. It could only be observed by evaluating a scenario's cases against the ruleset (a request whose path/verb no allow rule covers, expecting DENY) \u2014 a runtime/behavioral check, not a static-source fact, and this analyzer deliberately only walks parsed rules source, never evaluates. Crediting it to every ruleset unconditionally (since the fallback is unconditional) would be a hollow credit with no distinguishing AST evidence behind it, so it is intentionally left out of exercisedBy/verifiedBy rather than papered over as attributed."
     }
   ]
 }
