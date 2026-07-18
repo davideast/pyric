@@ -95,14 +95,14 @@ if (process.platform === 'darwin' && !process.env.PYRIC_MSG_CAFFEINATED) {
 // from the packages that carry it.
 async function loadChromium() {
   const candidates = [
-    'playwright',
+    '@playwright/test',
     join(REPO, 'packages/playground/node_modules/playwright/index.mjs'),
     join(REPO, 'packages/cli/node_modules/playwright/index.mjs'),
   ];
   for (const c of candidates) {
     try {
       const mod = await import(c.startsWith('/') ? pathToFileURL(c).href : c);
-      return (mod.chromium ?? mod.default?.chromium) as typeof import('playwright').chromium;
+      return (mod.chromium ?? mod.default?.chromium) as typeof import('@playwright/test').chromium;
     } catch {
       /* next */
     }

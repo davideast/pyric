@@ -1,6 +1,6 @@
 {
   "name": "@pyric/cli",
-  "version": "0.1.0-alpha.9",
+  "version": "0.1.0-alpha.10",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -21,6 +21,18 @@
     "./verify": {
       "types": "./dist/verify/index.d.ts",
       "import": "./dist/verify/index.js"
+    },
+    "./conformance": {
+      "types": "./dist/conformance/index.d.ts",
+      "import": "./dist/conformance/index.js"
+    },
+    "./conformance/browser": {
+      "types": "./dist/conformance/browser.d.ts",
+      "import": "./dist/conformance/browser.js"
+    },
+    "./conformance/docs": {
+      "types": "./dist/conformance/docs.d.ts",
+      "import": "./dist/conformance/docs.js"
     },
     "./assurance": {
       "types": "./dist/assurance/index.d.ts",
@@ -85,10 +97,13 @@
     "LICENSE"
   ],
   "scripts": {
+    "prebuild": "test \"${PYRIC_CONFORMANCE_READY:-0}\" = \"1\" || bun run ../../packages/conformance/src/generate-projections.ts --write",
     "build": "tsc && bun run scripts/postbuild.ts",
+    "pretest": "bash ../../scripts/build.sh --packages-only",
     "test": "bun test",
     "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts --config test/e2e/playwright.config.ts",
     "test:soak": "playwright test --config test/e2e/soak/playwright.config.ts",
+    "pretypecheck": "bash ../../scripts/build.sh --packages-only",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit",
     "compile": "bun scripts/compile.ts",
     "release": "bun scripts/release.ts",

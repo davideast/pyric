@@ -44,8 +44,8 @@
  * deny-by-default non-event, live in `production-verification.ts`; this file
  * supplies the syntactic half and calls that predicate for the verdict.
  *
- * Also exposes the computed coverage-report writer (run as a script) that walks
- * every corpus scenario and emits rules-language/coverage-report.json.
+ * Also exposes the in-memory coverage derivation. Running this file directly
+ * writes an ignored JSON report for inspection; runtime consumers never read it.
  */
 import * as ohm from 'ohm-js';
 import {

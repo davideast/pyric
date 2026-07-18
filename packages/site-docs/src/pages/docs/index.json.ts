@@ -4,15 +4,14 @@
  * field documents the contract in-band.
  */
 import type { APIRoute } from 'astro';
-import { publicDocs, slugOf, docPath, firstParagraph } from '../../lib/docs';
-import { render } from 'astro:content';
+import { publicDocs, slugOf, docPath, firstParagraph } from '../../lib/content';
 
 export const GET: APIRoute = async () => {
   const entries = await publicDocs();
 
   const pages = [];
   for (const entry of entries) {
-    const { headings } = await render(entry);
+    const headings = entry.headings;
     pages.push({
       slug: slugOf(entry),
       path: docPath(entry),

@@ -13,7 +13,7 @@
 import { describe, test, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
 import { FieldValue } from 'pyric/sandbox/admin-compat';
-import { createCompatFirestore } from '../../../../src/sandbox/firestore/admin-compat/index.js';
+import { createCompatFirestore } from '../../../../src/firestore/sandbox/admin-compat/index.js';
 
 const OPEN = `rules_version = '2';
 service cloud.firestore {

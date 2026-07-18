@@ -33,7 +33,7 @@ import {
   type DocumentData,
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-compat';
-import { translateReadData } from '../../firestore/admin-compat/read-translation.js';
+import { translateReadData } from '../../../firestore/sandbox/admin-compat/read-translation.js';
 import { invalidArgument } from './errors.js';
 import type { WireDocData } from './wire-types.js';
 

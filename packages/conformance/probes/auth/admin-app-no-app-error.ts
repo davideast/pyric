@@ -3,7 +3,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
-import { captureThrow } from '../../src/helpers.ts';
+import { captureThrow } from '../../src/captured-throw.ts';
 import type { Probe } from '../../rigs/types.ts';
 
 /** Order matches the committed observation's `appliesTo` array. */

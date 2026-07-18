@@ -1,0 +1,279 @@
+/* Conformance evidence moves from production capture to a published matrix. */
+.prose .conformance-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.prose .flow-step {
+  flex: 1 1 0;
+  min-width: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 550;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.prose .flow-sub {
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.prose .flow-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--faint);
+  font-size: 1.1rem;
+}
+
+/* Generated conformance summaries keep public surface and fidelity separate. */
+.prose .compat-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.prose .compat-stat-surface {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose .compat-stat-surface strong,
+.prose .compat-stat-item strong {
+  color: var(--ink);
+}
+
+.prose .compat-stat-figure {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  line-height: 1;
+}
+
+.prose .compat-stat-pct {
+  font-size: 2.75rem;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose .compat-stat-label {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.prose .compat-stat-denom {
+  font-size: 0.85rem;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose .compat-stat-bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.prose .compat-stat-seg {
+  flex-basis: 0;
+  min-width: 0;
+  background: var(--muted);
+}
+
+.prose .compat-stat-seg[data-status='ok'] { background: var(--diff-add); }
+.prose .compat-stat-seg[data-status='unsupported'] { background: var(--line-2); }
+.prose .compat-stat-seg[data-status='unverified'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--faint);
+}
+
+.prose .compat-stat-seg[data-status='diverged'] {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--accent) 0 4px,
+    color-mix(in srgb, var(--accent) 45%, transparent) 4px 7px
+  );
+}
+
+.prose .compat-stat-seg[data-status='bug'] {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--diff-remove) 0 3px,
+    color-mix(in srgb, var(--diff-remove) 40%, transparent) 3px 6px
+  );
+}
+
+.prose .compat-stat-key {
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  list-style: none;
+}
+
+.prose .compat-stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose .compat-stat-note {
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+
+/* To-scale public-surface bars (runtime % + type %). Plain CSS, no script. */
+.prose .compat-meters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.prose .compat-meter {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose .compat-meter-label { color: var(--muted); }
+
+.prose .compat-meter-value {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+}
+
+.prose .compat-meter-track {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line-2);
+  overflow: hidden;
+}
+
+.prose .compat-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--diff-add);
+}
+
+.prose .compat-meter-track--mini {
+  height: 5px;
+  margin-top: var(--space-1);
+}
+
+/* The scoreboard keeps public runtime, public types, and fidelity separate. */
+.prose .compat-score-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.prose .compat-score-table thead th {
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3, #667);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.prose .compat-score-table td,
+.prose .compat-score-table th[scope="row"] {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+  text-align: left;
+}
+
+.prose .compat-score-table th[scope="row"] {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.prose .compat-score-cell {
+  white-space: nowrap;
+}
+
+.prose .compat-score-cell .compat-score-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-right: var(--space-2);
+}
+
+.prose .compat-score-cell .compat-meter-track--mini {
+  display: inline-block;
+  width: 8rem;
+  vertical-align: middle;
+}
+
+.prose .compat-score-detail {
+  color: var(--ink-3, #667);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.prose .compat-score-row--overall th[scope="row"],
+.prose .compat-score-row--overall td {
+  border-top: 2px solid var(--line);
+  border-bottom: 0;
+}
+}
+
+.prose .compat-score-tbd {
+  color: var(--ink-3, #667);
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+/* Scoreboard: the bar owns the row width; the basis tucks beneath it. */
+.prose .compat-score-stack {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.prose .compat-score-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.prose .compat-score-bar .compat-meter-track {
+  flex: 1 1 auto;
+}
+
+.prose .compat-score-basis {
+  font-size: 0.8125rem;
+  color: var(--ink-3, #667);
+}

@@ -1,0 +1,18 @@
+{
+  "name": "rules-firestore-global-and-service-scope-functions",
+  "matrixRow": "",
+  "rowIds": [
+    "firestore-rules#186"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"global-and-service-scope-functions\" (Coverage: function scopes (global, service), shadowing). Production accepts and resolves functions declared at global and service scope, with match-scope shadowing; the old grammar rejected both placements and the simulator cannot yet resolve them.",
+  "observedAt": "2026-07-17T19:19:44.371Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "service-scope fn + match shadow of global \u2192 ALLOW": "ALLOW",
+    "global fn gates create (alice) \u2192 ALLOW": "ALLOW",
+    "global fn gates create (bob) \u2192 DENY": "DENY",
+    "unshadowed call resolves the global fn \u2192 ALLOW": "ALLOW",
+    "anonymous fails service-scope isSignedIn() \u2192 DENY": "DENY"
+  }
+}

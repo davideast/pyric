@@ -20,6 +20,7 @@ const ALL = [
   'bash',
   'simulate_firestore_write',
   'seed_firestore_data_as_admin',
+  'pyric_can_i_use',
   'debug_firestore_rules',
 ].map(tool);
 
@@ -31,6 +32,7 @@ describe('filterToolsForProfile', () => {
     expect(names).toContain('run_workspace_tests');
     expect(names).toContain('bash');
     expect(names).toContain('seed_firestore_data_as_admin');
+    expect(names).toContain('pyric_can_i_use');
     expect(names).not.toContain('debug_firestore_rules');
   });
 
@@ -44,6 +46,7 @@ describe('filterToolsForProfile', () => {
     try {
       const authoringNames = listToolHandlersForProfile('authoring').map((t) => t.name);
       expect(authoringNames).toContain('seed_firestore_data_as_admin');
+      expect(authoringNames).toContain('pyric_can_i_use');
     } finally {
       useSettingsStore.setState({ pyricDiagnosticsEnabled: previous });
     }

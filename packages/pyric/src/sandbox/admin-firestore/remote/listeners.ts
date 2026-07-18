@@ -11,7 +11,7 @@ import type { DocumentData } from 'pyric/sandbox/admin-compat';
 import {
   buildDocumentSnapshot,
   buildQuerySnapshot,
-} from '../../firestore/snapshot-listeners.js';
+} from '../../../firestore/sandbox/snapshot-listeners.js';
 import { toRemoteSandboxError } from './errors.js';
 import { decodeInternal } from './value-codec.js';
 import type { RemoteArm } from './channel.js';

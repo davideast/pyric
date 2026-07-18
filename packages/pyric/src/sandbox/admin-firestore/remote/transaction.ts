@@ -23,7 +23,7 @@ import type {
   QuerySnapshot,
   Transaction,
 } from 'pyric/sandbox/admin-compat';
-import { READ_AFTER_WRITE_MESSAGE } from '../../firestore/transaction-types.js';
+import { READ_AFTER_WRITE_MESSAGE } from '../../../firestore/sandbox/transaction-types.js';
 import { armOp, type RemoteArm } from './channel.js';
 import { encodeWriteData } from './value-codec.js';
 import { makeDocumentSnapshot, makeQuerySnapshot } from './snapshots.js';

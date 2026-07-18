@@ -1,6 +1,6 @@
 {
   "name": "rtdb-servertimestamp-resolves",
-  "matrixRow": "rtdb #(sentinels — currently deny-listed; oracle locks the upstream SDK shape)",
+  "matrixRow": "rtdb #(sentinel behavior — oracle locks the upstream SDK shape)",
   "rowIds": [
     "rtdb-modular#M21",
     "rtdb-modular#153",

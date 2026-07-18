@@ -1,0 +1,18 @@
+{
+  "name": "rules-storage-function-scopes-and-shadowing",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#124"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"function-scopes-and-shadowing\" (Coverage: function scopes (global, service, match), shadowing). Production accepts functions declared at global and service scope and resolves inner scopes over outer ones; the old grammar rejected both placements at parse.",
+  "observedAt": "2026-07-17T19:19:08.084Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "global + service scope functions evaluate \u2192 ALLOW": "ALLOW",
+    "global function denies non-png \u2192 DENY": "DENY",
+    "anonymous fails service-scope isSignedIn() \u2192 DENY": "DENY",
+    "match-scope function shadows the global \u2192 ALLOW": "ALLOW",
+    "unshadowed call resolves the global \u2192 ALLOW": "ALLOW"
+  }
+}

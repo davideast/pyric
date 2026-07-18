@@ -1,6 +1,6 @@
 # Priorities
 
-As of 2026-07-10. pyric shipped its npm alpha and the feature set works — that is the problem. The first real user, a Firebase expert, loved the prototype tab, opened the docs, and backed off: overwhelmed by how much was there. They wanted a Vite plugin and didn't know one already existed; they later asked for a verify-before-production capability that also already existed. The system is objectively strong and subjectively too much. This season is not about building more. It is about making what exists easy to enter, simple to hold in your head, and safe to trust — and nothing else. When a proposal doesn't serve one of the three, it waits.
+As of 2026-07-14. pyric shipped its npm alpha and the feature set works — that is the problem. The first real user, a Firebase expert, loved the prototype tab, opened the docs, and backed off: overwhelmed by how much was there. They wanted a Vite plugin and didn't know one already existed; they later asked for a verify-before-production capability that also already existed. The system is objectively strong and subjectively too much. This season is not about building more. It is about making what exists easy to enter, simple to hold in your head, and safe to trust — and nothing else. When a proposal doesn't serve one of the three, it waits.
 
 ## Top of Funnel
 
@@ -45,3 +45,18 @@ Two halves. Conformance states the contract and the gaps openly, proven and open
 - Close conformance Phase 2: commit observations, pin the 7 divergences as public documented gaps (#132)
 - Make `pyric verify` discoverable (#133)
 - Document the conformance contract and gaps where a user will actually find them (#134)
+- Make conformance support queryable from one canonical evidence graph while collapsing committed generated projections (#218)
+
+## Build Velocity
+
+**Test:** Does this materially shorten the time from a developer making a change to receiving trustworthy feedback that it is ready?
+
+The feedback loop: local builds, tests, and CI should surface useful results quickly enough that waiting does not interrupt development. Optimize measured bottlenecks in the paths developers run most often, while preserving the checks that make releases safe.
+
+**Counts:** reducing build and test latency; eliminating redundant CI work; improving cache effectiveness; running independent checks concurrently; making fast, targeted checks available locally; measuring and preventing regressions in feedback time.
+**Doesn't count:** weakening or skipping required validation; speculative optimization without timing evidence; speeding up rarely used paths while common workflows remain slow; adding infrastructure whose maintenance cost outweighs the measured gain.
+
+**Now:**
+- Measure recent GitHub Actions runs and identify the critical path
+- Shorten pull-request feedback time by removing redundant work and improving parallelism and caching
+- Keep release confidence intact while making the common local and CI loops faster

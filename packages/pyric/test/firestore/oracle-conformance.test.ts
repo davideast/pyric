@@ -665,7 +665,7 @@ describe('oracle conformance (firestore)', () => {
     // Prod: the initial doc snapshot is delivered ASYNC — not during the
     // registering call (firstFireSyncDuringRegister false). The sandbox now
     // routes the initial fire through the delivery scheduler
-    // (src/sandbox/firestore/local-environment.ts), matching prod's
+    // (src/firestore/sandbox/local-environment.ts), matching prod's
     // "asynchronous, never during register" contract via a microtask.
     const obs = load('firestore-row-80-onsnapshot-fires-initial.json');
     expect(obs.firstFireSyncDuringRegister).toBe(false); // prod (the contract)

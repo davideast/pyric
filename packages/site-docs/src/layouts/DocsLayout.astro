@@ -1,11 +1,12 @@
 ---
 import type { MarkdownHeading } from 'astro';
 import '../styles/site.css';
+import '../styles/conformance.css';
 import '../styles/rhythm.css';
 import '../styles/api-reference.css';
 import DocsNav from '../components/DocsNav.astro';
 import DocsBreadcrumbs from '../components/DocsBreadcrumbs.astro';
-import { withBase, STUDIO_TABS, breadcrumbsFor, allDocs, slugOf } from '../lib/docs';
+import { withBase, STUDIO_TABS, breadcrumbsFor, allDocs, slugOf } from '../lib/content';
 
 interface Props {
   title: string;

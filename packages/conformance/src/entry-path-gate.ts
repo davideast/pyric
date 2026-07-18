@@ -30,7 +30,7 @@
  *
  * `entry-path-validate.ts` (wired into `compat:validate`) is the SEPARATE
  * check that every `expected-failures.ts` record cites a real, currently-
- * existing gap (an unmapped census symbol, a deferred deny-list entry, or an
+ * existing gap (an unmapped census symbol, a deferred surface disposition, or an
  * unverified registry row) — this gate does not re-derive that; it only
  * flags a record naming a program that does not exist, and otherwise trusts
  * the record's citation is valid (`compat:validate` runs the real check, and

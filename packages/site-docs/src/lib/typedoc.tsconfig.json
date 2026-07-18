@@ -1,0 +1,11 @@
+{
+  "//": "Dedicated compiler context for the api-reference TypeDoc conversion. Entry points are built .d.ts files across the workspace packages; the site's own tsconfig must not constrain them.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "include": ["../../../*/dist/**/*.d.ts"]
+}

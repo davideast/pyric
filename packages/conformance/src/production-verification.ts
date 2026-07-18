@@ -5,8 +5,8 @@
  *
  *   - `rules-language-analyzer.ts` — the coverage report's `verifiedConstructs`
  *     numerator (the trust number published in the language-coverage docs);
- *   - `assurance-capabilities.ts` — the `supported` verdict a capability's
- *     construct dependency needs before an assurance probe may report a
+ *   - `conformance-verdicts.ts` — the `supported` verdict a graph node needs
+ *     before an assurance probe may report a
  *     security conclusion instead of abstaining.
  *
  * When those two disagreed, a construct could be counted in one number and not

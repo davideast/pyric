@@ -24,6 +24,13 @@ on:
       - '.github/workflows/simulator-parity.yml'
   push:
     branches: [main]
+    paths:
+      - 'packages/pyric/src/sandbox/firestore/**'
+      - 'packages/pyric/src/rules/grammar/**'
+      - 'packages/pyric/src/rules/simulator/**'
+      - 'packages/pyric/test/sandbox/firestore/simulator/**'
+      - 'packages/pyric/test/rules/**'
+      - '.github/workflows/simulator-parity.yml'
   workflow_dispatch:
 
 jobs:
@@ -37,11 +44,8 @@ jobs:
           bun-version: '1.3.11'
       - name: Install
         run: bun install --frozen-lockfile
-      - name: Build
-        # scripts/build.sh handles the cycle-tolerant bootstrap pass
-        # then the strict topological build. Same orchestrator the
-        # main build.yml uses.
-        run: bash scripts/build.sh
+      - name: Build pyric
+        run: bun run build:pyric
       - name: Run simulator tests
         run: |
           bun test packages/pyric/test/sandbox/firestore/simulator
@@ -59,11 +63,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.11'
-      - name: Install
-        run: bun install --frozen-lockfile
-      # No build step: the parity packs import simulator + Test API client
-      # straight from packages/pyric/src via relative paths, and bun runs
-      # TS directly.
       - name: Check secret availability
         id: secret-check
         env:
@@ -77,6 +76,9 @@ jobs:
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
+      - name: Install
+        if: steps.secret-check.outputs.available == 'true'
+        run: bun install --frozen-lockfile --filter pyric
       - name: Run live parity packs
         if: steps.secret-check.outputs.available == 'true'
         env:

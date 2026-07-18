@@ -1,0 +1,21 @@
+{
+  "name": "rules-storage-in-membership-and-proto-keys",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#120"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"in-membership-and-proto-keys\" (Coverage: in (list, map keys), prototype-key adversarial). `in` must test list membership and OWN map keys only \u2014 'toString'/'constructor'/'hasOwnProperty' in a metadata map or map literal must be false, matching captured Firestore engine truth.",
+  "observedAt": "2026-07-17T19:19:08.178Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "contentType in list literal (member) \u2192 ALLOW": "ALLOW",
+    "contentType in list literal (non-member) \u2192 DENY": "DENY",
+    "'owner' in metadata (key present) \u2192 ALLOW": "ALLOW",
+    "'owner' in metadata (key absent) \u2192 DENY": "DENY",
+    "'toString' in metadata (no such key) \u2192 DENY": "DENY",
+    "no proto names leak into `in` \u2192 ALLOW": "ALLOW",
+    "literal metadata key named 'toString' IS a key \u2192 ALLOW": "ALLOW",
+    "map literal: own key in, proto key out \u2192 ALLOW": "ALLOW"
+  }
+}

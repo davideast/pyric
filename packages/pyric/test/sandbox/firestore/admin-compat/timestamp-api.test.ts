@@ -9,7 +9,7 @@
  * `clones/.../lite-api/timestamp.ts`.
  */
 import { describe, test, expect } from 'bun:test';
-import { Timestamp } from '../../../../src/sandbox/firestore/admin-compat/types.js';
+import { Timestamp } from '../../../../src/firestore/sandbox/admin-compat/types.js';
 
 describe('FS-B12 — nanos normalization', () => {
   test('fromMillis(-500) round-trips through toMillis()', () => {

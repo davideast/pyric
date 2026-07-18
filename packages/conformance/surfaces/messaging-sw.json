@@ -1,0 +1,12 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "census-only",
+  "developerSurface": "messaging",
+  "censusSurface": "messaging-sw",
+  "upstream": "firebase/messaging/sw",
+  "mirrors": [
+    "pyric/messaging/sw"
+  ],
+  "privateRuntimeExports": [],
+  "dispositions": []
+}

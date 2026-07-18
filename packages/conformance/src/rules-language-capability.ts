@@ -20,7 +20,9 @@
  *                      unmodeled fields that read as undefined). Carries a
  *                      reason; the count is reported, never forced.
  *
- * Output: rules-language/capability-report.json. The per-engine
+ * Running this file writes an ignored rules-language/capability-report.json
+ * inspection artifact. Runtime consumers call computeCapabilityReport() in
+ * memory instead. The per-engine
  * language-coverage number is implemented / (implemented + unsupported),
  * i.e. probeable constructs the simulator evaluates over those it could.
  */
