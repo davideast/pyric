@@ -7,7 +7,7 @@ const success = {
   'browser-conformance': 'success',
   'playground-caniuse': 'success',
   'release-contract': 'skipped',
-  'docs-only': 'skipped',
+  'docs-only': 'success',
   packaging: 'skipped',
   'install-matrix': 'skipped',
 };
@@ -18,7 +18,7 @@ describe('required CI result', () => {
     expect(requiredFailures({
       checkSet: 'release-only',
       requirePackaging: false,
-      results: { ...success, 'build-and-test': 'skipped', 'library-tests': 'skipped', 'browser-conformance': 'skipped', 'playground-caniuse': 'skipped', 'release-contract': 'success' },
+      results: { ...success, 'build-and-test': 'skipped', 'library-tests': 'skipped', 'browser-conformance': 'skipped', 'playground-caniuse': 'skipped', 'docs-only': 'skipped', 'release-contract': 'success' },
     })).toEqual([]);
   });
 
@@ -40,4 +40,12 @@ describe('required CI result', () => {
       results: success,
     })).toEqual(['packaging: skipped', 'install-matrix: skipped']);
   });
+});
+
+test('full runs require the documentation build (regression: docs gap)', () => {
+  expect(requiredFailures({
+    checkSet: 'full',
+    requirePackaging: false,
+    results: { 'build-and-test': 'success', 'library-tests': 'success', 'browser-conformance': 'success', 'playground-caniuse': 'success', 'docs-only': 'skipped' },
+  })).toEqual(['docs-only: skipped']);
 });
