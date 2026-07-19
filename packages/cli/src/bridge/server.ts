@@ -3,7 +3,7 @@
  *
  * Resolved by the `node` condition in `package.json`'s exports map.
  * Exports the bridge core (`createBridge`) and the standalone server
- * (`startServer`). The Vite integration is the `pyricSandbox({ bridge })`
+ * (`startServer`). The Vite integration is the `pyric({ bridge })`
  * plugin in `@pyric/cli/vite` (the firebase→sandbox swap AND the bridge in
  * one plugin), not a bridge-only plugin here.
  *
