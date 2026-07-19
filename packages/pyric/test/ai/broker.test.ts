@@ -536,6 +536,34 @@ describe('openai translation: response and chunk mapping', () => {
     });
   });
 
+  it('maps a non-streaming response with reasoning (Ollama) to a thought part', () => {
+    const resp: OpenAIResponse = {
+      id: 'x',
+      model: 'llama3',
+      choices: [
+        { index: 0, message: { role: 'assistant', content: 'hi', reasoning: 'hmm' }, finish_reason: 'stop' },
+      ],
+    };
+    const parts = openAIToGeminiResponse(resp).candidates![0]!.content.parts;
+    expect(parts).toEqual([{ text: 'hmm', thought: true }, { text: 'hi' }]);
+  });
+
+  it('maps a non-streaming response with reasoning_content (llama-server / deepseek-format) to a thought part', () => {
+    const resp: OpenAIResponse = {
+      id: 'x',
+      model: 'gemma-4-26b',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'gemma online', reasoning_content: 'thinking hard' },
+          finish_reason: 'stop',
+        },
+      ],
+    };
+    const parts = openAIToGeminiResponse(resp).candidates![0]!.content.parts;
+    expect(parts).toEqual([{ text: 'thinking hard', thought: true }, { text: 'gemma online' }]);
+  });
+
   it('malformed tool-call JSON maps to MALFORMED_FUNCTION_CALL', () => {
     const resp: OpenAIResponse = {
       id: 'x',
@@ -564,6 +592,17 @@ describe('openai translation: response and chunk mapping', () => {
       choices: [{ index: 0, delta: { reasoning: 'hmm', content: 'hi' }, finish_reason: null }],
     });
     expect(parts).toEqual([{ text: 'hmm', thought: true }, { text: 'hi' }]);
+  });
+
+  it('maps stream deltas with reasoning_content (llama-server / deepseek-format) to a thought part', () => {
+    const parts = openAIChunkToParts({
+      id: 'x',
+      model: 'm',
+      choices: [
+        { index: 0, delta: { reasoning_content: 'thinking hard', content: 'gemma online' }, finish_reason: null },
+      ],
+    });
+    expect(parts).toEqual([{ text: 'thinking hard', thought: true }, { text: 'gemma online' }]);
   });
 
   it('ToolCallBuffer accumulates streamed fragments into whole functionCall parts', () => {
