@@ -25,10 +25,14 @@ let command: ChildProcess | undefined;
 let peer: { close(): Promise<void> } | undefined;
 let observer: RemoteSandbox | undefined;
 
-async function connectWorkerPeer(url: string): Promise<{ close(): Promise<void> }> {
+async function connectWorkerPeer(
+  url: string,
+  opts: { firestoreRules?: string } = {},
+): Promise<{ close(): Promise<void> }> {
   const ctx = await createFunctionsWorkerHostCtx({
     persistenceKeyPrefix: 'functions-dev',
     instanceId: 'functions-dev-e2e',
+    ...(opts.firestoreRules !== undefined ? { firestoreRules: opts.firestoreRules } : {}),
   });
   return connectFunctionsWorkerPeer({ url, ctx, sandboxId: 'functions-dev-peer' });
 }
@@ -145,6 +149,127 @@ exports.makeUppercase = onValueCreated(
         if (command?.exitCode === null) command.kill('SIGKILL');
         command = undefined;
       }
+    }
+  }, 30_000);
+
+  test('an onValueCreated trigger stamps a Firestore doc via firebase-admin (admin bypasses deny rules; client-lens denied) (#394)', async () => {
+    if (!existsSync(cliEntry)) throw new Error(`build the CLI first: ${cliEntry}`);
+    // The pychat presence→users stamp shape: an RTDB write triggers a Cloud
+    // Function that writes a Firestore doc through firebase-admin/firestore.
+    // The ruleset DENIES a signed-out (client/anon) caller on `users/*` — only
+    // the row's own owner may write. firebase-admin bypasses rules, so the
+    // function's admin write must LAND; a client-lens (anon) write to the same
+    // path must be DENIED.
+    const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`;
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-functions-dev-firestore-'));
+    mkdirSync(join(cwd, 'public'));
+    mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
+    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
+    writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
+    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({
+      hosting: { public: 'public' },
+      functions: { source: 'functions' },
+    }));
+    writeFileSync(join(cwd, 'functions/package.json'), JSON.stringify({
+      name: 'firestore-stamp-functions',
+      private: true,
+      type: 'commonjs',
+      main: 'index.cjs',
+    }));
+    // Unchanged firebase-admin source — the register swap rewrites the imports.
+    writeFileSync(join(cwd, 'functions/index.cjs'),
+      `const { onValueCreated } = require('firebase-functions/v2/database');
+const { getFirestore } = require('firebase-admin/firestore');
+exports.stampPresence = onValueCreated('/presence/{uid}/state', async (event) => {
+  const uid = event.data.ref.parent.key;
+  await getFirestore().doc('users/' + uid).set({ lastSeenAt: event.data.val() });
+});
+`);
+    symlinkSync(
+      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      join(cwd, 'functions/node_modules/firebase-functions'),
+    );
+
+    let stdout = '';
+    let stderr = '';
+    command = spawn('node', [
+      cliEntry, 'dev', '--port=0', '--host=127.0.0.1', '--no-open', '--no-capture',
+    ], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    command.stdout?.setEncoding('utf8');
+    command.stderr?.setEncoding('utf8');
+    command.stdout?.on('data', (chunk: string) => { stdout += chunk; });
+    command.stderr?.on('data', (chunk: string) => { stderr += chunk; });
+
+    try {
+      const pointer = await waitFor(() => {
+        const path = join(cwd, '.pyric/serve.json');
+        return existsSync(path)
+          ? JSON.parse(readFileSync(path, 'utf8')) as { url: string }
+          : null;
+      });
+      // The worker peer owns the sandbox where data lands — deploy the
+      // restrictive ruleset there (as a served page would).
+      peer = await connectWorkerPeer(
+        `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
+        { firestoreRules: RULES },
+      );
+      observer = await connectRemoteSandbox({ url: pointer.url });
+      await waitFor(() =>
+        stdout.includes('✔ functions 1 onValueCreated trigger') ? true : null);
+
+      // Trigger the function: an RTDB create at the watched path.
+      await observer.rtdb.set('presence/u1/state', 'online');
+
+      // ADMIN BYPASS: the function's firebase-admin write landed despite the
+      // deny-for-anon ruleset. Read it back through the worker (admin lens).
+      const stamped = await waitFor(async () => {
+        const snap = (await observer!.channel.op({
+          method: 'getDoc',
+          path: 'users/u1',
+          actAs: { mode: 'admin' },
+        })) as { exists: boolean; data?: { json: string } };
+        return snap.exists ? snap : null;
+      });
+      expect(JSON.parse(stamped.data!.json)).toEqual({ lastSeenAt: 'online' });
+
+      // NEGATIVE INVARIANT: a client-lens (signed-out / anon) write to the
+      // SAME rules-protected path is DENIED — the fix routes only the server
+      // admin context to the bypass lens, never a client lens.
+      let clientErr: { code?: string } | undefined;
+      try {
+        await observer.channel.op({
+          method: 'setDoc',
+          path: 'users/u1',
+          data: { lastSeenAt: 'spoofed' },
+          actAs: { mode: 'anon' },
+        });
+      } catch (e) {
+        clientErr = e as { code?: string };
+      }
+      expect(clientErr?.code).toBe('permission-denied');
+      // The denied client write did not mutate the admin-stamped doc.
+      const after = (await observer.channel.op({
+        method: 'getDoc',
+        path: 'users/u1',
+        actAs: { mode: 'admin' },
+      })) as { exists: boolean; data?: { json: string } };
+      expect(JSON.parse(after.data!.json)).toEqual({ lastSeenAt: 'online' });
+
+      expect(stderr).not.toContain('Functions child exited unexpectedly');
+    } finally {
+      observer?.close();
+      observer = undefined;
+      await peer?.close().catch(() => {});
+      peer = undefined;
+      if (command?.exitCode === null) command.kill('SIGKILL');
+      command = undefined;
     }
   }, 30_000);
 

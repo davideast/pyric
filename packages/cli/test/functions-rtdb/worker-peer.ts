@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
+import { getFirestore as getBaseFirestore } from 'pyric/sandbox/admin-firestore';
 import {
   isBridgeMessage,
   WORKER_RELAY_CAPABILITY,
@@ -19,6 +20,12 @@ import type {
 export interface FunctionsWorkerHostOptions {
   persistenceKeyPrefix: string;
   instanceId: string;
+  /** Optional Firestore ruleset deployed on the worker's sandbox before any
+   *  relayed op — deployed synchronously through the LOCAL arm exactly as a
+   *  served page would. Lets a test prove that a functions child's admin
+   *  (rules-bypass) write lands against a ruleset that would DENY an
+   *  anonymous/client-lens caller (#394). */
+  firestoreRules?: string;
 }
 
 export interface FunctionsWorkerPeerOptions {
@@ -35,6 +42,9 @@ export async function createFunctionsWorkerHostCtx(
     key: `${options.persistenceKeyPrefix}-${Math.random()}`,
     injectedBackend: createMemoryBackend(),
   });
+  if (options.firestoreRules !== undefined) {
+    getBaseFirestore(sandbox.withAuth(null)).setRules(options.firestoreRules);
+  }
   return {
     db: getFirestore(sandbox),
     sandbox,

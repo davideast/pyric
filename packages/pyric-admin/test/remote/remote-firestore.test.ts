@@ -257,15 +257,48 @@ describe('pyric-admin remote Firestore — arm selection', () => {
     expect(db.snapshot()['local/probe']).toEqual({ via: 'local-arm' });
   });
 
-  it("the wrapper's no-arg getFirestore() resolves the default app onto the remote arm", async () => {
-    const { ctx } = makeStack();
-    // No guard anymore: app-based resolution flows into the remote-aware
-    // base getFirestore. The default-app ctx is withAuth(null) → the anon
-    // lens; OPEN_RULES allow it, and the write must land in the worker.
+  it("the wrapper's no-arg getFirestore() resolves the default app onto the remote arm with the rules-BYPASS admin lens (#394)", async () => {
+    // Deny-everything rules on `locked/*`: an anon/client-lens write is
+    // DENIED there. firebase-admin bypasses rules, so the app-form
+    // getFirestore() must resolve to the admin lens and the write must land.
+    // (Before #394 the app form used the anon lens — `request.auth == null` —
+    // and this write would throw permission-denied, the deny-direction
+    // divergence that blocked the RTDB-trigger → Firestore-stamp pattern.)
+    const { ctx } = makeStack({ rules: MATRIX_RULES });
     const db = getFirestore();
-    await db.doc('ambient/probe').set({ via: 'wrapper-default-app' });
-    const raw = await workerGetDocRaw(ctx, 'ambient/probe');
-    expect(JSON.parse(raw.json!)).toEqual({ via: 'wrapper-default-app' });
+    await db.doc('locked/probe').set({ via: 'wrapper-default-app-admin' });
+    const raw = await workerGetDocRaw(ctx, 'locked/probe');
+    expect(raw.exists).toBe(true);
+    expect(JSON.parse(raw.json!)).toEqual({ via: 'wrapper-default-app-admin' });
+  });
+
+  it('the wrapper app-form getFirestore(app) bypasses deny rules; a client-lens write to the same path is DENIED (#394 invariant)', async () => {
+    // The trust boundary, both directions on ONE stack:
+    //   • server context (functions child) → app-form getFirestore(app) →
+    //     admin lens → bypasses `locked/*` deny rules (write lands).
+    //   • client context → withAuth(null) → the rules-ENFORCED `{ mode: 'anon' }`
+    //     worker lens. This is the IDENTICAL worker lens a page's
+    //     `firebase/firestore` (→ `pyric/firestore`) resolves to for a
+    //     signed-out client, so it faithfully models the client surface. The
+    //     fix does NOT weaken it — the same write is DENIED.
+    const { ctx, remote, app } = makeStack({ rules: MATRIX_RULES });
+
+    // Server (admin-SDK) surface — bypasses rules.
+    const adminDb = getFirestore(app);
+    await adminDb.doc('locked/server').set({ by: 'admin' });
+    expect((await workerGetDocRaw(ctx, 'locked/server')).exists).toBe(true);
+
+    // Client (rules-enforced anon) surface — same remote sandbox, DENIED.
+    const clientDb = getFirestore(remote.withAuth(null));
+    let clientErr: WireError | undefined;
+    try {
+      await clientDb.doc('locked/client').set({ by: 'client' });
+    } catch (e) {
+      clientErr = e as WireError;
+    }
+    expect(clientErr).toBeInstanceOf(SandboxError);
+    expect(clientErr!.code).toBe('permission-denied');
+    expect((await workerGetDocRaw(ctx, 'locked/client')).exists).toBe(false);
   });
 
   it('handles are idempotent per context / per handle kind', () => {
