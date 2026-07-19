@@ -193,6 +193,22 @@ export interface PyricSandboxOptions {
    *  so app, Studio, and agent all observe the one sandbox); pass `ui: false`
    *  to disable. */
   ui?: boolean;
+  /** RTDB-triggered Cloud Functions under this dev server (the `pyric dev`
+   *  parity fold). By default a `functions` block in `firebase.json` is
+   *  discovered automatically: its `onValueCreated` triggers run in an isolated
+   *  node child against the shared sandbox (other trigger kinds warn and are
+   *  skipped), and the discovered codebase turns the MCP bridge mount on (the
+   *  child dials the sandbox over the bridge WS — the page's sandbox topology
+   *  is unchanged, see `bridge`). `functions: false` is the off switch: no
+   *  discovery, no child, no functions-forced bridge mount.
+   *
+   *  Field precedence: explicit option > env var > firebase files > default.
+   *  - `region`: the trigger location. Beats `PYRIC_FUNCTIONS_RTDB_REGION`;
+   *    default `us-central1`.
+   *  - `instance`: the RTDB instance name. Default `<projectId>-default-rtdb`,
+   *    where projectId is `PYRIC_PROJECT`, else `.firebaserc`'s default
+   *    project, else `demo-project`. */
+  functions?: false | { region?: string; instance?: string };
   /** Force whether `vite build` runs the firebase→pyric swap, overriding the
    *  mode default. Unset (default): swap for any NON-production mode, keep real
    *  firebase for mode `production`. `true` = always produce a sandbox build;
@@ -527,13 +543,17 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       // async configureServer, fails the dev start the same way serve's
       // `return 2` aborts. The Functions child connects to the sandbox over the
       // bridge WS, so a discovered codebase forces the bridge mount on (mirrors
-      // serve's `bridgeEnabledFor(..., functionsProject)`).
+      // serve's `bridgeEnabledFor(..., functionsProject)`). `functions: false`
+      // is the off switch: discovery never runs, so neither does the mount.
+      const functionsOpts = typeof options.functions === 'object' ? options.functions : {};
       let functionsProject: FunctionsRtdbProject | null = null;
-      try {
-        functionsProject = discoverFunctionsRtdbProject(cwd);
-      } catch (error) {
-        // Malformed functions config: fail the start with serve's exact message.
-        throw error instanceof Error ? error : new Error(String(error));
+      if (options.functions !== false) {
+        try {
+          functionsProject = discoverFunctionsRtdbProject(cwd);
+        } catch (error) {
+          // Malformed functions config: fail the start with serve's exact message.
+          throw error instanceof Error ? error : new Error(String(error));
+        }
       }
       const functionsProjectId = functionsProject
         ? (process.env.PYRIC_PROJECT ?? (await readFirebaseRc(cwd))?.projects?.default ?? 'demo-project')
@@ -834,8 +854,11 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
             cwd: project.sourceDir,
             entry: project.entry,
             env: buildChildEnv(process.env, { serveUrl, registerUrl: registerModuleUrl() }),
-            instance: `${projectId}-default-rtdb`,
-            location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
+            // Precedence (per field): plugin option > env var > firebase files
+            // > default. projectId already folds PYRIC_PROJECT > .firebaserc >
+            // demo-project.
+            instance: functionsOpts.instance ?? `${projectId}-default-rtdb`,
+            location: functionsOpts.region ?? process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
             ...(childModuleUrl ? { childModuleUrl } : {}),
             onEvent(event) {
               if (event.type === 'execution') {

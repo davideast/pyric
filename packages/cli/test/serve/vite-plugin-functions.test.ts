@@ -218,4 +218,50 @@ exports.makeUppercase = onValueCreated(
     expect(existsSync(join(cwd, '.pyric', 'serve.json'))).toBe(false);
     expect(logs.some((l) => l.includes('onValueCreated'))).toBe(false);
   }, 40_000);
+
+  test('functions: false suppresses discovery, the child, and the functions-forced bridge mount', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-vite-functions-off-'));
+    mkdirSync(join(cwd, 'public'));
+    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
+    writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
+    // A functions block whose source dir does NOT exist: discovery would throw
+    // at dev-server start, so a clean start is proof discovery never ran.
+    writeFileSync(
+      join(cwd, 'firebase.json'),
+      JSON.stringify({ hosting: { public: 'public' }, functions: { source: 'functions' } }),
+    );
+
+    const logs: string[] = [];
+    const record = (msg: string): void => { logs.push(msg); };
+    const { createServer } = await import('vite');
+    server = await withTimeout(
+      createServer({
+        appType: 'custom',
+        configFile: false,
+        logLevel: 'silent',
+        root: cwd,
+        plugins: [pyricSandbox({ ui: false, functions: false })],
+        server: { port: 0, host: '127.0.0.1' },
+        optimizeDeps: { noDiscovery: true },
+        customLogger: {
+          info: record,
+          warn: record,
+          warnOnce: record,
+          error: record,
+          clearScreen: () => {},
+          hasErrorLogged: () => false,
+          hasWarned: false,
+        },
+      }),
+      30_000,
+      'createServer',
+    );
+    await withTimeout(server.listen(), 15_000, 'listen');
+    await new Promise((r) => setTimeout(r, 300));
+
+    // No bridge mount was forced on functions' behalf: no serve.json pointer,
+    // and no functions banner ever logged.
+    expect(existsSync(join(cwd, '.pyric', 'serve.json'))).toBe(false);
+    expect(logs.some((l) => l.includes('onValueCreated'))).toBe(false);
+  }, 40_000);
 });
