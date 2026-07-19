@@ -42,10 +42,11 @@ export interface EmbeddedAssets {
    *  compiled binaries; missing means the Studio Docs tab 404s in standalone. */
   docs?: () => Promise<Record<string, string>>;
   /** Lazy: packed npm tarballs of the unpublished workspace packages
-   *  (`pyric.tgz`, `pyric-cli.tgz`) -> base64. Used by `pyric init` to vendor
-   *  them into a scaffolded project so `bun install` resolves them offline
-   *  instead of 404-ing on the registry. Optional so a binary built before this
-   *  existed degrades gracefully. */
+   *  (`pyric.tgz`, `pyric-admin.tgz`, `create-pyric.tgz`, `pyric-cli.tgz`)
+   *  -> base64. Used by `pyric init` / `pyric vendor` to vendor them into a
+   *  project so `bun install` resolves them offline instead of 404-ing on the
+   *  registry. Optional so a binary built before this existed degrades
+   *  gracefully. */
   tarballs?: () => Promise<Record<string, string>>;
 }
 
@@ -93,11 +94,12 @@ export function hasEmbeddedTarballs(): boolean {
 }
 
 /**
- * Vendor the embedded `pyric` + `@pyric/cli` tarballs into `<projectDir>/vendor/`
- * and return the `package.json` dep spec for each (`file:vendor/<name>.tgz`). The
- * scaffold's `.gitignore` ignores `.pyric/`, so we use `vendor/` to keep the
- * tarballs committable — a clone then `bun install`s offline. Filenames are
- * stable (`pyric.tgz`, `pyric-cli.tgz`) regardless of version.
+ * Vendor every embedded workspace tarball (`pyric`, `pyric-admin`,
+ * `create-pyric`, `@pyric/cli`) into `<projectDir>/vendor/` and return the
+ * `package.json` dep spec for each (`file:vendor/<name>.tgz`). The scaffold's
+ * `.gitignore` ignores `.pyric/`, so we use `vendor/` to keep the tarballs
+ * committable — a clone then `bun install`s offline. Filenames are stable
+ * (version-free) so the specs never churn across versions.
  */
 export async function materializeVendorTarballs(
   projectDir: string,

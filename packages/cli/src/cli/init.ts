@@ -226,7 +226,9 @@ export async function runVendor(parsed: ParsedArgs, deps: InitDeps = {}): Promis
     return 2;
   }
 
-  report.write(`pyric vendor: vendored pyric + @pyric/cli into ${join(dir, 'vendor')}\n`);
+  report.write(
+    `pyric vendor: vendored ${Object.keys(vendorSpecs).join(', ')} into ${join(dir, 'vendor')}\n`,
+  );
   for (const spec of Object.values(vendorSpecs)) {
     report.write(`  + ${spec.replace(/^file:/, '')}\n`);
   }
