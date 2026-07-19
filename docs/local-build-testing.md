@@ -58,9 +58,9 @@ special configuration on this path: `@pyric/cli/vite` is a real
 ```ts
 // vite.config.ts — identical to the published-package experience
 import { defineConfig } from 'vite';
-import { pyricSandbox } from '@pyric/cli/vite';
+import { pyric } from '@pyric/cli/vite';
 
-export default defineConfig({ plugins: [pyricSandbox()] });
+export default defineConfig({ plugins: [pyric()] });
 ```
 
 Re-vendoring after a change means recompiling (step 1) and re-running
@@ -96,7 +96,7 @@ Application source keeps `firebase/*` imports throughout — package resolution
 owns backend selection (ADR-001). Two ways to activate the swap:
 
 - **Vite plugin**: the same `vite.config.ts` as above, then `bun run dev`
-  (i.e. `vite`). `pyricSandbox()` maps supported `firebase/*` imports to the
+  (i.e. `vite`). `pyric()` maps supported `firebase/*` imports to the
   workspace `pyric/*` mirrors while the dev server runs; a production
   `vite build` ships real Firebase.
 - **`pyric dev`** (serves static/pre-built apps via import maps, runs Node
