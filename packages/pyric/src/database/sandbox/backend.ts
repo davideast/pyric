@@ -805,7 +805,6 @@ export class RtdbBackend {
     // Rules check at subscribe time. A denied subscribe never gets
     // the initial fire — matches production where the listener errors
     // out before any callback.
-    const listenerId = this.nextListenerId();
     const at = Date.now();
     const evaluation = this.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
@@ -818,7 +817,7 @@ export class RtdbBackend {
         request: query ? { query } : undefined,
         origin: 'listener',
       });
-      this.emitListener('errored', { id: listenerId, path }, auth, {
+      this.emitListener('errored', { id: this.nextListenerId(), path }, auth, {
         event: 'value',
         result: 'deny',
         error: {
@@ -829,11 +828,67 @@ export class RtdbBackend {
       });
       throw permissionDenied();
     }
-    this.emitOperation(auth, 'listen', path, 'allow', evaluation, {
+    return this.attachValueListener(auth, path, cb, query, {
+      origin: 'listener',
+      result: 'allow',
+      evaluation,
+      at,
+    });
+  }
+
+  /**
+   * Rules-BYPASS `onValue` — the listen-plane sibling of {@link adminGet} /
+   * {@link adminSet}. Cloud Functions RTDB triggers read via firebase-admin,
+   * which bypasses security rules; the sandbox relays that trigger
+   * subscription through the worker host's `{ mode: 'admin' }` lens
+   * ({@link getAdminDatabase}), and this is where that lens actually skips the
+   * read-rule gate. Without it an auth-gated `.read` on the watched path
+   * (or the RTDB root default-deny above it) would `PERMISSION_DENIED` the
+   * trigger subscription at startup — see issue #401.
+   *
+   * The admin flag lives ONLY on server-minted admin handles; it is never
+   * derived from anything a page peer controls, so a page's `onValue` still
+   * routes through the rule-gated {@link onValue} above.
+   */
+  adminOnValue(
+    path: string,
+    cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void,
+    query?: QuerySpec,
+  ): () => void {
+    return this.attachValueListener(null, path, cb, query, {
+      origin: 'admin',
+      result: 'not-applicable',
+      evaluation: undefined,
+      at: Date.now(),
+    });
+  }
+
+  /**
+   * Register a value listener AFTER any read-rule gate and run its initial
+   * fire. Shared by the rule-gated {@link onValue} and the rules-bypass
+   * {@link adminOnValue} so the fan-out registration, initial snapshot and
+   * emitted operation/listener events stay byte-identical across both paths —
+   * the only difference is whether the read rule was evaluated first.
+   */
+  private attachValueListener(
+    auth: AuthState,
+    path: string,
+    cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void,
+    query: QuerySpec | undefined,
+    provenance: {
+      origin: 'listener' | 'admin';
+      result: 'allow' | 'not-applicable';
+      evaluation: RuleEvaluationDetails | undefined;
+      at: number;
+    },
+  ): () => void {
+    const { at } = provenance;
+    const listenerId = this.nextListenerId();
+    this.emitOperation(auth, 'listen', path, provenance.result, provenance.evaluation, {
       at,
       durationMs: Date.now() - at,
       request: query ? { query } : undefined,
-      origin: 'listener',
+      origin: provenance.origin,
     });
     const listener: ValueListener = { id: listenerId, auth, cb, path, query };
     this.valueListeners.add(listener);

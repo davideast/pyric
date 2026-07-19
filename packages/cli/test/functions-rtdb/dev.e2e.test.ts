@@ -25,10 +25,14 @@ let command: ChildProcess | undefined;
 let peer: { close(): Promise<void> } | undefined;
 let observer: RemoteSandbox | undefined;
 
-async function connectWorkerPeer(url: string): Promise<{ close(): Promise<void> }> {
+async function connectWorkerPeer(
+  url: string,
+  databaseRules?: { rules: Record<string, unknown> },
+): Promise<{ close(): Promise<void> }> {
   const ctx = await createFunctionsWorkerHostCtx({
     persistenceKeyPrefix: 'functions-dev',
     instanceId: 'functions-dev-e2e',
+    databaseRules,
   });
   return connectFunctionsWorkerPeer({ url, ctx, sandboxId: 'functions-dev-peer' });
 }
@@ -145,6 +149,115 @@ exports.makeUppercase = onValueCreated(
         if (command?.exitCode === null) command.kill('SIGKILL');
         command = undefined;
       }
+    }
+  }, 30_000);
+
+  test('an auth-gated read on the watched path does NOT deny the trigger (admin lens) — #401', async () => {
+    if (!existsSync(cliEntry)) throw new Error(`build the CLI first: ${cliEntry}`);
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-functions-dev-rules-'));
+    mkdirSync(join(cwd, 'public'));
+    mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
+    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
+    writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({
+      projects: { default: 'demo-project' },
+    }));
+    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({
+      hosting: { public: 'public' },
+      functions: { source: 'functions' },
+    }));
+    writeFileSync(join(cwd, 'functions/package.json'), JSON.stringify({
+      name: 'rules-gated-functions',
+      private: true,
+      type: 'module',
+      main: 'index.js',
+    }));
+    writeFileSync(join(cwd, 'functions', 'index.js'),
+      `import { onValueCreated } from 'firebase-functions/v2/database';
+export const makeUppercase = onValueCreated(
+  '/messages/{pushId}/original',
+  event => event.data.ref.parent.child('uppercase')
+    .set(event.data.val().toUpperCase()),
+);
+`);
+    symlinkSync(
+      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      join(cwd, 'functions/node_modules/firebase-functions'),
+    );
+
+    // The trigger watches `/messages` (the literal prefix of the reference).
+    // Gating `.read` there behind auth is exactly the live #401 failure: a
+    // non-admin subscription is PERMISSION_DENIED and the Functions child dies
+    // at startup. The relayed trigger subscription must carry `actAs: admin`
+    // all the way to the sandbox, where the admin listener bypasses this rule.
+    // Note `.read: true` deeper (on `/messages/$id/original`) would NOT help —
+    // an RTDB read grant does not cascade UP to the subscribed parent.
+    const databaseRules = {
+      rules: {
+        messages: {
+          '.read': 'auth != null',
+          '.write': 'auth != null',
+        },
+      },
+    };
+
+    let stdout = '';
+    let stderr = '';
+    command = spawn('node', [
+      cliEntry,
+      'dev',
+      '--port=0',
+      '--host=127.0.0.1',
+      '--no-open',
+      '--no-capture',
+    ], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    command.stdout?.setEncoding('utf8');
+    command.stderr?.setEncoding('utf8');
+    command.stdout?.on('data', (chunk: string) => { stdout += chunk; });
+    command.stderr?.on('data', (chunk: string) => { stderr += chunk; });
+
+    try {
+      const pointer = await waitFor(() => {
+        const path = join(cwd, '.pyric/serve.json');
+        return existsSync(path)
+          ? JSON.parse(readFileSync(path, 'utf8')) as { url: string }
+          : null;
+      });
+      peer = await connectWorkerPeer(
+        `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
+        databaseRules,
+      );
+      observer = await connectRemoteSandbox({ url: pointer.url });
+
+      // The trigger's admin subscription established despite the auth-gated
+      // read — the child neither PERMISSION_DENIED nor exited at startup.
+      await waitFor(() =>
+        stdout.includes('✔ functions 1 onValueCreated trigger') ? true : null);
+      expect(stderr).not.toContain('PERMISSION_DENIED');
+      expect(stderr).not.toContain('failed to start');
+
+      // The trigger fires and its Firestore-adjacent effect (the uppercase
+      // stamp) lands — end to end through the rules-gated path.
+      await observer.rtdb.set('messages/id/original', 'hello');
+      await waitFor(async () =>
+        (await observer!.rtdb.get('messages/id/uppercase')) === 'HELLO' ? true : null);
+      await waitFor(() =>
+        stdout.includes('✔ function  makeUppercase ← /messages/id/original') ? true : null);
+
+      command.kill('SIGTERM');
+      const code = await Promise.race([
+        new Promise<number>((resolveExit) =>
+          command!.once('exit', (exit) => resolveExit(exit ?? 1))),
+        Bun.sleep(5_000).then(() => -1),
+      ]);
+      expect(code).toBe(0);
+      expect(stderr).not.toContain('Functions child exited unexpectedly');
+    } finally {
+      observer?.close();
+      observer = undefined;
+      await peer?.close().catch(() => {});
+      peer = undefined;
+      if (command?.exitCode === null) command.kill('SIGKILL');
+      command = undefined;
     }
   }, 30_000);
 

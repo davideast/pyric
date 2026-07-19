@@ -696,19 +696,24 @@ export function onValue(
   if (isQuery(r as object)) {
     const q = r as Query;
     const target = targetOf(q.ref as unknown as object);
-    return subscribeWithLiveAuth(target, (auth) => target.backend.onValue(
-      auth,
-      q.ref._path,
-      (raw) => {
-        const snap = buildSandboxSnapFromRaw(target, q.ref, raw.val);
-        try {
-          cb(snap);
-        } catch {
-          // Listener throws are swallowed.
-        }
-      },
-      q._spec,
-    ));
+    const deliver = (raw: { val: JsonValue; key: string | null }): void => {
+      const snap = buildSandboxSnapFromRaw(target, q.ref, raw.val);
+      try {
+        cb(snap);
+      } catch {
+        // Listener throws are swallowed.
+      }
+    };
+    // Admin (rules-bypass) listeners skip the read-rule gate entirely — the
+    // listen-plane sibling of `adminGet`/`adminSet` (#401). `admin` is set
+    // only on server-minted `getAdminDatabase` handles, never anything a page
+    // controls, so a page's `onValue` stays on the rule-gated path below.
+    return target.admin
+      ? target.backend.adminOnValue(q.ref._path, deliver, q._spec)
+      : subscribeWithLiveAuth(
+        target,
+        (auth) => target.backend.onValue(auth, q.ref._path, deliver, q._spec),
+      );
   }
   const ref0 = r as DatabaseReference;
   const target = targetOf(ref0 as unknown as object);
@@ -721,10 +726,12 @@ export function onValue(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  const unsub = subscribeWithLiveAuth(
-    target,
-    (auth) => target.backend.onValue(auth, ref0._path, wrapper),
-  );
+  const unsub = target.admin
+    ? target.backend.adminOnValue(ref0._path, wrapper)
+    : subscribeWithLiveAuth(
+      target,
+      (auth) => target.backend.onValue(auth, ref0._path, wrapper),
+    );
   const registration: ListenerRegistration = { unsubscribe: unsub };
   listenerRegistry.add(target, ref0._path, 'value', cb, registration);
   return () => {
