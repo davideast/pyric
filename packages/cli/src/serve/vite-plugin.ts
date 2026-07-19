@@ -30,8 +30,9 @@
  * Scope = M1 (swap + rules) + M2 (SharedWorker multi-tab + persist/capture/seed)
  * + M3 (the MCP bridge fold — `{ bridge }`). M3 reuses `createBridgeMount` (the
  * proven serve-flavored bridge behind `pyric dev --bridge`), composing it into
- * the same `/__pyric` middleware; bridge mode forces the in-page sandbox path so
- * the agent and the app share one backend.
+ * the same `/__pyric` middleware; on the worker path the bridge peer routes
+ * agent tool-calls THROUGH the SharedWorker (`connectBridgePeer`), so the agent
+ * and the app share one backend without forcing the page in-page.
  *
  * Serving `worker.js` flips `runtime.ts` to the worker path (one backend across
  * tabs, IndexedDB-durable); on that path the WORKER owns persist/capture/seed via
@@ -179,21 +180,18 @@ export interface PyricSandboxOptions {
    *  + `GET /__pyric/health` + `WS /__pyric/sandbox`, all on Vite's port.
    *  `true` is shorthand for `{}`. The agent and the page share ONE sandbox.
    *
-   *  ⚠ **Forces the in-page sandbox (single-tab).** The bridge peer is the
-   *  in-page sandbox, never the SharedWorker, so enabling `bridge` disables the
-   *  default multi-tab SharedWorker path — otherwise the agent would drive an
-   *  empty in-page sandbox while the app's data lived in the worker. */
+   *  Does NOT change the sandbox topology: on the default SharedWorker path the
+   *  page dials the bridge WS and relays agent tool-calls THROUGH the worker
+   *  (`connectBridgePeer`), so multi-tab stays on. The in-page fallback engages
+   *  only when the worker bundle itself fails, bridge or not. */
   bridge?: boolean | { project?: string; disableAuditLog?: boolean };
   /** Serve the **Pyric Studio** app at `/__pyric/ui/` on Vite's dev origin (the
    *  `pyric dev --ui` equivalent). Mounts the disk-backed workspace/project
    *  routes Studio's `local` mode talks to AND serves the built Studio assets
-   *  (vendored in this package at `dist/serve/studio-ui`). **On by default**;
-   *  pass `ui: false` to disable.
-   *
-   *  Not compatible with `bridge`: bridge forces the app in-page, but Studio's
-   *  live plane reads the SharedWorker, so Studio would observe nothing. Under
-   *  `bridge` ui therefore defaults OFF (an explicit `ui: true` still works but
-   *  warns). Use `ui` without `bridge`, or `pyric dev --ui`. */
+   *  (vendored in this package at `dist/serve/studio-ui`). **On by default**,
+   *  including under `bridge` (the bridge peer routes through the SharedWorker,
+   *  so app, Studio, and agent all observe the one sandbox); pass `ui: false`
+   *  to disable. */
   ui?: boolean;
   /** Force whether `vite build` runs the firebase→pyric swap, overriding the
    *  mode default. Unset (default): swap for any NON-production mode, keep real

@@ -156,6 +156,22 @@ exports.makeUppercase = onValueCreated(
     );
     expect(upper).toBe(true);
     expect(logs.some((l) => l.includes('makeUppercase'))).toBe(true);
+
+    // Topology pin (functions block present, NO explicit `bridge` option): the
+    // functions-forced bridge mount must not flip the page onto the in-page
+    // sandbox. The served page stays on the SharedWorker path — worker version
+    // meta, no `__PYRIC_FORCE_INPAGE__` — and the init payload carries the
+    // bridge WS URL the worker-path peer relays agent/functions traffic through.
+    const html = await server.transformIndexHtml(
+      '/index.html',
+      '<html><head></head><body></body></html>',
+    );
+    expect(html).toContain('pyric-worker-v');
+    expect(html).not.toContain('__PYRIC_FORCE_INPAGE__');
+    const init = (await (await fetch(`${base}/__pyric/init.json`)).json()) as {
+      bridgeUrl: string | null;
+    };
+    expect(init.bridgeUrl).toStartWith('ws://');
   }, 60_000);
 
   test('with no functions config, nothing mounts (no bridge pointer, no functions child)', async () => {
