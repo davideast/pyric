@@ -168,9 +168,16 @@ export async function handleMessagingOp(
 
     case 'messaging.deliver': {
       // Test/Studio driver — DeliveryResult { route, handlerCount, payload }
-      // is plain JSON.
+      // is plain JSON. `visibilityState` (the in-page driver's twin) sets THIS
+      // port's client visibility before routing, so `pyric/messaging`'s
+      // `sandbox.deliver(spec)` picks foreground/background over the transport
+      // exactly as in-page: visible → onMessage, hidden → onBackgroundMessage.
       try {
-        ok(port, msg.id, broker(ctx).deliver(msg.spec));
+        const { visibilityState, ...payload } = msg.spec;
+        if (visibilityState !== undefined) {
+          broker(ctx).setClientVisibility(clientIdFor(ctx, port), visibilityState);
+        }
+        ok(port, msg.id, broker(ctx).deliver(payload));
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
     }

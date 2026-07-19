@@ -136,6 +136,33 @@ export function stateOf(messaging: Messaging): InstanceState {
   return state;
 }
 
+// ── Transport-delivery hook (the `@pyric/cli` worker seam) ──────────────────
+
+/**
+ * A `sandbox.deliver` implementation for a `Messaging` handle whose broker
+ * lives across a transport, rather than in this process's instance registry.
+ */
+export type SandboxDeliveryTransport = (spec: DeliverSpec) => Promise<DeliveryResult>;
+
+/**
+ * Handles produced OUTSIDE this module (the `@pyric/cli` worker-backed
+ * messaging handle) register their own delivery here so `sandbox.deliver`
+ * recognizes them without their being in the in-page {@link instanceState}
+ * registry. The registered transport receives the FULL {@link DeliverSpec}
+ * (visibility included) and owns the visibility+deliver routing on the far
+ * side of the transport. This is an internal seam (`pyric/messaging/internal`),
+ * never part of the app-facing `firebase/messaging` surface.
+ */
+const transportDelivery = new WeakMap<Messaging, SandboxDeliveryTransport>();
+
+/** Register a worker-backed handle's `sandbox.deliver` transport. */
+export function registerSandboxDelivery(
+  messaging: Messaging,
+  deliver: SandboxDeliveryTransport,
+): void {
+  transportDelivery.set(messaging, deliver);
+}
+
 // ── The sandbox test/tooling driver shared by both entries ──────────────────
 
 export interface DeliverSpec {
@@ -157,6 +184,10 @@ export async function deliverToMessaging(
   messaging: Messaging,
   spec: DeliverSpec,
 ): Promise<DeliveryResult> {
+  // A worker-backed handle drives its broker across the transport — routing
+  // (visibility → foreground/background) happens on the far side.
+  const transport = transportDelivery.get(messaging);
+  if (transport !== undefined) return transport(spec);
   const state = stateOf(messaging);
   if (spec.visibilityState !== undefined) {
     state.broker.setClientVisibility(DEFAULT_CLIENT_ID, spec.visibilityState);
