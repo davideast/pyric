@@ -9,7 +9,7 @@ import path, { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
-import { pyricSandbox, engineConfigToWire } from '../../src/serve/vite-plugin.js';
+import { pyric, engineConfigToWire } from '../../src/serve/vite-plugin.js';
 import {
   SDK_MODULES,
   defaultSdkEntries,
@@ -33,7 +33,7 @@ beforeAll(async () => {
 }, 180_000);
 
 // The hooks are plain functions on the returned plugin; call them directly.
-const plugin = pyricSandbox();
+const plugin = pyric();
 const resolveId = (s: string, i?: string): unknown => (plugin.resolveId as (s: string, i?: string) => unknown)(s, i);
 const load = (id: string): unknown => (plugin.load as (id: string) => unknown)(id);
 const config = (): { optimizeDeps?: { exclude?: string[]; esbuildOptions?: { plugins?: unknown[] } }; server?: { fs?: { allow?: string[] } } } =>
@@ -43,7 +43,7 @@ const config = (): { optimizeDeps?: { exclude?: string[]; esbuildOptions?: { plu
 const applies = (p: typeof plugin, command: 'serve' | 'build', mode = 'production'): boolean =>
   (p.apply as (c: unknown, env: { command: string; mode: string }) => boolean)({}, { command, mode });
 
-describe('pyricSandbox — plugin shape', () => {
+describe('pyric — plugin shape', () => {
   it('is a pre-enforced plugin whose apply gates build on the mode', () => {
     expect(plugin.name).toBe('pyric:sandbox');
     expect(typeof plugin.apply).toBe('function');
@@ -62,9 +62,9 @@ describe('pyricSandbox — plugin shape', () => {
   });
 
   it('apply: swapInBuild option overrides the mode default in both directions', () => {
-    const forcedOn = pyricSandbox({ swapInBuild: true });
+    const forcedOn = pyric({ swapInBuild: true });
     expect(applies(forcedOn, 'build', 'production')).toBe(true); // forced sandbox even in prod mode
-    const forcedOff = pyricSandbox({ swapInBuild: false });
+    const forcedOff = pyric({ swapInBuild: false });
     expect(applies(forcedOff, 'build', 'development')).toBe(false); // never swap in build
     expect(applies(forcedOff, 'serve', 'production')).toBe(true); // dev still always on
   });
@@ -83,7 +83,7 @@ describe('pyricSandbox — plugin shape', () => {
   });
 
   it('sandbox build: transformIndexHtml stamps ONLY the marker (no init/@fs, no force-in-page)', () => {
-    const p = pyricSandbox();
+    const p = pyric();
     // Flag the plugin as a build (apply already gated it upstream).
     (p.config as (c: unknown, env: unknown) => unknown)({}, { command: 'build', mode: 'development' });
     const out = (p.transformIndexHtml as (h: string) => string)('<html><head></head><body></body></html>');
@@ -194,7 +194,7 @@ describe('transformIndexHtml — sandbox boot injection', () => {
   });
 
   it('injects the plugin AI engine as a synchronous global for the in-page path', () => {
-    const p = pyricSandbox({
+    const p = pyric({
       ai: { engine: { kind: 'openai', baseUrl: '/__pyric/ai-proxy', model: 'llama3.2' } },
     });
     const out = (p.transformIndexHtml as (h: string) => string)('<html><head></head></html>');
@@ -224,7 +224,7 @@ describe('integration — real vite dev pluginContainer', () => {
       configFile: false,
       logLevel: 'silent',
       root: path.dirname(entries.init), // any real dir; we only test resolution
-      plugins: [pyricSandbox()],
+      plugins: [pyric()],
       server: { middlewareMode: true },
       optimizeDeps: { noDiscovery: true },
     })) as unknown as typeof server;
@@ -254,7 +254,7 @@ describe('integration — bridge mounts in a real vite dev server (middlewareMod
       configFile: false,
       logLevel: 'silent',
       root: path.dirname(entries.init), // any real dir; rules optional (no firebase.json)
-      plugins: [pyricSandbox({ bridge: { disableAuditLog: true } })],
+      plugins: [pyric({ bridge: { disableAuditLog: true } })],
       server: { middlewareMode: true },
       optimizeDeps: { noDiscovery: true },
     })) as unknown as typeof server;
@@ -327,7 +327,7 @@ async function bootPlugin(opts: Record<string, unknown>, root: string): Promise<
     // port; `on` is a no-op here (the attachUpgrade spy test uses its own stub).
     httpServer: { address: () => ({ port: 5173 }), on() {}, once() {} },
   };
-  await (pyricSandbox(opts).configureServer as (s: unknown) => Promise<void>)(stub);
+  await (pyric(opts).configureServer as (s: unknown) => Promise<void>)(stub);
   if (!handler) throw new Error('plugin did not mount the /__pyric middleware');
   return handler;
 }
@@ -447,7 +447,7 @@ describe('M2 — worker bundle + persist (via the /__pyric middleware)', () => {
     // Drive configureServer with a stub so the worker bundle (cache-warmed in
     // beforeAll) flips workerReady=true, then assert the transformIndexHtml output.
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-stamp-'));
-    const p = pyricSandbox({});
+    const p = pyric({});
     const stub = {
       config: { root: tmp, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
       middlewares: { use() {} },
@@ -588,7 +588,7 @@ describe('M3 — bridge fold (handler-based)', () => {
     // (connectBridgePeer), so the app stays on the SharedWorker and shares the
     // ONE sandbox with Studio + the agent.
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-bridgeworker-'));
-    const p = pyricSandbox({ bridge: true });
+    const p = pyric({ bridge: true });
     const stub = {
       config: { root: tmp, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
       middlewares: { use() {} },
@@ -611,7 +611,7 @@ describe('M3 — bridge fold (handler-based)', () => {
       watcher: { add() {}, on() {} },
       httpServer: { address: () => ({ port: 5173 }), on(ev: string) { events.push(ev); }, once() {} },
     };
-    await (pyricSandbox({ bridge: true }).configureServer as (s: unknown) => Promise<void>)(stub);
+    await (pyric({ bridge: true }).configureServer as (s: unknown) => Promise<void>)(stub);
     expect(events).toContain('upgrade'); // attachUpgrade wired the peer listener
   });
 
@@ -672,7 +672,7 @@ describe('ui: Pyric Studio mount (parity with dev --ui)', () => {
     expect((await callPyric(handler, { path: '/__pyric/workspace' })).nexted).toBe(false);
   });
 
-  // Default-ON: a plain pyricSandbox() (no `ui`) serves Studio + mounts its routes.
+  // Default-ON: a plain pyric() (no `ui`) serves Studio + mounts its routes.
   it.skipIf(!studioBuilt)('ui defaults ON → /__pyric/ui/ served and workspace mounted with no ui passed', async () => {
     const tmp = mkTmp('pyric-vite-ui-default-');
     const handler = await bootPlugin({}, tmp);
@@ -707,7 +707,7 @@ describe('ui: Pyric Studio mount (parity with dev --ui)', () => {
       watcher: { add() {}, on() {} },
       httpServer: { address: () => ({ port: 5173 }), on() {}, once() {} },
     };
-    await (pyricSandbox({ ui: true, bridge: true }).configureServer as (s: unknown) => Promise<void>)(stub);
+    await (pyric({ ui: true, bridge: true }).configureServer as (s: unknown) => Promise<void>)(stub);
     expect(warnings.some((w) => /ui \+ bridge/.test(w))).toBe(false);
   });
 });
@@ -725,7 +725,7 @@ describe('bridge: .pyric/serve.json discovery pointer (A2)', () => {
   it('writes the pointer (port + mcpUrl + project) when the server binds', async () => {
     const tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-pointer-'));
     let onListening: (() => void) | undefined;
-    await (pyricSandbox({ bridge: true }).configureServer as (s: unknown) => Promise<void>)(
+    await (pyric({ bridge: true }).configureServer as (s: unknown) => Promise<void>)(
       pointerStub(tmp, (cb) => { onListening = cb; }),
     );
     expect(typeof onListening).toBe('function'); // hooked, not written until bound
@@ -740,7 +740,7 @@ describe('bridge: .pyric/serve.json discovery pointer (A2)', () => {
   it('writes NO pointer without bridge', async () => {
     const tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-nopointer-'));
     let onListening: (() => void) | undefined;
-    await (pyricSandbox({}).configureServer as (s: unknown) => Promise<void>)(
+    await (pyric({}).configureServer as (s: unknown) => Promise<void>)(
       pointerStub(tmp, (cb) => { onListening = cb; }),
     );
     onListening?.();

@@ -79,7 +79,7 @@ describe('runScaffold', () => {
     expect(paths).toContain('/tmp/hello/vite.config.ts');
     const vite = writeFn.mock.calls.find((c) => String(c[0]).endsWith('vite.config.ts'));
     expect(vite?.[1]).toContain("from '@pyric/cli/vite'");
-    expect(vite?.[1]).toContain('pyricSandbox()');
+    expect(vite?.[1]).toContain('pyric()');
     expect(io.getOut()).toContain('create-pyric: scaffolded web');
   });
 

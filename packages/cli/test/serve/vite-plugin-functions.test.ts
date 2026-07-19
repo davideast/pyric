@@ -1,6 +1,6 @@
 /**
  * Vite-plugin parity for RTDB-triggered Cloud Functions — the same slice
- * `pyric dev` runs (`onValueCreated`), now reachable under `pyricSandbox()`.
+ * `pyric dev` runs (`onValueCreated`), now reachable under `pyric()`.
  *
  * Mirrors `test/functions-rtdb/dev.e2e.test.ts`, but drives the plugin instead
  * of the CLI: a REAL Vite dev server listens, a worker-relay peer stands in for
@@ -18,7 +18,7 @@ import { join, resolve } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
 import { discoverFunctionsRtdbProject } from '../../src/functions-rtdb/project.js';
-import { pyricSandbox } from '../../src/serve/vite-plugin.js';
+import { pyric } from '../../src/serve/vite-plugin.js';
 import { connectRemoteSandbox, type RemoteSandbox } from '../../src/remote/index.js';
 import { connectFunctionsWorkerPeer, createFunctionsWorkerHostCtx } from '../functions-rtdb/worker-peer.js';
 
@@ -70,7 +70,7 @@ afterEach(async () => {
   server = undefined;
 });
 
-describe('pyricSandbox() Functions RTDB parity', () => {
+describe('pyric() Functions RTDB parity', () => {
   test('discovers a functions codebase and fires an onValueCreated trigger through the plugin', async () => {
     if (!existsSync(builtChild)) throw new Error(`build the CLI first: ${builtChild}`);
     // Warm the SharedWorker bundle so configureServer's bundleWorker is a cache hit.
@@ -118,7 +118,7 @@ exports.makeUppercase = onValueCreated(
         configFile: false,
         logLevel: 'silent',
         root: cwd,
-        plugins: [pyricSandbox({ ui: false })],
+        plugins: [pyric({ ui: false })],
         server: { port: 0, host: '127.0.0.1' },
         optimizeDeps: { noDiscovery: true },
         customLogger: {
@@ -193,7 +193,7 @@ exports.makeUppercase = onValueCreated(
         configFile: false,
         logLevel: 'silent',
         root: cwd,
-        plugins: [pyricSandbox({ ui: false })],
+        plugins: [pyric({ ui: false })],
         server: { port: 0, host: '127.0.0.1' },
         optimizeDeps: { noDiscovery: true },
         customLogger: {

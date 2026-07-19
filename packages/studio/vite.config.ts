@@ -4,8 +4,8 @@ import tailwindcss from '@tailwindcss/vite';
 import {
   NODE_BUILTIN_RE,
   NODE_BUILTIN_SHIMS,
-  pyricSandbox,
-  type PyricSandboxOptions,
+  pyric,
+  type PyricOptions,
 } from '@pyric/cli/vite';
 
 /**
@@ -29,7 +29,7 @@ import {
 
 /**
  * Benign node-builtin shims (`fs`/`path`/`url`) — the SAME shims serve's
- * bundler and the `pyricSandbox` Vite plugin apply to pyric's browser graph.
+ * bundler and the `pyric` Vite plugin apply to pyric's browser graph.
  * Needed because Studio's bridge peer (clients/bridge-peer.ts) bundles
  * @pyric/cli' browser-side bridge client, whose default dispatcher statically
  * reaches the pyric rules module resolver (a Node module the browser path
@@ -53,7 +53,7 @@ function nodeBuiltinShims(): Plugin {
 export const studioSandboxOptions = {
   ui: true,
   capture: false,
-} satisfies PyricSandboxOptions;
+} satisfies PyricOptions;
 
 export default defineConfig({
   base: process.env.STUDIO_BASE ?? '/',
@@ -62,7 +62,7 @@ export default defineConfig({
     // runtime namespace here so the SharedWorker URL cannot fall through to
     // Vite's Studio index.html response. Review sessions should still avoid
     // writing capture files.
-    pyricSandbox(studioSandboxOptions),
+    pyric(studioSandboxOptions),
     nodeBuiltinShims(),
     react(),
     tailwindcss(),
