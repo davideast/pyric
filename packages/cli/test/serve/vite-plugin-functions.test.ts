@@ -30,6 +30,22 @@ let server: ViteDevServer | undefined;
 let peer: { close(): Promise<void> } | undefined;
 let observer: RemoteSandbox | undefined;
 
+/** A real ephemeral port. Vite treats `port: 0` as "unset" and defaults to
+ *  5173, so any dev server already on 5173 (another project's `vite dev`)
+ *  wedges these tests — observed in the field. Bind-and-release instead. */
+async function freePort(): Promise<number> {
+  const { createServer: createNetServer } = await import('node:net');
+  return new Promise((resolvePort, reject) => {
+    const srv = createNetServer();
+    srv.once('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address();
+      const port = addr && typeof addr === 'object' ? addr.port : 0;
+      srv.close(() => resolvePort(port));
+    });
+  });
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const guard = new Promise<never>((_, reject) => {
@@ -119,7 +135,7 @@ exports.makeUppercase = onValueCreated(
         logLevel: 'silent',
         root: cwd,
         plugins: [pyric({ ui: false })],
-        server: { port: 0, host: '127.0.0.1' },
+        server: { port: await freePort(), strictPort: true, host: '127.0.0.1' },
         optimizeDeps: { noDiscovery: true },
         customLogger: {
           info: record,
@@ -194,7 +210,7 @@ exports.makeUppercase = onValueCreated(
         logLevel: 'silent',
         root: cwd,
         plugins: [pyric({ ui: false })],
-        server: { port: 0, host: '127.0.0.1' },
+        server: { port: await freePort(), strictPort: true, host: '127.0.0.1' },
         optimizeDeps: { noDiscovery: true },
         customLogger: {
           info: record,
@@ -240,8 +256,8 @@ exports.makeUppercase = onValueCreated(
         configFile: false,
         logLevel: 'silent',
         root: cwd,
-        plugins: [pyricSandbox({ ui: false, functions: false })],
-        server: { port: 0, host: '127.0.0.1' },
+        plugins: [pyric({ ui: false, functions: false })],
+        server: { port: await freePort(), strictPort: true, host: '127.0.0.1' },
         optimizeDeps: { noDiscovery: true },
         customLogger: {
           info: record,
@@ -314,12 +330,12 @@ exports.echoMeta = onValueCreated(
         logLevel: 'silent',
         root: cwd,
         plugins: [
-          pyricSandbox({
+          pyric({
             ui: false,
             functions: { region: 'europe-west1', instance: 'custom-instance' },
           }),
         ],
-        server: { port: 0, host: '127.0.0.1' },
+        server: { port: await freePort(), strictPort: true, host: '127.0.0.1' },
         optimizeDeps: { noDiscovery: true },
         customLogger: {
           info: record,
@@ -440,8 +456,8 @@ exports.noop = onValueCreated('/messages/{pushId}/original', () => {});
         configFile: false,
         logLevel: 'silent',
         root: cwd,
-        plugins: [pyricSandbox({ ui: false, functions: { watch: false } })],
-        server: { port: 0, host: '127.0.0.1' },
+        plugins: [pyric({ ui: false, functions: { watch: false } })],
+        server: { port: await freePort(), strictPort: true, host: '127.0.0.1' },
         optimizeDeps: { noDiscovery: true },
         customLogger: {
           info: record,
