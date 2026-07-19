@@ -12,7 +12,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { ViteDevServer } from 'vite';
@@ -264,4 +264,211 @@ exports.makeUppercase = onValueCreated(
     expect(existsSync(join(cwd, '.pyric', 'serve.json'))).toBe(false);
     expect(logs.some((l) => l.includes('onValueCreated'))).toBe(false);
   }, 40_000);
+
+  test('region/instance options flow to the child, and a save hot-reloads it (redeploy semantics)', async () => {
+    if (!existsSync(builtChild)) throw new Error(`build the CLI first: ${builtChild}`);
+    await withTimeout(
+      bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) }),
+      180_000,
+      'bundleWorker',
+    );
+
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-vite-functions-reload-'));
+    mkdirSync(join(cwd, 'public'));
+    mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
+    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
+    writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
+    writeFileSync(
+      join(cwd, 'firebase.json'),
+      JSON.stringify({ hosting: { public: 'public' }, functions: { source: 'functions' } }),
+    );
+    writeFileSync(
+      join(cwd, 'functions/package.json'),
+      JSON.stringify({ name: 'vite-functions-reload', private: true, type: 'commonjs', main: 'index.cjs' }),
+    );
+    const entry = join(cwd, 'functions/index.cjs');
+    // v1 echoes the event's instance + location back into the tree — the only
+    // observable spot the plugin's `functions: { region, instance }` reaches.
+    writeFileSync(
+      entry,
+      `const { onValueCreated } = require('firebase-functions/v2/database');
+exports.echoMeta = onValueCreated(
+  '/messages/{pushId}/original',
+  event => event.data.ref.parent.child('meta')
+    .set(event.instance + '|' + event.location),
+);
+`,
+    );
+    symlinkSync(
+      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      join(cwd, 'functions/node_modules/firebase-functions'),
+    );
+
+    const logs: string[] = [];
+    const record = (msg: string): void => { logs.push(msg); };
+    const { createServer } = await import('vite');
+    server = await withTimeout(
+      createServer({
+        appType: 'custom',
+        configFile: false,
+        logLevel: 'silent',
+        root: cwd,
+        plugins: [
+          pyricSandbox({
+            ui: false,
+            functions: { region: 'europe-west1', instance: 'custom-instance' },
+          }),
+        ],
+        server: { port: 0, host: '127.0.0.1' },
+        optimizeDeps: { noDiscovery: true },
+        customLogger: {
+          info: record,
+          warn: record,
+          warnOnce: record,
+          error: record,
+          clearScreen: () => {},
+          hasErrorLogged: () => false,
+          hasWarned: false,
+        },
+      }),
+      30_000,
+      'createServer',
+    );
+    await withTimeout(server.listen(), 15_000, 'listen');
+    const port = portOf(server);
+    const base = `http://127.0.0.1:${port}`;
+    peer = await withTimeout(connectWorkerPeer(`${base.replace(/^http/, 'ws')}/__pyric/sandbox`), 10_000, 'peer');
+    observer = await withTimeout(connectRemoteSandbox({ url: base }), 10_000, 'observer');
+    await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000);
+
+    // Option flow: the trigger observes the plugin-configured instance/region.
+    await observer.rtdb.set('messages/m1/original', 'x');
+    await waitFor(
+      async () => (await observer!.rtdb.get('messages/m1/meta')) === 'custom-instance|europe-west1' ? true : null,
+      15_000,
+    );
+
+    // Hot reload: two rapid saves coalesce (300ms debounce) into ONE restart.
+    const reloadCount = (): number => logs.filter((l) => l.includes('functions reloaded')).length;
+    writeFileSync(
+      entry,
+      `const { onValueCreated } = require('firebase-functions/v2/database');
+exports.echoMeta = onValueCreated(
+  '/messages/{pushId}/original',
+  event => event.data.ref.parent.child('meta').set('v2:' + event.data.val()),
+);
+`,
+    );
+    writeFileSync(entry, readFileSync(entry)); // second save inside the debounce window
+    await waitFor(() => (reloadCount() >= 1 ? true : null), 20_000);
+    await new Promise((r) => setTimeout(r, 700)); // past any second debounce
+    expect(reloadCount()).toBe(1);
+    expect(logs.some((l) => l.includes('functions reloaded (1 trigger)'))).toBe(true);
+
+    // The NEW module serves post-reload writes (redeploy semantics: m1's data
+    // is the new child's baseline and did not re-fire).
+    await observer.rtdb.set('messages/m2/original', 'y');
+    await waitFor(
+      async () => (await observer!.rtdb.get('messages/m2/meta')) === 'v2:y' ? true : null,
+      15_000,
+    );
+
+    // Broken save: the old child is gone, so functions go DOWN (no last-good).
+    writeFileSync(entry, `throw new Error('boom');\n`);
+    await waitFor(
+      () => logs.some((l) => l.includes('functions are down until the next good save')) ? true : null,
+      20_000,
+    );
+
+    // Next good save recovers.
+    writeFileSync(
+      entry,
+      `const { onValueCreated } = require('firebase-functions/v2/database');
+exports.echoMeta = onValueCreated(
+  '/messages/{pushId}/original',
+  event => event.data.ref.parent.child('meta').set('v3:' + event.data.val()),
+);
+`,
+    );
+    await waitFor(() => (reloadCount() >= 2 ? true : null), 20_000);
+    await observer.rtdb.set('messages/m3/original', 'z');
+    await waitFor(
+      async () => (await observer!.rtdb.get('messages/m3/meta')) === 'v3:z' ? true : null,
+      15_000,
+    );
+  }, 120_000);
+
+  test('functions: { watch: false } disables hot-reload', async () => {
+    if (!existsSync(builtChild)) throw new Error(`build the CLI first: ${builtChild}`);
+    await withTimeout(
+      bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) }),
+      180_000,
+      'bundleWorker',
+    );
+
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-vite-functions-nowatch-'));
+    mkdirSync(join(cwd, 'public'));
+    mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
+    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
+    writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
+    writeFileSync(
+      join(cwd, 'firebase.json'),
+      JSON.stringify({ hosting: { public: 'public' }, functions: { source: 'functions' } }),
+    );
+    writeFileSync(
+      join(cwd, 'functions/package.json'),
+      JSON.stringify({ name: 'vite-functions-nowatch', private: true, type: 'commonjs', main: 'index.cjs' }),
+    );
+    const entry = join(cwd, 'functions/index.cjs');
+    writeFileSync(
+      entry,
+      `const { onValueCreated } = require('firebase-functions/v2/database');
+exports.noop = onValueCreated('/messages/{pushId}/original', () => {});
+`,
+    );
+    symlinkSync(
+      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      join(cwd, 'functions/node_modules/firebase-functions'),
+    );
+
+    const logs: string[] = [];
+    const record = (msg: string): void => { logs.push(msg); };
+    const { createServer } = await import('vite');
+    server = await withTimeout(
+      createServer({
+        appType: 'custom',
+        configFile: false,
+        logLevel: 'silent',
+        root: cwd,
+        plugins: [pyricSandbox({ ui: false, functions: { watch: false } })],
+        server: { port: 0, host: '127.0.0.1' },
+        optimizeDeps: { noDiscovery: true },
+        customLogger: {
+          info: record,
+          warn: record,
+          warnOnce: record,
+          error: record,
+          clearScreen: () => {},
+          hasErrorLogged: () => false,
+          hasWarned: false,
+        },
+      }),
+      30_000,
+      'createServer',
+    );
+    await withTimeout(server.listen(), 15_000, 'listen');
+    const port = portOf(server);
+    const base = `http://127.0.0.1:${port}`;
+    peer = await withTimeout(connectWorkerPeer(`${base.replace(/^http/, 'ws')}/__pyric/sandbox`), 10_000, 'peer');
+    await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000);
+
+    // A save must NOT restart the child. Write the file AND drive the watcher
+    // directly (belt and braces against fs-event latency), then give a full
+    // debounce-plus-respawn window to elapse.
+    writeFileSync(entry, readFileSync(entry));
+    server.watcher.emit('change', entry);
+    await new Promise((r) => setTimeout(r, 1_200));
+    expect(logs.filter((l) => l.includes('functions reloaded')).length).toBe(0);
+    expect(logs.filter((l) => l.includes('onValueCreated')).length).toBe(1);
+  }, 60_000);
 });

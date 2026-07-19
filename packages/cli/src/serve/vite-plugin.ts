@@ -207,8 +207,15 @@ export interface PyricSandboxOptions {
    *    default `us-central1`.
    *  - `instance`: the RTDB instance name. Default `<projectId>-default-rtdb`,
    *    where projectId is `PYRIC_PROJECT`, else `.firebaserc`'s default
-   *    project, else `demo-project`. */
-  functions?: false | { region?: string; instance?: string };
+   *    project, else `demo-project`.
+   *  - `watch`: hot-reload the functions source (default `true`, matching
+   *    rules). A save under the functions source dir stops the child and
+   *    respawns it — redeploy semantics: in-flight executions in the old child
+   *    may drop, and writes landing during the swap gap are consumed as the new
+   *    child's baseline (they do not fire). Unlike rules, a broken save cannot
+   *    keep last-good live — the old child is already gone — so functions stay
+   *    down until the next good save. */
+  functions?: false | { region?: string; instance?: string; watch?: boolean };
   /** Force whether `vite build` runs the firebase→pyric swap, overriding the
    *  mode default. Unset (default): swap for any NON-production mode, keep real
    *  firebase for mode `production`. `true` = always produce a sandbox build;
@@ -810,9 +817,10 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       // Started once a sandbox peer (a browser tab / SharedWorker relay) has
       // connected — the trigger's baseline needs a live backend — and stopped on
       // server close. Vite restarts re-run configureServer, so the child respawns
-      // with the new server. Parity: like `pyric dev`, the functions source is
-      // not watched — editing a function needs a dev-server restart to re-spawn
-      // the child (serve has no functions hot-reload to mirror).
+      // with the new server. Unlike `pyric dev` (which does not watch functions
+      // source), the plugin hot-reloads it via Vite's own watcher — see the
+      // watch block below; `functions: { watch: false }` restores dev's
+      // restart-to-reload behavior.
       if (functionsProject && functionsProjectId && mount && server.httpServer) {
         const httpServer = server.httpServer;
         const project = functionsProject;
@@ -828,7 +836,7 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         let functionsChild: FunctionsRtdbChildHandle | null = null;
         let disposed = false;
 
-        const start = async (): Promise<void> => {
+        const start = async (mode: 'initial' | 'reload' = 'initial'): Promise<void> => {
           const addr = httpServer.address();
           const port = addr && typeof addr === 'object' ? addr.port : 0;
           if (!port || disposed) return;
@@ -836,7 +844,10 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
 
           // Wait (bounded) for a sandbox peer — the SharedWorker relay / browser
           // tab that holds the backend. Poll the mount directly (no self-fetch).
-          const deadline = Date.now() + 30_000;
+          // On a hot reload the peer is usually still connected (the loop exits
+          // immediately); when it dropped mid-session, wait briefly rather than
+          // the full initial 30s.
+          const deadline = Date.now() + (mode === 'reload' ? 5_000 : 30_000);
           while (!disposed && !bridgeMount.sandboxConnected()) {
             if (Date.now() >= deadline) break;
             await new Promise((r) => setTimeout(r, 250));
@@ -844,8 +855,11 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
           if (disposed) return;
           if (!bridgeMount.sandboxConnected()) {
             server.config.logger.warn(
-              `  ⚠ [pyric] functions not started — no browser tab connected after 30s. ` +
-                `Open ${serveUrl} and restart the dev server.`,
+              mode === 'reload'
+                ? `  ✖ [pyric] functions not restarted — no sandbox peer connected. ` +
+                    `Functions stay down until the next save with ${serveUrl} open.`
+                : `  ⚠ [pyric] functions not started — no browser tab connected after 30s. ` +
+                    `Open ${serveUrl} and restart the dev server.`,
             );
             return;
           }
@@ -893,8 +907,10 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
           try {
             const ready = await functionsChild.ready;
             server.config.logger.info(
-              `  ✔ [pyric] functions ${ready.triggerCount} onValueCreated ` +
-                `trigger${ready.triggerCount === 1 ? '' : 's'} from ${path.relative(cwd, project.entry)}`,
+              mode === 'reload'
+                ? `  ↻ [pyric] functions reloaded (${ready.triggerCount} trigger${ready.triggerCount === 1 ? '' : 's'})`
+                : `  ✔ [pyric] functions ${ready.triggerCount} onValueCreated ` +
+                    `trigger${ready.triggerCount === 1 ? '' : 's'} from ${path.relative(cwd, project.entry)}`,
             );
             for (const unsupported of ready.unsupportedTriggers) {
               server.config.logger.warn(
@@ -903,20 +919,79 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
               );
             }
           } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
             server.config.logger.error(
-              `  ✖ [pyric] functions failed to start: ${error instanceof Error ? error.message : String(error)}`,
+              mode === 'reload'
+                ? // Unlike rules, last-good cannot stay live — the old child is
+                  // already stopped — so a broken save takes functions down.
+                  `  ✖ [pyric] functions failed to reload: ${message}\n` +
+                    `  ✖ [pyric] functions are down until the next good save.`
+                : `  ✖ [pyric] functions failed to start: ${message}`,
             );
             await functionsChild.stop().catch(() => undefined);
             functionsChild = null;
           }
         };
 
+        let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
         httpServer.once('close', () => {
           disposed = true;
+          if (reloadDebounce) clearTimeout(reloadDebounce);
           void functionsChild?.stop().catch(() => undefined);
         });
         if ((httpServer as unknown as { listening?: boolean }).listening) void start();
         else httpServer.once('listening', () => void start());
+
+        // Functions hot-reload from Vite's OWN watcher (mirrors the rules block
+        // below). Restart = redeploy: stop the old child, respawn via the same
+        // start path — there is no in-place swap, so in-flight executions in the
+        // old child may drop and writes landing in the swap gap become the new
+        // child's baseline (execution.ts consumes each trigger's first observed
+        // value as baseline; they do not fire). Debounced 300ms — a save fans
+        // out several fs events and a child respawn is far heavier than a rules
+        // re-parse. Restarts are serialized: a save landing mid-restart queues
+        // exactly one follow-up run.
+        if (functionsOpts.watch !== false) {
+          const sourceDir = project.sourceDir;
+          // Usually redundant (Vite watches its root, which contains the
+          // functions dir in the common layout) but load-bearing when the
+          // functions source lives outside Vite's root. node_modules stays
+          // ignored: Vite's watcher ignores `**/node_modules/**` globally, and
+          // the handler below filters it again for explicitly-added trees.
+          server.watcher.add(sourceDir);
+          let restarting = false;
+          let queued = false;
+          const restart = async (): Promise<void> => {
+            if (restarting) {
+              queued = true;
+              return;
+            }
+            restarting = true;
+            try {
+              do {
+                queued = false;
+                if (disposed) return;
+                const old = functionsChild;
+                functionsChild = null;
+                if (old) await old.stop().catch(() => undefined);
+                await start('reload');
+              } while (queued && !disposed);
+            } finally {
+              restarting = false;
+            }
+          };
+          const onFunctionsFsEvent = (file: string): void => {
+            const resolved = path.resolve(file);
+            const rel = path.relative(sourceDir, resolved);
+            if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return;
+            if (rel.split(path.sep).includes('node_modules')) return;
+            if (reloadDebounce) clearTimeout(reloadDebounce);
+            reloadDebounce = setTimeout(() => void restart(), 300);
+          };
+          server.watcher.on('change', onFunctionsFsEvent);
+          server.watcher.on('add', onFunctionsFsEvent);
+          server.watcher.on('unlink', onFunctionsFsEvent);
+        }
       }
 
       // Rules hot-reload from Vite's OWN watcher (no second fs watcher). Reuse
