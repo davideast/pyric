@@ -65,11 +65,11 @@ Both `pyric dev` and the Vite plugin read the `functions` block in `firebase.jso
 The plugin's `functions` option tunes or disables this:
 ```ts
 // vite.config.ts
-import { pyricSandbox } from '@pyric/cli/vite';
+import { pyric } from '@pyric/cli/vite';
 
 export default {
   plugins: [
-    pyricSandbox({
+    pyric({
       functions: { region: 'europe-west1', instance: 'my-app-default-rtdb' },
       // or `functions: false` to keep the block and never run triggers locally
     }),
