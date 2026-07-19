@@ -14,7 +14,7 @@
  * mode) produces a SANDBOX build that bundles pyric's in-page adapters instead
  * of the real SDK: self-contained, meant to be previewed under `pyric dev`, and
  * stamped with the sandbox-build marker so it can never be deployed (`pyric
- * deploy hosting` refuses it). `pyricSandbox({ swapInBuild })` forces the build
+ * deploy hosting` refuses it). `pyric({ swapInBuild })` forces the build
  * behavior on/off regardless of mode. See `sandbox-marker.ts`.
  *
  * This is a thin adapter over serve's proven machinery. It REUSES, not reimplements:
@@ -158,7 +158,7 @@ function packageRootOf(file: string): string {
   return dir;
 }
 
-export interface PyricSandboxOptions {
+export interface PyricOptions {
   /** firestore.rules path (relative to `root`). Default: `firebase.json`'s
    *  `firestore.rules`, else `firestore.rules` in the project root. */
   rules?: string;
@@ -227,7 +227,7 @@ export interface PyricSandboxOptions {
    * replacement for threading `engine` through every app `getAI(...)` call,
    * which is first-call-wins and easy to get wrong).
    *
-   *   pyricSandbox({
+   *   pyric({
    *     ai: {
    *       engine: { kind: 'openai', model: 'llama3.2', baseUrl: '/__pyric/ai-proxy' },
    *       proxyUpstream: 'http://localhost:11434/v1', // your Ollama
@@ -260,10 +260,10 @@ export interface PyricSandboxOptions {
 /**
  * The dev-only Vite plugin. Add to `vite.config`:
  *
- *   import { pyricSandbox } from '@pyric/cli/vite';
- *   export default defineConfig({ plugins: [pyricSandbox()] });
+ *   import { pyric } from '@pyric/cli/vite';
+ *   export default defineConfig({ plugins: [pyric()] });
  */
-export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
+export function pyric(options: PyricOptions = {}): Plugin {
   // Resolved once. `defaultSdkEntries()` prefers compiled dist `.js` and falls
   // back to source `.ts` in the workspace.
   const entries = defaultSdkEntries(); // { app, auth, firestore, init } → abs paths

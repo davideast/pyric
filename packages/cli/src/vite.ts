@@ -3,11 +3,11 @@
  * in-process pyric sandbox during `vite dev` (the serve analog for source-driven
  * apps). See `./serve/vite-plugin.ts` and the design rationale.
  *
- *   import { pyricSandbox } from '@pyric/cli/vite';
- *   export default defineConfig({ plugins: [pyricSandbox()] });
+ *   import { pyric } from '@pyric/cli/vite';
+ *   export default defineConfig({ plugins: [pyric()] });
  */
-export { pyricSandbox } from './serve/vite-plugin.js';
-export type { PyricSandboxOptions } from './serve/vite-plugin.js';
+export { pyric } from './serve/vite-plugin.js';
+export type { PyricOptions } from './serve/vite-plugin.js';
 
 // The benign node-builtin shims serve's bundler and this plugin apply when
 // bundling pyric's browser graph (`fs`/`path`/`url` reached via the rules
