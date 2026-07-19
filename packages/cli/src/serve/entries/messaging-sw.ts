@@ -8,7 +8,9 @@ import type {
   Unsubscribe,
 } from 'pyric/messaging/sw';
 import { getApp, type FirebaseApp } from 'pyric/app';
+import { registerSandboxDelivery } from 'pyric/messaging/internal';
 import {
+  messagingDeliver,
   messagingGetMessaging,
   messagingSubscribe,
   type ClientMessaging,
@@ -41,6 +43,9 @@ export function getMessaging(app?: FirebaseApp): Messaging {
     { app: resolved },
   ) as WorkerMessaging;
   workerMessagingByApp.set(resolved, handle);
+  // Symmetric with the client entry: let `pyric/messaging/sw`'s `sandbox.deliver`
+  // drive this worker-backed handle over the transport (same broker, same op).
+  registerSandboxDelivery(handle, (spec) => messagingDeliver(handle, spec));
   return handle;
 }
 
