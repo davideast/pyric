@@ -1,5 +1,7 @@
 /** Worker-backed Firebase Messaging client/SW receive planes. */
 import type {
+  DeliverSpec,
+  DeliveryResult,
   GetTokenOptions,
   MessagePayload,
   NextFn,
@@ -72,6 +74,25 @@ export async function messagingSetVisibility(
     method: 'messaging.setVisibility',
     state,
   });
+}
+
+/**
+ * The worker transport for `pyric/messaging`'s `sandbox.deliver` — injects a
+ * simulated delivery into the app's real (worker-hosted) broker. The full
+ * {@link DeliverSpec} crosses the wire; the host sets this port's client
+ * visibility from `spec.visibilityState` before routing, so `visible` reaches
+ * `onMessage` and `hidden` reaches `onBackgroundMessage`.
+ */
+export async function messagingDeliver(
+  messaging: ClientMessaging,
+  spec: DeliverSpec,
+): Promise<DeliveryResult> {
+  return await rpc(messaging.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'messaging.deliver',
+    spec,
+  }) as DeliveryResult;
 }
 
 export function messagingSubscribe(

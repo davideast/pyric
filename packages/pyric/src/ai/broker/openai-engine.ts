@@ -88,6 +88,7 @@ export interface OpenAIResponse {
       content: string | null;
       tool_calls?: OpenAIToolCall[];
       reasoning?: string;
+      reasoning_content?: string;
     };
     finish_reason: string | null;
   }>;
@@ -103,6 +104,7 @@ export interface OpenAIStreamChunk {
       role?: string;
       content?: string;
       reasoning?: string;
+      reasoning_content?: string;
       tool_calls?: Array<Partial<OpenAIToolCall> & { index: number }>;
     };
     finish_reason: string | null;
@@ -288,11 +290,15 @@ function messagePartsFromOpenAI(msg: {
   content: string | null;
   tool_calls?: OpenAIToolCall[];
   reasoning?: string;
+  reasoning_content?: string;
 }): WirePart[] {
   const parts: WirePart[] = [];
   // Ollama's OpenAI compat surfaces thinking-model output in a nonstandard
-  // `reasoning` field; Gemini represents it as a thought part.
-  if (msg.reasoning) parts.push({ text: msg.reasoning, thought: true });
+  // `reasoning` field; llama-server / deepseek-format servers use
+  // `reasoning_content` instead. Gemini represents either as a thought part.
+  // `reasoning` wins if both are somehow present (shouldn't happen in practice).
+  const reasoning = msg.reasoning ?? msg.reasoning_content;
+  if (reasoning) parts.push({ text: reasoning, thought: true });
   if (msg.content) parts.push({ text: msg.content });
   for (const tc of msg.tool_calls ?? []) {
     let args: Record<string, unknown> = {};
@@ -351,7 +357,8 @@ export function openAIToGeminiResponse(resp: OpenAIResponse): WireResponse {
 export function openAIChunkToParts(chunk: OpenAIStreamChunk): WirePart[] {
   const choice = chunk.choices?.[0];
   const parts: WirePart[] = [];
-  if (choice?.delta?.reasoning) parts.push({ text: choice.delta.reasoning, thought: true });
+  const reasoning = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content;
+  if (reasoning) parts.push({ text: reasoning, thought: true });
   if (choice?.delta?.content) parts.push({ text: choice.delta.content });
   return parts;
 }

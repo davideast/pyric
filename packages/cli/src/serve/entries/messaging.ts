@@ -10,8 +10,10 @@ import type {
 } from 'pyric/messaging';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { registerAppCleanup } from 'pyric/app/internal';
+import { registerSandboxDelivery } from 'pyric/messaging/internal';
 import {
   messagingDeleteToken,
+  messagingDeliver,
   messagingGetMessaging,
   messagingGetToken,
   messagingSetVisibility,
@@ -62,6 +64,11 @@ export function getMessaging(app?: FirebaseApp): Messaging {
   ) as WorkerMessaging;
   workerMessagingByApp.set(resolved, handle);
   wireVisibility(resolved, handle);
+  // The worker-backed handle isn't in pyric's in-page instance registry, so
+  // teach `pyric/messaging`'s `sandbox.deliver` to drive it over the transport
+  // (visibility+routing resolved host-side). Keeps `firebase/messaging` itself
+  // free of any `sandbox` surface — production parity is untouched.
+  registerSandboxDelivery(handle, (spec) => messagingDeliver(handle, spec));
   return handle;
 }
 
