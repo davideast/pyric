@@ -34,6 +34,7 @@ import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
 import type { InitPayload } from '../init-payload.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
+import { getPyricRuntimeStatus } from '../runtime/status.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
 
@@ -102,6 +103,11 @@ const diagnostics: ServeDiagnostics = {
   seedSkipped: false,
 };
 globalThis.__pyricServe = diagnostics;
+const runtimeStatus = getPyricRuntimeStatus();
+
+if (!useWorker) {
+  sandbox.onEvent((event) => runtimeStatus.recordSandboxEvents([event]));
+}
 
 let bridgeUrlFromPayload: string | null = null;
 let activityTokenFromPayload: string | null = null;
@@ -359,6 +365,7 @@ if (!useWorker) try {
   }
 } catch (e) {
   diagnostics.initError = e instanceof Error ? e.message : String(e);
+  runtimeStatus.reportError(e, 'runtime');
   console.error(
     '[pyric dev] init failed — the sandbox is running WITHOUT your project rules:',
     diagnostics.initError,
@@ -393,21 +400,28 @@ console.info(
 );
 
 let provenanceHintShown = false;
-function explainSandboxFrame(stackOrUrl: string | undefined): void {
-  if (provenanceHintShown || !stackOrUrl || !stackOrUrl.includes('/__pyric/sdk/')) return;
-  provenanceHintShown = true;
-  console.info(
-    '[pyric dev] the error above originates in the pyric sandbox shim serving firebase/*, ' +
-      'not the real Firebase SDK — behavior can differ where COMPAT coverage is incomplete.',
-  );
+function explainSandboxFrame(stackOrUrl: string | undefined): boolean {
+  if (!stackOrUrl || !stackOrUrl.includes('/__pyric/sdk/')) return false;
+  if (!provenanceHintShown) {
+    provenanceHintShown = true;
+    console.info(
+      '[pyric dev] the error above originates in the pyric sandbox shim serving firebase/*, ' +
+        'not the real Firebase SDK — behavior can differ where COMPAT coverage is incomplete.',
+    );
+  }
+  return true;
 }
 if (typeof window !== 'undefined') {
-  window.addEventListener('error', (e) =>
-    explainSandboxFrame(e.error instanceof Error ? (e.error.stack ?? e.filename) : e.filename),
-  );
-  window.addEventListener('unhandledrejection', (e) =>
-    explainSandboxFrame(e.reason instanceof Error ? e.reason.stack : undefined),
-  );
+  window.addEventListener('error', (e) => {
+    if (explainSandboxFrame(e.error instanceof Error ? (e.error.stack ?? e.filename) : e.filename)) {
+      runtimeStatus.reportError(e.error ?? e.message, 'sandbox');
+    }
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    if (explainSandboxFrame(e.reason instanceof Error ? e.reason.stack : undefined)) {
+      runtimeStatus.reportError(e.reason, 'sandbox');
+    }
+  });
 }
 
 // ── bridge peer (only when `pyric dev --bridge` put a URL in the payload;
