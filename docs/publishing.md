@@ -30,6 +30,15 @@ stat -c '%a %U %n' "$HOME/.npmrc"
 The npm config should be owned by your user and have mode `600`. Never copy it
 into the repository or paste its token into a command.
 
+This token flow is a short-term bridge, not the permanent release design. npm
+expects bypass-2FA granular access tokens to lose direct-publish capability
+around January 2027. Before that cutoff, migrate this repository to npm trusted
+publishing (OIDC) or staged publishing with human approval. Do not respond to
+the deprecation by making the token broader or longer-lived. The earlier August
+2026 restriction affects account, package, and organisation management; use an
+interactive 2FA session for those operations. See [npm install-time security
+and GAT bypass2fa deprecation](https://github.blog/changelog/2026-07-08-npm-install-time-security-and-gat-bypass2fa-deprecation/).
+
 Choose the next version and keep it in one shell variable for the entire
 release:
 

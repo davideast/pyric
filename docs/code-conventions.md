@@ -55,13 +55,17 @@ The God-object rule. A single class longer than 400 lines is a design smell, not
 - Test files are the source file name plus `.test.ts`, at the mirrored path under `test/`. A test file tests exactly one source file.
 - No file is named `utils`, `helpers`, `misc`, `common`, `shared`, or `index` with implementation in it. These names are the audit signal for a junk drawer.
 
-## 3a. Documentation lives in one home
+## 3a. Documentation has one home per audience
 
-- All authored documentation lives under `packages/site-docs/src/content/`, as
+- All user-facing product documentation lives under
+  `packages/site-docs/src/content/`, as
   plain nested markdown with plain-YAML front matter (`title`, `group`, `order`,
   …). There is no second copy in a package's own `docs/` tree, and no content
   collection or zod schema — pages are discovered by `import.meta.glob` and
   validated by the site build's own assertions.
+- Repository-maintainer runbooks live under root `docs/`. They document
+  contributor-only operations such as publishing and local package testing and
+  are not duplicated into the user-facing product documentation.
 - Generated documentation is never committed: the conformance matrices and the
   TypeDoc API reference are written into `packages/site-docs/src/content/_generated/`
   (gitignored) by `bun run generate` immediately before `astro build`.

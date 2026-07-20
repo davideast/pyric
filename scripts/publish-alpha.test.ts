@@ -88,4 +88,14 @@ describe('alpha publish safety contract', () => {
     expect(commands).toContain('bun run packages/conformance/src/print-fb-tag.ts');
     expect(commands.some((command) => command.startsWith('npm dist-tag add '))).toBe(false);
   });
+
+  test('the generated release checklist requires preflight before publishing', () => {
+    const script = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
+    const checklist = script.slice(script.indexOf('BODY_FILE='));
+    const preflight = checklist.indexOf('bun run release:preflight');
+    const publish = checklist.indexOf('bash scripts/publish-alpha.sh');
+    expect(preflight).toBeGreaterThanOrEqual(0);
+    expect(preflight).toBeLessThan(publish);
+    expect(checklist).not.toContain('OTP-capable');
+  });
 });

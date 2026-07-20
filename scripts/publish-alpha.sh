@@ -54,7 +54,8 @@ cd "$ROOT"
 # first npm publish. compat:check runs again later only to gate the fb
 # certificate tag; these two decide whether anything ships at all.
 # PYRIC_PUBLISH_SKIP_GATES=1 skips them when they demonstrably just ran
-# on this exact tree (e.g. rerunning after an OTP failure mid-publish).
+# on this exact tree (e.g. recovering deliberately after an authentication
+# failure before the first upload).
 if [ "${PYRIC_PUBLISH_SKIP_GATES:-0}" != "1" ]; then
   echo "━━━ pre-publish gates: bun run test ━━━"
   bun run test
@@ -68,6 +69,7 @@ bash scripts/pack-packages.sh
 # can-i-use exit codes and both conformance subpaths (scripts/release-smoke.sh).
 bash scripts/release-smoke.sh "$V"
 
+PUBLISH_ARGS=(--tag alpha --access public)
 if [ "$DRY_RUN" -eq 1 ]; then
   echo ""
   echo "━━━ npm authentication (read-only) ━━━"
@@ -75,10 +77,14 @@ if [ "$DRY_RUN" -eq 1 ]; then
 
   echo ""
   echo "━━━ npm publish validation (dry-run; no upload) ━━━"
-  for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do
-    npm publish "dist/packages/${t}-${V}.tgz" --tag alpha --access public --dry-run
-  done
+  PUBLISH_ARGS+=(--dry-run)
+fi
 
+for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do
+  npm publish "dist/packages/${t}-${V}.tgz" "${PUBLISH_ARGS[@]}"
+done
+
+if [ "$DRY_RUN" -eq 1 ]; then
   echo ""
   echo "━━━ compat:check (dry-run; no dist-tag mutation) ━━━"
   bun run compat:check
@@ -89,10 +95,6 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "A real release would move alpha and latest to ${V}, and ${FB_TAG} on compatible packages."
   exit 0
 fi
-
-for t in pyric pyric-admin create-pyric pyric-cli pyric-ui; do
-  npm publish "dist/packages/${t}-${V}.tgz" --tag alpha --access public
-done
 
 for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
   npm dist-tag add "${p}@${V}" latest
