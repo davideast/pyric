@@ -66,6 +66,11 @@ The God-object rule. A single class longer than 400 lines is a design smell, not
 - Repository-maintainer runbooks live under root `docs/`. They document
   contributor-only operations such as publishing and local package testing and
   are not duplicated into the user-facing product documentation.
+- A generated project template may include a README containing only the
+  artifact-local commands and configuration needed to run that generated
+  project. Canonical product concepts, explanations, and reference material
+  remain under `packages/site-docs/src/content/`; template READMEs link there
+  rather than becoming a second documentation set.
 - Generated documentation is never committed: the conformance matrices and the
   TypeDoc API reference are written into `packages/site-docs/src/content/_generated/`
   (gitignored) by `bun run generate` immediately before `astro build`.
