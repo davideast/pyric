@@ -1,4 +1,6 @@
 import type { AIOptions } from 'pyric/ai';
+import path from 'node:path';
+import { loadEnv } from 'vite';
 import type { AiEngineConfigWire } from './worker/protocol.js';
 
 const AI_PROXY_PATH = '/__pyric/ai-proxy';
@@ -18,6 +20,19 @@ export interface PyricAiOptions {
 export interface ResolvedViteAiConfig {
   engineWire: AiEngineConfigWire | undefined;
   proxyUpstream: string | undefined;
+}
+
+/** Load env using Vite's `envDir`-relative-to-root convention. */
+export function loadViteAiEnv(
+  mode: string,
+  root: string | undefined,
+  envDir: string | undefined,
+): Record<string, string> {
+  const resolvedRoot = path.resolve(root ?? process.cwd());
+  const resolvedEnvDir = envDir === undefined
+    ? resolvedRoot
+    : path.resolve(resolvedRoot, envDir);
+  return loadEnv(mode, resolvedEnvDir, '');
 }
 
 /** Convert a public declarative engine into the JSON-safe worker wire shape. */

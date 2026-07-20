@@ -33,7 +33,7 @@ PYRIC_AI_PROXY_UPSTREAM=http://localhost:8080/v1
 ```
 
 Start the model server separately, then restart Vite.
-See the [Pyric AI Logic guide](https://pyric.dev/docs/ai-logic/) for the full
+See the [Pyric AI Logic guide](https://pyric.dev/docs/build/ai-logic/) for the full
 engine and proxy behavior.
 
 ## What runs in the sandbox

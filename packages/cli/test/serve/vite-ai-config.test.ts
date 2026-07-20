@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
   engineConfigToWire,
+  loadViteAiEnv,
   resolveViteAiConfig,
 } from '../../src/serve/vite-ai-config.js';
 
@@ -49,6 +53,20 @@ describe('Vite AI configuration', () => {
         model: 'llama3.2',
       },
       proxyUpstream: 'http://model.test:8080/v1',
+    });
+  });
+
+  it('loads AI variables from a custom Vite envDir relative to the Vite root', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'pyric-vite-ai-env-dir-'));
+    mkdirSync(path.join(root, 'config'));
+    writeFileSync(
+      path.join(root, 'config', '.env.local'),
+      'PYRIC_AI_MODEL=custom-env-model\nPYRIC_AI_PROXY_UPSTREAM=http://custom.test/v1\n',
+    );
+
+    expect(loadViteAiEnv('development', root, 'config')).toMatchObject({
+      PYRIC_AI_MODEL: 'custom-env-model',
+      PYRIC_AI_PROXY_UPSTREAM: 'http://custom.test/v1',
     });
   });
 

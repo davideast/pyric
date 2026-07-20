@@ -44,7 +44,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
-import { loadEnv, type Plugin, type UserConfig, type ConfigEnv } from 'vite';
+import type { Plugin, UserConfig, ConfigEnv } from 'vite';
 import type { Plugin as EsbuildPlugin } from 'esbuild';
 import {
   SDK_MODULES,
@@ -90,6 +90,7 @@ import {
   registerModuleUrl,
 } from '../cli/dev-runner.js';
 import {
+  loadViteAiEnv,
   resolveViteAiConfig,
   type PyricAiOptions,
 } from './vite-ai-config.js';
@@ -351,8 +352,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
 
     config(config, env) {
       sandboxBuild = env.command === 'build';
-      const envRoot = options.root ?? config.root ?? process.cwd();
-      const loadedEnv = loadEnv(env.mode, envRoot, '');
+      const loadedEnv = loadViteAiEnv(env.mode, config.root, config.envDir);
       resolvedAi = resolveViteAiConfig(options.ai, loadedEnv);
       // Cast: the `esbuild` package's `Plugin` type skews slightly from Vite's
       // bundled esbuild types (benign — the Plugin shape is stable across the
