@@ -101,7 +101,8 @@ test('served canonical Messaging imports stay app-owned over the SharedWorker', 
   });
 });
 
-test('firebase/messaging/sw receives the shared broker from a real module Service Worker', async ({ page }) => {
+test('firebase/messaging/sw receives the shared broker from a real module Service Worker', async ({ context, page }) => {
+  await context.grantPermissions(['notifications'], { origin: 'http://127.0.0.1:5180' });
   await page.goto('/');
   await page.waitForFunction(() => document.querySelector('#status')?.textContent !== 'loading');
 
@@ -155,6 +156,7 @@ test('firebase/messaging/sw receives the shared broker from a real module Servic
     const deliver = (
       id: string,
       source: string,
+      notification = false,
     ): Promise<{ route?: string; handlerCount?: number; payload?: unknown }> => {
       const worker = new SharedWorker('/__pyric/sdk/worker.js', {
         type: 'classic',
@@ -181,13 +183,32 @@ test('firebase/messaging/sw receives the shared broker from a real module Servic
           t: 'op',
           id,
           method: 'messaging.deliver',
-          spec: { data: { source }, messageId: id },
+          spec: {
+            data: { source },
+            ...(notification
+              ? { notification: { title: 'Pyric background notification' } }
+              : {}),
+            messageId: id,
+          },
         });
       });
     };
     const result = await deliver('sw-boundary-message', 'real-service-worker');
 
     const payload = await delivered as { messageId?: string; data?: Record<string, string> } | null;
+    let notificationTitles: string[] = [];
+    if (Notification.permission === 'granted') {
+      const notificationDelivered = new Promise<void>((resolve) => {
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data?.type === 'pyric-background-message'
+            && event.data.payload?.messageId === 'sw-native-notification') resolve();
+        }, { once: true });
+      });
+      await deliver('sw-native-notification', 'native-display', true);
+      await notificationDelivered;
+      notificationTitles = (await first.registration.getNotifications())
+        .map((notification) => notification.title);
+    }
     await first.registration.unregister();
 
     const second = await register();
@@ -200,16 +221,18 @@ test('firebase/messaging/sw receives the shared broker from a real module Servic
     await second.registration.unregister();
 
     return {
+      permission: Notification.permission,
       route: result.route ?? null,
       handlerCount: result.handlerCount ?? null,
       messageId: payload?.messageId ?? null,
       source: payload?.data?.source ?? null,
+      notificationTitles,
       replacedRealm: firstReady.realmId !== secondReady.realmId,
       restartedHandlerCount: restarted.handlerCount ?? null,
     };
   });
 
-  expect(actual).toEqual({
+  expect(actual).toMatchObject({
     route: 'background',
     handlerCount: 1,
     messageId: 'sw-boundary-message',
@@ -217,4 +240,8 @@ test('firebase/messaging/sw receives the shared broker from a real module Servic
     replacedRealm: true,
     restartedHandlerCount: 1,
   });
+  expect(['granted', 'denied']).toContain(actual.permission);
+  expect(actual.notificationTitles).toEqual(
+    actual.permission === 'granted' ? ['Pyric background notification'] : [],
+  );
 });
