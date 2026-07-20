@@ -1,5 +1,5 @@
 /**
- * Firestore value codec — the marker-based serialize/rehydrate of
+ * Internal Firestore value codec — the marker-based serialize/rehydrate of
  * Firestore special scalar types (Timestamp, Bytes, LatLng/GeoPoint,
  * Duration, Reference, Path, Vector).
  *
@@ -53,13 +53,13 @@
 
 // Direct leaf imports — NOT the `pyric/rules` barrel. Each of these modules
 // depends only on `./base.js` (no imports), so this stays engine-free.
-import { Bytes } from '../rules/simulator/wrappers/bytes.js';
-import { Duration } from '../rules/simulator/wrappers/duration.js';
-import { LatLng } from '../rules/simulator/wrappers/latlng.js';
-import { Path } from '../rules/simulator/wrappers/path.js';
-import { Reference } from '../rules/simulator/wrappers/reference.js';
-import { Timestamp } from '../rules/simulator/wrappers/timestamp.js';
-import { Vector } from '../rules/simulator/wrappers/vector.js';
+import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
+import { Duration } from '../../rules/simulator/wrappers/duration.js';
+import { LatLng } from '../../rules/simulator/wrappers/latlng.js';
+import { Path } from '../../rules/simulator/wrappers/path.js';
+import { Reference } from '../../rules/simulator/wrappers/reference.js';
+import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
+import { Vector } from '../../rules/simulator/wrappers/vector.js';
 // Sideways leaf import into the firestore surface (same character as the
 // wrapper imports above): the activity value registry is a zero-dependency
 // leaf owned by `firestore/sandbox/`, consumed here only to stamp trusted
@@ -67,7 +67,7 @@ import { Vector } from '../rules/simulator/wrappers/vector.js';
 import {
   registerActivityValue,
   trustedWireActivityValue,
-} from '../firestore/sandbox/activity-value-registry.js';
+} from '../sandbox/activity-value-registry.js';
 
 /**
  * Decode a base64url string (`-`/`_` alphabet, no padding) back into a

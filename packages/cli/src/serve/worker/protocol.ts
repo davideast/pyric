@@ -44,11 +44,11 @@
  */
 
 // LEAF import — the value codec only, NOT `pyric/sandbox`. Importing the
-// codec from the standalone `pyric/firestore-values` module keeps the
+// codec from `pyric/firestore/internal/value-codec` keeps the
 // SharedWorker CLIENT bundle (every serve page) free of the rules/sandbox
 // engine (~10 MB). The worker HOST (`entry.ts`/`host.ts`) still imports the
 // full library — it IS the backend — but the client path stays lean.
-import { rehydrateDocValue } from 'pyric/firestore-values';
+import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
 // TYPE-ONLY (erased at build, so the leaf client bundle stays engine-free).
 // The auth-lens contract and the cross-service event envelope are shared with
 // the sandbox's event provenance — Studio's Action Center folds these verbatim.
