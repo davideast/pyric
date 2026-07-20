@@ -1,13 +1,22 @@
-import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createPackageArtifactManifest } from './package-artifact-manifest.mjs';
 
+const workDirs: string[] = [];
+
+afterEach(() => {
+  for (const directory of workDirs.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 describe('package artifact manifest', () => {
   test('reports exports from the packed manifest, not the source manifest', () => {
     const root = mkdtempSync(join(tmpdir(), 'pyric-artifact-manifest-'));
+    workDirs.push(root);
     const packageDir = join(root, 'packages/example');
     const packedDir = join(root, 'packed/package');
     const outDir = join(root, 'dist/packages');
