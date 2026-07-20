@@ -4,7 +4,9 @@
   "workspaces": [
     "packages/*",
     "examples/admin-playground",
-    "examples/vite-sandbox-app"
+    "examples/vite-sandbox-app",
+    "packages/create-pyric/templates/chat",
+    "packages/create-pyric/templates/chat/functions"
   ],
   "overrides": {
     "firebase": "12.13.0"
@@ -17,9 +19,10 @@
     "build:cli": "bun run --cwd packages/cli build",
     "build:ui": "bun run --cwd packages/ui build",
     "pretest": "bash scripts/build.sh --packages-only",
-    "test": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun test --cwd packages/cli && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun run --cwd packages/site-docs test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs scripts/check-publish-version.test.mjs scripts/deploy-site.test.mjs",
+    "test": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun test --cwd packages/cli && bun run test:chat-template && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun run --cwd packages/site-docs test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs scripts/check-publish-version.test.mjs scripts/deploy-site.test.mjs",
     "test:ci:cli": "bun test --cwd packages/cli",
-    "test:ci:libraries": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun run --cwd packages/site-docs test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs scripts/check-publish-version.test.mjs scripts/deploy-site.test.mjs",
+    "test:ci:libraries": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/create-pyric && bun run test:chat-template && bun run --cwd packages/ui test && bun run --cwd packages/studio test && bun run --cwd packages/site-docs test && bun test --cwd packages/conformance && bun test scripts/tool-parity.test.mjs scripts/check-cloud-only-agent-install.test.mjs scripts/check-publish-version.test.mjs scripts/deploy-site.test.mjs",
+    "test:chat-template": "bun run --cwd packages/create-pyric/templates/chat test && bun run --cwd packages/create-pyric/templates/chat typecheck && bun run --cwd packages/create-pyric/templates/chat test:notifications",
     "tool:parity": "bun run scripts/tool-parity.mjs",
     "tool:parity:check": "bun run scripts/tool-parity.mjs --check",
     "test:soak": "bun run --cwd packages/cli test:soak",

@@ -1,7 +1,7 @@
 /**
  * `pyric init` — scaffold a pyric project (v2, agent-first).
  *
- *   pyric init [dir] [--name N] [--template web|node|static] [--force] [--json]
+ *   pyric init [dir] [--name N] [--template web|node|static|chat] [--force] [--json]
  *              [--deps vendor|npm] [--pyric-version X]
  *
  * Scaffold templates and file writing live in `create-pyric`. This module
@@ -13,7 +13,9 @@ import { join, basename, resolve } from 'node:path';
 import type { ParsedArgs } from './parse-args.js';
 import {
   TEMPLATES,
+  TEMPLATE_NAMES,
   applyDepsMode,
+  isTemplateName,
   mergeIntoExistingPackageJson,
   packageJsonFor,
   normalizeBoolFlags as normalizeScaffoldBoolFlags,
@@ -21,6 +23,7 @@ import {
   type ScaffoldTemplate,
   type DepsMode,
   type PackageJsonMerge,
+  type TemplateName,
 } from 'create-pyric';
 import {
   isStandalone,
@@ -44,7 +47,7 @@ export function resolveDepsMode(
 }
 
 export interface InitResult {
-  template: 'web' | 'node' | 'static';
+  template: TemplateName;
   dir: string;
   depsMode: DepsMode;
   created: string[];
@@ -84,8 +87,10 @@ export async function runInit(parsed: ParsedArgs, deps: InitDeps = {}): Promise<
 
   const templateFlag = parsed.flags.get('template');
   const templateName = typeof templateFlag === 'string' ? templateFlag : 'web';
-  if (templateName !== 'web' && templateName !== 'node' && templateName !== 'static') {
-    err.write(`pyric init: unknown template '${templateName}' (expected web|node|static)\n`);
+  if (!isTemplateName(templateName)) {
+    err.write(
+      `pyric init: unknown template '${templateName}' (expected ${TEMPLATE_NAMES.join('|')})\n`,
+    );
     return 1;
   }
 

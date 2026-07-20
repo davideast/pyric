@@ -1,6 +1,8 @@
 import WebSocket from 'ws';
 import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
+import { setRules as setDatabaseRules } from 'pyric/sandbox/database';
+import { getFirestore as getBaseFirestore } from 'pyric/sandbox/admin-firestore';
 import {
   isBridgeMessage,
   WORKER_RELAY_CAPABILITY,
@@ -19,6 +21,19 @@ import type {
 export interface FunctionsWorkerHostOptions {
   persistenceKeyPrefix: string;
   instanceId: string;
+  /**
+   * Optional RTDB security rules to load into the stand-in sandbox. Used by the
+   * #401 regression to gate the trigger's watched path behind auth: the trigger
+   * subscription must reach the sandbox through the admin (rules-bypass) lens,
+   * so an auth-gated `.read` there must NOT deny it.
+   */
+  databaseRules?: { rules: Record<string, unknown> };
+  /** Optional Firestore ruleset deployed on the worker's sandbox before any
+   *  relayed op — deployed synchronously through the LOCAL arm exactly as a
+   *  served page would. Lets a test prove that a functions child's admin
+   *  (rules-bypass) write lands against a ruleset that would DENY an
+   *  anonymous/client-lens caller (#394). */
+  firestoreRules?: string;
 }
 
 export interface FunctionsWorkerPeerOptions {
@@ -35,6 +50,10 @@ export async function createFunctionsWorkerHostCtx(
     key: `${options.persistenceKeyPrefix}-${Math.random()}`,
     injectedBackend: createMemoryBackend(),
   });
+  if (options.databaseRules) setDatabaseRules(sandbox, options.databaseRules);
+  if (options.firestoreRules !== undefined) {
+    getBaseFirestore(sandbox.withAuth(null)).setRules(options.firestoreRules);
+  }
   return {
     db: getFirestore(sandbox),
     sandbox,

@@ -14,7 +14,7 @@
  * mode) produces a SANDBOX build that bundles pyric's in-page adapters instead
  * of the real SDK: self-contained, meant to be previewed under `pyric dev`, and
  * stamped with the sandbox-build marker so it can never be deployed (`pyric
- * deploy hosting` refuses it). `pyricSandbox({ swapInBuild })` forces the build
+ * deploy hosting` refuses it). `pyric({ swapInBuild })` forces the build
  * behavior on/off regardless of mode. See `sandbox-marker.ts`.
  *
  * This is a thin adapter over serve's proven machinery. It REUSES, not reimplements:
@@ -30,8 +30,9 @@
  * Scope = M1 (swap + rules) + M2 (SharedWorker multi-tab + persist/capture/seed)
  * + M3 (the MCP bridge fold — `{ bridge }`). M3 reuses `createBridgeMount` (the
  * proven serve-flavored bridge behind `pyric dev --bridge`), composing it into
- * the same `/__pyric` middleware; bridge mode forces the in-page sandbox path so
- * the agent and the app share one backend.
+ * the same `/__pyric` middleware; on the worker path the bridge peer routes
+ * agent tool-calls THROUGH the SharedWorker (`connectBridgePeer`), so the agent
+ * and the app share one backend without forcing the page in-page.
  *
  * Serving `worker.js` flips `runtime.ts` to the worker path (one backend across
  * tabs, IndexedDB-durable); on that path the WORKER owns persist/capture/seed via
@@ -76,7 +77,20 @@ import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from './sta
 import { createCaptureStore } from './capture-store.js';
 import { isAllowedHost } from './server.js';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
-import { readFirebaseJson, type FirebaseJson } from '../cli/firebase-json.js';
+import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
+import {
+  discoverFunctionsRtdbProject,
+  type FunctionsRtdbProject,
+} from '../functions-rtdb/project.js';
+import {
+  spawnFunctionsRtdbChild,
+  type FunctionsRtdbChildHandle,
+} from '../functions-rtdb/child.js';
+import {
+  buildChildEnv,
+  createLinePrefixer,
+  registerModuleUrl,
+} from '../cli/dev-runner.js';
 
 /**
  * Whether a `vite build` should run the firebase→pyric swap (produce a SANDBOX
@@ -144,7 +158,7 @@ function packageRootOf(file: string): string {
   return dir;
 }
 
-export interface PyricSandboxOptions {
+export interface PyricOptions {
   /** firestore.rules path (relative to `root`). Default: `firebase.json`'s
    *  `firestore.rules`, else `firestore.rules` in the project root. */
   rules?: string;
@@ -166,22 +180,42 @@ export interface PyricSandboxOptions {
    *  + `GET /__pyric/health` + `WS /__pyric/sandbox`, all on Vite's port.
    *  `true` is shorthand for `{}`. The agent and the page share ONE sandbox.
    *
-   *  ⚠ **Forces the in-page sandbox (single-tab).** The bridge peer is the
-   *  in-page sandbox, never the SharedWorker, so enabling `bridge` disables the
-   *  default multi-tab SharedWorker path — otherwise the agent would drive an
-   *  empty in-page sandbox while the app's data lived in the worker. */
+   *  Does NOT change the sandbox topology: on the default SharedWorker path the
+   *  page dials the bridge WS and relays agent tool-calls THROUGH the worker
+   *  (`connectBridgePeer`), so multi-tab stays on. The in-page fallback engages
+   *  only when the worker bundle itself fails, bridge or not. */
   bridge?: boolean | { project?: string; disableAuditLog?: boolean };
   /** Serve the **Pyric Studio** app at `/__pyric/ui/` on Vite's dev origin (the
    *  `pyric dev --ui` equivalent). Mounts the disk-backed workspace/project
    *  routes Studio's `local` mode talks to AND serves the built Studio assets
-   *  (vendored in this package at `dist/serve/studio-ui`). **On by default**;
-   *  pass `ui: false` to disable.
-   *
-   *  Not compatible with `bridge`: bridge forces the app in-page, but Studio's
-   *  live plane reads the SharedWorker, so Studio would observe nothing. Under
-   *  `bridge` ui therefore defaults OFF (an explicit `ui: true` still works but
-   *  warns). Use `ui` without `bridge`, or `pyric dev --ui`. */
+   *  (vendored in this package at `dist/serve/studio-ui`). **On by default**,
+   *  including under `bridge` (the bridge peer routes through the SharedWorker,
+   *  so app, Studio, and agent all observe the one sandbox); pass `ui: false`
+   *  to disable. */
   ui?: boolean;
+  /** RTDB-triggered Cloud Functions under this dev server (the `pyric dev`
+   *  parity fold). By default a `functions` block in `firebase.json` is
+   *  discovered automatically: its `onValueCreated` triggers run in an isolated
+   *  node child against the shared sandbox (other trigger kinds warn and are
+   *  skipped), and the discovered codebase turns the MCP bridge mount on (the
+   *  child dials the sandbox over the bridge WS — the page's sandbox topology
+   *  is unchanged, see `bridge`). `functions: false` is the off switch: no
+   *  discovery, no child, no functions-forced bridge mount.
+   *
+   *  Field precedence: explicit option > env var > firebase files > default.
+   *  - `region`: the trigger location. Beats `PYRIC_FUNCTIONS_RTDB_REGION`;
+   *    default `us-central1`.
+   *  - `instance`: the RTDB instance name. Default `<projectId>-default-rtdb`,
+   *    where projectId is `PYRIC_PROJECT`, else `.firebaserc`'s default
+   *    project, else `demo-project`.
+   *  - `watch`: hot-reload the functions source (default `true`, matching
+   *    rules). A save under the functions source dir stops the child and
+   *    respawns it — redeploy semantics: in-flight executions in the old child
+   *    may drop, and writes landing during the swap gap are consumed as the new
+   *    child's baseline (they do not fire). Unlike rules, a broken save cannot
+   *    keep last-good live — the old child is already gone — so functions stay
+   *    down until the next good save. */
+  functions?: false | { region?: string; instance?: string; watch?: boolean };
   /** Force whether `vite build` runs the firebase→pyric swap, overriding the
    *  mode default. Unset (default): swap for any NON-production mode, keep real
    *  firebase for mode `production`. `true` = always produce a sandbox build;
@@ -193,7 +227,7 @@ export interface PyricSandboxOptions {
    * replacement for threading `engine` through every app `getAI(...)` call,
    * which is first-call-wins and easy to get wrong).
    *
-   *   pyricSandbox({
+   *   pyric({
    *     ai: {
    *       engine: { kind: 'openai', model: 'llama3.2', baseUrl: '/__pyric/ai-proxy' },
    *       proxyUpstream: 'http://localhost:11434/v1', // your Ollama
@@ -226,10 +260,10 @@ export interface PyricSandboxOptions {
 /**
  * The dev-only Vite plugin. Add to `vite.config`:
  *
- *   import { pyricSandbox } from '@pyric/cli/vite';
- *   export default defineConfig({ plugins: [pyricSandbox()] });
+ *   import { pyric } from '@pyric/cli/vite';
+ *   export default defineConfig({ plugins: [pyric()] });
  */
-export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
+export function pyric(options: PyricOptions = {}): Plugin {
   // Resolved once. `defaultSdkEntries()` prefers compiled dist `.js` and falls
   // back to source `.ts` in the workspace.
   const entries = defaultSdkEntries(); // { app, auth, firestore, init } → abs paths
@@ -508,6 +542,30 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         );
       }
 
+      // ── Functions (RTDB triggers) — the `pyric dev` parity fold ───────────
+      // Discover the one supported Functions codebase from the same resolved
+      // firebase.json the rules used (project.ts reads it itself). Reuses the
+      // exact serve module, so absent `functions` → null (silently off) and a
+      // malformed config throws serve's own error text — which, thrown from an
+      // async configureServer, fails the dev start the same way serve's
+      // `return 2` aborts. The Functions child connects to the sandbox over the
+      // bridge WS, so a discovered codebase forces the bridge mount on (mirrors
+      // serve's `bridgeEnabledFor(..., functionsProject)`). `functions: false`
+      // is the off switch: discovery never runs, so neither does the mount.
+      const functionsOpts = typeof options.functions === 'object' ? options.functions : {};
+      let functionsProject: FunctionsRtdbProject | null = null;
+      if (options.functions !== false) {
+        try {
+          functionsProject = discoverFunctionsRtdbProject(cwd);
+        } catch (error) {
+          // Malformed functions config: fail the start with serve's exact message.
+          throw error instanceof Error ? error : new Error(String(error));
+        }
+      }
+      const functionsProjectId = functionsProject
+        ? (process.env.PYRIC_PROJECT ?? (await readFirebaseRc(cwd))?.projects?.default ?? 'demo-project')
+        : null;
+
       // ── M3 MCP bridge (mirrors serve.ts:221–274) ─────────────────────────
       // The mount is long-lived (one bridge per dev session); its MCP transport
       // is rebuilt per request (stateless). Composed into the /__pyric middleware
@@ -516,9 +574,12 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       // Guard the WS upgrade with the SAME allow rule Vite's own host check
       // uses (host + allowedHosts, where `true` = opted into all hosts). Vite's
       // upgrade path bypasses connect middleware, so this is the only guard on it.
-      const mount = bridgeOpts
+      const mount = bridgeOpts || functionsProject
         ? createBridgeMount({
-            ...bridgeOpts,
+            ...(bridgeOpts ?? {}),
+            // A functions-only session still needs a labeled bridge; prefer an
+            // explicit bridge project, else the resolved functions project id.
+            project: bridgeOpts?.project ?? functionsProjectId ?? undefined,
             upgradeGuard: {
               boundHost: typeof server.config.server.host === 'string' ? server.config.server.host : 'localhost',
               allowedHosts:
@@ -744,6 +805,193 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
             /* gone already */
           }
         });
+      }
+
+      // ── Functions child lifecycle (mirrors serve's runServe) ─────────────
+      // The Functions runtime executes in an isolated node child (child.ts),
+      // exactly as `pyric dev` runs it: the child loads the user's unchanged
+      // functions module, and `--import @pyric/cli/register` + `PYRIC_SANDBOX=
+      // remote:<serveUrl>` route its `firebase-admin/app` to a RemoteSandbox that
+      // dials the bridge WS (`/__pyric/sandbox`). onValueCreated triggers observe
+      // RTDB writes and write their effects back through that one shared sandbox.
+      // Started once a sandbox peer (a browser tab / SharedWorker relay) has
+      // connected — the trigger's baseline needs a live backend — and stopped on
+      // server close. Vite restarts re-run configureServer, so the child respawns
+      // with the new server. Unlike `pyric dev` (which does not watch functions
+      // source), the plugin hot-reloads it via Vite's own watcher — see the
+      // watch block below; `functions: { watch: false }` restores dev's
+      // restart-to-reload behavior.
+      if (functionsProject && functionsProjectId && mount && server.httpServer) {
+        const httpServer = server.httpServer;
+        const project = functionsProject;
+        const projectId = functionsProjectId;
+        const bridgeMount = mount;
+        const host =
+          (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
+        // Prefer the compiled child (node cannot execute the .ts source when the
+        // plugin runs from source in tests); fall back to spawnFunctionsRtdbChild's
+        // own default (correct when the plugin runs from dist in production).
+        const builtChild = path.join(cliRoot, 'dist/functions-rtdb/child.js');
+        const childModuleUrl = existsSync(builtChild) ? builtChild : undefined;
+        let functionsChild: FunctionsRtdbChildHandle | null = null;
+        let disposed = false;
+
+        const start = async (mode: 'initial' | 'reload' = 'initial'): Promise<void> => {
+          const addr = httpServer.address();
+          const port = addr && typeof addr === 'object' ? addr.port : 0;
+          if (!port || disposed) return;
+          const serveUrl = `http://${host}:${port}`;
+
+          // Wait (bounded) for a sandbox peer — the SharedWorker relay / browser
+          // tab that holds the backend. Poll the mount directly (no self-fetch).
+          // On a hot reload the peer is usually still connected (the loop exits
+          // immediately); when it dropped mid-session, wait briefly rather than
+          // the full initial 30s.
+          const deadline = Date.now() + (mode === 'reload' ? 5_000 : 30_000);
+          while (!disposed && !bridgeMount.sandboxConnected()) {
+            if (Date.now() >= deadline) break;
+            await new Promise((r) => setTimeout(r, 250));
+          }
+          if (disposed) return;
+          if (!bridgeMount.sandboxConnected()) {
+            server.config.logger.warn(
+              mode === 'reload'
+                ? `  ✖ [pyric] functions not restarted — no sandbox peer connected. ` +
+                    `Functions stay down until the next save with ${serveUrl} open.`
+                : `  ⚠ [pyric] functions not started — no browser tab connected after 30s. ` +
+                    `Open ${serveUrl} and restart the dev server.`,
+            );
+            return;
+          }
+
+          functionsChild = spawnFunctionsRtdbChild({
+            cwd: project.sourceDir,
+            entry: project.entry,
+            env: buildChildEnv(process.env, { serveUrl, registerUrl: registerModuleUrl() }),
+            // Precedence (per field): plugin option > env var > firebase files
+            // > default. projectId already folds PYRIC_PROJECT > .firebaserc >
+            // demo-project.
+            instance: functionsOpts.instance ?? `${projectId}-default-rtdb`,
+            location: functionsOpts.region ?? process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
+            ...(childModuleUrl ? { childModuleUrl } : {}),
+            onEvent(event) {
+              if (event.type === 'execution') {
+                const params = Object.entries(event.params)
+                  .map(([name, value]) => `${name}=${value}`)
+                  .join(', ');
+                const suffix = params ? ` (${params})` : '';
+                if (event.status === 'fulfilled') {
+                  server.config.logger.info(`  ✔ [pyric] function ${event.exportName} ← /${event.ref}${suffix}`);
+                } else {
+                  server.config.logger.error(
+                    `  ✖ [pyric] function ${event.exportName} ← /${event.ref}${suffix}: ${event.error.message}`,
+                  );
+                }
+              } else {
+                server.config.logger.error(
+                  `  ✖ [pyric] functions delivery for ${event.exportName}: ${event.error.message}`,
+                );
+              }
+            },
+          });
+
+          const out = createLinePrefixer('[functions] ', (line) => server.config.logger.info(line.replace(/\n$/, '')));
+          const err = createLinePrefixer('[functions] ', (line) => server.config.logger.warn(line.replace(/\n$/, '')));
+          functionsChild.child.stdout?.setEncoding('utf8');
+          functionsChild.child.stderr?.setEncoding('utf8');
+          functionsChild.child.stdout?.on('data', (chunk: string) => out.push(chunk));
+          functionsChild.child.stderr?.on('data', (chunk: string) => err.push(chunk));
+          functionsChild.child.stdout?.once('end', () => out.flush());
+          functionsChild.child.stderr?.once('end', () => err.flush());
+
+          try {
+            const ready = await functionsChild.ready;
+            server.config.logger.info(
+              mode === 'reload'
+                ? `  ↻ [pyric] functions reloaded (${ready.triggerCount} trigger${ready.triggerCount === 1 ? '' : 's'})`
+                : `  ✔ [pyric] functions ${ready.triggerCount} onValueCreated ` +
+                    `trigger${ready.triggerCount === 1 ? '' : 's'} from ${path.relative(cwd, project.entry)}`,
+            );
+            for (const unsupported of ready.unsupportedTriggers) {
+              server.config.logger.warn(
+                `  ⚠ [pyric] functions export ${unsupported.exportName} uses unsupported trigger ` +
+                  `${unsupported.eventType}; it will not run.`,
+              );
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            server.config.logger.error(
+              mode === 'reload'
+                ? // Unlike rules, last-good cannot stay live — the old child is
+                  // already stopped — so a broken save takes functions down.
+                  `  ✖ [pyric] functions failed to reload: ${message}\n` +
+                    `  ✖ [pyric] functions are down until the next good save.`
+                : `  ✖ [pyric] functions failed to start: ${message}`,
+            );
+            await functionsChild.stop().catch(() => undefined);
+            functionsChild = null;
+          }
+        };
+
+        let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
+        httpServer.once('close', () => {
+          disposed = true;
+          if (reloadDebounce) clearTimeout(reloadDebounce);
+          void functionsChild?.stop().catch(() => undefined);
+        });
+        if ((httpServer as unknown as { listening?: boolean }).listening) void start();
+        else httpServer.once('listening', () => void start());
+
+        // Functions hot-reload from Vite's OWN watcher (mirrors the rules block
+        // below). Restart = redeploy: stop the old child, respawn via the same
+        // start path — there is no in-place swap, so in-flight executions in the
+        // old child may drop and writes landing in the swap gap become the new
+        // child's baseline (execution.ts consumes each trigger's first observed
+        // value as baseline; they do not fire). Debounced 300ms — a save fans
+        // out several fs events and a child respawn is far heavier than a rules
+        // re-parse. Restarts are serialized: a save landing mid-restart queues
+        // exactly one follow-up run.
+        if (functionsOpts.watch !== false) {
+          const sourceDir = project.sourceDir;
+          // Usually redundant (Vite watches its root, which contains the
+          // functions dir in the common layout) but load-bearing when the
+          // functions source lives outside Vite's root. node_modules stays
+          // ignored: Vite's watcher ignores `**/node_modules/**` globally, and
+          // the handler below filters it again for explicitly-added trees.
+          server.watcher.add(sourceDir);
+          let restarting = false;
+          let queued = false;
+          const restart = async (): Promise<void> => {
+            if (restarting) {
+              queued = true;
+              return;
+            }
+            restarting = true;
+            try {
+              do {
+                queued = false;
+                if (disposed) return;
+                const old = functionsChild;
+                functionsChild = null;
+                if (old) await old.stop().catch(() => undefined);
+                await start('reload');
+              } while (queued && !disposed);
+            } finally {
+              restarting = false;
+            }
+          };
+          const onFunctionsFsEvent = (file: string): void => {
+            const resolved = path.resolve(file);
+            const rel = path.relative(sourceDir, resolved);
+            if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return;
+            if (rel.split(path.sep).includes('node_modules')) return;
+            if (reloadDebounce) clearTimeout(reloadDebounce);
+            reloadDebounce = setTimeout(() => void restart(), 300);
+          };
+          server.watcher.on('change', onFunctionsFsEvent);
+          server.watcher.on('add', onFunctionsFsEvent);
+          server.watcher.on('unlink', onFunctionsFsEvent);
+        }
       }
 
       // Rules hot-reload from Vite's OWN watcher (no second fs watcher). Reuse

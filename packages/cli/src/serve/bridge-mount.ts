@@ -52,6 +52,11 @@ export interface BridgeMount {
   handler(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean>;
   /** Attach the WS upgrade listener to the serve server. */
   attachUpgrade(server: Server): void;
+  /** Whether a sandbox peer (a browser tab / SharedWorker relay) is currently
+   *  connected. In-process callers (the Vite plugin's Functions start) poll
+   *  this instead of self-fetching `/__pyric/health`, which avoids a loopback
+   *  fetch on the same event loop. Mirrors `health().sandboxConnected`. */
+  sandboxConnected(): boolean;
   /** The browser-side WS URL for the init payload (`bridgeUrl`). */
   wsUrl(origin: { host: string; port: number }): string;
   /** The MCP endpoint for the banner. */
@@ -187,6 +192,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         });
       });
     },
+    sandboxConnected: () => bridge.health().sandboxConnected === true,
     instanceId: bridge.instanceId,
     wsUrl: ({ host, port }) => `ws://${host}:${port}${WS_PATH}`,
     mcpUrl: ({ host, port }) => `http://${host}:${port}${MCP_PATH}`,

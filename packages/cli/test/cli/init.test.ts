@@ -73,7 +73,7 @@ describe('pyric init v2 — web template (default, Vite)', () => {
     // the swap lives in vite.config, not the app
     const viteConfig = readFileSync(join(dir, 'vite.config.ts'), 'utf8');
     expect(viteConfig).toContain("from '@pyric/cli/vite'");
-    expect(viteConfig).toContain('pyricSandbox(');
+    expect(viteConfig).toContain('pyric(');
 
     // hosting serves Vite's build output
     const fb = JSON.parse(readFileSync(join(dir, 'firebase.json'), 'utf8'));
@@ -215,6 +215,34 @@ describe('pyric init v2 — static template (serve-era, no bundler)', () => {
   });
 });
 
+describe('pyric init v2 — chat template', () => {
+  it('scaffolds the full app from the packaged source tree', async () => {
+    const dir = tmp();
+    const c = capture();
+    expect(
+      await runInit(
+        args([], { template: 'chat', name: 'idea-room', json: true }),
+        c.deps(dir),
+      ),
+    ).toBe(0);
+    const result = JSON.parse(c.out()) as InitResult;
+    expect(result.template).toBe('chat');
+    for (const file of [
+      'src/ui/chat/chat-page.tsx',
+      'src/firebase-messaging-sw.ts',
+      'functions/index.js',
+      'firestore.modules.rules',
+      'test/preview-component-state.test.js',
+    ]) {
+      expect(existsSync(join(dir, file))).toBe(true);
+    }
+    expect(readFileSync(join(dir, 'README.md'), 'utf8')).toContain('# idea-room');
+    expect(readFileSync(join(dir, 'vite.config.ts'), 'utf8')).not.toContain('node_modules/');
+    expect(existsSync(join(dir, 'bun.lock'))).toBe(false);
+    expect(existsSync(join(dir, '.pyric'))).toBe(false);
+  });
+});
+
 describe('pyric init v2 — CLI surface', () => {
   it('[dir] positional creates the directory; --name overrides', async () => {
     const root = tmp();
@@ -255,7 +283,7 @@ describe('pyric init v2 — CLI surface', () => {
     const c = capture();
     expect(await runInit(args([], { template: 'angularjs' }), c.deps(dir))).toBe(1);
     expect(c.err()).toContain("unknown template 'angularjs'");
-    expect(c.err()).toContain('web|node|static');
+    expect(c.err()).toContain('web|node|static|chat');
     expect(existsSync(join(dir, 'package.json'))).toBe(false);
   });
 
@@ -314,7 +342,7 @@ describe('pyric init v2 — CLI surface', () => {
 });
 
 describe('pyric init v2 — production handoff', () => {
-  for (const template of ['web', 'node', 'static'] as const) {
+  for (const template of ['web', 'node', 'static', 'chat'] as const) {
     it(`${template} delegates production deployment to firebase-tools`, async () => {
       const dir = tmp();
       expect(
@@ -395,7 +423,7 @@ describe('pyric init output contract', () => {
         'src/main.ts': '3e165d28c4d22df0b868d26cd4071950a6c47cfd0c8944d01c2dadc66c0dfab2',
         'src/vite-env.d.ts': '65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5',
         'tsconfig.json': '5bb892360953642d2644a442a81abbad91e62be2f7fcb646505cc7f33a6bcc08',
-        'vite.config.ts': '2c4fd6ee8faa56bc468283b99d587d25f89c0c26efebdbb9d5046b76c2f4a005',
+        'vite.config.ts': 'fd229518462c98b4b2874b5580762a98a9ef8bc5f1b94ed6f93bbefdedb3ad49',
       },
       node: {
         '.env.example': '20b0fec5308501f75cab4d6026678eefbbbef0001bfabaa17c66d92e67c9d582',

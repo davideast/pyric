@@ -310,6 +310,54 @@ describe('messaging.deliver and unsub', () => {
     expect((port.snaps[0]!.value as { data: { tag: string } }).data.tag).toBe('drive');
   });
 
+  it('deliver with visibility: visible sets THIS port visible then routes foreground', async () => {
+    // The transport twin of pyric/messaging `sandbox.deliver({ visibilityState })`:
+    // a fresh port with no prior setVisibility still lands foreground because
+    // the spec sets its client visible before routing (issue #397).
+    const ctx = makeCtx();
+    const page = fakePort();
+    const swPort = fakePort();
+    await sub(ctx, page, 'fg', 'messaging.foreground');
+    await sub(ctx, swPort, 'bg', 'messaging.background');
+    const result = (await opOk(ctx, page, {
+      method: 'messaging.deliver',
+      spec: { visibilityState: 'visible', data: { tag: 'fg' } },
+    })) as { route: string; handlerCount: number };
+    expect(result.route).toBe('foreground');
+    expect(page.snaps.map((s) => s.subId)).toEqual(['fg']);
+    expect(swPort.snaps.length).toBe(0);
+  });
+
+  it('deliver with visibility: hidden routes background (onBackgroundMessage)', async () => {
+    const ctx = makeCtx();
+    const page = fakePort();
+    const swPort = fakePort();
+    await sub(ctx, page, 'fg', 'messaging.foreground');
+    await sub(ctx, swPort, 'bg', 'messaging.background');
+    // The delivering page was visible a moment ago…
+    await opOk(ctx, page, { method: 'messaging.setVisibility', state: 'visible' });
+    const result = (await opOk(ctx, page, {
+      method: 'messaging.deliver',
+      spec: { visibilityState: 'hidden', notification: { title: 'bg' } },
+    })) as { route: string };
+    // …but the spec's hidden visibility wins for this delivery.
+    expect(result.route).toBe('background');
+    expect(swPort.snaps.map((s) => s.subId)).toEqual(['bg']);
+    expect(page.snaps.length).toBe(0);
+  });
+
+  it('deliver without visibilityState leaves last-reported visibility untouched', async () => {
+    const ctx = makeCtx();
+    const port = fakePort();
+    await sub(ctx, port, 'fg', 'messaging.foreground');
+    await opOk(ctx, port, { method: 'messaging.setVisibility', state: 'visible' });
+    const result = (await opOk(ctx, port, {
+      method: 'messaging.deliver',
+      spec: { data: { n: '1' } },
+    })) as { route: string };
+    expect(result.route).toBe('foreground');
+  });
+
   it('unsub stops delivery; duplicate sub ids are idempotent', async () => {
     const ctx = makeCtx();
     const port = fakePort();

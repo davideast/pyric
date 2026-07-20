@@ -7,7 +7,14 @@
  */
 
 import { parseCreateArgs } from './parse-args.js';
-import { applyDepsMode, normalizeBoolFlags, runScaffold, TEMPLATES } from './scaffold.js';
+import {
+  applyDepsMode,
+  isTemplateName,
+  normalizeBoolFlags,
+  runScaffold,
+  TEMPLATE_NAMES,
+  TEMPLATES,
+} from './scaffold.js';
 import { readFileSync } from 'node:fs';
 
 function packageVersion(): string {
@@ -26,7 +33,7 @@ async function main(): Promise<number> {
 
   if (args.flags.get('help') === true || args.flags.get('h') === true) {
     process.stdout.write(
-      `Usage: npm create pyric [dir] [--template web|node|static] [--name N] [--force] [--json]\n` +
+      `Usage: npm create pyric [dir] [--template ${TEMPLATE_NAMES.join('|')}] [--name N] [--force] [--json]\n` +
         `       npx create-pyric [dir] [flags]\n\n` +
         `Default template is web (Vite + @pyric/cli/vite).\n` +
         `Directory: optional positional; omit to scaffold in the current directory.\n`,
@@ -36,9 +43,9 @@ async function main(): Promise<number> {
 
   const templateFlag = args.flags.get('template');
   const templateName = typeof templateFlag === 'string' ? templateFlag : 'web';
-  if (templateName !== 'web' && templateName !== 'node' && templateName !== 'static') {
+  if (!isTemplateName(templateName)) {
     process.stderr.write(
-      `create-pyric: unknown template '${templateName}' (expected web|node|static)\n`,
+      `create-pyric: unknown template '${templateName}' (expected ${TEMPLATE_NAMES.join('|')})\n`,
     );
     return 1;
   }

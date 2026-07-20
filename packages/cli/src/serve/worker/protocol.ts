@@ -592,6 +592,15 @@ export type OpMessage = (
  * `MessagingBroker.deliver`'s parameter exactly; plain JSON throughout.
  */
 export interface MessagingDeliverSpec {
+  /**
+   * Simulated visibility of THIS port's window client at delivery time — the
+   * transport twin of the in-page driver's `DeliverSpec.visibilityState`. When
+   * present the host sets the delivering port's client visibility before
+   * routing (`visible` → foreground/`onMessage`, `hidden` →
+   * background/`onBackgroundMessage`); absent leaves the last-reported
+   * visibility untouched.
+   */
+  visibilityState?: ClientVisibilityState;
   data?: Record<string, string>;
   notification?: { title?: string; body?: string; image?: string };
   from?: string;
