@@ -13,6 +13,7 @@ import {
   resolveDocsUiDir,
   sourceTreeHash,
   workerEntryPath,
+  workerBundleEpoch,
   workerSourceHash,
 } from '../../src/serve/bundler.js';
 
@@ -476,5 +477,24 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
     // Marker cache: a second call without noCache returns the same file fast.
     const again = await bundleWorker({ outDir: dir });
     expect(again).toBe(file);
+  }, 30_000);
+
+  it('derives the worker epoch from executable output, not unrelated files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-worker-epoch-'));
+    const entry = join(root, 'worker.ts');
+    const unrelated = join(root, 'runtime-chip.ts');
+    writeFileSync(entry, 'globalThis.workerEpoch = __PYRIC_WORKER_VERSION__;');
+    writeFileSync(unrelated, 'export const chip = 1;');
+
+    const firstDir = join(root, 'first');
+    await bundleWorker({ outDir: firstDir, noCache: true, entryPath: entry });
+    const first = workerBundleEpoch(firstDir);
+
+    writeFileSync(unrelated, 'export const chip = 2;');
+    const secondDir = join(root, 'second');
+    await bundleWorker({ outDir: secondDir, noCache: true, entryPath: entry });
+
+    expect(workerBundleEpoch(secondDir)).toBe(first);
+    expect(readFileSync(join(firstDir, 'worker.js'), 'utf8')).toContain(first);
   }, 30_000);
 });

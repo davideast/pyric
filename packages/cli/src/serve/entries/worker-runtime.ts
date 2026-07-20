@@ -16,6 +16,7 @@ import {
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 
 const hasSharedWorker = typeof SharedWorker !== 'undefined';
+const runtimeStatus = getPyricRuntimeStatus();
 
 export const useWorker =
   (hasSharedWorker || (isServiceWorkerRealm() && typeof BroadcastChannel !== 'undefined'))
@@ -27,7 +28,9 @@ export const WORKER_NAME = PYRIC_WORKER_NAME;
 /** Control traffic only; Firebase apps receive independent app-owned ports. */
 export const workerDb: ClientDb | null = useWorker
   ? hasSharedWorker
-    ? getFirestore(WORKER_URL, WORKER_NAME)
+    ? getFirestore(WORKER_URL, WORKER_NAME, {
+        onError: (error) => runtimeStatus.reportError(error, 'worker'),
+      })
     : null
   : null;
 
@@ -41,7 +44,6 @@ export const presenceSession = useWorker && workerDb
   ? startPresence({ db: workerDb, kind: 'app' })
   : null;
 
-const runtimeStatus = getPyricRuntimeStatus();
 runtimeStatus.setWorker({
   mode: useWorker ? 'shared-worker' : 'in-page',
   runningEpoch: null,

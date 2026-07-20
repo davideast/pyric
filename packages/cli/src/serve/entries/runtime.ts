@@ -412,16 +412,15 @@ function explainSandboxFrame(stackOrUrl: string | undefined): boolean {
   return true;
 }
 if (typeof window !== 'undefined') {
-  window.addEventListener('error', (e) => {
-    if (explainSandboxFrame(e.error instanceof Error ? (e.error.stack ?? e.filename) : e.filename)) {
-      runtimeStatus.reportError(e.error ?? e.message, 'sandbox');
-    }
-  });
-  window.addEventListener('unhandledrejection', (e) => {
-    if (explainSandboxFrame(e.reason instanceof Error ? e.reason.stack : undefined)) {
-      runtimeStatus.reportError(e.reason, 'sandbox');
-    }
-  });
+  // Stack containment is useful provenance context, but it is NOT an ownership
+  // boundary: an app callback thrown from an SDK caller also contains an SDK
+  // frame. Explicit sandbox events and runtime catches feed the status model.
+  window.addEventListener('error', (e) =>
+    explainSandboxFrame(e.error instanceof Error ? (e.error.stack ?? e.filename) : e.filename),
+  );
+  window.addEventListener('unhandledrejection', (e) =>
+    explainSandboxFrame(e.reason instanceof Error ? e.reason.stack : undefined),
+  );
 }
 
 // ── bridge peer (only when `pyric dev --bridge` put a URL in the payload;
@@ -461,6 +460,7 @@ if (bridgeUrlFromPayload) {
   try {
     await connectBridgePeer(bridgeUrlFromPayload);
   } catch (e) {
+    runtimeStatus.reportError(e, 'runtime');
     console.error('[pyric dev] bridge connect failed:', e instanceof Error ? e.message : String(e));
   }
 } else if (useWorker) {
@@ -475,6 +475,7 @@ if (bridgeUrlFromPayload) {
       const url = res.ok ? ((await res.json()) as InitPayload).bridgeUrl : null;
       if (url) await connectBridgePeer(url);
     } catch (e) {
+      runtimeStatus.reportError(e, 'runtime');
       console.error('[pyric dev] bridge connect failed:', e instanceof Error ? e.message : String(e));
     }
   })();
@@ -548,6 +549,7 @@ if (!useWorker && typeof EventSource !== 'undefined') {
       diagnostics.rulesHash = rulesHash;
       console.info(`[pyric dev] firestore.rules hot-reloaded (hash ${rulesHash})`);
     } catch (err) {
+      runtimeStatus.reportError(err, 'runtime');
       console.error('[pyric dev] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
     }
   });

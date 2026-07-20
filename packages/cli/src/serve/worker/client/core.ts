@@ -331,6 +331,29 @@ export function rpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
 }
 
 /**
+ * Send a client RPC with a bounded wait, while keeping correlation cleanup
+ * inside the transport module that owns the pending-request registry.
+ */
+export function rpcWithTimeout(
+  port: ClientPort,
+  msg: InboundMessage,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<unknown> {
+  const id = (msg as { id: string }).id;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      if (!_pending.delete(id)) return;
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+  });
+  return Promise.race([rpc(port, msg), timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/**
  * Like {@link rpc} but stamps the active default auth lens onto the op message
  * (Pyric Studio). Used by data-service ops so a `setLens(...)` choice
  * carries per op without every call site threading `actAs`. Auth ops + version

@@ -87,6 +87,18 @@ function sandboxError(event: SandboxEvent): PyricRuntimeError | null {
       message: event.error.message,
     };
   }
+  if (event.kind === 'listener_errored' && event.error) {
+    return {
+      id: event.id,
+      source: 'sandbox',
+      at: event.at,
+      service: 'firestore',
+      method: 'listener',
+      ...('path' in event.target ? { path: event.target.path } : {}),
+      code: event.error.code,
+      message: event.error.message,
+    };
+  }
   if (event.kind === 'listener' && event.phase === 'errored' && event.error) {
     return {
       id: event.id,

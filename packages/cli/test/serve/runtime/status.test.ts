@@ -92,6 +92,29 @@ describe('Pyric runtime status', () => {
     });
   });
 
+  it('normalizes Firestore listener_errored events', () => {
+    const runtime = createPyricRuntimeStatus(manifest);
+    runtime.recordSandboxEvents([{
+      kind: 'listener_errored',
+      id: 'firestore-listener-error-1',
+      at: 789,
+      listenerId: 'listener-2',
+      target: { kind: 'doc', path: 'posts/a' },
+      auth: null,
+      error: { code: 'permission-denied', message: 'read denied' },
+    }]);
+
+    expect(runtime.getSnapshot().errors[0]).toMatchObject({
+      id: 'firestore-listener-error-1',
+      source: 'sandbox',
+      service: 'firestore',
+      method: 'listener',
+      path: 'posts/a',
+      code: 'permission-denied',
+      message: 'read denied',
+    });
+  });
+
   it('bounds retained errors and clears them without changing worker status', () => {
     const runtime = createPyricRuntimeStatus(manifest, { maxErrors: 2 });
     runtime.reportError('first', 'runtime');

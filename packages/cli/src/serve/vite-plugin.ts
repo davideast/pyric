@@ -52,6 +52,7 @@ import {
   resolveStudioUiDir,
   pyricPackageRoot,
   bundleWorker,
+  workerBundleEpoch,
   workerSourceHash,
   NODE_BUILTIN_RE,
   NODE_BUILTIN_SHIMS,
@@ -303,7 +304,8 @@ export function pyric(options: PyricOptions = {}): Plugin {
   // a still-running OLD worker is detected as stale. `workerReady` flips true once
   // `bundleWorker` succeeds in configureServer; until then (or on bundle failure)
   // the page is forced onto the in-page sandbox path. transformIndexHtml reads it.
-  const workerVersion = workerSourceHash();
+  const workerCacheKey = workerSourceHash();
+  let workerVersion: string | null = null;
   let workerReady = false;
 
   // Set by the `config` hook. When the plugin runs under `vite build` at all it
@@ -501,9 +503,10 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // /__pyric/sdk/worker.js. This is what flips runtime.ts to the worker path.
       // On bundle failure, fall back to the in-page sandbox (workerReady stays
       // false → transformIndexHtml forces in-page).
-      const sdkDir = path.join(homedir(), '.pyric', 'vite-worker', workerVersion);
+      const sdkDir = path.join(homedir(), '.pyric', 'vite-worker', workerCacheKey);
       try {
         await bundleWorker({ outDir: sdkDir });
+        workerVersion = workerBundleEpoch(sdkDir);
         workerReady = true;
       } catch (e) {
         server.config.logger.warn(
@@ -1049,7 +1052,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // forces in-page: the bridge peer routes agent tool-calls THROUGH the
       // worker (see `connectBridgePeer`), so the agent shares the one sandbox the
       // app + Studio use.
-      const head = workerReady
+      const head = workerReady && workerVersion
         ? `<meta name="pyric-worker-v" content="${workerVersion}" ${MARKER}>`
         : `<script ${MARKER}>globalThis.__PYRIC_FORCE_INPAGE__=true;</script>`;
       // Plugin-level engine for the IN-PAGE path: a classic inline script runs
