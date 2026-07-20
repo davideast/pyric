@@ -89,6 +89,7 @@ import { ModelPicker } from './ModelPicker';
 import { PromptHighlightTextarea } from './PromptHighlightTextarea';
 import { SettingsModal } from './SettingsModal';
 import { TopBar } from './TopBar';
+import { PyricRuntimeChipPrototype } from './PyricRuntimeChipPrototype';
 
 ensureBufferPolyfill();
 
@@ -626,6 +627,7 @@ export function HomePage() {
           footerText="Update or remove anytime."
         />
       </Modal>
+      <PyricRuntimeChipPrototype />
     </div>
   );
 }
