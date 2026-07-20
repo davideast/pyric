@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { requiredFailures } from './required.ts';
 
 const success = {
@@ -13,6 +15,15 @@ const success = {
 };
 
 describe('required CI result', () => {
+  test('the aggregate job receives every result its packaging policy requires', () => {
+    const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
+    const requiredJob = workflow.slice(workflow.indexOf('\n  required:'));
+    const needsLine = requiredJob.match(/\n    needs: \[([^\]]+)\]/)?.[1] ?? '';
+    expect(needsLine.split(',').map((job) => job.trim())).toEqual(
+      expect.arrayContaining(['packaging', 'install-matrix', 'standalone']),
+    );
+  });
+
   test('accepts skipped jobs only when their check set did not select them', () => {
     expect(requiredFailures({ checkSet: 'full', requirePackaging: false, results: success })).toEqual([]);
     expect(requiredFailures({

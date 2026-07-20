@@ -687,7 +687,9 @@ later releases. For a pre-built / no-build app, use \`pyric init --template stat
 + \`pyric dev\`.
 `;
 
-const chatAssets = loadAssetTemplate('chat');
+let chatAssets: ReturnType<typeof loadAssetTemplate> | undefined;
+const getChatAssets = (): ReturnType<typeof loadAssetTemplate> =>
+  (chatAssets ??= loadAssetTemplate('chat'));
 
 // ─── the registry ─────────────────────────────────────────────────────
 
@@ -771,12 +773,16 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
     nextSteps: ['bun install', 'bun run dev', 'bun run dev:agent  # agents: MCP at /__pyric/mcp'],
   },
   chat: {
-    scripts: chatAssets.packageJson.scripts,
-    dependencies: chatAssets.packageJson.dependencies,
-    devDependencies: chatAssets.packageJson.devDependencies,
-    ...(chatAssets.packageJson.overrides ? { overrides: chatAssets.packageJson.overrides } : {}),
-    dirs: chatAssets.dirs,
-    files: (name) => chatAssets.files.map((file) => ({
+    // Asset-backed templates stay lazy. The standalone binary imports
+    // create-pyric for ordinary CLI commands without embedding this package's
+    // on-disk template tree; eager reads would make even `pyric --version`
+    // fail before dispatch.
+    get scripts() { return getChatAssets().packageJson.scripts; },
+    get dependencies() { return getChatAssets().packageJson.dependencies; },
+    get devDependencies() { return getChatAssets().packageJson.devDependencies; },
+    get overrides() { return getChatAssets().packageJson.overrides; },
+    get dirs() { return getChatAssets().dirs; },
+    files: (name) => getChatAssets().files.map((file) => ({
       name: file.name,
       content: file.content.replaceAll('__PYRIC_PROJECT_NAME__', name),
     })),

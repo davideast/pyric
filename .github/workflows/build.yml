@@ -357,7 +357,7 @@ jobs:
     name: CI / required
     runs-on: ubuntu-latest
     if: always()
-    needs: [plan, build-and-test, library-tests, browser-conformance, release-contract, docs-only, packaging, install-matrix]
+    needs: [plan, build-and-test, library-tests, browser-conformance, release-contract, docs-only, packaging, install-matrix, standalone]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

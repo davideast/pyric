@@ -75,7 +75,7 @@ writeFileSync(
   `import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { createServer } from 'vite';
-import { pyricSandbox } from '@pyric/cli/vite';
+import { pyric } from '@pyric/cli/vite';
 
 const root = process.cwd();
 const importer = join(root, 'src/main.js');
@@ -98,7 +98,7 @@ async function resolveWith(plugins) {
   }
 }
 
-const active = await resolveWith([pyricSandbox({ ui: false })]);
+const active = await resolveWith([pyric({ ui: false })]);
 for (const resolved of [active.app, active.firestore]) {
   assert.ok(resolved?.id.includes('/node_modules/@pyric/cli/dist/serve/entries/'), resolved?.id);
 }
