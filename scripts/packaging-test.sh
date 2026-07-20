@@ -197,6 +197,15 @@ assert_tar_has() {
     exit 1
   fi
 }
+assert_tar_lacks() {
+  local tb="$1" pattern="$2" desc="$3" listing
+  listing=$(tar -tzf "$tb")
+  if grep -qE "$pattern" <<<"$listing"; then
+    echo "  ✗ UNEXPECTED in tarball: $desc (matched pattern: $pattern)" >&2
+    exit 1
+  fi
+  echo "  ✓ $desc"
+}
 packset_check packages/pyric pyric
 packset_check packages/pyric-admin pyric-admin
 packset_check packages/create-pyric create-pyric
@@ -207,6 +216,9 @@ assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/rtdb/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/modules/stdlib/.*\.rules$' "pyric ships the rules stdlib modules (.rules)"
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/dist/bin\.js$' "create-pyric ships the create-pyric bin"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/ui/chat/chat-page\.tsx$' "create-pyric ships the canonical chat app source"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/firebase-messaging-sw\.ts$' "create-pyric ships the chat notification worker"
+assert_tar_lacks "$TARBALL_CREATE_PYRIC" 'package/templates/chat/dist/' "create-pyric excludes the built chat dist/ tree"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
 # The Vite plugin's `ui` option + `pyric dev --ui` resolve the Studio app from
 # dist/serve/studio-ui (build-embedded). The plugin's firebase swap resolves the
@@ -563,6 +575,27 @@ grep -q "pyricSandbox" "$CREATE_OUT/vite.config.ts"
 test -f "$CREATE_OUT/package.json"
 grep -q '"dev": "vite"' "$CREATE_OUT/package.json"
 echo "  ✓ create-pyric scaffolds Vite + @pyric/cli/vite"
+
+# Named chat smoke: prove the packaged asset tree is available to the installed
+# bin and stays free of repo/install artifacts and internal package paths.
+echo "▸ create-pyric chat smoke"
+CREATE_CHAT_OUT="$WORK/create-chat-smoke-app"
+rm -rf "$CREATE_CHAT_OUT"
+"$CREATE_PYRIC_BIN" "$CREATE_CHAT_OUT" --template chat --name packed-chat
+test -f "$CREATE_CHAT_OUT/src/ui/chat/chat-page.tsx"
+test -f "$CREATE_CHAT_OUT/src/firebase-messaging-sw.ts"
+test -f "$CREATE_CHAT_OUT/functions/index.js"
+test -f "$CREATE_CHAT_OUT/test/notification-display.test.ts"
+grep -q '"name": "packed-chat"' "$CREATE_CHAT_OUT/package.json"
+grep -q '# packed-chat' "$CREATE_CHAT_OUT/README.md"
+test ! -e "$CREATE_CHAT_OUT/bun.lock"
+test ! -e "$CREATE_CHAT_OUT/scaffold.json"
+test ! -e "$CREATE_CHAT_OUT/.pyric"
+if grep -R -qE '@inbrowser-(workspace|resumable|firebase)-|node_modules/@inbrowser' "$CREATE_CHAT_OUT/src"; then
+  echo "  ✗ chat scaffold contains an internal @inbrowser alias or node_modules import" >&2
+  exit 1
+fi
+echo "  ✓ create-pyric scaffolds the portable chat app"
 
 # ─── Phase 5.5: serve smoke (init + serve from the packed bin) ─────────
 # The subpath + bin checks above prove imports resolve, but they never boot

@@ -1,0 +1,128 @@
+rules_version = '2+modules';
+
+import { isAuthenticated, isOwner } from 'auth';
+import { hasRequired, hasOnly, validString, isOneOf } from 'validation';
+import { immutableFields, onlyFieldsChanged, isServerTimestamp } from 'lifecycle';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function conversationPath(conversationId) {
+      return /databases/$(database)/documents/conversations/$(conversationId);
+    }
+
+    function ownsConversation(conversationId) {
+      return isAuthenticated()
+        && exists(conversationPath(conversationId))
+        && get(conversationPath(conversationId)).data.ownerUid == request.auth.uid;
+    }
+
+    function validConversationCreate() {
+      return isAuthenticated()
+        && hasRequired(['ownerUid', 'title', 'model', 'createdAt', 'updatedAt', 'lastMessageAt', 'messageCount', 'archivedAt', 'attachmentCount', 'schemaVersion'])
+        && hasOnly(['ownerUid', 'title', 'model', 'createdAt', 'updatedAt', 'lastMessageAt', 'messageCount', 'archivedAt', 'attachmentCount', 'schemaVersion'])
+        && isOwner(request.resource.data.ownerUid)
+        && validString('title', 1, 120)
+        && isOneOf('model', ['gemini-2.5-flash'])
+        && request.resource.data.messageCount == 0
+        && request.resource.data.attachmentCount == 0
+        && request.resource.data.schemaVersion == 1
+        && isServerTimestamp('createdAt')
+        && isServerTimestamp('updatedAt');
+    }
+
+    function validUserMessageCreate(conversationId) {
+      return ownsConversation(conversationId)
+        && hasRequired(['ownerUid', 'conversationId', 'role', 'text', 'createdAt', 'clientMessageId', 'thoughts', 'model', 'finishReason', 'inputTokenCount', 'outputTokenCount', 'schemaVersion'])
+        && hasOnly(['ownerUid', 'conversationId', 'role', 'text', 'createdAt', 'clientMessageId', 'thoughts', 'model', 'finishReason', 'inputTokenCount', 'outputTokenCount', 'schemaVersion'])
+        && isOwner(request.resource.data.ownerUid)
+        && request.resource.data.conversationId == conversationId
+        && request.resource.data.role == 'user'
+        && validString('text', 1, 20000)
+        && request.resource.data.thoughts == null
+        && isServerTimestamp('createdAt')
+        && request.resource.data.model == null
+        && request.resource.data.finishReason == null
+        && request.resource.data.inputTokenCount == null
+        && request.resource.data.outputTokenCount == null
+        && request.resource.data.schemaVersion == 1;
+    }
+
+    function validAssistantMessageCreate(conversationId) {
+      return ownsConversation(conversationId)
+        && hasRequired(['ownerUid', 'conversationId', 'role', 'text', 'createdAt', 'clientMessageId', 'thoughts', 'model', 'finishReason', 'inputTokenCount', 'outputTokenCount', 'schemaVersion'])
+        && hasOnly(['ownerUid', 'conversationId', 'role', 'text', 'createdAt', 'clientMessageId', 'thoughts', 'model', 'finishReason', 'inputTokenCount', 'outputTokenCount', 'schemaVersion'])
+        && isOwner(request.resource.data.ownerUid)
+        && request.resource.data.conversationId == conversationId
+        && request.resource.data.role == 'assistant'
+        && validString('text', 1, 20000)
+        && validString('clientMessageId', 1, 200)
+        && (request.resource.data.thoughts == null || validString('thoughts', 1, 20000))
+        && isOneOf('model', ['gemini-2.5-flash'])
+        && isServerTimestamp('createdAt')
+        && request.resource.data.schemaVersion == 1;
+    }
+
+    match /users/{uid} {
+      allow read: if isAuthenticated() && isOwner(uid);
+      allow create: if isAuthenticated() && isOwner(uid)
+        && request.resource.data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'createdAt', 'updatedAt', 'disabledAt'])
+        && request.resource.data.uid == uid
+        && isServerTimestamp('createdAt')
+        && isServerTimestamp('updatedAt');
+      allow update: if isAuthenticated() && isOwner(uid)
+        && onlyFieldsChanged(['displayName', 'photoURL', 'updatedAt'])
+        && request.resource.data.uid == resource.data.uid
+        && isServerTimestamp('updatedAt');
+      // The owner may store their own Cloud Messaging registration token so the
+      // notify trigger can read it via the admin SDK. Scoped to `fcmToken` only.
+      allow update: if isAuthenticated() && isOwner(uid)
+        && onlyFieldsChanged(['fcmToken'])
+        && validString('fcmToken', 1, 4096);
+      allow delete: if false;
+    }
+
+    match /conversations/{conversationId} {
+      // The owner equality must stay explicit so Firestore can prove the
+      // owner-scoped query is safe; Rules are not filters.
+      allow list: if isAuthenticated() && request.auth.uid == resource.data.ownerUid && request.query.limit <= 100;
+      allow get: if isAuthenticated() && isOwner(resource.data.ownerUid);
+      allow create: if validConversationCreate();
+      allow update: if isAuthenticated()
+        && isOwner(resource.data.ownerUid)
+        && immutableFields(['ownerUid', 'createdAt', 'messageCount', 'attachmentCount', 'schemaVersion'])
+        && onlyFieldsChanged(['title', 'updatedAt', 'lastMessageAt', 'archivedAt'])
+        && isServerTimestamp('updatedAt');
+      allow delete: if isAuthenticated() && isOwner(resource.data.ownerUid);
+
+      match /messages/{messageId} {
+        allow list: if isAuthenticated() && request.auth.uid == resource.data.ownerUid && request.query.limit <= 100;
+        allow get: if ownsConversation(conversationId) && isOwner(resource.data.ownerUid);
+        allow create: if validUserMessageCreate(conversationId) || validAssistantMessageCreate(conversationId);
+        allow update: if false;
+        allow delete: if ownsConversation(conversationId) && isOwner(resource.data.ownerUid);
+      }
+
+      match /attachments/{attachmentId} {
+        allow list: if ownsConversation(conversationId) && isOwner(resource.data.ownerUid) && request.query.limit <= 100;
+        allow get: if ownsConversation(conversationId) && isOwner(resource.data.ownerUid);
+        allow create: if ownsConversation(conversationId)
+          && request.resource.data.keys().hasOnly(['ownerUid', 'conversationId', 'storagePath', 'fileName', 'contentType', 'sizeBytes', 'generation', 'createdAt', 'status', 'schemaVersion'])
+          && isOwner(request.resource.data.ownerUid)
+          && request.resource.data.conversationId == conversationId
+          && request.resource.data.status == 'uploading'
+          && request.resource.data.schemaVersion == 1
+          && isServerTimestamp('createdAt');
+        allow update: if ownsConversation(conversationId)
+          && isOwner(resource.data.ownerUid)
+          && resource.data.status == 'uploading'
+          && request.resource.data.status == 'ready'
+          && onlyFieldsChanged(['status', 'generation']);
+        allow delete: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
