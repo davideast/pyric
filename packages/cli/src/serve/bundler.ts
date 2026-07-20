@@ -390,7 +390,7 @@ const WORKER_EPOCH_PLACEHOLDER = 'PYRIC_EPOCH_HERE';
 const WORKER_EPOCH_FILE = '.worker-epoch';
 
 /** Read the executable epoch written alongside a completed worker bundle. */
-export function workerBundleEpoch(outDir: string): string {
+function readWorkerBundleEpoch(outDir: string): string {
   const epoch = readFileSync(join(outDir, WORKER_EPOCH_FILE), 'utf8').trim();
   if (!/^[a-f0-9]{16}$/.test(epoch)) {
     throw new Error(`pyric dev: invalid SharedWorker epoch in ${join(outDir, WORKER_EPOCH_FILE)}`);
@@ -403,7 +403,7 @@ export function workerBundleEpoch(outDir: string): string {
  * (keyed by SDK entries), which does not cover its host graph, so this broad
  * source-tree hash decides when esbuild must run again. It is intentionally NOT
  * the user-facing worker epoch: unrelated CLI changes may invalidate this cache,
- * while {@link workerBundleEpoch} is derived from the executable output and only
+ * while the epoch returned by {@link bundleWorker} is derived from the executable output and only
  * then decides whether a running SharedWorker needs replacement.
  */
 export function workerSourceHash(
@@ -462,7 +462,12 @@ export function sourceTreeHash(root: string): string {
  * or protocol edit therefore invalidates the shared SDK generation too, so
  * the page and worker halves cannot come from different source generations.
  */
-export async function bundleWorker(opts: WorkerBundleOptions): Promise<string> {
+export interface WorkerBundleResult {
+  outFile: string;
+  epoch: string;
+}
+
+export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBundleResult> {
   const outFile = join(opts.outDir, 'worker.js');
   const marker = join(opts.outDir, '.worker-complete');
   const hash = workerSourceHash();
@@ -473,7 +478,7 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<string> {
     existsSync(join(opts.outDir, WORKER_EPOCH_FILE)) &&
     readFileSync(marker, 'utf8') === hash
   ) {
-    return outFile;
+    return { outFile, epoch: readWorkerBundleEpoch(opts.outDir) };
   }
 
   mkdirSync(opts.outDir, { recursive: true });
@@ -510,5 +515,5 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<string> {
   writeFileSync(outFile, canonicalSource.replaceAll(WORKER_EPOCH_PLACEHOLDER, epoch));
   writeFileSync(join(opts.outDir, WORKER_EPOCH_FILE), epoch);
   writeFileSync(marker, hash);
-  return outFile;
+  return { outFile, epoch };
 }

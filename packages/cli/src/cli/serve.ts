@@ -14,7 +14,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolveStudioUiDir, workerBundleEpoch } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolveStudioUiDir } from '../serve/bundler.js';
 import {
   isStandalone,
   materializeDocsUi,
@@ -335,12 +335,12 @@ export async function startServe(opts: {
     // fall back to the in-page sandbox. Built alongside the SDK so a warm
     // start skips both.
     try {
-      await bundleWorker({ outDir: bundle.outDir, noCache: opts.noCache });
+      const worker = await bundleWorker({ outDir: bundle.outDir, noCache: opts.noCache });
+      workerVersion = worker.epoch;
     } catch (error) {
       bundle.dispose?.();
       throw error;
     }
-    workerVersion = workerBundleEpoch(bundle.outDir);
   }
   const bundleMs = Math.round(performance.now() - t0);
 

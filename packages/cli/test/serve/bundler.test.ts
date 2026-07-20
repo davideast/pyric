@@ -13,7 +13,6 @@ import {
   resolveDocsUiDir,
   sourceTreeHash,
   workerEntryPath,
-  workerBundleEpoch,
   workerSourceHash,
 } from '../../src/serve/bundler.js';
 
@@ -452,7 +451,7 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
 
   it('bundles the real worker entry as a classic-worker iife; marker caches', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-worker-bundle-'));
-    const file = await bundleWorker({ outDir: dir, noCache: true, minify: false });
+    const { outFile: file } = await bundleWorker({ outDir: dir, noCache: true, minify: false });
     expect(file.endsWith('/worker.js')).toBe(true);
     const src = readFileSync(file, 'utf8');
 
@@ -476,7 +475,7 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
 
     // Marker cache: a second call without noCache returns the same file fast.
     const again = await bundleWorker({ outDir: dir });
-    expect(again).toBe(file);
+    expect(again.outFile).toBe(file);
   }, 30_000);
 
   it('derives the worker epoch from executable output, not unrelated files', async () => {
@@ -487,14 +486,13 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
     writeFileSync(unrelated, 'export const chip = 1;');
 
     const firstDir = join(root, 'first');
-    await bundleWorker({ outDir: firstDir, noCache: true, entryPath: entry });
-    const first = workerBundleEpoch(firstDir);
+    const first = await bundleWorker({ outDir: firstDir, noCache: true, entryPath: entry });
 
     writeFileSync(unrelated, 'export const chip = 2;');
     const secondDir = join(root, 'second');
-    await bundleWorker({ outDir: secondDir, noCache: true, entryPath: entry });
+    const second = await bundleWorker({ outDir: secondDir, noCache: true, entryPath: entry });
 
-    expect(workerBundleEpoch(secondDir)).toBe(first);
-    expect(readFileSync(join(firstDir, 'worker.js'), 'utf8')).toContain(first);
+    expect(second.epoch).toBe(first.epoch);
+    expect(readFileSync(join(firstDir, 'worker.js'), 'utf8')).toContain(first.epoch);
   }, 30_000);
 });
