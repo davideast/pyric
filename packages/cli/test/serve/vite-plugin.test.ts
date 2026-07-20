@@ -6,9 +6,10 @@
  *  header for why). The full browser e2e lives in the M1 spike (plans/pyric-vite-plugin.md section 7b). */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import path, { join } from 'node:path';
-import { Writable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
+import type { ConfigEnv } from 'vite';
 import { pyric, engineConfigToWire } from '../../src/serve/vite-plugin.js';
 import {
   SDK_MODULES,
@@ -80,6 +81,15 @@ describe('pyric — plugin shape', () => {
       kind: 'scripted',
       script: [{ respond: { text: 'hi' } }],
     });
+  });
+
+  it('rejects configuring both ai.model and ai.engine', () => {
+    expect(() => pyric({
+      ai: {
+        model: 'qwen3:4b',
+        engine: { kind: 'scripted' },
+      },
+    })).toThrow('Choose either ai.model or ai.engine');
   });
 
   it('sandbox build: transformIndexHtml stamps ONLY the marker (no init/@fs, no force-in-page)', () => {
@@ -318,6 +328,11 @@ type PyricMiddleware = (req: PyricReq, res: MockRes, next: () => void) => void;
  *  namespace mount — minus a real http server. */
 async function bootPlugin(opts: Record<string, unknown>, root: string): Promise<PyricMiddleware> {
   let handler: PyricMiddleware | undefined;
+  const instance = pyric(opts);
+  (instance.config as (config: unknown, env: ConfigEnv) => unknown)(
+    { root },
+    { command: 'serve', mode: 'development' },
+  );
   const stub = {
     config: { root, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
     middlewares: { use(p: string, h: PyricMiddleware) { if (p === '/__pyric') handler = h; } },
@@ -327,7 +342,7 @@ async function bootPlugin(opts: Record<string, unknown>, root: string): Promise<
     // port; `on` is a no-op here (the attachUpgrade spy test uses its own stub).
     httpServer: { address: () => ({ port: 5173 }), on() {}, once() {} },
   };
-  await (pyric(opts).configureServer as (s: unknown) => Promise<void>)(stub);
+  await (instance.configureServer as (s: unknown) => Promise<void>)(stub);
   if (!handler) throw new Error('plugin did not mount the /__pyric middleware');
   return handler;
 }
@@ -335,14 +350,14 @@ async function bootPlugin(opts: Record<string, unknown>, root: string): Promise<
  *  passes through (next()). Returns the recorded response + whether it next()ed. */
 async function callPyric(
   handler: PyricMiddleware,
-  opts: { method?: string; path: string; host?: string; headers?: Record<string, string> },
+  opts: { method?: string; path: string; host?: string; headers?: Record<string, string>; body?: string },
 ): Promise<{ statusCode: number; headers: Record<string, unknown>; body: string; nexted: boolean }> {
-  const req: PyricReq = {
+  const req = Object.assign(Readable.from(opts.body === undefined ? [] : [Buffer.from(opts.body)]), {
     method: opts.method ?? 'GET',
     url: opts.path,
     originalUrl: opts.path,
     headers: { host: opts.host ?? 'localhost', ...(opts.headers ?? {}) },
-  };
+  }) as unknown as PyricReq;
   const res = new MockRes();
   let nexted = false;
   await new Promise<void>((resolve, reject) => {
@@ -380,6 +395,26 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     expect((await initJson(await bootPlugin({}, tmp))).rules).toBeNull();
   });
 
+  it('prefers authored firestore.modules.rules over firebase.json generated rules', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-module-rules-'));
+    writeFileSync(path.join(tmp, 'firebase.json'), JSON.stringify({
+      firestore: { rules: 'firestore.rules' },
+    }));
+    writeFileSync(
+      path.join(tmp, 'firestore.rules'),
+      RULES.replace('allow read: if true', 'allow read: if false'),
+    );
+    writeFileSync(
+      path.join(tmp, 'firestore.modules.rules'),
+      RULES.replace("rules_version = '2'", "rules_version = '2+modules'"),
+    );
+
+    const init = await initJson(await bootPlugin({}, tmp));
+
+    expect(init.rules).toContain('allow read: if true');
+    expect(init.rules).not.toContain('allow read: if false');
+  });
+
   it('carries the plugin AI engine into /__pyric/init.json (→ worker ctx.aiEngine)', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-ai-'));
     const init = await initJson(
@@ -389,6 +424,64 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
       ),
     );
     expect(init.ai).toEqual({ engine: { kind: 'openai', baseUrl: '/__pyric/ai-proxy', model: 'llama3.2' } });
+  });
+
+  it('uses PYRIC_AI_MODEL from Vite env as the openai catch-all model', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-ai-env-'));
+    writeFileSync(path.join(tmp, '.env.local'), 'PYRIC_AI_MODEL=qwen3:4b\n');
+
+    const init = await initJson(await bootPlugin({}, tmp));
+
+    expect(init.ai).toEqual({
+      engine: {
+        kind: 'openai',
+        baseUrl: '/__pyric/ai-proxy',
+        model: 'qwen3:4b',
+      },
+    });
+  });
+
+  it('uses PYRIC_AI_PROXY_UPSTREAM from Vite env as the server-side proxy destination', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-ai-upstream-env-'));
+    writeFileSync(
+      path.join(tmp, '.env.local'),
+      'PYRIC_AI_MODEL=qwen3:4b\nPYRIC_AI_PROXY_UPSTREAM=http://model.test:8080/v1\n',
+    );
+    const handler = await bootPlugin({}, tmp);
+    const originalFetch = globalThis.fetch;
+    let target = '';
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      target = String(input);
+      return Response.json({ choices: [] });
+    }) as typeof fetch;
+    try {
+      const response = await callPyric(handler, {
+        method: 'POST',
+        path: '/__pyric/ai-proxy/chat/completions',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(target).toBe('http://model.test:8080/v1/chat/completions');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('accepts ai.model as the simple explicit openai configuration', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-ai-model-'));
+
+    const init = await initJson(
+      await bootPlugin({ ai: { model: 'llama3.2' } }, tmp),
+    );
+
+    expect(init.ai).toEqual({
+      engine: {
+        kind: 'openai',
+        baseUrl: '/__pyric/ai-proxy',
+        model: 'llama3.2',
+      },
+    });
   });
 
   it('serves ai: null in init.json when no plugin engine is configured', async () => {

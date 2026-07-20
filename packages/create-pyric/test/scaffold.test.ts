@@ -159,7 +159,12 @@ describe('runScaffold', () => {
       expect(readFileSync(join(project, '.gitignore'), 'utf8')).toContain('node_modules/');
       expect(readdirSync(project)).not.toContain('scaffold.json');
       expect(readdirSync(project)).not.toContain('bun.lock');
-      expect(readFileSync(join(project, 'vite.config.ts'), 'utf8')).not.toContain('node_modules/');
+      const viteConfig = readFileSync(join(project, 'vite.config.ts'), 'utf8');
+      expect(viteConfig).not.toContain('node_modules/');
+      expect(viteConfig).toContain('pyric()');
+      expect(viteConfig).not.toContain('loadEnv');
+      expect(viteConfig).not.toContain('bridge: true');
+      expect(viteConfig).not.toContain('modelMap');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -170,7 +175,7 @@ describe('runScaffold', () => {
     const manifest = JSON.parse(readFileSync(join(root, 'scaffold.json'), 'utf8')) as {
       include: string[];
     };
-    const runtimeEntries = new Set(['.agents', '.codex', '.npmignore', 'dist', 'node_modules']);
+    const runtimeEntries = new Set(['.agents', '.codex', '.npmignore', '.pyric', 'dist', 'node_modules']);
     expect(readdirSync(root).filter((entry) => !runtimeEntries.has(entry)).sort()).toEqual(
       [...manifest.include, 'package.json', 'scaffold.json'].sort(),
     );

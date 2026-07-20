@@ -44,7 +44,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
-import type { Plugin, UserConfig, ConfigEnv } from 'vite';
+import { loadEnv, type Plugin, type UserConfig, type ConfigEnv } from 'vite';
 import type { Plugin as EsbuildPlugin } from 'esbuild';
 import {
   SDK_MODULES,
@@ -159,8 +159,9 @@ function packageRootOf(file: string): string {
 }
 
 export interface PyricOptions {
-  /** firestore.rules path (relative to `root`). Default: `firebase.json`'s
-   *  `firestore.rules`, else `firestore.rules` in the project root. */
+  /** Firestore rules path (relative to `root`). Default discovery prefers an
+   *  authored `firestore.modules.rules`, then `firebase.json`, then
+   *  `firestore.rules` in the project root. */
   rules?: string;
   /** Project dir for `firebase.json` / rules discovery. Default: Vite's `root`. */
   root?: string;
@@ -229,11 +230,14 @@ export interface PyricOptions {
    *
    *   pyric({
    *     ai: {
-   *       engine: { kind: 'openai', model: 'llama3.2', baseUrl: '/__pyric/ai-proxy' },
+   *       model: 'llama3.2',
    *       proxyUpstream: 'http://localhost:11434/v1', // your Ollama
    *     },
    *   })
    *
+   * - `model` is the simple OpenAI-compatible path. It uses the same-origin
+   *   proxy and becomes the catch-all upstream model. `PYRIC_AI_MODEL` selects
+   *   the same path when neither `model` nor `engine` is explicit.
    * - `engine` is `pyric/ai`'s `EngineConfig` (scripted | openai), applied on
    *   both the SharedWorker and in-page paths. An openai `baseUrl` of
    *   `/__pyric/ai-proxy` (or omitted) routes through the same-origin proxy so a
@@ -241,13 +245,14 @@ export interface PyricOptions {
    * - `proxyUpstream` sets what `/__pyric/ai-proxy` forwards to (beats the
    *   `PYRIC_AI_PROXY_UPSTREAM` env var; default `http://localhost:11434/v1`).
    *
-   * Precedence: a plugin-level `engine`, when set, always wins over an engine an
-   * app's own `getAI()` passes (host-side via `ctx.aiEngine` on the worker path,
-   * page-side via an injected global on the in-page fallback); with no plugin
-   * engine the first `getAI()` call's engine is honored (first-call-wins), and
-   * with neither the zero-config scripted default applies.
+   * Precedence: explicit `engine` or `model`, then `PYRIC_AI_MODEL`, then an
+   * engine passed by the app's first `getAI()` call; with none, the zero-config
+   * scripted default applies. `model` and `engine` are mutually exclusive.
    */
   ai?: {
+    /** Simple OpenAI-compatible model selection. Uses Pyric's same-origin AI
+     * proxy and treats this model as the catch-all for Firebase model ids. */
+    model?: string;
     /** Engine config (scripted | openai). Custom `AnswerEngine` objects are not
      *  supported at the plugin level — they can't cross to the worker/page. */
     engine?: PyricAiEngineConfig;
@@ -264,6 +269,9 @@ export interface PyricOptions {
  *   export default defineConfig({ plugins: [pyric()] });
  */
 export function pyric(options: PyricOptions = {}): Plugin {
+  if (options.ai?.model !== undefined && options.ai.engine !== undefined) {
+    throw new Error('@pyric/cli/vite: Choose either ai.model or ai.engine, not both.');
+  }
   // Resolved once. `defaultSdkEntries()` prefers compiled dist `.js` and falls
   // back to source `.ts` in the workspace.
   const entries = defaultSdkEntries(); // { app, auth, firestore, init } → abs paths
@@ -364,11 +372,20 @@ export function pyric(options: PyricOptions = {}): Plugin {
   // so multi-tab is disabled under bridge to keep agent + app on one backend.
   const bridgeOpts = options.bridge === true ? {} : options.bridge || null;
 
-  // Plugin-level AI engine, normalized once to the JSON-safe wire shape. Travels
+  // Plugin-level AI engine, normalized to the JSON-safe wire shape. Travels
   // to the worker host via the init payload (→ ctx.aiEngine) AND to the in-page
-  // fallback via an injected synchronous global (see transformIndexHtml). Undefined
-  // when the `ai.engine` option is unset.
-  const aiEngineWire = options.ai?.engine ? engineConfigToWire(options.ai.engine) : undefined;
+  // fallback via an injected synchronous global (see transformIndexHtml).
+  // An explicit engine is available immediately (some hook tests call the HTML
+  // transform directly); Vite's config hook may otherwise select the simple
+  // PYRIC_AI_MODEL environment path for the active mode/root.
+  const explicitModel = options.ai?.model?.trim();
+  const explicitAiEngineWire = options.ai?.engine
+    ? engineConfigToWire(options.ai.engine)
+    : explicitModel
+      ? engineConfigToWire({ kind: 'openai', baseUrl: AI_PROXY_PATH, model: explicitModel })
+      : undefined;
+  let aiEngineWire = explicitAiEngineWire;
+  let aiProxyUpstream = options.ai?.proxyUpstream?.trim() || undefined;
 
   return {
     name: 'pyric:sandbox',
@@ -386,6 +403,15 @@ export function pyric(options: PyricOptions = {}): Plugin {
 
     config(_config, env) {
       sandboxBuild = env.command === 'build';
+      const envRoot = options.root ?? _config.root ?? process.cwd();
+      const loadedEnv = loadEnv(env.mode, envRoot, '');
+      const model = loadedEnv.PYRIC_AI_MODEL?.trim();
+      aiEngineWire = explicitAiEngineWire ?? (model
+        ? engineConfigToWire({ kind: 'openai', baseUrl: AI_PROXY_PATH, model })
+        : undefined);
+      aiProxyUpstream = options.ai?.proxyUpstream?.trim()
+        || loadedEnv.PYRIC_AI_PROXY_UPSTREAM?.trim()
+        || undefined;
       // Cast: the `esbuild` package's `Plugin` type skews slightly from Vite's
       // bundled esbuild types (benign — the Plugin shape is stable across the
       // versions in range).
@@ -457,9 +483,14 @@ export function pyric(options: PyricOptions = {}): Plugin {
       } catch {
         /* optional — serve without a firebase.json */
       }
-      // Honor an explicit `rules` option by overriding the resolved config.
-      const config: FirebaseJson | null = options.rules
-        ? { ...(fbJson ?? {}), firestore: { ...(fbJson?.firestore ?? {}), rules: options.rules } }
+      // Convention-first development source: an explicit option wins; otherwise
+      // an authored 2+modules file wins over firebase.json's generated deployment
+      // target. Projects without that convention retain the normal Firebase
+      // discovery path.
+      const rulesSource = options.rules
+        ?? (existsSync(path.join(cwd, 'firestore.modules.rules')) ? 'firestore.modules.rules' : undefined);
+      const config: FirebaseJson | null = rulesSource
+        ? { ...(fbJson ?? {}), firestore: { ...(fbJson?.firestore ?? {}), rules: rulesSource } }
         : fbJson;
       const loaded = await loadProjectRules(cwd, config);
       const loadedDatabase = await loadProjectDatabaseRules(cwd, config);
@@ -668,7 +699,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         studioUiDir,
         // `ai.proxyUpstream`: what `/__pyric/ai-proxy` forwards to (beats the
         // PYRIC_AI_PROXY_UPSTREAM env var; falls back to the default when unset).
-        aiProxyUpstream: options.ai?.proxyUpstream,
+        aiProxyUpstream,
         // Adapt Vite's logger to the plain info/note shape the namespace's
         // diagnostics (denial relay, future hot-reload lines) expect —
         // matches the `↻`/`⚠ [pyric]` lines already logged elsewhere in this
