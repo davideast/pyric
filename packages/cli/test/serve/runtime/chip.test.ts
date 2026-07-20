@@ -12,6 +12,7 @@ const manifest: PyricRuntimeManifest = {
 function setup(options: {
   initiallyOpen?: boolean;
   clipboard?: Pick<Clipboard, 'writeText'> | null;
+  studioUrl?: string | null;
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
   const runtime = createPyricRuntimeStatus(manifest);
@@ -24,6 +25,7 @@ function setup(options: {
     document: dom.window.document,
     ...(clipboard ? { clipboard } : {}),
     ...(options.initiallyOpen === undefined ? {} : { initiallyOpen: options.initiallyOpen }),
+    ...('studioUrl' in options ? { studioUrl: options.studioUrl } : {}),
   });
   const root = chip.element.shadowRoot!;
   return { dom, runtime, chip, root, writeText };
@@ -51,6 +53,13 @@ describe('PyricRuntimeChip', () => {
 
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
     expect(root.querySelector<HTMLButtonElement>('[data-update-worker]')!.disabled).toBe(false);
+  });
+
+  it('keeps a disabled Studio action in place when Studio is unavailable', () => {
+    const { root } = setup({ initiallyOpen: true, studioUrl: null });
+    const studio = root.querySelector('[data-open-studio]');
+    expect(studio?.tagName).toBe('SPAN');
+    expect(studio?.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('moves focus with the compact and expanded controls', () => {

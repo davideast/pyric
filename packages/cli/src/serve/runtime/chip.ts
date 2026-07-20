@@ -9,6 +9,8 @@ export interface PyricRuntimeChipOptions {
   document?: Document;
   clipboard?: Pick<Clipboard, 'writeText'>;
   initiallyOpen?: boolean;
+  /** Override Studio availability. Omitted uses the runtime manifest URL. */
+  studioUrl?: string | null;
 }
 
 export interface PyricRuntimeChip {
@@ -161,6 +163,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const announcer = root.querySelector<HTMLElement>('.announcer')!;
   const clipboard = options.clipboard
     ?? documentLike.defaultView?.navigator.clipboard;
+  const studioUrl = 'studioUrl' in options
+    ? options.studioUrl
+    : options.runtime.getSnapshot().manifest.studioUrl;
   let open = options.initiallyOpen ?? false;
   let snapshot = options.runtime.getSnapshot();
 
@@ -204,7 +209,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
         <div class="actions">
           <button class="button update" type="button" data-update-worker ${snapshot.updateAvailable ? '' : 'disabled'} aria-disabled="${snapshot.updateAvailable && !snapshot.updatingWorker ? 'false' : 'true'}">${snapshot.updatingWorker ? 'Updating…' : 'Update worker'}</button>
-          <a class="button" data-open-studio href="${escapeAttribute(snapshot.manifest.studioUrl)}" target="_blank" rel="noopener noreferrer">Studio${icons.external}</a>
+          ${studioUrl
+            ? `<a class="button" data-open-studio href="${escapeAttribute(studioUrl)}" target="_blank" rel="noopener noreferrer">Studio${icons.external}</a>`
+            : `<span class="button" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio${icons.external}</span>`}
         </div>
       </section>
     ` : `
