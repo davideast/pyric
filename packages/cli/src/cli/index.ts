@@ -356,8 +356,8 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
   }
 }
 
-async function main(argv: string[]): Promise<number> {
-  const parsed = parseArgs(argv);
+async function main(): Promise<number> {
+  const parsed = parseArgs(process.argv.slice(2));
   return dispatch(parsed);
 }
 
@@ -393,8 +393,8 @@ export function isDirectRun(): boolean {
  * direct-run detection is structurally false there and the binary would
  * otherwise exit 0 silently.
  */
-export function runDirect(argv: string[] = process.argv.slice(2)): void {
-  main(argv).then(
+export function runDirect(): void {
+  main().then(
     (code) => exitAfterFlush(code),
     (err) => {
       process.stderr.write(

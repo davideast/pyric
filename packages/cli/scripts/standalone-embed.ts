@@ -58,9 +58,6 @@ export function generatedEntrySource(opts: {
     `  tarballs: () => import('./embedded-tarballs.js').then((m) => m.default),\n` +
     `};\n` +
     `const cli = await import(${JSON.stringify(opts.cliImportSpecifier)});\n` +
-    // Bun compiled binaries use [binary, ...userArgs], while the ordinary
-    // Node entry uses [runtime, script, ...userArgs]. Pass the compiled argv
-    // shape explicitly so the CLI does not discard its first argument.
-    `cli.runDirect(process.argv.slice(1));\n`
+    `cli.runDirect();\n`
   );
 }
