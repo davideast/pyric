@@ -124,6 +124,7 @@ pack_one() {
       "$tmp/package/package.json" "$ROOT"
     (cd "$tmp" && tar -czf "$full" package)
   fi
+  node "$ROOT/scripts/lib/verify-published-sourcemaps.mjs" "$tmp/package"
   rm -rf "$tmp"
 
   # Verification: the published tarball MUST NOT contain workspace: deps.
@@ -259,6 +260,7 @@ cat > package.json <<JSON
     "@pyric/ui": "file:${TARBALL_UI}",
     "firebase": "^12.12.0",
     "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0",
     "vite": "^5.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -596,6 +598,19 @@ if grep -R -qE '@inbrowser-(workspace|resumable|firebase)-|node_modules/@inbrows
   exit 1
 fi
 echo "  ✓ create-pyric scaffolds the portable chat app"
+
+# Execute the unchanged Functions module through the same packed register
+# loader that the Vite plugin injects into its child. The chat template imports
+# firebase-admin/messaging, so this catches a packed pyric-admin manifest that
+# strips the mapped pyric-admin/messaging subpath even when workspace tests pass.
+ln -s "$WORK/consumer/node_modules" "$CREATE_CHAT_OUT/node_modules"
+(
+  cd "$CREATE_CHAT_OUT"
+  PYRIC_SANDBOX="remote:http://127.0.0.1:1" \
+    NODE_OPTIONS="--import @pyric/cli/register" \
+    node functions/index.js
+)
+echo "  ✓ packed chat Functions module boots through @pyric/cli/register"
 
 # ─── Phase 5.5: serve smoke (init + serve from the packed bin) ─────────
 # The subpath + bin checks above prove imports resolve, but they never boot

@@ -77,7 +77,7 @@ service and sandbox fronts.
 
 ### `pyric-admin`
 
-`pyric-admin/{app,auth,firestore,database,storage}` provides Admin-shaped
+`pyric-admin/{app,auth,firestore,database,storage,messaging}` provides Admin-shaped
 handles for the sandbox. Production server code should import
 `firebase-admin/*` directly. During activated development, the CLI resolver can
 map those canonical imports to the sandbox mirrors without changing source.
