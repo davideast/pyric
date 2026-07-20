@@ -378,6 +378,28 @@ describe('applyServeInit — capture (the verify loop)', () => {
     await tick(20);
     expect(fetchSpy.calls.length).toBe(0);
   });
+
+  it('exposes an immediate capture flush that resolves only after its POST settles', async () => {
+    const ctx = await makeCtx();
+    let resolvePost!: (response: Response) => void;
+    const pendingFetch = (() => new Promise<Response>((resolve) => {
+      resolvePost = resolve;
+    })) as typeof fetch;
+    applyServeInit(
+      ctx,
+      { ...basePayload, capture: true },
+      { fetch: pendingFetch, captureDebounceMs: 5 },
+    );
+
+    let settled = false;
+    const flushing = ctx.captureFlush!().then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolvePost({ ok: true, status: 204 } as Response);
+    await flushing;
+    expect(settled).toBe(true);
+  });
 });
 
 describe('setupWorkerHotReload — the worker owns the single SSE', () => {

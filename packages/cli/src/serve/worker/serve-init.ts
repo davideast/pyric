@@ -263,7 +263,7 @@ export function applyServeInit(
     const debounceMs = payload.capture ? (env.captureDebounceMs ?? 400) : 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const flush = (): void => {
+    const flush = async (): Promise<void> => {
       const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
       const rtdbState =
         payload.databaseRules || ctx.sandbox.history().some((event) => event.service === 'rtdb')
@@ -286,8 +286,7 @@ export function applyServeInit(
       }));
       // Relative URL resolves against the worker script's origin (same origin
       // as the page). Fire-and-forget — capture failures never break ops.
-      env
-        .fetch('/__pyric/capture', {
+      await env.fetch('/__pyric/capture', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body,
@@ -297,7 +296,7 @@ export function applyServeInit(
 
     const unsub = ctx.sandbox.onEvent(() => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(flush, debounceMs);
+      timer = setTimeout(() => { void flush(); }, debounceMs);
     });
 
     result.captureEnabled = true;
@@ -308,12 +307,12 @@ export function applyServeInit(
     // the next boot's `hydrateEventHistory` would prime them straight back
     // into Traffic. Bypasses the debounce; cancels any pending flush (it
     // would only re-write the same post-reset history).
-    ctx.captureFlush = (): void => {
+    ctx.captureFlush = async (): Promise<void> => {
       if (timer) {
         clearTimeout(timer);
         timer = null;
       }
-      flush();
+      await flush();
     };
     result.dispose = (): void => {
       if (timer) clearTimeout(timer);

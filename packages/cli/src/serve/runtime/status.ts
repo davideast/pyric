@@ -23,6 +23,7 @@ export interface PyricRuntimeSnapshot {
   servedEpoch: string | null;
   runningEpoch: string | null;
   updateAvailable: boolean;
+  updatingWorker: boolean;
   errors: readonly PyricRuntimeError[];
 }
 
@@ -30,6 +31,8 @@ export interface PyricRuntimeStatus {
   getSnapshot(): PyricRuntimeSnapshot;
   subscribe(listener: (snapshot: PyricRuntimeSnapshot) => void): () => void;
   setWorker(input: { mode: Exclude<PyricRuntimeMode, 'starting'>; runningEpoch?: string | null }): void;
+  setWorkerUpdater(update: (() => Promise<void>) | null): void;
+  updateWorker(): Promise<void>;
   reportError(error: unknown, source: PyricRuntimeErrorSource): void;
   recordSandboxEvents(events: readonly SandboxEvent[]): void;
   clearErrors(): void;
@@ -128,8 +131,10 @@ export function createPyricRuntimeStatus(
     servedEpoch: manifest.worker.servedEpoch,
     runningEpoch: null,
     updateAvailable: false,
+    updatingWorker: false,
     errors: [],
   };
+  let workerUpdater: (() => Promise<void>) | null = null;
 
   const publish = (next: PyricRuntimeSnapshot): void => {
     snapshot = next;
@@ -164,7 +169,24 @@ export function createPyricRuntimeStatus(
           && runningEpoch !== 'dev'
           && servedEpoch !== runningEpoch,
         ),
+        updatingWorker: false,
       });
+    },
+    setWorkerUpdater(update) {
+      workerUpdater = update;
+    },
+    async updateWorker() {
+      if (!snapshot.updateAvailable || snapshot.updatingWorker || !workerUpdater) {
+        throw new Error('No Pyric worker update is available.');
+      }
+      publish({ ...snapshot, updatingWorker: true });
+      try {
+        await workerUpdater();
+      } catch (error) {
+        publish({ ...snapshot, updatingWorker: false });
+        appendError(normalizePyricRuntimeError(error, 'worker'));
+        throw error;
+      }
     },
     reportError(error, source) {
       appendError(normalizePyricRuntimeError(error, source));

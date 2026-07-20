@@ -483,6 +483,7 @@ export type OpMessage = (
   // Staleness guard: report the worker's baked build version so the page can
   // warn when a still-running OLD worker serves code older than what's served.
   | { t: 'op'; id: string; method: 'getRuntimeEpoch' }
+  | { t: 'op'; id: string; method: 'retireRuntime'; targetEpoch: string }
   | { t: 'op'; id: string; method: 'getVersion' }
   // ── Phase 2 (transfer): export/import the FULL sandbox state as a bundle
   // string (the chunk format the persist layer uses). importState CLOBBERS. ──
@@ -915,7 +916,17 @@ export interface EventStreamMessage {
   events: readonly SandboxEvent[];
 }
 
-export type OutboundMessage = ResMessage | SnapMessage | EventStreamMessage;
+/** The retiring worker tells every connected page to reload after it drains. */
+export interface RuntimeReloadMessage {
+  t: 'runtime-reload';
+  epoch: string;
+}
+
+export type OutboundMessage =
+  | ResMessage
+  | SnapMessage
+  | EventStreamMessage
+  | RuntimeReloadMessage;
 
 // ─── Serialized document data ─────────────────────────────────────────────
 

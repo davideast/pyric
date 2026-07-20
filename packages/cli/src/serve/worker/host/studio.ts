@@ -60,7 +60,7 @@ export async function handleStudioOp(
         // reset just emptied `sandbox.history()`, and waiting out the
         // capture debounce leaves a window where a worker death resurrects
         // the wiped session's events on the next boot.
-        ctx.captureFlush?.();
+        await ctx.captureFlush?.();
         ok(port, msg.id, { errors });
       } catch (e) {
         fail(port, msg.id, e instanceof Error ? e : new Error(String(e)));

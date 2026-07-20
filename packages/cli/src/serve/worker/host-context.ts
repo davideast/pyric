@@ -169,7 +169,7 @@ export interface HostCtx {
    * worker would otherwise re-prime via `hydrateEventHistory` (issue #359
    * extension). Absent when capture is off.
    */
-  captureFlush?: () => void;
+  captureFlush?: () => Promise<void>;
   /**
    * Per-uid impersonation Firestore handles (Pyric Studio auth lens, T2).
    * Keyed by the impersonated uid. Each is a FROZEN-identity
