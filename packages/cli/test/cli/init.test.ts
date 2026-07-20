@@ -215,6 +215,34 @@ describe('pyric init v2 — static template (serve-era, no bundler)', () => {
   });
 });
 
+describe('pyric init v2 — chat template', () => {
+  it('scaffolds the full app from the packaged source tree', async () => {
+    const dir = tmp();
+    const c = capture();
+    expect(
+      await runInit(
+        args([], { template: 'chat', name: 'idea-room', json: true }),
+        c.deps(dir),
+      ),
+    ).toBe(0);
+    const result = JSON.parse(c.out()) as InitResult;
+    expect(result.template).toBe('chat');
+    for (const file of [
+      'src/ui/chat/chat-page.tsx',
+      'src/firebase-messaging-sw.ts',
+      'functions/index.js',
+      'firestore.modules.rules',
+      'test/preview-component-state.test.js',
+    ]) {
+      expect(existsSync(join(dir, file))).toBe(true);
+    }
+    expect(readFileSync(join(dir, 'README.md'), 'utf8')).toContain('# idea-room');
+    expect(readFileSync(join(dir, 'vite.config.ts'), 'utf8')).not.toContain('node_modules/');
+    expect(existsSync(join(dir, 'bun.lock'))).toBe(false);
+    expect(existsSync(join(dir, '.pyric'))).toBe(false);
+  });
+});
+
 describe('pyric init v2 — CLI surface', () => {
   it('[dir] positional creates the directory; --name overrides', async () => {
     const root = tmp();
@@ -255,7 +283,7 @@ describe('pyric init v2 — CLI surface', () => {
     const c = capture();
     expect(await runInit(args([], { template: 'angularjs' }), c.deps(dir))).toBe(1);
     expect(c.err()).toContain("unknown template 'angularjs'");
-    expect(c.err()).toContain('web|node|static');
+    expect(c.err()).toContain('web|node|static|chat');
     expect(existsSync(join(dir, 'package.json'))).toBe(false);
   });
 
@@ -314,7 +342,7 @@ describe('pyric init v2 — CLI surface', () => {
 });
 
 describe('pyric init v2 — production handoff', () => {
-  for (const template of ['web', 'node', 'static'] as const) {
+  for (const template of ['web', 'node', 'static', 'chat'] as const) {
     it(`${template} delegates production deployment to firebase-tools`, async () => {
       const dir = tmp();
       expect(

@@ -16,6 +16,17 @@
  * the production command.
  */
 
+import { lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export const TEMPLATE_NAMES = ['web', 'node', 'static', 'chat'] as const;
+export type TemplateName = (typeof TEMPLATE_NAMES)[number];
+
+export function isTemplateName(value: string): value is TemplateName {
+  return (TEMPLATE_NAMES as readonly string[]).includes(value);
+}
+
 export interface ScaffoldTemplate {
   /** package.json pieces merged into existing files / written into new ones. */
   scripts: Record<string, string>;
@@ -30,6 +41,109 @@ export interface ScaffoldTemplate {
   files(name: string): Array<{ name: string; content: string }>;
   /** Literal commands for the report / `--json` consumers. */
   nextSteps: string[];
+}
+
+interface AssetManifest {
+  include: string[];
+}
+
+interface AssetFile {
+  name: string;
+  content: string;
+}
+
+const ASSET_IGNORES = new Set([
+  '.agents',
+  '.codex',
+  '.env',
+  '.env.local',
+  '.git',
+  '.pyric',
+  'bun.lock',
+  'dist',
+  'node_modules',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'test-results',
+  'yarn.lock',
+]);
+
+/** Load one allowlisted packaged tree; the runnable tree is the scaffold source. */
+export function loadAssetTemplate(templateName: string, templateRoot?: string): {
+  packageJson: {
+    scripts: Record<string, string>;
+    dependencies: Record<string, string>;
+    devDependencies: Record<string, string>;
+    overrides?: Record<string, string>;
+  };
+  dirs: string[];
+  files: AssetFile[];
+} {
+  const root = resolve(
+    templateRoot ?? fileURLToPath(new URL(`../templates/${templateName}/`, import.meta.url)),
+  );
+  const manifest = JSON.parse(readFileSync(resolve(root, 'scaffold.json'), 'utf8')) as AssetManifest;
+  const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+    dependencies: Record<string, string>;
+    devDependencies: Record<string, string>;
+    overrides?: Record<string, string>;
+  };
+  if (!Array.isArray(manifest.include) || manifest.include.length === 0) {
+    throw new Error(`create-pyric: template '${templateName}' has no scaffold include list`);
+  }
+
+  const files: AssetFile[] = [];
+  const seenFiles = new Set<string>();
+  const dirs = new Set<string>();
+  const walk = (absolute: string): void => {
+    if (ASSET_IGNORES.has(basename(absolute))) return;
+    const stat = lstatSync(absolute);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`create-pyric: template '${templateName}' contains a symlink: ${absolute}`);
+    }
+    if (stat.isDirectory()) {
+      for (const entry of readdirSync(absolute).sort()) walk(resolve(absolute, entry));
+      return;
+    }
+    if (!stat.isFile()) {
+      throw new Error(
+        `create-pyric: template '${templateName}' contains a non-file asset: ${absolute}`,
+      );
+    }
+    const rawRelative = relative(root, absolute).split(sep).join('/');
+    const name = rawRelative === 'gitignore' ? '.gitignore' : rawRelative;
+    if (seenFiles.has(name)) {
+      throw new Error(`create-pyric: template '${templateName}' includes '${name}' more than once`);
+    }
+    seenFiles.add(name);
+    const bytes = readFileSync(absolute);
+    if (bytes.includes(0)) {
+      throw new Error(
+        `create-pyric: template '${templateName}' contains a binary asset: ${rawRelative}`,
+      );
+    }
+    let parent = dirname(name).split(sep).join('/');
+    while (parent !== '.') {
+      dirs.add(parent);
+      parent = dirname(parent).split(sep).join('/');
+    }
+    files.push({ name, content: bytes.toString('utf8') });
+  };
+
+  for (const entry of manifest.include) {
+    if (!entry || isAbsolute(entry) || entry.split(/[\\/]/).includes('..')) {
+      throw new Error(`create-pyric: template '${templateName}' has unsafe include '${entry}'`);
+    }
+    const absolute = resolve(root, entry);
+    if (absolute !== root && !absolute.startsWith(root + sep)) {
+      throw new Error(`create-pyric: template '${templateName}' include escapes its root: '${entry}'`);
+    }
+    walk(absolute);
+  }
+
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  return { packageJson, dirs: [...dirs].sort(), files };
 }
 
 // ─── web template ─────────────────────────────────────────────────────
@@ -573,9 +687,11 @@ later releases. For a pre-built / no-build app, use \`pyric init --template stat
 + \`pyric dev\`.
 `;
 
+const chatAssets = loadAssetTemplate('chat');
+
 // ─── the registry ─────────────────────────────────────────────────────
 
-export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
+export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
   // web (default) — a Vite app on the @pyric/cli/vite plugin. `vite dev` runs
   // on the sandbox; `vite build` ships real firebase. One toolchain.
   web: {
@@ -653,5 +769,21 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
       { name: '.gitignore', content: GITIGNORE },
     ],
     nextSteps: ['bun install', 'bun run dev', 'bun run dev:agent  # agents: MCP at /__pyric/mcp'],
+  },
+  chat: {
+    scripts: chatAssets.packageJson.scripts,
+    dependencies: chatAssets.packageJson.dependencies,
+    devDependencies: chatAssets.packageJson.devDependencies,
+    ...(chatAssets.packageJson.overrides ? { overrides: chatAssets.packageJson.overrides } : {}),
+    dirs: chatAssets.dirs,
+    files: (name) => chatAssets.files.map((file) => ({
+      name: file.name,
+      content: file.content.replaceAll('__PYRIC_PROJECT_NAME__', name),
+    })),
+    nextSteps: [
+      'npm install       # or: bun install',
+      'npm run dev       # scripted local AI by default',
+      'npm run typecheck',
+    ],
   },
 };
