@@ -9,6 +9,15 @@ const messaging = getMessaging(app);
 const realmId = crypto.randomUUID();
 
 onBackgroundMessage(messaging, async (payload) => {
+  if (payload.notification) {
+    await self.registration.showNotification(
+      payload.notification.title ?? 'Pyric notification',
+      {
+        body: payload.notification.body,
+        tag: payload.messageId,
+      },
+    );
+  }
   const windows = await self.clients.matchAll({
     type: 'window',
     includeUncontrolled: true,
