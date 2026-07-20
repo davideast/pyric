@@ -10,7 +10,8 @@
  * the worker STORES real typed values (rules comparisons and `orderBy`
  * see a Timestamp, not a map). Read payloads arrive as the
  * `SerializedDocData` JSON envelope and are rehydrated with the ONE shared
- * codec (`pyric/firestore-values`' `rehydrateDocValue`) then translated to
+ * codec (`pyric/firestore/internal/value-codec`'s `rehydrateDocValue`) then
+ * translated to
  * the compat field shapes (`translateReadData`) — the same shapes the
  * local arm's read path yields.
  *
@@ -27,7 +28,7 @@
  * vocabulary in this system.
  */
 
-import { rehydrateDocValue } from 'pyric/firestore-values';
+import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
 import {
   Timestamp as CompatTimestamp,
   type DocumentData,

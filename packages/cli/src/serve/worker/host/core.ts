@@ -39,7 +39,7 @@ import {
   type CollectionReference,
   type Query,
 } from 'pyric/firestore';
-import { rehydrateDocValue } from 'pyric/firestore-values';
+import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
 import {
   getDatabase as pyricGetDatabase,
   getAdminDatabase as pyricGetAdminDatabase,

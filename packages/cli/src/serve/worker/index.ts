@@ -9,7 +9,8 @@
  *     the backend) — node/engine-heavy, never wanted in a page bundle.
  *   - `entry.ts` references `SharedWorkerGlobalScope` and is esbuild-only.
  *
- * `client.ts` imports only the value codec (`pyric/firestore-values`, a leaf)
+ * `client.ts` imports only the value codec
+ * (`pyric/firestore/internal/value-codec`, a leaf internal seam)
  * and type-only `pyric/sandbox` (erased at build), so this entry stays free of
  * the ~10 MB rules/sandbox engine — safe to import from any browser app.
  *

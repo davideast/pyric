@@ -2,15 +2,15 @@ import { describe, expect, it } from 'bun:test';
 import {
   registeredActivityValue,
   trustedWireActivityValue,
-} from '../../src/firestore/sandbox/activity-value-registry.js';
-import { rehydrateDocValue } from '../../src/firestore-values/index.js';
-import { Bytes } from '../../src/rules/simulator/wrappers/bytes.js';
-import { Duration } from '../../src/rules/simulator/wrappers/duration.js';
-import { LatLng } from '../../src/rules/simulator/wrappers/latlng.js';
-import { Path } from '../../src/rules/simulator/wrappers/path.js';
-import { Reference } from '../../src/rules/simulator/wrappers/reference.js';
-import { Timestamp } from '../../src/rules/simulator/wrappers/timestamp.js';
-import { Vector } from '../../src/rules/simulator/wrappers/vector.js';
+} from '../../../src/firestore/sandbox/activity-value-registry.js';
+import { rehydrateDocValue } from '../../../src/firestore/internal/value-codec.js';
+import { Bytes } from '../../../src/rules/simulator/wrappers/bytes.js';
+import { Duration } from '../../../src/rules/simulator/wrappers/duration.js';
+import { LatLng } from '../../../src/rules/simulator/wrappers/latlng.js';
+import { Path } from '../../../src/rules/simulator/wrappers/path.js';
+import { Reference } from '../../../src/rules/simulator/wrappers/reference.js';
+import { Timestamp } from '../../../src/rules/simulator/wrappers/timestamp.js';
+import { Vector } from '../../../src/rules/simulator/wrappers/vector.js';
 
 describe('rehydrateDocValue', () => {
   it('rehydrates every Pyric marker into its wrapper type', () => {
