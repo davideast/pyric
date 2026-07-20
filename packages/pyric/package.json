@@ -34,6 +34,10 @@
       "types": "./dist/firestore/internal/index.d.ts",
       "import": "./dist/firestore/internal/index.js"
     },
+    "./firestore/internal/value-codec": {
+      "types": "./dist/firestore/internal/value-codec.d.ts",
+      "import": "./dist/firestore/internal/value-codec.js"
+    },
     "./auth": {
       "types": "./dist/auth/index.d.ts",
       "import": "./dist/auth/index.js"
@@ -77,10 +81,6 @@
     "./rules": {
       "types": "./dist/rules/index.d.ts",
       "import": "./dist/rules/index.js"
-    },
-    "./firestore-values": {
-      "types": "./dist/firestore-values/index.d.ts",
-      "import": "./dist/firestore-values/index.js"
     },
     "./rules/internal": {
       "types": "./dist/rules/internal/index.d.ts",

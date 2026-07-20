@@ -15,7 +15,7 @@
  */
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
 // Import wrappers from the same src module graph that `serialize.ts` (also
-// imported from src below) pulls in via the leaf `firestore-values` codec. In
+// imported from src below) pulls in via the leaf Firestore value codec. In
 // this monorepo, `pyric/rules` resolves to the *built* dist copy, which is a
 // DISTINCT class identity from the src wrappers — mixing the two would break
 // the `instanceof` checks. Production code is all-dist, so identity holds

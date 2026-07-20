@@ -29,7 +29,7 @@ import {
   type DocumentReference,
   type SetOptions,
 } from 'pyric/firestore';
-import { rehydrateDocValue } from 'pyric/firestore-values';
+import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
 
 import type { OpMessage, WriteDescriptor, TxnReadEntry, SentinelMarker } from '../protocol.js';
 import { serializeDocData, isSentinelMarker } from '../protocol.js';
@@ -293,7 +293,8 @@ export async function handleFirestoreWriteOp(
        * validation re-read comes through the admin-compat wrapper whose
        * `Timestamp.toJSON()` emits `{ type, seconds, nanoseconds }` — same
        * value, different key order, different string. Rehydrating both
-       * sides through the ONE shared codec (`pyric/firestore-values`)
+       * sides through the ONE shared codec
+       * (`pyric/firestore/internal/value-codec`)
        * collapses every marker family into the same wrapper classes with
        * deterministic `toJSON()` key order, so string equality ↔ value
        * equality again — an unmodified doc can never phantom-abort (which

@@ -17,7 +17,6 @@ Rules tooling and explicit sandbox controls.
 | `pyric/database` | Realtime Database modular mirror |
 | `pyric/storage` | Storage modular mirror and rules-aware sandbox tools |
 | `pyric/rules` | Firestore and RTDB rules lint, simulation, explanation, constraints, and standard library |
-| `pyric/firestore-values` | Firestore value helpers |
 | `pyric/sandbox` | Sandbox lifecycle, identity, events, persistence, and replay |
 
 The package manifest is the authority for public exports, including the
