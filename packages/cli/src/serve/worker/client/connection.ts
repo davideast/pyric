@@ -75,7 +75,7 @@ export async function getWorkerVersion(
   const timeoutMs = options.timeoutMs ?? 2_000;
   const r = (await rpcWithTimeout(
     db.port,
-    { t: 'op', id, method: 'getVersion' },
+    { t: 'op', id, method: 'getRuntimeEpoch' },
     timeoutMs,
     `Timed out waiting for the Pyric SharedWorker version handshake after ${timeoutMs}ms.`,
   )) as { version: string };

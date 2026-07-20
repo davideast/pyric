@@ -48,7 +48,7 @@
  *
  * WHAT PROVES THE BUNDLE (not the source) IS UNDER TEST
  * ----------------------------------------------------
- * `getVersion` reports the build hash esbuild baked in via `define`. Imported
+ * `getRuntimeEpoch` reports the build hash esbuild baked in via `define`. Imported
  * from source that value is the literal `'dev'` (see host.test.ts). Asserting
  * it is a real hash — NOT `'dev'` — is what pins this test to the artifact.
  */
@@ -77,7 +77,7 @@ interface Realm {
  */
 async function bootBundledWorker(): Promise<Realm> {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-bundle-realm-'));
-  const file = await bundleWorker({ outDir: dir, noCache: true, minify: false });
+  const { outFile: file } = await bundleWorker({ outDir: dir, noCache: true, minify: false });
   const src = readFileSync(file, 'utf8');
 
   // The SharedWorkerGlobalScope the bundle installs its `onconnect` on.
@@ -170,8 +170,8 @@ describe('bundle realm — the shipped SharedWorker artifact executes', () => {
 
   afterAll(() => realm?.close());
 
-  it('boots, wires onconnect, and answers an op with the BAKED build hash', async () => {
-    const res = await sendOp(realm, { id: 'realm-version', method: 'getVersion' });
+  it('answers the BAKED epoch before the sandbox context has to initialize', async () => {
+    const res = await sendOp(realm, { id: 'realm-version', method: 'getRuntimeEpoch' });
     const value = okValue<{ version: string }>(res);
 
     // A real esbuild-injected hash — NOT the 'dev' the source-imported host

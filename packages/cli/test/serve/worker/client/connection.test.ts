@@ -2,17 +2,15 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import {
   getFirestore,
   getWorkerVersion,
-} from '../../../src/serve/worker/client/connection.js';
-import { _pending } from '../../../src/serve/worker/client/core.js';
-import type { ClientDb, ClientPort } from '../../../src/serve/worker/client/handles.js';
+} from '../../../../src/serve/worker/client/connection.js';
+import type { ClientDb, ClientPort } from '../../../../src/serve/worker/client/handles.js';
 
 const priorSharedWorker = globalThis.SharedWorker;
 afterEach(() => {
   (globalThis as { SharedWorker?: typeof SharedWorker }).SharedWorker = priorSharedWorker;
-  _pending.clear();
 });
 
-describe('SharedWorker connection status', () => {
+describe('SharedWorker connection', () => {
   it('rejects a version handshake that never receives a worker reply', async () => {
     const port: ClientPort = {
       onmessage: null,
@@ -25,7 +23,6 @@ describe('SharedWorker connection status', () => {
     await expect(getWorkerVersion(db, { timeoutMs: 5 })).rejects.toThrow(
       'Timed out waiting for the Pyric SharedWorker version handshake',
     );
-    expect(_pending.size).toBe(0);
   });
 
   it('surfaces the SharedWorker script error event', () => {

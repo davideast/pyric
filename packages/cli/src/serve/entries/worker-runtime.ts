@@ -14,11 +14,12 @@ import {
   PYRIC_WORKER_URL,
 } from '../runtime/manifest.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
+import { connectRuntimeWorker } from '../runtime/worker-connection.js';
 
 const hasSharedWorker = typeof SharedWorker !== 'undefined';
 const runtimeStatus = getPyricRuntimeStatus();
 
-export const useWorker =
+const workerRequested =
   (hasSharedWorker || (isServiceWorkerRealm() && typeof BroadcastChannel !== 'undefined'))
   && !(globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__;
 
@@ -26,13 +27,18 @@ export const WORKER_URL = PYRIC_WORKER_URL;
 export const WORKER_NAME = PYRIC_WORKER_NAME;
 
 /** Control traffic only; Firebase apps receive independent app-owned ports. */
-export const workerDb: ClientDb | null = useWorker
+export const workerDb: ClientDb | null = workerRequested
   ? hasSharedWorker
-    ? getFirestore(WORKER_URL, WORKER_NAME, {
-        onError: (error) => runtimeStatus.reportError(error, 'worker'),
-      })
+    ? connectRuntimeWorker(
+        () => getFirestore(WORKER_URL, WORKER_NAME, {
+          onError: (error) => runtimeStatus.reportError(error, 'worker'),
+        }),
+        (error) => runtimeStatus.reportError(error, 'worker'),
+      )
     : null
   : null;
+
+export const useWorker = workerRequested && (!hasSharedWorker || workerDb !== null);
 
 export function openWorkerDb(appName: string): ClientDb {
   if (hasSharedWorker) return getFirestore(WORKER_URL, WORKER_NAME);

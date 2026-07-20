@@ -66,6 +66,8 @@ import {
 } from './service-worker-channel.js';
 import { createServiceWorkerRelay } from './service-worker-relay.js';
 
+declare const __PYRIC_WORKER_VERSION__: string;
+
 // ─── Singleton context ────────────────────────────────────────────────────
 
 // `_ctx` is the RESOLVED context, kept for the synchronous `close` handler.
@@ -131,6 +133,19 @@ async function buildCtx(): Promise<HostCtx> {
 
   let messageQueue = Promise.resolve();
   port.onmessage = (ev: MessageEvent<InboundMessage>) => {
+    if (ev.data.t === 'op' && ev.data.method === 'getRuntimeEpoch') {
+      port.postMessage({
+        t: 'res',
+        id: ev.data.id,
+        ok: true,
+        value: {
+          version: typeof __PYRIC_WORKER_VERSION__ !== 'undefined'
+            ? __PYRIC_WORKER_VERSION__
+            : 'dev',
+        },
+      });
+      return;
+    }
     // Serialize each port's frames. A disconnect acknowledgement therefore
     // cannot overtake an already-posted mutation, and later frames see the
     // disconnected-port tombstone instead of touching the shared backend.
