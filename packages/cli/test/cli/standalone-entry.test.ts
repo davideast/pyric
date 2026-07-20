@@ -27,7 +27,10 @@ describe('standalone entry contract', () => {
       cliImportSpecifier: '../dist/cli/index.js',
     });
     expect(src).toContain(`await import("../dist/cli/index.js")`);
-    expect(src).toContain('.runDirect()');
+    // Bun compiled binaries expose [binary, ...userArgs], unlike Node's
+    // [runtime, script, ...userArgs]. Forward the compiled shape explicitly
+    // so runDirect does not discard the first command or flag.
+    expect(src).toContain('.runDirect(process.argv.slice(1))');
     // The embedded-assets global must be installed before the CLI import so
     // `isStandalone()` is true during module evaluation.
     expect(src.indexOf('__PYRIC_EMBEDDED__')).toBeLessThan(src.indexOf('await import'));
