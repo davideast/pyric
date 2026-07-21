@@ -9,40 +9,21 @@ import {
   LocalState,
   type DocStore,
   type DocumentData,
-  type BatchOperation,
   type DocEntry,
   type ScanOptions,
 } from './local-state.js';
 import { OverlayBacking } from './overlay-backing.js';
 import { EventLog, type AgentEvent } from './event-log.js';
-import { SimulateFirestoreRulesHandler, renderLegacyDebugMessages, projectEvaluatedRule, type EvaluatedRuleInfo } from 'pyric/rules/internal';
+import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import { lintFirestoreRules, type LintResult } from 'pyric/rules/internal';
-import type {
-  TestCase,
-  ListQuery,
-  TestResult,
-  TestFirestoreRulesResult,
-} from 'pyric/rules/internal';
 // RULES-B11 — query-proof gate for list reads ("rules are not filters").
 import type { QueryConstraints } from './list-query-proof.js';
-import {
-  resolveValueTree,
-  partitionDeletes,
-  registerDefaultConverters,
-  type ResolveMethod,
-} from './value-resolver.js';
-import { assertNoNestedDeleteField } from './field-merge.js';
-import { Timestamp } from 'pyric/rules/internal';
-import { makeError, type FirestoreSimError } from './errors.js';
-import { walkForSentinels, type SentinelHit } from './sentinel-capture.js';
-import { TransactionContext, type TransactionReader } from './transaction.js';
-import { mergeQueuedWrites } from './transaction-merge.js';
+import type { FirestoreSimError } from './errors.js';
 import type {
   Transaction,
   TransactionOptions,
   TransactionResult,
 } from './transaction-types.js';
-import type { EventProvenance } from '../../sandbox/types/events.js';
 import type {
   ListenerAuth,
   SnapshotCallback,
@@ -50,15 +31,6 @@ import type {
   SnapshotListenerOptions,
   SnapshotTarget,
 } from './snapshot-listeners.js';
-
-// Register every shipped converter exactly once on module load. Idempotent
-// per-converter, so re-imports are safe. Item 0 ships an empty registry;
-// Items 1+ add converters here.
-registerDefaultConverters();
-
-
-
-
 
 export type {
   Operation,
@@ -72,7 +44,6 @@ import type {
   BatchOperationInput,
   BatchResult,
 } from './writes.js';
-import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './request-events.js';
 export { SimulatorUnsupportedError } from './rules-evaluation.js';
 import { FirestoreEventBus } from './event-bus.js';
 import { TriggerScope } from './trigger-scope.js';
@@ -82,9 +53,6 @@ import { RulesState } from './rules-state.js';
 import { RulesReadEngine } from './rules-read-engine.js';
 import { WriteEngine } from './write-engine.js';
 import {
-  SimulatorUnsupportedError,
-  unsupportedMessage,
-  isoFromTimestamp,
   DEFAULT_OPEN_RULES,
 } from './rules-evaluation.js';
 
@@ -106,18 +74,12 @@ export class LocalEnvironment {
    */
   private readonly rules: RulesState;
   private seedSnapshot: Record<string, DocumentData>;
-  /**
-   * The engine's seven observational event channels — subscriptions and
-   * dispatch live in {@link FirestoreEventBus}; payload building stays at
-   * the emit* call sites here (lazy allocation + trigger-context access).
-   */
+  /** The engine's seven observational event channels. */
   private readonly events = new FirestoreEventBus();
 
   /**
-   * The trigger-attribution baton (ADR-0009 decision 3). Written by the
-   * execute / batch / transaction fan-out sites and the scheduled-delivery
-   * restore via `run()`'s save/restore stack; read by the listener-origin
-   * emit sites via `current()`. See {@link TriggerScope} for semantics.
+   * The trigger-attribution baton (ADR-0009 decision 3), shared by write
+   * execution and listener dispatch. See {@link TriggerScope} for semantics.
    */
   private readonly triggerScope = new TriggerScope();
 
@@ -153,25 +115,27 @@ export class LocalEnvironment {
     // the default is just "don't blow up before you've thought about
     // rules."
     this.rules = new RulesState(DEFAULT_OPEN_RULES);
-    // Rules-gated reads need live keyspace access (`seed()` replaces
-    // `state`) and the facade's buildTestCase (shared with the write
-    // engine's simulate path) — injected as a narrow RulesReadHost.
-    this.reads = new RulesReadEngine(this.events, this.triggerScope, this.rules, this.simulator, {
-      get state() { return engine.state; },
-      buildTestCase: (operation, serverTime) => this.buildTestCase(operation, serverTime),
-    });
-    // Listener dispatch calls back into the engine only for rules-gated
-    // silent reads — RulesReadEngine IS its ListenerDispatchHost.
-    this.listeners = new ListenerDispatch(this.events, this.triggerScope, this.reads);
     this.writes = new WriteEngine(
-      { get state() { return engine.state; } },
+      {
+        get state() { return engine.state; },
+        notifyListenersForPaths: (paths) => engine.listeners.notifyListenersForPaths(paths),
+      },
       this.rules,
       this.simulator,
       this.eventLog,
       this.events,
       this.triggerScope,
-      this.listeners,
     );
+    // Rules-gated reads need live keyspace access (`seed()` replaces
+    // `state`) and the facade's buildTestCase (shared with the write
+    // engine's simulate path) — injected as a narrow RulesReadHost.
+    this.reads = new RulesReadEngine(this.events, this.triggerScope, this.rules, this.simulator, {
+      get state() { return engine.state; },
+      buildTestCase: (operation, serverTime) => this.writes.buildTestCase(operation, serverTime),
+    });
+    // Listener dispatch calls back into the engine only for rules-gated
+    // silent reads — RulesReadEngine IS its ListenerDispatchHost.
+    this.listeners = new ListenerDispatch(this.events, this.triggerScope, this.reads);
     // Undo/redo needs live keyspace access (`seed()` replaces `state`) and
     // the write engine's affected-path helpers.
     this.history = new HistoryControls(this.eventLog, {
@@ -195,9 +159,6 @@ export class LocalEnvironment {
     return this.events.denial.subscribe(cb);
   }
 
-  private emitDenial(err: FirestoreSimError): void {
-    this.events.denial.emit(err);
-  }
 
   /**
    * Subscribe to every evaluated op (issue #307). Returns an unsubscribe
@@ -237,86 +198,7 @@ export class LocalEnvironment {
     return this.events.lifecycle.subscribe(cb);
   }
 
-  /**
-   * Build and dispatch a `WriteSandboxEvent`. Same sync-throw +
-   * async-rejection isolation as emitRequest. Bails early when no
-   * subscribers are attached so the hot path stays allocation-free.
-   *
-   * `sentinels` and `autoId` are reserved fields the caller can
-   * populate when the replay-engine work lands. v1 always passes
-   * undefined for both.
-   */
-  private emitWrite(input: {
-    method: 'create' | 'update' | 'set' | 'delete';
-    path: string;
-    auth: Operation['auth'];
-    data?: Record<string, unknown>;
-    priorState: Record<string, unknown> | null;
-    nextState: Record<string, unknown> | null;
-    groupId?: string;
-    groupKind?: 'batch' | 'transaction';
-    /** Sentinels extracted from the *pre-resolution* payload.
-     *  Populated by the caller via {@link walkForSentinels}; passed
-     *  through to consumers so the replay engine can re-issue the
-     *  same FieldValue sentinels at replay time. */
-    sentinels?: import('./sentinel-capture.js').SentinelHit[];
-    /** Minted auto-id (the path's last segment) when this `create`
-     *  came from `createWithAutoId`. The replay engine reads this and
-     *  mints a fresh id on replay rather than reusing the original. */
-    autoId?: string;
-    /** Server-time pin for the rule eval, in Timestamp shape. The
-     *  replay engine uses this to re-issue the same Date.now() value
-     *  when re-resolving serverTimestamp() sentinels. */
-    requestTime: Timestamp;
-    detail?: { admin?: boolean } & Record<string, unknown>;
-    provenance?: EventProvenance;
-  }): void {
-    if (!this.events.write.hasSubscribers) return;
-    const event: import('../../sandbox/types/events.js').WriteSandboxEvent = {
-      kind: 'write',
-      id: nextRequestEventId().replace(/^req-/, 'wr-'),
-      at: Date.now(),
-      method: input.method,
-      path: input.path,
-      auth: input.auth
-        ? { uid: input.auth.uid, ...(input.auth.token ? { token: input.auth.token } : {}) }
-        : null,
-      ...(input.data !== undefined ? { data: input.data } : {}),
-      priorState: input.priorState,
-      nextState: input.nextState,
-      ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
-      ...(input.groupKind !== undefined ? { groupKind: input.groupKind } : {}),
-      ...(input.sentinels && input.sentinels.length > 0 ? { sentinels: input.sentinels } : {}),
-      ...(input.autoId !== undefined ? { autoId: input.autoId } : {}),
-      requestTime: { seconds: input.requestTime.seconds, nanoseconds: input.requestTime.nanos },
-      ...(input.detail !== undefined ? { detail: input.detail } : {}),
-      ...(input.provenance ?? {}),
-    };
-    this.events.write.emit(event);
-  }
 
-  /**
-   * Build and dispatch a `RequestEvent` to all `onRequest` subscribers.
-   * Bails early when no one's listening so the hot path doesn't allocate
-   * an event object. Per the V1 probe numbers, eval rate can reach
-   * ~4500/sec in listener-storm scenarios — every cycle matters.
-   *
-   * Subscriber-throw isolation has two layers:
-   *   - Sync throws are caught by the try/catch around the invocation.
-   *   - Async subscribers that return a rejected Promise (e.g.
-   *     `async (e) => { throw }`) have the rejection silently swallowed
-   *     by attaching a noop `.catch`. Without this, an
-   *     `unhandledRejection` would terminate the sandbox process on
-   *     Node ≥15 default config — one bad subscriber would kill every
-   *     other observer.
-   *
-   * Subscriber callbacks are observational; the sandbox doesn't await
-   * them and doesn't propagate their errors.
-   */
-  private emitRequest(input: EmitRequestInput): void {
-    if (!this.events.request.hasSubscribers) return;
-    this.events.request.emit(buildRequestEvent(input));
-  }
 
   /**
    * Subscribe to snapshot-listener stream errors (Slice 7). Returns an
@@ -553,16 +435,6 @@ export class LocalEnvironment {
     return this.state.snapshot();
   }
 
-  /**
-   * Capture the prior state of just the given paths (for single-write / batch
-   * undo), as `{ path: priorData | null }` where `null` records a doc that did
-   * not exist. The affected-path alternative to a whole-keyspace
-   * {@link snapshot}, so the undo stack stays O(affected) not O(keyspace).
-   * Must be called BEFORE the write applies.
-   */
-  private capturePriors(paths: readonly string[]): Record<string, DocumentData | null> {
-    return this.writes.capturePriors(paths);
-  }
 
   // ═══ Write operations (bypass rules — admin access) ═══
 
@@ -591,45 +463,6 @@ export class LocalEnvironment {
     return { deleted: r.success };
   }
 
-  /**
-   * Run the rules engine for the given test cases — UNLESS `bypassRules`
-   * is set, in which case the rules engine is skipped entirely and a
-   * synthetic all-ALLOW result is returned (Pyric Studio Gap #2 admin
-   * lens). Every `simulate()` call site in `execute` / `batch` /
-   * `transaction` routes through here so the bypass is centralized and
-   * the rules-enforced path is byte-for-byte unchanged when `bypassRules`
-   * is absent/false.
-   *
-   * The synthetic result mirrors the engine's success shape
-   * (`{ success: true, data: { results, passed, failed, unsupported } }`)
-   * with one PASSED entry per test case, so callers that read
-   * `simResult.data.results[i]` see a normal ALLOW with no special-casing.
-   */
-  private runSimulate(
-    testCases: TestCase[],
-    bypassRules: boolean | undefined,
-    batchProjection?: Map<string, DocumentData | null>,
-  ): TestFirestoreRulesResult {
-    return this.writes.runSimulate(testCases, bypassRules, batchProjection);
-  }
-
-  /**
-   * getafter-batch fix — build the shared post-commit projection for an
-   * atomic batch/transaction, ONCE, before evaluating any per-op rule.
-   * Every op in `testCases` gets folded in: `create`/`update` project to
-   * the full post-write document (already merged by `buildTestCase`),
-   * `delete` projects to `null` (doc gone). `get`/`list` ops don't write
-   * and are skipped — they never change what `getAfter` should see.
-   *
-   * Passing the SAME map into every per-op `simulate()` call for the group
-   * is what lets doc A's rule see doc B's pending write via `getAfter(B)`
-   * — mirrors the RTDB rules multi-path projection (one shared tree built
-   * up front, read by every path's rule eval) applied to Firestore's
-   * per-document `getAfter()`.
-   */
-  private buildBatchProjection(testCases: TestCase[]): Map<string, DocumentData | null> {
-    return this.writes.buildBatchProjection(testCases);
-  }
 
   // ═══ Single operation (rules evaluated) ═══
 
@@ -754,122 +587,4 @@ export class LocalEnvironment {
     return this.history.getEventCount();
   }
 
-  // ═══ Private helpers ═══
-
-  private buildTestCase(operation: Operation, serverTime?: Timestamp): TestCase {
-    const existingDoc = this.state.get(operation.path);
-
-    // Translate `set` to the rules-engine clause it routes through —
-    // `create` for missing docs, `update` for existing. Storage stays
-    // `set` (handled in applyWrite) so the post-write doc is the
-    // replacement payload, not a merge.
-    const ruleMethod: TestCase['method'] = operation.method === 'set'
-      ? (existingDoc !== null ? 'update' : 'create')
-      : (operation.method as TestCase['method']);
-
-    // For reads: no request data (reads don't send data)
-    // For writes: build the FULL post-write document
-    let requestData = operation.data;
-    if (operation.method === 'get' || operation.method === 'list') {
-      requestData = undefined;
-    } else if (operation.method === 'update' && existingDoc && operation.data) {
-      // Merge: existing + updates = full post-write document. Item 2:
-      // partition DELETE_FIELD markers so the rules see the same shape
-      // storage will see (deleted keys absent, not present-with-symbol).
-      // The data has already been resolved upstream — partitionDeletes
-      // is idempotent on already-partitioned trees.
-      const { writes, deletedKeys } = partitionDeletes(operation.data);
-      const merged: DocumentData = { ...existingDoc, ...writes };
-      for (const k of deletedKeys) delete merged[k];
-      requestData = merged;
-    } else if (operation.data) {
-      // create / set: the resolved data IS the full post-write doc
-      // (set replaces). Strip any DELETE_FIELD markers so they don't
-      // reach the handler.
-      requestData = partitionDeletes(operation.data).writes;
-    }
-
-    return {
-      description: `${operation.method} ${operation.path}`,
-      expectation: 'ALLOW', // We always test against ALLOW; FAILED = denied
-      method: ruleMethod,
-      path: operation.path,
-      auth: operation.auth ? { uid: operation.auth.uid, token: operation.auth.token } : null,
-      data: requestData,
-      resource: existingDoc ?? undefined,
-      // Phase 2: no whole-keyspace functionMocks dump. get()/exists() in rules
-      // fault in lazily through the `getDoc` resolver passed to simulate() (a
-      // DocStore point-read), resolving only the paths a ruleset actually touches.
-      // Item 1: forward the resolver's serverTime as ISO so handler.ts's
-      // `request.time` is field-equal to any resolved sentinel.
-      // Millisecond-precise round-trip via Date(ms).toISOString() ↔
-      // Timestamp.fromIsoString.
-      ...(serverTime ? { requestTime: isoFromTimestamp(serverTime) } : {}),
-    };
-  }
-
-  /**
-   * Apply a write to local state, returning a structural error when
-   * the underlying state operation rejects (Item 6). Rules have already
-   * decided to ALLOW by the time we get here; what's left are the
-   * preconditions only the keyspace knows about — `create` of an
-   * existing path, `update`/`delete` of a missing path. The simulator
-   * previously dropped these silently (state.create returned
-   * `{success:false}` and we ignored it), which let `allowed:true`
-   * results coexist with no actual mutation. Returning the failure
-   * lets `execute()` demote `allowed` and surface the right error code.
-   */
-  private applyWrite(
-    method: string,
-    path: string,
-    data?: DocumentData,
-    merge?: boolean | { mergeFields: readonly string[] },
-  ): FirestoreSimError | null {
-    // FS-B6: a merge write (`setDoc(data, {merge})`) deep-merges into the
-    // existing doc (creating it when absent), regardless of whether rule
-    // eval ran as create or update. Route both to `setMerge`.
-    if (merge !== undefined && merge !== false && (method === 'create' || method === 'update')) {
-      const mergeFields = merge === true ? undefined : merge.mergeFields;
-      this.state.setMerge(path, data ?? {}, mergeFields);
-      return null;
-    }
-    switch (method) {
-      case 'create': {
-        const r = this.state.create(path, data ?? {});
-        if (!r.success) {
-          return makeError('already-exists', r.error ?? `Document '${path}' already exists`);
-        }
-        return null;
-      }
-      case 'update': {
-        const r = this.state.update(path, data ?? {});
-        if (!r.success) {
-          return makeError('not-found', r.error ?? `Document '${path}' does not exist`);
-        }
-        return null;
-      }
-      case 'set': {
-        // Replace semantics. `state.set` always succeeds (creates if
-        // absent, replaces if present) — matches Firestore `set()`
-        // without merge options.
-        this.state.set(path, data ?? {});
-        return null;
-      }
-      case 'delete': {
-        // `deleteDoc` on a missing doc is a no-op in production
-        // `firebase/firestore` (and the Admin SDK): rules already
-        // allowed, the doc isn't there to remove, and the call
-        // resolves without throwing. Locked by oracle observation
-        // `packages/conformance/observations/firestore/firestore-deletedoc-missing.json`
-        // (matrix row Firestore #39). `state.delete` returns
-        // `success:false` for a missing path; we collapse that into
-        // null (no error) so `execute()` reports the delete as
-        // allowed with no mutation, matching prod.
-        this.state.delete(path);
-        return null;
-      }
-      default:
-        return null;
-    }
-  }
 }

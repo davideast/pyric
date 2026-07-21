@@ -1,6 +1,7 @@
 import { type BatchOperation, type DocStore, type DocumentData } from './local-state.js';
 import {
   partitionDeletes,
+  registerDefaultConverters,
   resolveValueTree,
   type ResolveMethod,
 } from './value-resolver.js';
@@ -28,7 +29,6 @@ import type {
 import { EventLog } from './event-log.js';
 import { FirestoreEventBus } from './event-bus.js';
 import { TriggerScope } from './trigger-scope.js';
-import { ListenerDispatch } from './listener-dispatch.js';
 import { assertNoNestedDeleteField } from './field-merge.js';
 import { generateAutoId } from './auto-id.js';
 import { walkForSentinels } from './sentinel-capture.js';
@@ -41,8 +41,11 @@ import type {
   TransactionResult,
 } from './transaction-types.js';
 
+registerDefaultConverters();
+
 export interface WriteEngineHost {
   readonly state: DocStore;
+  notifyListenersForPaths(paths: Set<string>): void;
 }
 
 /** Rules-aware Firestore write policy behind the stable LocalEnvironment facade. */
@@ -54,7 +57,6 @@ export class WriteEngine {
     private readonly eventLog: EventLog,
     private readonly events: FirestoreEventBus,
     private readonly triggerScope: TriggerScope,
-    private readonly listeners: ListenerDispatch,
   ) {}
 
   private emitDenial(error: FirestoreSimError): void {
@@ -549,7 +551,7 @@ export class WriteEngine {
       // listener callback may itself call execute() — that nested call
       // would otherwise wipe our trigger before subsequent listeners fire.
       this.triggerScope.run({ method, path }, () =>
-        this.listeners.notifyListenersForPaths(new Set([path])),
+        this.host.notifyListenersForPaths(new Set([path])),
       );
     }
     return out;
@@ -874,7 +876,7 @@ export class WriteEngine {
       const firstOp = resolvedOps[0];
       this.triggerScope.run(
         { method: 'batch', path: firstOp?.path ?? '' },
-        () => this.listeners.notifyListenersForPaths(touched),
+        () => this.host.notifyListenersForPaths(touched),
       );
     }
     return {
@@ -1333,7 +1335,7 @@ export class WriteEngine {
       const firstOp = resolvedOps[0];
       this.triggerScope.run(
         { method: 'transaction', path: firstOp?.path ?? '' },
-        () => this.listeners.notifyListenersForPaths(touched),
+        () => this.host.notifyListenersForPaths(touched),
       );
     }
     return result;
