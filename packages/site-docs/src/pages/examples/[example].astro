@@ -1,5 +1,6 @@
 ---
 import { ExampleRuntime } from '../../components/example-runtime';
+import { ChessShowcase } from '../../components/chess-showcase';
 import { PYRIC_EXAMPLES, pyricExample, type PyricExampleId } from '../../examples/registry';
 import ExampleLayout from '../../layouts/example-layout.astro';
 
@@ -12,5 +13,7 @@ const definition = pyricExample(id).definition;
 ---
 
 <ExampleLayout title={definition.title}>
-  <ExampleRuntime id={id} client:only="react" />
+  {definition.renderer === 'chess'
+    ? <ChessShowcase client:only="react" />
+    : <ExampleRuntime id={id} client:only="react" />}
 </ExampleLayout>

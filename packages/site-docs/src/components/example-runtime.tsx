@@ -1,4 +1,5 @@
 import { pyricExample, type PyricExampleId } from '../examples/registry';
+import { assertPyricSnippet } from '../examples/definition';
 import { useExampleRuntime } from './use-example-runtime';
 
 interface Props {
@@ -7,6 +8,7 @@ interface Props {
 
 export function ExampleRuntime({ id }: Props) {
   const definition = pyricExample(id).definition;
+  assertPyricSnippet(definition);
   const { state, reset } = useExampleRuntime(definition);
 
   const copyError = async () => {

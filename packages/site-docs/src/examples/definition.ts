@@ -4,10 +4,15 @@ export interface PyricExampleContext {
   sandbox: LocalSandbox;
 }
 
-export interface PyricExampleDefinition {
+interface PyricExampleMetadata {
   title: string;
   description: string;
+  docsPath: string;
   service: 'firestore';
+}
+
+export interface PyricSnippetDefinition extends PyricExampleMetadata {
+  presentation?: 'snippet';
   firestore: {
     rules: string;
     seed?: Record<string, Record<string, unknown>>;
@@ -15,6 +20,21 @@ export interface PyricExampleDefinition {
   run(context: PyricExampleContext): Promise<unknown>;
 }
 
-export function definePyricExample(definition: PyricExampleDefinition): PyricExampleDefinition {
+export interface PyricShowcaseDefinition extends PyricExampleMetadata {
+  presentation: 'showcase';
+  renderer: 'chess';
+}
+
+export type PyricExampleDefinition = PyricSnippetDefinition | PyricShowcaseDefinition;
+
+export function definePyricExample<T extends PyricExampleDefinition>(definition: T): T {
   return definition;
+}
+
+export function assertPyricSnippet(
+  definition: PyricExampleDefinition,
+): asserts definition is PyricSnippetDefinition {
+  if (definition.presentation === 'showcase') {
+    throw new Error(`Pyric showcase '${definition.title}' cannot use the generic example runtime`);
+  }
 }

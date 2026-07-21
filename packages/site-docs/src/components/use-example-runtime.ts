@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PyricExampleDefinition } from '../examples/definition';
+import type { PyricSnippetDefinition } from '../examples/definition';
 import {
   createEmbeddedExampleRuntime,
   type EmbeddedExampleRuntime,
@@ -11,8 +11,8 @@ export type ExampleRuntimeState =
   | { status: 'error'; output: null; error: string };
 
 export function useExampleRuntime(
-  definition: PyricExampleDefinition,
-  createRuntime: (definition: PyricExampleDefinition) => EmbeddedExampleRuntime =
+  definition: PyricSnippetDefinition,
+  createRuntime: (definition: PyricSnippetDefinition) => EmbeddedExampleRuntime =
     createEmbeddedExampleRuntime,
 ) {
   const runtime = useRef<EmbeddedExampleRuntime | null>(null);

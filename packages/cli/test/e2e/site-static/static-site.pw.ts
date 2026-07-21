@@ -51,6 +51,7 @@ test('a documentation page stays static and does not start the Studio SharedWork
   await expect(page.getByRole('heading', { name: 'Run Cloud Firestore locally' })).toBeVisible();
   await page.waitForTimeout(500);
   expect(urls.filter((url) => url.includes('/__pyric/sdk/worker.js'))).toEqual([]);
+  expect(urls.filter((url) => /\/_astro\/[^/]*chess/i.test(url))).toEqual([]);
 });
 
 test('the unified build preserves the Firestore seed, theme utilities, and pane borders', async ({ page }) => {
@@ -110,6 +111,22 @@ test('the checked-in Firestore example runs in its isolated iframe and resets', 
   await expect(page.getByText("import { doc, getDoc, getFirestore, setDoc } from 'pyric/firestore';", {
     exact: false,
   })).toBeVisible();
+});
+
+test('the chess showcase commits an allowed move, denies an illegal move, and resets', async ({ page }) => {
+  const urls = trackRequests(page);
+  await page.goto('/docs/examples/chess/');
+  const frame = page.frameLocator('iframe[title="Chess, with Security Rules as the game engine"]');
+
+  await frame.getByRole('button', { name: 'Try legal e2 → e4' }).click();
+  await expect(frame.getByText('Allowed · e2 → e4')).toBeVisible();
+  await expect(frame.getByRole('gridcell', { name: 'e4 P' })).toBeVisible();
+
+  await frame.getByRole('button', { name: 'Reset board' }).click();
+  await frame.getByRole('button', { name: 'Try illegal e2 → e5' }).click();
+  await expect(frame.getByText('Denied · e2 → e5')).toBeVisible();
+  await expect(frame.getByRole('gridcell', { name: 'e2 P' })).toBeVisible();
+  expect(urls.filter((url) => url.includes('/__pyric/sdk/worker.js'))).toEqual([]);
 });
 
 test('public Studio exposes and completes an explicit stale-worker update', async ({ page }) => {

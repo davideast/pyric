@@ -2,6 +2,7 @@
 import type { AstroComponentFactory } from 'astro/runtime/server/index.js';
 import DocsLayout from '../../layouts/DocsLayout.astro';
 import PyricExample from '../../components/pyric-example.astro';
+import ExampleGallery from '../../components/example-gallery.astro';
 import { allDocs, slugOf, type DocEntry } from '../../lib/content';
 
 export async function getStaticPaths() {
@@ -32,5 +33,6 @@ const Content = entry.Content as AstroComponentFactory;
   apiEvidenceSlug={entry.data.apiEvidenceSlug}
 >
   <Content />
+  {entry.data.gallery ? <ExampleGallery /> : null}
   {entry.data.example ? <PyricExample id={entry.data.example} /> : null}
 </DocsLayout>

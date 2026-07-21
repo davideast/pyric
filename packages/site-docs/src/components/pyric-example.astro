@@ -9,12 +9,13 @@ interface Props {
 const { id } = Astro.props;
 const example = pyricExample(id);
 const frameUrl = withBase(`/examples/${id}/`);
+const isShowcase = example.definition.presentation === 'showcase';
 ---
 
-<figure class="pyric-example">
+<figure class:list={['pyric-example', { 'pyric-showcase': isShowcase }]}>
   <figcaption>{example.definition.title}</figcaption>
   <div class="pyric-example-grid">
-    <pre><code>{example.source.trim()}</code></pre>
+    {!isShowcase ? <pre><code>{example.source.trim()}</code></pre> : null}
     <iframe
       title={example.definition.title}
       src={frameUrl}
@@ -31,5 +32,7 @@ const frameUrl = withBase(`/examples/${id}/`);
   pre, iframe { box-sizing: border-box; width: 100%; min-height: 19rem; margin: 0; border: 1px solid var(--border, #30303a); border-radius: .75rem; }
   pre { overflow: auto; padding: 1rem; background: #0f0f17; color: #e8e8ef; }
   iframe { background: #15151d; }
+  .pyric-showcase iframe { min-height: min(78rem, 90vh); }
+  .pyric-showcase .pyric-example-grid { grid-template-columns: 1fr; }
   @media (max-width: 800px) { .pyric-example-grid { grid-template-columns: 1fr; } }
 </style>

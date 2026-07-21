@@ -21,4 +21,59 @@ const { title } = Astro.props;
   .status-ready { background: #22c55e; }
   .status-error { background: #ef4444; }
   .copy-error { float: right; }
+  .chess-showcase { min-height: 100vh; padding: clamp(1rem, 3vw, 2.75rem); background: radial-gradient(circle at 15% 0%, #262438 0, #15151d 42rem); color: #f4f4f7; }
+  .chess-hero { max-width: 70rem; margin: 0 auto 2rem; }
+  .chess-kicker { margin: 0 0 .5rem; color: #9e94ff; font: 700 .72rem/1.2 Inter, sans-serif; letter-spacing: .1em; text-transform: uppercase; }
+  .chess-hero h1 { max-width: 18ch; margin: 0; font: 750 clamp(2rem, 5vw, 4.4rem)/.98 Inter, sans-serif; letter-spacing: -.045em; }
+  .chess-intro { max-width: 46rem; color: #bbb8c8; font-size: 1rem; line-height: 1.6; }
+  .chess-proof { display: flex; flex-wrap: wrap; gap: .65rem; margin: 1.25rem 0 0; padding: 0; list-style: none; }
+  .chess-proof li { border: 1px solid #454052; border-radius: 999px; padding: .45rem .7rem; background: #1d1b26aa; color: #aaa6b7; font-size: .75rem; }
+  .chess-proof strong { margin-right: .25rem; color: #d7ff8a; }
+  .chess-scope { max-width: 46rem; margin: .8rem 0 0; color: #8f8b9d; font-size: .78rem; }
+  .chess-play { display: grid; grid-template-columns: minmax(20rem, 42rem) minmax(18rem, 25rem); gap: clamp(1rem, 3vw, 2rem); align-items: start; max-width: 70rem; margin: 0 auto; }
+  .chess-board-wrap { padding: clamp(.55rem, 1.5vw, 1rem); border: 1px solid #474258; border-radius: 1rem; background: #201f2a; box-shadow: 0 1.5rem 4rem #09090d80; }
+  .chess-board { display: grid; grid-template-columns: repeat(8, 1fr); overflow: hidden; width: 100%; aspect-ratio: 1; border-radius: .45rem; }
+  .chess-square { position: relative; display: grid; place-items: center; min-width: 0; border: 0; border-radius: 0; padding: 0; cursor: pointer; font-size: clamp(1.6rem, 5vw, 3.6rem); line-height: 1; text-shadow: 0 2px 2px #0005; }
+  .chess-square.is-light { background: #d7d0e3; color: #17151d; }
+  .chess-square.is-dark { background: #756b91; color: #111018; }
+  .chess-square:hover { box-shadow: inset 0 0 0 .22rem #c7ff5f; z-index: 1; }
+  .chess-square.is-selected { box-shadow: inset 0 0 0 .3rem #b8ff3d; background: #9caa64; z-index: 2; }
+  .chess-square small { position: absolute; font: 700 .58rem/1 Inter, sans-serif; opacity: .65; }
+  .rank-label { top: .25rem; left: .25rem; }
+  .file-label { right: .25rem; bottom: .22rem; }
+  .chess-console { display: grid; gap: 1rem; }
+  .turn-row, .identity-picker, .verdict { border: 1px solid #413e4d; border-radius: .8rem; background: #1e1d27; padding: 1rem; }
+  .turn-row { display: flex; gap: 1rem; align-items: center; justify-content: space-between; }
+  .turn-row strong, .verdict strong { display: block; margin-top: .25rem; font-size: 1rem; }
+  .console-label { color: #9995a6; font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .chess-showcase button { border: 1px solid #504c5d; border-radius: .5rem; padding: .55rem .7rem; background: #292733; color: inherit; cursor: pointer; }
+  .chess-showcase button:hover { border-color: #8d84ae; background: #322f40; }
+  .chess-showcase button:disabled { opacity: .45; cursor: not-allowed; }
+  .identity-picker { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+  .identity-picker legend { grid-column: 1 / -1; padding: 0 .2rem; color: #aaa6b7; font-size: .78rem; }
+  .identity-picker button[aria-pressed='true'], .source-tabs button[aria-selected='true'] { border-color: #9d8dff; background: #443c70; }
+  .identity-picker code { display: block; margin-top: .2rem; color: #c5bfd6; font-size: .65rem; }
+  .try-row { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+  .verdict { min-height: 10rem; border-left-width: .3rem; }
+  .verdict.is-allowed { border-left-color: #4ade80; }
+  .verdict.is-denied { border-left-color: #fb7185; }
+  .verdict dl { display: grid; gap: .3rem; margin: .85rem 0; }
+  .verdict dl div { display: flex; justify-content: space-between; gap: 1rem; }
+  .verdict dt { color: #9995a6; font-size: .75rem; }
+  .verdict dd { margin: 0; font-size: .75rem; }
+  .verdict p { margin: .75rem 0 0; color: #bbb8c8; font-size: .8rem; line-height: 1.5; }
+  .chess-source { max-width: 70rem; margin: 3rem auto 0; }
+  .source-heading-row { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
+  .source-heading-row h2 { margin: 0; font-size: 1.4rem; }
+  .source-tabs { display: flex; flex-wrap: wrap; gap: .45rem; }
+  .chess-source pre { max-height: 30rem; overflow: auto; border: 1px solid #413e4d; border-radius: .8rem; padding: 1rem; background: #0e0e13; color: #d9f99d; font: .75rem/1.55 'JetBrains Mono', monospace; }
+  @media (max-width: 820px) {
+    .chess-play { grid-template-columns: 1fr; }
+    .source-heading-row { align-items: start; flex-direction: column; }
+  }
+  @media (max-width: 430px) {
+    .chess-showcase { padding: .75rem; }
+    .chess-square { font-size: 1.8rem; }
+    .try-row { grid-template-columns: 1fr; }
+  }
 </style>
