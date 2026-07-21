@@ -69,4 +69,28 @@ describe('BatchWriteExecutor', () => {
       'invalid-argument',
     ]);
   });
+
+  test.each([
+    { rules: DEFAULT_OPEN_RULES, result: 'allow' },
+    { rules: DEFAULT_OPEN_RULES.replace('if true', 'if false'), result: 'deny' },
+  ] as const)('preserves batch delete input data on $result request events', ({ rules, result }) => {
+    const state = new LocalState({ 'notes/a': { value: 1 } });
+    const events = new FirestoreEventBus();
+    const requests: Array<{ request?: { resourceData?: unknown } }> = [];
+    events.request.subscribe((event) => requests.push(event));
+    const runtime = new WriteRuntime(
+      { state, notifyListenersForPaths: () => {} },
+      new RulesState(rules),
+      new SimulateFirestoreRulesHandler(),
+      new EventLog(),
+      events,
+      new TriggerScope(),
+    );
+
+    new BatchWriteExecutor(runtime).batch([
+      { method: 'delete', path: 'notes/a', data: { ignored: true } },
+    ], null);
+
+    expect(requests[0]?.request?.resourceData).toEqual({ ignored: true });
+  });
 });

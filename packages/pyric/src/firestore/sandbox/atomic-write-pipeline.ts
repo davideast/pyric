@@ -99,7 +99,7 @@ export class AtomicWritePipeline {
           auth: context.auth,
           result: 'deny',
           debugMessages: [`FieldValue resolve error: ${message}`],
-          ...(input.preData && input.ruleMethod !== 'delete'
+          ...(this.includesRequestData(context, input)
             ? { resourceData: input.preData }
             : {}),
           resourceBefore: { data: prior, exists: prior !== null },
@@ -209,7 +209,7 @@ export class AtomicWritePipeline {
               method: input.ruleMethod,
               path: input.path,
               auth: context.auth,
-              ...(input.preData && input.ruleMethod !== 'delete'
+              ...(this.includesRequestData(context, input)
                 ? { resourceData: input.preData }
                 : {}),
             },
@@ -313,7 +313,7 @@ export class AtomicWritePipeline {
       auth: context.auth,
       result,
       debugMessages,
-      ...(input.preData && input.ruleMethod !== 'delete'
+      ...(this.includesRequestData(context, input)
         ? { resourceData: input.preData }
         : {}),
       resourceBefore: { data: prior, exists: prior !== null },
@@ -322,5 +322,14 @@ export class AtomicWritePipeline {
       ...(context.bypassRules ? { detail: { admin: true } } : {}),
       ...(context.provenance ? { provenance: context.provenance } : {}),
     };
+  }
+
+  private includesRequestData(
+    context: AtomicWriteContext,
+    input: AtomicWriteInput,
+  ): input is AtomicWriteInput & { preData: DocumentData } {
+    return input.preData !== undefined && (
+      context.origin === 'batch' || input.ruleMethod !== 'delete'
+    );
   }
 }

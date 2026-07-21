@@ -34,8 +34,9 @@ import type {
   TransactionOptions,
   TransactionResult,
 } from './transaction-types.js';
-import { AtomicWriteEngine } from './atomic-write-engine.js';
 import { WriteRuntime } from './write-runtime.js';
+import { BatchWriteExecutor } from './batch-write-executor.js';
+import { TransactionWriteExecutor } from './transaction-write-executor.js';
 
 registerDefaultConverters();
 
@@ -47,7 +48,8 @@ interface WriteEngineHost {
 /** Rules-aware Firestore write policy behind the stable LocalEnvironment facade. */
 export class WriteEngine {
   private readonly runtime: WriteRuntime;
-  private readonly atomicWrites: AtomicWriteEngine;
+  private readonly batches: BatchWriteExecutor;
+  private readonly transactions: TransactionWriteExecutor;
 
   constructor(
     host: WriteEngineHost,
@@ -65,7 +67,8 @@ export class WriteEngine {
       events,
       triggerScope,
     );
-    this.atomicWrites = new AtomicWriteEngine(this.runtime);
+    this.batches = new BatchWriteExecutor(this.runtime);
+    this.transactions = new TransactionWriteExecutor(this.runtime);
   }
 
   capturePriors(paths: readonly string[]): Record<string, DocumentData | null> {
@@ -374,7 +377,7 @@ export class WriteEngine {
     auth: Operation['auth'],
     bypassRules?: boolean,
   ): BatchResult {
-    return this.atomicWrites.batch(operations, auth, bypassRules);
+    return this.batches.batch(operations, auth, bypassRules);
   }
 
   transaction<R>(
@@ -389,7 +392,7 @@ export class WriteEngine {
     fn: (tx: Transaction) => R | Promise<R>,
     options: TransactionOptions,
   ): TransactionResult<R> | Promise<TransactionResult<R>> {
-    return this.atomicWrites.transaction(
+    return this.transactions.transaction(
       fn as (tx: Transaction) => R,
       options,
     ) as TransactionResult<R> | Promise<TransactionResult<R>>;
