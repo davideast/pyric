@@ -78,8 +78,8 @@ done
 #    (overrides / resolutions / pnpm.overrides). Without this, the inter-package
 #    deps can resolve differently per manager. Pinning makes the matrix test OUR
 #    exports resolution apples-to-apples, not registry availability. (peers:
-#    react/react-dom for @pyric/ui, firebase for the SDKs, and vite for the
-#    optional @pyric/cli/vite entry point.)
+#    react/react-dom for @pyric/ui, firebase for the SDKs, vite for the
+#    optional @pyric/cli/vite entry.)
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 CONSUMER="$WORK/consumer"
@@ -92,7 +92,13 @@ const [pyric, admin, create, tools, ui] = process.argv.slice(1).map((p) => "file
 const pin = { "pyric": pyric, "pyric-admin": admin, "create-pyric": create, "@pyric/cli": tools, "@pyric/ui": ui };
 const pkg = {
   name: "pyric-install-matrix-consumer", private: true, version: "1.0.0", type: "module",
-  dependencies: { ...pin, react: "^19", "react-dom": "^19", firebase: "^12", vite: "^7" },
+  dependencies: {
+    ...pin,
+    react: "^19",
+    "react-dom": "^19",
+    firebase: "^12",
+    vite: "^5",
+  },
   overrides: pin,            // npm
   resolutions: pin,          // bun / yarn
   pnpm: { overrides: pin },  // pnpm <= 10

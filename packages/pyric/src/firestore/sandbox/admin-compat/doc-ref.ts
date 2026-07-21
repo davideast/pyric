@@ -29,7 +29,6 @@ import {
   boundedActivityIdentity,
   registerActivityValue,
 } from '../../../firestore/sandbox/activity-value-registry.js';
-import { CollectionRefImpl } from './query.js';
 import {
   FirestoreCompatError,
   type AuthContext,
@@ -72,6 +71,7 @@ export class DocumentRefImpl implements DocumentReference {
     // Studio admin lens (Gap #2) — stamped onto every Operation this ref
     // issues. Inherited by child collection refs. Default false.
     private readonly bypassRules: boolean = false,
+    private readonly collectionRef: (path: string) => CollectionReference,
   ) {
     this.path = path;
     this.id = lastSegment(path);
@@ -79,16 +79,11 @@ export class DocumentRefImpl implements DocumentReference {
   }
 
   get parent(): CollectionReference {
-    return new CollectionRefImpl(
-      this.env,
-      this.auth,
-      parentCollectionPath(this.path),
-      this.bypassRules,
-    );
+    return this.collectionRef(parentCollectionPath(this.path));
   }
 
   collection(name: string): CollectionReference {
-    return new CollectionRefImpl(this.env, this.auth, `${this.path}/${name}`, this.bypassRules);
+    return this.collectionRef(`${this.path}/${name}`);
   }
 
   async get(opts?: OperationOptions): Promise<DocumentSnapshot> {

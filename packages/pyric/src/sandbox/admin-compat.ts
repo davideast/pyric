@@ -34,6 +34,7 @@ export type {
   SnapshotDocRef,
   SnapshotQueryRef,
   SnapshotTarget,
+  QueryConstraintPlan,
   QueryConstraintApplier,
   SnapshotListenerOptions,
 } from './internal/index.js';
