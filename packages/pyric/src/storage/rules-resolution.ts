@@ -4,6 +4,7 @@ export interface StorageRulesResolution {
   readonly targetService: 'firebase.storage';
   readonly source: string;
   readonly modules: readonly string[];
+  readonly bundledModules: readonly string[];
   readonly evidenceIds: readonly string[];
 }
 
@@ -81,10 +82,11 @@ function canonicalModuleName(name: string): string {
 export function createStorageRulesResolution(
   source: string,
   modules: readonly string[],
+  bundledModules: readonly string[],
   rules: StorageRules,
 ): StorageRulesResolution {
   const evidenceIds = new Set<string>();
-  const canonicalModules = modules.map(canonicalModuleName);
+  const canonicalModules = bundledModules.map(canonicalModuleName);
   if (canonicalModules.some((name) => name === 'auth' || name === 'membership')) {
     evidenceIds.add('storage-rules#125');
   }
@@ -96,6 +98,7 @@ export function createStorageRulesResolution(
     targetService: 'firebase.storage',
     source,
     modules: Object.freeze([...modules]),
+    bundledModules: Object.freeze([...bundledModules]),
     evidenceIds: Object.freeze([...evidenceIds].sort()),
   });
 }

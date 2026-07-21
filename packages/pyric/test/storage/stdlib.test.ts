@@ -35,6 +35,19 @@ const createInput = (overrides: Partial<NonNullable<EvaluationInput['request']['
 });
 
 describe('Storage stdlib modules', () => {
+  it('treats a caller override of a stdlib name as caller code', () => {
+    const result = resolveModulesBrowser(`rules_version = '2+modules';
+import { allowed } from 'atomic';
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if allowed(); } }
+}`, { modules: { atomic: 'export function allowed() { return true; }' } });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.modules).toEqual(['atomic']);
+      expect(result.data.bundledModules).toEqual([]);
+    }
+  });
+
   it('rejects Storage-only modules from a Firestore target', () => {
     const result = resolveModulesBrowser(`rules_version = '2+modules';
 import { sizeAtMost } from 'storage/uploads';

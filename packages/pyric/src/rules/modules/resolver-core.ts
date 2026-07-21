@@ -8,6 +8,7 @@
 import { parseToASTOrError, parseFunctions } from '../grammar/FirestoreParser.js';
 import { assembleRules } from '../grammar/FirestoreAssembler.js';
 import type { FunctionDef, Expression } from '../grammar/FirestoreAST.js';
+import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
 import {
   incompatibleFunction,
   incompatibleStdlibExport,
@@ -26,8 +27,6 @@ export {
   sanitizeModuleName,
 } from './resolver-transform.js';
 export { STDLIB_SERVICE_CONTRACT_MODULES } from './service-compatibility.js';
-
-const BUILTIN_FUNCTIONS = new Set(['get', 'exists', 'getAfter', 'debug']);
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled Rules expression: ${JSON.stringify(value)}`);
@@ -51,7 +50,7 @@ export interface ModuleFileReader {
 }
 
 export type ResolveResult =
-  | { success: true; data: { resolved: string; modules: string[] } }
+  | { success: true; data: { resolved: string; modules: string[]; bundledModules: string[] } }
   | { success: false; error: { code: string; message: string } };
 
 export interface ResolveOptions {
@@ -60,7 +59,7 @@ export interface ResolveOptions {
 }
 
 type LoadResult =
-  | { success: true; functions: FunctionDef[] }
+  | { success: true; functions: FunctionDef[]; bundled: boolean }
   | { success: false; error: { code: string; message: string } };
 
 // ---- Function call collection (for transitive deps) ----
@@ -99,7 +98,7 @@ function findTransitiveDeps(
     calls.push(...collectCalls(binding.value));
   }
   for (const call of calls) {
-    if (allFunctions.has(call) && !BUILTIN_FUNCTIONS.has(call)) {
+    if (allFunctions.has(call) && !RULES_BUILTIN_FUNCTIONS.has(call)) {
       deps.push(call);
       deps.push(...findTransitiveDeps(call, allFunctions, visited));
     }
@@ -109,12 +108,12 @@ function findTransitiveDeps(
 
 // ---- Module loading ----
 
-function loadModuleFromContent(content: string, moduleName: string): LoadResult {
+function loadModuleFromContent(content: string, moduleName: string, bundled: boolean): LoadResult {
   const functions = parseFunctions(content);
   if (!functions) {
     return { success: false, error: { code: 'PARSE_FAILED', message: `Failed to parse module '${moduleName}'` } };
   }
-  return { success: true, functions };
+  return { success: true, functions, bundled };
 }
 
 function isRelativeImport(moduleName: string): boolean {
@@ -125,10 +124,13 @@ export function loadModuleWith(
   reader: ModuleFileReader | null,
   moduleName: string,
   options?: ResolveOptions,
+  bundledSuppliedModules: ReadonlySet<string> = new Set(),
 ): LoadResult {
   // Priority 1: explicit modules map
   if (options?.modules && moduleName in options.modules) {
-    return loadModuleFromContent(options.modules[moduleName], moduleName);
+    return loadModuleFromContent(
+      options.modules[moduleName], moduleName, bundledSuppliedModules.has(moduleName),
+    );
   }
 
   // Priority 2: relative path from basePath
@@ -138,7 +140,7 @@ export function loadModuleWith(
     if (content === null) {
       return { success: false, error: { code: 'UNKNOWN_MODULE', message: `Module '${moduleName}' not found at ${filePath}` } };
     }
-    return loadModuleFromContent(content, moduleName);
+    return loadModuleFromContent(content, moduleName, false);
   }
 
   // Priority 3: relative path without basePath
@@ -152,7 +154,7 @@ export function loadModuleWith(
   if (content === null) {
     return { success: false, error: { code: 'UNKNOWN_MODULE', message: `Module '${moduleName}' not found` } };
   }
-  return loadModuleFromContent(content, moduleName);
+  return loadModuleFromContent(content, moduleName, true);
 }
 
 // ---- Main resolver ----
@@ -161,6 +163,7 @@ export function resolveModulesWith(
   reader: ModuleFileReader | null,
   source: string,
   options?: ResolveOptions,
+  bundledSuppliedModules: ReadonlySet<string> = new Set(),
 ): ResolveResult {
   // 1. Parse source
   const parsed = parseToASTOrError(source);
@@ -183,7 +186,7 @@ export function resolveModulesWith(
 
   if (ast.imports.length === 0) {
     ast.version = '2';
-    return { success: true, data: { resolved: assembleRules(ast), modules: [] } };
+    return { success: true, data: { resolved: assembleRules(ast), modules: [], bundledModules: [] } };
   }
 
   const emptyImport = ast.imports.find((imp) => imp.functions.length === 0);
@@ -203,14 +206,18 @@ export function resolveModulesWith(
   const moduleOrigin = new Map<string, string>();
   const functionOrigin = new Map<string, string>();
   const modulesUsed: string[] = [];
+  const bundledModulesUsed: string[] = [];
   const privateNamesPerModule = new Map<string, Set<string>>();
 
   for (const imp of ast.imports) {
-    const loaded = loadModuleWith(reader, imp.module, options);
+    const loaded = loadModuleWith(reader, imp.module, options, bundledSuppliedModules);
     if (!loaded.success) {
       return { success: false, error: loaded.error };
     }
     if (!modulesUsed.includes(imp.module)) modulesUsed.push(imp.module);
+    if (loaded.bundled && !bundledModulesUsed.includes(imp.module)) {
+      bundledModulesUsed.push(imp.module);
+    }
 
     const originalNames = new Set<string>();
     const originalCollision = loaded.functions.find((fn) => {
@@ -228,7 +235,8 @@ export function resolveModulesWith(
       };
     }
 
-    const builtinCollision = loaded.functions.find((fn) => BUILTIN_FUNCTIONS.has(fn.name));
+    const builtinCollision = loaded.functions
+      .find((fn) => RULES_BUILTIN_FUNCTIONS.has(fn.name));
     if (builtinCollision) {
       return {
         success: false,
@@ -302,7 +310,9 @@ export function resolveModulesWith(
         return { success: false, error: { code: 'UNKNOWN_FUNCTION', message: msg } };
       }
       if (ast.service.name === 'cloud.firestore' || ast.service.name === 'firebase.storage') {
-        const message = incompatibleStdlibExport(ast.service.name, imp.module, fnName);
+        const message = loaded.bundled
+          ? incompatibleStdlibExport(ast.service.name, imp.module, fnName)
+          : null;
         if (message) {
           return { success: false, error: { code: 'INCOMPATIBLE_FUNCTION', message } };
         }
@@ -355,7 +365,7 @@ export function resolveModulesWith(
       calls.push(...collectCalls(binding.value));
     }
     for (const call of calls) {
-      if (allModuleFunctions.has(call) && !BUILTIN_FUNCTIONS.has(call)) {
+      if (allModuleFunctions.has(call) && !RULES_BUILTIN_FUNCTIONS.has(call)) {
         addWithDeps(call);
       }
     }
@@ -431,7 +441,8 @@ export function resolveModulesWith(
     match.children.forEach(collectMatchFunctions);
   };
   collectMatchFunctions(ast.service.match);
-  const builtinSourceCollision = [...sourceFnNames].find((name) => BUILTIN_FUNCTIONS.has(name));
+  const builtinSourceCollision = [...sourceFnNames]
+    .find((name) => RULES_BUILTIN_FUNCTIONS.has(name));
   if (builtinSourceCollision) {
     return {
       success: false,
@@ -458,5 +469,8 @@ export function resolveModulesWith(
   ast.version = '2';
   ast.imports = [];
 
-  return { success: true, data: { resolved: assembleRules(ast), modules: modulesUsed } };
+  return {
+    success: true,
+    data: { resolved: assembleRules(ast), modules: modulesUsed, bundledModules: bundledModulesUsed },
+  };
 }

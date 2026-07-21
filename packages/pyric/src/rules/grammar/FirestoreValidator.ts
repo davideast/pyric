@@ -1,6 +1,7 @@
 import type {
   FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation,
 } from './FirestoreAST.js';
+import { RULES_BUILTIN_FUNCTIONS } from './builtin-functions.js';
 
 export interface ValidationFinding {
   code: string;
@@ -13,7 +14,6 @@ export interface ValidationFinding {
 const WRITE_OPS: Set<Operation> = new Set(['write', 'create', 'update', 'delete']);
 const READ_OPS: Set<Operation> = new Set(['read', 'get', 'list']);
 const DATA_WRITE_OPS: Set<Operation> = new Set(['create', 'update']);
-const BUILTIN_FUNCTIONS = new Set(['get', 'exists', 'getAfter', 'debug']);
 
 export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[] {
   const findings: ValidationFinding[] = [];
@@ -136,7 +136,7 @@ function walkMatch(
     // SEM-4: Undefined function call
     const calls = collectFunctionCalls(cond);
     for (const fnName of calls) {
-      if (!allFunctions.has(fnName) && !BUILTIN_FUNCTIONS.has(fnName)) {
+      if (!allFunctions.has(fnName) && !RULES_BUILTIN_FUNCTIONS.has(fnName)) {
         findings.push({
           code: 'SEM-4', severity: 'high', path: pathStr, operation: opStr,
           message: `Rule at ${pathStr} calls undefined function '${fnName}'`,

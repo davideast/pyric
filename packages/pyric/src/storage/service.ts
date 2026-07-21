@@ -195,6 +195,7 @@ function ensureService(
   if (options.rules) {
     let source = options.rules;
     let modules: readonly string[] = [];
+    let bundledModules: readonly string[] = [];
     rules = parseStorageRules(source);
     if (rules._version === '2+modules') {
       const resolved = resolveModulesBrowser(source);
@@ -205,9 +206,10 @@ function ensureService(
       }
       source = resolved.data.resolved;
       modules = resolved.data.modules;
+      bundledModules = resolved.data.bundledModules;
       rules = parseStorageRules(source);
     }
-    resolution = createStorageRulesResolution(source, modules, rules);
+    resolution = createStorageRulesResolution(source, modules, bundledModules, rules);
   }
   // Explicit dbName wins; otherwise scope the default by project identity so
   // two projects on one origin never share a storage database (issue #359).

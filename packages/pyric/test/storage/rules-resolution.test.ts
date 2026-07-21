@@ -3,7 +3,7 @@ import { createStorageRulesResolution } from '../../src/storage/rules-resolution
 import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
 
 function resolutionFor(source: string, modules: readonly string[] = []) {
-  return createStorageRulesResolution(source, modules, parseStorageRules(source));
+  return createStorageRulesResolution(source, modules, modules, parseStorageRules(source));
 }
 
 describe('Storage rules resolution evidence', () => {
@@ -41,6 +41,21 @@ service firebase.storage {
 }`;
 
     expect(resolutionFor(source).evidenceIds).toEqual([]);
+  });
+
+  test('does not award bundled-module evidence to caller overrides', () => {
+    const source = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if true; } }
+}`;
+    const resolution = createStorageRulesResolution(
+      source,
+      ['auth'],
+      [],
+      parseStorageRules(source),
+    );
+    expect(resolution.evidenceIds).toEqual([]);
+    expect(resolution.bundledModules).toEqual([]);
   });
 
   test('does not confuse shadowed identifiers with the Firestore namespace', () => {

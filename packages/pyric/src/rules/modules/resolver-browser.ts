@@ -53,18 +53,23 @@ function buildStdlibModuleMap(): Record<string, string> {
 }
 
 const STDLIB_WITH_PATH_ALIASES = buildStdlibModuleMap();
+const BUNDLED_STDLIB_NAMES = new Set(Object.keys(STDLIB_WITH_PATH_ALIASES));
 
 export function resolveModulesBrowser(
   source: string,
   options?: ResolveOptions,
 ): ResolveResult {
+  const callerModules = options?.modules ?? {};
+  const bundledModules = new Set(
+    [...BUNDLED_STDLIB_NAMES].filter((name) => !(name in callerModules)),
+  );
   return resolveModulesWith(null, source, {
     ...options,
     modules: {
       ...STDLIB_WITH_PATH_ALIASES,
-      ...(options?.modules ?? {}),
+      ...callerModules,
     },
-  });
+  }, bundledModules);
 }
 
 export { STDLIB_INLINE };

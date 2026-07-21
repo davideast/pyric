@@ -5,6 +5,7 @@
  * Each is independently testable against the linter corpus.
  */
 import type { Expression, FunctionDef, AllowRule, MatchBlock } from '../grammar/FirestoreAST.js';
+import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
 
 /**
  * Count the maximum flat binary chain depth for a given operator.
@@ -165,14 +166,13 @@ export function extractFirstExpression(condition: Expression): Expression {
 export function buildCallGraph(functions: FunctionDef[]): Map<string, string[]> {
   const graph = new Map<string, string[]>();
   const fnNames = new Set(functions.map(f => f.name));
-  const builtins = new Set(['get', 'exists', 'getAfter', 'debug']);
 
   function collectCalls(expr: Expression): string[] {
     const calls: string[] = [];
     const walk = (e: Expression) => {
       switch (e.type) {
         case 'functionCall':
-          if (fnNames.has(e.name) && !builtins.has(e.name)) calls.push(e.name);
+          if (fnNames.has(e.name) && !RULES_BUILTIN_FUNCTIONS.has(e.name)) calls.push(e.name);
           e.args.forEach(walk);
           break;
         case 'binaryOp': walk(e.left); walk(e.right); break;
