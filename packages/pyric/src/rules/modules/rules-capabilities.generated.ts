@@ -3,6 +3,53 @@
 export const FIRESTORE_BINDING_PATHS = ["request", "request.auth", "request.auth.token", "request.auth.uid", "request.method", "request.path", "request.query", "request.resource", "request.resource.data", "request.time", "resource", "resource.data"] as const;
 export const FIRESTORE_DIRECT_FUNCTIONS = ["exists", "get"] as const;
 export const FIRESTORE_METHODS = ["addedKeys", "affectedKeys", "bind", "changedKeys", "concat", "date", "day", "dayOfWeek", "dayOfYear", "diff", "difference", "distance", "get", "hasAll", "hasAny", "hasOnly", "hours", "intersection", "join", "keys", "latitude", "longitude", "lower", "matches", "minutes", "month", "nanos", "removeAll", "removedKeys", "replace", "seconds", "size", "split", "time", "toBase64", "toHexString", "toMillis", "toSet", "toUtf8", "trim", "unchangedKeys", "union", "upper", "values", "year"] as const;
+export const FIRESTORE_METHOD_RECEIVER_TYPES = {
+  "addedKeys": ["mapdiff"] as const,
+  "affectedKeys": ["mapdiff"] as const,
+  "bind": ["path"] as const,
+  "changedKeys": ["mapdiff"] as const,
+  "concat": ["list"] as const,
+  "date": ["timestamp"] as const,
+  "day": ["timestamp"] as const,
+  "dayOfWeek": ["timestamp"] as const,
+  "dayOfYear": ["timestamp"] as const,
+  "diff": ["map"] as const,
+  "difference": ["set"] as const,
+  "distance": ["latlng"] as const,
+  "get": ["map"] as const,
+  "hasAll": ["list", "set"] as const,
+  "hasAny": ["list", "set"] as const,
+  "hasOnly": ["list", "set"] as const,
+  "hours": ["timestamp"] as const,
+  "intersection": ["set"] as const,
+  "join": ["list"] as const,
+  "keys": ["map"] as const,
+  "latitude": ["latlng"] as const,
+  "longitude": ["latlng"] as const,
+  "lower": ["string"] as const,
+  "matches": ["string"] as const,
+  "minutes": ["timestamp"] as const,
+  "month": ["timestamp"] as const,
+  "nanos": ["duration", "timestamp"] as const,
+  "removeAll": ["list"] as const,
+  "removedKeys": ["mapdiff"] as const,
+  "replace": ["string"] as const,
+  "seconds": ["duration", "timestamp"] as const,
+  "size": ["bytes", "list", "map", "set", "string"] as const,
+  "split": ["string"] as const,
+  "time": ["timestamp"] as const,
+  "toBase64": ["bytes"] as const,
+  "toHexString": ["bytes"] as const,
+  "toMillis": ["timestamp"] as const,
+  "toSet": ["list"] as const,
+  "toUtf8": ["string"] as const,
+  "trim": ["string"] as const,
+  "unchangedKeys": ["mapdiff"] as const,
+  "union": ["set"] as const,
+  "upper": ["string"] as const,
+  "values": ["map"] as const,
+  "year": ["timestamp"] as const,
+} as const;
 export const FIRESTORE_NAMESPACE_METHODS = {
   cast: ["float", "int", "path", "string"] as const,
   duration: ["abs", "time", "value"] as const,
@@ -14,6 +61,14 @@ export const FIRESTORE_NAMESPACE_METHODS = {
 export const STORAGE_BINDING_PATHS = ["request", "request.auth", "request.auth.token", "request.auth.uid", "request.method", "request.path", "request.resource", "request.resource.contentType", "request.resource.metadata", "request.resource.size", "request.time", "resource", "resource.bucket", "resource.contentType", "resource.generation", "resource.metadata", "resource.metageneration", "resource.name", "resource.size", "resource.timeCreated", "resource.updated"] as const;
 export const STORAGE_DIRECT_FUNCTIONS = [] as const;
 export const STORAGE_METHODS = ["get", "hasAll", "keys", "matches", "size", "split"] as const;
+export const STORAGE_METHOD_RECEIVER_TYPES = {
+  "get": ["map"] as const,
+  "hasAll": ["set"] as const,
+  "keys": ["map"] as const,
+  "matches": ["string"] as const,
+  "size": ["list", "map", "string"] as const,
+  "split": ["string"] as const,
+} as const;
 export const STORAGE_NAMESPACE_METHODS = {
   duration: ["value"] as const,
   firestore: ["exists", "get"] as const,

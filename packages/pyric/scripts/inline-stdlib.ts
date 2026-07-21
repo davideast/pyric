@@ -28,14 +28,13 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { servicesForRulesModule } from './stdlib-service-contract.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = dirname(__dirname);
 const STDLIB_DIR = join(PACKAGE_ROOT, 'src', 'rules', 'modules', 'stdlib');
 const OUT_PATH = join(PACKAGE_ROOT, 'src', 'rules', 'modules', 'stdlib-content.ts');
 const SERVICE_OUT_PATH = join(PACKAGE_ROOT, 'src', 'rules', 'modules', 'stdlib-services.generated.ts');
-const RULES_SERVICES = new Set(['cloud.firestore', 'firebase.storage']);
-const SERVICE_DIRECTIVE = /^\/\/ @pyric-services (.+)$/;
 
 function rulesFiles(dir: string, prefix = ''): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -50,13 +49,7 @@ const files = rulesFiles(STDLIB_DIR);
 const entries = files.map((file) => {
   const name = file.replace(/\.rules$/, '');
   const content = readFileSync(join(STDLIB_DIR, file), 'utf-8');
-  const directive = content.split('\n', 1)[0]?.match(SERVICE_DIRECTIVE);
-  if (!directive) throw new Error(`${file}: first line must declare // @pyric-services <service,...>`);
-  const services = directive[1]!.split(',');
-  if (services.length === 0 || new Set(services).size !== services.length ||
-      services.some((service) => !RULES_SERVICES.has(service))) {
-    throw new Error(`${file}: invalid @pyric-services declaration '${directive[1]}'`);
-  }
+  const services = servicesForRulesModule(file, content);
   // Escape backticks + `${` so the source survives template-literal
   // wrapping. Backslashes escape themselves first to avoid double-
   // unescaping at runtime.

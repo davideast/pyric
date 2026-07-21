@@ -240,7 +240,54 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       ` } },
     );
 
-    expect(result.success).toBe(true);
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+  });
+
+  test('rejects accepted method names on incompatible ambient receiver types', () => {
+    for (const expression of [
+      "request.resource.metadata.matches('x')",
+      "request.resource.metadata.split('x').size() > 0",
+      'request.resource.size.keys().size() > 0',
+      "request.resource.contentType.get('x', null) != null",
+    ]) {
+      const result = resolveModules(
+        makeStorageSource("import { broken } from './policy';", 'broken()'),
+        { modules: { './policy': `export function broken() { return ${expression}; }` } },
+      );
+
+      expect(result.success, expression).toBe(false);
+      if (!result.success) expect(result.error.message).toContain('receiver');
+    }
+  });
+
+  test('does not let composite receivers launder method receiver types', () => {
+    for (const expression of [
+      "(request.resource.metadata || {}).matches('x')",
+      "[request.resource.metadata][0].split('x').size() > 0",
+      "{'value': request.resource.size}.value.keys().size() > 0",
+    ]) {
+      const result = resolveModules(
+        makeStorageSource("import { broken } from './policy';", 'broken()'),
+        { modules: { './policy': `export function broken() { return ${expression}; }` } },
+      );
+
+      expect(result.success, expression).toBe(false);
+    }
+  });
+
+  test('admits accepted string methods on known Storage string bindings', () => {
+    const result = resolveModules(
+      makeStorageSource("import { valid } from './policy';", 'valid()'),
+      { modules: { './policy': `
+        export function valid() {
+          return request.resource.contentType.matches('image/.*')
+            && request.resource.metadata.owner.split(':').size() > 0
+            && request.resource.metadata.keys().hasAll(['owner']);
+        }
+      ` } },
+    );
+
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
 
   test('does not let a local alias launder an incompatible ambient binding', () => {

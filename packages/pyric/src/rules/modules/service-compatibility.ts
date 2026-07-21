@@ -2,9 +2,11 @@ import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import {
   FIRESTORE_DIRECT_FUNCTIONS as GENERATED_FIRESTORE_DIRECT_FUNCTIONS,
   FIRESTORE_METHODS as GENERATED_FIRESTORE_METHODS,
+  FIRESTORE_METHOD_RECEIVER_TYPES,
   FIRESTORE_NAMESPACE_METHODS,
   STORAGE_BINDING_PATHS,
   STORAGE_METHODS as GENERATED_STORAGE_METHODS,
+  STORAGE_METHOD_RECEIVER_TYPES,
   STORAGE_NAMESPACE_METHODS,
 } from './rules-capabilities.generated.js';
 import {
@@ -218,6 +220,81 @@ function ambientCollectionMethodIssue(
   return null;
 }
 
+type RulesReceiverType =
+  | 'bytes'
+  | 'duration'
+  | 'latlng'
+  | 'list'
+  | 'map'
+  | 'mapdiff'
+  | 'number'
+  | 'path'
+  | 'set'
+  | 'string'
+  | 'timestamp';
+
+function ambientReceiverType(
+  service: RulesServiceName,
+  provenance: AmbientProvenance,
+): RulesReceiverType | null {
+  if (!provenance || provenance === 'unknown-ambient') return null;
+  const path = provenance.join('.');
+  if (path === 'request.auth' || path === 'request.auth.token' ||
+      path === 'request.resource' || path === 'resource' ||
+      path === 'request.resource.data' || path === 'resource.data' ||
+      path === 'request.query' || path === 'request.resource.metadata' ||
+      path === 'resource.metadata') return 'map';
+  if (path === 'request.auth.uid' || path === 'request.method' ||
+      path === 'request.resource.contentType' || path === 'resource.contentType' ||
+      service === 'firebase.storage' &&
+        (path.startsWith('request.resource.metadata.') || path.startsWith('resource.metadata.'))) {
+    return 'string';
+  }
+  if (path === 'request.path') return 'path';
+  if (path === 'request.time' || path === 'resource.timeCreated' || path === 'resource.updated') {
+    return 'timestamp';
+  }
+  if (['request.resource.size', 'resource.size', 'resource.generation', 'resource.metageneration']
+    .includes(path)) return 'number';
+  return null;
+}
+
+function ambientMethodReturnType(expression: Expression): RulesReceiverType | null {
+  if (expression.type !== 'methodCall') return null;
+  if (['lower', 'upper', 'trim', 'replace', 'join', 'toBase64', 'toHexString']
+    .includes(expression.method)) return 'string';
+  if (['concat', 'removeAll', 'split', 'values'].includes(expression.method)) return 'list';
+  if (['keys', 'toSet', 'addedKeys', 'removedKeys', 'changedKeys', 'affectedKeys',
+    'unchangedKeys', 'difference', 'union', 'intersection'].includes(expression.method)) return 'set';
+  if (expression.method === 'diff') return 'mapdiff';
+  if (expression.method === 'toUtf8') return 'bytes';
+  if (expression.method === 'date') return 'timestamp';
+  if (['size', 'year', 'month', 'day', 'hours', 'minutes', 'seconds', 'nanos',
+    'dayOfWeek', 'dayOfYear', 'toMillis', 'latitude', 'longitude', 'distance']
+    .includes(expression.method)) return 'number';
+  return null;
+}
+
+function ambientMethodReceiverIssue(
+  object: Expression,
+  method: string,
+  service: RulesServiceName,
+  ctx: AnalysisContext,
+): string | null {
+  const provenance = ambientBindingPath(object, ctx);
+  const receiverType = ambientReceiverType(service, provenance) ?? ambientMethodReturnType(object);
+  if (!receiverType) {
+    return provenance === 'unknown-ambient' ? "binding '<derived ambient receiver>'" : null;
+  }
+  const contracts = service === 'cloud.firestore'
+    ? FIRESTORE_METHOD_RECEIVER_TYPES
+    : STORAGE_METHOD_RECEIVER_TYPES;
+  const allowed = contracts[method as keyof typeof contracts] as readonly string[] | undefined;
+  return allowed?.includes(receiverType)
+    ? null
+    : `method '.${method}()' requires ${allowed?.join('|') ?? 'an accepted'} receiver, got ${receiverType}`;
+}
+
 function ambientMembershipIssue(
   element: Expression,
   collection: Expression,
@@ -288,6 +365,8 @@ function serviceIncompatibility(
         }
         const methods = service === 'cloud.firestore' ? FIRESTORE_METHODS : STORAGE_METHODS;
         if (!methods.has(e.method)) return `method '.${e.method}()'`;
+        const receiverIssue = ambientMethodReceiverIssue(e.object, e.method, service, ctx);
+        if (receiverIssue) return receiverIssue;
         const ambientIssue = ambientCollectionMethodIssue(e.object, e.method, e.args, service, ctx);
         if (ambientIssue) return ambientIssue;
         return walk(e.object) ?? e.args.map(walk).find(Boolean) ?? null;

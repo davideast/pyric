@@ -20,6 +20,8 @@ import { fileURLToPath } from 'node:url';
 import { STDLIB_INLINE } from '../../src/rules/modules/stdlib-content.js';
 import { STDLIB_SERVICE_CONTRACT_MODULES } from '../../src/rules/modules/resolver-core.js';
 import { STDLIB_SERVICE_CONTRACTS } from '../../src/rules/modules/stdlib-services.generated.js';
+import packageJson from '../../package.json';
+import { servicesForRulesModule } from '../../scripts/stdlib-service-contract.js';
 
 const STDLIB_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -41,6 +43,22 @@ describe('STDLIB_INLINE — drift check against disk', () => {
   it('requires an explicit service contract for every bundled module', () => {
     const diskKeys = diskFiles.map((f) => f.replace(/\.rules$/, '')).sort();
     expect(STDLIB_SERVICE_CONTRACT_MODULES).toEqual(diskKeys);
+  });
+
+  it('makes stdlib generation a mandatory package build step', () => {
+    expect(packageJson.scripts.prebuild).toContain('bun run inline-stdlib');
+    expect(packageJson.scripts.prebuild).not.toMatch(/inline-stdlib[^&]*\|\|\s*true/);
+  });
+
+  it('fails generation on missing, unknown, or duplicate service declarations', () => {
+    expect(() => servicesForRulesModule('missing.rules', 'export function x() {}'))
+      .toThrow('first line must declare');
+    expect(() => servicesForRulesModule('unknown.rules', '// @pyric-services other\n'))
+      .toThrow('invalid @pyric-services');
+    expect(() => servicesForRulesModule(
+      'duplicate.rules',
+      '// @pyric-services firebase.storage,firebase.storage\n',
+    )).toThrow('invalid @pyric-services');
   });
 
   it('derives service contracts from each module-owned declaration', () => {

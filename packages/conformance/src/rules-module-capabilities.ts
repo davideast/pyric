@@ -20,6 +20,7 @@ interface Construct {
   id: string;
   kind: string;
   status: string;
+  receiverType?: string;
 }
 
 function literal(values: readonly string[]): string {
@@ -39,6 +40,16 @@ function renderEngineCapabilities(engine: 'firestore' | 'storage'): string {
     accepted.filter((construct) => construct.kind === 'method')
       .map((construct) => construct.id.split('.').at(-1)!),
   )].sort();
+  const methodReceiverTypes = new Map<string, Set<string>>();
+  for (const construct of accepted.filter((candidate) => candidate.kind === 'method')) {
+    const method = construct.id.split('.').at(-1)!;
+    if (!construct.receiverType) {
+      throw new Error(`${construct.id}: accepted method is missing receiverType`);
+    }
+    const receiverTypes = methodReceiverTypes.get(method) ?? new Set<string>();
+    for (const receiverType of construct.receiverType.split('|')) receiverTypes.add(receiverType);
+    methodReceiverTypes.set(method, receiverTypes);
+  }
   const directFunctions: string[] = [];
   const namespaces = new Map<string, string[]>();
   for (const construct of accepted.filter((candidate) => candidate.kind === 'function')) {
@@ -56,9 +67,13 @@ function renderEngineCapabilities(engine: 'firestore' | 'storage'): string {
     .map(([namespace, values]) => `  ${namespace}: ${literal(values.sort())},`)
     .join('\n');
   const prefix = engine.toUpperCase();
+  const receiverSource = [...methodReceiverTypes.entries()].sort(([left], [right]) => left.localeCompare(right))
+    .map(([method, receiverTypes]) => `  ${JSON.stringify(method)}: ${literal([...receiverTypes].sort())},`)
+    .join('\n');
   return `export const ${prefix}_BINDING_PATHS = ${literal(bindings)};\n` +
     `export const ${prefix}_DIRECT_FUNCTIONS = ${literal(directFunctions.sort())};\n` +
     `export const ${prefix}_METHODS = ${literal(methods)};\n` +
+    `export const ${prefix}_METHOD_RECEIVER_TYPES = {\n${receiverSource}\n} as const;\n` +
     `export const ${prefix}_NAMESPACE_METHODS = {\n${namespaceSource}\n} as const;\n`;
 }
 

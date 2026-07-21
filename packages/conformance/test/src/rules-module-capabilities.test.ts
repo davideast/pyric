@@ -9,6 +9,9 @@ describe('rules module capability projection', () => {
     expect(source).toContain('STORAGE_NAMESPACE_METHODS');
     expect(source).toContain('STORAGE_BINDING_PATHS');
     expect(source).toContain('STORAGE_METHODS');
+    expect(source).toContain('STORAGE_METHOD_RECEIVER_TYPES');
+    expect(source).toContain('"matches": ["string"]');
+    expect(source).toContain('"size": ["list", "map", "string"]');
     expect(source).toContain('firestore: ["exists", "get"]');
     expect(source).toContain('"request.resource.contentType"');
     expect(source).not.toContain('"request.resource.name"');

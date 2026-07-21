@@ -20,6 +20,7 @@ import {
   allModuleKeys,
   suggestKey,
 } from '../../src/rules/stdlib-modules.js';
+import { STDLIB_SERVICE_CONTRACTS } from '../../src/rules/modules/stdlib-services.generated.js';
 
 // Re-import the source-of-truth constants. These are the same sets
 // the engine + linter actually use at runtime — keeping the drift
@@ -43,14 +44,14 @@ const STDLIB_MD_PATH = resolve(
   '../../../site-docs/src/content/trust/rules-standard-library.md',
 );
 
-function readUserModuleNames(): string[] {
+function readDocumentedModuleNames(): string[] {
   const src = readFileSync(STDLIB_MD_PATH, 'utf-8');
   // Markdown headers like "### auth" — capture the name after "### ".
   // Skip the "Module Index", "Dependency Types", "Modules" structural
   // headers; user modules are level-3 (`###`).
   const names: string[] = [];
   for (const line of src.split('\n')) {
-    const m = line.match(/^###\s+(\w[\w-]*)\s*$/);
+    const m = line.match(/^###\s+([\w-]+(?:\/[\w-]+)*)\s*$/);
     if (!m) continue;
     names.push(m[1]!);
   }
@@ -94,14 +95,21 @@ describe('STDLIB_MODULES — drift check against runtime constants', () => {
     }
   });
 
-  it('covers every documented user-module as a user-module key', () => {
+  it('accounts for every documented module using its generated service contract', () => {
     const userModuleKeys = new Set(
       STDLIB_MODULES.filter((m) => m.kind === 'user-module').map((m) => m.key),
     );
-    const docNames = readUserModuleNames();
+    const docNames = readDocumentedModuleNames();
     expect(docNames.length, 'stdlib reference parsed zero modules — parser regressed').toBeGreaterThan(0);
+    expect([...docNames].sort()).toEqual(Object.keys(STDLIB_SERVICE_CONTRACTS).sort());
+
     for (const name of docNames) {
-      expect(userModuleKeys.has(name), `documented module not mirrored as user-module: ${name}`).toBe(true);
+      const services = STDLIB_SERVICE_CONTRACTS[name as keyof typeof STDLIB_SERVICE_CONTRACTS];
+      if (services.includes('cloud.firestore')) {
+        expect(userModuleKeys.has(name), `Firestore module not mirrored in agent catalog: ${name}`).toBe(true);
+      } else {
+        expect(userModuleKeys.has(name), `Storage-only module leaked into Firestore agent catalog: ${name}`).toBe(false);
+      }
     }
   });
 });
