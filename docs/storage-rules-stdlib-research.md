@@ -38,6 +38,36 @@ real-resource access budget. IAM, billing, database boundaries, rules
 independence, and consistency still require the real-resource rig and remain
 unclaimed.
 
+### Follow-up discovery captures (2026-07-21)
+
+The read-only `storage-stdlib-discovery` rig now records three additional
+production boundaries. Paired Firestore/Storage requests reject braced imports
+under both v2 and `2+modules`; the Rules Test API also rejects every two-file
+source shape with `INVALID_ARGUMENT`, regardless of file order. The portable
+deployment contract therefore remains Pyric-lowered, single-file v2 rather than
+server-side linking.
+
+Identical pure function bodies passed under both services for the tested string,
+list, Map/MapDiff/Set, math, hashing, duration/timestamp, and LatLng families.
+`math.isInfinite` denied under both services as an invalid function; the math
+family passed after removing that control. These are candidate common-language
+capabilities, not Pyric conformance credit, until each is implemented and
+replayed locally.
+
+The remaining synthetic Storage-native probe established metadata `diff()`
+boundaries, timestamp-typed `resource.updated`, exact Unicode metadata equality,
+and rule addressability of explicitly supplied md5/crc32c/etag fields. Synthetic
+hash fields do not prove that real uploads populate them.
+
+The first real-resource rig run restored the exact prior Storage release and
+verified all run-scoped Firestore documents and Storage objects absent before
+writing its capture. With cross-service IAM disabled, every executed
+`firestore.get`/`exists` rule denied while a `true || lookup` rule allowed. The
+dedicated oracle service account lacks IAM-policy read/write, so the enabled
+budget/caching phase requires the Firebase Rules Firestore Service Agent role to
+be enabled externally or a separately authorized IAM credential. No IAM change
+was attempted successfully.
+
 ## Baseline conclusion
 
 `storage.rules` does **not yet work end to end with `rules_version = '2+modules'` in Pyric's normal Storage path**.
