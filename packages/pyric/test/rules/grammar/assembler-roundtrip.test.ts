@@ -92,3 +92,24 @@ describe('assembler idempotency', () => {
     });
   }
 });
+
+test('preserves global and service-scope functions', () => {
+  const source = `rules_version = '2';
+function globalHelper() { return true; }
+service cloud.firestore {
+  function serviceHelper() { return globalHelper(); }
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read: if serviceHelper();
+    }
+  }
+}`;
+  const ast1 = parseToAST(source)!;
+
+  const ast2 = parseToAST(assembleRules(ast1));
+
+  expect(ast2).not.toBeNull();
+  expect(ast2!.functions?.map((fn) => fn.name)).toEqual(['globalHelper']);
+  expect(ast2!.service.functions?.map((fn) => fn.name)).toEqual(['serviceHelper']);
+  expect(structuralEqual(ast1, ast2)).toBe(true);
+});
