@@ -1,5 +1,5 @@
 /**
- * RulesReadEngine unit tests (ADR-0009, PR B3).
+ * Direct RulesReadEngine unit tests (ADR-0009, PR B3).
  *
  * Exercises the rules-gated read paths directly against real collaborators
  * (LocalState, RulesState, the real simulator, TriggerScope, EventBus) and
