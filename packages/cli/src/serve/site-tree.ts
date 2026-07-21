@@ -6,6 +6,7 @@ import {
   decodeStaticPathname,
   pipeFileToResponse,
   resolveStaticFile,
+  resolveStaticPath,
 } from './server.js';
 
 interface StudioRoutesManifest {
@@ -53,8 +54,8 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
       return true;
     }
     if (!rel.endsWith('/') && !extname(rel)) {
-      const dir = join(root, decodedRel);
-      if (existsSync(dir) && statSync(dir).isDirectory()) {
+      const dir = resolveStaticPath(root, rel);
+      if (dir && existsSync(dir) && statSync(dir).isDirectory()) {
         res.writeHead(301, { location: `${url.pathname}/` }).end();
         return true;
       }

@@ -64,6 +64,12 @@ describe('Astro site tree', () => {
     expect((await fetch(h.url + '/__pyric/ui/_astro/missing.js')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/docs/missing')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/docs/%E0%A4%A')).status).toBe(404);
+    const traversal = await fetch(
+      h.url + '/__pyric/ui/%2e%2e%2f%2e%2e%2f%2e%2e%2ftmp',
+      { redirect: 'manual' },
+    );
+    expect(traversal.status).toBe(404);
+    expect(traversal.headers.get('location')).toBeNull();
     expect((await fetch(h.url + '/__pyric/ui/not-a-service')).status).toBe(404);
 
     const docsTwin = await fetch(h.url + '/__pyric/ui/docs/overview.md');
