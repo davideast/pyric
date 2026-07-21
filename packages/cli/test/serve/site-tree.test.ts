@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSiteTreeHandler } from '../../src/serve/site-tree.js';
@@ -38,6 +39,32 @@ function siteFixture(): { publicDir: string; siteRoot: string } {
   return { publicDir, siteRoot };
 }
 
+function invokeRawPath(
+  handler: ReturnType<typeof createSiteTreeHandler>,
+  path: string,
+): {
+  status: number;
+  location: string | undefined;
+} {
+  let status = 0;
+  let location: string | undefined;
+  const response = {
+    writeHead(code: number, headers?: Record<string, string>) {
+      status = code;
+      location = headers?.location;
+      return response;
+    },
+    end() { return response; },
+  };
+  const handled = handler(
+    { url: path } as IncomingMessage,
+    response as unknown as ServerResponse,
+    new URL(path, 'http://localhost'),
+  );
+  expect(handled).toBe(true);
+  return { status, location };
+}
+
 describe('Astro site tree', () => {
   it('limits SPA fallbacks to generated Studio entries', async () => {
     const { publicDir, siteRoot } = siteFixture();
@@ -62,14 +89,21 @@ describe('Astro site tree', () => {
     expect((await fetch(h.url + '/__pyric/ui/home/anything')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/_astro/app.js')).status).toBe(200);
     expect((await fetch(h.url + '/__pyric/ui/_astro/missing.js')).status).toBe(404);
+    expect((await fetch(h.url + '/__pyric/ui/firestore/missing.js')).status).toBe(404);
+    expect((await fetch(h.url + '/__pyric/ui/firestore/missing.css')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/docs/missing')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/docs/%E0%A4%A')).status).toBe(404);
-    const traversal = await fetch(
-      h.url + '/__pyric/ui/%2e%2e%2f%2e%2e%2f%2e%2e%2ftmp',
-      { redirect: 'manual' },
+    const handler = createSiteTreeHandler(siteRoot, '0123456789abcdef');
+    const traversal = invokeRawPath(
+      handler,
+      '/__pyric/ui/%2e%2e%2f%2e%2e%2f%2e%2e%2ftmp',
     );
     expect(traversal.status).toBe(404);
-    expect(traversal.headers.get('location')).toBeNull();
+    expect(traversal.location).toBeUndefined();
+    expect(invokeRawPath(
+      handler,
+      '/__pyric/ui/firestore/%2e%2e/docs/index.json',
+    ).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/not-a-service')).status).toBe(404);
 
     const docsTwin = await fetch(h.url + '/__pyric/ui/docs/overview.md');

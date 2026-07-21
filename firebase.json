@@ -9,27 +9,27 @@
     ],
     "rewrites": [
       {
-        "source": "/firestore/**",
+        "regex": "^/firestore(/[^.]*)?/?$",
         "destination": "/firestore/index.html"
       },
       {
-        "source": "/auth/**",
+        "regex": "^/auth(/[^.]*)?/?$",
         "destination": "/auth/index.html"
       },
       {
-        "source": "/rtdb/**",
+        "regex": "^/rtdb(/[^.]*)?/?$",
         "destination": "/rtdb/index.html"
       },
       {
-        "source": "/storage/**",
+        "regex": "^/storage(/[^/]*[^./][^/]*)*/?$",
         "destination": "/storage/index.html"
       },
       {
-        "source": "/traffic/**",
+        "regex": "^/traffic(/[^.]*)?/?$",
         "destination": "/traffic/index.html"
       },
       {
-        "source": "/settings/**",
+        "regex": "^/settings(/[^.]*)?/?$",
         "destination": "/settings/index.html"
       }
     ],

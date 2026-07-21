@@ -38,33 +38,45 @@ function withWorkerVersion(html: string, workerVersion: string | undefined): str
 export function createSiteTreeHandler(root: string, workerVersion?: string) {
   const studioRoutes = studioRoutesFromSite(root);
 
-  return (_req: IncomingMessage, res: ServerResponse, url: URL): boolean => {
-    if (url.pathname !== '/__pyric/ui' && !url.pathname.startsWith('/__pyric/ui/')) {
+  return (req: IncomingMessage, res: ServerResponse, url: URL): boolean => {
+    // URL parsing normalizes encoded dot segments before `url.pathname`
+    // reaches us. Route and validate against the raw request target so an
+    // encoded traversal cannot cross from Studio into docs or static assets.
+    const rawPathname = (req.url ?? url.pathname).split('?', 1)[0] ?? url.pathname;
+    if (rawPathname !== '/__pyric/ui' && !rawPathname.startsWith('/__pyric/ui/')) {
       return false;
     }
-    if (url.pathname === '/__pyric/ui') {
+    if (rawPathname === '/__pyric/ui') {
       res.writeHead(301, { location: '/__pyric/ui/' }).end();
       return true;
     }
 
-    const rel = url.pathname.slice('/__pyric/ui'.length) || '/';
+    const rel = rawPathname.slice('/__pyric/ui'.length) || '/';
     const decodedRel = decodeStaticPathname(rel);
     if (decodedRel === null) {
+      res.writeHead(404).end('not found');
+      return true;
+    }
+    const decodedSegments = decodedRel.split('/').filter(Boolean);
+    if (decodedSegments.some((segment) => segment === '.' || segment === '..')) {
       res.writeHead(404).end('not found');
       return true;
     }
     if (!rel.endsWith('/') && !extname(rel)) {
       const dir = resolveStaticPath(root, rel);
       if (dir && existsSync(dir) && statSync(dir).isDirectory()) {
-        res.writeHead(301, { location: `${url.pathname}/` }).end();
+        res.writeHead(301, { location: `${rawPathname}/` }).end();
         return true;
       }
     }
 
-    const first = rel.split('/').filter(Boolean)[0];
+    const first = decodedSegments[0];
     const studioRequest = first === undefined || studioRoutes.has(first);
     let file = resolveStaticFile(root, rel);
-    if (!file && studioRequest) {
+    // Storage object names commonly contain extensions (logo.png), while the
+    // other Studio routes reserve extension-bearing misses for static assets.
+    const allowsDottedState = first === 'storage';
+    if (!file && studioRequest && (allowsDottedState || !extname(decodedRel))) {
       const entry = first === undefined ? '/index.html' : `/${first}/index.html`;
       file = resolveStaticFile(root, entry);
     }

@@ -92,20 +92,28 @@ describe('firebase.json hosting rewrites', () => {
     // so real docs URLs need no rewrite at all; Firebase Hosting serves
     // them, and dist/site/404.html, natively. Only the Studio SPA's own
     // client-routed tabs get scoped rewrites.
-    const sources = firebaseJson.hosting.rewrites.map((rewrite) => rewrite.source);
-    expect(sources).not.toContain('/docs/**');
-    expect(sources).not.toContain('**');
+    const patterns = firebaseJson.hosting.rewrites.map(
+      (rewrite) => rewrite.source ?? rewrite.regex,
+    );
+    expect(patterns).not.toContain('/docs/**');
+    expect(patterns).not.toContain('**');
   });
 
   test('scopes deep links to their finite Astro Studio entry documents', () => {
-    const sources = firebaseJson.hosting.rewrites.map((rewrite) => rewrite.source);
-    expect(sources.sort()).toEqual(
-      studioStaticPaths().map(({ params }) => `/${params.studio}/**`).sort(),
-    );
+    const regexes = firebaseJson.hosting.rewrites.map((rewrite) => rewrite.regex);
+    expect(regexes.sort()).toEqual(studioStaticPaths().map(({ params }) =>
+      params.studio === 'storage'
+        ? '^/storage(/[^/]*[^./][^/]*)*/?$'
+        : `^/${params.studio}(/[^.]*)?/?$`
+    ).sort());
     for (const rewrite of firebaseJson.hosting.rewrites) {
-      const match = rewrite.source.match(/^\/([a-z]+)\/\*\*$/);
+      const match = rewrite.regex.match(/^\^\/([a-z]+)/);
       expect(match).not.toBeNull();
       expect(rewrite.destination).toBe(`/${match[1]}/index.html`);
+      const route = new RegExp(rewrite.regex);
+      expect(route.test(`/${match[1]}/users/alice`)).toBe(true);
+      expect(route.test(`/${match[1]}/missing.js`)).toBe(match[1] === 'storage');
+      expect(route.test(`/${match[1]}/../docs/index.json`)).toBe(false);
     }
   });
 
