@@ -103,8 +103,8 @@ describe('firebase.json hosting rewrites', () => {
     const regexes = firebaseJson.hosting.rewrites.map((rewrite) => rewrite.regex);
     expect(regexes.sort()).toEqual(studioStaticPaths().map(({ params }) =>
       params.studio === 'storage'
-        ? '^/storage(/[^/]*[^./][^/]*)*/?$'
-        : `^/${params.studio}(/[^.]*)?/?$`
+        ? '^/storage(/[^/\\\\]*[^./\\\\][^/\\\\]*)*/?$'
+        : `^/${params.studio}(/[^.\\\\]*)?/?$`
     ).sort());
     for (const rewrite of firebaseJson.hosting.rewrites) {
       const match = rewrite.regex.match(/^\^\/([a-z]+)/);
@@ -114,6 +114,8 @@ describe('firebase.json hosting rewrites', () => {
       expect(route.test(`/${match[1]}/users/alice`)).toBe(true);
       expect(route.test(`/${match[1]}/missing.js`)).toBe(match[1] === 'storage');
       expect(route.test(`/${match[1]}/../docs/index.json`)).toBe(false);
+      expect(route.test(`/${match[1]}/..\\docs/index.json`)).toBe(false);
+      expect(route.test(`/${match[1]}/a\\..\\docs/index.json`)).toBe(false);
     }
   });
 
