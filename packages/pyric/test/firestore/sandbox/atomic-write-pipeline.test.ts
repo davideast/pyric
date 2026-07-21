@@ -4,7 +4,7 @@ import {
   AtomicWritePipeline,
   type AtomicOrigin,
 } from '../../../src/firestore/sandbox/atomic-write-pipeline.js';
-import { AtomicWriteRuntime } from '../../../src/firestore/sandbox/atomic-write-runtime.js';
+import { WriteRuntime } from '../../../src/firestore/sandbox/write-runtime.js';
 import { EventLog } from '../../../src/firestore/sandbox/event-log.js';
 import { FirestoreEventBus } from '../../../src/firestore/sandbox/event-bus.js';
 import { LocalState, type DocStore } from '../../../src/firestore/sandbox/local-state.js';
@@ -17,7 +17,7 @@ function createHarness(rules = DEFAULT_OPEN_RULES) {
   const events = new FirestoreEventBus();
   const triggerScope = new TriggerScope();
   const notifications: Array<{ paths: string[]; trigger: unknown }> = [];
-  const runtime = new AtomicWriteRuntime(
+  const runtime = new WriteRuntime(
     {
       get state() { return state; },
       notifyListenersForPaths(paths) {

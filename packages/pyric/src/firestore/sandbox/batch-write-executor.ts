@@ -5,13 +5,13 @@ import type {
   Operation,
 } from './writes.js';
 import { AtomicWritePipeline } from './atomic-write-pipeline.js';
-import { AtomicWriteRuntime } from './atomic-write-runtime.js';
+import { WriteRuntime } from './write-runtime.js';
 
 /** Adapts batch inputs and result history to the shared atomic-write pipeline. */
 export class BatchWriteExecutor {
   private readonly pipeline: AtomicWritePipeline;
 
-  constructor(private readonly runtime: AtomicWriteRuntime) {
+  constructor(private readonly runtime: WriteRuntime) {
     this.pipeline = new AtomicWritePipeline(runtime);
   }
 

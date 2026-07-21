@@ -8,13 +8,13 @@ import type {
   TransactionResult,
 } from './transaction-types.js';
 import { AtomicWritePipeline } from './atomic-write-pipeline.js';
-import { AtomicWriteRuntime } from './atomic-write-runtime.js';
+import { WriteRuntime } from './write-runtime.js';
 
 /** Adapts transaction callbacks, merge semantics, and results to the atomic pipeline. */
 export class TransactionWriteExecutor {
   private readonly pipeline: AtomicWritePipeline;
 
-  constructor(private readonly runtime: AtomicWriteRuntime) {
+  constructor(private readonly runtime: WriteRuntime) {
     this.pipeline = new AtomicWritePipeline(runtime);
   }
 

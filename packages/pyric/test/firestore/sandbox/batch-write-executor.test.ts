@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
-import { AtomicWriteRuntime } from '../../../src/firestore/sandbox/atomic-write-runtime.js';
+import { WriteRuntime } from '../../../src/firestore/sandbox/write-runtime.js';
 import { BatchWriteExecutor } from '../../../src/firestore/sandbox/batch-write-executor.js';
 import { EventLog } from '../../../src/firestore/sandbox/event-log.js';
 import { FirestoreEventBus } from '../../../src/firestore/sandbox/event-bus.js';
@@ -13,7 +13,7 @@ describe('BatchWriteExecutor', () => {
   test('commits all writes and notifies their touched paths once', () => {
     const state = new LocalState();
     const notifications: string[][] = [];
-    const runtime = new AtomicWriteRuntime(
+    const runtime = new WriteRuntime(
       { state, notifyListenersForPaths: (paths) => notifications.push([...paths]) },
       new RulesState(DEFAULT_OPEN_RULES),
       new SimulateFirestoreRulesHandler(),

@@ -20,15 +20,15 @@ import { registerDefaultConverters } from './value-resolver.js';
 
 registerDefaultConverters();
 
-export interface AtomicWriteHost {
+export interface WriteRuntimeHost {
   readonly state: DocStore;
   notifyListenersForPaths(paths: Set<string>): void;
 }
 
 /** Shared rules, event, state, and notification policy for atomic write executors. */
-export class AtomicWriteRuntime {
+export class WriteRuntime {
   constructor(
-    private readonly host: AtomicWriteHost,
+    private readonly host: WriteRuntimeHost,
     private readonly rules: RulesState,
     private readonly simulator: SimulateFirestoreRulesHandler,
     readonly eventLog: EventLog,
@@ -59,6 +59,7 @@ export class AtomicWriteRuntime {
     groupId?: string;
     groupKind?: 'batch' | 'transaction';
     sentinels?: SentinelHit[];
+    autoId?: string;
     requestTime: Timestamp;
     detail?: { admin?: boolean } & Record<string, unknown>;
     provenance?: EventProvenance;
@@ -79,6 +80,7 @@ export class AtomicWriteRuntime {
       ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
       ...(input.groupKind !== undefined ? { groupKind: input.groupKind } : {}),
       ...(input.sentinels && input.sentinels.length > 0 ? { sentinels: input.sentinels } : {}),
+      ...(input.autoId !== undefined ? { autoId: input.autoId } : {}),
       requestTime: { seconds: input.requestTime.seconds, nanoseconds: input.requestTime.nanos },
       ...(input.detail !== undefined ? { detail: input.detail } : {}),
       ...(input.provenance ?? {}),
@@ -125,9 +127,9 @@ export class AtomicWriteRuntime {
     return buildRulesTestCase(this.state, operation, serverTime);
   }
 
-  notify(kind: 'batch' | 'transaction', path: string, touched: Set<string>): void {
+  notify(method: string, path: string, touched: Set<string>): void {
     this.triggerScope.run(
-      { method: kind, path },
+      { method, path },
       () => this.host.notifyListenersForPaths(touched),
     );
   }

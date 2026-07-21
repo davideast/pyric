@@ -7,18 +7,19 @@ import { LocalState } from '../../../src/firestore/sandbox/local-state.js';
 import { DEFAULT_OPEN_RULES } from '../../../src/firestore/sandbox/rules-evaluation.js';
 import { RulesState } from '../../../src/firestore/sandbox/rules-state.js';
 import { TriggerScope } from '../../../src/firestore/sandbox/trigger-scope.js';
+import { WriteRuntime } from '../../../src/firestore/sandbox/write-runtime.js';
 
 describe('AtomicWriteEngine', () => {
   test('keeps batch and transaction entry points behind one coordinator', () => {
     const state = new LocalState();
-    const engine = new AtomicWriteEngine(
+    const engine = new AtomicWriteEngine(new WriteRuntime(
       { state, notifyListenersForPaths: () => {} },
       new RulesState(DEFAULT_OPEN_RULES),
       new SimulateFirestoreRulesHandler(),
       new EventLog(),
       new FirestoreEventBus(),
       new TriggerScope(),
-    );
+    ));
 
     expect(engine.batch([
       { method: 'create', path: 'notes/batch', data: { value: 1 } },

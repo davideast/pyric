@@ -10,7 +10,7 @@ import type { Operation } from './writes.js';
 import type { EventProvenance } from '../../sandbox/types/events.js';
 import type { EmitRequestInput } from './request-events.js';
 import { walkForSentinels } from './sentinel-capture.js';
-import { AtomicWriteRuntime } from './atomic-write-runtime.js';
+import { WriteRuntime } from './write-runtime.js';
 
 export type AtomicRuleMethod = 'create' | 'update' | 'delete';
 export type AtomicOrigin = 'batch' | 'transaction';
@@ -66,7 +66,7 @@ export interface AtomicDecision extends AtomicPreparation {
  * Batch and transaction executors adapt only their distinct inputs and results.
  */
 export class AtomicWritePipeline {
-  constructor(private readonly runtime: AtomicWriteRuntime) {}
+  constructor(private readonly runtime: WriteRuntime) {}
 
   prepare(
     inputs: AtomicWriteInput[],
@@ -323,4 +323,3 @@ export class AtomicWritePipeline {
     };
   }
 }
-
