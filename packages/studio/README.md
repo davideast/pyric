@@ -18,7 +18,7 @@ builds. The standalone agent Playground is developed separately.
 | ------------------- | ---------------------------------------------------------------- |
 | `src/ports.ts`      | Storage ports — `WorkspaceStore`, `ProjectStore`, `RemoteLifecycle` (exported as `@pyric/studio/ports`). |
 | `src/env.ts`        | `StudioEnvironment` + `createStudioEnvironment(mode)` factory (`@pyric/studio/env`). |
-| `src/StudioApp.tsx` | Host-facing application component.                               |
+| `src/studio-app.tsx` | Host-facing application component.                              |
 | `src/App.tsx`       | App shell — nav, tabs, panes.                                    |
 | `src/shell/routes.tsx` | Finite service routes shared with the Astro host.             |
 | `src/styles/tokens.css` | Tailwind v4 `@theme` token contract + `[data-theme]` hook.  |

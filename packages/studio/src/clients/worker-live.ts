@@ -45,6 +45,7 @@ import {
   getSnapshot as workerGetSnapshot,
   resetAll as workerResetAll,
   getWorkerInstanceId,
+  getWorkerVersion,
   exportWorkerState,
   importWorkerState,
   saveWorkerBranch,
@@ -86,6 +87,11 @@ import {
   type PresenceSnapshot,
   type PresenceSession,
   readPyricRuntimeManifest,
+  createWorkerReplacement,
+  onWorkerRuntimeReload,
+  preflightWorkerEpochStorage,
+  rememberWorkerEpoch,
+  retireWorkerRuntime,
   workerNameForEpoch,
 } from '@pyric/cli/serve/worker';
 
@@ -94,10 +100,111 @@ export type { PresenceSnapshot };
 interface EpochStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
 }
 
 interface RuntimeDocument {
   querySelector(selector: string): { getAttribute(name: string): string | null } | null;
+}
+
+export interface StudioWorkerRuntimeSnapshot {
+  servedEpoch: string | null;
+  runningEpoch: string | null;
+  updateAvailable: boolean;
+  updating: boolean;
+  error: string | null;
+}
+
+export interface StudioWorkerRuntime {
+  getSnapshot(): StudioWorkerRuntimeSnapshot;
+  subscribe(listener: () => void): () => void;
+  update(): Promise<void>;
+}
+
+interface StudioWorkerRuntimeOptions {
+  db: ClientDb;
+  servedEpoch: string | null;
+  storage?: EpochStorage;
+  readVersion?: () => Promise<string>;
+  retire?: (epoch: string) => Promise<void>;
+  subscribeReload?: (listener: (epoch: string) => void) => () => void;
+  preflight?: () => void;
+  remember?: (epoch: string) => void;
+  reload?: () => void;
+  schedule?: (run: () => void) => void;
+}
+
+/** Keep a Studio page on the same explicit worker-replacement lifecycle as the app. */
+export function createStudioWorkerRuntime(
+  options: StudioWorkerRuntimeOptions,
+): StudioWorkerRuntime {
+  const listeners = new Set<() => void>();
+  let snapshot: StudioWorkerRuntimeSnapshot = {
+    servedEpoch: options.servedEpoch,
+    runningEpoch: null,
+    updateAvailable: false,
+    updating: false,
+    error: null,
+  };
+  const publish = (patch: Partial<StudioWorkerRuntimeSnapshot>) => {
+    snapshot = { ...snapshot, ...patch };
+    for (const listener of listeners) listener();
+  };
+  const storage = options.storage;
+  const servedEpoch = options.servedEpoch;
+  const replacement = servedEpoch
+    ? createWorkerReplacement({
+        targetEpoch: servedEpoch,
+        retire: () => options.retire
+          ? options.retire(servedEpoch)
+          : retireWorkerRuntime(options.db, servedEpoch),
+        subscribeReload: options.subscribeReload ?? onWorkerRuntimeReload,
+        preflight: options.preflight ?? (() => preflightWorkerEpochStorage(storage)),
+        commitGeneration: options.remember ?? ((epoch) => rememberWorkerEpoch(epoch, storage)),
+        onPreparationError: (error) => publish({
+          updating: false,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        reload: options.reload ?? (() => window.location.reload()),
+        ...(options.schedule ? { schedule: options.schedule } : {}),
+      })
+    : null;
+
+  void (options.readVersion ?? (() => getWorkerVersion(options.db)))()
+    .then((runningEpoch) => publish({
+      runningEpoch,
+      updateAvailable: Boolean(
+        servedEpoch
+        && runningEpoch !== 'dev'
+        && runningEpoch !== servedEpoch
+      ),
+    }))
+    .catch((error) => publish({
+      error: error instanceof Error ? error.message : String(error),
+    }));
+
+  return {
+    getSnapshot: () => snapshot,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    async update() {
+      if (!replacement || !snapshot.updateAvailable || snapshot.updating) {
+        throw new Error('No Pyric worker update is available.');
+      }
+      publish({ updating: true, error: null });
+      try {
+        await replacement.request();
+      } catch (error) {
+        publish({
+          updating: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+  };
 }
 
 /** Resolve the exact worker URL + active generation shared with served apps. */
@@ -150,6 +257,8 @@ export interface LiveEventFeed {
 export interface WorkerLivePlane {
   /** The worker-backed Firestore handle (carries the `MessagePort`). */
   db: ClientDb;
+  /** Worker version state and the explicit replacement action for Studio. */
+  runtime: StudioWorkerRuntime;
   /** F1: the unified event stream as an `EventFeed`. */
   feed: LiveEventFeed;
   /** Set the per-op auth lens (admin / impersonate / app-session). */
@@ -345,6 +454,19 @@ export function connectWorkerLive(
     // treat as "no live plane" so the env falls back cleanly.
     return null;
   }
+  let epochStorage: EpochStorage | undefined;
+  try {
+    epochStorage = typeof localStorage === 'undefined' ? undefined : localStorage;
+  } catch {
+    epochStorage = undefined;
+  }
+  const runtime = createStudioWorkerRuntime({
+    db,
+    servedEpoch: readPyricRuntimeManifest(
+      typeof document === 'undefined' ? undefined : document,
+    ).worker.servedEpoch,
+    storage: epochStorage,
+  });
   // Data viewers are admin-only. Pin the lens synchronously, before React can
   // mount a child hook and register its first onSnapshot subscription. The
   // previous effect-time initialization raced child passive effects, leaving
@@ -361,6 +483,7 @@ export function connectWorkerLive(
 
   return {
     db,
+    runtime,
     presenceClientId: presence.clientId,
     subscribePresence: (cb) => workerSubscribePresence(db, cb),
     instanceId: () => getWorkerInstanceId(db),

@@ -5,8 +5,8 @@
   "type": "module",
   "exports": {
     "./app": {
-      "types": "./dist/StudioApp.d.ts",
-      "import": "./dist/StudioApp.js"
+      "types": "./dist/studio-app.d.ts",
+      "import": "./dist/studio-app.js"
     },
     "./routes": {
       "types": "./dist/shell/routes.d.ts",

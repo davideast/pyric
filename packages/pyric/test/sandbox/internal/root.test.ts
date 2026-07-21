@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { createSandboxRoot } from './root.js';
+import { createSandboxRoot } from '../../../src/sandbox/internal/root.js';
 
 describe('sandbox roots', () => {
   it('gives each browser host an isolated instance of the same sandbox implementation', () => {

@@ -3,6 +3,9 @@
  *
  * Chips, all global truths:
  *
+ *  - WORKER UPDATE — rendered when Studio's running SharedWorker is older
+ *    than the version served with this page. Replaces the worker only after
+ *    the user confirms by pressing the chip.
  *  - SANDBOX HEALTH — rendered ONLY when degraded (status by exception;
  *    a healthy sandbox earns no pixels). Degraded means: the environment
  *    factory failed, or Studio is SERVED (`/__pyric/init.json` answers) but
@@ -26,12 +29,22 @@
  * geometry.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useEnvironment } from './environment.js';
 import { useServeInit } from './serve-init.js';
 import { useBridgeAvailability } from './bridge-availability.js';
 import { usePresenceView } from './presence.js';
 import { hrefFor, pushPath } from './router.js';
+
+const EMPTY_WORKER_RUNTIME = {
+  servedEpoch: null,
+  runningEpoch: null,
+  updateAvailable: false,
+  updating: false,
+  error: null,
+} as const;
+const subscribeToNothing = () => () => {};
+const getEmptyWorkerRuntime = () => EMPTY_WORKER_RUNTIME;
 
 export function StatusCluster() {
   const env = useEnvironment();
@@ -40,15 +53,27 @@ export function StatusCluster() {
   const presence = usePresenceView();
   const [presenceOpen, setPresenceOpen] = useState(false);
   const presenceTriggerRef = useRef<HTMLButtonElement>(null);
+  const workerRuntime = env.status === 'ready' ? env.env.live?.runtime : undefined;
+  const workerRuntimeSnapshot = useSyncExternalStore(
+    workerRuntime?.subscribe ?? subscribeToNothing,
+    workerRuntime?.getSnapshot ?? getEmptyWorkerRuntime,
+    workerRuntime?.getSnapshot ?? getEmptyWorkerRuntime,
+  );
 
   const served = serve.status === 'ready';
   const workerDown = served && env.status === 'ready' && !env.env.live;
   const envDown = env.status === 'error';
-  const degraded = envDown
-    ? 'backend error'
-    : workerDown
-      ? 'worker unreachable'
-      : null;
+  const degraded = workerRuntimeSnapshot.error
+    ? 'worker update failed'
+    : envDown
+      ? 'backend error'
+      : workerDown
+        ? 'worker unreachable'
+        : null;
+  const degradedTitle = workerRuntimeSnapshot.error
+    ?? (envDown
+      ? env.error.message
+      : 'Served, but the shared sandbox worker is not reachable; data views may be stale. Open Settings diagnostics.');
 
   const connected = bridgeAvailability === 'available';
 
@@ -66,15 +91,23 @@ export function StatusCluster() {
 
   return (
     <div className="studio__status" aria-label="Studio status">
+      {workerRuntimeSnapshot.updateAvailable ? (
+        <button
+          type="button"
+          className="studio-chip studio-chip--warn"
+          disabled={workerRuntimeSnapshot.updating}
+          title="The Studio backend is running older code. Update every connected page to the served worker version."
+          onClick={() => void workerRuntime?.update().catch(() => {})}
+        >
+          <span className="studio-chip__dot" aria-hidden="true" />
+          {workerRuntimeSnapshot.updating ? 'updating worker…' : 'update worker'}
+        </button>
+      ) : null}
       {degraded ? (
         <a
           className="studio-chip studio-chip--warn"
           href={hrefFor({ tab: 'settings' })}
-          title={
-            envDown
-              ? env.error.message
-              : 'Served, but the shared sandbox worker is not reachable; data views may be stale. Open Settings diagnostics.'
-          }
+          title={degradedTitle}
           onClick={(e) => {
             e.preventDefault();
             pushPath({ tab: 'settings' });

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 describe('PyricExample', () => {
   it('isolates the executable example in an iframe', () => {
     const source = readFileSync(
-      new URL('../../src/components/PyricExample.astro', import.meta.url),
+      new URL('../../src/components/pyric-example.astro', import.meta.url),
       'utf8',
     );
     expect(source).toContain('sandbox="allow-scripts allow-same-origin"');

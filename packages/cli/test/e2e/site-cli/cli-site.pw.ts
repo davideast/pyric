@@ -57,3 +57,33 @@ test('CLI documentation pages do not start a SharedWorker', async ({ page }) => 
   await page.waitForTimeout(500);
   expect(requests.filter((url) => url.includes('/__pyric/sdk/worker.js'))).toEqual([]);
 });
+
+test('an app-triggered worker replacement moves an open Studio page to the announced generation', async ({ browser }) => {
+  const context = await browser.newContext();
+  const app = await context.newPage();
+  const studio = await context.newPage();
+  await app.goto('/');
+  await studio.goto('/__pyric/ui/firestore');
+
+  const nextGeneration = 'fedcba9876543210';
+  const appReloaded = app.waitForEvent('framenavigated', (frame) => frame === app.mainFrame());
+  const studioReloaded = studio.waitForEvent('framenavigated', (frame) => frame === studio.mainFrame());
+  await app.evaluate((epoch) => {
+    const generation = localStorage.getItem('pyric:worker-generation');
+    const worker = new SharedWorker('/__pyric/sdk/worker.js', {
+      name: generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker',
+    });
+    worker.port.start();
+    worker.port.postMessage({
+      t: 'op',
+      id: 'replace-from-app',
+      method: 'retireRuntime',
+      targetEpoch: epoch,
+    });
+  }, nextGeneration);
+
+  await Promise.all([appReloaded, studioReloaded]);
+  expect(await app.evaluate(() => localStorage.getItem('pyric:worker-generation'))).toBe(nextGeneration);
+  expect(await studio.evaluate(() => localStorage.getItem('pyric:worker-generation'))).toBe(nextGeneration);
+  await context.close();
+});

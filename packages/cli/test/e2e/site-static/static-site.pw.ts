@@ -73,6 +73,29 @@ test('the SharedWorker bundle boots from /__pyric/sdk/worker.js', async ({ page 
   expect(status).toBe(200);
 });
 
+test('public Studio exposes and completes an explicit stale-worker update', async ({ page }) => {
+  const servedGeneration = 'fedcba9876543210';
+  // Simulate successor HTML while the old worker bundle remains alive, which
+  // is the state an already-open Studio sees immediately after a deployment.
+  await page.route('http://127.0.0.1:5199/', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(
+      /(<meta name="pyric-worker-v" content=")[a-f0-9]{16}("\s*\/?>)/,
+      `$1${servedGeneration}$2`,
+    );
+    await route.fulfill({ response, body });
+  });
+  await page.goto('/');
+
+  expect(await page.locator('meta[name="pyric-worker-v"]').getAttribute('content')).toBe(servedGeneration);
+  await expect(page.getByRole('button', { name: 'update worker' })).toBeVisible();
+
+  const reloaded = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
+  await page.getByRole('button', { name: 'update worker' }).click();
+  await reloaded;
+  expect(await page.evaluate(() => localStorage.getItem('pyric:worker-generation'))).toBe(servedGeneration);
+});
+
 test('no requests to /__pyric/state|projects|workspace|capture are attempted', async ({ page }) => {
   const urls = trackRequests(page);
   await page.goto('/');

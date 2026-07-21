@@ -155,6 +155,16 @@ a.studio__nav-tab {
   min-width: 0;
 }
 
+.studio__status button.studio-chip {
+  font: inherit;
+  cursor: pointer;
+}
+
+.studio__status button.studio-chip:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 /* Right cluster: command · settings · theme. */
 .studio__bar-tools {
   margin-left: auto;

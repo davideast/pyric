@@ -27,8 +27,18 @@ export {
 } from '../runtime/manifest.js';
 export {
   PYRIC_WORKER_GENERATION_KEY,
+  preflightWorkerEpochStorage,
+  rememberWorkerEpoch,
   workerNameForEpoch,
 } from '../runtime/worker-generation.js';
+export {
+  createWorkerReplacement,
+  type WorkerReplacement,
+} from '../runtime/worker-replacement.js';
+export {
+  onWorkerRuntimeReload,
+  retireWorkerRuntime,
+} from './client/runtime-control.js';
 
 export {
   // Bridge-peer relay seams (leaf-safe: ids are re-minted in-page, frames go
