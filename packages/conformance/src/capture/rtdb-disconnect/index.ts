@@ -174,16 +174,51 @@ async function readJsonLine(stream: ReadableStream<Uint8Array>, timeoutMs = 15_0
   throw new Error('inconclusive timeout waiting for abrupt writer acknowledgement');
 }
 
+/** Always restore live Rules, even when ordinary probe cleanup fails. */
+export async function cleanupAfterRulesProbe(
+  cleanupTasks: Array<() => void | Promise<void>>,
+  restoreRules: () => Promise<void>,
+  verifyRules: () => Promise<void>,
+): Promise<void> {
+  const cleanupErrors: unknown[] = [];
+  for (const task of cleanupTasks) {
+    try {
+      await task();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+
+  try {
+    await restoreRules();
+    await verifyRules();
+  } catch (restoreError) {
+    throw new AggregateError(
+      [...cleanupErrors, restoreError],
+      'RTDB disconnect probe failed to restore and verify Rules',
+    );
+  }
+
+  if (cleanupErrors.length === 1) throw cleanupErrors[0];
+  if (cleanupErrors.length > 1) {
+    throw new AggregateError(cleanupErrors, 'RTDB disconnect probe cleanup failed');
+  }
+}
+
 export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OracleProbe[] {
   const probe = (
     name: string,
+    matrixRow: string,
+    rowIds: string[],
     description: string,
     observe: () => Promise<Record<string, unknown>>,
-  ): OracleProbe => ({ name, description, observe, matrixRow: '', rowIds: [] });
+  ): OracleProbe => ({ name, description, observe, matrixRow, rowIds });
 
   return [
     probe(
       'rtdb-modular-ondisconnect-registration',
+      'rtdb-modular#M77, rtdb-modular#M78',
+      ['rtdb-modular#M77', 'rtdb-modular#M78'],
       'onDisconnect handle shape, promise acknowledgements, and proof that registration alone does not mutate server data.',
       () => repeatStable(2, async (index) => {
         const path = scenarioPath(ctx, 'registration', index);
@@ -226,6 +261,8 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
     ),
     probe(
       'rtdb-modular-ondisconnect-clean-set',
+      'rtdb-modular#M79',
+      ['rtdb-modular#M79'],
       'Normal write, queued set, clean goOffline delivery, observer ordering, and one-shot behavior after goOnline.',
       () => repeatStable(2, async (index) => {
         const path = scenarioPath(ctx, 'clean-set', index);
@@ -264,6 +301,8 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
     ),
     probe(
       'rtdb-modular-ondisconnect-operations-cancel',
+      'rtdb-modular#M80, rtdb-modular#M83',
+      ['rtdb-modular#M80', 'rtdb-modular#M83'],
       'Queued set, update, remove, setWithPriority, cancellation scope, and overlapping parent/child registrations.',
       () => repeatStable(2, async (index) => {
         const rootPath = scenarioPath(ctx, 'operations-cancel', index);
@@ -335,6 +374,8 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
     ),
     probe(
       'rtdb-modular-ondisconnect-rules',
+      'rtdb-modular#M81',
+      ['rtdb-modular#M81'],
       'Registration denial and execution-time rules re-evaluation, each paired with a successful normal-write control.',
       () => repeatStable(2, async (index) => {
         const rootPath = scenarioPath(ctx, 'rules', index);
@@ -427,16 +468,22 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
             terminalAfterExecutionDenial,
           };
         } finally {
-          unsubscribe();
-          await clients.close();
-          await adminRemove(ctx, rootPath);
-          await writeRules(before);
-          if (stable(await readRules()) !== stable(before)) throw new Error('rules restore verification failed');
+          await cleanupAfterRulesProbe(
+            [() => unsubscribe(), () => clients.close(), () => adminRemove(ctx, rootPath)],
+            () => writeRules(before),
+            async () => {
+              if (stable(await readRules()) !== stable(before)) {
+                throw new Error('rules restore verification failed');
+              }
+            },
+          );
         }
       }),
     ),
     probe(
       'rtdb-modular-ondisconnect-abrupt-exit',
+      'rtdb-modular#M84',
+      ['rtdb-modular#M84'],
       'Acknowledged onDisconnect registration followed by forced writer-process termination, observed independently.',
       () => repeatStable(3, async (index) => {
         const path = scenarioPath(ctx, 'abrupt-exit', index);
