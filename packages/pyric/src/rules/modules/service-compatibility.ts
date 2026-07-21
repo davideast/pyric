@@ -201,7 +201,8 @@ type RulesReceiverType =
   | 'path'
   | 'set'
   | 'string'
-  | 'timestamp';
+  | 'timestamp'
+  | 'unknown';
 
 function ambientReceiverType(
   service: RulesServiceName,

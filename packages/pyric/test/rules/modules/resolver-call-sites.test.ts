@@ -39,4 +39,29 @@ service firebase.storage {
 }`, { modules: { './policy': "export function validName(value) { return value.matches('.*[.]png'); }" } });
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
+
+  test('rejects a wrong receiver hidden behind a source helper let', () => {
+    const result = resolveModules(`rules_version = '2+modules';
+import { check } from './policy';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function gate() { let n = 1; return check(n); }
+    match /{file} { allow read: if gate(); }
+  }
+}`, { modules: { './policy': "export function check(value) { return value.matches('x'); }" } });
+    expect(result.success).toBe(false);
+  });
+
+  test('preserves a valid receiver through source parameters, lets, and helper returns', () => {
+    const result = resolveModules(`rules_version = '2+modules';
+import { check } from './policy';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function identity(value) { return value; }
+    function gate(value) { let name = identity(value); return check(name); }
+    match /{file} { allow read: if gate(file); }
+  }
+}`, { modules: { './policy': "export function check(value) { return value.matches('.*'); }" } });
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+  });
 });
