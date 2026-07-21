@@ -468,6 +468,27 @@ describe('RulesReadEngine.runQuery', () => {
     expect(result.allowed).toBe(false);
   });
 
+  test("fails closed for bracket access to request['path']", () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{document=**} {
+          allow list: if request['path'].document == 'items/__listPlaceholder__';
+        }
+      }
+    }`;
+    const { engine } = makeEngine(rules, {
+      'parents/a/items/secret': { secret: true },
+    });
+
+    const result = engine.runQuery({
+      scope: { kind: 'collection-group', collectionId: 'items' },
+      auth: null,
+      execution,
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
   test('fails closed for an empty collection group instead of authorizing from current rows', () => {
     const rules = `rules_version = '2'; service cloud.firestore {
       match /databases/{database}/documents {

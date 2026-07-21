@@ -343,7 +343,12 @@ function expressionDependsOnPath(expression: Expression, recursiveName: string):
     case 'methodCall':
       return depends(expression.object) || expression.args.some(depends);
     case 'bracketAccess':
-      return depends(expression.object) || depends(expression.index);
+      return (
+        expression.object.type === 'identifier' &&
+        expression.object.name === 'request' &&
+        expression.index.type === 'literal' &&
+        expression.index.value === 'path'
+      ) || depends(expression.object) || depends(expression.index);
     case 'sliceAccess':
       return depends(expression.object) || depends(expression.start) || depends(expression.end);
     case 'binaryOp':
