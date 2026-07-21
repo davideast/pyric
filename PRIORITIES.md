@@ -60,3 +60,16 @@ The feedback loop: local builds, tests, and CI should surface useful results qui
 - Measure recent GitHub Actions runs and identify the critical path
 - Shorten pull-request feedback time by removing redundant work and improving parallelism and caching
 - Keep release confidence intact while making the common local and CI loops faster
+
+## Refactoring and Tech Debt
+
+**Test:** Does this remove demonstrated maintenance friction or reduce the risk and scope of future changes without expanding the user-facing concept surface?
+
+The internal sustainability work: simplify brittle implementations, consolidate duplicated sources of truth, replace risky seams with clear interfaces, and retire obsolete code that makes current priorities harder to deliver safely. Prefer evidence from recurring bugs, repeated edits, confusing ownership, or disproportionate verification cost; cleanup should leave the system easier to change and at least as trustworthy as before.
+
+**Counts:** refactors tied to observed maintenance friction; consolidating duplicated logic or configuration; removing dead or superseded code; reducing coupling and change blast radius; paying down debt that repeatedly slows or destabilizes priority work; adding characterization tests needed to make a risky cleanup safe.
+**Doesn't count:** aesthetic rewrites; speculative abstractions for hypothetical growth; broad redesigns without a bounded migration and verification plan; dependency churn without a concrete maintenance or reliability benefit; cleanup that weakens behavior coverage or changes the public contract unintentionally.
+
+**Now:**
+- Refactor the service-command dispatcher into a typed route registry while preserving command behavior and command-local handler arguments. Symptom: every route repeats a conditional and positional slice, making copy/paste routing mistakes easy. Verification: characterize all 11 routes, unknown and non-service dispatch, retired spellings, and duplicate rejection; then pass the CLI suite, typecheck, build, and packed-CLI runtime smoke.
+- Record the concrete maintenance symptom and verification plan for each tech-debt item before implementation
