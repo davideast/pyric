@@ -51,12 +51,15 @@ export async function materializeWorkspaceFromProbe(
   adapter: OPFSAdapter = getVFS(),
 ): Promise<MaterializedWorkspace> {
   const rules = await readUtf8(adapter, mappings.rulesPath);
-  const appSource = await readUtf8(adapter, mappings.appEntryPath);
+  const appSource = mappings.appEntryPath ? await readUtf8(adapter, mappings.appEntryPath) : '';
 
   await writeUtf8(adapter, RULES_PATH, rules);
-  await writeUtf8(adapter, APP_ENTRY_PATH, appSource);
+  if (mappings.appEntryPath) await writeUtf8(adapter, APP_ENTRY_PATH, appSource);
   notifyVfsWrite(RULES_PATH, rules);
-  notifyVfsWrite(APP_ENTRY_PATH, appSource);
+  if (mappings.appEntryPath) {
+    notifyVfsWrite(APP_ENTRY_PATH, appSource);
+    if (mappings.appEntryPath !== APP_ENTRY_PATH) notifyVfsWrite(mappings.appEntryPath, appSource);
+  }
 
   for (const testPath of mappings.testPaths) {
     const testContent = await readUtf8(adapter, testPath);

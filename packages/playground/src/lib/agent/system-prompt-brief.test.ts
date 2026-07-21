@@ -49,8 +49,9 @@ describe('W2.2 environment brief', () => {
       // write_file semantics — the invariant that prevents damage.
       expect(p).toContain('replaces the whole file');
       expect(p).toContain('edit_file');
-      // Generated app source stays on canonical Firebase imports.
-      expect(p).toContain('pyric/*');
+      // Generated Firebase imports are mapped to Pyric mirrors.
+      expect(p).toContain('corresponding `pyric/*` mirrors');
+      expect(p).not.toContain('Do NOT import `sandbox`');
       expect(p).toContain('pyric_can_i_use');
       expect(p).toContain('firestore-rules/getAfter');
       expect(p).toContain('auth/providerData');

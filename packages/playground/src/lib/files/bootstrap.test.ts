@@ -9,6 +9,7 @@
  */
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { useFilesStore } from '~/lib/store/files';
+import { useWorkspaceStore } from '~/lib/store/workspace';
 import { notifyVfsPathChanged, notifyVfsWrite } from './bootstrap';
 
 function versions() {
@@ -35,6 +36,16 @@ describe('VFS mutation notifications', () => {
     const after = versions();
     expect(after.tree).toBe(before.tree + 1);
     expect(after.src).toBe(before.src);
+  });
+
+  test('a selected monorepo entry mirrors source and triggers preview recompilation', () => {
+    const path = '/workspace/packages/playground/src/components/PlaygroundPage.tsx';
+    useWorkspaceStore.getState().setPreview({ mode: 'react', entryPath: path });
+    const before = versions();
+    notifyVfsWrite(path, 'export function PlaygroundPage() { return null; }');
+    expect(useWorkspaceStore.getState().appSource).toContain('PlaygroundPage');
+    expect(versions()).toEqual({ tree: before.tree + 1, src: before.src + 1 });
+    useWorkspaceStore.getState().setPreview({ mode: 'react', entryPath: '/workspace/src/App.tsx' });
   });
 
   test('a content-less mutation (rm/mv from the shell) bumps versions too', () => {

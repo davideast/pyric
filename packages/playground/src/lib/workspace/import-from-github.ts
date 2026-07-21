@@ -39,6 +39,12 @@ export interface ImportFromGitHubResult {
   githubRepo: SessionMeta['githubRepo'];
 }
 
+export interface PreparedGitHubImport {
+  probe: WorkspaceProbeResult;
+  githubRepo: SessionMeta['githubRepo'];
+  scaffoldable: boolean;
+}
+
 export class WorkspaceImportError extends Error {
   readonly probe: WorkspaceProbeResult;
 
@@ -165,4 +171,47 @@ export async function importFromGitHub(
     workspace,
     githubRepo: toGithubRepoMeta(input.repo),
   };
+}
+
+/** Clone once and return the choices needed to finish the import. */
+export async function prepareGitHubImport(
+  input: ImportFromGitHubInput,
+): Promise<PreparedGitHubImport> {
+  const report = (phase: string) => input.onProgress?.(phase);
+  report('Preparing workspace…');
+  await ensureSessionVFS(input.sessionId);
+  await assertWorkspaceEmpty();
+  report('Cloning repository…');
+  const git = new GitService(getVFS());
+  await git.clone({
+    url: input.repo.cloneUrl,
+    dir: WORKSPACE_ROOT,
+    ref: input.repo.defaultBranch,
+    depth: 1,
+    singleBranch: true,
+  });
+  report('Finding React entries…');
+  const probe = await probeWorkspace({ selectedAppEntryPath: null });
+  const clonedFiles = (await listAllFiles(WORKSPACE_ROOT)).filter(
+    (path) => !path.includes('/.git/'),
+  );
+  return {
+    probe,
+    githubRepo: toGithubRepoMeta(input.repo),
+    scaffoldable: isScaffoldableEmptyRepo(clonedFiles),
+  };
+}
+
+/** Materialize a prepared clone with an explicit preview choice. */
+export async function finalizeGitHubImport(input: {
+  probe: WorkspaceProbeResult;
+  appEntryPath: string | null;
+  githubRepo: SessionMeta['githubRepo'];
+}): Promise<ImportFromGitHubResult> {
+  const probe = await probeWorkspace({ selectedAppEntryPath: input.appEntryPath });
+  if (probe.blockers.length > 0 || !probe.mappings) {
+    throw new WorkspaceImportError(probe.blockers.join('\n') || 'Import blocked.', probe);
+  }
+  const workspace = await materializeWorkspaceFromProbe(probe.mappings);
+  return { probe, workspace, githubRepo: input.githubRepo };
 }

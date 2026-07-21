@@ -44,6 +44,8 @@ async function fetchHostConfig() {
 }
 
 const HOST_FIREBASE_CONFIG = await fetchHostConfig();
+const LOCAL_LLAMA_SERVER_TARGET =
+  process.env.LLAMA_SERVER_PROXY_TARGET ?? 'http://127.0.0.1:8080';
 
 /**
  * Static-output Astro app — the playground runs entirely in the
@@ -152,7 +154,21 @@ export default defineConfig({
     // HMR disabled — mid-test hot reloads wipe playground state (auth,
     // composed prompt, in-flight agent turn). File changes still
     // rebuild; refresh the browser manually to pick them up.
-    server: { hmr: false },
+    server: {
+      hmr: false,
+      // Development-only fixed-target bridge for WSL/container browser
+      // setups where the page's loopback namespace cannot see a model
+      // server that the Astro process can reach. This is deliberately not
+      // an arbitrary forward proxy: only this prefix is accepted and the
+      // target is chosen when the dev server starts.
+      proxy: {
+        '/__llama-server': {
+          target: LOCAL_LLAMA_SERVER_TARGET,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/__llama-server/, ''),
+        },
+      },
+    },
     define: {
       // Double-stringify: outer makes a Vite-substitutable string;
       // inner makes the value a JSON string we can `JSON.parse` at

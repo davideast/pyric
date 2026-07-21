@@ -13,8 +13,10 @@
  */
 import { useEffect } from 'react';
 import { PROVIDER_LIST, PROVIDERS, type ProviderId } from '~/lib/llm/registry';
+import type { ModelDef } from '~/lib/llm/gemini';
 import { useLlmStore, type ReasoningEffort } from '~/lib/store/llm';
 import { useOllamaModelsStore } from '~/lib/store/ollamaModels';
+import { useLlamaServerModelsStore } from '~/lib/store/llamaServerModels';
 
 const EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
   { value: 'off', label: 'no thinking' },
@@ -22,6 +24,17 @@ const EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
   { value: 'medium', label: 'medium' },
   { value: 'high', label: 'high' },
 ];
+
+export function modelsForProvider(
+  providerId: ProviderId,
+  providerModels: readonly ModelDef[],
+  ollamaModels: readonly ModelDef[],
+  llamaServerModels: readonly ModelDef[],
+): readonly ModelDef[] {
+  if (providerId === 'ollama') return ollamaModels;
+  if (providerId === 'llamaServer') return llamaServerModels;
+  return providerModels;
+}
 
 export function ModelPicker() {
   const providerId = useLlmStore((s) => s.providerId);
@@ -36,16 +49,24 @@ export function ModelPicker() {
   const ollamaStatus = useOllamaModelsStore((s) => s.status);
   const ollamaError = useOllamaModelsStore((s) => s.error);
   const refreshOllama = useOllamaModelsStore((s) => s.refresh);
+  const llamaServerModels = useLlamaServerModelsStore((s) => s.models);
+  const llamaServerStatus = useLlamaServerModelsStore((s) => s.status);
+  const llamaServerError = useLlamaServerModelsStore((s) => s.error);
+  const refreshLlamaServer = useLlamaServerModelsStore((s) => s.refresh);
 
-  // Discover the live model catalog whenever Ollama is the active
-  // provider and we haven't fetched yet. Cheap enough to also re-run
-  // on provider switches into Ollama (the store guards against
-  // concurrent loads).
+  // Discover each local provider's live model catalogue when selected.
+  // The stores guard against concurrent loads.
   useEffect(() => {
     if (providerId === 'ollama' && ollamaStatus === 'idle') {
       void refreshOllama();
     }
   }, [providerId, ollamaStatus, refreshOllama]);
+
+  useEffect(() => {
+    if (providerId === 'llamaServer' && llamaServerStatus === 'idle') {
+      void refreshLlamaServer();
+    }
+  }, [providerId, llamaServerStatus, refreshLlamaServer]);
 
   // If the live catalog arrives and the user's persisted modelId
   // isn't in it (e.g. they had `llama3.1:8b` selected but the daemon
@@ -59,9 +80,21 @@ export function ModelPicker() {
     }
   }, [providerId, ollamaStatus, ollamaModels, modelId, setModel]);
 
+  useEffect(() => {
+    if (providerId !== 'llamaServer' || llamaServerStatus !== 'ready') return;
+    if (llamaServerModels.length === 0) return;
+    if (!llamaServerModels.some((model) => model.id === modelId)) {
+      setModel(llamaServerModels[0]!.id);
+    }
+  }, [providerId, llamaServerStatus, llamaServerModels, modelId, setModel]);
+
   const activeProvider = PROVIDERS[providerId];
-  const modelsForPicker =
-    providerId === 'ollama' ? ollamaModels : activeProvider.models;
+  const modelsForPicker = modelsForProvider(
+    providerId,
+    activeProvider.models,
+    ollamaModels,
+    llamaServerModels,
+  );
   const showEffort = providerId === 'gemini' || providerId === 'openrouter';
   const selectedEffort = providerId === 'gemini' ? geminiEffort : openrouterEffort;
 
@@ -113,6 +146,19 @@ export function ModelPicker() {
       ) : null}
       {providerId === 'ollama' && ollamaStatus === 'loading' ? (
         <span className="text-[11px] font-mono text-soft-white/50">tags: …</span>
+      ) : null}
+      {providerId === 'llamaServer' && llamaServerStatus === 'error' ? (
+        <button
+          type="button"
+          onClick={() => void refreshLlamaServer()}
+          className="text-[11px] font-mono text-red-400/90 hover:text-red-300 underline decoration-dotted"
+          title={llamaServerError ?? 'llama-server /v1/models request failed'}
+        >
+          models: retry
+        </button>
+      ) : null}
+      {providerId === 'llamaServer' && llamaServerStatus === 'loading' ? (
+        <span className="text-[11px] font-mono text-soft-white/50">models: …</span>
       ) : null}
       {showEffort ? (
         <select

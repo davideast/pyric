@@ -100,6 +100,18 @@ export class GitService {
 
   async clone(opts: CloneOptions): Promise<void> {
     ensureBufferPolyfill();
+    if (import.meta.env.DEV && typeof window !== 'undefined' && window.__pyricTestCloneRepo) {
+      await window.__pyricTestCloneRepo({
+        dir: opts.dir,
+        writeFile: async (path, content) => {
+          const absolute = `${opts.dir}/${path.replace(/^\/+/, '')}`;
+          const parent = absolute.slice(0, absolute.lastIndexOf('/'));
+          await this.adapter.promises.mkdir(parent, { recursive: true });
+          await this.adapter.promises.writeFile(absolute, content);
+        },
+      });
+      return;
+    }
     const corsProxy = opts.corsProxy ?? DEFAULT_CORS_PROXY;
     try {
       await git.clone({
@@ -194,6 +206,15 @@ export class GitService {
       workdir,
       stage,
     }));
+  }
+}
+
+declare global {
+  interface Window {
+    __pyricTestCloneRepo?: (input: {
+      dir: string;
+      writeFile: (path: string, content: string) => Promise<void>;
+    }) => Promise<void>;
   }
 }
 

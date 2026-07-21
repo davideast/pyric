@@ -15,16 +15,18 @@ export type FirebaseWorkbenchSubTab =
 
 export function workspaceTabsForProfile(
   promptProfile: AgentPromptProfile = 'firebase',
+  previewEnabled = true,
 ): readonly Tab[] {
   const tabs: readonly Tab[] = [
     { id: 'preview', label: 'Preview' },
     { id: 'firebase', label: 'Firebase' },
     { id: 'file', label: 'File' },
   ];
+  const visible = previewEnabled ? tabs : tabs.filter((tab) => tab.id !== 'preview');
   if (promptProfile === 'firebase') {
-    return [tabs[1]!, tabs[2]!, tabs[0]!];
+    return [tabs[1]!, tabs[2]!, ...(previewEnabled ? [tabs[0]!] : [])];
   }
-  return tabs;
+  return visible;
 }
 
 export function firebaseSubTabsForProfile(

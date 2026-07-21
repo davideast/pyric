@@ -160,10 +160,16 @@ describe('skill framework invariants', () => {
     expect(intent.defaultFilePath).toBe('/workspace/firestore.rules');
   });
 
-  test('shipped registry lists niche skills only — general tooling retired', () => {
+  test('shipped registry exposes the game and improvement toggles', () => {
     __setSkillsForTest(null);
     const ids = listSkills().map((skill) => skill.id);
-    expect(ids).toEqual(['game-rules']);
+    expect(ids).toEqual(['game-rules', 'improve-firebase']);
+    expect(skillById('improve-firebase')).toMatchObject({
+      label: 'Improve Firebase',
+      promptProfile: 'firebase',
+      primarySurface: 'firebase',
+      toolProfilePreference: 'diagnostic',
+    });
 
     // The broad firebase-tooling skills live in the always-on system
     // prompt (and as external-agent skills under .agents/skills), not
@@ -180,8 +186,8 @@ describe('skill framework invariants', () => {
 
     // ...and sessions saved with them must still load (dropped, not
     // crashed).
-    expect(resolveActiveSkills(['firebase-audit', 'game-rules']).map((s) => s.id)).toEqual([
-      'game-rules',
+    expect(resolveActiveSkills(['firebase-audit', 'improve-firebase']).map((s) => s.id)).toEqual([
+      'improve-firebase',
     ]);
   });
 });

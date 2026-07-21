@@ -24,7 +24,7 @@ type AliasSpec =
   | { kind: 'reexport'; exports: readonly string[] }
   | { kind: 'stub'; message: string };
 
-const ALIASES: Record<PreviewModuleId, AliasSpec> = {
+const ALIASES: Record<string, AliasSpec> = {
   react: {
     kind: 'reexport',
     exports: [
@@ -34,6 +34,12 @@ const ALIASES: Record<PreviewModuleId, AliasSpec> = {
       'useMemo',
       'useCallback',
       'useRef',
+      'useId',
+      'useLayoutEffect',
+      'useInsertionEffect',
+      'useSyncExternalStore',
+      'useTransition',
+      'useDeferredValue',
       'useReducer',
       'useContext',
       'createContext',
@@ -42,6 +48,10 @@ const ALIASES: Record<PreviewModuleId, AliasSpec> = {
       'Children',
       'cloneElement',
       'createElement',
+      'Component',
+      'PureComponent',
+      'Suspense',
+      'lazy',
       'isValidElement',
       'memo',
       'forwardRef',
@@ -53,107 +63,21 @@ const ALIASES: Record<PreviewModuleId, AliasSpec> = {
   // module fails to bundle.
   'react/jsx-runtime': { kind: 'reexport', exports: ['jsx', 'jsxs', 'Fragment'] },
   'react/jsx-dev-runtime': { kind: 'reexport', exports: ['jsxDEV', 'Fragment'] },
-  'firebase/firestore': {
+  'react-dom': {
     kind: 'reexport',
-    exports: [
-      'getFirestore',
-      'onSnapshot',
-      'collection',
-      'collectionGroup',
-      'doc',
-      'getDoc',
-      'getDocs',
-      'setDoc',
-      'addDoc',
-      'updateDoc',
-      'deleteDoc',
-      'query',
-      'where',
-      'or',
-      'and',
-      'orderBy',
-      'limit',
-      'limitToLast',
-      'startAt',
-      'startAfter',
-      'endAt',
-      'endBefore',
-      'runTransaction',
-      'writeBatch',
-      'serverTimestamp',
-      'increment',
-      'arrayUnion',
-      'arrayRemove',
-      'deleteField',
-      'FieldValue',
-      'Timestamp',
-      'refEqual',
-      'queryEqual',
-      'snapshotEqual',
-    ],
+    exports: ['default', 'createPortal', 'flushSync', 'preconnect', 'prefetchDNS', 'preinit', 'preload'],
   },
-  'firebase/auth': {
+  'react-dom/client': { kind: 'reexport', exports: ['createRoot', 'hydrateRoot'] },
+  '@pyric/cli/conformance/browser': {
     kind: 'reexport',
-    exports: [
-      'getAuth',
-      'connectAuthEmulator',
-      'onAuthStateChanged',
-      'onIdTokenChanged',
-      'signInAnonymously',
-      'signInWithEmailAndPassword',
-      'createUserWithEmailAndPassword',
-      'signOut',
-      'setPersistence',
-      'signInWithPopup',
-      'signInWithCredential',
-      'signInWithRedirect',
-      'getRedirectResult',
-      'getIdToken',
-      'getIdTokenResult',
-      'GoogleAuthProvider',
-      'EmailAuthProvider',
-      'FacebookAuthProvider',
-      'GithubAuthProvider',
-      'OAuthProvider',
-      'browserLocalPersistence',
-      'browserSessionPersistence',
-      'inMemoryPersistence',
-      // Preview-only escape hatch: the `sandbox` namespace (seedUsers,
-      // setUser, mockSignInResult) lets preview tests pre-stage
-      // test users with customClaims. This capability exists only in
-      // the Playground preview; see preview-scope.ts for the safety analysis.
-      'sandbox',
-    ],
-  },
-  // `firebase/database` modular SDK — aliased to `pyric/database` at
-  // preview-bundle time. Excludes the `sandbox.*`
-  // test driver namespace — that's runner-side only, not app code.
-  // The exported list mirrors `pyric/database`'s modular surface;
-  // higher-tier additions (child-event listeners, query constraints)
-  // can be added here as they ship in `packages/pyric/src/database/modular.ts`.
-  'firebase/database': {
-    kind: 'reexport',
-    exports: [
-      'getDatabase',
-      'ref',
-      'child',
-      'get',
-      'set',
-      'update',
-      'remove',
-      'push',
-      'onValue',
-      'off',
-      'serverTimestamp',
-      'connectDatabaseEmulator',
-    ],
+    exports: ['canIUse', 'createCanIUseTool'],
   },
   './firebase': { kind: 'reexport', exports: ['db'] },
 };
 
 const VIRTUAL_NAMESPACE = 'pyric-preview-virtual';
 
-function synthesizeReexport(specifier: PreviewModuleId, exports: readonly string[]): string {
+function synthesizeReexport(specifier: string, exports: readonly string[]): string {
   const head = `const __m = globalThis['${PREVIEW_GLOBAL}']?.['${specifier}'];`;
   const guard = `if (!__m) throw new Error("preview scope missing module: ${specifier}");`;
   const lines = exports
@@ -179,7 +103,7 @@ function synthesizeStub(message: string): string {
   ].join('\n');
 }
 
-function synthesizeModule(specifier: PreviewModuleId): string {
+function synthesizeModule(specifier: string): string {
   const spec = ALIASES[specifier];
   switch (spec.kind) {
     case 'reexport':
@@ -189,11 +113,30 @@ function synthesizeModule(specifier: PreviewModuleId): string {
   }
 }
 
+/** Every Firebase Web SDK subpath is selected through the Pyric mirror. */
+export function mapFirebaseImport(specifier: string): PreviewModuleId | null {
+  if (!specifier.startsWith('firebase/')) return null;
+  return `pyric/${specifier.slice('firebase/'.length)}` as PreviewModuleId;
+}
+
+function synthesizePyricModule(specifier: PreviewModuleId): string {
+  const head = `const __m = globalThis['${PREVIEW_GLOBAL}']?.['${specifier}'];`;
+  const guard = `if (!__m) throw new Error("No Playground preview mirror is installed for ${specifier}");`;
+  // CommonJS is intentional: esbuild permits arbitrary named imports from a
+  // dynamic CommonJS object, so every export Pyric adds becomes available
+  // without another hand-maintained export allow-list here.
+  return [head, guard, 'module.exports = __m;'].join('\n');
+}
+
 export function virtualImportsPlugin(): esbuild.Plugin {
   const aliased = new Set(Object.keys(ALIASES));
   return {
     name: 'pyric-virtual-imports',
     setup(build) {
+      build.onResolve({ filter: /^firebase\// }, (args) => ({
+        path: mapFirebaseImport(args.path)!,
+        namespace: VIRTUAL_NAMESPACE,
+      }));
       build.onResolve({ filter: /^[^.]/ }, (args) => {
         if (aliased.has(args.path)) {
           return { path: args.path, namespace: VIRTUAL_NAMESPACE };
@@ -205,7 +148,9 @@ export function virtualImportsPlugin(): esbuild.Plugin {
         namespace: VIRTUAL_NAMESPACE,
       }));
       build.onLoad({ filter: /.*/, namespace: VIRTUAL_NAMESPACE }, (args) => ({
-        contents: synthesizeModule(args.path as PreviewModuleId),
+        contents: args.path.startsWith('pyric/')
+          ? synthesizePyricModule(args.path as PreviewModuleId)
+          : synthesizeModule(args.path),
         loader: 'js',
       }));
     },

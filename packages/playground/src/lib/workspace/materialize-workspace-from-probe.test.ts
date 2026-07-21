@@ -20,7 +20,7 @@ describe('materializeWorkspaceFromProbe', () => {
     await adapter.promises.mkdir('/workspace/my-app/src', { recursive: true });
     await adapter.promises.mkdir('/workspace/my-app/tests', { recursive: true });
     await adapter.promises.writeFile(mappings.rulesPath, 'rules_version = "2";');
-    await adapter.promises.writeFile(mappings.appEntryPath, 'export default function App() { return null; }');
+    await adapter.promises.writeFile(mappings.appEntryPath!, 'export default function App() { return null; }');
     await adapter.promises.writeFile(
       mappings.testPaths[0]!,
       JSON.stringify({ cases: [] }),

@@ -191,4 +191,35 @@ describe('probeWorkspaceFiles', () => {
     expect(result.tier).toBe('yellow');
     expect(result.layout).toBe('playground-template');
   });
+
+  test('finds selectable React entries in monorepo packages', async () => {
+    const playground = '/workspace/packages/playground/src/components/PlaygroundPage.tsx';
+    const studio = '/workspace/packages/studio/src/App.tsx';
+    const result = await probeWorkspaceFiles([RULES_PATH, playground, studio], {
+      selectedAppEntryPath: null,
+      readFile: readMap({
+        [RULES_PATH]: 'rules_version = "2";',
+        [playground]: 'export default function PlaygroundPage() { return <main />; }',
+        [studio]: 'export default function App() { return <main />; }',
+      }),
+    });
+    expect(result.tier).toBe('yellow');
+    expect(result.blockers).toEqual([]);
+    expect(result.mappings?.appEntryPath).toBeNull();
+    expect(result.reactEntries.map((entry) => entry.label)).toEqual([
+      'packages/playground/src/components/PlaygroundPage.tsx',
+      'packages/studio/src/App.tsx',
+    ]);
+  });
+
+  test('allows a non-React repository in no-preview mode', async () => {
+    const result = await probeWorkspaceFiles([RULES_PATH, '/workspace/scripts/build.ts'], {
+      selectedAppEntryPath: null,
+      readFile: readMap({ [RULES_PATH]: 'rules_version = "2";' }),
+    });
+    expect(result.tier).toBe('yellow');
+    expect(result.blockers).toEqual([]);
+    expect(result.reactEntries).toEqual([]);
+    expect(result.mappings?.appEntryPath).toBeNull();
+  });
 });

@@ -21,6 +21,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 // Definition modules import ONLY types from this file (no runtime
 // cycle); the registry lists them explicitly.
 import { firestoreGameRulesSkill } from './firestore-game-rules';
+import { improveFirebaseSkill } from './improve-firebase';
 
 export type AgentPromptProfile = 'firebase' | 'app-builder';
 export type WorkbenchSurface = 'preview' | 'firebase' | 'file';
@@ -73,18 +74,12 @@ export interface SkillDefinition {
  *  imported at top and listed explicitly — adding a skill is one
  *  import plus one array entry.
  *
- *  NICHE SKILLS ONLY. The playground's broad Firebase knowledge
- *  (audit methodology, auth modeling, query/index design, RTDB rules
- *  and data modeling) is embedded in the always-on system prompt —
- *  Firebase Expert is the product identity, not a toggle. The six
- *  general firebase-tooling skills that once restated it here were
- *  retired (their knowledge now lives as external-agent skills under
- *  `.agents/skills/`). A skill earns a chip only when it adds a
- *  specialist posture the base prompt does not carry (e.g. Game
- *  rules). Sessions saved with retired ids still load —
- *  `resolveActiveSkills` drops unknown ids. */
+ *  Skills earn a chip when they add a deliberate working posture to
+ *  the always-on Firebase expertise. Sessions saved with retired ids
+ *  still load — `resolveActiveSkills` drops unknown ids. */
 const REGISTERED: readonly SkillDefinition[] = [
   firestoreGameRulesSkill,
+  improveFirebaseSkill,
 ];
 
 /** Test seam: unit tests inject fixture skills without touching the

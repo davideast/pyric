@@ -423,6 +423,7 @@ function applyPayload(payload: SessionPayload): void {
   ws.setRules(payload.workspace.rules);
   ws.setDatabaseRules(payload.workspace.databaseRules ?? '');
   ws.setAppSource(payload.workspace.appSource);
+  ws.setPreview(payload.workspace.preview ?? { mode: 'react', entryPath: '/workspace/src/App.tsx' });
 
   // Chat — clear any pre-existing messages, then append from the
   // payload. The session payload's `conversation` is loosely typed
@@ -452,6 +453,7 @@ function capturePayload(): SessionPayload {
       // break on a missing field.
       code: '',
       appSource: ws.appSource,
+      preview: ws.preview,
     },
     conversation: chat.messages,
     telemetry,

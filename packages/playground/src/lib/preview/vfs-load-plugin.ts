@@ -24,7 +24,7 @@ import type { Loader, Plugin } from 'esbuild-wasm';
 import { WORKSPACE_ROOT } from '~/lib/store/files';
 import { getVFS } from '~/lib/vfs';
 
-const VFS_NAMESPACE = 'pyric-vfs';
+export const VFS_NAMESPACE = 'pyric-vfs';
 
 function loaderForPath(path: string): Loader {
   if (path.endsWith('.tsx') || path.endsWith('.ts')) return 'tsx';
@@ -53,14 +53,14 @@ function resolveRelative(importer: string, specifier: string): string {
  * Pick the first existing variant for a specifier the import omitted
  * the extension on. Mirrors node-style resolution against the VFS.
  */
-async function pickFile(candidates: string[]): Promise<string | null> {
+export async function pickVfsFile(candidates: string[]): Promise<string | null> {
   const adapter = getVFS();
   for (const candidate of candidates) {
     try {
       const stat = await adapter.promises.lstat(candidate);
       if (stat.isFile()) return candidate;
       if (stat.isDirectory()) {
-        const nested = await pickFile([
+        const nested = await pickVfsFile([
           `${candidate}/index.tsx`,
           `${candidate}/index.ts`,
           `${candidate}/index.jsx`,
@@ -82,8 +82,9 @@ async function resolvePath(importer: string, specifier: string): Promise<string 
   if (!base.startsWith(`${WORKSPACE_ROOT}/`) && base !== WORKSPACE_ROOT) {
     return null;
   }
-  return pickFile([
+  return pickVfsFile([
     base,
+    ...(base.endsWith('.js') ? [`${base.slice(0, -3)}.ts`, `${base.slice(0, -3)}.tsx`] : []),
     `${base}.tsx`,
     `${base}.ts`,
     `${base}.jsx`,
@@ -94,10 +95,24 @@ async function resolvePath(importer: string, specifier: string): Promise<string 
   ]);
 }
 
-export function vfsLoadPlugin(): Plugin {
+export function vfsLoadPlugin(options: {
+  entryPath?: string;
+  workspacePackages?: ReadonlyMap<string, string>;
+} = {}): Plugin {
   return {
     name: 'pyric-vfs-load',
     setup(build) {
+      build.onResolve({ filter: /^~\// }, async (args) => {
+        const anchor = args.importer || options.entryPath || '';
+        const srcAt = anchor.lastIndexOf('/src/');
+        if (srcAt < 0) return null;
+        const resolved = await resolvePath('', `${anchor.slice(0, srcAt)}/src/${args.path.slice(2)}`);
+        return resolved ? { path: resolved, namespace: VFS_NAMESPACE } : null;
+      });
+      build.onResolve({ filter: /^[^./~]/ }, (args) => {
+        const path = options.workspacePackages?.get(args.path);
+        return path ? { path, namespace: VFS_NAMESPACE } : null;
+      });
       // Relative paths from any importer (including the virtual entry
       // which carries the abs path of the file it stands in for).
       build.onResolve({ filter: /^[./]/ }, async (args) => {

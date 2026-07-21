@@ -54,6 +54,7 @@ import { buildSystemPrompt } from '~/lib/agent/system-prompt';
 import { selectToolProfileForPrompt } from '~/lib/agent/tool-profile';
 import { PROVIDER_LIST, PROVIDERS } from '~/lib/llm/registry';
 import { useOllamaModelsStore } from '~/lib/store/ollamaModels';
+import { useLlamaServerModelsStore } from '~/lib/store/llamaServerModels';
 import { buildApiKeyField } from './byok-field';
 import { useChatStore } from '~/lib/store/chat';
 import { useEnhancerStore } from '~/lib/store/enhancer';
@@ -702,19 +703,22 @@ export function PlaygroundPage() {
     // values leave the existing key intact (the form shows a masked
     // placeholder when a key is already set).
     let ollamaUrlChanged = false;
+    let llamaServerUrlChanged = false;
     for (const def of PROVIDER_LIST) {
       const value = values[def.id];
       if (value && value.trim().length > 0) {
         def.byok.setKey(value);
         if (def.id === 'ollama') ollamaUrlChanged = true;
+        if (def.id === 'llamaServer') llamaServerUrlChanged = true;
       }
     }
-    // Ollama's model list is keyed on the base URL — refresh `/api/tags`
-    // against the new host so the picker reflects what's actually
-    // pulled there. No-op for other providers (their model lists are
-    // static).
+    // Local model lists are keyed on their base URLs. Refresh discovery
+    // against whichever host changed so the picker reflects reality.
     if (ollamaUrlChanged) {
       void useOllamaModelsStore.getState().refresh();
+    }
+    if (llamaServerUrlChanged) {
+      void useLlamaServerModelsStore.getState().refresh();
     }
     setOpenrouterSignInError(null);
     setKeysTick((t) => t + 1);
