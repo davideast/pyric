@@ -148,6 +148,9 @@ present in the current local state would make rules act as filters and could
 approve a narrower scope than the query actually represents. Rules-enforced
 collection-group reads therefore authorize only through an isolated global
 `/{document=**}` list/read match, which truly governs every possible result.
+Universal rules that reference `request.path` or their recursive wildcard
+binding also fail closed because one representative path cannot prove their
+condition for every possible group location.
 Group-specific version-2 shapes such as `/{path=**}/items/{id}` return
 `permission-denied` until the rules matcher can symbolically evaluate a
 recursive wildcard with trailing segments. The explicit `bypassRules` admin
