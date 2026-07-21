@@ -1,0 +1,16 @@
+---
+import { ExampleRuntime } from '../../components/ExampleRuntime';
+import { PYRIC_EXAMPLES, pyricExample, type PyricExampleId } from '../../examples/registry';
+import ExampleLayout from '../../layouts/ExampleLayout.astro';
+
+export function getStaticPaths() {
+  return Object.keys(PYRIC_EXAMPLES).map((example) => ({ params: { example } }));
+}
+
+const id = Astro.params.example as PyricExampleId;
+const definition = pyricExample(id).definition;
+---
+
+<ExampleLayout title={definition.title}>
+  <ExampleRuntime id={id} client:only="react" />
+</ExampleLayout>

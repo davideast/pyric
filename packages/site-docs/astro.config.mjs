@@ -1,5 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'astro/config';
+import react from '@astrojs/react';
+import tailwindcss from '@tailwindcss/vite';
+import {
+  NODE_BUILTIN_RE,
+  NODE_BUILTIN_SHIMS,
+  pyric,
+} from '@pyric/cli/vite';
 
 // Security Rules TextMate grammar — Shiki has no built-in language for
 // Firestore rules, so code fences tagged ```rules use this one.
@@ -8,6 +15,22 @@ const firestoreRules = JSON.parse(
 );
 import rehypeDocs from './src/lib/rehype-docs.mjs';
 import remarkDocLinks from './src/lib/remark-doc-links.ts';
+
+function clientNodeBuiltinShims() {
+  const prefix = '\0pyric-site-node-shim:';
+  return {
+    name: 'pyric-site-node-builtin-shims',
+    enforce: 'pre',
+    resolveId(source, _importer, options) {
+      if (options?.ssr) return null;
+      const match = NODE_BUILTIN_RE.exec(source);
+      return match ? prefix + match[2] : null;
+    },
+    load(id) {
+      return id.startsWith(prefix) ? NODE_BUILTIN_SHIMS[id.slice(prefix.length)] : null;
+    },
+  };
+}
 
 /**
  * Pyric docs — a pure-SSG Astro site, deliberately a *sibling* of the
@@ -36,6 +59,18 @@ import remarkDocLinks from './src/lib/remark-doc-links.ts';
 export default defineConfig({
   output: 'static',
   base: process.env.DOCS_BASE ?? '/',
+  integrations: [react()],
+  vite: {
+    plugins: [
+      pyric({ ui: true, capture: false }),
+      clientNodeBuiltinShims(),
+      tailwindcss(),
+    ],
+    resolve: { dedupe: ['react', 'react-dom'] },
+    define: {
+      'import.meta.env.STUDIO_STATIC': JSON.stringify(process.env.STUDIO_STATIC === '1'),
+    },
+  },
   // `directory` format emits every doc page as `<slug>/index.html`, so
   // the page is reachable at the host-agnostic `/docs/<slug>/` on any
   // dumb static host (no server-side extension/rewrite rules needed —

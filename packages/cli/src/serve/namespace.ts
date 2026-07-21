@@ -10,7 +10,7 @@
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
@@ -85,22 +85,14 @@ export interface NamespaceOptions {
    *  current fixture JSON (200) or 404 when nothing is captured yet, so the
    *  served worker can re-hydrate its event history on boot after a death. */
   capture?: { write(json: string): void; read(): string | null };
+  /** Unified Astro documentation + Studio tree, built for `/__pyric/ui/`. */
+  siteUiDir?: string;
+  /** Served SharedWorker epoch stamped only into Studio entry documents. */
+  workerVersion?: string;
   /** `--ui` (Pyric Studio): mounts `/__pyric/workspace` + `/__pyric/projects`
    *  (disk-backed `WorkspaceStore`/`ProjectStore`, plus the SSE watch stream)
    *  that `@pyric/studio`'s `local` mode talks to. */
   studio?: StudioRouteOptions;
-  /** `--ui` (Pyric Studio): the dir of the built Studio app, served under
-   *  `/__pyric/ui/`. Resolved by file path in the CLI (@pyric/cli never
-   *  imports `@pyric/studio`). Absent when `--ui` is off or the build is
-   *  missing. */
-  studioUiDir?: string;
-  /** `--ui` (Pyric Studio): the built docs site (site-docs), served so the
-   *  Studio Docs tab has local docs without the hosted site. Built with base
-   *  `/__pyric/ui/`, so its output straddles two subtrees under the mount:
-   *  the pages/twins/index.json live under `/__pyric/ui/docs/`, but the shared
-   *  assets live at `/__pyric/ui/_astro/` (Astro's asset dir, at the base
-   *  root — NOT under `docs/`). Both are served from this one dir. */
-  docsUiDir?: string;
   /** The OpenAI-compatible upstream `/__pyric/ai-proxy` forwards to
    *  (pyric/ai — cdd-deltas #98.2). Falls back to the
    *  `PYRIC_AI_PROXY_UPSTREAM` env var, then `http://localhost:11434/v1`
@@ -111,6 +103,31 @@ export interface NamespaceOptions {
    *  Absent ⇒ diagnostics are dropped (a caller that wires no logger opts out
    *  silently rather than falling back to raw `console`). */
   logger?: ServeLogger;
+}
+
+interface StudioRoutesManifest {
+  routes: string[];
+}
+
+function studioRoutesFromSite(root: string): ReadonlySet<string> {
+  const manifestPath = join(root, 'studio-routes.json');
+  const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as StudioRoutesManifest;
+  if (!Array.isArray(parsed.routes) || parsed.routes.some((route) => typeof route !== 'string')) {
+    throw new Error(`pyric: invalid Studio route manifest at ${manifestPath}`);
+  }
+  return new Set(parsed.routes);
+}
+
+function withWorkerVersion(html: string, workerVersion: string | undefined): string {
+  if (!workerVersion || html.includes('name="pyric-worker-v"')) return html;
+  if (!/^[a-f0-9]{16}$/.test(workerVersion)) {
+    throw new Error(`pyric: invalid SharedWorker epoch '${workerVersion}'`);
+  }
+  const meta = `<meta name="pyric-worker-v" content="${workerVersion}" data-pyric-serve>`;
+  const head = html.match(/<head[^>]*>/i);
+  if (!head || head.index === undefined) return meta + html;
+  const at = head.index + head[0].length;
+  return html.slice(0, at) + meta + html.slice(at);
 }
 
 // ─── AI proxy (`/__pyric/ai-proxy` — pyric/ai, cdd-deltas #98.2) ───────────
@@ -467,6 +484,7 @@ async function handleDenials(
 export function createPyricNamespace(opts: NamespaceOptions) {
   const writerLock = createWriterLock();
   const studioRoutes = opts.studio ? createStudioRoutes(opts.studio) : null;
+  const siteStudioRoutes = opts.siteUiDir ? studioRoutesFromSite(opts.siteUiDir) : null;
   const denialThrottle = createDenialThrottle();
   // Issued once per server boot. The outer static/Vite host guard protects
   // init.json before this capability is disclosed to the served runtime.
@@ -517,72 +535,43 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       pipeFileToResponse(file, res);
       return true;
     }
-    // Embedded docs site (site-docs). MUST run BEFORE the general
-    // `/__pyric/ui/` studio handler below: that handler's SPA fallback answers
-    // every miss with Studio's index.html, which would swallow docs pages and
-    // (worse) return HTML for a missing docs asset. Built with base
-    // `/__pyric/ui/`, the docs output lives in TWO subtrees under the mount —
-    // pages/twins/index.json under `/__pyric/ui/docs/`, and shared assets at
-    // `/__pyric/ui/_astro/` (Astro's asset dir sits at the base root, not under
-    // `docs/`). We claim both; `_astro` is Astro-specific and never collides
-    // with Studio (Vite emits `/__pyric/ui/assets/`). No SPA fallback here — a
-    // genuinely missing docs page 404s (a broken doc link must fail loudly, not
-    // masquerade as another page). Directory-format pages (`<slug>/index.html`)
-    // and `bunx serve`-style extensionless→trailing-slash redirects are handled
-    // by resolveStaticFile + the directory redirect below.
     if (
-      opts.docsUiDir &&
-      (url.pathname === '/__pyric/ui/docs' ||
-        url.pathname.startsWith('/__pyric/ui/docs/') ||
-        url.pathname.startsWith('/__pyric/ui/_astro/'))
-    ) {
-      const rel = url.pathname.slice('/__pyric/ui'.length) || '/';
-      // `bunx serve` parity: an extensionless path that names a real directory
-      // (e.g. `/__pyric/ui/docs` or `/__pyric/ui/docs/<slug>`) redirects to the
-      // trailing-slash form so the directory's index.html loads with correct
-      // relative-URL resolution.
-      if (!rel.endsWith('/') && !extname(rel)) {
-        const dir = join(opts.docsUiDir, decodeURIComponent(rel));
-        if (existsSync(dir) && statSync(dir).isDirectory()) {
-          res.writeHead(301, { location: `${url.pathname}/` }).end();
-          return true;
-        }
-      }
-      const file = resolveStaticFile(opts.docsUiDir, rel);
-      if (!file) {
-        res.writeHead(404).end('not found');
-        return true;
-      }
-      res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
-      pipeFileToResponse(file, res);
-      return true;
-    }
-    if (
-      opts.studioUiDir &&
+      opts.siteUiDir &&
+      siteStudioRoutes &&
       (url.pathname === '/__pyric/ui' || url.pathname.startsWith('/__pyric/ui/'))
     ) {
-      // The built Pyric Studio app. Served verbatim (NOT through
-      // injectServeTags: that import-map/init injection is for sandbox pages,
-      // not Studio). Studio uses History-API routing under this mount, so any
-      // path that doesn't resolve to a real file falls back to index.html —
-      // INCLUDING paths with dots (deep links like /storage/uploads/logo.png).
-      // Only misses under Vite's content-hashed asset dir stay hard 404s, so a
-      // broken script/style URL fails loudly instead of returning HTML.
       if (url.pathname === '/__pyric/ui') {
         res.writeHead(301, { location: '/__pyric/ui/' }).end();
         return true;
       }
       const rel = url.pathname.slice('/__pyric/ui'.length) || '/';
-      let file = resolveStaticFile(opts.studioUiDir, rel);
-      if (!file && !rel.startsWith('/assets/')) {
-        file = resolveStaticFile(opts.studioUiDir, '/index.html');
+      if (!rel.endsWith('/') && !extname(rel)) {
+        const dir = join(opts.siteUiDir, decodeURIComponent(rel));
+        if (existsSync(dir) && statSync(dir).isDirectory()) {
+          res.writeHead(301, { location: `${url.pathname}/` }).end();
+          return true;
+        }
+      }
+
+      const first = rel.split('/').filter(Boolean)[0] ?? 'home';
+      const studioRequest = first === 'home' || siteStudioRoutes.has(first);
+      let file = resolveStaticFile(opts.siteUiDir, rel);
+      if (!file && studioRequest) {
+        const entry = first === 'home' ? '/index.html' : `/${first}/index.html`;
+        file = resolveStaticFile(opts.siteUiDir, entry);
       }
       if (!file) {
         res.writeHead(404).end('not found');
         return true;
       }
-      res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
-      pipeFileToResponse(file, res);
+
+      const contentType = contentTypeFor(file);
+      res.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
+      if (studioRequest && contentType.includes('text/html')) {
+        res.end(withWorkerVersion(readFileSync(file, 'utf8'), opts.workerVersion));
+      } else {
+        pipeFileToResponse(file, res);
+      }
       return true;
     }
     return false; // unknown /__pyric/* → caller 404s

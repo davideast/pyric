@@ -1,0 +1,24 @@
+---
+import { StudioApp } from '@pyric/studio/app';
+import '@pyric/studio/styles';
+import SiteLayout from './SiteLayout.astro';
+---
+
+<SiteLayout title="Pyric Studio">
+  <div id="root">
+    <p class="studio-loading" aria-live="polite">Starting Pyric Studio…</p>
+    <StudioApp client:only="react" />
+  </div>
+</SiteLayout>
+
+<style>
+  .studio-loading {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: #16161a;
+    color: #a1a1aa;
+    font: 14px Inter, system-ui, sans-serif;
+  }
+</style>

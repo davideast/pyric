@@ -29,6 +29,26 @@ test('Studio loads at / with no console errors', async ({ page }) => {
   expect(errors, `uncaught page errors: ${errors.join('\n')}`).toEqual([]);
 });
 
+test('a documentation page stays static and does not start the Studio SharedWorker', async ({ page }) => {
+  const urls = trackRequests(page);
+  const res = await page.goto('/docs/build/cloud-firestore/');
+  expect(res?.ok()).toBeTruthy();
+  await expect(page.getByRole('heading', { name: 'Run Cloud Firestore locally' })).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(urls.filter((url) => url.includes('/__pyric/sdk/worker.js'))).toEqual([]);
+});
+
+test('the checked-in Firestore example runs in its isolated iframe and resets', async ({ page }) => {
+  await page.goto('/docs/build/cloud-firestore/');
+  const frame = page.frameLocator('iframe[title="Write to an isolated Firestore sandbox"]');
+  await expect(frame.getByText('The sandbox is local')).toBeVisible();
+  await frame.getByRole('button', { name: 'Reset sandbox' }).click();
+  await expect(frame.getByText('The sandbox is local')).toBeVisible();
+  await expect(page.getByText("import { doc, getDoc, getFirestore, setDoc } from 'pyric/firestore';", {
+    exact: false,
+  })).toBeVisible();
+});
+
 test('the SharedWorker bundle boots from /__pyric/sdk/worker.js', async ({ page }) => {
   // NOTE: requests issued from INSIDE the SharedWorker's own execution
   // context (fetch, EventSource) mostly surface through `page.on('request')`

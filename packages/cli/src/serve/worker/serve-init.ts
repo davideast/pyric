@@ -33,7 +33,7 @@ import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
 import type { PersistenceBackend } from 'pyric/sandbox';
-import { initializeSandbox } from 'pyric/sandbox';
+import { createSandboxAdapter, type SandboxAdapter } from 'pyric/sandbox/internal';
 import {
   primeEventHistory,
 } from 'pyric/sandbox/internal';
@@ -451,6 +451,9 @@ export interface WorkerBootEnv extends ServeInitEnv {
   /** Hot-reload EventSource factory. Omit/null when unavailable (tests, hosts
    *  without EventSource). */
   makeEventSource?: ((url: string) => EventSourceLike) | null;
+  /** Sandbox lifetime adapter. The real worker uses the shared-worker adapter;
+   * tests may inject an equivalent adapter without replacing sandbox behavior. */
+  sandboxAdapter?: SandboxAdapter;
 }
 
 /**
@@ -485,7 +488,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
     // plain-call wrapper doesn't need (nothing in this module uses it).
     fetch: ((...args: Parameters<typeof fetch>) => ambientFetch(...args)) as typeof fetch,
   };
-  const sandbox = initializeSandbox();
+  const sandbox = (env.sandboxAdapter ?? createSandboxAdapter('shared-worker')).create();
 
   // Deploy permissive starter rules via admin-firestore.
   // Callers override at runtime via the setRules op.

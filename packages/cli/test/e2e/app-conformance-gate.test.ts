@@ -23,7 +23,7 @@ const browserJob = workflow.slice(browserJobStart, browserJobEnd);
 describe('served app conformance merge gate', () => {
   test('required CI splits CLI and library tests; the docs build runs as its own job', () => {
     expect(workflow).not.toContain('\n  documentation:');
-    // The test lanes never build docs (--skip-docs below), but the
+    // The test lanes only need package artifacts (--packages-only below), but the
     // documentation build itself must be selected for BOTH docs-only and
     // full runs — a full PR must not be able to break `site-docs build`
     // undetected (regression: the selector originally gated it to
@@ -33,7 +33,7 @@ describe('served app conformance merge gate', () => {
     );
     expect(mainJobStart).toBeGreaterThanOrEqual(0);
     expect(mainJobEnd).toBeGreaterThan(mainJobStart);
-    expect(mainJob).toContain('bash scripts/build.sh --skip-docs');
+    expect(mainJob).toContain('bash scripts/build.sh --packages-only');
     expect(mainJob).toContain('bun run test:ci:cli');
     expect(mainJob).not.toContain('bun run test:ci:libraries');
     expect(libraryJobStart).toBeGreaterThanOrEqual(0);
@@ -67,8 +67,8 @@ describe('served app conformance merge gate', () => {
     expect(browserJob).toContain('bunx playwright install chromium');
     expect(browserJob).toContain('bunx playwright install-deps chromium');
     expect(browserJob).toContain('bun run --cwd packages/cli test:app-conformance');
-    expect(browserJob).toContain('bash scripts/build.sh --skip-docs');
-    const build = browserJob.indexOf('bash scripts/build.sh --skip-docs');
+    expect(browserJob).toContain('bash scripts/build.sh --packages-only');
+    const build = browserJob.indexOf('bash scripts/build.sh --packages-only');
     const cache = browserJob.indexOf('Cache Playwright Chromium');
     const browser = browserJob.indexOf('bunx playwright install chromium');
     const dependencies = browserJob.indexOf('bunx playwright install-deps chromium');

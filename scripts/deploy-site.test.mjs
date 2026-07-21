@@ -96,10 +96,11 @@ describe('firebase.json hosting rewrites', () => {
     expect(sources).not.toContain('**');
   });
 
-  test('scopes remaining rewrites to Studio SPA tab prefixes, all pointing at /index.html', () => {
+  test('scopes deep links to their finite Astro Studio entry documents', () => {
     for (const rewrite of firebaseJson.hosting.rewrites) {
-      expect(rewrite.destination).toBe('/index.html');
-      expect(rewrite.source).toMatch(/^\/[a-z]+\/\*\*$/);
+      const match = rewrite.source.match(/^\/([a-z]+)\/\*\*$/);
+      expect(match).not.toBeNull();
+      expect(rewrite.destination).toBe(`/${match[1]}/index.html`);
     }
   });
 });
@@ -114,5 +115,27 @@ describe('dist/site/404.html', () => {
 
   test.skipIf(!built)('is a real file Firebase Hosting serves for any dead path', () => {
     expect(existsSync(new URL('404.html', distSite))).toBe(true);
+  });
+
+  test.skipIf(!built)('stamps the worker generation only into finite Studio entries', () => {
+    const manifest = JSON.parse(readFileSync(new URL('studio-routes.json', distSite), 'utf8'));
+    for (const route of manifest.routes) {
+      const path = route === 'home' ? 'index.html' : `${route}/index.html`;
+      expect(readFileSync(new URL(path, distSite), 'utf8')).toMatch(
+        /<meta name="pyric-worker-v" content="[a-f0-9]{16}">/,
+      );
+    }
+    expect(readFileSync(new URL('docs/overview/index.html', distSite), 'utf8')).not.toContain(
+      'pyric-worker-v',
+    );
+    expect(readFileSync(new URL('examples/firestore-first-write/index.html', distSite), 'utf8')).not.toContain(
+      'pyric-worker-v',
+    );
+  });
+
+  test.skipIf(!built)('ships the reserved static sandbox runtime beside Astro output', () => {
+    expect(existsSync(new URL('__pyric/init.json', distSite))).toBe(true);
+    expect(existsSync(new URL('__pyric/sdk/worker.js', distSite))).toBe(true);
+    expect(existsSync(new URL('__pyric/sdk/init.js', distSite))).toBe(true);
   });
 });

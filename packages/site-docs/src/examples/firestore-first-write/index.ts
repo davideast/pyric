@@ -1,0 +1,20 @@
+import { definePyricExample } from '../definition';
+import { run } from './run';
+
+export default definePyricExample({
+  id: 'firestore-first-write',
+  title: 'Write to an isolated Firestore sandbox',
+  description: 'Run a Firestore write and read without starting a SharedWorker or touching another example.',
+  services: ['firestore'],
+  rules: `
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{noteId} {
+      allow read, write: if request.auth.uid == resource.data.ownerId
+        || request.auth.uid == request.resource.data.ownerId;
+    }
+  }
+}`,
+  run,
+});

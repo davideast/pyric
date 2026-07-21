@@ -85,9 +85,43 @@ import {
   type ClientDb,
   type PresenceSnapshot,
   type PresenceSession,
+  readPyricRuntimeManifest,
+  workerNameForEpoch,
 } from '@pyric/cli/serve/worker';
 
 export type { PresenceSnapshot };
+
+interface EpochStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+interface RuntimeDocument {
+  querySelector(selector: string): { getAttribute(name: string): string | null } | null;
+}
+
+/** Resolve the exact worker URL + active generation shared with served apps. */
+export function studioWorkerConnection(options: {
+  workerUrl?: string;
+  document?: RuntimeDocument;
+  storage?: EpochStorage;
+} = {}): { url: string; name: string } {
+  const manifest = readPyricRuntimeManifest(
+    options.document ?? (typeof document === 'undefined' ? undefined : document),
+  );
+  let storage = options.storage;
+  if (!storage) {
+    try {
+      storage = typeof localStorage === 'undefined' ? undefined : localStorage;
+    } catch {
+      storage = undefined;
+    }
+  }
+  return {
+    url: options.workerUrl ?? manifest.worker.url,
+    name: workerNameForEpoch(manifest.worker.servedEpoch, storage),
+  };
+}
 
 /**
  * The per-op auth lens Studio drives. Mirrors `pyric/sandbox`'s `AuthLens` /
@@ -304,7 +338,8 @@ export function connectWorkerLive(
   setOpIssuer('studio');
   let db: ClientDb;
   try {
-    db = workerGetFirestore(workerUrl);
+    const worker = studioWorkerConnection({ workerUrl });
+    db = workerGetFirestore(worker.url, worker.name);
   } catch {
     // getFirestore throws if SharedWorker construction fails (e.g. file://),
     // treat as "no live plane" so the env falls back cleanly.

@@ -17,7 +17,7 @@ import {
   embeddedWorkerVersion,
   isStandalone,
   materializeServeAssets,
-  materializeStudioUi,
+  materializeSiteUi,
   type EmbeddedAssets,
 } from '../../src/serve/standalone-assets.js';
 import { embeddedAssetVersion } from '../../scripts/embedded-asset-version.js';
@@ -28,14 +28,16 @@ const VERSION = 'unit-test-0';
 const ASSET_VERSION = 'assets-deadbeef';
 const WORKER_V = 'wv-deadbeef';
 const SDK_BLOB: Record<string, string> = { 'app.js': b64('// pyric app shim'), 'worker.js': b64('// worker') };
-const STUDIO_BLOB: Record<string, string> = {
+const SITE_BLOB: Record<string, string> = {
   'index.html': b64('<!doctype html>studio'),
-  'assets/app.js': b64('// studio bundle'),
+  '_astro/app.js': b64('// unified site bundle'),
+  'docs/overview/index.html': b64('<!doctype html>docs'),
+  'studio-routes.json': b64('{"routes":["home"]}'),
 };
 const TMP_ROOT = join(tmpdir(), `pyric-serve-${VERSION}-${ASSET_VERSION}`);
 
 let sdkCalls = 0;
-let studioCalls = 0;
+let siteCalls = 0;
 
 beforeAll(() => {
   rmSync(TMP_ROOT, { recursive: true, force: true });
@@ -47,9 +49,9 @@ beforeAll(() => {
       sdkCalls++;
       return { ...SDK_BLOB };
     },
-    studio: async () => {
-      studioCalls++;
-      return { ...STUDIO_BLOB };
+    site: async () => {
+      siteCalls++;
+      return { ...SITE_BLOB };
     },
   };
   globalThis.__PYRIC_EMBEDDED__ = embedded;
@@ -78,9 +80,9 @@ describe('embeddedWorkerVersion', () => {
 
 describe('materializeServeAssets', () => {
   it('derives a stable identity from every embedded asset tree', () => {
-    const first = embeddedAssetVersion({ sdk: { 'app.js': 'first' }, studio: {}, docs: {} });
-    const reordered = embeddedAssetVersion({ docs: {}, studio: {}, sdk: { 'app.js': 'first' } });
-    const changed = embeddedAssetVersion({ sdk: { 'app.js': 'second' }, studio: {}, docs: {} });
+    const first = embeddedAssetVersion({ sdk: { 'app.js': 'first' }, site: {} });
+    const reordered = embeddedAssetVersion({ site: {}, sdk: { 'app.js': 'first' } });
+    const changed = embeddedAssetVersion({ sdk: { 'app.js': 'second' }, site: {} });
     expect(reordered).toBe(first);
     expect(changed).not.toBe(first);
   });
@@ -117,7 +119,7 @@ describe('materializeServeAssets', () => {
           assetVersion: ${JSON.stringify(assetVersion)},
           workerVersion: 'worker',
           sdk: async () => ({ 'app.js': Buffer.from(${JSON.stringify(appSource)}).toString('base64') }),
-          studio: async () => ({}),
+          site: async () => ({}),
         };
         const { materializeServeAssets } = await import(${JSON.stringify(moduleUrl)});
         const result = await materializeServeAssets();
@@ -151,22 +153,23 @@ describe('materializeServeAssets', () => {
   });
 });
 
-describe('materializeStudioUi', () => {
-  it('rebuilds the studio tree, preserving nested relpaths', async () => {
-    const dir = await materializeStudioUi();
-    expect(dir).toBe(join(TMP_ROOT, 'studio-ui'));
-    for (const [rel, blob] of Object.entries(STUDIO_BLOB)) {
+describe('materializeSiteUi', () => {
+  it('rebuilds the unified site tree, preserving nested relpaths', async () => {
+    const dir = await materializeSiteUi();
+    expect(dir).toBe(join(TMP_ROOT, 'site-ui'));
+    for (const [rel, blob] of Object.entries(SITE_BLOB)) {
       const onDisk = readFileSync(join(dir, rel));
       expect(onDisk.equals(Buffer.from(blob, 'base64'))).toBe(true);
     }
     // Nested asset landed under its subdir, not flattened.
-    expect(existsSync(join(dir, 'assets', 'app.js'))).toBe(true);
+    expect(existsSync(join(dir, '_astro', 'app.js'))).toBe(true);
+    expect(existsSync(join(dir, 'docs', 'overview', 'index.html'))).toBe(true);
   });
 
   it('is idempotent across calls', async () => {
-    const before = studioCalls;
-    await materializeStudioUi();
-    expect(studioCalls).toBe(before);
+    const before = siteCalls;
+    await materializeSiteUi();
+    expect(siteCalls).toBe(before);
   });
 });
 

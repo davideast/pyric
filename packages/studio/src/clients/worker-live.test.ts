@@ -14,7 +14,11 @@
  */
 
 import { describe, it, expect, afterEach } from 'bun:test';
-import { connectWorkerLive, workerEventFeed } from './worker-live.js';
+import {
+  connectWorkerLive,
+  studioWorkerConnection,
+  workerEventFeed,
+} from './worker-live.js';
 import { createStudioEnvironment } from '../env.js';
 import type { SandboxEvent } from 'pyric/sandbox';
 import {
@@ -62,6 +66,27 @@ describe('connectWorkerLive', () => {
   it('returns null when no SharedWorker is available (HTTP-fallback contract)', () => {
     restore = removeSharedWorker();
     expect(connectWorkerLive()).toBeNull();
+  });
+
+  it('selects the same served worker generation as the application runtime', () => {
+    const values = new Map<string, string>();
+    const target = studioWorkerConnection({
+      document: {
+        querySelector: () => ({
+          getAttribute: (name) => name === 'content' ? '0123456789abcdef' : null,
+        }),
+      },
+      storage: {
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => { values.set(key, value); },
+      },
+    });
+
+    expect(target).toEqual({
+      url: '/__pyric/sdk/worker.js',
+      name: 'pyric-shared-worker:0123456789abcdef',
+    });
+    expect(values.get('pyric:worker-generation')).toBe('0123456789abcdef');
   });
 
   it('returns a live plane with feed + lens seams when SharedWorker exists', () => {

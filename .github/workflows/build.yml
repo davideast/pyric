@@ -82,12 +82,12 @@ jobs:
       - name: Configure job-local surface census cache
         run: echo "PYRIC_SURFACE_CENSUS_PATH=$RUNNER_TEMP/pyric-surface-census.json" >> "$GITHUB_ENV"
 
-      - name: Build packages + embedded Studio (documentation omitted)
+      - name: Build packages (site omitted)
         # scripts/build.sh handles the cycle-tolerant bootstrap pass
         # (declaration stubs for every package) then the strict
         # topological build. Same script `npm run build` runs locally;
         # CI and local can't drift.
-        run: bash scripts/build.sh --skip-docs
+        run: bash scripts/build.sh --packages-only
 
       - name: Agent tool exposure contract
         # Every tool visible through the default MCP bridge, Playground agent,
@@ -166,8 +166,8 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
-      - name: Build packages + embedded Studio (documentation omitted)
-        run: bash scripts/build.sh --skip-docs
+      - name: Build packages (site omitted)
+        run: bash scripts/build.sh --packages-only
 
       - name: Cache Playwright Chromium
         id: playwright-cache
@@ -342,7 +342,7 @@ jobs:
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
       - name: Build (packages + studio, no docs)
-        run: bash scripts/build.sh --skip-docs
+        run: bash scripts/build.sh --packages-only
 
       - name: Compile the host-target standalone binary
         run: bun run --cwd packages/cli compile host

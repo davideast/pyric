@@ -10,27 +10,27 @@
     "rewrites": [
       {
         "source": "/firestore/**",
-        "destination": "/index.html"
+        "destination": "/firestore/index.html"
       },
       {
         "source": "/auth/**",
-        "destination": "/index.html"
+        "destination": "/auth/index.html"
       },
       {
         "source": "/rtdb/**",
-        "destination": "/index.html"
+        "destination": "/rtdb/index.html"
       },
       {
         "source": "/storage/**",
-        "destination": "/index.html"
+        "destination": "/storage/index.html"
       },
       {
         "source": "/traffic/**",
-        "destination": "/index.html"
+        "destination": "/traffic/index.html"
       },
       {
         "source": "/settings/**",
-        "destination": "/index.html"
+        "destination": "/settings/index.html"
       }
     ],
     "headers": [

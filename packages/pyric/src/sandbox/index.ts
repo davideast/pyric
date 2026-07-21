@@ -15,7 +15,7 @@
  * the design rationale for the design rationale.
  */
 
-import { SandboxImpl } from './internal/sandbox-impl.js';
+import { createSandboxRoot } from './internal/adapter.js';
 import type { LocalSandbox, SandboxConfig } from './types/service.js';
 
 export type {
@@ -137,5 +137,5 @@ export function initializeSandbox(_config: SandboxConfig = {}): LocalSandbox {
   // `_config` is reserved for future service-agnostic options
   // (rules/documents bundled at init when the multi-service
   // architecture lands). Empty for now.
-  return SandboxImpl.createRoot();
+  return createSandboxRoot();
 }

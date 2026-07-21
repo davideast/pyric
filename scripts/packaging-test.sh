@@ -223,16 +223,18 @@ assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/README\.md$' "cre
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/\.env\.example$' "create-pyric ships the chat environment example"
 assert_tar_lacks "$TARBALL_CREATE_PYRIC" 'package/templates/chat/dist/' "create-pyric excludes the built chat dist/ tree"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
-# The Vite plugin's `ui` option + `pyric dev --ui` resolve the Studio app from
-# dist/serve/studio-ui (build-embedded). The plugin's firebase swap resolves the
+# The Vite plugin's `ui` option + `pyric dev --ui` resolve Studio and docs from
+# one Astro tree at dist/serve/site-ui. The plugin's firebase swap resolves the
 # entries from dist/serve/entries. Both are `files:["dist"]`-whitelisted assets that
 # import fine but 404 / break the swap for installed users if the build drops them.
-assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/studio-ui/index\.html$' "@pyric/cli ships the Studio app shell (vite plugin ui + dev --ui)"
-# index.html hard-references hashed assets/*.{js,css}; without them the served app
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/site-ui/index\.html$' "@pyric/cli ships the Astro Studio shell (vite plugin ui + dev --ui)"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/site-ui/studio-routes\.json$' "@pyric/cli ships the Studio route manifest"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/site-ui/docs/index\.html$' "@pyric/cli ships local documentation in the same Astro tree"
+# index.html hard-references hashed assets; without them the served app
 # renders a blank root that 404s its own bundle. The index.html fallback only fires
 # for extension-less paths, so a dropped assets/ dir would pass an index-only check.
-assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/studio-ui/assets/.*\.js$' "@pyric/cli ships the Studio app JS bundle"
-assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/studio-ui/assets/.*\.css$' "@pyric/cli ships the Studio app CSS bundle"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/site-ui/_astro/.*\.js$' "@pyric/cli ships the shared Astro JS bundle"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/site-ui/_astro/.*\.css$' "@pyric/cli ships the shared Astro CSS bundle"
 # All swap/boot entries are load-bearing: defaultSdkEntries() throws at plugin
 # construction if any is missing. Guard each, not just firestore.
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/app\.js$' "@pyric/cli ships the firebase/app swap entry"

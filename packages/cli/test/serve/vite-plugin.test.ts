@@ -13,7 +13,7 @@ import { pyric } from '../../src/serve/vite-plugin.js';
 import {
   SDK_MODULES,
   defaultSdkEntries,
-  resolveStudioUiDir,
+  resolveSiteUiDir,
   pyricPackageRoot,
   bundleWorker,
   workerSourceHash,
@@ -650,14 +650,14 @@ describe('M3 — bridge fold (handler-based)', () => {
 
 // `ui`: the `pyric dev --ui` equivalent. Studio app at /__pyric/ui/ + the
 // disk-backed workspace/project routes Studio's local mode talks to. Resolves the
-// studio-ui assets vendored in this package's dist (the same bytes the standalone
-// embeds). Requires the studio build (CI builds first; resolveStudioUiDir finds
+// Astro site assets vendored in this package's dist (the same bytes the standalone
+// embeds). Requires the site build (CI builds first; resolveSiteUiDir finds
 // packages/studio/dist/app when run from src).
 //
 // Skip the app-serving case (only) when the studio build is absent, with a clear
-// reason rather than a cryptic status mismatch; resolveStudioUiDir mirrors the
+// reason rather than a cryptic status mismatch; resolveSiteUiDir mirrors the
 // production resolution. CI always builds first, so it exercises every case.
-const studioBuilt = resolveStudioUiDir() !== null;
+const studioBuilt = resolveSiteUiDir() !== null;
 
 describe('ui: Pyric Studio mount (parity with dev --ui)', () => {
   const tmps: string[] = [];
