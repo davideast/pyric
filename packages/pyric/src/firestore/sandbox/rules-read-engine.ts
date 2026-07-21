@@ -27,7 +27,7 @@ import { renderLegacyDebugMessages, projectEvaluatedRule, Timestamp } from 'pyri
 import { proveListQuery, renderQueryRemediation, type QueryConstraints } from './list-query-proof.js';
 import { makeError, type FirestoreSimError } from './errors.js';
 import type { Operation, OperationResult, ReadOperation } from './writes.js';
-import type { ListenerAuth, QueryConstraintApplier } from './snapshot-listeners.js';
+import type { ListenerAuth, QueryConstraintPlan } from './snapshot-listeners.js';
 import type { ListenerDispatchHost } from './listener-dispatch.js';
 import { buildRequestEvent, type EmitRequestInput } from './request-events.js';
 import { listQueryFromStructured } from './reads.js';
@@ -44,8 +44,8 @@ import { RulesOperationReader } from './rules-operation-reader.js';
 import {
   executeQuery,
   gatherQueryRows,
-  type QueryExecutionSpec,
-  type QueryScope,
+  type RunQueryRequest,
+  type RunQueryResult,
 } from './query-execution.js';
 
 /**
@@ -209,7 +209,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
   silentReadCollection(
     collection: string,
     auth: ListenerAuth,
-    constraints?: QueryConstraintApplier,
+    constraints?: QueryConstraintPlan,
     bypassRules = false,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
     const readServerTime = Timestamp.fromMillis(Date.now());
@@ -233,7 +233,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       const docs = this.state.list(collection)
         .filter((document) => !document.phantom)
         .map((document) => ({ path: document.path, data: document.data }));
-      const constrained = constraints ? constraints(docs) : docs;
+      const constrained = constraints ? executeQuery(docs, constraints.execution) : docs;
       this.emitRequest({
         at: evalAt,
         evalMs: 0,
@@ -347,7 +347,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     // one-shot `getDocs(query(...))` would (instead of the whole
     // collection). The proof above guaranteed the rule holds for every
     // doc the constraints admit.
-    const constrained = constraints ? constraints(docs) : docs;
+    const constrained = constraints ? executeQuery(docs, constraints.execution) : docs;
     return { allowed: true, docs: constrained };
   }
 
@@ -397,38 +397,26 @@ export class RulesReadEngine implements ListenerDispatchHost {
    *      governed by the `list` rule alone; per-doc `get` rules do not
    *      filter query results.
    *
-   * `candidates` is supplied by the caller so collection-group queries
-   * (whose candidate set is a cross-collection scan, not a single
-   * `state.list`) can reuse the same enforcement. `listPath` is the
-   * collection path the `list` rule evaluates against; for
-   * collection-group reads the caller passes the group id's match path.
-   * `query` is the structured `where`/`limit`/`orderBy` view the proof
-   * consumes (the caller still applies the actual row filtering).
+   * The request is an immutable plan. This engine gathers collection or
+   * collection-group candidates, proves the list rule, and executes the
+   * filters/order/cursors/limit without exposing raw rows to the adapter.
    *
    * Emits `origin: 'user'` request events (one per `list`) so inspector
    * consumers see query reads the same way they see writes. UNSUPPORTED
    * rules still bubble as {@link SimulatorUnsupportedError}.
    */
-  runQuery(
-    scope: QueryScope,
-    listPath: string,
-    auth: Operation['auth'],
-    execution: QueryExecutionSpec,
-    query?: QueryConstraints,
-    bypassRules?: boolean,
-    activityQuery?: unknown,
-  ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
-    const candidates = gatherQueryRows(this.state, scope);
+  runQuery(request: RunQueryRequest): RunQueryResult {
+    const candidates = gatherQueryRows(this.state, request.scope);
     const read = this.readQueryCandidates(
       candidates,
-      listPath,
-      auth,
-      query,
-      bypassRules,
-      activityQuery,
+      request.listPath,
+      request.auth,
+      request.proof,
+      request.bypassRules,
+      request.activityQuery,
     );
     if (!read.allowed) return read;
-    return { allowed: true, docs: executeQuery(read.docs, execution) };
+    return { allowed: true, docs: executeQuery(read.docs, request.execution) };
   }
 
   private readQueryCandidates(

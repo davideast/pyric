@@ -9,10 +9,8 @@
  *      with `target = { kind: 'doc', path }`.
  *   - `CollectionReference` (and any `Query` whose collection root is
  *      reachable via `.path` or `.parent.path`) → `target = { kind: 'query', collection }`.
- *   - Chained queries (`.where`/`.orderBy`/`.limit`) currently route as
- *      whole-collection listeners; the simulator fires for any change in
- *      the collection, and the callback receives every document. Slice 6
- *      will add filter/order honoring at the listener layer.
+ *   - Chained queries (`.where`/`.orderBy`/`.limit`) carry an immutable
+ *      constraint plan that the read engine applies on every notification.
  *
  * The registering context's `auth` is captured at register time and
  * threaded through to `addSnapshotListener` so notifications evaluate
@@ -107,11 +105,11 @@ function extractCollectionPath(ref: unknown): string | null {
  */
 function extractSnapshotConstraints(
   ref: unknown,
-): import('pyric/sandbox/admin-compat').QueryConstraintApplier | undefined {
+): import('pyric/sandbox/admin-compat').QueryConstraintPlan | undefined {
   if (ref !== null && typeof ref === 'object') {
     const fn = (ref as { snapshotConstraints?: unknown }).snapshotConstraints;
     if (typeof fn === 'function') {
-      return (fn as () => import('pyric/sandbox/admin-compat').QueryConstraintApplier | undefined).call(ref);
+      return (fn as () => import('pyric/sandbox/admin-compat').QueryConstraintPlan | undefined).call(ref);
     }
   }
   return undefined;

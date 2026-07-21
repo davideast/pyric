@@ -3,6 +3,8 @@ import { firestoreValuesEqual } from './value-equality.js';
 import { compareValues, typeOrderRank } from './query-value-order.js';
 import { FirestoreCompatError } from './firestore-compat-error.js';
 import type { DocStore } from './local-state.js';
+import type { QueryConstraints } from './list-query-proof.js';
+import type { FirestoreSimError } from './errors.js';
 
 export type QueryDocumentData = Record<string, unknown>;
 export type QueryWhereFilterOp =
@@ -39,6 +41,18 @@ export interface QueryRow {
 export type QueryScope =
   | { kind: 'collection'; path: string }
   | { kind: 'collection-group'; collectionId: string };
+export interface RunQueryRequest {
+  scope: QueryScope;
+  listPath: string;
+  auth: { uid: string; token?: Record<string, unknown> } | null;
+  execution: QueryExecutionSpec;
+  proof?: QueryConstraints;
+  bypassRules?: boolean;
+  activityQuery?: unknown;
+}
+export type RunQueryResult =
+  | { allowed: true; docs: QueryRow[] }
+  | { allowed: false; error: FirestoreSimError };
 
 export function gatherQueryRows(state: DocStore, scope: QueryScope): QueryRow[] {
   if (scope.kind === 'collection') {

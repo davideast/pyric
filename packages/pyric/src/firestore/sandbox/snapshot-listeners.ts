@@ -22,31 +22,33 @@ import { translateReadData } from './admin-compat/read-translation.js';
 // RULES-B11 — structured `where`/`limit`/`orderBy` view of a query, consumed
 // by the listener path's query-proof gate ("rules are not filters").
 import type { QueryConstraints } from '../../rules/simulator/query-proof.js';
+import type { QueryExecutionSpec } from './query-execution.js';
 
 /**
  * A query's `where` / `orderBy` / cursor / `limit` constraints as a
- * pure row transformer (FS-B2). `addSnapshotListener` threads this in
+ * serializable execution plan (FS-B2). `addSnapshotListener` threads this in
  * from the chainable `QueryImpl.snapshotConstraints()` so a filtered
  * `onSnapshot(query(...))` delivers the same membership as a one-shot
  * `getDocs(query(...))`. `undefined` means a bare collection listen
  * (no constraints) — the whole rule-allowed collection is delivered.
  *
- * RULES-B11 — the applier also carries `structured`, the query's
- * `where`/`limit`/`orderBy` as data (not just an opaque transformer), so
+ * RULES-B11 — the plan also carries `structured`, the query's
+ * `where`/`limit`/`orderBy` proof projection, so
  * `silentReadCollection` can run `evaluateQueryProof` against the matched
  * `list` rule: an unprovable query is DENIED whole ("rules are not
- * filters"), never silently filtered. Carried on the function object so
- * existing call sites that just thread the applier through stay unchanged.
+ * filters"), never silently filtered.
  */
-export interface QueryConstraintApplier {
-  (rows: { path: string; data: DocumentData }[]): { path: string; data: DocumentData }[];
-  /** Structured constraints for the query-proof gate (RULES-B11). Absent on
-   *  appliers built before the query carries any provable constraints. */
+export interface QueryConstraintPlan {
+  execution: QueryExecutionSpec;
+  /** Structured constraints for the query-proof gate (RULES-B11). */
   structured?: QueryConstraints;
   /** Complete executable query identity for diagnostics. Kept separate from
    *  `structured`, whose deliberately lossy shape exists only for rules proof. */
   activityQuery?: unknown;
 }
+
+/** @deprecated Internal compatibility alias; query constraints are immutable data. */
+export type QueryConstraintApplier = QueryConstraintPlan;
 
 /**
  * What a listener is watching. Query targets carry their `where` /
@@ -56,7 +58,7 @@ export interface QueryConstraintApplier {
  */
 export type SnapshotTarget =
   | { kind: 'doc'; path: string }
-  | { kind: 'query'; collection: string; constraints?: QueryConstraintApplier };
+  | { kind: 'query'; collection: string; constraints?: QueryConstraintPlan };
 
 /**
  * Mirrors `SnapshotListenOptions` from the Web SDK. `source: 'cache'` has

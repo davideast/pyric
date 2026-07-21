@@ -3,10 +3,7 @@
  * `LocalEnvironment.runQuery`; this adapter only builds immutable plans. */
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
-import { generateAutoId } from 'pyric/sandbox/internal';
-import { lastSegment } from './paths.js';
 import { translateReadData } from './snapshots.js';
-import { DocumentRefImpl } from './doc-ref.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
 // RULES-B11 — structured `where`/`limit`/`orderBy` view threaded into the
 // rule-enforced read paths so the query-proof gate ("rules are not
@@ -16,9 +13,8 @@ import type {
   QueryConstraints,
   QueryWhereConstraint,
 } from '../../../rules/simulator/query-proof.js';
-import type { QueryConstraintApplier } from '../snapshot-listeners.js';
+import type { QueryConstraintPlan } from '../snapshot-listeners.js';
 import {
-  executeQuery,
   normalizedQueryOrders,
   type QueryCursor,
   type QueryExecutionSpec,
@@ -32,7 +28,6 @@ import {
   type AggregateQuerySnapshot,
   type AggregateSpec,
   type AuthContext,
-  type CollectionReference,
   type DocumentData,
   type DocumentReference,
   type DocumentSnapshot,
@@ -56,6 +51,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────────
 
 type OrderClause = QueryOrderClause;
+type DocumentRefFactory = (path: string) => DocumentReference;
 
 // FS-B8 — the document-key sentinel field. Firestore normalizes every
 // query's sort to include an implicit final ordering on the document key
@@ -129,7 +125,7 @@ export class QueryImpl implements Query {
     protected readonly limitCount?: number,
     /**
      * When true, the query was built via `limitToLast(n)`. The
-     * `applyConstraints` pipeline reverses each orderBy direction
+     * query execution reverses each orderBy direction
      * before slicing and re-reverses afterwards. Requires at least
      * one `orderBy` clause (the runtime check fires in `get()` /
      * `aggregate()`).
@@ -142,6 +138,7 @@ export class QueryImpl implements Query {
     // (so chained `.where`/`.orderBy`/etc keep the bypass) and through to
     // the `DocumentReference`s `.get()` returns. Default false.
     protected readonly bypassRules: boolean = false,
+    private readonly documentRef?: DocumentRefFactory,
   ) {}
 
   where(field: string, op: WhereFilterOp, value: unknown): Query {
@@ -217,6 +214,7 @@ export class QueryImpl implements Query {
       'start' in overrides ? overrides.start : this.start,
       'end' in overrides ? overrides.end : this.end,
       this.bypassRules,
+      this.documentRef,
     );
   }
 
@@ -253,15 +251,15 @@ export class QueryImpl implements Query {
     const auth = opts?.auth !== undefined ? opts.auth : this.auth;
     let result: ReturnType<LocalEnvironment['runQuery']>;
     try {
-      result = this.env.runQuery(
-        this.queryScope(),
-        this.listRulePath(),
+      result = this.env.runQuery({
+        scope: this.queryScope(),
+        listPath: this.listRulePath(),
         auth,
-        this.executionSpec(),
-        this.structuredConstraints(),
-        this.bypassRules,
-        this.activityQuery(),
-      );
+        execution: this.executionSpec(),
+        proof: this.structuredConstraints(),
+        bypassRules: this.bypassRules,
+        activityQuery: this.activityQuery(),
+      });
     } catch (error) {
       const simError = (error as { simError?: unknown })?.simError;
       if (simError) throw new FirestoreCompatError(simError as FirestoreSimError);
@@ -339,12 +337,6 @@ export class QueryImpl implements Query {
    * Used by both `get()` and `aggregate()` so the filter logic
    * stays single-sourced.
    */
-  protected applyConstraints(
-    rows: { path: string; data: DocumentData }[],
-  ): { path: string; data: DocumentData }[] {
-    return executeQuery(rows, this.executionSpec());
-  }
-
   /**
    * FS-B8 — the normalized sort order, mirroring upstream
    * `core/query.ts:queryNormalizedOrderBy`:
@@ -372,22 +364,23 @@ export class QueryImpl implements Query {
 
   /**
    * Public, side-effect-free view of this query's `where` / `orderBy` /
-   * cursor / `limit` constraints as a pure row transformer. The
+   * cursor / `limit` constraints as immutable data. The
    * snapshot-listener path (FS-B2) threads this into the `SnapshotTarget`
    * so a filtered/ordered/limited `onSnapshot(query(...))` delivers the
    * same membership a one-shot `getDocs(query(...))` would — instead of
-   * the whole collection. Bare collection listens retain a no-op applier so
+   * the whole collection. Bare collection listens retain an empty plan so
    * the activity monitor still receives their complete query identity.
    *
-   * RULES-B11 — the applier also carries the structured constraints (see
+   * RULES-B11 — the plan also carries the structured constraints (see
    * {@link structuredConstraints}) so the listener read path can run the
    * query-proof gate against the matched `list` rule.
    */
-  snapshotConstraints(): QueryConstraintApplier {
-    const applier: QueryConstraintApplier = (rows) => this.applyConstraints(rows);
-    applier.structured = this.structuredConstraints();
-    applier.activityQuery = this.activityQuery();
-    return applier;
+  snapshotConstraints(): QueryConstraintPlan {
+    return {
+      execution: this.executionSpec(),
+      structured: this.structuredConstraints(),
+      activityQuery: this.activityQuery(),
+    };
   }
 
   async get(opts?: OperationOptions): Promise<QuerySnapshot> {
@@ -402,7 +395,7 @@ export class QueryImpl implements Query {
     // that (see file header).
     const filtered = this.readCandidates(opts);
     const docs: QueryDocumentSnapshot[] = filtered.map((d) => {
-      const ref = new DocumentRefImpl(this.env, this.auth, d.path, this.bypassRules);
+      const ref = this.documentRef!(d.path);
       // Translate timestamps + future typed values on the read path.
       // Done eagerly per row so .data() callers don't pay translation
       // cost twice if they invoke it more than once.
@@ -477,102 +470,4 @@ function computeAggregate(
   if (field.kind === 'sum') return sum;
   // average — undefined for empty/all-non-numeric sets
   return n === 0 ? null : sum / n;
-}
-
-/** Cross-collection query plan for `Firestore.collectionGroup`. */
-export class CollectionGroupQueryImpl extends QueryImpl {
-  private readonly collectionId: string;
-
-  constructor(
-    env: LocalEnvironment,
-    auth: AuthContext,
-    collectionId: string,
-    clauses: readonly Filter[] = [],
-    orders: readonly OrderClause[] = [],
-    limitCount?: number,
-    limitFromEnd: boolean = false,
-    start?: Cursor,
-    end?: Cursor,
-    bypassRules: boolean = false,
-  ) {
-    // The engine uses queryScope(), not the empty collectionPath.
-    super(env, auth, '', clauses, orders, limitCount, limitFromEnd, start, end, bypassRules);
-    this.collectionId = collectionId;
-  }
-
-  /**
-   * Subclass clone: hand back a fresh `CollectionGroupQueryImpl`
-   * so chained calls (`where`, `applyFilter`, `orderBy`, `limit`,
-   * `limitToLast`, cursors) preserve the cross-collection
-   * identity. The base-class methods all dispatch through this
-   * hook — no per-method overrides needed.
-   */
-  protected override clone(overrides: Partial<{
-    clauses: readonly Filter[];
-    orders: readonly OrderClause[];
-    limitCount: number | undefined;
-    limitFromEnd: boolean;
-    start: Cursor | undefined;
-    end: Cursor | undefined;
-  }>): QueryImpl {
-    return new CollectionGroupQueryImpl(
-      this.env,
-      this.auth,
-      this.collectionId,
-      overrides.clauses ?? this.clauses,
-      overrides.orders ?? this.orders,
-      'limitCount' in overrides ? overrides.limitCount : this.limitCount,
-      overrides.limitFromEnd ?? this.limitFromEnd,
-      'start' in overrides ? overrides.start : this.start,
-      'end' in overrides ? overrides.end : this.end,
-      this.bypassRules,
-    );
-  }
-
-  /**
-   * Cross-collection candidate gathering. Walks the in-memory
-   * snapshot once and keeps docs whose immediate parent collection
-   * matches `collectionId`. Snapshot is a copy so iteration is safe
-   * even if writes interleave.
-   */
-  protected override queryScope(): QueryScope {
-    return { kind: 'collection-group', collectionId: this.collectionId };
-  }
-
-  /**
-   * Group reads span many parent collections, so there's no single
-   * concrete collection path to evaluate the `list` rule against. Use
-   * the group id as the representative match path — per-doc `get`
-   * enforcement (against each real candidate path) still runs, so a
-   * doc the caller can't read is dropped regardless of where it lives.
-   */
-  protected override listRulePath(): string {
-    return this.collectionId;
-  }
-
-  protected override activityScope(): unknown {
-    return { kind: 'collection-group' };
-  }
-}
-
-export class CollectionRefImpl extends QueryImpl implements CollectionReference {
-  readonly id: string;
-  readonly path: string;
-
-  constructor(env: LocalEnvironment, auth: AuthContext, path: string, bypassRules: boolean = false) {
-    super(env, auth, path, [], [], undefined, false, undefined, undefined, bypassRules);
-    this.path = path;
-    this.id = lastSegment(path);
-  }
-
-  doc(id?: string): DocumentReference {
-    const finalId = id ?? generateAutoId();
-    return new DocumentRefImpl(this.env, this.auth, `${this.path}/${finalId}`, this.bypassRules);
-  }
-
-  async add(data: DocumentData, opts?: OperationOptions): Promise<DocumentReference> {
-    const ref = this.doc();
-    await ref.set(data, opts);
-    return ref;
-  }
 }

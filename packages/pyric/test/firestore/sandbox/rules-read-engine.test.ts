@@ -196,12 +196,12 @@ describe('RulesReadEngine.runQuery', () => {
     const { engine, events } = makeEngine(OPEN_RULES, docs);
     const seen: RequestEvent[] = [];
     events.request.subscribe((e) => seen.push(e));
-    const r = engine.runQuery(
-      { kind: 'collection', path: 'games' },
-      'games',
-      { uid: 'u1' },
+    const r = engine.runQuery({
+      scope: { kind: 'collection', path: 'games' },
+      listPath: 'games',
+      auth: { uid: 'u1' },
       execution,
-    );
+    });
     expect(r).toEqual({
       allowed: true,
       docs: [
@@ -218,12 +218,12 @@ describe('RulesReadEngine.runQuery', () => {
     const { engine, events } = makeEngine(CLOSED_RULES, docs);
     const denials: unknown[] = [];
     events.denial.subscribe((e) => denials.push(e));
-    const r = engine.runQuery(
-      { kind: 'collection', path: 'games' },
-      'games',
-      { uid: 'u1' },
+    const r = engine.runQuery({
+      scope: { kind: 'collection', path: 'games' },
+      listPath: 'games',
+      auth: { uid: 'u1' },
       execution,
-    );
+    });
     expect(r.allowed).toBe(false);
     if (!r.allowed) expect(r.error.code).toBe('permission-denied');
     expect(denials).toHaveLength(1);
@@ -233,14 +233,13 @@ describe('RulesReadEngine.runQuery', () => {
     const { engine, events } = makeEngine(CLOSED_RULES, docs);
     const seen: RequestEvent[] = [];
     events.request.subscribe((e) => seen.push(e));
-    const r = engine.runQuery(
-      { kind: 'collection', path: 'games' },
-      'games',
-      null,
+    const r = engine.runQuery({
+      scope: { kind: 'collection', path: 'games' },
+      listPath: 'games',
+      auth: null,
       execution,
-      undefined,
-      true,
-    );
+      bypassRules: true,
+    });
     expect(r.allowed).toBe(true);
     if (r.allowed) expect(r.docs).toHaveLength(2);
     expect(seen[0]!.detail).toEqual({ admin: true });
@@ -253,16 +252,16 @@ describe('RulesReadEngine.runQuery', () => {
       'parents/b/other/nope': { score: 3 },
     });
 
-    const result = engine.runQuery(
-      { kind: 'collection-group', collectionId: 'items' },
-      'items',
-      null,
-      {
+    const result = engine.runQuery({
+      scope: { kind: 'collection-group', collectionId: 'items' },
+      listPath: 'items',
+      auth: null,
+      execution: {
         filters: [{ kind: 'where', field: 'score', op: '>=', value: 2 }],
         orders: [],
         limitFromEnd: false,
       },
-    );
+    });
 
     expect(result).toEqual({
       allowed: true,

@@ -14,10 +14,8 @@ import { OverlayBacking } from './overlay-backing.js';
 import { EventLog, type AgentEvent } from './event-log.js';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import { lintFirestoreRules, type LintResult } from 'pyric/rules/internal';
-// RULES-B11 — query-proof gate for list reads ("rules are not filters").
-import type { QueryConstraints } from './list-query-proof.js';
 import type { FirestoreSimError } from './errors.js';
-import type { QueryExecutionSpec, QueryScope } from './query-execution.js';
+import type { RunQueryRequest, RunQueryResult } from './query-execution.js';
 import type {
   Transaction,
   TransactionOptions,
@@ -391,24 +389,8 @@ export class LocalEnvironment {
   }
 
   /** Execute and rule-check a query without exposing raw candidates. */
-  runQuery(
-    scope: QueryScope,
-    listPath: string,
-    auth: Operation['auth'],
-    execution: QueryExecutionSpec,
-    query?: QueryConstraints,
-    bypassRules?: boolean,
-    activityQuery?: unknown,
-  ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
-    return this.reads.runQuery(
-      scope,
-      listPath,
-      auth,
-      execution,
-      query,
-      bypassRules,
-      activityQuery,
-    );
+  runQuery(request: RunQueryRequest): RunQueryResult {
+    return this.reads.runQuery(request);
   }
 
   /**

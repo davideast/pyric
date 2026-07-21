@@ -29,7 +29,7 @@ import {
   boundedActivityIdentity,
   registerActivityValue,
 } from '../../../firestore/sandbox/activity-value-registry.js';
-import { CollectionRefImpl } from './query.js';
+import { CollectionRefImpl } from './collection-ref.js';
 import {
   FirestoreCompatError,
   type AuthContext,
