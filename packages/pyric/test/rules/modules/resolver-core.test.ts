@@ -23,6 +23,42 @@ service firebase.storage {
 }
 
 describe('resolver core export isolation', () => {
+  test('rejects imported function collisions in every source scope', () => {
+    const declarations = {
+      global: `function policy() { return true; }
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if policy(); } }
+}`,
+      service: `service firebase.storage {
+  function policy() { return true; }
+  match /b/{bucket}/o { match /{file} { allow read: if policy(); } }
+}`,
+      rootMatch: `service firebase.storage {
+  match /b/{bucket}/o {
+    function policy() { return true; }
+    match /{file} { allow read: if policy(); }
+  }
+}`,
+      descendantMatch: `service firebase.storage {
+  match /b/{bucket}/o {
+    match /{file} {
+      function policy() { return true; }
+      allow read: if policy();
+    }
+  }
+}`,
+    };
+    for (const [scope, declaration] of Object.entries(declarations)) {
+      const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { policy } from './policy';
+${declaration}`, { modules: {
+        './policy': 'export function policy() { return false; }',
+      } });
+      expect(result.success, scope).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+    }
+  });
+
   test('ignores incompatible call sites in unrequested exports', () => {
     const result = resolveModulesWith(
       null,

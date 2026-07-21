@@ -9,8 +9,6 @@ export function isRuleError(value: unknown): value is RuleError {
   return value instanceof RuleError;
 }
 
-export class RuleEvalError extends Error {}
-
 export function numericValue(value: unknown): number | undefined {
   if (typeof value === 'number') return value;
   if (value instanceof RulesFloat) return value.value;

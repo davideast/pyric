@@ -12,9 +12,9 @@ import {
 } from './rules.js';
 import { evalMethodCall } from './rules-methods.js';
 import { formatPath, matchSegments, splitPath } from './rules-path-match.js';
+import { RuleEvalError } from './rules-evaluation-error.js';
 import {
   RuleError,
-  RuleEvalError,
   describeRulesType as describeType,
   isRuleError as isErr,
   isRulesMap,

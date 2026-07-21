@@ -1,9 +1,9 @@
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import type { Expr } from './rules.js';
 import { evalExpr, type EvalCtx } from './rules-evaluator.js';
+import { RuleEvalError } from './rules-evaluation-error.js';
 import {
   RuleError,
-  RuleEvalError,
   describeRulesType as describeType,
   isRuleError as isErr,
   isRulesMap,

@@ -332,7 +332,15 @@ export function resolveModulesWith(
   }
 
   // 6. Check for conflicts with source-defined functions
-  const sourceFnNames = new Set(ast.service.match.functions.map(f => f.name));
+  const sourceFnNames = new Set([
+    ...(ast.functions ?? []).map((fn) => fn.name),
+    ...(ast.service.functions ?? []).map((fn) => fn.name),
+  ]);
+  const collectMatchFunctions = (match: typeof ast.service.match): void => {
+    match.functions.forEach((fn) => sourceFnNames.add(fn.name));
+    match.children.forEach(collectMatchFunctions);
+  };
+  collectMatchFunctions(ast.service.match);
   for (const fn of injected) {
     if (sourceFnNames.has(fn.name)) {
       return {
