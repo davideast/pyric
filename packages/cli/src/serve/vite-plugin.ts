@@ -90,6 +90,7 @@ import {
 import {
   loadViteAiEnv,
   resolveViteAiConfig,
+  viteWorkerEpochSalt,
   type PyricAiOptions,
 } from './vite-ai-config.js';
 import { resolveViteRulesConfig } from './vite-rules-source.js';
@@ -508,7 +509,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // On bundle failure, the collaborator stays unready and its HTML tag
       // forces the in-page sandbox.
       try {
-        await workerRuntime.prepare();
+        await workerRuntime.prepare(viteWorkerEpochSalt(cwd, resolvedAi.engineWire));
       } catch (e) {
         server.config.logger.warn(
           `  ⚠ [pyric] SharedWorker bundle failed — using the in-page sandbox (single-tab, ephemeral): ${e instanceof Error ? e.message : String(e)}`,

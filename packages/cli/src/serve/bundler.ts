@@ -384,6 +384,8 @@ export interface WorkerBundleOptions {
   minify?: boolean;
   /** Test seam for proving epoch identity from an isolated executable graph. */
   entryPath?: string;
+  /** Restart-required boot identity mixed into the baked worker epoch. */
+  epochSalt?: string;
 }
 
 const WORKER_EPOCH_PLACEHOLDER = 'PYRIC_EPOCH_HERE';
@@ -470,7 +472,10 @@ export interface WorkerBundleResult {
 export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBundleResult> {
   const outFile = join(opts.outDir, 'worker.js');
   const marker = join(opts.outDir, '.worker-complete');
-  const hash = workerSourceHash();
+  const sourceHash = workerSourceHash();
+  const hash = opts.epochSalt
+    ? createHash('sha256').update(sourceHash).update('\0').update(opts.epochSalt).digest('hex')
+    : sourceHash;
   if (
     !opts.noCache &&
     existsSync(outFile) &&
@@ -511,7 +516,9 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBun
   if (!canonicalSource.includes(WORKER_EPOCH_PLACEHOLDER)) {
     throw new Error('pyric dev: SharedWorker bundle omitted its epoch placeholder');
   }
-  const epoch = createHash('sha256').update(canonicalSource).digest('hex').slice(0, 16);
+  const epochHash = createHash('sha256').update(canonicalSource);
+  if (opts.epochSalt) epochHash.update('\0').update(opts.epochSalt);
+  const epoch = epochHash.digest('hex').slice(0, 16);
   writeFileSync(outFile, canonicalSource.replaceAll(WORKER_EPOCH_PLACEHOLDER, epoch));
   writeFileSync(join(opts.outDir, WORKER_EPOCH_FILE), epoch);
   writeFileSync(marker, hash);

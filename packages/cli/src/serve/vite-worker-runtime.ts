@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   bundleWorker,
   workerSourceHash,
@@ -14,7 +15,7 @@ export interface ViteWorkerRuntimeStatus {
 }
 
 export interface ViteWorkerRuntime {
-  prepare(): Promise<void>;
+  prepare(epochSalt?: string): Promise<void>;
   status(): ViteWorkerRuntimeStatus;
   headTag(marker: string): string;
 }
@@ -31,14 +32,20 @@ export function createViteWorkerRuntime(
 ): ViteWorkerRuntime {
   const cacheRoot = options.cacheRoot ?? join(homedir(), '.pyric', 'vite-worker');
   const cacheKey = options.cacheKey ?? workerSourceHash();
-  const sdkDir = join(cacheRoot, cacheKey);
+  const defaultSdkDir = join(cacheRoot, cacheKey);
   const bundle = options.bundle ?? bundleWorker;
-  let current: ViteWorkerRuntimeStatus = { sdkDir, ready: false, epoch: null };
+  let current: ViteWorkerRuntimeStatus = { sdkDir: defaultSdkDir, ready: false, epoch: null };
 
   return {
-    async prepare() {
+    async prepare(epochSalt) {
+      const sdkDir = epochSalt
+        ? join(
+            cacheRoot,
+            `${cacheKey}-${createHash('sha256').update(epochSalt).digest('hex').slice(0, 12)}`,
+          )
+        : defaultSdkDir;
       current = { sdkDir, ready: false, epoch: null };
-      const result = await bundle({ outDir: sdkDir });
+      const result = await bundle({ outDir: sdkDir, ...(epochSalt ? { epochSalt } : {}) });
       current = { sdkDir, ready: true, epoch: result.epoch };
     },
     status: () => current,

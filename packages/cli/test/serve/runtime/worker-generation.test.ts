@@ -7,7 +7,7 @@ import {
 } from '../../../src/serve/runtime/worker-generation.js';
 
 describe('worker generation identity', () => {
-  it('uses a new name only after the page remembers the served epoch', () => {
+  it('seeds a versioned name instead of reconnecting to a legacy unversioned worker', () => {
     const values = new Map<string, string>();
     const storage = {
       getItem: (key: string) => values.get(key) ?? null,
@@ -15,8 +15,9 @@ describe('worker generation identity', () => {
       removeItem: (key: string) => { values.delete(key); },
     };
 
-    expect(workerNameForEpoch('0123456789abcdef', storage)).toBe('pyric-shared-worker');
-    rememberWorkerEpoch('0123456789abcdef', storage);
+    expect(workerNameForEpoch('0123456789abcdef', storage)).toBe(
+      'pyric-shared-worker:0123456789abcdef',
+    );
     expect(values.get(PYRIC_WORKER_GENERATION_KEY)).toBe('0123456789abcdef');
     expect(workerNameForEpoch('0123456789abcdef', storage)).toBe(
       'pyric-shared-worker:0123456789abcdef',
@@ -43,6 +44,13 @@ describe('worker generation identity', () => {
     expect(workerNameForEpoch('0123456789abcdef', freshTabStorage)).toBe(
       'pyric-shared-worker:0123456789abcdef',
     );
+  });
+
+  it('still avoids the legacy worker when origin storage is unavailable', () => {
+    expect(workerNameForEpoch('0123456789abcdef', undefined)).toBe(
+      'pyric-shared-worker:0123456789abcdef',
+    );
+    expect(workerNameForEpoch('dev', undefined)).toBe('pyric-shared-worker');
   });
 
   it('fails before retirement when origin storage cannot persist the successor', () => {

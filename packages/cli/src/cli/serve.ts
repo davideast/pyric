@@ -320,7 +320,7 @@ export async function startServe(opts: {
   let bundle: { outDir: string; cached: boolean; dispose?: () => void };
   // The worker executable epoch: stamped into the page (`<meta name="pyric-worker-v">`)
   // so the page can WARN when a still-running worker is older than the served
-  // bundle. The worker NAME is stable (`pyric-shared-worker`) — all tabs share
+  // bundle. The worker NAME is origin-generation scoped — all tabs share
   // one backend — so a SharedWorker (which can't hot-update) is detected as
   // stale, not auto-replaced; the user closes all tabs to load the new worker.
   let workerVersion: string;

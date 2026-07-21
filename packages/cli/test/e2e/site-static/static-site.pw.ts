@@ -101,7 +101,9 @@ test('a Firestore write via the worker port is visible to a second, independent 
         worker: SharedWorker,
         msg: Record<string, unknown>,
       ) => Promise<{ ok: boolean; value?: unknown }>;
-      const workerA = new SharedWorker('/__pyric/sdk/worker.js', { name: 'pyric-shared-worker' });
+      const generation = localStorage.getItem('pyric:worker-generation');
+      const workerName = generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker';
+      const workerA = new SharedWorker('/__pyric/sdk/worker.js', { name: workerName });
       const write = await workerOp(workerA, {
         t: 'op',
         id: 'w1',
@@ -109,7 +111,7 @@ test('a Firestore write via the worker port is visible to a second, independent 
         path: 'notes/e2e-check',
         data: { marker },
       });
-      const workerB = new SharedWorker('/__pyric/sdk/worker.js', { name: 'pyric-shared-worker' });
+      const workerB = new SharedWorker('/__pyric/sdk/worker.js', { name: workerName });
       const read = await workerOp(workerB, { t: 'op', id: 'r1', method: 'admin.getDocument', path: 'notes/e2e-check' });
       return { write, read };
     },
@@ -140,7 +142,9 @@ test(
           worker: SharedWorker,
           msg: Record<string, unknown>,
         ) => Promise<{ ok: boolean; value?: unknown }>;
-        const worker = new SharedWorker('/__pyric/sdk/worker.js', { name: 'pyric-shared-worker' });
+        const generation = localStorage.getItem('pyric:worker-generation');
+        const workerName = generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker';
+        const worker = new SharedWorker('/__pyric/sdk/worker.js', { name: workerName });
         await workerOp(worker, {
           t: 'op',
           id: 'w1',
@@ -162,7 +166,9 @@ test(
           worker: SharedWorker,
           msg: Record<string, unknown>,
         ) => Promise<{ ok: boolean; value?: unknown }>;
-        const worker = new SharedWorker('/__pyric/sdk/worker.js', { name: 'pyric-shared-worker' });
+        const generation = localStorage.getItem('pyric:worker-generation');
+        const workerName = generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker';
+        const worker = new SharedWorker('/__pyric/sdk/worker.js', { name: workerName });
         return await workerOp(worker, { t: 'op', id: 'r1', method: 'admin.getDocument', path: 'notes/reload-check' });
       },
       { helper: WORKER_OP_HELPER },
@@ -177,7 +183,9 @@ test('the curated demo seed (__pyric/init.json) is applied on first worker boot'
   await page.waitForTimeout(1000);
 
   const seeded = await page.evaluate(async () => {
-    const worker = new SharedWorker('/__pyric/sdk/worker.js', { name: 'pyric-shared-worker' });
+    const generation = localStorage.getItem('pyric:worker-generation');
+    const workerName = generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker';
+    const worker = new SharedWorker('/__pyric/sdk/worker.js', { name: workerName });
     worker.port.start();
     const res = await new Promise<{ ok: boolean; value?: Record<string, unknown> | null }>((resolve) => {
       worker.port.onmessage = (ev) => {
