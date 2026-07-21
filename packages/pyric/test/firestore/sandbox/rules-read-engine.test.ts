@@ -212,6 +212,33 @@ describe('RulesReadEngine.silentReadCollection', () => {
     });
   });
 
+  test('captures nested listener filter getters before proof and execution', () => {
+    const { engine } = makeEngine(DATA_GATED_LIST_RULES, {
+      'posts/public': { visibility: 'public' },
+      'posts/private': { visibility: 'private' },
+    });
+    let reads = 0;
+    const filter = {
+      kind: 'where' as const,
+      field: 'visibility',
+      op: '==' as const,
+      get value() {
+        reads += 1;
+        return reads === 1 ? 'public' : 'private';
+      },
+    };
+
+    const result = engine.silentReadCollection('posts', null, {
+      execution: { filters: [filter], orders: [], limitFromEnd: false },
+    });
+
+    expect(reads).toBe(1);
+    expect(result).toEqual({
+      allowed: true,
+      docs: [{ path: 'posts/public', data: { visibility: 'public' } }],
+    });
+  });
+
   test('fails closed for the deprecated callable listener constraint', () => {
     const { engine } = makeEngine(OPEN_RULES, {
       'posts/public': { visibility: 'public' },
@@ -337,6 +364,36 @@ describe('RulesReadEngine.runQuery', () => {
     };
 
     const result = engine.runQuery(request);
+
+    expect(reads).toBe(1);
+    expect(result).toEqual({
+      allowed: true,
+      docs: [{ path: 'posts/public', data: { visibility: 'public' } }],
+    });
+  });
+
+  test('captures nested request filter getters before proof and execution', () => {
+    const { engine } = makeEngine(DATA_GATED_LIST_RULES, {
+      'posts/public': { visibility: 'public' },
+      'posts/private': { visibility: 'private' },
+    });
+    let reads = 0;
+    const filter = {
+      kind: 'where' as const,
+      field: 'visibility',
+      op: '==' as const,
+      get value() {
+        reads += 1;
+        return reads === 1 ? 'public' : 'private';
+      },
+    };
+
+    const result = engine.runQuery({
+      scope: { kind: 'collection', path: 'posts' },
+      listPath: 'posts',
+      auth: null,
+      execution: { filters: [filter], orders: [], limitFromEnd: false },
+    });
 
     expect(reads).toBe(1);
     expect(result).toEqual({

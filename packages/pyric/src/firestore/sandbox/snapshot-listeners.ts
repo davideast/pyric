@@ -24,7 +24,7 @@ import type { QueryConstraints } from './list-query-proof.js';
 
 /**
  * A query's `where` / `orderBy` / cursor / `limit` constraints as a
- * serializable execution plan (FS-B2). `addSnapshotListener` threads this in
+ * immutable structural execution plan (FS-B2). `addSnapshotListener` threads this in
  * from the chainable `QueryImpl.snapshotConstraints()` so a filtered
  * `onSnapshot(query(...))` delivers the same membership as a one-shot
  * `getDocs(query(...))`. Bare collection references carry an empty execution

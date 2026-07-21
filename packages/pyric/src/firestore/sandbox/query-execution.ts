@@ -53,6 +53,62 @@ export type RunQueryResult =
   | { allowed: true; docs: QueryRow[] }
   | { allowed: false; error: FirestoreSimError };
 
+/** Capture untrusted structural plan data exactly once at the engine boundary.
+ * Opaque operands remain identity-preserving references; only the query-plan
+ * containers and scalar control fields are copied and frozen. */
+export function captureQueryExecutionSpec(input: QueryExecutionSpec): QueryExecutionSpec {
+  const captureFilter = (filter: QueryFilter): QueryFilter => {
+    const kind = filter.kind;
+    if (kind === 'where') {
+      const field = filter.field;
+      const op = filter.op;
+      const value = filter.value;
+      return Object.freeze({ kind, field, op, value });
+    }
+    if (kind !== 'and' && kind !== 'or') {
+      throw new FirestoreCompatError({
+        code: 'invalid-argument',
+        message: `Unknown query filter kind: ${String(kind)}`,
+      });
+    }
+    const children = filter.filters;
+    return Object.freeze({
+      kind,
+      filters: Object.freeze(Array.from(children, captureFilter)),
+    });
+  };
+  const captureCursor = (cursor: QueryCursor | undefined): QueryCursor | undefined => {
+    if (cursor === undefined) return undefined;
+    const values = cursor.values;
+    const inclusive = cursor.inclusive;
+    const fromSnapshot = cursor.fromSnapshot;
+    return Object.freeze({
+      values: Object.freeze(Array.from(values)),
+      inclusive,
+      fromSnapshot,
+    });
+  };
+
+  const filters = input.filters;
+  const orders = input.orders;
+  const limitCount = input.limitCount;
+  const limitFromEnd = input.limitFromEnd;
+  const start = input.start;
+  const end = input.end;
+  return Object.freeze({
+    filters: Object.freeze(Array.from(filters, captureFilter)),
+    orders: Object.freeze(Array.from(orders, (order) => {
+      const field = order.field;
+      const direction = order.direction;
+      return Object.freeze({ field, direction });
+    })),
+    limitCount,
+    limitFromEnd,
+    start: captureCursor(start),
+    end: captureCursor(end),
+  });
+}
+
 /** Derive the conservative rules-proof projection from the executable plan.
  * Keeping this derivation beside execution prevents authorization from ever
  * proving a different query than the engine subsequently runs. */

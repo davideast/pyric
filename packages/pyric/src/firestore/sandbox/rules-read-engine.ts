@@ -44,6 +44,7 @@ import { RulesOperationReader } from './rules-operation-reader.js';
 import {
   executeQuery,
   gatherQueryRows,
+  captureQueryExecutionSpec,
   queryConstraintsForProof,
   type RunQueryRequest,
   type RunQueryResult,
@@ -195,7 +196,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
    * security/rules-query). The gate here:
    *   1. `proveListQuery` decides PROVABLE / UNPROVABLE from the matched
    *      `list`/`read` rule conditions + the structured `where`
-   *      constraints carried on the applier (FS-B2 threading).
+   *      constraints derived from the captured execution plan.
    *   2. UNPROVABLE → one deny request event + `permission-denied` for
    *      the WHOLE query — no silent truncation.
    *   3. PROVABLE → the ordinary simulate() run evaluates the residual
@@ -222,7 +223,9 @@ export class RulesReadEngine implements ListenerDispatchHost {
         ),
       };
     }
-    const execution = constraints?.execution;
+    const execution = constraints
+      ? captureQueryExecutionSpec(constraints.execution)
+      : undefined;
     const readServerTime = Timestamp.fromMillis(Date.now());
     // List rules are defined at the document-match level, so the
     // simulator expects a document-style path with a synthetic
@@ -419,7 +422,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
    * rules still bubble as {@link SimulatorUnsupportedError}.
    */
   runQuery(request: RunQueryRequest): RunQueryResult {
-    const execution = request.execution;
+    const execution = captureQueryExecutionSpec(request.execution);
     const candidates = gatherQueryRows(this.state, request.scope);
     const proof = queryConstraintsForProof(execution);
     const read = this.readQueryCandidates(
