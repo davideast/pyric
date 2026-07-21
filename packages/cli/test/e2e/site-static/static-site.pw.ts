@@ -26,6 +26,8 @@ test('Studio loads at / with no console errors', async ({ page }) => {
   await expect(page).toHaveTitle(/./); // some non-empty title rendered
   // Give the app a beat to finish its async init (env resolve, worker connect).
   await page.waitForTimeout(1000);
+  await expect(page.getByLabel('Studio tabs')).toBeVisible();
+  await expect(page.getByText('Starting Pyric Studio…', { exact: true })).toHaveCount(0);
   expect(errors, `uncaught page errors: ${errors.join('\n')}`).toEqual([]);
 });
 

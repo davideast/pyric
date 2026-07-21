@@ -652,7 +652,7 @@ describe('M3 — bridge fold (handler-based)', () => {
 // disk-backed workspace/project routes Studio's local mode talks to. Resolves the
 // Astro site assets vendored in this package's dist (the same bytes the standalone
 // embeds). Requires the site build (CI builds first; resolveSiteUiDir finds
-// packages/studio/dist/app when run from src).
+// packages/site-docs/dist when run from source).
 //
 // Skip the app-serving case (only) when the studio build is absent, with a clear
 // reason rather than a cryptic status mismatch; resolveSiteUiDir mirrors the

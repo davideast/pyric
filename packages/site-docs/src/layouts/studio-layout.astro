@@ -6,8 +6,11 @@ import SiteLayout from './site-layout.astro';
 
 <SiteLayout title="Pyric Studio">
   <div id="root">
-    <p class="studio-loading" aria-live="polite">Starting Pyric Studio…</p>
-    <StudioApp client:only="react" />
+    <StudioApp client:only="react">
+      <p slot="fallback" class="studio-loading" aria-live="polite">
+        Starting Pyric Studio…
+      </p>
+    </StudioApp>
   </div>
 </SiteLayout>
 

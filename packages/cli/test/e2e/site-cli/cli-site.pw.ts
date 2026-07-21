@@ -40,6 +40,8 @@ test('CLI serves Astro Studio deep links and shares the app worker generation an
   const studio = await context.newPage();
   const response = await studio.goto('/__pyric/ui/firestore/notes/astro-host');
   expect(response?.ok()).toBeTruthy();
+  await expect(studio.getByLabel('Studio tabs')).toBeVisible();
+  await expect(studio.getByText('Starting Pyric Studio…', { exact: true })).toHaveCount(0);
   await expect(studio.getByText(marker)).toBeVisible({ timeout: 10_000 });
   expect(await studio.evaluate(() => localStorage.getItem('pyric:worker-generation'))).toBe(appGeneration);
 

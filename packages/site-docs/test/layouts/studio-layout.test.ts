@@ -7,7 +7,8 @@ describe('StudioLayout', () => {
       new URL('../../src/layouts/studio-layout.astro', import.meta.url),
       'utf8',
     );
-    expect(source).toContain('<StudioApp client:only="react" />');
+    expect(source).toContain('<StudioApp client:only="react">');
+    expect(source).toContain('slot="fallback"');
     expect(source).toContain("from '@pyric/studio/app'");
   });
 });
