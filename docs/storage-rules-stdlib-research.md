@@ -82,6 +82,27 @@ disabled permission boundary. IAM removal also showed eventually consistent
 reads, so the rig now performs delayed restoration verification and one bounded
 repeat restoration before accepting cleanup.
 
+The next IAM-enabled advanced matrix established:
+
+- `get` returns nested maps and lists with the expected Rules types; nested field
+  access and list membership allowed.
+- Direct access to an absent field and comparing an integer field with a string
+  denied instead of producing a false allow.
+- An anonymous `request.auth.uid` path interpolation and a named-database path
+  denied. The default-database path remained the only production-proven form.
+- Lookup calls composed through a helper, a `let`-bound `get`, `false || call`,
+  and the selected branch of a ternary expression all allowed.
+- A missing-document dereference on the left of `|| true` allowed, confirming
+  Storage shares the language's error-absorption behavior; `false &&` the same
+  dereference denied without granting access.
+- An anonymous Firestore client was demonstrably denied and then allowed for
+  the run-scoped document as the temporary Firestore rules changed. The same
+  Storage lookup allowed in both states. This pins cross-service lookup as IAM
+  service-agent data access, not a request authorized through `firestore.rules`.
+
+The advanced rig restores both exact Rules release pointers, and an exclusive
+local lock now rejects overlapping real-resource runs before network mutation.
+
 ## Baseline conclusion
 
 `storage.rules` does **not yet work end to end with `rules_version = '2+modules'` in Pyric's normal Storage path**.
