@@ -70,6 +70,12 @@ test('an app-triggered worker replacement moves an open Studio page to the annou
   const studio = await context.newPage();
   await app.goto('/');
   await studio.goto('/__pyric/ui/firestore');
+  // Navigation finishes before either client necessarily registers its
+  // replacement listener. The retirement announcement is one-shot, so wait
+  // for both runtimes to finish mounting before sending it.
+  await expect(app.locator('#status')).not.toHaveText('loading');
+  await expect(studio.getByLabel('Studio tabs')).toBeVisible();
+  await expect(studio.getByText('Starting Pyric Studio…', { exact: true })).toHaveCount(0);
 
   const nextGeneration = 'fedcba9876543210';
   const appReloaded = app.waitForEvent('framenavigated', (frame) => frame === app.mainFrame());
