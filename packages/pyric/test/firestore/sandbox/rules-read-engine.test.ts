@@ -184,39 +184,89 @@ describe('RulesReadEngine.silentReadCollection', () => {
   });
 });
 
-describe('RulesReadEngine.readQueryCandidates', () => {
-  const candidates = [
-    { path: 'games/g1', data: { n: 1 } },
-    { path: 'games/g2', data: { n: 2 } },
-  ];
+describe('RulesReadEngine.runQuery', () => {
+  const docs = { 'games/g1': { n: 1 }, 'games/g2': { n: 2 } };
+  const execution = {
+    filters: [],
+    orders: [],
+    limitFromEnd: false,
+  };
 
   test('allows under open rules, returns candidates untouched, emits one user-origin allow', () => {
-    const { engine, events } = makeEngine(OPEN_RULES);
+    const { engine, events } = makeEngine(OPEN_RULES, docs);
     const seen: RequestEvent[] = [];
     events.request.subscribe((e) => seen.push(e));
-    const r = engine.readQueryCandidates(candidates, 'games', { uid: 'u1' });
-    expect(r).toEqual({ allowed: true, docs: candidates });
+    const r = engine.runQuery(
+      { kind: 'collection', path: 'games' },
+      'games',
+      { uid: 'u1' },
+      execution,
+    );
+    expect(r).toEqual({
+      allowed: true,
+      docs: [
+        { path: 'games/g1', data: { n: 1 } },
+        { path: 'games/g2', data: { n: 2 } },
+      ],
+    });
     expect(seen).toHaveLength(1);
     expect(seen[0]!.result).toBe('allow');
     expect(seen[0]!.origin).toBe('user');
   });
 
   test('denies under closed rules and emits on the denial channel', () => {
-    const { engine, events } = makeEngine(CLOSED_RULES);
+    const { engine, events } = makeEngine(CLOSED_RULES, docs);
     const denials: unknown[] = [];
     events.denial.subscribe((e) => denials.push(e));
-    const r = engine.readQueryCandidates(candidates, 'games', { uid: 'u1' });
+    const r = engine.runQuery(
+      { kind: 'collection', path: 'games' },
+      'games',
+      { uid: 'u1' },
+      execution,
+    );
     expect(r.allowed).toBe(false);
     if (!r.allowed) expect(r.error.code).toBe('permission-denied');
     expect(denials).toHaveLength(1);
   });
 
   test('bypassRules skips the proof gate and returns all candidates under closed rules', () => {
-    const { engine, events } = makeEngine(CLOSED_RULES);
+    const { engine, events } = makeEngine(CLOSED_RULES, docs);
     const seen: RequestEvent[] = [];
     events.request.subscribe((e) => seen.push(e));
-    const r = engine.readQueryCandidates(candidates, 'games', null, undefined, true);
-    expect(r).toEqual({ allowed: true, docs: candidates });
+    const r = engine.runQuery(
+      { kind: 'collection', path: 'games' },
+      'games',
+      null,
+      execution,
+      undefined,
+      true,
+    );
+    expect(r.allowed).toBe(true);
+    if (r.allowed) expect(r.docs).toHaveLength(2);
     expect(seen[0]!.detail).toEqual({ admin: true });
+  });
+
+  test('gathers and executes collection-group constraints behind the engine seam', () => {
+    const { engine } = makeEngine(OPEN_RULES, {
+      'parents/a/items/one': { score: 1 },
+      'parents/b/items/two': { score: 2 },
+      'parents/b/other/nope': { score: 3 },
+    });
+
+    const result = engine.runQuery(
+      { kind: 'collection-group', collectionId: 'items' },
+      'items',
+      null,
+      {
+        filters: [{ kind: 'where', field: 'score', op: '>=', value: 2 }],
+        orders: [],
+        limitFromEnd: false,
+      },
+    );
+
+    expect(result).toEqual({
+      allowed: true,
+      docs: [{ path: 'parents/b/items/two', data: { score: 2 } }],
+    });
   });
 });

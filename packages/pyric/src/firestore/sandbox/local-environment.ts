@@ -9,8 +9,6 @@ import {
   LocalState,
   type DocStore,
   type DocumentData,
-  type DocEntry,
-  type ScanOptions,
 } from './local-state.js';
 import { OverlayBacking } from './overlay-backing.js';
 import { EventLog, type AgentEvent } from './event-log.js';
@@ -19,6 +17,7 @@ import { lintFirestoreRules, type LintResult } from 'pyric/rules/internal';
 // RULES-B11 — query-proof gate for list reads ("rules are not filters").
 import type { QueryConstraints } from './list-query-proof.js';
 import type { FirestoreSimError } from './errors.js';
+import type { QueryExecutionSpec, QueryScope } from './query-execution.js';
 import type {
   Transaction,
   TransactionOptions,
@@ -391,33 +390,25 @@ export class LocalEnvironment {
     return this.state.list(collection);
   }
 
-  /**
-   * Scan documents under a path through the {@link DocStore} seam (admin, no
-   * rules). The query engine gathers candidates with `{ directOnly: true }` for
-   * a collection's real direct children (no phantoms); the discover crawler
-   * still uses {@link listDocuments}, which adds phantom parents.
-   */
-  scanDocuments(prefix: string, opts?: ScanOptions): DocEntry[] {
-    return this.state.scan(prefix, opts);
-  }
-
-  /**
-   * Rule-enforced collection read — the query (`getDocs` / `Query.get` /
-   * aggregate) read path for the web-modular + auth-scoped admin-compat
-   * surfaces. Enforcement lives in {@link RulesReadEngine#readQueryCandidates}
-   * (ADR-0009, PR B3); the facade keeps the public signature. Engine-internal
-   * pending PR C (ADR-0009 decision 6) — admin-compat still supplies raw
-   * candidates across the seam until the engine grows a real runQuery().
-   */
-  readQueryCandidates(
-    candidates: { path: string; data: DocumentData }[],
+  /** Execute and rule-check a query without exposing raw candidates. */
+  runQuery(
+    scope: QueryScope,
     listPath: string,
     auth: Operation['auth'],
+    execution: QueryExecutionSpec,
     query?: QueryConstraints,
     bypassRules?: boolean,
     activityQuery?: unknown,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
-    return this.reads.readQueryCandidates(candidates, listPath, auth, query, bypassRules, activityQuery);
+    return this.reads.runQuery(
+      scope,
+      listPath,
+      auth,
+      execution,
+      query,
+      bypassRules,
+      activityQuery,
+    );
   }
 
   /**

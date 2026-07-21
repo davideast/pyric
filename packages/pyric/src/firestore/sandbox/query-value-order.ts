@@ -1,5 +1,5 @@
 /**
- * Canonical Firestore value comparator (FS-B3).
+ * Canonical Firestore query value comparator (FS-B3).
  *
  * Firestore orders heterogeneous field values by a fixed *type order*
  * first, then within a type. The old query comparator ignored this and

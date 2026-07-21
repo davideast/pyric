@@ -41,6 +41,12 @@ import {
 import { buildRulesTestCase } from './rules-test-case.js';
 import { EventLog } from './event-log.js';
 import { RulesOperationReader } from './rules-operation-reader.js';
+import {
+  executeQuery,
+  gatherQueryRows,
+  type QueryExecutionSpec,
+  type QueryScope,
+} from './query-execution.js';
 
 /**
  * The engine capability read paths need from the facade. `state` is a live
@@ -403,7 +409,29 @@ export class RulesReadEngine implements ListenerDispatchHost {
    * consumers see query reads the same way they see writes. UNSUPPORTED
    * rules still bubble as {@link SimulatorUnsupportedError}.
    */
-  readQueryCandidates(
+  runQuery(
+    scope: QueryScope,
+    listPath: string,
+    auth: Operation['auth'],
+    execution: QueryExecutionSpec,
+    query?: QueryConstraints,
+    bypassRules?: boolean,
+    activityQuery?: unknown,
+  ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
+    const candidates = gatherQueryRows(this.state, scope);
+    const read = this.readQueryCandidates(
+      candidates,
+      listPath,
+      auth,
+      query,
+      bypassRules,
+      activityQuery,
+    );
+    if (!read.allowed) return read;
+    return { allowed: true, docs: executeQuery(read.docs, execution) };
+  }
+
+  private readQueryCandidates(
     candidates: { path: string; data: DocumentData }[],
     listPath: string,
     auth: Operation['auth'],

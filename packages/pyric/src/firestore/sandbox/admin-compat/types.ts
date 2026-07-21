@@ -15,11 +15,16 @@
  * SDK's own type-shape decisions. Zero `: any`.
  */
 
-import type { FirestoreErrorCode, FirestoreSimError } from 'pyric/sandbox/internal';
+export { FirestoreCompatError } from '../firestore-compat-error.js';
 import {
   boundedActivityIdentity,
   registerActivityValue,
 } from '../../../firestore/sandbox/activity-value-registry.js';
+import type {
+  QueryFilter,
+  QueryOrderDirection,
+  QueryWhereFilterOp,
+} from '../query-execution.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — what agent code calls.
@@ -98,12 +103,9 @@ export interface DocumentReference {
   delete(opts?: OperationOptions): Promise<void>;
 }
 
-export type WhereFilterOp =
-  | '<' | '<=' | '==' | '!=' | '>=' | '>'
-  | 'in' | 'not-in'
-  | 'array-contains' | 'array-contains-any';
+export type WhereFilterOp = QueryWhereFilterOp;
 
-export type OrderDirection = 'asc' | 'desc';
+export type OrderDirection = QueryOrderDirection;
 
 /**
  * Composite filter tree for `Query.applyFilter`. Recursive — `and` /
@@ -114,10 +116,7 @@ export type OrderDirection = 'asc' | 'desc';
  * as a tagged-union value type (the SDK's classes carry an `_op`
  * field; ours is the `kind` discriminant).
  */
-export type Filter =
-  | { kind: 'where'; field: string; op: WhereFilterOp; value: unknown }
-  | { kind: 'and'; filters: Filter[] }
-  | { kind: 'or'; filters: Filter[] };
+export type Filter = QueryFilter;
 
 export interface Query {
   where(field: string, op: WhereFilterOp, value: unknown): Query;
@@ -373,25 +372,6 @@ export class Timestamp {
 // patterns like `try {} catch (e) { if (e.code === 'already-exists') }`
 // work unchanged against this wrapper.
 // ─────────────────────────────────────────────────────────────────────────
-
-export class FirestoreCompatError extends Error {
-  readonly code: FirestoreErrorCode;
-  /**
-   * The structured `FirestoreSimError` this throw was built from. Kept
-   * as a back-channel so downstream wrappers (`pyric/sandbox`) can
-   * read the eval-time `request`/`resource` context without re-parsing
-   * the message string. Production Admin SDK has no equivalent — this
-   * field is sandbox-only and intentionally not surfaced on `Error`'s
-   * own enumeration unless a caller reaches for it explicitly.
-   */
-  readonly simError: FirestoreSimError;
-  constructor(err: FirestoreSimError) {
-    super(err.message);
-    this.name = 'FirestoreError';
-    this.code = err.code;
-    this.simError = err;
-  }
-}
 
 // Re-exported so consumers reaching for the typed-error surface don't
 // need to import from `../errors.js` separately. Used by the slice-1
