@@ -9,6 +9,7 @@ import { makeError, type FirestoreSimError } from './errors.js';
 import {
   proveListQuery,
   renderQueryRemediation,
+  type ListProofVerdict,
   type QueryConstraints,
 } from './list-query-proof.js';
 import type { DocStore } from './local-state.js';
@@ -118,9 +119,6 @@ export class RulesListAuthorizer {
     }
 
     const placeholderPath = `${path}/__listPlaceholder__`;
-    const evaluationSource = request.collectionGroup
-      ? assembleRules(evaluationAst!)
-      : this.rules.source;
     const evalStart = performance.now();
     const proof = proveListQuery(evaluationAst, placeholderPath, auth, constraints);
     if (proof.kind === 'unprovable') {
@@ -148,6 +146,12 @@ export class RulesListAuthorizer {
       this.emitUserDenial(origin, error);
       return { allowed: false, error };
     }
+
+    const evaluationSource = proof.kind === 'provable'
+      ? assembleRules(proof.evaluationAst)
+      : request.collectionGroup
+        ? assembleRules(evaluationAst!)
+        : this.rules.source;
 
     const testCase = buildRulesTestCase(
       this.host.state,
@@ -242,10 +246,10 @@ export class RulesListAuthorizer {
 
   private applyProof(
     testCase: TestCase,
-    proof: { kind: 'provable'; syntheticResource?: Record<string, unknown> } | { kind: 'no-rule' },
+    proof: Exclude<ListProofVerdict, { kind: 'unprovable' }>,
     constraints: QueryConstraints,
   ): void {
-    if (proof.kind === 'provable' && proof.syntheticResource) {
+    if (proof.kind === 'provable') {
       testCase.resource = proof.syntheticResource;
     }
     if (constraints.limit != null || constraints.offset != null || constraints.orderBy != null) {

@@ -28,10 +28,11 @@ type Decision = 'ALLOW' | 'DENY' | 'UNSUPPORTED';
 
 // ═══ Match block resolution ═══
 
-interface MatchResult {
+export interface MatchResult {
   block: MatchBlock;
   pathVariables: Record<string, string>;
-  parentFunctions: FunctionDef[];
+  /** Global, service, root, ancestor, and matched-block helpers in scope. */
+  functions: FunctionDef[];
 }
 
 /**
@@ -87,11 +88,11 @@ function renderBlockPath(block: MatchBlock): string {
  * `debug_firestore_rules` rely on this trace; production callers can
  * omit it and pay zero cost.
  */
-function collectMatches(
+export function collectMatches(
   block: MatchBlock,
   pathSegments: string[],
   parentFunctions: FunctionDef[],
-  recorder?: PathResolutionRecorder,
+  recorder?: { push(entry: PathResolutionEntry): void },
 ): MatchResult[] {
   const allFunctions = [...parentFunctions, ...block.functions];
 
@@ -162,7 +163,7 @@ function collectMatches(
       bindings,
       matched: true,
     });
-    return [{ block, pathVariables: bindings, parentFunctions: allFunctions }];
+    return [{ block, pathVariables: bindings, functions: allFunctions }];
   }
 
   // Otherwise descend into EVERY child and collect all matches — this block
@@ -681,9 +682,8 @@ export class SimulateFirestoreRulesHandler {
       let sawUnsupported = false;
       let grantingBlockPath: string | undefined;
       for (const match of matches) {
-        const allFunctions = [...match.parentFunctions, ...match.block.functions];
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(tc, allFunctions, pathVars, opts?.getDoc, opts?.batchProjection);
+        const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection);
 
         const blockPath = renderBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx);

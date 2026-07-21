@@ -20,8 +20,13 @@ service cloud.firestore {
   }
 }`;
 
-function makeAuthorizer(source: string) {
-  const state = new LocalState({ 'posts/public': { visibility: 'public' } });
+function makeAuthorizer(
+  source: string,
+  docs: Record<string, Record<string, unknown>> = {
+    'posts/public': { visibility: 'public' },
+  },
+) {
+  const state = new LocalState(docs);
   const events = new FirestoreEventBus();
   const authorizer = new RulesListAuthorizer(
     events,
@@ -179,5 +184,97 @@ describe('RulesListAuthorizer', () => {
       expect(authorizeCollectionGroup(rules)).toEqual({ allowed: true });
     });
   }
+
+  test('does not authorize a group from a colliding placeholder via a global data helper', () => {
+    const rules = `rules_version = '2';
+      function globallyPublic() { return resource.data.visibility == 'public'; }
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /{document=**} { allow list: if globallyPublic(); }
+        }
+      }`;
+    const { authorizer } = makeAuthorizer(rules, {
+      'items/__listPlaceholder__': { visibility: 'public' },
+      'parents/a/items/secret': { visibility: 'private' },
+    });
+
+    const result = authorizer.authorize({
+      path: 'items',
+      collectionGroup: true,
+      auth: null,
+      constraints: {},
+      origin: 'user',
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
+  test('does not simulate an unprovable overlapping block against a colliding placeholder', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{first=**} { allow list: if false; }
+        match /{second=**} { allow list: if resource.data.visibility == 'public'; }
+      }
+    }`;
+    const { authorizer } = makeAuthorizer(rules, {
+      'items/__listPlaceholder__': { visibility: 'public' },
+      'parents/a/items/secret': { visibility: 'private' },
+    });
+
+    const result = authorizer.authorize({
+      path: 'items',
+      collectionGroup: true,
+      auth: null,
+      constraints: {},
+      origin: 'user',
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
+  test('does not authorize a collection from a colliding placeholder via a global data helper', () => {
+    const rules = `rules_version = '2';
+      function globallyPublic() { return resource.data.visibility == 'public'; }
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /items/{id} { allow list: if globallyPublic(); }
+        }
+      }`;
+    const { authorizer } = makeAuthorizer(rules, {
+      'items/__listPlaceholder__': { visibility: 'public' },
+      'items/secret': { visibility: 'private' },
+    });
+
+    const result = authorizer.authorize({
+      path: 'items',
+      auth: null,
+      constraints: {},
+      origin: 'user',
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
+  test('proves every overlapping collection match before residual simulation', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} { allow list: if false; }
+        match /{collection}/{id} { allow list: if resource.data.visibility == 'public'; }
+      }
+    }`;
+    const { authorizer } = makeAuthorizer(rules, {
+      'items/__listPlaceholder__': { visibility: 'public' },
+      'items/secret': { visibility: 'private' },
+    });
+
+    const result = authorizer.authorize({
+      path: 'items',
+      auth: null,
+      constraints: {},
+      origin: 'user',
+    });
+
+    expect(result.allowed).toBe(false);
+  });
 
 });

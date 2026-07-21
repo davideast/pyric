@@ -15,8 +15,8 @@
  * The pure PROVABLE-or-REJECT decision lives in the rules track's
  * `rules/simulator/query-proof.ts` (landed in #547, step-13). THIS module is
  * the firestore-side wiring that step-13 STOP-documented: it resolves which
- * `list`/`read` rules match a collection path (mirroring the simulator's
- * `resolveMatch` walk), asks `evaluateQueryProof` per rule (OR semantics),
+ * `list`/`read` rules match a collection path (using the simulator's shared
+ * match collector), asks `evaluateQueryProof` per rule (OR semantics),
  * and hands `LocalEnvironment` everything it needs to either DENY the whole
  * query or run the residual (auth/time/query) evaluation through the
  * ordinary `simulate()` call.
@@ -38,11 +38,11 @@ import type {
 } from 'pyric/rules/internal';
 import {
   evaluateQueryProof,
-  referencesResourceData,
   type QueryConstraints,
   type QueryProofResidual,
   type QueryWhereConstraint,
 } from '../../rules/simulator/query-proof.js';
+import { collectMatches, type MatchResult } from '../../rules/simulator/handler.js';
 
 export type { QueryConstraints, QueryProofResidual, QueryWhereConstraint };
 
@@ -52,10 +52,15 @@ type ReadAuth = { uid: string; token?: Record<string, unknown> } | null;
 /** What the proof decided for a `list` request. */
 export type ListProofVerdict =
   /** At least one matching `list`/`read` rule is provable for this query.
-   *  `syntheticResource` is set when the provable rule depends on per-doc
-   *  data — inject it as the test case's `resource` so the residual
-   *  simulate() evaluation sees the query-pinned field values. */
-  | { kind: 'provable'; syntheticResource?: Record<string, unknown> }
+   *  Residual evaluation MUST use only `evaluationAst`, which removes
+   *  unprovable sibling rules that could otherwise allow from local state.
+   *  `syntheticResource` is independent of any user-addressable placeholder
+   *  document and contains only query-pinned equality fields. */
+  | {
+      kind: 'provable';
+      evaluationAst: FirestoreRules;
+      syntheticResource: Record<string, unknown>;
+    }
   /** Every matching rule depends on per-document data the query's
    *  constraints cannot guarantee — prod rejects the WHOLE query.
    *  `residual` is the structured account (missing / mismatched equalities,
@@ -78,45 +83,46 @@ export function proveListQuery(
 ): ListProofVerdict {
   if (!ast) return { kind: 'no-rule' };
   const segments = relPath.split('/').filter((s) => s.length > 0);
-  // Mirror handler.ts: the root match (/databases/{db}/documents) is
-  // implicit — resolution starts at its children, root functions in scope.
-  const rootFunctions = ast.service.match.functions;
-  let match: ResolvedMatch | null = null;
+  // Like handler.ts, the root match (/databases/{db}/documents) is implicit:
+  // resolution starts at its children with every enclosing helper in scope.
+  const rootFunctions = [
+    ...(ast.functions ?? []),
+    ...(ast.service.functions ?? []),
+    ...ast.service.match.functions,
+  ];
+  const matches: MatchResult[] = [];
   for (const child of ast.service.match.children) {
-    match = resolveMatchBlock(child, segments, rootFunctions);
-    if (match) break;
+    matches.push(...collectMatches(child, segments, rootFunctions));
   }
-  if (!match) return { kind: 'no-rule' };
-
-  const listRules = match.block.allows.filter((r) =>
-    r.operations.some((op) => op === 'list' || op === 'read'),
-  );
-  if (listRules.length === 0) return { kind: 'no-rule' };
-
-  const fnMap = new Map<string, FunctionDef>();
-  for (const fn of match.functions) fnMap.set(fn.name, fn);
+  if (matches.length === 0) return { kind: 'no-rule' };
 
   // OR semantics across allow rules: ANY provable rule makes the query
-  // provable (the residual simulate() run still has to evaluate it ALLOW).
+  // provable. Residual simulation receives ONLY those provable rules, so an
+  // unprovable sibling cannot grant from a concrete placeholder document.
   const failures: { reason: string; residual: QueryProofResidual }[] = [];
-  let provable = false;
-  let needsSynthetic = false;
-  for (const rule of listRules) {
-    // `auth.uid` is threaded into the proof so the canonical owner pattern —
-    // `resource.data.owner == request.auth.uid` (directly or via a helper) with
-    // a `where('owner', '==', <uid>)` clause — is provable, exactly as the prod
-    // docs' example promises (rules-query: "secure and query documents based on
-    // auth.uid"). The residual simulate() run still evaluates the real
-    // `request.auth.uid` against the synthetic representative resource.
-    const result = evaluateQueryProof(rule.condition, constraints, fnMap, auth?.uid);
-    if (result.provable) {
-      provable = true;
-      if (referencesResourceData(rule.condition, fnMap)) needsSynthetic = true;
-    } else {
-      failures.push({ reason: result.reason, residual: result.residual });
+  const provableRules = new Set<AllowRule>();
+  let applicableRuleCount = 0;
+  for (const match of matches) {
+    const fnMap = new Map<string, FunctionDef>();
+    for (const fn of match.functions) {
+      fnMap.set(fn.name, fn);
+    }
+    for (const rule of match.block.allows) {
+      if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
+      applicableRuleCount++;
+      // `auth.uid` is threaded into the proof so the canonical owner pattern
+      // can be discharged by a matching query equality. Residual simulation
+      // still evaluates the real auth value against the synthetic resource.
+      const result = evaluateQueryProof(rule.condition, constraints, fnMap, auth?.uid);
+      if (result.provable) {
+        provableRules.add(rule);
+      } else {
+        failures.push({ reason: result.reason, residual: result.residual });
+      }
     }
   }
-  if (!provable) {
+  if (applicableRuleCount === 0) return { kind: 'no-rule' };
+  if (provableRules.size === 0) {
     const first = failures[0];
     return {
       kind: 'unprovable',
@@ -124,51 +130,31 @@ export function proveListQuery(
       residual: first?.residual ?? { missing: [], mismatched: [] },
     };
   }
-  if (!needsSynthetic) return { kind: 'provable' };
-  return { kind: 'provable', syntheticResource: syntheticResourceFromWheres(constraints) };
+  return {
+    kind: 'provable',
+    evaluationAst: projectRules(ast, provableRules),
+    syntheticResource: syntheticResourceFromWheres(constraints),
+  };
 }
 
-// ─── Match-block resolution (mirrors simulator/handler.ts:resolveMatch) ──
+// ─── Proof/execution projection ──────────────────────────────────
 
-interface ResolvedMatch {
-  block: MatchBlock;
-  /** Functions in scope for the matched block: root + ancestors + own. */
-  functions: FunctionDef[];
-}
-
-/**
- * Walk one match block against the remaining path segments; recurse into
- * children. Same literal / `{wildcard}` / `{name=**}` consumption rules as
- * the simulator's `resolveMatch` (which is not exported — this mirrors it
- * so the proof gates the SAME block the simulate() call will evaluate).
- * Bindings are not collected: the proof never reads path variables.
- */
-function resolveMatchBlock(
-  block: MatchBlock,
-  segments: string[],
-  parentFunctions: FunctionDef[],
-): ResolvedMatch | null {
-  const functions = [...parentFunctions, ...block.functions];
-  let consumed = 0;
-  for (const seg of block.path.segments) {
-    if (seg.type === 'literal') {
-      if (consumed >= segments.length || segments[consumed] !== seg.value) return null;
-      consumed++;
-    } else if (seg.type === 'wildcard') {
-      if (consumed >= segments.length) return null;
-      consumed++;
-    } else {
-      // recursive `{name=**}` — consumes everything remaining.
-      consumed = segments.length;
-    }
-  }
-  const remaining = segments.slice(consumed);
-  if (remaining.length === 0) return { block, functions };
-  for (const child of block.children) {
-    const childResult = resolveMatchBlock(child, remaining, functions);
-    if (childResult) return childResult;
-  }
-  return null;
+/** Preserve match paths and helper scopes while removing every rule the
+ * static proof did not approve. This keeps residual execution and proof on
+ * the exact same set of potentially granting rules. */
+function projectRules(ast: FirestoreRules, retained: ReadonlySet<AllowRule>): FirestoreRules {
+  const projectBlock = (block: MatchBlock): MatchBlock => ({
+    ...block,
+    allows: block.allows.filter((rule) => retained.has(rule)),
+    children: block.children.map(projectBlock),
+  });
+  return {
+    ...ast,
+    service: {
+      ...ast.service,
+      match: projectBlock(ast.service.match),
+    },
+  };
 }
 
 // ─── Synthetic resource construction ─────────────────────────────────────

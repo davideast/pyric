@@ -151,6 +151,13 @@ collection-group reads therefore authorize only through an isolated global
 Universal rules that reference `request.path` or their recursive wildcard
 binding also fail closed because one representative path cannot prove their
 condition for every possible group location.
+List proof and residual simulation share the simulator's all-match resolver
+and the same projected allow-rule set. The proof includes global, service,
+root, ancestor, and matched-block helper scopes; residual simulation receives
+only rules that the static proof accepted and a synthetic resource built from
+query equalities, never a user-addressable placeholder document from local
+state. This keeps overlapping-rule OR semantics without letting an unprovable
+sibling or stored row authorize a broader query.
 Group-specific version-2 shapes such as `/{path=**}/items/{id}` return
 `permission-denied` until the rules matcher can symbolically evaluate a
 recursive wildcard with trailing segments. The explicit `bypassRules` admin
