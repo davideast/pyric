@@ -1,5 +1,5 @@
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
-import { createSandboxAdapter } from 'pyric/sandbox/internal';
+import { createSandboxRoot } from 'pyric/sandbox/internal';
 import type { PyricExampleDefinition } from './definition';
 
 export interface EmbeddedExampleRuntime {
@@ -11,11 +11,11 @@ export interface EmbeddedExampleRuntime {
 export function createEmbeddedExampleRuntime(
   definition: PyricExampleDefinition,
 ): EmbeddedExampleRuntime {
-  const adapter = createSandboxAdapter('embedded');
-  const sandbox = adapter.create();
+  const sandbox = createSandboxRoot();
+  const { rules, seed } = definition.firestore;
 
-  if (definition.rules) setRules(sandbox, definition.rules);
-  if (definition.seed) seedDocuments(sandbox, definition.seed);
+  setRules(sandbox, rules);
+  if (seed) seedDocuments(sandbox, seed);
 
   return {
     run: () => definition.run({ sandbox }),

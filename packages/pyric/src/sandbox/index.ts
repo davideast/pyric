@@ -15,7 +15,7 @@
  * the design rationale for the design rationale.
  */
 
-import { createSandboxRoot } from './internal/adapter.js';
+import { createSandboxRoot } from './internal/root.js';
 import type { LocalSandbox, SandboxConfig } from './types/service.js';
 
 export type {

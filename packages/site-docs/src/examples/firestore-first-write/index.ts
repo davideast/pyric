@@ -5,8 +5,9 @@ export default definePyricExample({
   id: 'firestore-first-write',
   title: 'Write to an isolated Firestore sandbox',
   description: 'Run a Firestore write and read without starting a SharedWorker or touching another example.',
-  services: ['firestore'],
-  rules: `
+  service: 'firestore',
+  firestore: {
+    rules: `
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -16,5 +17,6 @@ service cloud.firestore {
     }
   }
 }`,
+  },
   run,
 });

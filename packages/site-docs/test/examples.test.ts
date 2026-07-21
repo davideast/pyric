@@ -26,6 +26,12 @@ describe('Pyric documentation examples', () => {
     );
   });
 
+  it('ties setup to the declared Firestore service instead of promising unsupported services', () => {
+    const definition = PYRIC_EXAMPLES['firestore-first-write'].definition;
+    expect(definition.service).toBe('firestore');
+    expect(definition.firestore.rules).toContain('service cloud.firestore');
+  });
+
   it('keeps example pages finite and iframe-isolated', () => {
     const page = readFileSync(
       join(import.meta.dir, '../src/pages/examples/[example].astro'),

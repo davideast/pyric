@@ -166,8 +166,11 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
-      - name: Build packages (site omitted)
-        run: bash scripts/build.sh --packages-only
+      - name: Build packages and unified Astro site
+        run: bash scripts/build.sh
+
+      - name: Compose public static site
+        run: bash scripts/build-site.sh
 
       - name: Cache Playwright Chromium
         id: playwright-cache
@@ -188,6 +191,12 @@ jobs:
         # apps, cross-tab Auth isolation, config locking, deletion teardown,
         # and the worker-owned AI boundary. These are blocking oracle claims.
         run: bun run --cwd packages/cli test:app-conformance
+
+      - name: CLI-hosted Studio and docs
+        run: bun run --cwd packages/cli test:site-cli
+
+      - name: Public Studio, docs, and embedded examples
+        run: bun run --cwd packages/cli test:site-static
 
   release-contract:
     name: Release wrapper contract
@@ -341,8 +350,8 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
-      - name: Build (packages + studio, no docs)
-        run: bash scripts/build.sh --packages-only
+      - name: Build packages and unified Astro site
+        run: bash scripts/build.sh
 
       - name: Compile the host-target standalone binary
         run: bun run --cwd packages/cli compile host

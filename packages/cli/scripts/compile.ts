@@ -67,6 +67,9 @@ const siteUi = join(DIST, 'serve', 'site-ui');
 if (!existsSync(cliEntry) || !existsSync(bundlerMod)) {
   die(`missing build at ${DIST}. Run "bun run build" first.`);
 }
+if (!existsSync(join(siteUi, 'studio-routes.json')) || !existsSync(join(siteUi, 'docs'))) {
+  die(`missing unified Astro site at ${siteUi}. Run "bun run build" without --packages-only first.`);
+}
 
 const arg = process.argv[2];
 const selected =
@@ -127,7 +130,7 @@ function collectTree(root: string): Record<string, string> {
 }
 
 const sdkBlob = collectSdk(outDir);
-const siteBlob = existsSync(siteUi) ? collectTree(siteUi) : {};
+const siteBlob = collectTree(siteUi);
 const assetVersion = hashEmbeddedAssets({ sdk: sdkBlob, site: siteBlob });
 process.stdout.write(
   `  embedded ${Object.keys(sdkBlob).length} SDK file(s), ${Object.keys(siteBlob).length} site file(s) ` +
