@@ -171,7 +171,10 @@ exports.makeUppercase = onValueCreated(
       15_000,
     );
     expect(upper).toBe(true);
-    expect(logs.some((l) => l.includes('makeUppercase'))).toBe(true);
+    // The RTDB write and the child's IPC execution event travel back to this
+    // process independently. The observable effect may therefore arrive one
+    // turn before Vite's logger records the completed export.
+    await waitFor(() => logs.some((l) => l.includes('makeUppercase')) ? true : null);
 
     // Topology pin (functions block present, NO explicit `bridge` option): the
     // functions-forced bridge mount must not flip the page onto the in-page
