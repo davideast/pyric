@@ -174,12 +174,9 @@ async function readJsonLine(stream: ReadableStream<Uint8Array>, timeoutMs = 15_0
   throw new Error('inconclusive timeout waiting for abrupt writer acknowledgement');
 }
 
-/** Always restore live Rules, even when ordinary probe cleanup fails. */
-export async function cleanupAfterRulesProbe(
+async function collectCleanupErrors(
   cleanupTasks: Array<() => void | Promise<void>>,
-  restoreRules: () => Promise<void>,
-  verifyRules: () => Promise<void>,
-): Promise<void> {
+): Promise<unknown[]> {
   const cleanupErrors: unknown[] = [];
   for (const task of cleanupTasks) {
     try {
@@ -188,6 +185,31 @@ export async function cleanupAfterRulesProbe(
       cleanupErrors.push(error);
     }
   }
+  return cleanupErrors;
+}
+
+function throwCleanupErrors(cleanupErrors: unknown[]): void {
+  if (cleanupErrors.length === 1) throw cleanupErrors[0];
+  if (cleanupErrors.length > 1) {
+    throw new AggregateError(cleanupErrors, 'RTDB disconnect probe cleanup failed');
+  }
+}
+
+/** Attempt every cleanup instead of letting one failure strand later resources. */
+export async function runProbeCleanup(
+  cleanupTasks: Array<() => void | Promise<void>>,
+): Promise<void> {
+  const cleanupErrors = await collectCleanupErrors(cleanupTasks);
+  throwCleanupErrors(cleanupErrors);
+}
+
+/** Always restore live Rules, even when ordinary probe cleanup fails. */
+export async function cleanupAfterRulesProbe(
+  cleanupTasks: Array<() => void | Promise<void>>,
+  restoreRules: () => Promise<void>,
+  verifyRules: () => Promise<void>,
+): Promise<void> {
+  const cleanupErrors = await collectCleanupErrors(cleanupTasks);
 
   try {
     await restoreRules();
@@ -199,10 +221,7 @@ export async function cleanupAfterRulesProbe(
     );
   }
 
-  if (cleanupErrors.length === 1) throw cleanupErrors[0];
-  if (cleanupErrors.length > 1) {
-    throw new AggregateError(cleanupErrors, 'RTDB disconnect probe cleanup failed');
-  }
+  throwCleanupErrors(cleanupErrors);
 }
 
 export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OracleProbe[] {
@@ -254,8 +273,7 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
             unchangedAfterRegistration,
           };
         } finally {
-          await clients.close();
-          await adminRemove(ctx, path);
+          await runProbeCleanup([() => clients.close(), () => adminRemove(ctx, path)]);
         }
       }),
     ),
@@ -293,9 +311,11 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
           goOnline(clients.writerDb);
           return { events, beforeDisconnect, afterDisconnect, terminalAfterReconnect, secondDisconnectControlFired: true };
         } finally {
-          unsubscribe();
-          await clients.close();
-          await adminRemove(ctx, path);
+          await runProbeCleanup([
+            () => unsubscribe(),
+            () => clients.close(),
+            () => adminRemove(ctx, path),
+          ]);
         }
       }),
     ),
@@ -366,9 +386,11 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
           goOnline(clients.writerDb);
           return { outcomes, observerSawDisconnectEvents: events.length > 1 };
         } finally {
-          unsubscribe();
-          await clients.close();
-          await adminRemove(ctx, rootPath);
+          await runProbeCleanup([
+            () => unsubscribe(),
+            () => clients.close(),
+            () => adminRemove(ctx, rootPath),
+          ]);
         }
       }),
     ),
@@ -523,13 +545,17 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
             events.some((value) => stable(value) === stable({ state: 'offline' })));
           return { acknowledgement, events, terminal: await adminRead(ctx, path), exitWasForced: true };
         } finally {
-          if (child && child.exitCode === null) child.kill('SIGKILL');
-          unsubscribe();
-          if (observerAuth.currentUser) await deleteUser(observerAuth.currentUser).catch(() => undefined);
-          await getAdminAuth(adminApp).deleteUser(uid).catch(() => undefined);
-          await deleteApp(observerApp);
-          await deleteAdminApp(adminApp);
-          await adminRemove(ctx, path);
+          await runProbeCleanup([
+            () => { if (child && child.exitCode === null) child.kill('SIGKILL'); },
+            () => unsubscribe(),
+            async () => {
+              if (observerAuth.currentUser) await deleteUser(observerAuth.currentUser);
+            },
+            () => getAdminAuth(adminApp).deleteUser(uid),
+            () => deleteApp(observerApp),
+            () => deleteAdminApp(adminApp),
+            () => adminRemove(ctx, path),
+          ]);
         }
       }),
     ),

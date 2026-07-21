@@ -21,6 +21,10 @@ import {
   sandbox as rtdbSandbox,
   type DataSnapshot,
 } from 'pyric/database';
+import {
+  DisconnectOperationQueue,
+  type DisconnectOperation,
+} from 'pyric/database/internal';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
@@ -63,37 +67,13 @@ const RTDB_METHODS = new Set<string>([
   'rtdb.goOnline',
 ]);
 
-type PortDisconnectOperation =
-  | { kind: 'set'; path: string; value: unknown; priority?: string | number | null; mergeAfterChildRegistration?: boolean; actAs?: OpMessage['actAs'] }
-  | { kind: 'update'; path: string; values: Record<string, unknown>; actAs?: OpMessage['actAs'] }
-  | { kind: 'remove'; path: string; actAs?: OpMessage['actAs'] };
-
-function pathSegments(path: string): string[] {
-  return path.split('/').filter(Boolean);
+interface PortDisconnectMetadata {
+  actAs?: OpMessage['actAs'];
 }
 
-function isAncestorPath(ancestor: string, descendant: string): boolean {
-  const prefix = ancestor === '/' ? '/' : `${ancestor.replace(/\/+$/, '')}/`;
-  return descendant !== ancestor && descendant.startsWith(prefix);
-}
+type PortDisconnectOperation = DisconnectOperation<PortDisconnectMetadata>;
 
-function withoutNestedPath(value: unknown, segments: string[]): unknown {
-  if (segments.length === 0 || value === null || typeof value !== 'object') return value;
-  const clone = (Array.isArray(value)
-    ? Object.fromEntries(value.flatMap((entry, index) => entry == null ? [] : [[String(index), structuredClone(entry)]]))
-    : structuredClone(value)) as Record<string, unknown>;
-  const [head, ...tail] = segments;
-  if (!(head! in clone)) return clone;
-  if (tail.length === 0) delete clone[head!];
-  else {
-    const nested = withoutNestedPath(clone[head!], tail);
-    if (nested && typeof nested === 'object' && Object.keys(nested).length === 0) delete clone[head!];
-    else clone[head!] = nested;
-  }
-  return clone;
-}
-
-const disconnectQueues = new WeakMap<HostCtx, Map<PortLike, Map<string, PortDisconnectOperation>>>();
+const disconnectQueues = new WeakMap<HostCtx, Map<PortLike, DisconnectOperationQueue<PortDisconnectMetadata>>>();
 const offlinePorts = new WeakMap<HostCtx, Set<PortLike>>();
 
 function offlinePortSet(ctx: HostCtx): Set<PortLike> {
@@ -102,11 +82,11 @@ function offlinePortSet(ctx: HostCtx): Set<PortLike> {
   return ports;
 }
 
-function portQueue(ctx: HostCtx, port: PortLike): Map<string, PortDisconnectOperation> {
+function portQueue(ctx: HostCtx, port: PortLike): DisconnectOperationQueue<PortDisconnectMetadata> {
   let ports = disconnectQueues.get(ctx);
   if (!ports) disconnectQueues.set(ctx, ports = new Map());
   let queue = ports.get(port);
-  if (!queue) ports.set(port, queue = new Map());
+  if (!queue) ports.set(port, queue = new DisconnectOperationQueue());
   return queue;
 }
 
@@ -123,7 +103,7 @@ async function validateDisconnectOperation(ctx: HostCtx, port: PortLike, operati
 async function queueDisconnectOperation(ctx: HostCtx, port: PortLike, operation: PortDisconnectOperation): Promise<void> {
   await validateDisconnectOperation(ctx, port, operation);
   const queue = portQueue(ctx, port);
-  queue.set(operation.path, structuredClone(operation));
+  queue.set(operation);
 }
 
 export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike): Promise<void> {
@@ -132,7 +112,7 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike): Pr
   if (!queue) return;
   ports!.delete(port);
   const failures: unknown[] = [];
-  for (const operation of queue.values()) {
+  for (const operation of queue.takeAll()) {
     try {
       const db = lensRtdb(ctx, operation.actAs, port);
       const target = rtdbRef(db, operation.path);
@@ -265,34 +245,7 @@ export async function handleRtdbOp(
 
     case 'rtdb.onDisconnectCancel': {
       const queue = portQueue(ctx, port);
-      const prefix = msg.path === '/' ? '/' : `${msg.path.replace(/\/+$/, '')}/`;
-      for (const path of [...queue.keys()]) {
-        if (msg.path === '/' || path === msg.path || path.startsWith(prefix)) {
-          queue.delete(path);
-          continue;
-        }
-        if (!isAncestorPath(path, msg.path)) continue;
-        const queued = queue.get(path)!;
-        const relative = pathSegments(msg.path).slice(pathSegments(path).length);
-        if (queued.kind === 'set' && queued.value !== null && typeof queued.value === 'object') {
-          queue.set(path, {
-            ...queued,
-            value: withoutNestedPath(queued.value, relative),
-            mergeAfterChildRegistration: true,
-          });
-        } else if (queued.kind === 'update') {
-          const kept = Object.fromEntries(Object.entries(queued.values).flatMap(([key, value]) => {
-            const updatePath = `${path.replace(/\/+$/, '')}/${key}`;
-            if (updatePath === msg.path || isAncestorPath(msg.path, updatePath)) return [];
-            if (!isAncestorPath(updatePath, msg.path)) return [[key, value]];
-            const nested = pathSegments(msg.path).slice(pathSegments(updatePath).length);
-            const pruned = withoutNestedPath(value, nested);
-            if (pruned && typeof pruned === 'object' && Object.keys(pruned).length === 0) return [];
-            return [[key, pruned]];
-          }));
-          queue.set(path, { ...queued, values: kept });
-        }
-      }
+      queue.cancel(msg.path);
       ok(port, msg.id, null);
       break;
     }

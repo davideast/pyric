@@ -1,39 +1,10 @@
 import type { AuthState } from 'pyric/sandbox';
 import type { RtdbBackend } from './sandbox/backend.js';
 import type { JsonValue } from './sandbox/data-tree.js';
-
-export type DisconnectOperation =
-  | { kind: 'set'; path: string; value: unknown; priority?: string | number | null; mergeAfterChildRegistration?: boolean }
-  | { kind: 'update'; path: string; values: Record<string, unknown> }
-  | { kind: 'remove'; path: string };
-
-function pathSegments(path: string): string[] {
-  return path.split('/').filter(Boolean);
-}
-
-function isAncestorPath(ancestor: string, descendant: string): boolean {
-  const prefix = ancestor === '/' ? '/' : `${ancestor.replace(/\/+$/, '')}/`;
-  return descendant !== ancestor && descendant.startsWith(prefix);
-}
-
-function withoutNestedPath(value: unknown, segments: string[]): unknown {
-  if (segments.length === 0 || value === null || typeof value !== 'object') return value;
-  const clone = (Array.isArray(value)
-    ? Object.fromEntries(value.flatMap((entry, index) => entry == null ? [] : [[String(index), structuredClone(entry)]]))
-    : structuredClone(value)) as Record<string, unknown>;
-  const [head, ...tail] = segments;
-  if (!(head! in clone)) return clone;
-  if (tail.length === 0) delete clone[head!];
-  else {
-    const nested = withoutNestedPath(clone[head!], tail);
-    if (nested && typeof nested === 'object' && Object.keys(nested).length === 0) delete clone[head!];
-    else clone[head!] = nested;
-  }
-  return clone;
-}
+import { DisconnectOperationQueue, type DisconnectOperation } from './disconnect-operation-queue.js';
 
 export class RtdbConnectionLifecycle {
-  private readonly operations = new Map<string, DisconnectOperation>();
+  private readonly operations = new DisconnectOperationQueue();
   private draining: Promise<void> | null = null;
   private online = true;
 
@@ -56,7 +27,7 @@ export class RtdbConnectionLifecycle {
           );
         }
       }
-      this.operations.set(operation.path, structuredClone(operation));
+      this.operations.set(operation);
       return Promise.resolve();
     } catch (error) {
       return Promise.reject(error);
@@ -64,34 +35,7 @@ export class RtdbConnectionLifecycle {
   }
 
   cancel(path: string): Promise<void> {
-    const prefix = path === '/' ? '/' : `${path.replace(/\/+$/, '')}/`;
-    for (const queuedPath of [...this.operations.keys()]) {
-      if (path === '/' || queuedPath === path || queuedPath.startsWith(prefix)) {
-        this.operations.delete(queuedPath);
-        continue;
-      }
-      if (!isAncestorPath(queuedPath, path)) continue;
-      const queued = this.operations.get(queuedPath)!;
-      const relative = pathSegments(path).slice(pathSegments(queuedPath).length);
-      if (queued.kind === 'set' && queued.value !== null && typeof queued.value === 'object') {
-        this.operations.set(queuedPath, {
-          ...queued,
-          value: withoutNestedPath(queued.value, relative),
-          mergeAfterChildRegistration: true,
-        });
-      } else if (queued.kind === 'update') {
-        const kept = Object.fromEntries(Object.entries(queued.values).flatMap(([key, value]) => {
-          const updatePath = `${queuedPath.replace(/\/+$/, '')}/${key}`;
-          if (updatePath === path || isAncestorPath(path, updatePath)) return [];
-          if (!isAncestorPath(updatePath, path)) return [[key, value]];
-          const nested = pathSegments(path).slice(pathSegments(updatePath).length);
-          const pruned = withoutNestedPath(value, nested);
-          if (pruned && typeof pruned === 'object' && Object.keys(pruned).length === 0) return [];
-          return [[key, pruned]];
-        }));
-        this.operations.set(queuedPath, { ...queued, values: kept });
-      }
-    }
+    this.operations.cancel(path);
     return Promise.resolve();
   }
 
@@ -112,8 +56,7 @@ export class RtdbConnectionLifecycle {
 
   drain(): Promise<void> {
     if (this.draining) return this.draining;
-    const queued = [...this.operations.values()];
-    this.operations.clear();
+    const queued = this.operations.takeAll();
     this.draining = (async () => {
       const failures: unknown[] = [];
       for (const operation of queued) {
