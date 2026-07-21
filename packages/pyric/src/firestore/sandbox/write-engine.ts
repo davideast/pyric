@@ -1,6 +1,5 @@
 import { type DocStore, type DocumentData } from './local-state.js';
 import {
-  registerDefaultConverters,
   resolveValueTree,
   type ResolveMethod,
 } from './value-resolver.js';
@@ -37,8 +36,6 @@ import type {
 import { WriteRuntime } from './write-runtime.js';
 import { BatchWriteExecutor } from './batch-write-executor.js';
 import { TransactionWriteExecutor } from './transaction-write-executor.js';
-
-registerDefaultConverters();
 
 interface WriteEngineHost {
   readonly state: DocStore;
