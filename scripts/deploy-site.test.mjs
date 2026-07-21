@@ -108,6 +108,22 @@ describe('firebase.json hosting rewrites', () => {
       expect(rewrite.destination).toBe(`/${match[1]}/index.html`);
     }
   });
+
+  test('revalidates Studio entries and the stable sandbox runtime URLs', () => {
+    const noCache = firebaseJson.hosting.headers
+      .filter((entry) => entry.headers.some(
+        (header) => header.key === 'Cache-Control'
+          && header.value === 'no-cache, no-store, must-revalidate',
+      ))
+      .map((entry) => entry.source)
+      .sort();
+
+    expect(noCache).toEqual([
+      '/',
+      '/__pyric/**',
+      ...studioStaticPaths().map(({ params }) => `/${params.studio}/**`),
+    ].sort());
+  });
 });
 
 describe('dist/site/404.html', () => {

@@ -6,6 +6,7 @@ import {
   preflightWorkerEpochStorage,
   rememberWorkerEpoch,
   retireWorkerRuntime,
+  type WorkerReplacement,
 } from '@pyric/cli/serve/worker';
 
 interface EpochStorage {
@@ -26,6 +27,7 @@ export interface StudioWorkerRuntime {
   getSnapshot(): StudioWorkerRuntimeSnapshot;
   subscribe(listener: () => void): () => void;
   update(): Promise<void>;
+  dispose(): void;
 }
 
 interface StudioWorkerRuntimeOptions {
@@ -59,23 +61,26 @@ export function createStudioWorkerRuntime(
   };
   const storage = options.storage;
   const servedEpoch = options.servedEpoch;
-  const replacement = servedEpoch
-    ? createWorkerReplacement({
-        targetEpoch: servedEpoch,
-        retire: () => options.retire
-          ? options.retire(servedEpoch)
-          : retireWorkerRuntime(options.db, servedEpoch),
-        subscribeReload: options.subscribeReload ?? onWorkerRuntimeReload,
-        preflight: options.preflight ?? (() => preflightWorkerEpochStorage(storage)),
-        commitGeneration: options.remember ?? ((epoch) => rememberWorkerEpoch(epoch, storage)),
-        onPreparationError: (error) => publish({
-          updating: false,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-        reload: options.reload ?? (() => window.location.reload()),
-        ...(options.schedule ? { schedule: options.schedule } : {}),
-      })
-    : null;
+  let replacement: WorkerReplacement | null = null;
+  const ensureReplacement = (): WorkerReplacement | null => {
+    if (!servedEpoch) return null;
+    replacement ??= createWorkerReplacement({
+      targetEpoch: servedEpoch,
+      retire: () => options.retire
+        ? options.retire(servedEpoch)
+        : retireWorkerRuntime(options.db, servedEpoch),
+      subscribeReload: options.subscribeReload ?? onWorkerRuntimeReload,
+      preflight: options.preflight ?? (() => preflightWorkerEpochStorage(storage)),
+      commitGeneration: options.remember ?? ((epoch) => rememberWorkerEpoch(epoch, storage)),
+      onPreparationError: (error) => publish({
+        updating: false,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      reload: options.reload ?? (() => window.location.reload()),
+      ...(options.schedule ? { schedule: options.schedule } : {}),
+    });
+    return replacement;
+  };
 
   void (options.readVersion ?? (() => getWorkerVersion(options.db)))()
     .then((runningEpoch) => publish({
@@ -94,15 +99,23 @@ export function createStudioWorkerRuntime(
     getSnapshot: () => snapshot,
     subscribe(listener) {
       listeners.add(listener);
-      return () => listeners.delete(listener);
+      ensureReplacement();
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) {
+          replacement?.dispose();
+          replacement = null;
+        }
+      };
     },
     async update() {
-      if (!replacement || !snapshot.updateAvailable || snapshot.updating) {
+      const activeReplacement = ensureReplacement();
+      if (!activeReplacement || !snapshot.updateAvailable || snapshot.updating) {
         throw new Error('No Pyric worker update is available.');
       }
       publish({ updating: true, error: null });
       try {
-        await replacement.request();
+        await activeReplacement.request();
       } catch (error) {
         publish({
           updating: false,
@@ -110,6 +123,11 @@ export function createStudioWorkerRuntime(
         });
         throw error;
       }
+    },
+    dispose() {
+      listeners.clear();
+      replacement?.dispose();
+      replacement = null;
     },
   };
 }

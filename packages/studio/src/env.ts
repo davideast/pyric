@@ -18,7 +18,10 @@
  */
 
 import { createMemoryBackend } from 'pyric/sandbox';
-import type { ConnectedBridgeState } from '@pyric/cli/bridge/client';
+import type {
+  ConnectedBridge,
+  ConnectedBridgeState,
+} from '@pyric/cli/bridge/client';
 
 import type {
   PersistenceBackend,
@@ -91,6 +94,8 @@ export interface StudioEnvironment {
    * no serve/bridge to register with (dev-seed / review, bridge off).
    */
   bridge?: BridgeStatusStore;
+  /** Release page-lifetime worker, presence, and bridge resources. */
+  dispose(): void;
 }
 
 /** Read-and-subscribe store over the bridge peer's connection state. */
@@ -178,10 +183,15 @@ export function createStudioEnvironment(
     // serve is present (dev-seed / review) or the bridge is off. The status
     // store observes the connection so the shell's presence chip stays honest.
     const bridge = live ? createBridgeStatusStore() : null;
+    let disposed = false;
+    let bridgeConnection: ConnectedBridge | null = null;
     if (live && bridge) {
       void connectStudioBridgePeer(live.db, {
         baseUrl,
         onStateChange: (state) => bridge.set(state),
+      }).then((connection) => {
+        if (disposed) connection?.disconnect();
+        else bridgeConnection = connection;
       });
     }
 
@@ -191,6 +201,11 @@ export function createStudioEnvironment(
       persistence,
       ...(live ? { live } : {}),
       ...(bridge ? { bridge } : {}),
+      dispose() {
+        disposed = true;
+        bridgeConnection?.disconnect();
+        live?.dispose();
+      },
     };
   }
 

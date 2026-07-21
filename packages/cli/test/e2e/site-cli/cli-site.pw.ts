@@ -42,6 +42,10 @@ test('CLI serves Astro Studio deep links and shares the app worker generation an
   expect(response?.ok()).toBeTruthy();
   await expect(studio.getByLabel('Studio tabs')).toBeVisible();
   await expect(studio.getByText('Starting Pyric Studio…', { exact: true })).toHaveCount(0);
+  expect(await studio.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+  expect(await studio.locator('link[rel="icon"]').getAttribute('href')).toBe(
+    '/__pyric/ui/pyric-logo.svg',
+  );
   await expect(studio.getByText(marker)).toBeVisible({ timeout: 10_000 });
   expect(await studio.evaluate(() => localStorage.getItem('pyric:worker-generation'))).toBe(appGeneration);
 

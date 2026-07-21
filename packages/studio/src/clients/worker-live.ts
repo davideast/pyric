@@ -240,6 +240,8 @@ export interface WorkerLivePlane {
   presenceClientId: string;
   /** Live presence snapshots from the SharedWorker (authoritative). */
   subscribePresence(cb: (snapshot: PresenceSnapshot) => void): () => void;
+  /** Stop page-lifetime listeners, presence, and worker replacement observers. */
+  dispose(): void;
 }
 
 /**
@@ -382,6 +384,10 @@ export function connectWorkerLive(
   return {
     db,
     runtime,
+    dispose: () => {
+      presence.stop();
+      runtime.dispose();
+    },
     presenceClientId: presence.clientId,
     subscribePresence: (cb) => workerSubscribePresence(db, cb),
     instanceId: () => getWorkerInstanceId(db),

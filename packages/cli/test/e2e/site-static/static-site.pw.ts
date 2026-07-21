@@ -28,6 +28,8 @@ test('Studio loads at / with no console errors', async ({ page }) => {
   await page.waitForTimeout(1000);
   await expect(page.getByLabel('Studio tabs')).toBeVisible();
   await expect(page.getByText('Starting Pyric Studio…', { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+  expect(await page.locator('link[rel="icon"]').getAttribute('href')).toBe('/pyric-logo.svg');
   expect(errors, `uncaught page errors: ${errors.join('\n')}`).toEqual([]);
 });
 

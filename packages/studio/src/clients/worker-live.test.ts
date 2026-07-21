@@ -365,6 +365,7 @@ describe("createStudioEnvironment('local') live-plane gating", () => {
     // The HTTP-fallback ports are still wired.
     expect(env.projects).toBeDefined();
     expect(env.persistence).toBeDefined();
+    env.dispose();
   });
 
   it('omits the live plane when disableLive is set, even with a SharedWorker', () => {
@@ -374,6 +375,7 @@ describe("createStudioEnvironment('local') live-plane gating", () => {
       disableLive: true,
     });
     expect(env.live).toBeUndefined();
+    env.dispose();
   });
 
   it('surfaces the live plane when a SharedWorker is available', () => {
@@ -381,6 +383,7 @@ describe("createStudioEnvironment('local') live-plane gating", () => {
     const env = createStudioEnvironment('local', { persistence: 'memory' });
     expect(env.live).toBeDefined();
     expect(typeof env.live!.feed.subscribe).toBe('function');
+    env.dispose();
   });
 });
 
@@ -463,5 +466,9 @@ describe('presence live-plane contract (#227)', () => {
     });
     expect(seen).toEqual([1, 2]);
     unsub();
+    plane.dispose();
+    expect(sw.port.sent.some(
+      (message) => (message as { method?: string }).method === 'presence.disconnect',
+    )).toBe(true);
   });
 });

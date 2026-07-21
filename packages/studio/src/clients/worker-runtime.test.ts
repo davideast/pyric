@@ -8,6 +8,7 @@ describe('Studio worker replacement', () => {
     let announce: ((epoch: string) => void) | undefined;
     let retiredEpoch: string | null = null;
     let reloads = 0;
+    let disposals = 0;
     const scheduled: Array<() => void> = [];
     const runtime = createStudioWorkerRuntime({
       db: {} as ClientDb,
@@ -21,13 +22,14 @@ describe('Studio worker replacement', () => {
       retire: async (epoch) => { retiredEpoch = epoch; },
       subscribeReload: (listener) => {
         announce = listener;
-        return () => {};
+        return () => { disposals += 1; };
       },
       preflight: () => {},
       remember: (epoch) => { values.set('pyric:worker-generation', epoch); },
       reload: () => { reloads += 1; },
       schedule: (run) => { scheduled.push(run); },
     });
+    runtime.subscribe(() => {});
 
     await Promise.resolve();
     expect(runtime.getSnapshot()).toMatchObject({
@@ -45,5 +47,7 @@ describe('Studio worker replacement', () => {
     expect(reloads).toBe(0);
     scheduled[0]?.();
     expect(reloads).toBe(1);
+    runtime.dispose();
+    expect(disposals).toBe(1);
   });
 });
