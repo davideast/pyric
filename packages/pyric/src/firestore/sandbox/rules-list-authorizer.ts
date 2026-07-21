@@ -16,6 +16,7 @@ import {
 } from './rules-evaluation.js';
 import type { RulesState } from './rules-state.js';
 import { buildRulesTestCase } from './rules-test-case.js';
+import type { TriggerInfo } from './trigger-scope.js';
 import type { Operation } from './writes.js';
 
 export interface RulesListAuthorizerHost {
@@ -29,7 +30,7 @@ export interface ListAuthorizationRequest {
   origin: 'listener' | 'user';
   bypassRules?: boolean;
   activityQuery?: unknown;
-  triggeredBy?: { method: string; path: string };
+  triggeredBy?: TriggerInfo;
   /** Preserve caller-side event timing when work precedes authorization. */
   at?: number;
 }
@@ -80,6 +81,7 @@ export class RulesListAuthorizer {
     }
 
     const placeholderPath = `${path}/__listPlaceholder__`;
+    const requestTime = Timestamp.fromMillis(Date.now());
     const evalStart = performance.now();
     const proof = proveListQuery(this.rules.ast(), placeholderPath, auth, constraints);
     if (proof.kind === 'unprovable') {
@@ -111,7 +113,7 @@ export class RulesListAuthorizer {
     const testCase = buildRulesTestCase(
       this.host.state,
       { method: 'list', path: placeholderPath, auth },
-      Timestamp.fromMillis(Date.now()),
+      requestTime,
     );
     this.applyProof(testCase, proof, constraints);
     const simulation = this.simulator.simulate(this.rules.source, [testCase], {

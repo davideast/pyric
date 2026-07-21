@@ -3,8 +3,9 @@
  * sandbox engine (ADR-0009, PR B3).
  *
  * Owns user reads through {@link RulesOperationReader}, silent reads that
- * back snapshot listeners, and the query-read enforcement path used by the
- * web-modular + admin-compat query surfaces. It implements
+ * back snapshot listeners, and candidate gathering/execution for the
+ * web-modular + admin-compat query surfaces. Shared list-rule authorization
+ * lives in {@link RulesListAuthorizer}. This class implements
  * {@link ListenerDispatchHost} directly, replacing the facade closures
  * PR B2 injected into ListenerDispatch.
  *
@@ -14,8 +15,8 @@
  *   - {@link RulesState} — deployed source + RULES-B11 parsed-AST cache
  *     for the query-proof gate.
  *   - the simulator, {@link TriggerScope} (listener-origin RequestEvents
- *     carry `triggeredBy`), and {@link FirestoreEventBus} (request +
- *     denial channels; payload building stays here for lazy allocation).
+ *     carry `triggeredBy`), and {@link FirestoreEventBus}; document-read
+ *     payloads stay here while list-read payloads live in the authorizer.
  */
 import type { DocStore, DocumentData } from './local-state.js';
 import type {
