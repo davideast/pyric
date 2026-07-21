@@ -17,7 +17,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1083);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1091);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
@@ -51,7 +51,7 @@ describe('multi-axis conformance model', () => {
     });
     expect(canIUse(model, 'onDisconnect', { importPath: 'pyric/database' })).toMatchObject({
       match: 'exact',
-      supports: [expect.objectContaining({ surface: 'rtdb', availability: 'deferred' })],
+      supports: [expect.objectContaining({ surface: 'rtdb', availability: 'available', fidelity: 'diverged' })],
     });
     expect(canIUse(model, 'getDownloadURL', { importPath: 'pyric/firestore' }).match).toBe('none');
     const appGetAuth = canIUse(model, 'getAuth', { importPath: 'pyric/app' });
@@ -214,11 +214,16 @@ describe('multi-axis conformance model', () => {
     expect(result.claims.map(({ id }) => id)).toContain('auth#176');
   });
 
-  it('reports onDisconnect as deferred with non-applicable trust axes', () => {
-    expect(one('onDisconnect')).toMatchObject({
-      feature: 'onDisconnect', surface: 'rtdb', availability: 'deferred',
-      fidelity: 'not-applicable', assurance: 'not-applicable',
+  it('reports onDisconnect as available with its priority and abrupt-loss divergences qualified', () => {
+    const result = one('onDisconnect');
+    expect(result).toMatchObject({
+      feature: 'onDisconnect', surface: 'rtdb', availability: 'available',
+      fidelity: 'diverged', assurance: 'qualified',
     });
+    expect(result.claims.map(({ id }) => id)).toEqual(expect.arrayContaining([
+      'rtdb-modular#M83',
+      'rtdb-modular#M84',
+    ]));
   });
 
   it('does not contradict the structured resumable-upload availability in public prose', () => {

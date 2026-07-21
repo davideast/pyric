@@ -60,6 +60,7 @@ import {
   type QuerySpec,
 } from './sandbox/query.js';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
+import { RtdbConnectionLifecycle } from './connection-lifecycle.js';
 
 // ─── Brand + routing ─────────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ type SandboxTarget = {
   backend: RtdbBackend;
   auth: AuthState;
   admin?: boolean;
+  connection: RtdbConnectionLifecycle;
 };
 type SandboxLiveTarget = {
   kind: 'sandbox-live';
@@ -78,9 +80,10 @@ type SandboxLiveTarget = {
   sandbox: Sandbox;
   currentUser?: () => AuthState;
   onCurrentUserChanged?: (callback: (user: AuthState) => void) => Unsubscribe;
-  own?: (cleanup: () => void) => () => void;
+  own?: (cleanup: () => void | Promise<void>) => () => void;
   assertUsable?: () => void;
   admin?: boolean;
+  connection: RtdbConnectionLifecycle;
 };
 type Target = SandboxTarget | SandboxLiveTarget;
 
@@ -315,9 +318,20 @@ export function getDatabase(
       let deleted = false;
       appRuntime.onDelete(() => { deleted = true; });
       const backend = getOrCreateBackend(sandbox);
+      const connection = new RtdbConnectionLifecycle(
+        backend,
+        () => session.currentUser,
+        false,
+      );
+      const resetUnsubscribe = sandbox.onEvent((event) => {
+        if (event.kind === 'session_boundary' && event.phase === 'reset') connection.clear();
+      });
+      appRuntime.onDelete(resetUnsubscribe);
+      appRuntime.onDelete(() => connection.drain().catch(() => undefined));
       const t: SandboxLiveTarget = {
         kind: 'sandbox-live',
         backend,
+        connection,
         sandbox,
         currentUser: () => session.currentUser,
         onCurrentUserChanged: (callback) => session.onCurrentUserChanged(callback),
@@ -333,14 +347,27 @@ export function getDatabase(
   }
   if (isSandboxContext(target)) {
     const backend = getOrCreateBackend(target.sandbox);
-    const t: SandboxTarget = { kind: 'sandbox', backend, auth: target.auth };
+    const connection = new RtdbConnectionLifecycle(backend, () => target.auth, false);
+    target.sandbox.onEvent((event) => {
+      if (event.kind === 'session_boundary' && event.phase === 'reset') connection.clear();
+    });
+    const t: SandboxTarget = { kind: 'sandbox', backend, auth: target.auth, connection };
     return { [TARGET_SYMBOL]: t };
   }
   if (isSandbox(target)) {
     const backend = getOrCreateBackend(target);
+    const connection = new RtdbConnectionLifecycle(
+      backend,
+      () => target.currentUser,
+      false,
+    );
+    target.onEvent((event) => {
+      if (event.kind === 'session_boundary' && event.phase === 'reset') connection.clear();
+    });
     const t: SandboxLiveTarget = {
       kind: 'sandbox-live',
       backend,
+      connection,
       sandbox: target,
       onCurrentUserChanged: (callback) => target.onCurrentUserChanged(callback),
     };
@@ -370,7 +397,11 @@ export function getAdminDatabase(target: Sandbox | SandboxContext | FirebaseApp)
       : undefined;
   if (sandbox === undefined) throw packageResolutionError();
   const backend = getOrCreateBackend(sandbox);
-  const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true };
+  const connection = new RtdbConnectionLifecycle(backend, () => null, true);
+  sandbox.onEvent((event) => {
+    if (event.kind === 'session_boundary' && event.phase === 'reset') connection.clear();
+  });
+  const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true, connection };
   return { [TARGET_SYMBOL]: t };
 }
 
@@ -1197,6 +1228,44 @@ export function increment(delta: number): IncrementSentinel {
   return incrementSentinel(delta);
 }
 
+/** A client-owned queue of writes applied when its Database disconnects. */
+export class OnDisconnect {
+  /** @internal Construct through {@link onDisconnect}. */
+  constructor(
+    private readonly _repo: Target,
+    private readonly _path: string,
+  ) {}
+
+  cancel(): Promise<void> {
+    return this._repo.connection.cancel(this._path);
+  }
+
+  remove(): Promise<void> {
+    return this._repo.connection.register({ kind: 'remove', path: this._path });
+  }
+
+  set(value: unknown): Promise<void> {
+    return this._repo.connection.register({ kind: 'set', path: this._path, value });
+  }
+
+  setWithPriority(value: unknown, priority: string | number | null): Promise<void> {
+    return this._repo.connection.register({ kind: 'set', path: this._path, value, priority });
+  }
+
+  update(values: Record<string, unknown>): Promise<void> {
+    return this._repo.connection.register({ kind: 'update', path: this._path, values });
+  }
+}
+
+/**
+ * Register a one-shot write for this Database client's next disconnect.
+ * Registration checks rules immediately; execution checks them again.
+ */
+export function onDisconnect(r: DatabaseReference): OnDisconnect {
+  const target = targetOf(r as unknown as object);
+  return new OnDisconnect(target, r._path);
+}
+
 // ─── Emulator (no-op on sandbox) ─────────────────────────────────────
 
 /**
@@ -1220,23 +1289,21 @@ export function connectDatabaseEmulator(
 /**
  * `goOffline(db)` — disconnect the client from the RTDB backend.
  *
- * No-op on sandbox handles: there is NO network connection in the local
- * sandbox to toggle, so honest behavior is to accept the call and do
- * nothing (we deliberately do NOT simulate a disconnect — pending
- * writes, listeners, and `get()` all keep working exactly as before).
+ * Drains this client's one-shot onDisconnect queue. The shared data backend
+ * remains available to other Database clients and listeners.
  */
-export function goOffline(_db: Database): void {
-  // Accepted no-op.
+export function goOffline(db: Database): void {
+  targetOf(db as unknown as object).connection.goOffline();
 }
 
 /**
  * `goOnline(db)` — reconnect the client to the RTDB backend.
  *
- * No-op on sandbox handles (there is no connection to reopen — see
- * {@link goOffline}).
+ * Reconnects the logical client. Executed disconnect operations are not
+ * resurrected; reads and writes remain synchronous in the local sandbox.
  */
-export function goOnline(_db: Database): void {
-  // Accepted no-op.
+export function goOnline(db: Database): void {
+  targetOf(db as unknown as object).connection.goOnline();
 }
 
 /**

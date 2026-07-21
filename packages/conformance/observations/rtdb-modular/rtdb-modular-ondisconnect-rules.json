@@ -1,0 +1,37 @@
+{
+  "name": "rtdb-modular-ondisconnect-rules",
+  "matrixRow": "rtdb-modular#M81",
+  "rowIds": ["rtdb-modular#M81"],
+  "description": "Registration denial and execution-time rules re-evaluation, each paired with a successful normal-write control.",
+  "observedAt": "2026-07-21T21:49:31.534Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "normalDeniedControl": {
+      "resolved": false,
+      "error": {
+        "code": "PERMISSION_DENIED",
+        "name": "Error"
+      }
+    },
+    "registrationDenied": {
+      "resolved": false,
+      "error": {
+        "code": "PERMISSION_DENIED",
+        "name": "Error"
+      }
+    },
+    "normalAllowedControl": {
+      "resolved": true,
+      "value": null
+    },
+    "registeredWhileAllowed": {
+      "resolved": true,
+      "value": null
+    },
+    "drainControlExecuted": true,
+    "observerSawDrainControl": true,
+    "terminalAfterExecutionDenial": "seed"
+  }
+}

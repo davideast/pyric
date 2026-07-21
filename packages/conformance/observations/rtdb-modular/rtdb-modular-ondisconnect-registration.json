@@ -1,0 +1,40 @@
+{
+  "name": "rtdb-modular-ondisconnect-registration",
+  "matrixRow": "rtdb-modular#M77, rtdb-modular#M78",
+  "rowIds": ["rtdb-modular#M77", "rtdb-modular#M78"],
+  "description": "onDisconnect handle shape, promise acknowledgements, and proof that registration alone does not mutate server data.",
+  "observedAt": "2026-07-21T21:37:17.755Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "ownKeys": [
+      "_path",
+      "_repo"
+    ],
+    "prototypeKeys": [
+      "cancel",
+      "remove",
+      "set",
+      "setWithPriority",
+      "update"
+    ],
+    "methodTypes": {
+      "cancel": "function",
+      "remove": "function",
+      "set": "function",
+      "setWithPriority": "function",
+      "update": "function"
+    },
+    "returnThenables": {
+      "set": true,
+      "update": true,
+      "setWithPriority": true,
+      "remove": true,
+      "cancel": true
+    },
+    "unchangedAfterRegistration": {
+      "state": "online"
+    }
+  }
+}

@@ -630,6 +630,44 @@ export class RtdbBackend {
     this.setInternal(auth, path, null, 'remove');
   }
 
+  /** Rule-only registration check for an onDisconnect set/remove. */
+  validateSet(auth: AuthState, path: string, value: unknown): void {
+    const resolved = normalizeWrite(
+      resolveSentinels(value, Date.now(), this.tree.read(path)) as JsonValue,
+      path === '/' ? '' : path,
+    );
+    const evaluation = this.rules.evaluate('write', path === '/' ? '/' : path, {
+      auth,
+      mockData: this.tree.snapshot() as Record<string, unknown>,
+      newData: resolved,
+    });
+    if (evaluation.check !== 'allow') throw permissionDenied();
+  }
+
+  /** Rule-only registration check for an onDisconnect update. */
+  validateUpdate(auth: AuthState, path: string, patch: Record<string, unknown>): void {
+    const mock = this.tree.snapshot() as Record<string, unknown>;
+    const resolved = Object.entries(patch).map(([key, value]) => {
+      const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
+      return {
+        path: absolute,
+        value: normalizeWrite(
+          resolveSentinels(value, Date.now(), this.tree.read(absolute)) as JsonValue,
+          absolute,
+        ),
+      };
+    });
+    for (const entry of resolved) {
+      const evaluation = this.rules.evaluate('write', entry.path, {
+        auth,
+        mockData: mock,
+        newData: entry.value,
+        ...(resolved.length > 1 ? { updates: resolved } : {}),
+      });
+      if (evaluation.check !== 'allow') throw permissionDenied();
+    }
+  }
+
   /**
    * `update(path, patch)` — multi-path atomic update when keys are
    * `/`-prefixed and `path === '/'`; otherwise a shallow merge at the

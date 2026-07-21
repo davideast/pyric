@@ -20,9 +20,9 @@ describe('packaged conformance query', () => {
       assurance: 'ineligible',
     });
     expect(one('onDisconnect')).toMatchObject({
-      availability: 'deferred',
-      fidelity: 'not-applicable',
-      assurance: 'not-applicable',
+      availability: 'available',
+      fidelity: 'diverged',
+      assurance: 'qualified',
     });
   });
 

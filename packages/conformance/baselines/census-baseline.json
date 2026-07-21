@@ -155,12 +155,13 @@
       "UpdateData",
       "WithFieldValue"
     ],
+    "messaging": [],
+    "messaging-sw": [],
     "database": [
       "EmulatorMockTokenOptions",
       "EventType",
       "IteratedDataSnapshot",
       "ListenOptions",
-      "OnDisconnect",
       "QueryConstraintType",
       "TransactionOptions"
     ],
@@ -173,8 +174,6 @@
       "UploadMetadata",
       "UploadTask",
       "UploadTaskSnapshot"
-    ],
-    "messaging": [],
-    "messaging-sw": []
+    ]
   }
 }

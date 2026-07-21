@@ -12,9 +12,23 @@ export function workerClientForApp(app: FirebaseApp): ClientDb {
   const existing = clients.get(app);
   if (existing) return existing;
   let client: ClientDb | undefined;
+  let disconnecting: Promise<void> | undefined;
+  const disconnectOnce = (): Promise<void> => {
+    if (!client) return Promise.resolve();
+    return disconnecting ??= disconnectClient(client);
+  };
+  const onPageHide = (event: Event): void => {
+    // A persisted pagehide enters the back-forward cache; its live JS objects
+    // and MessagePort are restored on pageshow, so disconnecting would poison
+    // both the app and database handle caches with a permanently closed port.
+    if ((event as PageTransitionEvent).persisted) return;
+    void disconnectOnce().catch(() => undefined);
+  };
+  globalThis.addEventListener?.('pagehide', onPageHide);
   registerAppCleanup(app, async () => {
     clients.delete(app);
-    if (client) await disconnectClient(client);
+    globalThis.removeEventListener?.('pagehide', onPageHide);
+    await disconnectOnce();
   });
   client = openWorkerDb(app.name);
   client.port.postMessage({
