@@ -181,15 +181,15 @@ export interface EvalCtx {
 }
 
 /**
- * Walk an `Expr` against the bindings + path params. The error
- * model is intentionally Lax: an undefined member access returns
- * `undefined` rather than throwing (mirrors what Firestore rules
- * do — a missing `resource.size` against a freshly-created object
- * is normal). `undefined` is falsy under `truthy`.
+ * Walk an `Expr` against the bindings + path params. Missing bindings or
+ * members and invalid operations produce `RuleError` values. They propagate
+ * unless evaluation short-circuits around them or an explicitly modeled
+ * boolean case absorbs them (for example, `<error> || true`). Any `RuleError`
+ * that reaches an allow boundary denies with its production-shaped reason.
  *
- * The one place errors ARE raised is user-defined function calls
- * (`RuleEvalError`): a failure there must deny, not fall through to a
- * potentially-truthy value.
+ * User-defined function failures throw `RuleEvalError`; the allow boundary
+ * likewise catches them and denies instead of falling through to a
+ * potentially truthy value.
  */
 export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
   switch (expr.kind) {

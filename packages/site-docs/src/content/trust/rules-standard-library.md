@@ -23,12 +23,12 @@ shown in each row's **Verified** column.
 
 | Module | Services | Dependency | Pattern | Verified |
 |--------|----------|------------|---------|----------|
-| [auth](#auth) | Firestore + Storage | Self-contained | — | Simulator + Storage production |
+| [auth](#auth) | Firestore + Storage | Self-contained | — | Firestore + Storage production |
 | [validation](#validation) | Firestore | Self-contained | — | Simulator |
 | [lobby](#lobby) | Firestore | Self-contained | — | Simulator |
 | [turns](#turns) | Firestore | Self-contained | — | Simulator |
 | [state](#state) | Firestore | Self-contained | — | Simulator |
-| [membership](#membership) | Firestore + Storage | Self-contained | — | Simulator + Storage production |
+| [membership](#membership) | Firestore + Storage | Self-contained | — | Firestore + Storage production |
 | [storage/uploads](#storageuploads) | Storage | Self-contained | — | Storage evaluator + production oracle |
 | [storage/metadata](#storagemetadata) | Storage | Self-contained | — | Storage evaluator + production oracle |
 | [storage/objects](#storageobjects) | Storage | Self-contained | — | Storage evaluator + production oracle |

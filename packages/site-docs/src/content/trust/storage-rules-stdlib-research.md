@@ -21,10 +21,11 @@ Storage; `storage/uploads`, `storage/metadata`, `storage/objects`, and
 `storage/time` are Storage-only; every other bundled module is explicitly
 Firestore-only; and caller modules are checked transitively against the target
 service's ambient bindings and functions, with unclassified requirements
-failing closed. Two targeted `projects.test` requests captured 27 production
-verdicts for the exact six shared and 13 Storage-only function bodies, and the
-local evaluator matches all 27. The observations are registered as
-`storage-rules#125` and `storage-rules#132`.
+failing closed. Three targeted `projects.test` requests captured 39 production
+verdicts for the exact six shared bodies under both Firestore and Storage plus
+the 13 Storage-only function bodies, and the local rules simulators match all
+39. The observations are registered as `firestore-rules#187`,
+`storage-rules#125`, and `storage-rules#132`.
 
 The first P2 Storage-native and mocked P3 cross-service matrices are now
 captured as `rules-storage-upload-primitives-boundaries` and
