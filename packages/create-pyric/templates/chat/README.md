@@ -34,7 +34,20 @@ PYRIC_AI_PROXY_UPSTREAM=http://localhost:8080/v1
 
 Start the model server separately, then restart Vite.
 See the [Pyric AI Logic guide](https://pyric.dev/docs/build/ai-logic/) for the full
-engine and proxy behavior.
+engine and proxy behaviour.
+
+For a one-off run on macOS, Linux, or another POSIX shell, prefix the same
+command with the variables:
+
+```bash
+PYRIC_AI_MODEL=qwen3:4b \
+PYRIC_AI_PROXY_UPSTREAM=http://localhost:11434/v1 \
+npm run dev
+```
+
+Do not put `&&` before `npm run dev`: that makes the values unexported shell
+variables instead of environment variables for Vite. Use `.env.local` for the
+normal, persistent setup.
 
 ## What runs in the sandbox
 
@@ -49,6 +62,15 @@ For native notifications, sign in and use the bell once to grant permission.
 The same bundled module service worker handles `onBackgroundMessage` in local
 development and production. Local delivery still requires an open page to keep
 the Pyric sandbox alive.
+
+## Runtime status
+
+Pyric adds a collapsed runtime chip to the bottom-right corner during Vite
+development. It signals sandbox errors and tells you when the long-lived worker
+needs an update. Open it to copy an error, activate the new worker safely,
+or open Pyric Studio in a new tab. Updating finishes accepted sandbox work and
+then reloads every connected tab onto the new worker. The chip is not included
+in a normal production build.
 
 ## Test and build
 

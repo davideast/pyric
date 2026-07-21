@@ -219,6 +219,8 @@ assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/modules/stdlib/.*\.rules$' "
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/dist/bin\.js$' "create-pyric ships the create-pyric bin"
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/ui/chat/chat-page\.tsx$' "create-pyric ships the canonical chat app source"
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/firebase-messaging-sw\.ts$' "create-pyric ships the chat notification worker"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/README\.md$' "create-pyric ships the chat setup guide"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/\.env\.example$' "create-pyric ships the chat environment example"
 assert_tar_lacks "$TARBALL_CREATE_PYRIC" 'package/templates/chat/dist/' "create-pyric excludes the built chat dist/ tree"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
 # The Vite plugin's `ui` option + `pyric dev --ui` resolve the Studio app from
@@ -239,6 +241,11 @@ assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/firestore\.js$' 
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/database\.js$' "@pyric/cli ships the firebase/database swap entry"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/storage\.js$' "@pyric/cli ships the firebase/storage swap entry"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/init\.js$' "@pyric/cli ships the sandbox boot entry"
+# The boot entry imports these modules to expose runtime health and stale-worker
+# recovery. Missing files leave installed applications without their recovery UI.
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/runtime/chip\.js$' "@pyric/cli ships the runtime chip"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/runtime/chip-install\.js$' "@pyric/cli ships the runtime chip installer"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/runtime/chip-config\.js$' "@pyric/cli ships the runtime chip configuration"
 
 # ─── Phase 3: install all tarballs into a fresh consumer project ──────
 echo ""

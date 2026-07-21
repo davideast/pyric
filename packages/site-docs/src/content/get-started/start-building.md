@@ -23,6 +23,8 @@ npm run dev
 
 Open the local URL printed by Vite. The application and Pyric Studio use the same local backend. Studio is mounted at `/__pyric/ui/` on that origin.
 
+Pyric also adds a small, collapsed runtime chip in the bottom-right corner. It stays quiet while the sandbox is healthy and signals when there is an error to inspect or a newer worker to activate. [Resolve runtime errors and stale workers](../observe/resolve-runtime-status.md) covers both actions.
+
 ## Add Pyric to an existing Vite application
 
 Install the development plugin:
@@ -43,7 +45,7 @@ Start the normal development server:
 ```bash
 npm run dev
 ```
-No application imports change. Continue using `firebase/app`, `firebase/auth`, `firebase/firestore`, and the other supported Firebase entry points. The plugin discovers Firestore rules from `firebase.json`, or uses `firestore.rules` when no path is configured.
+No application imports change. Continue using `firebase/app`, `firebase/auth`, `firebase/firestore`, and the other supported Firebase entry points. The plugin uses an explicit `rules` option first, then discovers `firestore.modules.rules`, the path in `firebase.json`, or `firestore.rules`, in that order.
 
 ## Use a static application or Node process
 

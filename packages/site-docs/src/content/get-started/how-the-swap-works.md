@@ -49,6 +49,8 @@ In development the sandbox runs in a SharedWorker, which has three consequences 
 
 This is also why Pyric Studio and an MCP-connected agent see exactly what your app sees: they route into the same worker.
 
+A SharedWorker can outlive a Vite module update, so a refreshed page may otherwise reconnect to an older sandbox runtime. Pyric compares the running worker's build identity with the one the dev server is currently serving. When they differ, the runtime chip offers an update. Activating it lets the old worker finish accepted work and flush captured state before it tells every connected tab to reload onto the new generation. See [Resolve runtime errors and stale workers](../observe/resolve-runtime-status.md) for the recovery steps and configuration.
+
 ## Node processes
 
 For a Node child process, `pyric dev` sets `PYRIC_SANDBOX` and preloads `@pyric/cli/register`, which maps `firebase/*` to `pyric/*` and `firebase-admin/*` to `pyric-admin/*` for that process. Same rule as the browser: activation present, sandbox; activation absent, Firebase.
