@@ -1,0 +1,25 @@
+{
+  "name": "rules-firestore-common-auth-membership-firestore",
+  "matrixRow": "firestore-rules#187",
+  "rowIds": [
+    "firestore-rules#187"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"common-auth-membership-firestore\" (FIRESTORE-COMMON-STDLIB). Exact auth/membership stdlib bodies under cloud.firestore: auth null/uid, custom claims, explicit membership maps, and role equality.",
+  "observedAt": "2026-07-21T22:03:16.033Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "isAuthenticated: signed-in caller allowed": "ALLOW",
+    "isAuthenticated: anonymous caller denied": "DENY",
+    "isOwner: uid matches path owner": "ALLOW",
+    "isOwner: uid differs from path owner": "DENY",
+    "hasClaim: non-null custom claim allowed": "ALLOW",
+    "hasClaim: missing custom claim denied": "DENY",
+    "hasClaimRole: exact role allowed": "ALLOW",
+    "hasClaimRole: different role denied": "DENY",
+    "isMemberOf: uid key present in explicit map": "ALLOW",
+    "isMemberOf: uid key absent from explicit map": "DENY",
+    "hasRole: uid has exact map role": "ALLOW",
+    "hasRole: uid has different map role": "DENY"
+  }
+}

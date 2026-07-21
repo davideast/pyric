@@ -415,6 +415,12 @@ High-value module candidates emerge from these outcomes. For example, if repeate
 7. Run P3 before adding advanced cross-service helpers. Record lookup-budget and IAM limitations in both module documentation and conformance nodes.
 8. Keep every unsupported or unverified function queryable as such. A compiler rejection with a precise missing capability is more trustworthy than a module that resolves and silently denies at runtime.
 
+Item 2's read-only Rules Test API work is complete for version/import
+acceptance and multi-file/file-order behavior. Firebase CLI preprocessing is an
+explicitly open probe: it requires a deployment/request-capture or retrieved
+ruleset inspection, was not part of the read-only `projects.test` rig, and no
+claim in this delivery depends on how the CLI preprocesses source files.
+
 The delivered assurance seam for item 5 is `getStorageRulesResolution()` from
 `pyric/storage/internal`. It returns an immutable descriptor containing the
 target service, exact emitted plain-v2 source, resolved modules, and the

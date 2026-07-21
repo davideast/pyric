@@ -1625,7 +1625,7 @@ describe('late-failure deny reasons name the construct (parse-time → request-t
 
   it('an imported function call names the import and its module', () => {
     expect(
-      reasons(`rules_version = '2';
+      reasons(`rules_version = '2+modules';
 import { isAdmin } from 'shared/helpers';
 service firebase.storage {
   match /b/{bucket}/o {
