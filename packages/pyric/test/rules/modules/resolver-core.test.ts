@@ -23,6 +23,21 @@ service firebase.storage {
 }
 
 describe('resolver core export isolation', () => {
+  test('rejects unsupported target services before resolving imports', () => {
+    const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { allowed } from './policy';
+service firebase.storag {
+  match /{path=**} { allow read: if allowed(); }
+}`, { modules: { './policy': 'export function allowed() { return true; }' } });
+    expect(result).toEqual({
+      success: false,
+      error: {
+        code: 'UNSUPPORTED_SERVICE',
+        message: "Module resolution does not support service 'firebase.storag'",
+      },
+    });
+  });
+
   test.each([
     [
       'private-prefix collision',

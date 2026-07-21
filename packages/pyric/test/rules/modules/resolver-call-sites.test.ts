@@ -96,6 +96,39 @@ service firebase.storage {
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
 
+  test('preserves receiver types projected from source literals', () => {
+    for (const projection of [
+      "{'nested': {'owner': true}}.nested",
+      "[{'owner': true}][0]",
+    ]) {
+      const result = resolveModules(`rules_version = '2+modules';
+import { required } from './policy';
+service firebase.storage {
+  function projected() { return ${projection}; }
+  match /b/{bucket}/o { match /{file} { allow read: if required(projected()); } }
+}`, { modules: {
+        './policy': "export function required(value) { return value.keys().hasAll(['owner']); }",
+      } });
+      expect(result.success, result.success ? undefined : `${projection}: ${result.error.message}`).toBe(true);
+    }
+  });
+
+  test('preserves wildcard receiver types inside match-scoped helpers', () => {
+    const result = resolveModules(`rules_version = '2+modules';
+import { validName } from './policy';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /images/{file} {
+      function gate() { return validName(file); }
+      allow read: if gate();
+    }
+  }
+}`, { modules: {
+      './policy': "export function validName(value) { return value.matches('.*'); }",
+    } });
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+  });
+
   test('preserves ambient provenance through source helpers and lets', () => {
     const result = resolveModules(`rules_version = '2+modules';
 import { bad } from './policy';

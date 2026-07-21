@@ -184,6 +184,16 @@ export function resolveModulesWith(
     return { success: false, error: { code: 'NOT_MODULE_SOURCE', message: `Version '${ast.version}' is not a module source` } };
   }
 
+  if (ast.service.name !== 'cloud.firestore' && ast.service.name !== 'firebase.storage') {
+    return {
+      success: false,
+      error: {
+        code: 'UNSUPPORTED_SERVICE',
+        message: `Module resolution does not support service '${ast.service.name}'`,
+      },
+    };
+  }
+
   if (ast.imports.length === 0) {
     ast.version = '2';
     return { success: true, data: { resolved: assembleRules(ast), modules: [], bundledModules: [] } };

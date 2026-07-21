@@ -23,6 +23,7 @@ import {
   jsonRequest as json,
   resolveServiceAccount,
   RULES_API,
+  runCleanupSteps,
   type IamPolicy,
   type Release,
   type Ruleset,
@@ -431,45 +432,65 @@ async function run(): Promise<void> {
       diagnostics['firestore-allow-rules'] = { code: allowedRules.code, message: allowedRules.message };
     }
   } finally {
-    try {
-      if (originalFirestore) {
-        await json(
-          firestoreReleaseUrl,
-          { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: firestoreReleaseName, rulesetName: originalFirestore.rulesetName } }) },
-          'restore original Firestore release',
-        );
-        const restored = await json<Release>(firestoreReleaseUrl, { headers: authHeaders }, 'verify restored Firestore release');
-        firestoreReleaseRestored = restored.rulesetName === originalFirestore.rulesetName;
-      }
-    } finally {
-      try {
-        await json(
-          releaseUrl,
-          { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: releaseName, rulesetName: original.rulesetName } }) },
-          'restore original Storage release',
-        );
-        const restored = await json<Release>(releaseUrl, { headers: authHeaders }, 'verify restored Storage release');
-        releaseRestored = restored.rulesetName === original.rulesetName;
-      } finally {
-        for (const objectPath of createdObjects) {
+    await runCleanupSteps([
+      {
+        label: 'restore Firestore release',
+        run: async () => {
+          if (!originalFirestore) return;
+          await json(
+            firestoreReleaseUrl,
+            { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: firestoreReleaseName, rulesetName: originalFirestore.rulesetName } }) },
+            'restore original Firestore release',
+          );
+          const restored = await json<Release>(firestoreReleaseUrl, { headers: authHeaders }, 'verify restored Firestore release');
+          firestoreReleaseRestored = restored.rulesetName === originalFirestore.rulesetName;
+        },
+      },
+      {
+        label: 'restore Storage release',
+        run: async () => {
+          await json(
+            releaseUrl,
+            { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: releaseName, rulesetName: original.rulesetName } }) },
+            'restore original Storage release',
+          );
+          const restored = await json<Release>(releaseUrl, { headers: authHeaders }, 'verify restored Storage release');
+          releaseRestored = restored.rulesetName === original.rulesetName;
+        },
+      },
+      ...[...createdObjects].map((objectPath) => ({
+        label: `delete probe object ${objectPath}`,
+        run: async () => {
           const response = await fetch(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(config.storageBucket)}/o/${encodeURIComponent(objectPath)}`, { method: 'DELETE', headers: authHeaders });
           if (!response.ok && response.status !== 404) throw new Error(`delete probe object failed: ${response.status} ${await response.text()}`);
-        }
-        const list = await json<{ items?: unknown[] }>(
-          `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(config.storageBucket)}/o?prefix=${encodeURIComponent(prefix)}`,
-          { headers: authHeaders }, 'verify probe object cleanup',
-        );
-        objectsRemoved = (list.items?.length ?? 0) === 0;
-
-        for (const docName of docNames) {
+        },
+      })),
+      {
+        label: 'verify probe object cleanup',
+        run: async () => {
+          const list = await json<{ items?: unknown[] }>(
+            `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(config.storageBucket)}/o?prefix=${encodeURIComponent(prefix)}`,
+            { headers: authHeaders }, 'verify probe object cleanup',
+          );
+          objectsRemoved = (list.items?.length ?? 0) === 0;
+        },
+      },
+      ...docNames.map((docName) => ({
+        label: `delete probe document ${docName}`,
+        run: async () => {
           const response = await fetch(`https://firestore.googleapis.com/v1/${docName}`, { method: 'DELETE', headers: authHeaders });
           if (!response.ok && response.status !== 404) throw new Error(`delete probe document failed: ${response.status} ${await response.text()}`);
-        }
-        const checks = await Promise.all(docNames.map((docName) => fetch(`https://firestore.googleapis.com/v1/${docName}`, { headers: authHeaders })));
-        documentsRemoved = checks.every((response) => response.status === 404);
-        await deleteApp(app);
-      }
-    }
+        },
+      })),
+      {
+        label: 'verify probe document cleanup',
+        run: async () => {
+          const checks = await Promise.all(docNames.map((docName) => fetch(`https://firestore.googleapis.com/v1/${docName}`, { headers: authHeaders })));
+          documentsRemoved = checks.every((response) => response.status === 404);
+        },
+      },
+      { label: 'delete Firebase app', run: async () => deleteApp(app) },
+    ]);
   }
 
   if (!releaseRestored || !firestoreReleaseRestored || !objectsRemoved || !documentsRemoved) {
