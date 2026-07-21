@@ -6,9 +6,10 @@ test('served AI uses only the SharedWorker broker and emits one authoritative ev
 
   const actual = await page.evaluate(async () => {
     const events: Array<{ service?: string; op?: string }> = [];
+    const generation = localStorage.getItem('pyric:worker-generation');
     const worker = new SharedWorker('/__pyric/sdk/worker.js', {
       type: 'classic',
-      name: 'pyric-shared-worker',
+      name: generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker',
     });
     worker.port.start();
     let notify: (() => void) | undefined;

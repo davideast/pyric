@@ -143,33 +143,8 @@ done
 echo ""
 echo "━━━ Phase 3: manifest ━━━"
 
-node -e "
-const fs = require('fs');
-const path = require('path');
-const root = '$ROOT';
-const out = '$OUT_DIR';
-const packages = $(printf '%s\n' "${PACKAGES[@]}" | jq -R . | jq -s .);
-const manifest = {
-  generated: new Date().toISOString(),
-  packages: packages.map((dir) => {
-    const pj = JSON.parse(fs.readFileSync(path.join(root, dir, 'package.json'), 'utf-8'));
-    const flat = pj.name.replace(/^@/, '').replace(/\//g, '-');
-    const file = flat + '-' + pj.version + '.tgz';
-    const fullPath = path.join(out, file);
-    return {
-      name: pj.name,
-      version: pj.version,
-      tarball: 'dist/packages/' + file,
-      bytes: fs.statSync(fullPath).size,
-      sourceDir: dir,
-      subpaths: pj.exports ? Object.keys(pj.exports).sort() : [],
-      bin: pj.bin ? Object.keys(pj.bin) : [],
-    };
-  }),
-};
-fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-console.log('    → dist/packages/manifest.json (' + manifest.packages.length + ' packages)');
-"
+node "$ROOT/scripts/lib/package-artifact-manifest.mjs" \
+  "$ROOT" "$OUT_DIR" "${PACKAGES[@]}"
 
 # ─── Phase 4: report ───────────────────────────────────────────────────
 echo ""

@@ -84,9 +84,8 @@ mkdirSync(BUILD, { recursive: true });
 
 const bundler = (await import(pathToFileURL(bundlerMod).href)) as {
   bundleSdk: (o: { entries: Record<string, string>; noCache: boolean; cacheRoot: string }) => Promise<{ outDir: string }>;
-  bundleWorker: (o: { outDir: string; noCache: boolean }) => Promise<string>;
+  bundleWorker: (o: { outDir: string; noCache: boolean }) => Promise<{ outFile: string; epoch: string }>;
   defaultSdkEntries: () => Record<string, string>;
-  workerSourceHash: () => string;
   pyricVersion: () => string;
 };
 
@@ -96,9 +95,9 @@ const { outDir } = await bundler.bundleSdk({
   noCache: true,
   cacheRoot: STAGE,
 });
-await bundler.bundleWorker({ outDir, noCache: true });
+const worker = await bundler.bundleWorker({ outDir, noCache: true });
 const version = bundler.pyricVersion();
-const workerVersion = bundler.workerSourceHash();
+const workerVersion = worker.epoch;
 
 // ── 2. Collect bytes → base64 maps ────────────────────────────────────
 /** SDK dir is flat. Embed `.js` only (sourcemaps are 4× the bytes and only

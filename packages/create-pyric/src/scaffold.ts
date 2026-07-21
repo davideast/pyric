@@ -7,11 +7,17 @@
 
 import { writeFile, readFile, mkdir, access } from 'node:fs/promises';
 import { join, basename, resolve } from 'node:path';
-import { TEMPLATES, type ScaffoldTemplate } from './templates.js';
+import {
+  TEMPLATES,
+  TEMPLATE_NAMES,
+  isTemplateName,
+  type ScaffoldTemplate,
+  type TemplateName,
+} from './templates.js';
 import type { FlagValue } from './parse-args.js';
 
-export type { ScaffoldTemplate };
-export { TEMPLATES };
+export type { ScaffoldTemplate, TemplateName };
+export { TEMPLATES, TEMPLATE_NAMES, isTemplateName } from './templates.js';
 
 /** Where the scaffold's `pyric` / `@pyric/cli` deps come from. */
 export type DepsMode = 'vendor' | 'npm';
@@ -157,7 +163,7 @@ export function packageJsonFor(name: string, t: ScaffoldTemplate): string {
 
 /** Stable `--json` contract; agents parse this. */
 export interface ScaffoldResult {
-  template: 'web' | 'node' | 'static';
+  template: TemplateName;
   dir: string;
   depsMode: DepsMode;
   created: string[];
@@ -189,7 +195,7 @@ async function defaultExists(path: string): Promise<boolean> {
 export interface ScaffoldRequest {
   /** Absolute or relative project directory (relative resolved against cwd). */
   dir?: string;
-  template?: 'web' | 'node' | 'static';
+  template?: TemplateName;
   name?: string;
   force?: boolean;
   json?: boolean;
@@ -233,8 +239,10 @@ export async function runScaffold(
   const label = request.commandLabel ?? 'create-pyric';
 
   const templateName = request.template ?? 'web';
-  if (templateName !== 'web' && templateName !== 'node' && templateName !== 'static') {
-    err.write(`${label}: unknown template '${templateName}' (expected web|node|static)\n`);
+  if (!isTemplateName(templateName)) {
+    err.write(
+      `${label}: unknown template '${templateName}' (expected ${TEMPLATE_NAMES.join('|')})\n`,
+    );
     return 1;
   }
   const template = TEMPLATES[templateName];

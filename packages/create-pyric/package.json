@@ -1,6 +1,6 @@
 {
   "name": "create-pyric",
-  "version": "0.1.0-alpha.10",
+  "version": "0.1.0-alpha.14",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -24,6 +24,8 @@
   },
   "files": [
     "dist",
+    "src",
+    "templates",
     "README.md",
     "LICENSE"
   ],

@@ -1,6 +1,6 @@
 {
   "name": "pyric-admin",
-  "version": "0.1.0-alpha.10",
+  "version": "0.1.0-alpha.14",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -41,6 +41,7 @@
   },
   "files": [
     "dist",
+    "src",
     "README.md",
     "LICENSE"
   ],
@@ -63,8 +64,5 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "pyricUnreleasedExports": [
-    "./messaging"
-  ]
+  }
 }

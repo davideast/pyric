@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.local
+.firebaserc
+.pyric/
+.codex/
+.claude/
+.antigravity/
+.impeccable/
+*.log
+
+# compiled from firestore.modules.rules
+firestore.rules
+
+plans/
