@@ -292,6 +292,22 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     }
   });
 
+  test('rejects invalid projected and source-passed method receivers', () => {
+    const cases = [
+      { parameter: '', call: 'broken()', expression: '[1][0].keys().hasAll([])' },
+      { parameter: '', call: 'broken()', expression: "{'x': 1}.x.keys().hasAll([])" },
+      { parameter: 'value', call: 'broken(1)', expression: 'value.keys().hasAll([])' },
+    ];
+    for (const { parameter, call, expression } of cases) {
+      const result = resolveModules(
+        makeStorageSource("import { broken } from './policy';", call),
+        { modules: { './policy': `export function broken(${parameter}) { return ${expression}; }` } },
+      );
+
+      expect(result.success, expression).toBe(false);
+    }
+  });
+
   test('preserves valid receiver types through lets and helper returns', () => {
     const result = resolveModules(
       makeStorageSource("import { valid } from './policy';", 'valid()'),
@@ -472,6 +488,38 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     );
 
     expect(result.success).toBe(true);
+  });
+
+  test('admits production-valid getAfter in a Firestore caller module despite local divergence', () => {
+    const result = resolveModules(
+      makeSource("import { after } from './policy';", 'function usesAfter() { return after(); }'),
+      { modules: { './policy': `
+        export function after() {
+          return getAfter(/databases/(default)/documents/teams/t1).data.active == true;
+        }
+      ` } },
+    );
+
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+  });
+
+  test('does not taint Storage firestore.get results with ambient path interpolation', () => {
+    const result = resolveModules(
+      makeStorageSource("import { allowed } from './policy';", 'allowed()'),
+      { modules: { './policy': `
+        function user() {
+          return firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
+        }
+        export function allowed() {
+          let direct = firestore.get(
+            /databases/(default)/documents/teams/$(request.auth.token.team)
+          );
+          return direct.data.allowed == true && user().data.allowed == true;
+        }
+      ` } },
+    );
+
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
 
   test('admits accepted path.bind and rejects production-rejected namespaces', () => {

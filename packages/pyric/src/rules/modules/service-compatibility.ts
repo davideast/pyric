@@ -133,6 +133,12 @@ function ambientBindingPath(expr: Expression, ctx: AnalysisContext): AmbientProv
     }
     return ambientBindingPath(fn.body, nested);
   }
+  if (expr.type === 'methodCall' && expr.object.type === 'identifier' &&
+      expr.object.name === 'firestore' && (expr.method === 'get' || expr.method === 'exists')) {
+    // The lookup address may contain ambient interpolation, but the result is
+    // Firestore-sourced. serviceIncompatibility still walks every path arg.
+    return null;
+  }
   switch (expr.type) {
     case 'literal':
       return null;
@@ -288,6 +294,7 @@ function ambientMethodReturnType(expression: Expression): RulesReceiverType | nu
   if (['keys', 'toSet', 'addedKeys', 'removedKeys', 'changedKeys', 'affectedKeys',
     'unchangedKeys', 'difference', 'union', 'intersection'].includes(expression.method)) return 'set';
   if (expression.method === 'diff') return 'mapdiff';
+  if (expression.method === 'get') return null;
   if (expression.method === 'toUtf8') return 'bytes';
   if (expression.method === 'date') return 'timestamp';
   if (['size', 'year', 'month', 'day', 'hours', 'minutes', 'seconds', 'nanos',
@@ -311,7 +318,65 @@ function expressionReceiverType(
     case 'listLiteral': return 'list';
     case 'mapLiteral': return 'map';
     case 'pathLiteral': return 'path';
-    case 'methodCall': return ambientMethodReturnType(expression);
+    case 'memberAccess': {
+      if (expression.object.type === 'mapLiteral') {
+        const entry = expression.object.entries.find(({ key }) =>
+          key.type === 'literal' && key.value === expression.property);
+        return entry ? expressionReceiverType(entry.value, ctx) : null;
+      }
+      return null;
+    }
+    case 'bracketAccess': {
+      if (expression.object.type === 'listLiteral' && expression.index.type === 'literal' &&
+          typeof expression.index.value === 'number' && Number.isInteger(expression.index.value)) {
+        const element = expression.object.elements[expression.index.value];
+        return element ? expressionReceiverType(element, ctx) : null;
+      }
+      if (expression.object.type === 'mapLiteral' && expression.index.type === 'literal') {
+        const indexValue = expression.index.value;
+        const entry = expression.object.entries.find(({ key }) =>
+          key.type === 'literal' && key.value === indexValue);
+        return entry ? expressionReceiverType(entry.value, ctx) : null;
+      }
+      const objectType = expressionReceiverType(expression.object, ctx);
+      if (objectType === 'string') return 'string';
+      const objectPath = ambientBindingPath(expression.object, ctx);
+      if (ctx.service === 'firebase.storage' && Array.isArray(objectPath) &&
+          (objectPath.join('.') === 'request.resource.metadata' ||
+           objectPath.join('.') === 'resource.metadata')) return 'string';
+      return null;
+    }
+    case 'sliceAccess': {
+      const objectType = expressionReceiverType(expression.object, ctx);
+      return objectType === 'list' || objectType === 'string' ? objectType : null;
+    }
+    case 'methodCall': {
+      if (expression.method === 'get') {
+        const objectPath = ambientBindingPath(expression.object, ctx);
+        if (ctx.service === 'firebase.storage' && Array.isArray(objectPath) &&
+            (objectPath.join('.') === 'request.resource.metadata' ||
+             objectPath.join('.') === 'resource.metadata')) return 'string';
+        if (expression.object.type === 'mapLiteral' && expression.args[0]?.type === 'literal') {
+          const keyValue = expression.args[0].value;
+          const entry = expression.object.entries.find(({ key }) =>
+            key.type === 'literal' && key.value === keyValue);
+          if (entry) return expressionReceiverType(entry.value, ctx);
+        }
+        const fallback = expression.args[1];
+        return fallback ? expressionReceiverType(fallback, ctx) : null;
+      }
+      return ambientMethodReturnType(expression);
+    }
+    case 'binaryOp': {
+      const left = expressionReceiverType(expression.left, ctx);
+      const right = expressionReceiverType(expression.right, ctx);
+      if (expression.op === '+' && (left === 'string' || right === 'string')) return 'string';
+      return ['+', '-', '*', '/', '%'].includes(expression.op) && left === 'number' && right === 'number'
+        ? 'number' : null;
+    }
+    case 'unaryOp':
+      return expression.op === '-' && expressionReceiverType(expression.operand, ctx) === 'number'
+        ? 'number' : null;
     case 'ternary': {
       const consequent = expressionReceiverType(expression.consequent, ctx);
       const alternate = expressionReceiverType(expression.alternate, ctx);
@@ -353,7 +418,8 @@ function ambientMethodReceiverIssue(
   const provenance = ambientBindingPath(object, ctx);
   const receiverType = expressionReceiverType(object, ctx);
   if (!receiverType) {
-    return provenance === 'unknown-ambient' ? "binding '<derived ambient receiver>'" : null;
+    if (provenance === 'unknown-ambient') return "binding '<derived ambient receiver>'";
+    return null;
   }
   const contracts = service === 'cloud.firestore'
     ? FIRESTORE_METHOD_RECEIVER_TYPES
@@ -511,10 +577,24 @@ export function incompatibleFunction(
   fn: FunctionDef,
   service: RulesServiceName,
   functions: ReadonlyMap<string, FunctionDef> = new Map([[fn.name, fn]]),
+  args: readonly Expression[] = [],
 ): string | null {
+  const rootCtx: AnalysisContext = {
+    aliases: new Map(),
+    receiverTypes: new Map(),
+    functions,
+    service,
+    stack: new Set([fn.name]),
+  };
   return functionIncompatibility(fn, service, {
-    aliases: new Map(fn.parameters.map((parameter) => [parameter, null])),
-    receiverTypes: new Map(fn.parameters.map((parameter) => [parameter, null])),
+    aliases: new Map(fn.parameters.map((parameter, index) => [
+      parameter,
+      args[index] ? ambientBindingPath(args[index]!, rootCtx) : null,
+    ])),
+    receiverTypes: new Map(fn.parameters.map((parameter, index) => [
+      parameter,
+      args[index] ? expressionReceiverType(args[index]!, rootCtx) : null,
+    ])),
     functions,
     service,
     stack: new Set([fn.name]),

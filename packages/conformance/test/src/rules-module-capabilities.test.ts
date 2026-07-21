@@ -14,6 +14,7 @@ describe('rules module capability projection', () => {
     expect(source).toContain('"size": ["list", "map", "string"]');
     expect(source).toContain('firestore: ["exists", "get"]');
     expect(source).toContain('"request.resource.contentType"');
+    expect(source).toContain('FIRESTORE_DIRECT_FUNCTIONS = ["exists", "get", "getAfter"]');
     expect(source).not.toContain('"request.resource.name"');
     expect(source).not.toContain('isInfinite');
   });

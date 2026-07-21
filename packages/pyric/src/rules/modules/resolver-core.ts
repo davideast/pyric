@@ -7,7 +7,7 @@
  */
 import { parseToASTOrError, parseFunctions } from '../grammar/FirestoreParser.js';
 import { assembleRules } from '../grammar/FirestoreAssembler.js';
-import type { FunctionDef, Expression } from '../grammar/FirestoreAST.js';
+import type { FunctionDef, Expression, FirestoreRules, MatchBlock } from '../grammar/FirestoreAST.js';
 import {
   incompatibleFunction,
   incompatibleStdlibExport,
@@ -52,11 +52,13 @@ type LoadResult =
 
 // ---- Function call collection (for transitive deps) ----
 
-function collectCalls(expr: Expression): string[] {
-  const calls: string[] = [];
+type FunctionCallExpression = Extract<Expression, { type: 'functionCall' }>;
+
+function collectFunctionCalls(expr: Expression): FunctionCallExpression[] {
+  const calls: FunctionCallExpression[] = [];
   const walk = (e: Expression) => {
     switch (e.type) {
-      case 'functionCall': calls.push(e.name); e.args.forEach(walk); break;
+      case 'functionCall': calls.push(e); e.args.forEach(walk); break;
       case 'binaryOp': walk(e.left); walk(e.right); break;
       case 'unaryOp': walk(e.operand); break;
       case 'methodCall': walk(e.object); e.args.forEach(walk); break;
@@ -78,6 +80,41 @@ function collectCalls(expr: Expression): string[] {
   };
   walk(expr);
   return calls;
+}
+
+function collectCalls(expr: Expression): string[] {
+  return collectFunctionCalls(expr).map(({ name }) => name);
+}
+
+function moduleCallSites(ast: FirestoreRules, functionName: string): readonly Expression[][] {
+  const expressions: Expression[] = [];
+  const addFunction = (fn: FunctionDef) => {
+    expressions.push(...fn.lets.map(({ value }) => value), fn.body);
+  };
+  const addMatch = (match: MatchBlock) => {
+    match.functions.forEach(addFunction);
+    expressions.push(...match.allows.map(({ condition }) => condition));
+    match.children.forEach(addMatch);
+  };
+  ast.functions?.forEach(addFunction);
+  ast.service.functions?.forEach(addFunction);
+  addMatch(ast.service.match);
+  return expressions.flatMap(collectFunctionCalls)
+    .filter(({ name }) => name === functionName)
+    .map(({ args }) => args);
+}
+
+function functionCallSites(
+  functions: ReadonlyMap<string, FunctionDef>,
+  functionName: string,
+): readonly Expression[][] {
+  const expressions = [...functions.values()].flatMap((fn) => [
+    ...fn.lets.map(({ value }) => value),
+    fn.body,
+  ]);
+  return expressions.flatMap(collectFunctionCalls)
+    .filter(({ name }) => name === functionName)
+    .map(({ args }) => args);
 }
 
 // ---- Module name sanitization ----
@@ -412,15 +449,22 @@ export function resolveModulesWith(
 
   if (ast.service.name === 'firebase.storage' || ast.service.name === 'cloud.firestore') {
     for (const fn of injected) {
-      const requirement = incompatibleFunction(fn, ast.service.name, allModuleFunctions);
-      if (requirement) {
-        return {
-          success: false,
-          error: {
-            code: 'INCOMPATIBLE_FUNCTION',
-            message: `Function '${fn.name}' requires unsupported ${requirement} for service '${ast.service.name}'`,
-          },
-        };
+      const callSites = [
+        ...moduleCallSites(ast, fn.name),
+        ...functionCallSites(allModuleFunctions, fn.name),
+      ];
+      const argumentSets = callSites.length > 0 ? callSites : [[]];
+      for (const args of argumentSets) {
+        const requirement = incompatibleFunction(fn, ast.service.name, allModuleFunctions, args);
+        if (requirement) {
+          return {
+            success: false,
+            error: {
+              code: 'INCOMPATIBLE_FUNCTION',
+              message: `Function '${fn.name}' requires unsupported ${requirement} for service '${ast.service.name}'`,
+            },
+          };
+        }
       }
     }
   }

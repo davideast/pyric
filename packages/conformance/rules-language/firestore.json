@@ -144,6 +144,8 @@
       "engine": "firestore",
       "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore#function_getAfter_",
       "status": "rejected",
+      "moduleCallable": true,
+      "note": "Service legality is stronger than this isolated acceptance probe: getAfter() is official Firestore Rules syntax and the atomic stdlib workflow is live-validated against a real database. Its local batch-identity behavior remains honestly diverged.",
       "probeNote": "Error: firestore.rules line [5], column [23]. Function not found error: Name: [getAfter]."
     },
     {
