@@ -23,7 +23,7 @@ describe('QueryImpl', () => {
     const query = makeQuery().applyFilter(callerFilter) as QueryImpl;
     const plan = query.snapshotConstraints();
 
-    leaf.value = 'private';
+    (leaf as { value: unknown }).value = 'private';
     (callerFilter.filters as Filter[]).length = 0;
 
     expect(plan.execution.filters).toEqual([{
@@ -36,7 +36,7 @@ describe('QueryImpl', () => {
   test('does not expose mutable proof or execution leaves', () => {
     const query = makeQuery().where('visibility', '==', 'private') as QueryImpl;
     const plan = query.snapshotConstraints();
-    const leaf = plan.execution.filters[0] as {
+    const leaf = plan.execution.filters[0] as unknown as {
       kind: 'where'; field: string; op: string; value: unknown;
     };
 

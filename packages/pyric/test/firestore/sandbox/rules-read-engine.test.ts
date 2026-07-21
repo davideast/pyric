@@ -182,6 +182,34 @@ describe('RulesReadEngine.silentReadCollection', () => {
     expect(r.allowed).toBe(true);
     if (r.allowed) expect(r.docs).toHaveLength(2);
   });
+
+  test('captures a listener execution accessor once for both proof and execution', () => {
+    const { engine } = makeEngine(DATA_GATED_LIST_RULES, {
+      'posts/public': { visibility: 'public' },
+      'posts/private': { visibility: 'private' },
+    });
+    let reads = 0;
+    const constraints = {
+      get execution() {
+        reads += 1;
+        return reads === 1
+          ? {
+              filters: [{ kind: 'where' as const, field: 'visibility', op: '==' as const, value: 'public' }],
+              orders: [],
+              limitFromEnd: false,
+            }
+          : { filters: [], orders: [], limitFromEnd: false };
+      },
+    };
+
+    const result = engine.silentReadCollection('posts', null, constraints);
+
+    expect(reads).toBe(1);
+    expect(result).toEqual({
+      allowed: true,
+      docs: [{ path: 'posts/public', data: { visibility: 'public' } }],
+    });
+  });
 });
 
 describe('RulesReadEngine.runQuery', () => {
@@ -266,6 +294,37 @@ describe('RulesReadEngine.runQuery', () => {
     expect(result).toEqual({
       allowed: true,
       docs: [{ path: 'parents/b/items/two', data: { score: 2 } }],
+    });
+  });
+
+  test('captures a request execution accessor once for both proof and execution', () => {
+    const { engine } = makeEngine(DATA_GATED_LIST_RULES, {
+      'posts/public': { visibility: 'public' },
+      'posts/private': { visibility: 'private' },
+    });
+    let reads = 0;
+    const request = {
+      scope: { kind: 'collection' as const, path: 'posts' },
+      listPath: 'posts',
+      auth: null,
+      get execution() {
+        reads += 1;
+        return reads === 1
+          ? {
+              filters: [{ kind: 'where' as const, field: 'visibility', op: '==' as const, value: 'public' }],
+              orders: [],
+              limitFromEnd: false,
+            }
+          : { filters: [], orders: [], limitFromEnd: false };
+      },
+    };
+
+    const result = engine.runQuery(request);
+
+    expect(reads).toBe(1);
+    expect(result).toEqual({
+      allowed: true,
+      docs: [{ path: 'posts/public', data: { visibility: 'public' } }],
     });
   });
 });

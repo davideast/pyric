@@ -26,17 +26,17 @@ import type { QueryExecutionSpec } from './query-execution.js';
  * serializable execution plan (FS-B2). `addSnapshotListener` threads this in
  * from the chainable `QueryImpl.snapshotConstraints()` so a filtered
  * `onSnapshot(query(...))` delivers the same membership as a one-shot
- * `getDocs(query(...))`. `undefined` means a bare collection listen
- * (no constraints) — the whole rule-allowed collection is delivered.
+ * `getDocs(query(...))`. Bare collection references carry an empty execution
+ * plan; `undefined` is reserved for foreign query implementations that expose
+ * no plan at all.
  *
  * RULES-B11 — `RulesReadEngine` derives its proof projection from this same
  * execution plan, so authorization and row selection cannot diverge.
  */
 export interface QueryConstraintPlan {
-  execution: QueryExecutionSpec;
-  /** Complete executable query identity for diagnostics. Kept separate from
-   *  `structured`, whose deliberately lossy shape exists only for rules proof. */
-  activityQuery?: unknown;
+  readonly execution: QueryExecutionSpec;
+  /** Complete query identity for diagnostics, separate from executable data. */
+  readonly activityQuery?: unknown;
 }
 
 /** @deprecated Internal compatibility alias; query constraints are immutable data. */

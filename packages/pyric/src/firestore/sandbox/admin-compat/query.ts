@@ -1,6 +1,7 @@
 /** Admin-compatible query builders and snapshot shaping.
  * Candidate gathering, rule enforcement, and execution live behind
- * `LocalEnvironment.runQuery`; this adapter only builds immutable plans. */
+ * `LocalEnvironment.runQuery`; this adapter only builds immutable plan
+ * structure. Opaque operands retain identity by accepted ADR-0009 policy. */
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { translateReadData } from './snapshots.js';
@@ -300,7 +301,7 @@ export class QueryImpl implements Query {
 
   /**
    * Full executable identity for activity monitoring. The rules-proof
-   * projection above intentionally drops OR branches, rich operands, cursor
+   * proof projection intentionally drops OR branches, rich operands, cursor
    * detail, and most ordering, so it cannot safely identify repeated reads.
    */
   protected activityQuery(): unknown {

@@ -213,6 +213,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     constraints?: QueryConstraintPlan,
     bypassRules = false,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
+    const execution = constraints?.execution;
     const readServerTime = Timestamp.fromMillis(Date.now());
     // List rules are defined at the document-match level, so the
     // simulator expects a document-style path with a synthetic
@@ -220,8 +221,8 @@ export class RulesReadEngine implements ListenerDispatchHost {
     // local-env-reads tests). Without it, a `list` against a bare
     // collection path falls through to no match and is denied.
     const listPath = `${collection}/__listPlaceholder__`;
-    const structured: QueryConstraints = constraints
-      ? queryConstraintsForProof(constraints.execution)
+    const structured: QueryConstraints = execution
+      ? queryConstraintsForProof(execution)
       : {};
     const requestQuery = listQueryFromStructured(structured);
     const detailFields = {
@@ -236,7 +237,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       const docs = this.state.list(collection)
         .filter((document) => !document.phantom)
         .map((document) => ({ path: document.path, data: document.data }));
-      const constrained = constraints ? executeQuery(docs, constraints.execution) : docs;
+      const constrained = execution ? executeQuery(docs, execution) : docs;
       this.emitRequest({
         at: evalAt,
         evalMs: 0,
@@ -350,7 +351,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     // one-shot `getDocs(query(...))` would (instead of the whole
     // collection). The proof above guaranteed the rule holds for every
     // doc the constraints admit.
-    const constrained = constraints ? executeQuery(docs, constraints.execution) : docs;
+    const constrained = execution ? executeQuery(docs, execution) : docs;
     return { allowed: true, docs: constrained };
   }
 
@@ -409,8 +410,9 @@ export class RulesReadEngine implements ListenerDispatchHost {
    * rules still bubble as {@link SimulatorUnsupportedError}.
    */
   runQuery(request: RunQueryRequest): RunQueryResult {
+    const execution = request.execution;
     const candidates = gatherQueryRows(this.state, request.scope);
-    const proof = queryConstraintsForProof(request.execution);
+    const proof = queryConstraintsForProof(execution);
     const read = this.readQueryCandidates(
       candidates,
       request.listPath,
@@ -420,7 +422,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       request.activityQuery,
     );
     if (!read.allowed) return read;
-    return { allowed: true, docs: executeQuery(read.docs, request.execution) };
+    return { allowed: true, docs: executeQuery(read.docs, execution) };
   }
 
   private readQueryCandidates(

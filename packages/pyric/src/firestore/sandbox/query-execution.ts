@@ -13,25 +13,25 @@ export type QueryWhereFilterOp =
   | 'array-contains' | 'array-contains-any';
 export type QueryOrderDirection = 'asc' | 'desc';
 export type QueryFilter =
-  | { kind: 'where'; field: string; op: QueryWhereFilterOp; value: unknown }
-  | { kind: 'and'; filters: readonly QueryFilter[] }
-  | { kind: 'or'; filters: readonly QueryFilter[] };
+  | { readonly kind: 'where'; readonly field: string; readonly op: QueryWhereFilterOp; readonly value: unknown }
+  | { readonly kind: 'and'; readonly filters: readonly QueryFilter[] }
+  | { readonly kind: 'or'; readonly filters: readonly QueryFilter[] };
 export interface QueryOrderClause {
-  field: string;
-  direction: QueryOrderDirection;
+  readonly field: string;
+  readonly direction: QueryOrderDirection;
 }
 export interface QueryCursor {
-  values: readonly unknown[];
-  inclusive: boolean;
-  fromSnapshot: boolean;
+  readonly values: readonly unknown[];
+  readonly inclusive: boolean;
+  readonly fromSnapshot: boolean;
 }
 export interface QueryExecutionSpec {
-  filters: readonly QueryFilter[];
-  orders: readonly QueryOrderClause[];
-  limitCount?: number;
-  limitFromEnd: boolean;
-  start?: QueryCursor;
-  end?: QueryCursor;
+  readonly filters: readonly QueryFilter[];
+  readonly orders: readonly QueryOrderClause[];
+  readonly limitCount?: number;
+  readonly limitFromEnd: boolean;
+  readonly start?: QueryCursor;
+  readonly end?: QueryCursor;
 }
 export interface QueryRow {
   path: string;
@@ -42,12 +42,12 @@ export type QueryScope =
   | { kind: 'collection'; path: string }
   | { kind: 'collection-group'; collectionId: string };
 export interface RunQueryRequest {
-  scope: QueryScope;
-  listPath: string;
-  auth: { uid: string; token?: Record<string, unknown> } | null;
-  execution: QueryExecutionSpec;
-  bypassRules?: boolean;
-  activityQuery?: unknown;
+  readonly scope: QueryScope;
+  readonly listPath: string;
+  readonly auth: { uid: string; token?: Record<string, unknown> } | null;
+  readonly execution: QueryExecutionSpec;
+  readonly bypassRules?: boolean;
+  readonly activityQuery?: unknown;
 }
 export type RunQueryResult =
   | { allowed: true; docs: QueryRow[] }

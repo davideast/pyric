@@ -92,3 +92,36 @@ rules-flip re-evaluation form a single dispatch machine with one injected
 host seam — and splitting it would separate the scheduler from the notify
 paths that are its only callers. Architecture scans should not re-flag
 this file absent a second concept accreting into it.
+
+## Amendment (2026-07-20): B4, B5, and PR C completed
+
+The remaining stack is implemented behind the permanent facade:
+
+- B4 extracted `WriteEngine`; B5 added a shared `WriteRuntime` and
+  `AtomicWritePipeline`, with batch and transaction executors owning only
+  their protocol-specific coordination.
+- PR C replaced candidate-passing with
+  `LocalEnvironment.runQuery(request: RunQueryRequest)`. `RulesReadEngine`
+  now gathers candidates, derives the conservative rules-proof projection
+  from the exact captured execution plan, evaluates the list rule, and
+  executes filters/order/cursors/limit. One-shot reads and listeners use the
+  same executor. The admin adapter builds plan data and shapes snapshots.
+- `QueryImpl`, `CollectionRefImpl`, and `CollectionGroupQueryImpl` are separate
+  concepts with named state and mirrored tests. Reference construction uses an
+  injected factory rather than a two-way module import.
+
+The `value-order.ts` move in the first PR C commit is an accepted exception to
+the pure-move commit rule. The destination is a dependency of the newly shared
+engine executor, so the move and import rewiring were reviewed as one atomic
+query-ownership change; rewriting the already-ratcheted stack solely to alter
+commit boundaries would add integration risk without changing the final diff.
+
+Query plans are immutable in structure, but opaque object/array operands retain
+their original identity. This preserves the pre-existing invariant that query
+construction and diagnostics never invoke user getters or Proxy traps. Deeply
+snapshotting arbitrary JavaScript values cannot satisfy that invariant in the
+general case. This P2 tradeoff is accepted for this stack and must not be
+described as deep operand immutability. A follow-up design must introduce an
+engine-owned opaque operand capsule (or explicitly lock identity semantics) and
+prove all three properties together: no user-code observation, stable listener
+membership after registration, and Firestore-compatible equality/membership.
