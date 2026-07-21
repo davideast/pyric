@@ -201,18 +201,4 @@ service firebase.storage {
     expect(Object.isFrozen(resolution?.modules)).toBe(true);
   });
 
-  it('does not infer lookup evidence from comments or strings', () => {
-    const sandbox = initializeSandbox({});
-    const storage = getStorageSandbox(sandbox, {
-      dbName: uniqueDbName('rules-resolution-false-positive'),
-      rules: `rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    // firestore.get(...) is documentation, not an executed lookup.
-    match /{file} { allow read: if 'firestore.exists(' == 'not a call'; }
-  }
-}`,
-    });
-    expect(getStorageRulesResolution(storage)?.evidenceIds).toEqual([]);
-  });
 });

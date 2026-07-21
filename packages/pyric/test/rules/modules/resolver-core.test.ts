@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { resolveModules } from '../../../src/rules/modules/resolver.js';
+import { resolveModulesWith } from '../../../src/rules/modules/resolver-core.js';
 
 const MODULES = {
   './mixed': `
@@ -22,9 +22,10 @@ service firebase.storage {
 }`;
 }
 
-describe('resolver export isolation', () => {
+describe('resolver core export isolation', () => {
   test('ignores incompatible call sites in unrequested exports', () => {
-    const result = resolveModules(
+    const result = resolveModulesWith(
+      null,
       storageSource("import { portable } from './mixed';", "portable({'x': 1})"),
       { modules: MODULES },
     );
@@ -40,7 +41,8 @@ describe('resolver export isolation', () => {
     ["import { firestoreCaller } from './mixed';", 'incompatible export alone'],
     ["import { portable, firestoreCaller } from './mixed';", 'both exports'],
   ])('rejects incompatible reachable call sites: %s (%s)', (imports) => {
-    const result = resolveModules(
+    const result = resolveModulesWith(
+      null,
       storageSource(imports, 'firestoreCaller()'),
       { modules: MODULES },
     );
