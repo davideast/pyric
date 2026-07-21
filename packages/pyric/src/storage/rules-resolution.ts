@@ -7,49 +7,75 @@ export interface StorageRulesResolution {
   readonly evidenceIds: readonly string[];
 }
 
-function expressionUsesFirestoreLookup(expression: Expr): boolean {
+function expressionUsesFirestoreLookup(
+  expression: Expr,
+  shadowed: ReadonlySet<string>,
+): boolean {
   if (expression.kind === 'methodcall' && expression.target.kind === 'ident' &&
       expression.target.name === 'firestore' &&
+      !shadowed.has('firestore') &&
       (expression.method === 'get' || expression.method === 'exists')) return true;
   switch (expression.kind) {
-    case 'member': return expressionUsesFirestoreLookup(expression.target);
+    case 'member': return expressionUsesFirestoreLookup(expression.target, shadowed);
     case 'index':
-      return expressionUsesFirestoreLookup(expression.target) ||
-        expressionUsesFirestoreLookup(expression.index);
+      return expressionUsesFirestoreLookup(expression.target, shadowed) ||
+        expressionUsesFirestoreLookup(expression.index, shadowed);
     case 'slice':
-      return [expression.target, expression.start, expression.end].some(expressionUsesFirestoreLookup);
-    case 'unary': return expressionUsesFirestoreLookup(expression.arg);
+      return [expression.target, expression.start, expression.end]
+        .some((value) => expressionUsesFirestoreLookup(value, shadowed));
+    case 'unary': return expressionUsesFirestoreLookup(expression.arg, shadowed);
     case 'ternary':
-      return [expression.cond, expression.then, expression.else].some(expressionUsesFirestoreLookup);
+      return [expression.cond, expression.then, expression.else]
+        .some((value) => expressionUsesFirestoreLookup(value, shadowed));
     case 'in':
-      return expressionUsesFirestoreLookup(expression.element) ||
-        expressionUsesFirestoreLookup(expression.collection);
-    case 'is': return expressionUsesFirestoreLookup(expression.value);
-    case 'list': return expression.elements.some(expressionUsesFirestoreLookup);
+      return expressionUsesFirestoreLookup(expression.element, shadowed) ||
+        expressionUsesFirestoreLookup(expression.collection, shadowed);
+    case 'is': return expressionUsesFirestoreLookup(expression.value, shadowed);
+    case 'list':
+      return expression.elements.some((value) => expressionUsesFirestoreLookup(value, shadowed));
     case 'map':
       return expression.entries.some(({ key, value }) =>
-        expressionUsesFirestoreLookup(key) || expressionUsesFirestoreLookup(value));
+        expressionUsesFirestoreLookup(key, shadowed) ||
+        expressionUsesFirestoreLookup(value, shadowed));
     case 'binary':
-      return expressionUsesFirestoreLookup(expression.left) ||
-        expressionUsesFirestoreLookup(expression.right);
-    case 'call': return expression.args.some(expressionUsesFirestoreLookup);
+      return expressionUsesFirestoreLookup(expression.left, shadowed) ||
+        expressionUsesFirestoreLookup(expression.right, shadowed);
+    case 'call':
+      return expression.args.some((value) => expressionUsesFirestoreLookup(value, shadowed));
     case 'methodcall':
-      return expressionUsesFirestoreLookup(expression.target) ||
-        expression.args.some(expressionUsesFirestoreLookup);
+      return expressionUsesFirestoreLookup(expression.target, shadowed) ||
+        expression.args.some((value) => expressionUsesFirestoreLookup(value, shadowed));
     case 'path':
       return expression.segments.some((segment) =>
-        segment.kind === 'interp' && expressionUsesFirestoreLookup(segment.expr));
+        segment.kind === 'interp' && expressionUsesFirestoreLookup(segment.expr, shadowed));
     case 'ident':
     case 'literal': return false;
   }
 }
 
-function matchUsesFirestoreLookup(match: MatchBlock): boolean {
-  return match.allows.some(({ condition }) => condition && expressionUsesFirestoreLookup(condition)) ||
-    match.functions.some((fn) =>
-      fn.lets.some(({ value }) => expressionUsesFirestoreLookup(value)) ||
-      expressionUsesFirestoreLookup(fn.body)) ||
-    match.children.some(matchUsesFirestoreLookup);
+function matchUsesFirestoreLookup(
+  match: MatchBlock,
+  inherited: ReadonlySet<string> = new Set(),
+): boolean {
+  const matchScope = new Set(inherited);
+  for (const segment of match.segments) {
+    if (segment.kind !== 'literal') matchScope.add(segment.name);
+  }
+  if (match.allows.some(({ condition }) =>
+    condition && expressionUsesFirestoreLookup(condition, matchScope))) return true;
+  for (const fn of match.functions) {
+    const functionScope = new Set([...matchScope, ...fn.params]);
+    for (const binding of fn.lets) {
+      if (expressionUsesFirestoreLookup(binding.value, functionScope)) return true;
+      functionScope.add(binding.name);
+    }
+    if (expressionUsesFirestoreLookup(fn.body, functionScope)) return true;
+  }
+  return match.children.some((child) => matchUsesFirestoreLookup(child, matchScope));
+}
+
+function canonicalModuleName(name: string): string {
+  return /^\.\/stdlib\/(.+)\.rules$/.exec(name)?.[1] ?? name;
 }
 
 export function createStorageRulesResolution(
@@ -58,10 +84,11 @@ export function createStorageRulesResolution(
   rules: StorageRules,
 ): StorageRulesResolution {
   const evidenceIds = new Set<string>();
-  if (modules.some((name) => name === 'auth' || name === 'membership')) {
+  const canonicalModules = modules.map(canonicalModuleName);
+  if (canonicalModules.some((name) => name === 'auth' || name === 'membership')) {
     evidenceIds.add('storage-rules#125');
   }
-  if (modules.some((name) => name.startsWith('storage/'))) {
+  if (canonicalModules.some((name) => name.startsWith('storage/'))) {
     evidenceIds.add('storage-rules#132');
   }
   if (matchUsesFirestoreLookup(rules._root)) evidenceIds.add('storage-rules#131');

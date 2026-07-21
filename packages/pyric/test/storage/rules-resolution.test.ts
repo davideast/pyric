@@ -17,7 +17,10 @@ service firebase.storage {
     }
   }
 }`;
-    const resolution = resolutionFor(source, ['auth', 'storage/uploads']);
+    const resolution = resolutionFor(source, [
+      './stdlib/auth.rules',
+      './stdlib/storage/uploads.rules',
+    ]);
 
     expect(resolution.evidenceIds).toEqual([
       'storage-rules#125',
@@ -34,6 +37,27 @@ service firebase.storage {
   match /b/{bucket}/o {
     // firestore.get(...) is documentation, not an executed lookup.
     match /{file} { allow read: if 'firestore.exists(' == 'not a call'; }
+  }
+}`;
+
+    expect(resolutionFor(source).evidenceIds).toEqual([]);
+  });
+
+  test('does not confuse shadowed identifiers with the Firestore namespace', () => {
+    const source = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function parameterLookup(firestore) {
+      return firestore.get('enabled', false);
+    }
+    function localLookup(input) {
+      let firestore = input;
+      return firestore.get('enabled', false);
+    }
+    match /{file} {
+      allow read: if parameterLookup({'enabled': true})
+        && localLookup({'enabled': true});
+    }
   }
 }`;
 

@@ -176,9 +176,9 @@ describe('getStorageSandbox', () => {
     const storage = getStorageSandbox(sandbox, {
       dbName: uniqueDbName('rules-resolution'),
       rules: `rules_version = '2+modules';
-import { isAuthenticated } from 'auth';
-import { hasRole } from 'membership';
-import { sizeAtMost } from 'storage/uploads';
+import { isAuthenticated } from './stdlib/auth.rules';
+import { hasRole } from './stdlib/membership.rules';
+import { sizeAtMost } from './stdlib/storage/uploads.rules';
 service firebase.storage {
   match /b/{bucket}/o {
     match /{file} {
@@ -192,7 +192,11 @@ service firebase.storage {
     const resolution = getStorageRulesResolution(storage);
     expect(resolution).toMatchObject({
       targetService: 'firebase.storage',
-      modules: ['auth', 'membership', 'storage/uploads'],
+      modules: [
+        './stdlib/auth.rules',
+        './stdlib/membership.rules',
+        './stdlib/storage/uploads.rules',
+      ],
       evidenceIds: ['storage-rules#125', 'storage-rules#131', 'storage-rules#132'],
     });
     expect(resolution?.source).toContain("rules_version = '2';");
