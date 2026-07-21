@@ -23,6 +23,27 @@ service firebase.storage {
 }
 
 describe('resolver core export isolation', () => {
+  test.each([
+    [
+      'private-prefix collision',
+      `function helper() { return false; }
+       export function m__helper() { return true; }
+       export function policy() { return helper(); }`,
+    ],
+    [
+      'duplicate exports',
+      `export function policy() { return false; }
+       export function policy() { return true; }`,
+    ],
+  ])('rejects ambiguous same-module names: %s', (_name, moduleSource) => {
+    const result = resolveModulesWith(null, storageSource(
+      "import { policy } from './m';",
+      'policy()',
+    ), { modules: { './m': moduleSource } });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+  });
+
   test('rejects module functions that collide with Rules builtins', () => {
     const result = resolveModulesWith(null, `rules_version = '2+modules';
 import { policy } from './policy';

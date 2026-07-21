@@ -220,6 +220,19 @@ export function resolveModulesWith(
     privateNamesPerModule.set(imp.module, privateNames);
 
     const prefixed = prefixPrivateFunctions(loaded.functions, imp.module);
+    const namesInModule = new Set<string>();
+    for (const fn of prefixed) {
+      if (namesInModule.has(fn.name)) {
+        return {
+          success: false,
+          error: {
+            code: 'DUPLICATE_FUNCTION',
+            message: `Module '${imp.module}' defines conflicting function name '${fn.name}'`,
+          },
+        };
+      }
+      namesInModule.add(fn.name);
+    }
     const moduleExports = new Set(
       prefixed.filter((fn) => fn.exported).map((fn) => fn.name),
     );
