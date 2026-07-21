@@ -6,8 +6,10 @@ The catalog remains Firestore-first, with a small Storage-native layer. Service 
 module/export by the `2+modules` resolver rather than inferred from shared Rules
 syntax. Only `auth` and `membership` are admitted for both Firestore and
 Storage; the `storage/*` modules are Storage-only; all remaining modules are
-Firestore-only. A module is listed only after its production observations
-replay locally and its executable fixtures pass.
+Firestore-only. Newly promoted cross-service and Storage-native modules are
+listed only after their production observations replay locally and their
+executable fixtures pass. Legacy Firestore modules retain the evidence level
+shown in each row's **Verified** column.
 
 ## Module Index
 

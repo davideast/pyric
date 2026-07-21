@@ -13,6 +13,10 @@ import { RUNTIME_TS_PATH, renderConformanceVerdicts } from './conformance-verdic
 import { renderBrowserQuery, renderCliQuery } from './can-i-use-template.ts';
 import { renderDocsProjectionModule } from './generate-docs.ts';
 import { deriveConformanceModel } from './conformance-model.ts';
+import {
+  RULES_MODULE_CAPABILITIES_PATH,
+  renderRulesModuleCapabilities,
+} from './rules-module-capabilities.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const CLI_QUERY_PATH = join(HERE, '..', '..', 'cli', 'src', 'conformance', '.generated', 'can-i-use.ts');
@@ -25,6 +29,7 @@ if (import.meta.main) {
   const browserRendered = renderBrowserQuery(model);
   const docsRendered = renderDocsProjectionModule(model);
   const verdicts = renderConformanceVerdicts(model.assuranceNodeVerdicts);
+  const rulesModuleCapabilities = renderRulesModuleCapabilities();
   if (process.argv.includes('--write')) {
     mkdirSync(dirname(CLI_QUERY_PATH), { recursive: true });
     mkdirSync(dirname(RUNTIME_TS_PATH), { recursive: true });
@@ -32,12 +37,20 @@ if (import.meta.main) {
     writeFileSync(CLI_BROWSER_QUERY_PATH, browserRendered);
     writeFileSync(CLI_DOCS_PATH, docsRendered);
     writeFileSync(RUNTIME_TS_PATH, verdicts);
+    writeFileSync(RULES_MODULE_CAPABILITIES_PATH, rulesModuleCapabilities);
     console.log(`Wrote ${CLI_QUERY_PATH}`);
     console.log(`Wrote ${CLI_BROWSER_QUERY_PATH}`);
     console.log(`Wrote ${CLI_DOCS_PATH}`);
     console.log(`Wrote ${RUNTIME_TS_PATH}`);
+    console.log(`Wrote ${RULES_MODULE_CAPABILITIES_PATH}`);
   } else if (process.argv.includes('--check')) {
-    for (const [path, source] of [[CLI_QUERY_PATH, rendered], [CLI_BROWSER_QUERY_PATH, browserRendered], [CLI_DOCS_PATH, docsRendered], [RUNTIME_TS_PATH, verdicts]] as const) {
+    for (const [path, source] of [
+      [CLI_QUERY_PATH, rendered],
+      [CLI_BROWSER_QUERY_PATH, browserRendered],
+      [CLI_DOCS_PATH, docsRendered],
+      [RUNTIME_TS_PATH, verdicts],
+      [RULES_MODULE_CAPABILITIES_PATH, rulesModuleCapabilities],
+    ] as const) {
       let current = '';
       try { current = readFileSync(path, 'utf8'); } catch { /* reported below */ }
       if (current !== source) {

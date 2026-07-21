@@ -16,6 +16,10 @@ export { STDLIB_SERVICE_CONTRACT_MODULES } from './service-compatibility.js';
 
 const BUILTIN_FUNCTIONS = new Set(['get', 'exists', 'getAfter', 'debug']);
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled Rules expression: ${JSON.stringify(value)}`);
+}
+
 /**
  * Injectable disk access for the two load paths that read files: relative
  * imports (priority 2) and the on-disk stdlib fallback (priority 4). The
@@ -67,6 +71,9 @@ function collectCalls(expr: Expression): string[] {
       case 'pathLiteral': e.segments.forEach(segment => {
         if (typeof segment !== 'string') walk(segment);
       }); break;
+      case 'literal':
+      case 'identifier': break;
+      default: assertNever(e);
     }
   };
   walk(expr);
@@ -154,8 +161,9 @@ export function rewriteCalls(expr: Expression, renames: Map<string, string>): Ex
       return segments.every((segment, i) => segment === expr.segments[i])
         ? expr : { ...expr, segments };
     }
-    default:
-      return expr; // literals and identifiers
+    case 'literal':
+    case 'identifier': return expr;
+    default: return assertNever(expr);
   }
 }
 
@@ -312,6 +320,9 @@ export function resolveModulesWith(
     privateNamesPerModule.set(imp.module, privateNames);
 
     const prefixed = prefixPrivateFunctions(loaded.functions, imp.module);
+    const moduleExports = new Set(
+      prefixed.filter((fn) => fn.exported).map((fn) => fn.name),
+    );
     for (const fn of prefixed) {
       allModuleFunctions.set(fn.name, fn);
 
@@ -332,7 +343,7 @@ export function resolveModulesWith(
 
     // Verify all requested functions exist AND are exported
     for (const fnName of imp.functions) {
-      if (!exportedFunctions.has(fnName)) {
+      if (!moduleExports.has(fnName)) {
         const isPrivate = privateNamesPerModule.get(imp.module)?.has(fnName);
         const msg = isPrivate
           ? `Function '${fnName}' in module '${imp.module}' is not exported`
@@ -389,7 +400,7 @@ export function resolveModulesWith(
 
   if (ast.service.name === 'firebase.storage' || ast.service.name === 'cloud.firestore') {
     for (const fn of injected) {
-      const requirement = incompatibleFunction(fn, ast.service.name);
+      const requirement = incompatibleFunction(fn, ast.service.name, allModuleFunctions);
       if (requirement) {
         return {
           success: false,

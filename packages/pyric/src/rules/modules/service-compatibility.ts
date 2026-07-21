@@ -1,6 +1,15 @@
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
+import {
+  FIRESTORE_DIRECT_FUNCTIONS as GENERATED_FIRESTORE_DIRECT_FUNCTIONS,
+  FIRESTORE_METHODS as GENERATED_FIRESTORE_METHODS,
+  FIRESTORE_NAMESPACE_METHODS,
+} from './firestore-capabilities.generated.js';
 
 export type RulesServiceName = 'cloud.firestore' | 'firebase.storage';
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled Rules expression: ${JSON.stringify(value)}`);
+}
 
 interface ModuleContract {
   defaultServices: readonly RulesServiceName[];
@@ -41,27 +50,13 @@ export const STDLIB_SERVICE_CONTRACT_MODULES = Object.freeze(
   Object.keys(STDLIB_MODULE_CONTRACTS).sort(),
 );
 
-// Complete Firestore method/namespace vocabulary pinned by the repository's
-// rules-language inventory. Storage stays deliberately narrower: only its
-// locally implemented, production-observed subset is admitted.
-const FIRESTORE_METHODS = new Set([
-  'abs', 'addedKeys', 'affectedKeys', 'changedKeys', 'concat', 'date', 'day',
-  'dayOfWeek', 'dayOfYear', 'difference', 'diff', 'distance', 'get', 'hasAll',
-  'hasAny', 'hasOnly', 'hours', 'intersection', 'join', 'keys', 'latitude',
-  'longitude', 'lower', 'matches', 'minutes', 'month', 'nanos', 'removeAll',
-  'removedKeys', 'replace', 'seconds', 'size', 'split', 'time', 'toBase64',
-  'toHexString', 'toMillis', 'toSet', 'toUtf8', 'trim', 'unchangedKeys',
-  'union', 'upper', 'values', 'year',
-]);
-
-const FIRESTORE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = {
-  cast: new Set(['bool', 'float', 'int', 'path', 'string']),
-  duration: new Set(['abs', 'time', 'value']),
-  hashing: new Set(['crc32', 'crc32c', 'md5', 'sha256']),
-  latlng: new Set(['value']),
-  math: new Set(['abs', 'ceil', 'floor', 'isInfinite', 'isNaN', 'pow', 'round', 'sqrt']),
-  timestamp: new Set(['date', 'value']),
-};
+// Generated from accepted rules-language inventory rows. Storage stays
+// deliberately narrower: only its locally implemented, observed subset is admitted.
+const FIRESTORE_DIRECT_FUNCTIONS = new Set<string>(GENERATED_FIRESTORE_DIRECT_FUNCTIONS);
+const FIRESTORE_METHODS = new Set<string>(GENERATED_FIRESTORE_METHODS);
+const FIRESTORE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
+  Object.entries(FIRESTORE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
+);
 
 const STORAGE_METHODS = new Set(['get', 'hasAll', 'keys', 'matches', 'size', 'split']);
 const STORAGE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = {
@@ -88,19 +83,70 @@ export function incompatibleStdlibExport(
     : `Function '${functionName}' from module '${moduleName}' is not compatible with service '${service}'`;
 }
 
-function ambientBindingPath(expr: Expression): string[] | null {
+type AmbientProvenance = string[] | 'unknown-ambient' | null;
+
+interface AnalysisContext {
+  aliases: ReadonlyMap<string, AmbientProvenance>;
+  functions: ReadonlyMap<string, FunctionDef>;
+  stack: ReadonlySet<string>;
+}
+
+function ambientBindingPath(expr: Expression, ctx: AnalysisContext): AmbientProvenance {
   if (expr.type === 'identifier') {
-    return expr.name === 'request' || expr.name === 'resource' ? [expr.name] : null;
+    if (expr.name === 'request' || expr.name === 'resource') return [expr.name];
+    return ctx.aliases.get(expr.name) ?? null;
   }
   if (expr.type === 'memberAccess') {
-    const parent = ambientBindingPath(expr.object);
+    const parent = ambientBindingPath(expr.object, ctx);
+    if (parent === 'unknown-ambient') return parent;
     return parent ? [...parent, expr.property] : null;
   }
-  if (expr.type === 'bracketAccess' && expr.index.type === 'literal' && typeof expr.index.value === 'string') {
-    const parent = ambientBindingPath(expr.object);
-    return parent ? [...parent, expr.index.value] : null;
+  if (expr.type === 'bracketAccess') {
+    const parent = ambientBindingPath(expr.object, ctx);
+    if (!parent || parent === 'unknown-ambient') return parent;
+    return expr.index.type === 'literal' && typeof expr.index.value === 'string'
+      ? [...parent, expr.index.value]
+      : [...parent, '*'];
   }
-  return null;
+  if (expr.type === 'ternary') {
+    const consequent = ambientBindingPath(expr.consequent, ctx);
+    const alternate = ambientBindingPath(expr.alternate, ctx);
+    if (!consequent && !alternate) return null;
+    if (Array.isArray(consequent) && Array.isArray(alternate) &&
+      consequent.join('.') === alternate.join('.')) return consequent;
+    return 'unknown-ambient';
+  }
+  if (expr.type === 'functionCall') {
+    const fn = ctx.functions.get(expr.name);
+    const args = expr.args.map((arg) => ambientBindingPath(arg, ctx));
+    if (!fn || ctx.stack.has(fn.name)) {
+      return args.some((arg) => arg !== null) ? 'unknown-ambient' : null;
+    }
+    const aliases = new Map<string, AmbientProvenance>();
+    fn.parameters.forEach((parameter, index) => aliases.set(parameter, args[index] ?? null));
+    const nested: AnalysisContext = {
+      aliases,
+      functions: ctx.functions,
+      stack: new Set([...ctx.stack, fn.name]),
+    };
+    for (const binding of fn.lets) {
+      aliases.set(binding.name, ambientBindingPath(binding.value, nested));
+    }
+    return ambientBindingPath(fn.body, nested);
+  }
+  switch (expr.type) {
+    case 'literal':
+    case 'methodCall':
+    case 'sliceAccess':
+    case 'binaryOp':
+    case 'unaryOp':
+    case 'inExpr':
+    case 'isExpr':
+    case 'listLiteral':
+    case 'mapLiteral':
+    case 'pathLiteral': return null;
+    default: return assertNever(expr);
+  }
 }
 
 function allowedAmbientBinding(service: RulesServiceName, path: readonly string[]): boolean {
@@ -142,26 +188,54 @@ function allowsDynamicAmbientAccess(service: RulesServiceName, path: readonly st
     path[0] === 'request' && path[1] === 'query';
 }
 
-function serviceIncompatibility(expr: Expression, service: RulesServiceName): string | null {
+function provenanceIssue(
+  provenance: AmbientProvenance,
+  service: RulesServiceName,
+): string | null {
+  if (provenance === 'unknown-ambient') return "binding '<derived ambient value>'";
+  return provenance && !allowedAmbientBinding(service, provenance)
+    ? `binding '${provenance.join('.')}'`
+    : null;
+}
+
+function serviceIncompatibility(
+  expr: Expression,
+  service: RulesServiceName,
+  ctx: AnalysisContext,
+): string | null {
   const walk = (e: Expression): string | null => {
     switch (e.type) {
       case 'memberAccess': {
-        const path = ambientBindingPath(e);
-        if (path && !allowedAmbientBinding(service, path)) return `binding '${path.join('.')}'`;
+        const issue = provenanceIssue(ambientBindingPath(e, ctx), service);
+        if (issue) return issue;
         return walk(e.object);
       }
       case 'functionCall': {
-        if (service === 'firebase.storage' && ['get', 'exists', 'getAfter', 'existsAfter', 'debug'].includes(e.name)) {
+        const called = ctx.functions.get(e.name);
+        if (!called && service === 'firebase.storage') {
           return `function '${e.name}()'`;
         }
+        if (!called && !FIRESTORE_DIRECT_FUNCTIONS.has(e.name)) return `function '${e.name}()'`;
         for (const arg of e.args) {
           const issue = walk(arg);
+          if (issue) return issue;
+        }
+        if (called && !ctx.stack.has(called.name)) {
+          const aliases = new Map<string, AmbientProvenance>();
+          called.parameters.forEach((parameter, index) => {
+            aliases.set(parameter, e.args[index] ? ambientBindingPath(e.args[index]!, ctx) : null);
+          });
+          const issue = functionIncompatibility(called, service, {
+            aliases,
+            functions: ctx.functions,
+            stack: new Set([...ctx.stack, called.name]),
+          });
           if (issue) return issue;
         }
         return null;
       }
       case 'methodCall': {
-        if (e.object.type === 'identifier') {
+        if (e.object.type === 'identifier' && !ctx.aliases.has(e.object.name)) {
           const namespaces = service === 'cloud.firestore' ? FIRESTORE_NAMESPACES : STORAGE_NAMESPACES;
           const methods = namespaces[e.object.name];
           if (methods) {
@@ -181,12 +255,17 @@ function serviceIncompatibility(expr: Expression, service: RulesServiceName): st
       case 'binaryOp': return walk(e.left) ?? walk(e.right);
       case 'unaryOp': return walk(e.operand);
       case 'bracketAccess': {
-        const fullPath = ambientBindingPath(e);
-        if (fullPath && !allowedAmbientBinding(service, fullPath)) return `binding '${fullPath.join('.')}'`;
-        const objectPath = ambientBindingPath(e.object);
-        if (objectPath && e.index.type !== 'literal' && !allowsDynamicAmbientAccess(service, objectPath)) {
-          return `binding '${objectPath.join('.')}[...]'`;
+        const objectPath = ambientBindingPath(e.object, ctx);
+        if (objectPath === 'unknown-ambient') return "binding '<derived ambient value>[...]'";
+        const literalKey = e.index.type === 'literal' && typeof e.index.value === 'string';
+        if (objectPath && !literalKey) {
+          if (!allowsDynamicAmbientAccess(service, objectPath)) {
+            return `binding '${objectPath.join('.')}[...]'`;
+          }
+          return walk(e.object) ?? walk(e.index);
         }
+        const fullIssue = provenanceIssue(ambientBindingPath(e, ctx), service);
+        if (fullIssue) return fullIssue;
         return walk(e.object) ?? walk(e.index);
       }
       case 'sliceAccess': return walk(e.object) ?? walk(e.start) ?? walk(e.end);
@@ -208,16 +287,37 @@ function serviceIncompatibility(expr: Expression, service: RulesServiceName): st
           }
         }
         return null;
-      default: return null;
+      case 'literal':
+      case 'identifier': return null;
+      default: return assertNever(e);
     }
   };
   return walk(expr);
 }
 
-export function incompatibleFunction(fn: FunctionDef, service: RulesServiceName): string | null {
+function functionIncompatibility(
+  fn: FunctionDef,
+  service: RulesServiceName,
+  ctx: AnalysisContext,
+): string | null {
+  const aliases = new Map(ctx.aliases);
+  const localCtx = { ...ctx, aliases };
   for (const binding of fn.lets) {
-    const issue = serviceIncompatibility(binding.value, service);
+    const issue = serviceIncompatibility(binding.value, service, localCtx);
     if (issue) return issue;
+    aliases.set(binding.name, ambientBindingPath(binding.value, localCtx));
   }
-  return serviceIncompatibility(fn.body, service);
+  return serviceIncompatibility(fn.body, service, localCtx);
+}
+
+export function incompatibleFunction(
+  fn: FunctionDef,
+  service: RulesServiceName,
+  functions: ReadonlyMap<string, FunctionDef> = new Map([[fn.name, fn]]),
+): string | null {
+  return functionIncompatibility(fn, service, {
+    aliases: new Map(fn.parameters.map((parameter) => [parameter, null])),
+    functions,
+    stack: new Set([fn.name]),
+  });
 }

@@ -328,6 +328,12 @@ describe('evaluateStorageRules — custom metadata access forms', () => {
       ),
     ).toBe(true);
   });
+
+  it('does not treat boxed float values as maps or sized collections', () => {
+    expect(evalRead("1.0.get('value', 0) == 1", {}, 'alice')).toBe(false);
+    expect(evalRead("1.0.keys().hasAll(['value'])", {}, 'alice')).toBe(false);
+    expect(evalRead('1.0.size() == 1', {}, 'alice')).toBe(false);
+  });
 });
 
 // ─── request.time + timestamp constructors ───────────────────────

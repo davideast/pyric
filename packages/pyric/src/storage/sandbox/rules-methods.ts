@@ -6,6 +6,7 @@ import {
   RuleEvalError,
   describeRulesType as describeType,
   isRuleError as isErr,
+  isRulesMap,
   numericValue as numVal,
   rulesEquals,
 } from './rules-values.js';
@@ -343,7 +344,7 @@ function evalSize(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): un
     throw new RuleEvalError(`size() expects no arguments`);
   }
   if (typeof subject === 'string' || Array.isArray(subject)) return subject.length;
-  if (subject !== null && typeof subject === 'object') return Object.keys(subject).length;
+  if (isRulesMap(subject)) return Object.keys(subject).length;
   throw new RuleEvalError(`size() requires a string, list, or map target, got ${describeType(subject)}`);
 }
 
@@ -354,7 +355,7 @@ function evalMapKeys(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx):
   if (expr.args.length !== 0) {
     throw new RuleEvalError(`keys() expects no arguments`);
   }
-  if (subject === null || typeof subject !== 'object' || Array.isArray(subject)) {
+  if (!isRulesMap(subject)) {
     throw new RuleEvalError(`keys() requires a map target, got ${describeType(subject)}`);
   }
   return Object.keys(subject);
@@ -382,7 +383,7 @@ function evalHasAll(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): 
 function evalMapGet(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
   const subject = evalExpr(expr.target, ctx);
   if (isErr(subject)) return subject;
-  if (subject === null || typeof subject !== 'object' || Array.isArray(subject)) {
+  if (!isRulesMap(subject)) {
     throw new RuleEvalError(`get() requires a map target, got ${describeType(subject)}`);
   }
   if (expr.args.length !== 2) {
@@ -396,6 +397,6 @@ function evalMapGet(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): 
   const fallback = evalExpr(expr.args[1], ctx);
   if (isErr(fallback)) return fallback;
   return Object.prototype.hasOwnProperty.call(subject, key)
-    ? (subject as Record<string, unknown>)[key]
+    ? subject[key]
     : fallback;
 }
