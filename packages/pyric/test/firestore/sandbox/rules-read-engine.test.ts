@@ -489,6 +489,31 @@ describe('RulesReadEngine.runQuery', () => {
     expect(result.allowed).toBe(false);
   });
 
+  test('fails closed when a helper aliases the request before reading its path', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{document=**} {
+          function allowsSyntheticRoot() {
+            let aliased = request;
+            return aliased.path.document == 'items/__listPlaceholder__';
+          }
+          allow list: if allowsSyntheticRoot();
+        }
+      }
+    }`;
+    const { engine } = makeEngine(rules, {
+      'parents/a/items/secret': { secret: true },
+    });
+
+    const result = engine.runQuery({
+      scope: { kind: 'collection-group', collectionId: 'items' },
+      auth: null,
+      execution,
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
   test('fails closed for an empty collection group instead of authorizing from current rows', () => {
     const rules = `rules_version = '2'; service cloud.firestore {
       match /databases/{database}/documents {

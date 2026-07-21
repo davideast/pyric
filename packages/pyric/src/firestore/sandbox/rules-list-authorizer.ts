@@ -333,22 +333,26 @@ function expressionDependsOnPath(expression: Expression, recursiveName: string):
     case 'literal':
       return false;
     case 'identifier':
-      return expression.name === recursiveName;
-    case 'memberAccess':
-      return (
-        expression.property === 'path' &&
-        expression.object.type === 'identifier' &&
-        expression.object.name === 'request'
-      ) || depends(expression.object);
+      // A bare request can be aliased and inspected later. Only explicit,
+      // path-invariant request fields are accepted below.
+      return expression.name === recursiveName || expression.name === 'request';
+    case 'memberAccess': {
+      if (expression.object.type === 'identifier' && expression.object.name === 'request') {
+        return !REQUEST_PATH_INVARIANT_FIELDS.has(expression.property);
+      }
+      return depends(expression.object);
+    }
     case 'methodCall':
       return depends(expression.object) || expression.args.some(depends);
     case 'bracketAccess':
-      return (
-        expression.object.type === 'identifier' &&
-        expression.object.name === 'request' &&
-        expression.index.type === 'literal' &&
-        expression.index.value === 'path'
-      ) || depends(expression.object) || depends(expression.index);
+      if (expression.object.type === 'identifier' && expression.object.name === 'request') {
+        return !(
+          expression.index.type === 'literal' &&
+          typeof expression.index.value === 'string' &&
+          REQUEST_PATH_INVARIANT_FIELDS.has(expression.index.value)
+        );
+      }
+      return depends(expression.object) || depends(expression.index);
     case 'sliceAccess':
       return depends(expression.object) || depends(expression.start) || depends(expression.end);
     case 'binaryOp':
@@ -371,3 +375,5 @@ function expressionDependsOnPath(expression: Expression, recursiveName: string):
       return expression.args.some(depends);
   }
 }
+
+const REQUEST_PATH_INVARIANT_FIELDS = new Set(['auth', 'method', 'query', 'time']);
