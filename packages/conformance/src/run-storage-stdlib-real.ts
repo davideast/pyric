@@ -6,6 +6,8 @@
  * match block, writes three run-scoped Firestore documents, and performs real
  * anonymous Storage uploads. The previous Storage release pointer is restored
  * in finally, then every object/document is deleted and absence is verified.
+ * Additional explicit modes cover native object fields and the remaining
+ * cross-service database/project boundaries through the same exclusive lock.
  */
 import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -30,28 +32,28 @@ const IAM_RETRY_MS = 30_000;
 const IAM_RETRY_LIMIT = 6;
 const LOCK_PATH = '/tmp/pyric-storage-stdlib-real.lock';
 
-function acquireRunLock(): () => void {
+export function acquireRunLock(lockPath = LOCK_PATH): () => void {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const fd = openSync(LOCK_PATH, 'wx', 0o600);
+      const fd = openSync(lockPath, 'wx', 0o600);
       writeFileSync(fd, `${process.pid}\n`);
       closeSync(fd);
       return () => {
         try {
-          if (readFileSync(LOCK_PATH, 'utf8').trim() === String(process.pid)) unlinkSync(LOCK_PATH);
+          if (readFileSync(lockPath, 'utf8').trim() === String(process.pid)) unlinkSync(lockPath);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      const pid = Number.parseInt(readFileSync(LOCK_PATH, 'utf8').trim(), 10);
+      const pid = Number.parseInt(readFileSync(lockPath, 'utf8').trim(), 10);
       try {
         process.kill(pid, 0);
         throw new Error(`another storage-stdlib real-resource probe is already running (pid ${pid})`);
       } catch (probeError) {
         if ((probeError as NodeJS.ErrnoException).code !== 'ESRCH') throw probeError;
-        unlinkSync(LOCK_PATH);
+        unlinkSync(lockPath);
       }
     }
   }
@@ -61,7 +63,7 @@ function acquireRunLock(): () => void {
 function inert(): void {
   console.log('[storage-stdlib:real] credentials absent — INERT preview; no network calls.');
   console.log('Requires PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG.');
-  console.log('Would create 3 Firestore docs, evaluate the selected Storage matrix with a bounded IAM retry, restore prior Rules releases, and verify cleanup.');
+  console.log('Would evaluate the selected bounded Storage matrix, restore prior Rules releases/IAM, and verify run-scoped cleanup.');
 }
 
 function canonicalPolicy(policy: IamPolicy): string {
@@ -203,6 +205,10 @@ function injectFirestoreProbeRule(source: string, runId: string, allow: boolean)
 
 async function run(): Promise<void> {
   if (!process.env.PYRIC_ORACLE_SA_PATH || !process.env.PYRIC_AI_FIREBASE_CONFIG) return inert();
+  if (Bun.argv.includes('--native-fields') || Bun.argv.includes('--remaining-cross-service')) {
+    const { runStorageStdlibRemaining } = await import('./run-storage-stdlib-remaining.ts');
+    return runStorageStdlibRemaining(Bun.argv.includes('--native-fields') ? 'native-fields' : 'remaining-cross-service');
+  }
 
   const saPath = resolve('/home/david/repos/davideast/pyric', process.env.PYRIC_ORACLE_SA_PATH);
   const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;

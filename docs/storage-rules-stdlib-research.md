@@ -103,6 +103,36 @@ The next IAM-enabled advanced matrix established:
 The advanced rig restores both exact Rules release pointers, and an exclusive
 local lock now rejects overlapping real-resource runs before network mutation.
 
+The remaining high-value production probes established the server-owned and
+project/database boundaries:
+
+- Existing Storage objects exposed exact generation, metageneration, MD5,
+  CRC32C, etag, `timeCreated`, and `updated` values to Rules. Grouped mismatch
+  controls denied.
+- Incoming creates exposed computed MD5 and CRC32C values. Accessing incoming
+  generation, etag, or creation time denied, matching the documented
+  `request.resource` exclusions.
+- A metadata-only update preserved generation, hashes, and creation time while
+  advancing metageneration and `updated`. Byte overwrites guarded by changed MD5
+  or CRC32C allowed and advanced generation while changing both hashes.
+- Three `false -> true -> false` Firestore membership cycles all produced the
+  expected immediate Storage decision. The six requests began 106-457 ms after
+  their corresponding write began; no delayed confirmation was needed. This is
+  bounded characterization, not a latency guarantee.
+- A verified `allow: true` document in the existing `probes` named database
+  still denied through a named-database lookup, while the default-database
+  control tracked its document value. Storage-to-Firestore access remains
+  default-database-only.
+- With identical paths and opposite values in `digame-mas` and `genkit-idx`,
+  Storage hosted by `digame-mas` followed only the `digame-mas` value. The
+  lookup cannot escape into another project's Firestore data.
+
+The two executions stayed within their authored caps: 38 Storage operations
+for native fields, then 23 Storage operations and 22 Firestore writes for all
+remaining cross-service cases combined. Both independently verified the prior
+Storage release, empty object namespace, deleted documents, and—where used—the
+restored IAM policy before writing observations.
+
 ## Baseline conclusion
 
 `storage.rules` does **not yet work end to end with `rules_version = '2+modules'` in Pyric's normal Storage path**.
