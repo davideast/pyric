@@ -13,8 +13,7 @@ import type { ChatPageServices, UiConversation, UiMessage, UiNotification, UiPre
 import type { ChatMode } from '../../chat-mode';
 import { MarkdownMessage } from './markdown-message';
 import { storePreviewComponent } from './preview-component-state';
-
-const starterMessages: UiMessage[] = [{ id: 'welcome', role: 'assistant', text: 'Good morning. What would you like to work through?', status: 'complete' }];
+import { reconcileMessages, starterMessages } from './message-reconciliation';
 
 const initials = (user: UiUser | null): string =>
   (user?.displayName ?? user?.email ?? 'You').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
@@ -27,11 +26,6 @@ const modeOptions: Array<{ id: ChatMode; label: string; description: string; pla
   { id: 'plan', label: 'Plan', description: 'Make it actionable', placeholder: 'Turn an idea into a plan…' },
   { id: 'refine', label: 'Refine', description: 'Pressure-test a direction', placeholder: 'Pressure-test a direction…' },
 ];
-const chronological = (items: UiMessage[]): UiMessage[] => [...items].sort((a, b) => {
-  if (!a.createdAt || !b.createdAt) return 0;
-  return a.createdAt.getTime() - b.createdAt.getTime();
-});
-
 const conversationIdFromUrl = (): string | null => new URLSearchParams(window.location.search).get('conversation');
 
 const writeConversationUrl = (conversationId: string | null, replace = false): void => {
@@ -39,65 +33,6 @@ const writeConversationUrl = (conversationId: string | null, replace = false): v
   if (conversationId) url.searchParams.set('conversation', conversationId);
   else url.searchParams.delete('conversation');
   window.history[replace ? 'replaceState' : 'pushState']({}, '', `${url.pathname}${url.search}${url.hash}`);
-};
-
-const reconcileMessages = (serverMessages: UiMessage[], currentMessages: UiMessage[]): UiMessage[] => {
-  const seenServerMessages = new Set<string>();
-  const server = chronological(serverMessages).filter((message) => {
-    if (!message.clientMessageId) return true;
-    const key = `${message.role}:${message.clientMessageId}`;
-    if (seenServerMessages.has(key)) return false;
-    seenServerMessages.add(key);
-    return true;
-  });
-  const serverClientIds = new Set(server.map((message) => message.clientMessageId).filter(Boolean));
-  const localAssistants = currentMessages.filter((message) => message.role === 'assistant' && message.id !== 'welcome');
-  const persistedAssistantIds = new Set(server.filter((message) => message.role === 'assistant').map((message) => message.clientMessageId).filter(Boolean));
-  const linkedAssistants = new Set<string>();
-  const result: UiMessage[] = [];
-
-  const addReply = (message: UiMessage) => {
-    for (const assistant of localAssistants) {
-      if (assistant.replyToClientMessageId === message.clientMessageId && !persistedAssistantIds.has(assistant.id)) {
-        result.push(assistant);
-        linkedAssistants.add(assistant.id);
-      }
-    }
-  };
-
-  for (const message of server) {
-    result.push(message);
-    if (message.role === 'user') addReply(message);
-  }
-
-  for (const message of currentMessages) {
-    if (message.role === 'user' && message.clientMessageId && !serverClientIds.has(message.clientMessageId)) {
-      result.push(message);
-      addReply(message);
-    }
-  }
-
-  result.push(...localAssistants.filter((message) => !linkedAssistants.has(message.id) && !message.replyToClientMessageId));
-
-  const turnKey = (message: UiMessage): string => {
-    if (message.role === 'assistant') {
-      if (message.replyToClientMessageId) return message.replyToClientMessageId;
-      if (message.clientMessageId?.startsWith('assistant-')) return message.clientMessageId.slice('assistant-'.length);
-    }
-    return message.clientMessageId ?? message.id;
-  };
-  const turnOrder = new Map<string, number>();
-  result.forEach((message, index) => {
-    const key = turnKey(message);
-    if (!turnOrder.has(key)) turnOrder.set(key, index);
-  });
-  return result.length ? [...result].sort((a, b) => {
-    const orderDifference = (turnOrder.get(turnKey(a)) ?? 0) - (turnOrder.get(turnKey(b)) ?? 0);
-    if (orderDifference !== 0) return orderDifference;
-    if (a.role === 'user' && b.role !== 'user') return -1;
-    if (a.role !== 'user' && b.role === 'user') return 1;
-    return 0;
-  }) : starterMessages;
 };
 
 function CopyMessageButton({ text }: { text: string }) {
