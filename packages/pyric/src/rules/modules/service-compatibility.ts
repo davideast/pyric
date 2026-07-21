@@ -197,6 +197,7 @@ type RulesReceiverType =
   | 'map'
   | 'mapdiff'
   | 'namespace'
+  | 'null'
   | 'number'
   | 'path'
   | 'set'
@@ -250,6 +251,7 @@ function ambientMethodReturnType(expression: Expression): RulesReceiverType | nu
   }
   if (['lower', 'upper', 'trim', 'replace', 'join', 'toBase64', 'toHexString']
     .includes(expression.method)) return 'string';
+  if (['matches', 'hasAny', 'hasAll', 'hasOnly'].includes(expression.method)) return 'boolean';
   if (['concat', 'removeAll', 'split', 'values'].includes(expression.method)) return 'list';
   if (['keys', 'toSet', 'addedKeys', 'removedKeys', 'changedKeys', 'affectedKeys',
     'unchangedKeys', 'difference', 'union', 'intersection'].includes(expression.method)) return 'set';
@@ -277,9 +279,11 @@ function expressionReceiverType(
       return namespaces[expression.name] || expression.name === 'firestore' ? 'namespace' : null;
     }
     case 'literal':
-      return typeof expression.value === 'string'
-        ? 'string'
-        : typeof expression.value === 'number' ? 'number' : null;
+      if (expression.value === null) return 'null';
+      if (typeof expression.value === 'string') return 'string';
+      if (typeof expression.value === 'number') return 'number';
+      if (typeof expression.value === 'boolean') return 'boolean';
+      return null;
     case 'listLiteral': return 'list';
     case 'mapLiteral': return 'map';
     case 'pathLiteral': return 'path';
@@ -342,12 +346,16 @@ function expressionReceiverType(
       const left = expressionReceiverType(expression.left, ctx);
       const right = expressionReceiverType(expression.right, ctx);
       if (expression.op === '+' && (left === 'string' || right === 'string')) return 'string';
+      if (['==', '!=', '<', '<=', '>', '>=', '&&', '||'].includes(expression.op)) return 'boolean';
       return ['+', '-', '*', '/', '%'].includes(expression.op) && left === 'number' && right === 'number'
         ? 'number' : null;
     }
     case 'unaryOp':
+      if (expression.op === '!') return 'boolean';
       return expression.op === '-' && expressionReceiverType(expression.operand, ctx) === 'number'
         ? 'number' : null;
+    case 'inExpr':
+    case 'isExpr': return 'boolean';
     case 'ternary': {
       const consequent = expressionReceiverType(expression.consequent, ctx);
       const alternate = expressionReceiverType(expression.alternate, ctx);

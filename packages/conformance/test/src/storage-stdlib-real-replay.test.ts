@@ -87,17 +87,17 @@ function verdicts(advanced: boolean, families: string[]): Record<string, 'ALLOW'
 describe('real-resource Storage stdlib observation replay', () => {
   it('locks every row 131 observation to its reconstructed injected probe block', () => {
     const cases = [
-      ['stdlib-realstorage-p3-lookup-budget-iam-enabled', storageStdlibRealProbeBlockDigest(false)],
-      ['stdlib-realstorage-p3-advanced-iam-enabled', storageStdlibRealProbeBlockDigest(true)],
-      ['stdlib-realstorage-p3-named-database', storageStdlibRemainingProbeBlockDigest()],
-      ['stdlib-realstorage-p3-project-isolation', storageStdlibRemainingProbeBlockDigest()],
+      ['stdlib-realstorage-p3-lookup-budget-iam-enabled', storageStdlibRealProbeBlockDigest(false), 'normalized-probe-rules-with-canonical-wrapper'],
+      ['stdlib-realstorage-p3-advanced-iam-enabled', storageStdlibRealProbeBlockDigest(true), 'normalized-probe-rules-with-canonical-wrapper'],
+      ['stdlib-realstorage-p3-named-database', storageStdlibRemainingProbeBlockDigest(), 'normalized-injected-probe-block-only'],
+      ['stdlib-realstorage-p3-project-isolation', storageStdlibRemainingProbeBlockDigest(), 'normalized-injected-probe-block-only'],
     ] as const;
-    for (const [name, digest] of cases) {
+    for (const [name, digest, scope] of cases) {
       const lock = sourceLock(name);
       expect(lock).toMatchObject({
         observation: name,
-        scope: 'normalized-injected-probe-block-only',
-        basis: 'reconstructed-from-capture-commit',
+        scope,
+        basis: 'reviewed-reconstruction-from-historical-capture-code',
         sha256: digest,
       });
     }

@@ -2,6 +2,5 @@
   "observation": "stdlib-realstorage-p3-named-database",
   "scope": "normalized-injected-probe-block-only",
   "sha256": "ef6ccb0b1810e2ac0c87e4b9ff8f90c15f652610a1faddaa30f0fe97515ebfb8",
-  "basis": "reconstructed-from-capture-commit",
-  "captureCommit": "abe63d43e66c5f26f42c1dab1a2fcdd643c29c50"
+  "basis": "reviewed-reconstruction-from-historical-capture-code"
 }

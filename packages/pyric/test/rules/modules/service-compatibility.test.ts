@@ -239,7 +239,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
 
@@ -269,7 +268,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         makeStorageSource("import { broken } from './policy';", 'broken()'),
         { modules: { './policy': `export function broken() { return ${expression}; }` } },
       );
-
       expect(result.success, expression).toBe(false);
     }
   });
@@ -280,13 +278,16 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       "{'x': 1}.split('x').size() > 0",
       "'text'.keys().hasAll([])",
       "1.matches('x')",
+      "true.matches('x')",
+      'false.keys().hasAll([])',
+      "null.split('x')",
+      "'x'.matches('x').keys().hasAll([])",
       "duration.value(1, 's').keys().hasAll([])",
     ]) {
       const result = resolveModules(
         makeStorageSource("import { broken } from './policy';", 'broken()'),
         { modules: { './policy': `export function broken() { return ${expression}; }` } },
       );
-
       expect(result.success, expression).toBe(false);
     }
   });
@@ -302,7 +303,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         makeStorageSource("import { broken } from './policy';", call),
         { modules: { './policy': `export function broken(${parameter}) { return ${expression}; }` } },
       );
-
       expect(result.success, expression).toBe(false);
     }
   });
