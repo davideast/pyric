@@ -1,7 +1,12 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
-import { contentTypeFor, pipeFileToResponse, resolveStaticFile } from './server.js';
+import {
+  contentTypeFor,
+  decodeStaticPathname,
+  pipeFileToResponse,
+  resolveStaticFile,
+} from './server.js';
 
 interface StudioRoutesManifest {
   routes: string[];
@@ -42,8 +47,13 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
     }
 
     const rel = url.pathname.slice('/__pyric/ui'.length) || '/';
+    const decodedRel = decodeStaticPathname(rel);
+    if (decodedRel === null) {
+      res.writeHead(404).end('not found');
+      return true;
+    }
     if (!rel.endsWith('/') && !extname(rel)) {
-      const dir = join(root, decodeURIComponent(rel));
+      const dir = join(root, decodedRel);
       if (existsSync(dir) && statSync(dir).isDirectory()) {
         res.writeHead(301, { location: `${url.pathname}/` }).end();
         return true;

@@ -55,6 +55,7 @@ describe('resolveStaticFile', () => {
     expect(resolveStaticFile(site, '/docs')).toContain('docs/index.html');
     expect(resolveStaticFile(site, '/../../../etc/passwd')).toBeNull();
     expect(resolveStaticFile(site, '/%2e%2e/%2e%2e/etc/passwd')).toBeNull();
+    expect(resolveStaticFile(site, '/docs/%E0%A4%A')).toBeNull();
     expect(resolveStaticFile(site, '/missing.js')).toBeNull();
   });
 });

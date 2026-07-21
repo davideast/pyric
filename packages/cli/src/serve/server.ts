@@ -173,10 +173,20 @@ export function contentTypeFor(path: string): string {
   return CONTENT_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream';
 }
 
+/** Decode a URL pathname for static-file lookup. Malformed escapes are misses. */
+export function decodeStaticPathname(pathname: string): string | null {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve a request path inside `publicDir`, refusing traversal. Returns
  *  null when the path escapes the root or doesn't exist as a file. */
 export function resolveStaticFile(publicDir: string, pathname: string): string | null {
-  const decoded = decodeURIComponent(pathname);
+  const decoded = decodeStaticPathname(pathname);
+  if (decoded === null) return null;
   const root = resolve(publicDir);
   const candidate = normalize(join(root, decoded));
   if (candidate !== root && !candidate.startsWith(root + sep)) return null; // traversal
