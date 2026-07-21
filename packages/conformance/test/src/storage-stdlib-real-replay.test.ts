@@ -3,16 +3,28 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseStorageRules } from '../../../pyric/src/storage/sandbox/rules.ts';
 import { evaluateStorageRules } from '../../../pyric/src/storage/sandbox/rules-evaluator.ts';
-import { injectProbeRules } from '../../src/run-storage-stdlib-real.ts';
+import {
+  injectProbeRules,
+  storageStdlibRealProbeDigest,
+} from '../../src/run-storage-stdlib-real.ts';
+import { storageStdlibRemainingProbeDigest } from '../../src/run-storage-stdlib-remaining.ts';
 
 const OBS_DIR = join(import.meta.dir, '..', '..', 'observations', 'storage-rules');
 const RUN_ID = 'local-replay';
 const PREFIX = `__pyric_storage_stdlib/${RUN_ID}`;
 
-function behavior(name: string): Record<string, 'ALLOW' | 'DENY'> {
-  const value = JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
+function observation(name: string): {
+  behavior?: Record<string, unknown>;
+  probeRulesSha256?: string;
+} {
+  return JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
     behavior?: Record<string, unknown>;
+    probeRulesSha256?: string;
   };
+}
+
+function behavior(name: string): Record<string, 'ALLOW' | 'DENY'> {
+  const value = observation(name);
   const result: Record<string, 'ALLOW' | 'DENY'> = {};
   for (const [key, verdict] of Object.entries(value.behavior ?? {})) {
     if (verdict !== 'ALLOW' && verdict !== 'DENY') {
@@ -65,6 +77,18 @@ function verdicts(advanced: boolean, families: string[]): Record<string, 'ALLOW'
 }
 
 describe('real-resource Storage stdlib observation replay', () => {
+  it('locks every row 131 observation to its normalized deployed probe rules', () => {
+    expect(observation('stdlib-realstorage-p3-lookup-budget-iam-enabled').probeRulesSha256)
+      .toBe(storageStdlibRealProbeDigest(false));
+    expect(observation('stdlib-realstorage-p3-advanced-iam-enabled').probeRulesSha256)
+      .toBe(storageStdlibRealProbeDigest(true));
+    const remainingDigest = storageStdlibRemainingProbeDigest();
+    expect(observation('stdlib-realstorage-p3-named-database').probeRulesSha256)
+      .toBe(remainingDigest);
+    expect(observation('stdlib-realstorage-p3-project-isolation').probeRulesSha256)
+      .toBe(remainingDigest);
+  });
+
   it('replays the IAM-enabled lookup budget and caching matrix locally', () => {
     const observed = behavior('stdlib-realstorage-p3-lookup-budget-iam-enabled');
     const families = ['one', 'two', 'three', 'repeat', 'get-exists', 'short', 'missing-exists', 'missing-get'];

@@ -10,6 +10,7 @@
  * cross-service database/project boundaries through the same exclusive lock.
  */
 import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cert } from 'firebase-admin/app';
@@ -190,6 +191,15 @@ export function injectProbeRules(source: string, runId: string, advanced: boolea
 `;
   const block = advanced ? advancedBlock : coreBlock;
   return `${source.slice(0, insertAt)}${block}${source.slice(insertAt)}`;
+}
+
+export function storageStdlibRealProbeDigest(advanced: boolean): string {
+  const canonical = injectProbeRules(
+    "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { } }",
+    '__RUN_ID__',
+    advanced,
+  );
+  return createHash('sha256').update(canonical).digest('hex');
 }
 
 function injectFirestoreProbeRule(source: string, runId: string, allow: boolean): string {
@@ -504,6 +514,7 @@ async function run(): Promise<void> {
     diagnostics,
     cleanup: { releaseRestored, firestoreReleaseRestored, objectsRemoved, documentsRemoved, iamRestored: !temporaryIam },
     iam: { temporaryIam, externallyEnabledIam, iamChanged },
+    probeRulesSha256: storageStdlibRealProbeDigest(advanced),
     probeRulesetCreated: !!probeRulesetName,
   };
   } finally {

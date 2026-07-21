@@ -302,16 +302,20 @@ export function resolveModulesWith(
     for (const fn of injected) {
       const callSites: ModuleCallSite[] = [
         ...moduleCallSites(ast, fn.name),
-        ...functionCallSites(allModuleFunctions, fn.name).map((args) => ({ args, receiverTypes: [] })),
+        ...functionCallSites(allModuleFunctions, fn.name)
+          .map((args) => ({ args, provenances: [], receiverTypes: [] })),
       ];
-      const argumentSets = callSites.length > 0 ? callSites : [{ args: [], receiverTypes: [] }];
-      for (const { args, receiverTypes } of argumentSets) {
+      const argumentSets = callSites.length > 0
+        ? callSites
+        : [{ args: [], provenances: [], receiverTypes: [] }];
+      for (const { args, provenances, receiverTypes } of argumentSets) {
         const requirement = incompatibleFunction(
           fn,
           ast.service.name,
           allModuleFunctions,
           args,
           receiverTypes,
+          provenances,
         );
         if (requirement) {
           return {

@@ -1,4 +1,5 @@
 import { deleteApp, initializeApp } from 'firebase/app';
+import { createHash } from 'node:crypto';
 import { getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 import {
   RequestBudget,
@@ -35,7 +36,7 @@ const IAM_SETTLE_MS = 120_000;
 const IAM_RETRY_MS = 30_000;
 const IAM_RETRY_LIMIT = 6;
 
-function crossServiceRules(runId: string): string {
+export function crossServiceRules(runId: string): string {
   const doc = (database: string, id: string) => `/databases/${database}/documents/__pyric_storage_stdlib/${runId}/docs/${id}`;
   return `
     // @pyric/storage-stdlib-remaining/${runId}
@@ -47,6 +48,10 @@ function crossServiceRules(runId: string): string {
     match /__pyric_storage_stdlib/${runId}/named-probes/{id} { allow write: if firestore.get(${doc('probes', 'named')}).data.allow == true; }
     match /__pyric_storage_stdlib/${runId}/isolation/{id} { allow write: if firestore.get(${doc('(default)', 'isolation')}).data.allow == true; }
 `;
+}
+
+export function storageStdlibRemainingProbeDigest(): string {
+  return createHash('sha256').update(crossServiceRules('__RUN_ID__')).digest('hex');
 }
 
 async function patchDocument(name: string, allow: boolean, headers: AccessHeaders, budget: RequestBudget): Promise<{ updateTime?: string }> {
@@ -327,7 +332,7 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       namedDiagnostics,
       cleanup,
       budget,
-      { iam, namedDatabase: 'probes' },
+      { iam, namedDatabase: 'probes', probeRulesSha256: storageStdlibRemainingProbeDigest() },
     ),
     storageObservation(
       'stdlib-realstorage-p3-project-isolation',
@@ -338,7 +343,7 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       isolationDiagnostics,
       cleanup,
       budget,
-      { iam, secondaryProjectId: secondarySa.project_id },
+      { iam, secondaryProjectId: secondarySa.project_id, probeRulesSha256: storageStdlibRemainingProbeDigest() },
     ),
   ]);
 }

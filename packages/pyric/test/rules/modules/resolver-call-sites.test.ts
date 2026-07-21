@@ -64,4 +64,17 @@ service firebase.storage {
 }`, { modules: { './policy': "export function check(value) { return value.matches('.*'); }" } });
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
+
+  test('preserves ambient provenance through source helpers and lets', () => {
+    const result = resolveModules(`rules_version = '2+modules';
+import { bad } from './policy';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function value() { return request.resource; }
+    function gate() { let incoming = value(); return bad(incoming); }
+    match /{file} { allow write: if gate(); }
+  }
+}`, { modules: { './policy': 'export function bad(value) { return value.md5Hash != null; }' } });
+    expect(result.success).toBe(false);
+  });
 });
