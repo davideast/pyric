@@ -58,6 +58,14 @@ service firebase.storage {
     expect(resolution.bundledModules).toEqual([]);
   });
 
+  test('does not award evidence for an unproven future Storage module', () => {
+    const source = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if true; } }
+}`;
+    expect(resolutionFor(source, ['storage/integrity']).evidenceIds).toEqual([]);
+  });
+
   test('does not confuse shadowed identifiers with the Firestore namespace', () => {
     const source = `rules_version = '2';
 service firebase.storage {

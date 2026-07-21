@@ -333,7 +333,11 @@ When new patterns or approaches are discovered:
    ALLOW/DENY as expected; UNSUPPORTED is a hard failure). Cases whose
    rules call `get()`/`exists()` must carry `functionMocks` so the
    fixture is self-contained.
-5. **Verify against production** — run a live v1 scope test (real database, not Rules Test API). Record the v1 scope file name in the manifest.
+5. **Verify the claim with the right oracle** — for pure function bodies, use
+   exact Rules Test API cases plus an AST source lock and local replay. For
+   resource-dependent claims (real documents or objects, IAM, lookup budgets,
+   caching, or consistency), deploy a bounded live v1 resource probe, restore
+   the prior release, and verify cleanup. Record the evidence in the manifest.
 6. **Update this manifest** — add the module, update the audit date.
 
 ### Stdlib vs Pattern vs Asset

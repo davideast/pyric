@@ -435,6 +435,18 @@ describe('export filtering', () => {
 });
 
 describe('user modules via options', () => {
+  test('ignores inherited module-map properties', () => {
+    const modules = Object.create({
+      './helpers': 'export function inherited() { return true; }',
+    }) as Record<string, string>;
+    const result = resolveModules(
+      makeSource("import { inherited } from './helpers';"),
+      { modules },
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('UNKNOWN_MODULE');
+  });
+
   test('modules map provides content directly', () => {
     const result = resolveModules(
       makeSource("import { myFn } from './custom';"),

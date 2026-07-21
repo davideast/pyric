@@ -127,7 +127,7 @@ export function loadModuleWith(
   bundledSuppliedModules: ReadonlySet<string> = new Set(),
 ): LoadResult {
   // Priority 1: explicit modules map
-  if (options?.modules && moduleName in options.modules) {
+  if (options?.modules && Object.prototype.hasOwnProperty.call(options.modules, moduleName)) {
     return loadModuleFromContent(
       options.modules[moduleName], moduleName, bundledSuppliedModules.has(moduleName),
     );
