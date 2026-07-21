@@ -158,6 +158,9 @@ only rules that the static proof accepted and a synthetic resource built from
 query equalities, never a user-addressable placeholder document from local
 state. This keeps overlapping-rule OR semantics without letting an unprovable
 sibling or stored row authorize a broader query.
+For every list query, candidate-document wildcards and `request.path` are
+result-dependent and therefore cannot prove the query safe; fixed ancestor
+wildcards and request auth/query/time/method remain query-invariant.
 Group-specific version-2 shapes such as `/{path=**}/items/{id}` return
 `permission-denied` until the rules matcher can symbolically evaluate a
 recursive wildcard with trailing segments. The explicit `bypassRules` admin

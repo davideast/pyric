@@ -31,6 +31,8 @@ type Decision = 'ALLOW' | 'DENY' | 'UNSUPPORTED';
 export interface MatchResult {
   block: MatchBlock;
   pathVariables: Record<string, string>;
+  /** Wildcards whose value includes the final candidate-document segment. */
+  candidateVariables: string[];
   /** Global, service, root, ancestor, and matched-block helpers in scope. */
   functions: FunctionDef[];
 }
@@ -99,6 +101,7 @@ export function collectMatches(
   // Check if this block's path pattern matches the remaining segments
   const pattern = block.path.segments;
   const bindings: Record<string, string> = {};
+  const candidateVariables: string[] = [];
   let consumed = 0;
   // Track WHY we stopped — needed for the resolution trace. Default
   // 'literal-mismatch' is overwritten before the early-return paths
@@ -126,10 +129,12 @@ export function collectMatches(
         break;
       }
       bindings[seg.name] = pathSegments[consumed];
+      if (consumed === pathSegments.length - 1) candidateVariables.push(seg.name);
       consumed++;
     } else if (seg.type === 'recursive') {
       // {document=**} matches all remaining segments
       bindings[seg.name] = pathSegments.slice(consumed).join('/');
+      if (consumed < pathSegments.length) candidateVariables.push(seg.name);
       consumed = pathSegments.length;
     }
   }
@@ -163,7 +168,7 @@ export function collectMatches(
       bindings,
       matched: true,
     });
-    return [{ block, pathVariables: bindings, functions: allFunctions }];
+    return [{ block, pathVariables: bindings, candidateVariables, functions: allFunctions }];
   }
 
   // Otherwise descend into EVERY child and collect all matches — this block
@@ -175,6 +180,7 @@ export function collectMatches(
     for (const childResult of collectMatches(child, remaining, allFunctions, recorder)) {
       // Merge this block's bindings into each descendant match.
       childResult.pathVariables = { ...bindings, ...childResult.pathVariables };
+      childResult.candidateVariables = [...candidateVariables, ...childResult.candidateVariables];
       results.push(childResult);
     }
   }

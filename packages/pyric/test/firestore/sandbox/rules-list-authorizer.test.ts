@@ -277,4 +277,72 @@ describe('RulesListAuthorizer', () => {
     expect(result.allowed).toBe(false);
   });
 
+  for (const condition of [
+    "id == '__listPlaceholder__'",
+    "request.path.id == '__listPlaceholder__'",
+  ]) {
+    test(`does not treat a synthetic-path condition as query-wide: ${condition}`, () => {
+      const rules = `rules_version = '2'; service cloud.firestore {
+        match /databases/{database}/documents {
+          match /items/{id} { allow list: if ${condition}; }
+        }
+      }`;
+
+      const result = makeAuthorizer(rules, {
+        'items/secret': { visibility: 'private' },
+      }).authorizer.authorize({
+        path: 'items',
+        auth: null,
+        constraints: {},
+        origin: 'user',
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+  }
+
+  test('does not hide candidate-path dependence behind a helper alias', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} {
+          function isPlaceholder() {
+            let aliased = id;
+            return aliased == '__listPlaceholder__';
+          }
+          allow list: if isPlaceholder();
+        }
+      }
+    }`;
+
+    const result = makeAuthorizer(rules, {
+      'items/secret': { visibility: 'private' },
+    }).authorizer.authorize({
+      path: 'items',
+      auth: null,
+      constraints: {},
+      origin: 'user',
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
+  test('keeps fixed ancestor wildcards available to a collection rule', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /users/{userId}/items/{id} {
+          allow list: if userId == 'alice';
+        }
+      }
+    }`;
+
+    const result = makeAuthorizer(rules).authorizer.authorize({
+      path: 'users/alice/items',
+      auth: null,
+      constraints: {},
+      origin: 'user',
+    });
+
+    expect(result).toEqual({ allowed: true });
+  });
+
 });

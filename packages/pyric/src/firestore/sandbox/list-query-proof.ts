@@ -43,6 +43,7 @@ import {
   type QueryWhereConstraint,
 } from '../../rules/simulator/query-proof.js';
 import { collectMatches, type MatchResult } from '../../rules/simulator/handler.js';
+import { analyzeListRulePathInvariance } from './list-rule-path-proof.js';
 
 export type { QueryConstraints, QueryProofResidual, QueryWhereConstraint };
 
@@ -110,6 +111,18 @@ export function proveListQuery(
     for (const rule of match.block.allows) {
       if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
       applicableRuleCount++;
+      const pathAnalysis = analyzeListRulePathInvariance(
+        rule.condition,
+        new Set(match.candidateVariables),
+        fnMap,
+      );
+      if (!pathAnalysis.pathInvariant) {
+        failures.push({
+          reason: 'list rule depends on the candidate document path',
+          residual: { missing: [], mismatched: [] },
+        });
+        continue;
+      }
       // `auth.uid` is threaded into the proof so the canonical owner pattern
       // can be discharged by a matching query equality. Residual simulation
       // still evaluates the real auth value against the synthetic resource.
