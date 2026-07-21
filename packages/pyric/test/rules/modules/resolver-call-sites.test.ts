@@ -52,6 +52,18 @@ service firebase.storage {
     expect(result.success).toBe(false);
   });
 
+  test('rejects an unresolved member receiver projected from a map parameter', () => {
+    const result = resolveModules(`rules_version = '2+modules';
+import { broken } from './policy';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{file} { allow read: if broken({'flag': true}); }
+  }
+}`, { modules: { './policy': "export function broken(value) { return value.flag.matches('x'); }" } });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+  });
+
   test('preserves a valid receiver through source parameters, lets, and helper returns', () => {
     const result = resolveModules(`rules_version = '2+modules';
 import { check } from './policy';
