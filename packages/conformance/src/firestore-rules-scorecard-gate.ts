@@ -34,7 +34,8 @@ export interface FirestoreScorecardBaseline {
   constructs: Readonly<Record<string, Pick<
     FirestoreConstructScore,
     'productionAcceptance' | 'localAcceptance' | 'productionRejectionSignature' | 'localRejectionSignature' |
-    'localCapability' | 'productionEvidence' | 'classification'
+    'localCapability' | 'productionProbeDigest' | 'currentProbeDigest' | 'acceptanceProbeBound' |
+    'productionEvidence' | 'classification'
   >>>;
 }
 
@@ -56,6 +57,9 @@ export function firestoreScorecardBaseline(
       ...(construct.productionRejectionSignature ? { productionRejectionSignature: construct.productionRejectionSignature } : {}),
       ...(construct.localRejectionSignature ? { localRejectionSignature: construct.localRejectionSignature } : {}),
       localCapability: construct.localCapability,
+      ...(construct.productionProbeDigest ? { productionProbeDigest: construct.productionProbeDigest } : {}),
+      ...(construct.currentProbeDigest ? { currentProbeDigest: construct.currentProbeDigest } : {}),
+      acceptanceProbeBound: construct.acceptanceProbeBound,
       productionEvidence: construct.productionEvidence,
       classification: construct.classification,
     }])),
@@ -118,6 +122,9 @@ export function compareFirestoreScorecardBaseline(
       'productionRejectionSignature',
       'localRejectionSignature',
       'localCapability',
+      'productionProbeDigest',
+      'currentProbeDigest',
+      'acceptanceProbeBound',
       'productionEvidence',
       'classification',
     ] as const) {

@@ -11,6 +11,9 @@ import {
 function construct(id: string, status: LanguageConstruct['status'] = 'accepted'): LanguageConstruct {
   return {
     id, kind: 'function', engine: 'firestore', reference: 'test', status,
+    ...(status === 'accepted' || status === 'rejected'
+      ? { probeDigest: { algorithm: 'sha256' as const, value: 'a'.repeat(64) } }
+      : {}),
     ...(status === 'rejected' ? { probeNote: 'Property id is undefined on object.' } : {}),
   };
 }
@@ -24,6 +27,7 @@ function capability(
     kind: 'function',
     classification,
     detail: classification === 'error' ? "eval error: No field 'id' on map" : 'test',
+    probeDigest: { algorithm: 'sha256', value: 'a'.repeat(64) },
   };
 }
 
@@ -94,6 +98,29 @@ describe('Firestore Rules scorecard', () => {
       coverage: [coverage('x', 'diverged')],
     });
     expect(scorecard.constructs[0]?.classification).toBe('diverged');
+  });
+
+  it('withholds credit when production acceptance came from a stale probe', () => {
+    const scorecard = deriveFirestoreRulesScorecard({
+      constructs: [{ ...construct('x'), probeDigest: { algorithm: 'sha256', value: 'b'.repeat(64) } }],
+      capabilities: [capability('x')],
+      coverage: [coverage('x')],
+    });
+    expect(scorecard.constructs[0]?.acceptanceProbeBound).toBe(false);
+    expect(scorecard.constructs[0]?.classification).toBe('unknown');
+  });
+
+  it('requires a proving registry row for hierarchical match semantics', () => {
+    const id = 'firestore.semantic.hierarchical-match-cascade';
+    const withoutRow = deriveFirestoreRulesScorecard({
+      constructs: [construct(id)], capabilities: [capability(id)], coverage: [coverage(id)],
+    });
+    expect(withoutRow.constructs[0]?.classification).toBe('unknown');
+    const withRow = deriveFirestoreRulesScorecard({
+      constructs: [construct(id)], capabilities: [capability(id)],
+      coverage: [{ ...coverage(id), verifiedByRows: ['firestore-rules#187'] }],
+    });
+    expect(withRow.constructs[0]?.classification).toBe('conformant');
   });
 
   it('does not credit a rejection at a different observable boundary', () => {

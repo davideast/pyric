@@ -111,6 +111,10 @@ export interface LanguageConstruct {
    *  acceptance probe (issue #185 step 5) observed. A construct can carry
    *  both. */
   probeNote?: string;
+  /** SHA-256 identity of the exact Firestore Rules Test microprobe whose live
+   *  result produced `status`/`probeNote`. Acceptance credit is withheld when
+   *  this no longer matches the canonical probe generator. */
+  probeDigest?: { algorithm: 'sha256'; value: string };
   /** Present when this construct can never be credited by the static AST
    *  analyzer (rules-language-analyzer.ts, issue #185 step 2): it is a
    *  genuine language semantic with no expression-level AST representation

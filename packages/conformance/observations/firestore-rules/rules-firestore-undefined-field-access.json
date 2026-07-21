@@ -5,12 +5,12 @@
     "firestore-rules#176"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"undefined-field-access\" (RULES-B2). Missing-field access is a runtime error in prod (deny), not null; `typo == null` must DENY and `!(key in map)` is the real absence check.",
-  "observedAt": "2026-07-21T23:26:45.824Z",
+  "observedAt": "2026-07-21T23:43:07.432Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "b0fc52ae647e92b712a888b89cda060e3d5736632700a711eee1387905a1904b"
+    "value": "3a66a2829bc43216658e4e74a866310b55b766f6427ba5111e35b7696f79be70"
   },
   "behavior": {
     "missing field == null → DENY (error, not null)": "DENY",

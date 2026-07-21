@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T22:31:22.369Z",
+  "generatedAt": "2026-07-21T23:46:39.932Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -914,6 +914,7 @@
     "firestore-rules#184": "conforms",
     "firestore-rules#185": "conforms",
     "firestore-rules#186": "conforms",
+    "firestore-rules#187": "conforms",
     "storage-rules#94": "conforms",
     "storage-rules#95": "conforms",
     "storage-rules#96": "conforms",

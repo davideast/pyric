@@ -12,11 +12,13 @@ The local execution reached a canonical strict score of **126/140 (90.0%)** and
 ordered-universe SHA-256
 `c096e0fd13900b095ffdfe235da72e5dd6a1a7f469ef91bb90ad878eaff4b03a`.
 The denominator remained 140 throughout the climb.
-Every Firestore observation is now bound to the exact production rules and
-request inputs by SHA-256, and both the canonical score computation and oracle
-replay require that digest plus the complete case-key set to match. Editing a
-scenario without a production recapture therefore removes its evidence credit
-and fails the exact score gate.
+All 28 Firestore observations are now bound to the exact production rules and
+case-label-to-request mapping by SHA-256, and both the canonical score
+computation and oracle replay require that digest plus the complete case-key
+set to match. Editing a scenario without a production recapture therefore
+removes its evidence credit and fails the exact score gate. Production
+acceptance is independently bound to the current per-construct microprobe by a
+second digest; stale acceptance labels receive no score credit.
 
 | Final classification | Constructs | Interpretation |
 |---|---:|---|
@@ -36,6 +38,10 @@ per-construct fact set and ordered ID manifest, so any future movement requires
 an explicit baseline update. Three production-rejected resource-identity probes
 also receive credit because the local minimal probes reject at the same
 evaluation boundary and their production-backed behavioral rows are verified.
+Row #187 adds a dedicated four-case hierarchical-match witness so that semantic
+is credited by an exact child ALLOW plus parent, sibling, and over-deep DENY
+controls, rather than by generic nested syntax. The score command now replays
+all production observations before evaluating its exact baseline.
 
 Execution exposed two limits in the proposed phase exits, so completion uses
 the plan's final explicit-classification contract rather than pretending those
@@ -278,6 +284,7 @@ bun run packages/conformance/src/rules-language-capability.ts
 bun test packages/conformance/src/rules-language.test.ts
 bun test packages/conformance/test/src/production-verification.test.ts
 bun test packages/pyric/test/rules/oracle-conformance.test.ts
+bun run compat:rules-score
 bun run compat:validate
 bun run compat:audit
 bun run compat:climb

@@ -70,11 +70,11 @@ import { fileURLToPath } from 'node:url';
 import type { StorageFunctionMock, TestCase } from '../../../packages/pyric/src/rules/test/spec.ts';
 import type { EvaluationInput } from '../../../packages/pyric/src/storage/rules.ts';
 import {
-  fsProbeFor,
-  resolveFsProbe,
+  resolveFirestoreConstructProbe,
   stProbeFor,
   resolveStProbe,
 } from './rules-language-capability.ts';
+import { firestoreRulesTestInputDigest } from './firestore-rules-input-digest.ts';
 import {
   loadSnapshot,
   type LanguageConstruct,
@@ -90,29 +90,21 @@ const LANG_DIR = join(HERE, '..', 'rules-language');
  *  credential entirely (issue #185 step 5, explicit exclusion). */
 const PROBED_ENGINES: readonly RulesEngine[] = ['firestore', 'storage'] as const;
 
+function selectedEngines(args: readonly string[] = process.argv.slice(2)): readonly RulesEngine[] {
+  const at = args.indexOf('--engine');
+  if (at < 0) return PROBED_ENGINES;
+  const engine = args[at + 1];
+  if (engine !== 'firestore' && engine !== 'storage') {
+    throw new Error('--engine requires firestore or storage');
+  }
+  return [engine];
+}
+
 /** The sole construct whose micro-scenario is designed to DENY rather than
  *  ALLOW (storage's default-deny semantic: no rule matches the probed path).
  *  Every other probeable construct's micro-scenario is a tautology designed
  *  to ALLOW when the construct behaves as expected. */
 const EXPECTS_DENY = new Set(['storage.semantic.deny-by-default']);
-
-/**
- * DIAGNOSIS (issue #185 step 5): the capability probe's `path()` micro-scenario
- * — `path(/databases/d/documents/a/b) == path(/databases/d/documents/a/b)` —
- * passes a bare PATH-LITERAL to `path()`. The local simulator accepts that
- * (simulator leniency), but production rejects it: "Unsupported operation
- * error. Received: path(path). Expected: path(string)." — production's
- * `path()` cast takes a STRING, not a path literal. Verified live: the
- * corrected string-argument form evaluates ALLOW. This is a probe-argument
- * defect, not evidence the construct is unreal, so the acceptance probe
- * overrides these two ids with the production-correct form rather than
- * reusing the capability probe's (locally-valid, production-incompatible)
- * expression.
- */
-const FS_ACCEPTANCE_OVERRIDE: Record<string, string> = {
-  'firestore.function.cast.path': "path('/databases/d/documents/a/b') == path('/databases/d/documents/a/b')",
-  'firestore.method.path.bind': "path('/databases/d/documents/a/b') == path('/databases/d/documents/a/b')",
-};
 
 // ── Batching / rate limiting ────────────────────────────────────────────
 
@@ -132,6 +124,7 @@ interface ConstructProbeResult {
   kind: string;
   status: AcceptanceStatus;
   probeNote?: string;
+  probeDigest?: { algorithm: 'sha256'; value: string };
   /** Set only for `accepted` constructs where the micro-scenario defines an
    *  expected verdict (i.e. all of them) — whether production's actual
    *  decision matched. */
@@ -170,16 +163,8 @@ interface AcceptanceReport {
  * constructs (the binding itself, and every `timestamp.*` method called on
  * it) get a real ACCEPTANCE/EVALUATION signal instead of a harness artifact.
  */
-const PROBE_TIME = '2024-01-01T00:00:00Z';
-
 function firestoreRequest(c: LanguageConstruct): { rules: string; cases: TestCase[] } | { unprobeable: string } {
-  const override = FS_ACCEPTANCE_OVERRIDE[c.id];
-  const resolved = resolveFsProbe(override ? { expr: override } : fsProbeFor(c));
-  if ('unprobeable' in resolved) return resolved;
-  return {
-    rules: resolved.rules,
-    cases: resolved.cases.map((tc) => (tc.requestTime ? tc : { ...tc, requestTime: PROBE_TIME })),
-  };
+  return resolveFirestoreConstructProbe(c);
 }
 
 // ── Storage adapter: EvaluationInput → StorageTestCase ──────────────────
@@ -227,8 +212,8 @@ async function storageRequest(
         auth: input.request.auth ?? null,
         resource: input.request.resource,
         existingResource: input.resource,
-        // See PROBE_TIME above — production requires an explicit request.time.
-        requestTime: PROBE_TIME,
+        // Production requires an explicit request.time.
+        requestTime: '2024-01-01T00:00:00Z',
         ...(functionMocks ? { functionMocks } : {}),
       },
     ],
@@ -243,7 +228,7 @@ function printInertPlan(): void {
   console.log('    (base64-encoded service-account JSON with firebaserules.rulesets.test)\n');
   let grandTotal = 0;
   let grandNetwork = 0;
-  for (const engine of PROBED_ENGINES) {
+  for (const engine of selectedEngines()) {
     const snapshot = loadSnapshot(engine);
     let networkCount = 0;
     let unprobeableCount = 0;
@@ -306,10 +291,11 @@ async function probeFirestoreConstruct(
   if ('unprobeable' in req) {
     return { id: c.id, kind: c.kind, status: 'unprobeable', probeNote: req.unprobeable };
   }
+  const probeDigest = firestoreRulesTestInputDigest(req.rules, req.cases);
   const res = await handler.execute(scope, req.rules, req.cases);
   if (!res.success) {
     if (res.error.code === 'RULES_ERROR' || res.error.code === 'INVALID_REQUEST') {
-      return { id: c.id, kind: c.kind, status: 'rejected', probeNote: `${res.error.code}: ${res.error.message}` };
+      return { id: c.id, kind: c.kind, status: 'rejected', probeNote: `${res.error.code}: ${res.error.message}`, probeDigest };
     }
     // Infra-level failure (PERMISSION_DENIED / FETCH_FAILED) — not a
     // ruleset rejection. Surfaced as a thrown probe error so the run
@@ -323,13 +309,14 @@ async function probeFirestoreConstruct(
   if (!agree) {
     const rejectionReason = evaluationRejectionReason(result?.notes ?? []);
     if (rejectionReason) {
-      return { id: c.id, kind: c.kind, status: 'rejected', probeNote: rejectionReason };
+      return { id: c.id, kind: c.kind, status: 'rejected', probeNote: rejectionReason, probeDigest };
     }
   }
   return {
     id: c.id,
     kind: c.kind,
     status: 'accepted',
+    probeDigest,
     evaluationAgreement: agree,
     evaluationDetail: `expected ${expected}, got ${decision}`,
     ...(agree ? {} : { probeNote: `accepted; evaluation disagreement: expected ${expected} got ${decision}` }),
@@ -398,6 +385,8 @@ function writeSnapshotStatuses(engine: RulesEngine, results: ConstructProbeResul
     c.status = r.status;
     if (r.probeNote) c.probeNote = r.probeNote;
     else delete (c as { probeNote?: string }).probeNote;
+    if (r.probeDigest) c.probeDigest = r.probeDigest;
+    else delete (c as { probeDigest?: unknown }).probeDigest;
   }
   writeFileSync(file, JSON.stringify(snapshot, null, 2) + '\n', 'utf8');
 }
@@ -424,7 +413,7 @@ async function run(): Promise<void> {
     engines: [],
   };
 
-  for (const engine of PROBED_ENGINES) {
+  for (const engine of selectedEngines()) {
     const snapshot = loadSnapshot(engine);
     console.log(`\n[rules-language:acceptance] probing ${engine} (${snapshot.constructs.length} constructs)…`);
     const results = await runBatched(snapshot.constructs, (c) =>
@@ -469,7 +458,7 @@ async function run(): Promise<void> {
 
   console.log('\n[rules-language:acceptance] probe complete.');
   console.log(`[rules-language:acceptance] wrote ${join(LANG_DIR, 'acceptance-report.json')}`);
-  console.log('[rules-language:acceptance] updated firestore.json / storage.json status fields.');
+  console.log(`[rules-language:acceptance] updated ${selectedEngines().map((engine) => `${engine}.json`).join(' / ')} status fields.`);
 }
 
 if (import.meta.main) {

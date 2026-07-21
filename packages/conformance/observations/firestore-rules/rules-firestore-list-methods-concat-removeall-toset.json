@@ -5,12 +5,12 @@
     "firestore-rules#168"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"list-methods-concat-removeall-toset\" (Item 5.2). Sim must implement List.concat/removeAll/toSet; pre-fix all three threw UnsupportedError.",
-  "observedAt": "2026-07-21T23:26:44.283Z",
+  "observedAt": "2026-07-21T23:43:05.932Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "af0fd7f58b2ef944619d8d898fd0818515b36dc29a3d72e4cc4c47c174c6c628"
+    "value": "4f92321b8ef2b9f712fcc874f44bdcf1b375227cced2fe7ffbf4ff61bab61fa9"
   },
   "behavior": {
     "list concat → size 4 ALLOW": "ALLOW",

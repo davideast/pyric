@@ -5,12 +5,12 @@
     "firestore-rules#182"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"functions-verbs-and-recursive\" (Coverage: functions/let, granular verbs, ternary, recursive wildcard). Production must accept function declarations with let bindings, allow get/list/update/write verbs, the ternary operator, and a recursive {document=**} match.",
-  "observedAt": "2026-07-21T23:26:43.380Z",
+  "observedAt": "2026-07-21T23:43:04.988Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "8be8354dad97861f116553c40be5db108db1b5e1744af55b320ed8aaca8d40d5"
+    "value": "61a4990286d672d8acab75f3192b4f3c93b3f1172ce85f238db48415eaa05393"
   },
   "behavior": {
     "signed-in get ALLOW": "ALLOW",

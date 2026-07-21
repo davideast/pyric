@@ -5,12 +5,12 @@
     "firestore-rules#181"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"duration-and-latlng\" (Coverage: LatLng + Duration). Production must accept latlng.value(...).latitude()/.longitude()/.distance() and duration.value/time/abs in a coordinate/duration-bounded write.",
-  "observedAt": "2026-07-21T23:26:43.119Z",
+  "observedAt": "2026-07-21T23:43:02.082Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "9bea3410f45caabacc8ef96d90b03b66b2512be826106778d50be0a961eeaf07"
+    "value": "cf2f47056bac5f6972fcb0e1d1c346419d474c6c3faf3cea6911b4a7d7686dbb"
   },
   "behavior": {
     "valid coordinate and durations ALLOW": "ALLOW",

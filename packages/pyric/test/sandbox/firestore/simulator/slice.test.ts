@@ -95,15 +95,15 @@ describe('Slice — list', () => {
     );
   });
 
-  test('end OOB clamps to length', () => {
-    expectAllow(
+  test('end OOB denies', () => {
+    expectDeny(
       "request.resource.data.arr[1:99].size() == 3",
       { arr: ['a', 'b', 'c', 'd'] },
     );
   });
 
-  test('start OOB returns empty', () => {
-    expectAllow(
+  test('start OOB denies', () => {
+    expectDeny(
       "request.resource.data.arr[99:100].size() == 0",
       { arr: ['a', 'b', 'c', 'd'] },
     );
@@ -167,15 +167,15 @@ describe('Slice — string', () => {
     );
   });
 
-  test('end OOB clamps to length', () => {
-    expectAllow(
+  test('end OOB denies', () => {
+    expectDeny(
       "request.resource.data.s[6:99] == 'world'",
       { s: 'hello world' },
     );
   });
 
-  test('start OOB returns empty', () => {
-    expectAllow(
+  test('start OOB denies', () => {
+    expectDeny(
       "request.resource.data.s[99:100] == ''",
       { s: 'hello' },
     );

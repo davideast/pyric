@@ -5,12 +5,12 @@
     "firestore-rules#164"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"get-after-and-exists-after\" (Item 7). Hosted production diagnostics report Function not found for getAfter()/existsAfter(); retain the verdicts as a Test API limitation while local atomic-projection tests pin the documented contract.",
-  "observedAt": "2026-07-21T23:26:43.488Z",
+  "observedAt": "2026-07-21T23:43:05.093Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "fa24320cbc00a2f48629a20e223b829160d5e6ebbeff44300551ba818fe6be3d"
+    "value": "fca368a754d1f390c01e191f2469e65b8eb1d4b0b14be980431cb580941b021c"
   },
   "behavior": {
     "getAfter target == request.resource.data ALLOW": "DENY",

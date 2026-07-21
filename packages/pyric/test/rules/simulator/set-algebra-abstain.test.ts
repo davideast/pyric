@@ -1,5 +1,5 @@
 /**
- * Set.difference / Set.union / Set.intersection — abstain, don't guess.
+ * Set.difference / Set.union / Set.intersection — explicit evaluation error.
  *
  * Oracle capture (set-algebra-difference-union-intersection and
  * list-methods-concat-removeall-toset corpus scenarios) showed the simulator
@@ -9,11 +9,9 @@
  * don't behave as modeled in the real Firestore Rules CEL dialect.
  *
  * Rather than reverse-engineer the true semantics blind, the simulator
- * now abstains (UNSUPPORTED) whenever `.difference()`, `.union()`, or
- * `.intersection()` is called on a FirestoreSet, mirroring the existing
- * abstention path used elsewhere for unimplemented features (see
- * unsupported-feature-witness corpus scenario / UnsupportedError in
- * evaluator.ts). hasOnly/hasAll/hasAny/size/equals on FirestoreSet, and
+ * now raises the same unavailable-operation evaluation boundary whenever
+ * `.difference()`, `.union()`, or `.intersection()` is called on a
+ * FirestoreSet. hasOnly/hasAll/hasAny/size/equals on FirestoreSet, and
  * List.concat/removeAll/toSet, are unaffected — those are prod-verified
  * and must keep working.
  */
@@ -29,8 +27,15 @@ function run(rules: string, tc: TestCase) {
   return res.data.results[0]!;
 }
 
-describe('Set.difference/union/intersection abstain (UNSUPPORTED), not a guessed verdict', () => {
-  test('difference() with a list arg abstains', () => {
+function expectUnavailable(result: ReturnType<typeof run>): void {
+  expect(result.decision).toBe('DENY');
+  expect(result.trace.some((entry) =>
+    entry.verdict === 'ERROR' && /unavailable in the captured production/.test(entry.message ?? ''),
+  )).toBe(true);
+}
+
+describe('Set.difference/union/intersection match production unavailable-operation errors', () => {
+  test('difference() with a list arg errors to DENY', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -48,10 +53,10 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { m: { a: 1, b: 2, c: 3 } },
     } as TestCase);
-    expect(result.state).toBe('UNSUPPORTED');
+    expectUnavailable(result);
   });
 
-  test('difference() with a Set arg (via .keys()) abstains', () => {
+  test('difference() with a Set arg (via .keys()) errors to DENY', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -69,10 +74,10 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { a: { x: 1, y: 2 }, b: { y: 2, z: 3 } },
     } as TestCase);
-    expect(result.state).toBe('UNSUPPORTED');
+    expectUnavailable(result);
   });
 
-  test('union() abstains', () => {
+  test('union() errors to DENY', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -90,10 +95,10 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { m: { a: 1, b: 2 } },
     } as TestCase);
-    expect(result.state).toBe('UNSUPPORTED');
+    expectUnavailable(result);
   });
 
-  test('intersection() abstains', () => {
+  test('intersection() errors to DENY', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -111,10 +116,10 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { m: { a: 1, b: 2, c: 3 } },
     } as TestCase);
-    expect(result.state).toBe('UNSUPPORTED');
+    expectUnavailable(result);
   });
 
-  test('chained union().difference() abstains (fails on the first unsupported call it hits)', () => {
+  test('chained union().difference() errors on the first unavailable call', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -132,10 +137,10 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { m: { a: 1, b: 2 } },
     } as TestCase);
-    expect(result.state).toBe('UNSUPPORTED');
+    expectUnavailable(result);
   });
 
-  test('List.toSet().difference() abstains (list-methods scenario 5.1/5.2 wiring case)', () => {
+  test('List.toSet().difference() errors to DENY (list-methods scenario wiring case)', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -153,14 +158,14 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { a: ['a', 'b', 'c'] },
     } as TestCase);
-    expect(result.state).toBe('UNSUPPORTED');
+    expectUnavailable(result);
   });
 
-  test('DENY witness with difference() also abstains, not a coincidental DENY match', () => {
+  test('DENY witness with difference() carries the unavailable-operation error', () => {
     // Before the fix this happened to match expectation=DENY because the
     // sim's computed size (1) != 99 — a right answer for the wrong reason.
-    // Abstaining here is still correct: the sim cannot faithfully evaluate
-    // Set.difference(), regardless of which verdict the corpus expects.
+    // The explicit error is load-bearing: this is not a successful algebra
+    // evaluation merely because its DENY verdict matches the expectation.
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -178,17 +183,17 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { m: { a: 1, b: 2 } },
     } as TestCase);
-    expect(result.state).toBe('UNSUPPORTED');
+    expectUnavailable(result);
   });
 });
 
-describe('Set/List operations NOT affected by the abstain gate (must keep working)', () => {
+describe('Set/List operations unaffected by the unavailable algebra methods', () => {
   function ok(rules: string, tc: TestCase) {
     const result = run(rules, tc);
     expect(result.state).toBe('PASSED');
   }
 
-  test('FirestoreSet.hasOnly/hasAll/hasAny/size still evaluate (no over-abstain)', () => {
+  test('FirestoreSet.hasOnly/hasAll/hasAny/size still evaluate', () => {
     ok(
       `rules_version = '2';
 service cloud.firestore {
@@ -210,7 +215,7 @@ service cloud.firestore {
     );
   });
 
-  test('List.concat still evaluates (no over-abstain)', () => {
+  test('List.concat still evaluates', () => {
     ok(
       `rules_version = '2';
 service cloud.firestore {
@@ -232,7 +237,7 @@ service cloud.firestore {
     );
   });
 
-  test('List.removeAll still evaluates (no over-abstain)', () => {
+  test('List.removeAll still evaluates', () => {
     ok(
       `rules_version = '2';
 service cloud.firestore {

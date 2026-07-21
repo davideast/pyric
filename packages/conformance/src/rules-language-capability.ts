@@ -40,6 +40,7 @@ import {
 } from '../../../packages/pyric/src/rules/rtdb/compiled-rules.ts';
 import type { SimulationInput } from '../../../packages/pyric/src/rules/rtdb/simulation/spec.ts';
 import { loadSnapshot, type LanguageConstruct, type RulesEngine } from '../rules-language/load.ts';
+import { firestoreRulesTestInputDigest } from './firestore-rules-input-digest.ts';
 
 export type Classification = 'implemented' | 'unsupported' | 'error' | 'unprobeable';
 
@@ -50,6 +51,8 @@ export interface ConstructCapability {
   /** Detail: the verdict/reason the simulator produced, or the unprobeable
    *  reason. */
   detail: string;
+  /** Current canonical production/local microprobe identity (Firestore). */
+  probeDigest?: { algorithm: 'sha256'; value: string };
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -86,6 +89,9 @@ export const FS_BASE_CASE: Omit<TestCase, 'description'> = {
   resource: { a: 1, b: 2, s: 'str' },
 };
 
+/** Fixed instant shared by local capability and production acceptance probes. */
+export const FIRESTORE_PROBE_TIME = '2024-01-01T00:00:00Z';
+
 /**
  * Resolve an {@link FsProbe} into the (rules, cases) pair a rules-test
  * backend executes — local simulator or production Rules Test API alike.
@@ -102,8 +108,7 @@ export function resolveFsProbe(probe: FsProbe): { rules: string; cases: TestCase
   return { rules, cases };
 }
 
-function fsRun(probe: FsProbe): { classification: Classification; detail: string } {
-  const resolved = resolveFsProbe(probe);
+function fsRunResolved(resolved: ReturnType<typeof resolveFsProbe>): { classification: Classification; detail: string } {
   if ('unprobeable' in resolved) return { classification: 'unprobeable', detail: resolved.unprobeable };
   const { rules, cases } = resolved;
   let res;
@@ -205,7 +210,7 @@ const FS_EXPR: Record<string, FsProbe> = {
   'firestore.method.bytes.toBase64': { expr: "hashing.crc32('x').toBase64().size() >= 0" },
   'firestore.method.bytes.toHexString': { expr: "hashing.crc32('x').toHexString().size() >= 0" },
   // Path methods
-  'firestore.method.path.bind': { expr: "path('a/{id}').bind({'id': 'b'}) == path('a/b')" },
+  'firestore.method.path.bind': { expr: "path('/databases/d/documents/a/{id}').bind({'id': 'b'}) == path('/databases/d/documents/a/b')" },
   // Timestamp methods (request.time is a timestamp)
   'firestore.method.timestamp.year': { expr: 'request.time.year() >= 1970' },
   'firestore.method.timestamp.month': { expr: 'request.time.month() >= 1' },
@@ -328,6 +333,19 @@ service cloud.firestore {
     }
   }
   return { unprobeable: `no generator for construct kind ${c.kind}` };
+}
+
+/** Resolve the canonical Firestore construct probe used by both backends. */
+export function resolveFirestoreConstructProbe(
+  c: LanguageConstruct,
+): { rules: string; cases: TestCase[] } | { unprobeable: string } {
+  const resolved = resolveFsProbe(fsProbeFor(c));
+  if ('unprobeable' in resolved) return resolved;
+  return {
+    rules: resolved.rules,
+    cases: resolved.cases.map((testCase) =>
+      testCase.requestTime ? testCase : { ...testCase, requestTime: FIRESTORE_PROBE_TIME }),
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -686,10 +704,17 @@ export function probeEngine(engine: RulesEngine): ConstructCapability[] {
   const out: ConstructCapability[] = [];
   for (const c of snapshot.constructs) {
     let r: { classification: Classification; detail: string };
-    if (engine === 'firestore') r = fsRun(fsProbeFor(c));
+    let probeDigest: ConstructCapability['probeDigest'];
+    if (engine === 'firestore') {
+      const resolved = resolveFirestoreConstructProbe(c);
+      r = fsRunResolved(resolved);
+      if (!('unprobeable' in resolved)) {
+        probeDigest = firestoreRulesTestInputDigest(resolved.rules, resolved.cases);
+      }
+    }
     else if (engine === 'storage') r = stRun(stProbeFor(c));
     else r = rtRun(rtProbeFor(c));
-    out.push({ id: c.id, kind: c.kind, classification: r.classification, detail: r.detail });
+    out.push({ id: c.id, kind: c.kind, classification: r.classification, detail: r.detail, ...(probeDigest ? { probeDigest } : {}) });
   }
   return out;
 }

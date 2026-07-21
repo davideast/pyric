@@ -241,10 +241,10 @@ describe('path() builtin — through evaluator', () => {
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test("idempotent path(path(x)) equals path(x)", () => {
+  test("path(path(x)) rejects the non-string argument", () => {
     const r = sim.simulate(
       rules("path(path('users/alice')) == path('users/alice')"),
-      [tc('path is idempotent', 'ALLOW')],
+      [tc('path requires a string', 'DENY')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });

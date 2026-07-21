@@ -5,12 +5,12 @@
     "firestore-rules#179"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"list-and-string-methods\" (Coverage: String + List methods). Production must accept String.split/lower/upper/trim/replace/size, List.hasAll/hasAny/hasOnly/join and Map.values() in field-validation conditions.",
-  "observedAt": "2026-07-21T23:26:44.129Z",
+  "observedAt": "2026-07-21T23:43:05.813Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "4c8979a450cae4953e24e11697d21b840616b357b0b9be16f1e512496ebeab0c"
+    "value": "74b729021a0cb38d29b6411ca0a9a0747e16ef8450aa5980b34256e409c911d7"
   },
   "behavior": {
     "well-formed post ALLOW": "ALLOW",

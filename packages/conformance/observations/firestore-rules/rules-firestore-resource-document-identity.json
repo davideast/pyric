@@ -5,12 +5,12 @@
     "firestore-rules#183"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"resource-document-identity\" (RULES-B12). On an EXISTING doc, production leaves resource.id/__name__ absent — reading one errors → DENY, and the error survives negation. The simulator synthesized them from the request path, so `resource.id == id` ALLOWed where production DENIES (over-permissive). request.resource.id is absent in production likewise.",
-  "observedAt": "2026-07-21T23:26:45.173Z",
+  "observedAt": "2026-07-21T23:43:06.864Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "5e7baa35a78af4a2c223feada2e78f0a89afe3331b4a18c4e9988cebdc94cc55"
+    "value": "f3afad11b71fae530b4b8b0c89347b2708256136ebc3dce9a8d63e80efba9c25"
   },
   "behavior": {
     "resource.id == id on existing doc (get) → DENY (identity absent in prod)": "DENY",

@@ -39,6 +39,9 @@ export interface FirestoreConstructScore {
   productionRejectionSignature?: string;
   localRejectionSignature?: string;
   localCapability: ConstructCapability['classification'];
+  productionProbeDigest?: string;
+  currentProbeDigest?: string;
+  acceptanceProbeBound: boolean;
   productionEvidence: ConstructCoverage['verdict'];
   classification: FirestoreScoreClassification;
   verifiedBy: readonly string[];
@@ -89,6 +92,11 @@ function classify(
 ): FirestoreScoreClassification {
   // Negative production evidence dominates every positive path.
   if (coverage.verdict === 'diverged') return 'diverged';
+  const acceptanceProbeBound = construct.probeDigest?.algorithm === 'sha256' &&
+    construct.probeDigest.value === capability.probeDigest?.value;
+  if ((construct.status === 'accepted' || construct.status === 'rejected') && !acceptanceProbeBound) {
+    return 'unknown';
+  }
   // Acceptance must be known on both sides. `unprobed` can never receive
   // conformance credit, even if capability and behavioral evidence are green.
   if (construct.status === 'unprobed') return 'unknown';
@@ -105,6 +113,9 @@ function classify(
   if (capability.classification === 'unsupported') return 'local-unsupported';
   if (capability.classification === 'error') return 'local-error';
   if (coverage.verdict === 'unverified') return 'unknown';
+  if (construct.id === 'firestore.semantic.hierarchical-match-cascade' && coverage.verifiedByRows.length === 0) {
+    return 'unknown';
+  }
   return 'conformant';
 }
 
@@ -183,6 +194,10 @@ export function deriveFirestoreRulesScorecard(
       ...(productionRejectionSignature ? { productionRejectionSignature } : {}),
       ...(localRejectionSignature ? { localRejectionSignature } : {}),
       localCapability: capability.classification,
+      ...(construct.probeDigest ? { productionProbeDigest: construct.probeDigest.value } : {}),
+      ...(capability.probeDigest ? { currentProbeDigest: capability.probeDigest.value } : {}),
+      acceptanceProbeBound: construct.probeDigest?.algorithm === 'sha256' &&
+        construct.probeDigest.value === capability.probeDigest?.value,
       productionEvidence: evidence.verdict,
       classification: classify(construct, capability, evidence),
       verifiedBy: [...evidence.verifiedBy],

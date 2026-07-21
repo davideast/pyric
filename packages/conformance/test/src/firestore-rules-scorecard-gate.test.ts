@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   compareFirestoreScorecardBaseline,
   firestoreScorecardBaseline,
@@ -12,10 +14,14 @@ import type { LanguageConstruct } from '../../rules-language/types.ts';
 function scorecard(ids: readonly string[]): FirestoreRulesScorecard {
   const constructs: LanguageConstruct[] = ids.map((id) => ({
     id, kind: 'operator', engine: 'firestore', reference: 'test', status: 'accepted',
+    probeDigest: { algorithm: 'sha256', value: 'a'.repeat(64) },
   }));
   return deriveFirestoreRulesScorecard({
     constructs,
-    capabilities: ids.map((id) => ({ id, kind: 'operator', classification: 'implemented', detail: 'test' })),
+    capabilities: ids.map((id) => ({
+      id, kind: 'operator', classification: 'implemented', detail: 'test',
+      probeDigest: { algorithm: 'sha256' as const, value: 'a'.repeat(64) },
+    })),
     coverage: ids.map((id) => ({
       id, kind: 'operator', verdict: 'verified', exercisedBy: ['s'], verifiedBy: ['s'], verifiedByRows: [],
     })),
@@ -23,6 +29,12 @@ function scorecard(ids: readonly string[]): FirestoreRulesScorecard {
 }
 
 describe('Firestore Rules scorecard baseline gate', () => {
+  it('replays every production observation before evaluating the score', () => {
+    const rootPackage = JSON.parse(readFileSync(join(import.meta.dir, '../../../../package.json'), 'utf8'));
+    expect(rootPackage.scripts['compat:rules-score']).toBe(
+      'bun test packages/pyric/test/rules/oracle-conformance.test.ts && bun run packages/conformance/src/firestore-rules-scorecard-gate.ts',
+    );
+  });
   it('accepts an exact canonical recomputation', () => {
     const current = scorecard(['a', 'b']);
     expect(compareFirestoreScorecardBaseline(firestoreScorecardBaseline(current), current)).toEqual({

@@ -43,7 +43,7 @@ describe('run-rules Firestore scenario selection', () => {
 });
 
 describe('run-rules observation recapture', () => {
-  it('digests production rules and request inputs, not labels or expectations', () => {
+  it('binds case labels to production inputs while excluding expectations', () => {
     const scenario = {
       rules: 'service cloud.firestore { match /databases/{database}/documents { match /x/{id} { allow get: if true; } } }',
       cases: [{ description: 'label', expectation: 'ALLOW' as const, method: 'get' as const, path: 'x/a' }],
@@ -51,8 +51,12 @@ describe('run-rules observation recapture', () => {
     const original = firestoreScenarioInputDigest(scenario);
     expect(firestoreScenarioInputDigest({
       ...scenario,
-      cases: [{ ...scenario.cases[0]!, description: 'renamed', expectation: 'DENY' }],
+      cases: [{ ...scenario.cases[0]!, expectation: 'DENY' }],
     })).toEqual(original);
+    expect(firestoreScenarioInputDigest({
+      ...scenario,
+      cases: [{ ...scenario.cases[0]!, description: 'renamed' }],
+    })).not.toEqual(original);
     expect(firestoreScenarioInputDigest({
       ...scenario,
       cases: [{ ...scenario.cases[0]!, path: 'x/b' }],

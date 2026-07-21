@@ -310,6 +310,15 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-global-and-service-scope-functions"],
           constructs: ["firestore.rule-kind.function"],
         }),
+        row1({
+          rowRef: "187",
+          featureKeys: [],
+          behavior: "Hierarchical nested `match` composition — a child match resolves relative to its parent and grants only the exact nested document path",
+          status: "conforms",
+          evidence: "`oracle:rules-firestore-hierarchical-match-cascade` captures the exact nested child ALLOW plus parent, sibling, and over-deep DENY controls from the production Firestore Rules Test API, replayed verdict-for-verdict by `packages/pyric/test/rules/oracle-conformance.test.ts`.",
+          oracleObservations: ["rules-firestore-hierarchical-match-cascade"],
+          constructs: ["firestore.semantic.hierarchical-match-cascade"],
+        }),
       ],
     },
     {

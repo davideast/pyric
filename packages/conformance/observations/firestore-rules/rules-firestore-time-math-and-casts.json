@@ -5,12 +5,12 @@
     "firestore-rules#180"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"time-math-and-casts\" (Coverage: Timestamp methods + math builtins + casts). Production must accept request.time.<accessor>() Timestamp methods, math.floor/round/sqrt/pow/isNaN, int/float/string casts, request.method, and >= / * operators.",
-  "observedAt": "2026-07-21T23:26:45.685Z",
+  "observedAt": "2026-07-21T23:43:07.340Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "6a70168d210f591d8aacecfeaeb01f159f85eef82eeb7dc474bd77ec89852ced"
+    "value": "37ae5eaf3bdc9a5b6f6bf8781f74aaea9f531238e12d9bb7cdb36823204b7a9b"
   },
   "behavior": {
     "valid event within all bounds ALLOW": "ALLOW",

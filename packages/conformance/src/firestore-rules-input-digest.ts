@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { buildApiTestCase } from '../../pyric/src/rules/test/spec.ts';
-import type { Scenario } from '../rules-corpus/firestore/types.ts';
+import type { Scenario, TestCase } from '../rules-corpus/firestore/types.ts';
 
 export interface FirestoreScenarioInputDigest {
   algorithm: 'sha256';
@@ -9,19 +9,27 @@ export interface FirestoreScenarioInputDigest {
 
 /**
  * Bind an observation to the exact production inputs that determine the
- * decision. Description is only the observation-table key, and expectation is
- * only the Test API's pass/fail oracle; neither changes the authorization
- * request, so both are deliberately excluded from the digest.
+ * decision. The description is bound to its exact request because it is the
+ * observation-table join key; expectation remains excluded because it is only
+ * the Test API's pass/fail oracle, not a production authorization input.
  */
 export function firestoreScenarioInputDigest(
   scenario: Pick<Scenario, 'rules' | 'cases'>,
 ): FirestoreScenarioInputDigest {
-  const testCases = scenario.cases.map((testCase) => {
+  return firestoreRulesTestInputDigest(scenario.rules, scenario.cases);
+}
+
+/** Stable identity for any Firestore Rules Test API microprobe. */
+export function firestoreRulesTestInputDigest(
+  rules: string,
+  cases: readonly TestCase[],
+): FirestoreScenarioInputDigest {
+  const testCases = cases.map((testCase) => {
     const { expectation: _expectation, ...productionInput } = buildApiTestCase(testCase);
-    return productionInput;
+    return { description: testCase.description, input: productionInput };
   });
   const payload = {
-    source: { files: [{ name: 'firestore.rules', content: scenario.rules }] },
+    source: { files: [{ name: 'firestore.rules', content: rules }] },
     testSuite: { testCases },
   };
   return {
