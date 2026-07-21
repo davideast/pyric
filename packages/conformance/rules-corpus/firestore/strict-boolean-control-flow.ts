@@ -1,10 +1,10 @@
-/** Production evidence for strict boolean operands in Rules control flow. */
+/** Production evidence for strict boolean operands and create-time resources. */
 import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   fm: 'RULES-B6',
   rationale:
-    'Firestore Rules requires boolean operands for &&, ||, and ternary conditions; non-booleans error and deny.',
+    'Firestore Rules requires boolean operands for &&, ||, and ternary conditions; non-booleans error and deny. On create, comparing resource to null errors and denies while request.resource carries the incoming document.',
   rules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -19,6 +19,12 @@ service cloud.firestore {
     }
     match /booleanControlAllow/{id} {
       allow create: if true && (false || true) && (true ? true : false);
+    }
+    match /resourceNullComparison/{id} {
+      allow create: if resource == null;
+    }
+    match /requestResourceData/{id} {
+      allow create: if request.resource.data.owner == 'alice';
     }
   }
 }`,
@@ -54,6 +60,22 @@ service cloud.firestore {
       path: 'booleanControlAllow/d4',
       auth: { uid: 'alice' },
       data: {},
+    },
+    {
+      description: 'resource == null on create errors → DENY',
+      expectation: 'DENY',
+      method: 'create',
+      path: 'resourceNullComparison/d5',
+      auth: { uid: 'alice' },
+      data: { owner: 'alice' },
+    },
+    {
+      description: 'request.resource has incoming data on create → ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'requestResourceData/d6',
+      auth: { uid: 'alice' },
+      data: { owner: 'alice' },
     },
   ],
   group: 'fix-class',
