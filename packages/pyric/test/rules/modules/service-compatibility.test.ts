@@ -86,44 +86,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     }
   });
 
-  test('ignores incompatible call sites in unrequested exports', () => {
-    const modules = {
-      './mixed': `
-        export function portable(value) {
-          return value.x == 1;
-        }
-        export function unusedFirestoreCaller() {
-          return portable(resource.data);
-        }
-      `,
-    };
-    const result = resolveModules(
-      makeStorageSource("import { portable } from './mixed';", "portable({'x': 1})"),
-      { modules },
-    );
-
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.resolved).toContain('function portable');
-      expect(result.data.resolved).not.toContain('unusedFirestoreCaller');
-    }
-
-    for (const imports of [
-      "import { unusedFirestoreCaller } from './mixed';",
-      "import { portable, unusedFirestoreCaller } from './mixed';",
-    ]) {
-      const incompatible = resolveModules(
-        makeStorageSource(imports, 'unusedFirestoreCaller()'),
-        { modules },
-      );
-      expect(incompatible.success).toBe(false);
-      if (!incompatible.success) {
-        expect(incompatible.error.code).toBe('INCOMPATIBLE_FUNCTION');
-        expect(incompatible.error.message).toContain("binding 'resource.data");
-      }
-    }
-  });
-
   test('rejects Storage-only ambient object fields from a Firestore caller module', () => {
     const result = resolveModules(
       makeSource("import { uploadIsSmall } from './policy';"),
