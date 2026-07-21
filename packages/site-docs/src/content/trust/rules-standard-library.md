@@ -21,27 +21,27 @@ shown in each row's **Verified** column.
 
 ## Module Index
 
-| Module | Exports | Services | Dependency | Pattern | Verified |
-|--------|---------|----------|------------|---------|----------|
-| [auth](#auth) | 2 | Firestore + Storage | Self-contained | — | Simulator + Storage production |
-| [validation](#validation) | 2 | Firestore | Self-contained | — | Simulator |
-| [lobby](#lobby) | 3 | Firestore | Self-contained | — | Simulator |
-| [turns](#turns) | 2 | Firestore | Self-contained | — | Simulator |
-| [state](#state) | 3 | Firestore | Self-contained | — | Simulator |
-| [membership](#membership) | 4 | Firestore + Storage | Self-contained | — | Simulator + Storage production |
-| [storage/uploads](#storageuploads) | 4 | Storage | Self-contained | — | Storage evaluator + production oracle |
-| [storage/metadata](#storagemetadata) | 4 | Storage | Self-contained | — | Storage evaluator + production oracle |
-| [storage/objects](#storageobjects) | 3 | Storage | Self-contained | — | Storage evaluator + production oracle |
-| [storage/time](#storagetime) | 2 | Storage | Self-contained | — | Storage evaluator + production oracle |
-| [lifecycle](#lifecycle) | 2 | Firestore | Self-contained | — | Simulator |
-| [transitions](#transitions) | 3 | Firestore | Self-contained | — | Simulator |
-| [geometry](#geometry) | 2 | Firestore | Explicit param | Patterns 12-14 | Simulator + live Rules validation |
-| [counters](#counters) | 3 | Firestore | Self-contained | — | Simulator |
-| [timing](#timing) | 1 | Firestore | Self-contained | — | Simulator + live Rules validation |
-| [content](#content) | 4 | Firestore | Self-contained | — | Simulator |
-| [spaces](#spaces) | 3 | Firestore | Explicit param | — | Simulator + live Rules validation |
-| [joining](#joining) | 2 | Firestore | Self-contained | — | Simulator + live Rules validation |
-| [atomic](#atomic) | 2 | Firestore | Explicit param | — | Simulator bodies + live real-DB validation |
+| Module | Services | Dependency | Pattern | Verified |
+|--------|----------|------------|---------|----------|
+| [auth](#auth) | Firestore + Storage | Self-contained | — | Simulator + Storage production |
+| [validation](#validation) | Firestore | Self-contained | — | Simulator |
+| [lobby](#lobby) | Firestore | Self-contained | — | Simulator |
+| [turns](#turns) | Firestore | Self-contained | — | Simulator |
+| [state](#state) | Firestore | Self-contained | — | Simulator |
+| [membership](#membership) | Firestore + Storage | Self-contained | — | Simulator + Storage production |
+| [storage/uploads](#storageuploads) | Storage | Self-contained | — | Storage evaluator + production oracle |
+| [storage/metadata](#storagemetadata) | Storage | Self-contained | — | Storage evaluator + production oracle |
+| [storage/objects](#storageobjects) | Storage | Self-contained | — | Storage evaluator + production oracle |
+| [storage/time](#storagetime) | Storage | Self-contained | — | Storage evaluator + production oracle |
+| [lifecycle](#lifecycle) | Firestore | Self-contained | — | Simulator |
+| [transitions](#transitions) | Firestore | Self-contained | — | Simulator |
+| [geometry](#geometry) | Firestore | Explicit param | Patterns 12-14 | Simulator + live Rules validation |
+| [counters](#counters) | Firestore | Self-contained | — | Simulator |
+| [timing](#timing) | Firestore | Self-contained | — | Simulator + live Rules validation |
+| [content](#content) | Firestore | Self-contained | — | Simulator |
+| [spaces](#spaces) | Firestore | Explicit param | — | Simulator + live Rules validation |
+| [joining](#joining) | Firestore | Self-contained | — | Simulator + live Rules validation |
+| [atomic](#atomic) | Firestore | Explicit param | — | Simulator bodies + live real-DB validation |
 
 ## Dependency Types
 

@@ -1,3 +1,4 @@
+// @pyric-services cloud.firestore
 // Lifecycle module for field immutability and timestamp enforcement.
 //
 // Common pattern: certain fields must never change after document creation

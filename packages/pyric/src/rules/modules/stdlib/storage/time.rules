@@ -1,3 +1,4 @@
+// @pyric-services firebase.storage
 // Freshness checks over server-owned Storage object timestamps. Boundaries are
 // strict: equality with the deadline is not "within" the window.
 

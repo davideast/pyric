@@ -1,3 +1,4 @@
+// @pyric-services firebase.storage
 // Storage upload request primitives. These inspect declared object metadata;
 // MIME helpers do not inspect or authenticate the uploaded bytes.
 

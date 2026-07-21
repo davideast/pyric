@@ -189,6 +189,60 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     if (!result.success) expect(result.error.message).toContain("binding 'request.resource[...]'");
   });
 
+  test('does not let collection operations bypass closed Storage object fields', () => {
+    for (const expression of [
+      "request.resource.get('md5Hash', null) != null",
+      "'md5Hash' in resource",
+      "resource.keys().hasAll(['md5Hash'])",
+    ]) {
+      const result = resolveModules(
+        makeStorageSource("import { readsDigest } from './policy';", 'readsDigest()'),
+        { modules: { './policy': `
+          export function readsDigest() {
+            return ${expression};
+          }
+        ` } },
+      );
+
+      expect(result.success, expression).toBe(false);
+    }
+  });
+
+  test('does not let aliases or composite receivers launder closed collection access', () => {
+    for (const expression of [
+      "incoming.get('md5Hash', null) != null",
+      "'md5Hash' in (request.resource || {})",
+      "[resource][0].keys().hasAll(['md5Hash'])",
+    ]) {
+      const result = resolveModules(
+        makeStorageSource("import { readsDigest } from './policy';", 'readsDigest()'),
+        { modules: { './policy': `
+          export function readsDigest() {
+            let incoming = request.resource;
+            return ${expression};
+          }
+        ` } },
+      );
+
+      expect(result.success, expression).toBe(false);
+    }
+  });
+
+  test('admits map collection operations on open Storage metadata', () => {
+    const result = resolveModules(
+      makeStorageSource("import { readsMetadata } from './policy';", 'readsMetadata()'),
+      { modules: { './policy': `
+        export function readsMetadata() {
+          return request.resource.metadata.get('owner', '') == request.auth.uid
+            && 'owner' in resource.metadata
+            && resource.metadata.keys().hasAll(['owner']);
+        }
+      ` } },
+    );
+
+    expect(result.success).toBe(true);
+  });
+
   test('does not let a local alias launder an incompatible ambient binding', () => {
     const storage = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),

@@ -222,7 +222,7 @@ The Storage object-field contract is documented in the Storage reference ([reque
 
 ## Current standard-library cross-reference
 
-Before this branch, the manifest intentionally called itself the **Firestore Rules Standard Library** ([historical manifest](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/rules/modules/stdlib/STDLIB.md)). The current [stdlib reference](/docs/rules-standard-library) is service-aware: it separates common, Firestore-only, and Storage-only modules. The useful design lesson retained from the earlier catalog is the progression from small reusable primitives to advanced functions discovered and production-verified through probes, especially `timing`, `geometry`, `spaces`, `joining`, and `atomic`.
+Before this branch, the manifest intentionally called itself the **Firestore Rules Standard Library** ([historical manifest](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/rules/modules/stdlib/STDLIB.md)). The current [stdlib reference](./rules-standard-library.md) is service-aware: it separates common, Firestore-only, and Storage-only modules. The useful design lesson retained from the earlier catalog is the progression from small reusable primitives to advanced functions discovered and production-verified through probes, especially `timing`, `geometry`, `spaces`, `joining`, and `atomic`.
 
 ### Existing exports by portability
 

@@ -1,3 +1,4 @@
+// @pyric-services firebase.storage
 // Storage custom-metadata policies. Custom metadata is a flat string map.
 
 export function hasRequiredMetadata(keys) {

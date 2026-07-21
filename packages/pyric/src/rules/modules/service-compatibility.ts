@@ -186,6 +186,55 @@ function provenanceIssue(
     : null;
 }
 
+function ambientCollectionMethodIssue(
+  object: Expression,
+  method: string,
+  args: readonly Expression[],
+  service: RulesServiceName,
+  ctx: AnalysisContext,
+): string | null {
+  if (method !== 'get' && method !== 'keys' && method !== 'values') return null;
+  const objectPath = ambientBindingPath(object, ctx);
+  if (objectPath === 'unknown-ambient') return "binding '<derived ambient value>'";
+  if (!objectPath) return null;
+
+  if (method === 'get') {
+    const key = args[0];
+    if (key?.type === 'literal' && typeof key.value === 'string') {
+      return provenanceIssue([...objectPath, key.value], service);
+    }
+    if (!allowsDynamicAmbientAccess(service, objectPath)) {
+      return `binding '${objectPath.join('.')}.get(...)'`;
+    }
+  }
+
+  // keys()/values() disclose an ambient object's complete field surface. That
+  // is safe only for bindings whose keys are intentionally user-defined.
+  if ((method === 'keys' || method === 'values') &&
+      !allowsDynamicAmbientAccess(service, objectPath)) {
+    return `binding '${objectPath.join('.')}.${method}()'`;
+  }
+
+  return null;
+}
+
+function ambientMembershipIssue(
+  element: Expression,
+  collection: Expression,
+  service: RulesServiceName,
+  ctx: AnalysisContext,
+): string | null {
+  const collectionPath = ambientBindingPath(collection, ctx);
+  if (collectionPath === 'unknown-ambient') return "binding '<derived ambient value>'";
+  if (!collectionPath) return null;
+  if (element.type === 'literal' && typeof element.value === 'string') {
+    return provenanceIssue([...collectionPath, element.value], service);
+  }
+  return allowsDynamicAmbientAccess(service, collectionPath)
+    ? null
+    : `binding '<value> in ${collectionPath.join('.')}'`;
+}
+
 function serviceIncompatibility(
   expr: Expression,
   service: RulesServiceName,
@@ -239,6 +288,8 @@ function serviceIncompatibility(
         }
         const methods = service === 'cloud.firestore' ? FIRESTORE_METHODS : STORAGE_METHODS;
         if (!methods.has(e.method)) return `method '.${e.method}()'`;
+        const ambientIssue = ambientCollectionMethodIssue(e.object, e.method, e.args, service, ctx);
+        if (ambientIssue) return ambientIssue;
         return walk(e.object) ?? e.args.map(walk).find(Boolean) ?? null;
       }
       case 'binaryOp': return walk(e.left) ?? walk(e.right);
@@ -259,7 +310,9 @@ function serviceIncompatibility(
       }
       case 'sliceAccess': return walk(e.object) ?? walk(e.start) ?? walk(e.end);
       case 'ternary': return walk(e.condition) ?? walk(e.consequent) ?? walk(e.alternate);
-      case 'inExpr': return walk(e.element) ?? walk(e.collection);
+      case 'inExpr':
+        return ambientMembershipIssue(e.element, e.collection, service, ctx) ??
+          walk(e.element) ?? walk(e.collection);
       case 'isExpr': return walk(e.value);
       case 'listLiteral': return e.elements.map(walk).find(Boolean) ?? null;
       case 'mapLiteral':

@@ -1,3 +1,4 @@
+// @pyric-services cloud.firestore,firebase.storage
 // Membership module for role-based and claims-based access control.
 //
 // Two access patterns:

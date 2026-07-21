@@ -1,3 +1,4 @@
+// @pyric-services cloud.firestore
 // Lobby module for 2-participant coordination.
 //
 // Convention: documents must have these fields:

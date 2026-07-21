@@ -9,7 +9,8 @@
  */
 
 export const STDLIB_INLINE: Record<string, string> = {
-  "atomic": `// Atomic module — cross-document integrity for BATCH writes, via the
+  "atomic": `// @pyric-services cloud.firestore
+// Atomic module — cross-document integrity for BATCH writes, via the
 // get()/getAfter() pair. Firestore evaluates every write in a batch
 // against rules, and getAfter() returns another document's POST-BATCH
 // state — so a rule can require "this write is only valid if a
@@ -62,7 +63,8 @@ export function consumedFlag(before, after, flagField) {
   return before[flagField] == false && after[flagField] == true;
 }
 `,
-  "auth": `export function isAuthenticated() {
+  "auth": `// @pyric-services cloud.firestore,firebase.storage
+export function isAuthenticated() {
   return request.auth != null;
 }
 
@@ -70,7 +72,8 @@ export function isOwner(userId) {
   return isAuthenticated() && request.auth.uid == userId;
 }
 `,
-  "content": `// Content module for author-owned documents — the most common
+  "content": `// @pyric-services cloud.firestore
+// Content module for author-owned documents — the most common
 // Firebase app shape (posts, notes, docs, comments, tasks).
 //
 // Convention: documents carry an author field (a UID string) and
@@ -121,7 +124,8 @@ export function notDeleted() {
   return resource.data['deleted'] != true;
 }
 `,
-  "counters": `// Counters module for denormalized numeric integrity.
+  "counters": `// @pyric-services cloud.firestore
+// Counters module for denormalized numeric integrity.
 //
 // The recurring shape: a client-maintained count (likes, votes, moves,
 // quantities) that rules must keep honest — it may only change by a
@@ -163,7 +167,8 @@ export function boundedNumber(field, min, max) {
     && request.resource.data[field] <= max;
 }
 `,
-  "geometry": `// Geometry module for movement game validation via config document lookup.
+  "geometry": `// @pyric-services cloud.firestore
+// Geometry module for movement game validation via config document lookup.
 //
 // Caller must pass the config document data as an explicit parameter.
 // The config doc is read via get() and cached per request — define a
@@ -207,7 +212,8 @@ export function validJumpMove(cfg) {
   return cfg.jumps[piece][mf][mt] == cap;
 }
 `,
-  "joining": `// Joining module — how membership CHANGES, safely. The connective
+  "joining": `// @pyric-services cloud.firestore
+// Joining module — how membership CHANGES, safely. The connective
 // tissue between content/spaces: spaces gates children behind a
 // members field; joining lets users enter and leave that field
 // WITHOUT an admin backend, with no privilege escalation.
@@ -257,7 +263,8 @@ export function onlyRemovedSelf(membersField) {
     && diff.changedKeys().size() == 0;
 }
 `,
-  "lifecycle": `// Lifecycle module for field immutability and timestamp enforcement.
+  "lifecycle": `// @pyric-services cloud.firestore
+// Lifecycle module for field immutability and timestamp enforcement.
 //
 // Common pattern: certain fields must never change after document creation
 // (createdBy, createdAt, authorId).
@@ -309,7 +316,8 @@ export function nFieldsChanged(n) {
   return request.resource.data.diff(resource.data).affectedKeys().size() == n;
 }
 `,
-  "lobby": `// Lobby module for 2-participant coordination.
+  "lobby": `// @pyric-services cloud.firestore
+// Lobby module for 2-participant coordination.
 //
 // Convention: documents must have these fields:
 //   host: string (creator's UID)
@@ -354,7 +362,8 @@ export function canCancel() {
     && request.auth.uid == resource.data.host;
 }
 `,
-  "membership": `// Membership module for role-based and claims-based access control.
+  "membership": `// @pyric-services cloud.firestore,firebase.storage
+// Membership module for role-based and claims-based access control.
 //
 // Two access patterns:
 //   1. Custom claims on auth token (0 get() calls, set server-side)
@@ -395,7 +404,8 @@ export function hasRole(membersMap, role) {
     && membersMap[request.auth.uid] == role;
 }
 `,
-  "spaces": `// Spaces module — cross-document membership gating for shared spaces
+  "spaces": `// @pyric-services cloud.firestore
+// Spaces module — cross-document membership gating for shared spaces
 // (teams, rooms, groups, projects, parties). The second-most-common
 // app shape after author-owned content: a PARENT document defines who
 // may touch its children.
@@ -442,7 +452,8 @@ export function validMemberCreate(spaceData, authorField) {
     && request.resource.data[authorField] == request.auth.uid;
 }
 `,
-  "state": `// Game state machine helpers.
+  "state": `// @pyric-services cloud.firestore
+// Game state machine helpers.
 //
 // Convention: documents must have these fields:
 //   status: 'waiting' | 'playing' | 'won' | 'draw'
@@ -471,7 +482,8 @@ export function participantsUnchanged() {
       && request.resource.data.guest == resource.data.guest;
 }
 `,
-  "storage/metadata": `// Storage custom-metadata policies. Custom metadata is a flat string map.
+  "storage/metadata": `// @pyric-services firebase.storage
+// Storage custom-metadata policies. Custom metadata is a flat string map.
 
 export function hasRequiredMetadata(keys) {
   return request.resource.metadata.keys().hasAll(keys);
@@ -493,7 +505,8 @@ export function existingMetadataOwner(key) {
     && resource.metadata[key] == request.auth.uid;
 }
 `,
-  "storage/objects": `// Storage operation identity. Use request.method rather than null checks:
+  "storage/objects": `// @pyric-services firebase.storage
+// Storage operation identity. Use request.method rather than null checks:
 // production treats missing resource/request.resource bindings as errors.
 
 export function isCreate() {
@@ -508,7 +521,8 @@ export function isDelete() {
   return request.method == 'delete';
 }
 `,
-  "storage/time": `// Freshness checks over server-owned Storage object timestamps. Boundaries are
+  "storage/time": `// @pyric-services firebase.storage
+// Freshness checks over server-owned Storage object timestamps. Boundaries are
 // strict: equality with the deadline is not "within" the window.
 
 export function createdWithin(seconds) {
@@ -519,7 +533,8 @@ export function updatedWithin(seconds) {
   return request.time < resource.updated + duration.value(seconds, 's');
 }
 `,
-  "storage/uploads": `// Storage upload request primitives. These inspect declared object metadata;
+  "storage/uploads": `// @pyric-services firebase.storage
+// Storage upload request primitives. These inspect declared object metadata;
 // MIME helpers do not inspect or authenticate the uploaded bytes.
 
 export function sizeAtMost(maxBytes) {
@@ -539,7 +554,8 @@ export function contentTypeIsOneOf(types) {
   return request.resource.contentType in types;
 }
 `,
-  "timing": `// Timing module for cooldown / rate-limit enforcement.
+  "timing": `// @pyric-services cloud.firestore
+// Timing module for cooldown / rate-limit enforcement.
 //
 // Rules CAN rate-limit (contrary to a common assumption — jrpg
 // FINDINGS F-004): compare request.time against a stored server
@@ -560,7 +576,8 @@ export function cooldownElapsed(field, seconds) {
   return request.time > resource.data[field] + duration.value(seconds, 's');
 }
 `,
-  "transitions": `// Transitions module for state machine enforcement.
+  "transitions": `// @pyric-services cloud.firestore
+// Transitions module for state machine enforcement.
 //
 // Validates that a field transitions from one known value to another.
 // Use to enforce valid status flows (e.g., open -> in_progress -> completed).
@@ -595,7 +612,8 @@ export function newStatusIs(field, value) {
   return request.resource.data[field] == value;
 }
 `,
-  "turns": `// Turn enforcement for 2-participant games/sessions.
+  "turns": `// @pyric-services cloud.firestore
+// Turn enforcement for 2-participant games/sessions.
 //
 // Convention: documents must have these fields:
 //   host: string (UID)
@@ -623,7 +641,8 @@ export function turnFlipped() {
             && request.resource.data.currentTurn == 'host');
 }
 `,
-  "validation": `// Validation module for document field shape and value checks.
+  "validation": `// @pyric-services cloud.firestore
+// Validation module for document field shape and value checks.
 //
 // Usage:
 //   import { hasRequired, hasOnly, validString, isOneOf } from 'validation';

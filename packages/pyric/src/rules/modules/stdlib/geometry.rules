@@ -1,3 +1,4 @@
+// @pyric-services cloud.firestore
 // Geometry module for movement game validation via config document lookup.
 //
 // Caller must pass the config document data as an explicit parameter.

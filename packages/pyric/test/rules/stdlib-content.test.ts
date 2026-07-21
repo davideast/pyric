@@ -1,7 +1,7 @@
 /**
  * Drift check for `src/modules/stdlib-content.ts`.
  *
- * `stdlib-content.ts` is a build-time inline of the 9 `.rules` files
+ * `stdlib-content.ts` is a build-time inline of every bundled `.rules` file
  * under `src/modules/stdlib/`. The inliner runs as part of `prebuild`,
  * so a fresh build always picks up edits. But the inlined file is
  * checked in too — if someone edits a `.rules` file and forgets to
@@ -43,13 +43,12 @@ describe('STDLIB_INLINE — drift check against disk', () => {
     expect(STDLIB_SERVICE_CONTRACT_MODULES).toEqual(diskKeys);
   });
 
-  it('derives service contracts from the stdlib directory convention', () => {
+  it('derives service contracts from each module-owned declaration', () => {
     for (const moduleName of STDLIB_SERVICE_CONTRACT_MODULES) {
-      const expected = moduleName.startsWith('storage/')
-        ? ['firebase.storage']
-        : moduleName === 'auth' || moduleName === 'membership'
-          ? ['cloud.firestore', 'firebase.storage']
-          : ['cloud.firestore'];
+      const content = readFileSync(join(STDLIB_DIR, `${moduleName}.rules`), 'utf-8');
+      const declaration = content.split('\n', 1)[0]?.match(/^\/\/ @pyric-services (.+)$/);
+      expect(declaration, `${moduleName} must own its service declaration`).not.toBeNull();
+      const expected = declaration![1]!.split(',');
       expect(STDLIB_SERVICE_CONTRACTS[moduleName as keyof typeof STDLIB_SERVICE_CONTRACTS])
         .toEqual(expected);
     }
