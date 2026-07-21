@@ -16,6 +16,9 @@ import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
+import { CollectionRefImpl } from '../../src/firestore/sandbox/admin-compat/collection-ref.js';
+import { QueryImpl } from '../../src/firestore/sandbox/admin-compat/query.js';
+import type { Filter } from '../../src/firestore/sandbox/admin-compat/types.js';
 import {
   getFirestore,
   collection,
@@ -52,6 +55,35 @@ function setup() {
 }
 
 describe('FS-B2 — filtered onSnapshot excludes non-matching docs', () => {
+  it('snapshots a caller-owned filter before rules proof and execution', () => {
+    const env = getInternalEnv(initializeSandbox());
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents { match /posts/{id} {
+        allow list: if resource.data.visibility == 'public';
+      } }
+    }`;
+    env.seed({ rules, documents: {
+      'posts/public': { visibility: 'public' },
+      'posts/private': { visibility: 'private' },
+    } });
+    const callerFilter: Filter = {
+      kind: 'where', field: 'visibility', op: '==', value: 'public',
+    };
+    const queryRef = new CollectionRefImpl(env, null, 'posts')
+      .applyFilter(callerFilter) as QueryImpl;
+    const delivered: Array<{ docs: Array<{ id: string }> }> = [];
+    env.addSnapshotListener(
+      { kind: 'query', collection: 'posts', constraints: queryRef.snapshotConstraints() },
+      (snapshot) => delivered.push(snapshot as { docs: Array<{ id: string }> }),
+    );
+
+    callerFilter.value = 'private';
+    env.flushListeners();
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.docs.map((doc) => doc.id)).toEqual(['public']);
+  });
+
   it('where() filter is applied on the initial snapshot', () => {
     const { db, env } = setup();
     const calls: QuerySnapshot[] = [];

@@ -67,6 +67,17 @@ export type { ResolveResult, ResolveOptions } from '../modules/resolver.js';
 
 // ─── Rules simulator ─────────────────────────────────────────────────
 export { SimulateFirestoreRulesHandler, SERVER_TIMESTAMP } from '../simulator/handler.js';
+export {
+  collectMatches,
+  renderMatchBlockPath,
+} from '../simulator/match-resolution.js';
+export type { MatchResult } from '../simulator/match-resolution.js';
+export { evaluateQueryProof } from '../simulator/query-proof.js';
+export type {
+  QueryConstraints,
+  QueryProofResidual,
+  QueryWhereConstraint,
+} from '../simulator/query-proof.js';
 export { evaluate, UnsupportedError, TraceRecorder } from '../simulator/evaluator.js';
 export type { SimulationContext, ExprTraceEntry } from '../simulator/evaluator.js';
 export { projectAfterState } from '../simulator/project-after-state.js';

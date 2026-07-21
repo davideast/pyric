@@ -381,7 +381,7 @@ run_subpath_check "${PYRIC_UI_SUBPATHS[@]}"
 # Phase 4 proves each subpath RESOLVES; this proves the load-bearing NAMED
 # exports are where consumers expect them — and, for the M3 bridge fold, that
 # the retired standalone `vitePlugin` did NOT come back. Phase 4's "≥1 export"
-# bar would pass even if `pyric` were renamed or `vitePlugin` re-added.
+# bar would pass even if `pyric` were renamed or a retired export reappeared.
 echo ""
 echo "━━━ Phase 4b: export-shape assertions ━━━"
 cat > "$WORK/consumer/__export-shape.mjs" <<'SHAPEJS'
@@ -406,6 +406,8 @@ async function assertNotExported(subpath) {
 const vite = await import('@pyric/cli/vite');
 if (typeof vite.pyric === 'function') ok('@pyric/cli/vite exports pyric()');
 else bad('@pyric/cli/vite is MISSING pyric (named export gone/renamed)');
+if (!('pyricSandbox' in vite)) ok('@pyric/cli/vite does NOT export retired pyricSandbox');
+else bad('@pyric/cli/vite STILL exports retired pyricSandbox');
 
 // The bridge Node entry must NOT re-expose the retired standalone Vite plugin —
 // the Vite integration is `pyric({ bridge })`, not a bridge-only plugin.
@@ -580,7 +582,7 @@ rm -rf "$CREATE_OUT"
 "$CREATE_PYRIC_BIN" "$CREATE_OUT"
 test -f "$CREATE_OUT/vite.config.ts"
 grep -q "@pyric/cli/vite" "$CREATE_OUT/vite.config.ts"
-grep -q "pyric(" "$CREATE_OUT/vite.config.ts"
+grep -q "pyric()" "$CREATE_OUT/vite.config.ts"
 test -f "$CREATE_OUT/package.json"
 grep -q '"dev": "vite"' "$CREATE_OUT/package.json"
 echo "  ✓ create-pyric scaffolds Vite + @pyric/cli/vite"

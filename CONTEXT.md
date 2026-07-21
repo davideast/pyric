@@ -206,14 +206,17 @@ checks that exposed tool registries stay explicit.
 ### Firestore sandbox engine
 
 The **Firestore sandbox engine** is the module behind `LocalEnvironment`
-(`packages/pyric/src/sandbox/firestore/`). `LocalEnvironment` is its permanent
+(`packages/pyric/src/firestore/sandbox/`). `LocalEnvironment` is its permanent
 interface; `SandboxImpl` and the admin-compat wrappers are its only callers.
 Its internal seams, named by ADR-0009 and used only by the engine's own tests:
 
 - **WriteEngine** — execute/batch/transaction and write application.
 - **ListenerDispatch** — snapshot listener registry, delivery scheduling,
   metadata acks, and rules-flip re-evaluation.
-- **RulesReadEngine** — rules-gated document and collection reads.
+- **RulesReadEngine** — rules-gated document reads plus query candidate
+  gathering and execution.
+- **RulesListAuthorizer** — shared list-rule proof, residual simulation, and
+  request/denial event policy for listener and one-shot query reads.
 - **EventBus** — sandbox event emission; **History** — undo/redo over the
   event log.
 - **TriggerScope** — stack-scoped trigger attribution (`run`/`current`,

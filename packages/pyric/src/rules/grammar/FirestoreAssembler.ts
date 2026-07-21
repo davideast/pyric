@@ -173,7 +173,14 @@ export function assembleRules(ast: FirestoreRules): string {
     lines.push(`import { ${imp.functions.join(', ')} } from '${imp.module}';`);
   }
   lines.push(`rules_version = '${ast.version}';`);
+  for (const fn of ast.functions ?? []) {
+    lines.push(assembleFunction(fn, 0));
+  }
   lines.push(`service ${ast.service.name} {`);
+
+  for (const fn of ast.service.functions ?? []) {
+    lines.push(assembleFunction(fn, 2));
+  }
 
   const root = ast.service.match;
   const rootPad = indent(2);

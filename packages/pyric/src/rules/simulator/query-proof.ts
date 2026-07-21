@@ -46,19 +46,19 @@ import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 
 /** A single `where(field, op, value)` constraint carried by the query. */
 export interface QueryWhereConstraint {
-  field: string;
-  op: string;
-  value: string | number | boolean | null;
+  readonly field: string;
+  readonly op: string;
+  readonly value: string | number | boolean | null;
 }
 
 /** The query constraints relevant to the proof. `where` is the load-bearing
  *  one; limit/offset/orderBy are carried for completeness + future range
  *  proofs (and already populate `request.query`). */
 export interface QueryConstraints {
-  where?: QueryWhereConstraint[];
-  limit?: number | null;
-  offset?: number | null;
-  orderBy?: string | null;
+  readonly where?: readonly QueryWhereConstraint[];
+  readonly limit?: number | null;
+  readonly offset?: number | null;
+  readonly orderBy?: string | null;
 }
 
 /** A per-doc equality the rule requires that no query `where` guarantees. */
