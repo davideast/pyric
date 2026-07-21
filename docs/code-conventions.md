@@ -30,7 +30,7 @@ Rule. For a surface named `X` in `packages/pyric/src`:
 
 The class of defect this fixes. Today the firestore public entry is `src/firestore/index.ts` and holds the client implementation inline, while the sandbox implementation lives in `src/sandbox/firestore/` and the admin adapter lives in a third place. The public entry and its implementation must live in one directory. A reader who opens the surface directory sees the whole surface.
 
-Reference to align to. `sandbox/firestore/admin-compat/` already follows the one-concept-per-file rule: `batch.ts`, `doc-ref.ts`, `query.ts`, `snapshots.ts`, `transaction.ts`, `paths.ts`, `value-order.ts`, and a barrel. Match that shape. The database surface partly follows it too: `database/sandbox/` already separates `query.ts`, `data-tree.ts`, `normalize.ts`, `rules-eval.ts`.
+Reference to align to. `firestore/sandbox/admin-compat/` already follows the one-concept-per-file rule: `batch.ts`, `doc-ref.ts`, `collection-ref.ts`, `collection-group-query.ts`, `query.ts`, `snapshots.ts`, `transaction.ts`, `paths.ts`, and a barrel; shared query ordering lives in `firestore/sandbox/query-value-order.ts`. Match that shape. The database surface partly follows it too: `database/sandbox/` already separates `query.ts`, `data-tree.ts`, `normalize.ts`, `rules-eval.ts`.
 
 ## 2. File size and concern discipline
 

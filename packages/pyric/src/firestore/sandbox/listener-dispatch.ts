@@ -18,7 +18,7 @@ import type { FirestoreSimError } from './errors.js';
 import type {
   ListenerAuth,
   ListenerRecord,
-  QueryConstraintApplier,
+  QueryConstraintInput,
   SnapshotCallback,
   SnapshotErrorCallback,
   SnapshotListenerOptions,
@@ -42,8 +42,8 @@ import type {
 
 /**
  * The engine capabilities listener dispatch needs — nothing more. Both are
- * rules-gated silent reads (no event-log append); they stay on the engine
- * facade until PR B3 moves them into RulesReadEngine. Implementations may
+ * rules-gated silent reads (no event-log append) implemented by
+ * RulesReadEngine behind the permanent facade. Implementations may
  * throw `SimulatorUnsupportedError`, which propagates to the caller
  * unchanged (an unsupported rule is a sandbox limitation worth surfacing
  * verbatim, not silently rerouting through `errorCallback`).
@@ -57,7 +57,7 @@ export interface ListenerDispatchHost {
   silentReadCollection(
     collection: string,
     auth: ListenerAuth,
-    constraints?: QueryConstraintApplier,
+    constraints?: QueryConstraintInput,
     bypassRules?: boolean,
   ):
     | { allowed: true; docs: { path: string; data: DocumentData }[] }
