@@ -15,6 +15,16 @@ import {
 } from '../runtime/manifest.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 import { connectRuntimeWorker } from '../runtime/worker-connection.js';
+import { createWorkerReplacement } from '../runtime/worker-replacement.js';
+import {
+  preflightWorkerEpochStorage,
+  rememberWorkerEpoch,
+  workerNameForEpoch,
+} from '../runtime/worker-generation.js';
+import {
+  onWorkerRuntimeReload,
+  retireWorkerRuntime,
+} from '../worker/client/runtime-control.js';
 
 const hasSharedWorker = typeof SharedWorker !== 'undefined';
 const runtimeStatus = getPyricRuntimeStatus();
@@ -24,7 +34,16 @@ const workerRequested =
   && !(globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__;
 
 export const WORKER_URL = PYRIC_WORKER_URL;
-export const WORKER_NAME = PYRIC_WORKER_NAME;
+let epochStorage: Storage | undefined;
+try {
+  epochStorage = typeof localStorage === 'undefined' ? undefined : localStorage;
+} catch {
+  epochStorage = undefined;
+}
+export const WORKER_NAME = workerNameForEpoch(
+  runtimeStatus.getSnapshot().servedEpoch,
+  epochStorage,
+);
 
 /** Control traffic only; Firebase apps receive independent app-owned ports. */
 export const workerDb: ClientDb | null = workerRequested
@@ -54,6 +73,24 @@ runtimeStatus.setWorker({
   mode: useWorker ? 'shared-worker' : 'in-page',
   runningEpoch: null,
 });
+
+const workerReplacement = useWorker && workerDb && typeof window !== 'undefined'
+  ? createWorkerReplacement({
+      targetEpoch: runtimeStatus.getSnapshot().servedEpoch!,
+      retire: () => retireWorkerRuntime(
+        workerDb,
+        runtimeStatus.getSnapshot().servedEpoch!,
+      ),
+      subscribeReload: onWorkerRuntimeReload,
+      preflight: () => preflightWorkerEpochStorage(epochStorage),
+      commitGeneration: (epoch) => rememberWorkerEpoch(epoch, epochStorage),
+      onPreparationError: (error) => runtimeStatus.reportError(error, 'worker'),
+      reload: () => window.location.reload(),
+    })
+  : null;
+runtimeStatus.setWorkerUpdater(
+  workerReplacement ? () => workerReplacement.request() : null,
+);
 
 if (useWorker && workerDb) {
   subscribeEvents(workerDb, (events) => runtimeStatus.recordSandboxEvents(events));

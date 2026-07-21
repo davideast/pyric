@@ -57,8 +57,8 @@ export function getFirestore(
     });
   }
   const port = worker.port;
-  port.start();
   wirePort(port);
+  port.start();
   return { __kind: 'client-db', port };
 }
 

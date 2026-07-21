@@ -126,6 +126,36 @@ describe('Pyric runtime status', () => {
     runtime.clearErrors();
     expect(runtime.getSnapshot()).toMatchObject({ errors: [], updateAvailable: true });
   });
+
+  it('runs the configured worker update only when a new epoch is available', async () => {
+    const status = createPyricRuntimeStatus({
+      ...manifest,
+      worker: { ...manifest.worker, servedEpoch: 'served-new' },
+    });
+    let updates = 0;
+    status.setWorkerUpdater(async () => { updates += 1; });
+
+    await expect(status.updateWorker()).rejects.toThrow('No Pyric worker update is available');
+    status.setWorker({ mode: 'shared-worker', runningEpoch: 'running-old' });
+    await status.updateWorker();
+
+    expect(updates).toBe(1);
+    expect(status.getSnapshot().updatingWorker).toBe(true);
+  });
+
+  it('returns to an actionable error state when worker replacement fails', async () => {
+    const status = createPyricRuntimeStatus(manifest);
+    status.setWorker({ mode: 'shared-worker', runningEpoch: 'running-old' });
+    status.setWorkerUpdater(async () => { throw new Error('retirement timed out'); });
+
+    await expect(status.updateWorker()).rejects.toThrow('retirement timed out');
+
+    expect(status.getSnapshot()).toMatchObject({
+      updateAvailable: true,
+      updatingWorker: false,
+      errors: [{ source: 'worker', message: 'retirement timed out' }],
+    });
+  });
 });
 
 describe('normalizePyricRuntimeError', () => {

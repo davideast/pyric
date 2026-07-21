@@ -68,6 +68,7 @@ import type { OutboundMessage, ResMessage, SnapMessage } from '../../../src/serv
 interface Realm {
   send(msg: unknown): void;
   replies: OutboundMessage[];
+  closed(): boolean;
   close(): void;
 }
 
@@ -81,7 +82,13 @@ async function bootBundledWorker(): Promise<Realm> {
   const src = readFileSync(file, 'utf8');
 
   // The SharedWorkerGlobalScope the bundle installs its `onconnect` on.
-  const workerSelf: { onconnect?: (e: { ports: unknown[] }) => void } = {};
+  let workerClosed = false;
+  const workerSelf: {
+    onconnect?: (e: { ports: unknown[] }) => void;
+    close(): void;
+  } = {
+    close() { workerClosed = true; },
+  };
 
   // Standalone boot: no `pyric dev` behind the worker, so /__pyric/init.json
   // 404s and buildWorkerCtx falls back to plain IDB.
@@ -115,6 +122,7 @@ async function bootBundledWorker(): Promise<Realm> {
 
   return {
     replies,
+    closed: () => workerClosed,
     send: (msg) => channel.port1.postMessage(msg),
     close: () => {
       channel.port1.close();
@@ -225,5 +233,18 @@ describe('bundle realm — the shipped SharedWorker artifact executes', () => {
     });
     await settle();
     expect(snapsFor(realm, SUB).length).toBe(countAtUnsub);
+  }, 30_000);
+
+  it('retires the shipped worker only after acknowledging and notifying the page', async () => {
+    const response = await sendOp(realm, {
+      id: 'realm-retire', method: 'retireRuntime', targetEpoch: 'fedcba9876543210',
+    });
+    expect(response.ok).toBe(true);
+    await settle(100);
+
+    expect(realm.replies).toContainEqual({
+      t: 'runtime-reload', epoch: 'fedcba9876543210',
+    });
+    expect(realm.closed()).toBe(true);
   }, 30_000);
 });

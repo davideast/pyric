@@ -27,10 +27,11 @@ describe('SharedWorker connection', () => {
 
   it('surfaces the SharedWorker script error event', () => {
     let emitError: ((event: { message?: string }) => void) | undefined;
+    let wiredBeforeStart = false;
     const port: ClientPort = {
       onmessage: null,
       postMessage() {},
-      start() {},
+      start() { wiredBeforeStart = port.onmessage !== null; },
       close() {},
     };
     (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
@@ -48,5 +49,6 @@ describe('SharedWorker connection', () => {
 
     expect(errors).toHaveLength(1);
     expect(errors[0]?.message).toContain('worker script failed');
+    expect(wiredBeforeStart).toBe(true);
   });
 });
