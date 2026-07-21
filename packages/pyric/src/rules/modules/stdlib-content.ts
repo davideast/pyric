@@ -64,6 +64,7 @@ export function consumedFlag(before, after, flagField) {
 }
 `,
   "auth": `// @pyric-services cloud.firestore,firebase.storage
+// @pyric-evidence storage-rules#125
 export function isAuthenticated() {
   return request.auth != null;
 }
@@ -363,6 +364,7 @@ export function canCancel() {
 }
 `,
   "membership": `// @pyric-services cloud.firestore,firebase.storage
+// @pyric-evidence storage-rules#125
 // Membership module for role-based and claims-based access control.
 //
 // Two access patterns:
@@ -483,6 +485,7 @@ export function participantsUnchanged() {
 }
 `,
   "storage/metadata": `// @pyric-services firebase.storage
+// @pyric-evidence storage-rules#132
 // Storage custom-metadata policies. Custom metadata is a flat string map.
 
 export function hasRequiredMetadata(keys) {
@@ -506,6 +509,7 @@ export function existingMetadataOwner(key) {
 }
 `,
   "storage/objects": `// @pyric-services firebase.storage
+// @pyric-evidence storage-rules#132
 // Storage operation identity. Use request.method rather than null checks:
 // production treats missing resource/request.resource bindings as errors.
 
@@ -522,6 +526,7 @@ export function isDelete() {
 }
 `,
   "storage/time": `// @pyric-services firebase.storage
+// @pyric-evidence storage-rules#132
 // Freshness checks over server-owned Storage object timestamps. Boundaries are
 // strict: equality with the deadline is not "within" the window.
 
@@ -534,6 +539,7 @@ export function updatedWithin(seconds) {
 }
 `,
   "storage/uploads": `// @pyric-services firebase.storage
+// @pyric-evidence storage-rules#132
 // Storage upload request primitives. These inspect declared object metadata;
 // MIME helpers do not inspect or authenticate the uploaded bytes.
 

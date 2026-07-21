@@ -1,4 +1,5 @@
 // @pyric-services firebase.storage
+// @pyric-evidence storage-rules#132
 // Storage operation identity. Use request.method rather than null checks:
 // production treats missing resource/request.resource bindings as errors.
 

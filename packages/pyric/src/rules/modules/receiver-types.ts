@@ -14,6 +14,7 @@ export type RulesReceiverType =
   | 'null'
   | 'number'
   | 'path'
+  | 'resource'
   | 'set'
   | 'string'
   | 'timestamp'
@@ -25,10 +26,11 @@ export function ambientReceiverType(
 ): RulesReceiverType | null {
   if (!provenance || provenance === 'unknown-ambient') return null;
   const path = provenance.join('.');
+  if (path === 'request.resource' || path === 'resource') return 'resource';
   if (path === 'request.auth' || path === 'request.auth.token' ||
-      path === 'request.resource' || path === 'resource' ||
-      path === 'request.resource.data' || path === 'resource.data' ||
-      path === 'request.query' || path === 'request.resource.metadata' ||
+      (service === 'cloud.firestore' &&
+        (path === 'request.resource.data' || path === 'resource.data' || path === 'request.query')) ||
+      path === 'request.resource.metadata' ||
       path === 'resource.metadata') return 'map';
   if (path === 'request.auth.uid' || path === 'request.method' ||
       path === 'request.resource.contentType' || path === 'resource.contentType' ||

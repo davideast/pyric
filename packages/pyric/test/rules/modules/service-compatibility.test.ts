@@ -108,6 +108,19 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     }
   });
 
+  test('does not treat Firestore Resource bindings as maps', () => {
+    for (const binding of ['request.resource', 'resource']) {
+      const result = resolveModules(
+        makeSource("import { invalid } from './policy';", 'allow read: if invalid();'),
+        { modules: {
+          './policy': `export function invalid() { return ${binding}.size() > 0; }`,
+        } },
+      );
+      expect(result.success, binding).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+    }
+  });
+
   test('fails closed on an unclassified Storage ambient object field', () => {
     const result = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
