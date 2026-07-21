@@ -12,6 +12,11 @@ The local execution reached a canonical strict score of **126/140 (90.0%)** and
 ordered-universe SHA-256
 `c096e0fd13900b095ffdfe235da72e5dd6a1a7f469ef91bb90ad878eaff4b03a`.
 The denominator remained 140 throughout the climb.
+Every Firestore observation is now bound to the exact production rules and
+request inputs by SHA-256, and both the canonical score computation and oracle
+replay require that digest plus the complete case-key set to match. Editing a
+scenario without a production recapture therefore removes its evidence credit
+and fails the exact score gate.
 
 | Final classification | Constructs | Interpretation |
 |---|---:|---|

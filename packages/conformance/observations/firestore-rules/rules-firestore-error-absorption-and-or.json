@@ -4,10 +4,14 @@
   "rowIds": [
     "firestore-rules#163"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"error-absorption-and-or\" (RULES-B3). CEL tri-state: `error || true` → ALLOW, `error && false` → DENY-as-false; errors absorb commutatively, not JS left-to-right.",
-  "observedAt": "2026-07-10T22:41:19.225Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"error-absorption-and-or\" (RULES-B3). CEL tri-state: `error || true` → ALLOW, `error && false` → DENY-as-false; errors absorb commutatively, not JS left-to-right.",
+  "observedAt": "2026-07-21T23:26:43.228Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "ae4a11dfc30dd6d5435ef3bd2bfd24b1429fd542f2ce353dc3026924ea38068c"
+  },
   "behavior": {
     "error || true → ALLOW (commutative absorption)": "ALLOW",
     "true || error → ALLOW (short-circuit control)": "ALLOW",
@@ -16,5 +20,35 @@
     "false && error → DENY (short-circuit control)": "DENY",
     "error && true → DENY (error propagates)": "DENY",
     "(error && false) || true → ALLOW (nested absorption)": "ALLOW"
+  },
+  "diagnostics": {
+    "error || false → DENY (error propagates)": {
+      "notes": [
+        "Error: firestore.rules line [14], column [24]. Property missing is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 14,
+          "column": 24,
+          "currentOffset": 521,
+          "endOffset": 527
+        }
+      }
+    },
+    "error && true → DENY (error propagates)": {
+      "notes": [
+        "Error: firestore.rules line [26], column [24]. Property missing is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 26,
+          "column": 24,
+          "currentOffset": 1030,
+          "endOffset": 1036
+        }
+      }
+    }
   }
 }

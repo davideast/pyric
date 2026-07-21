@@ -761,7 +761,7 @@ export interface Scenario {
 async function loadScenarios(
   engine: RulesEngine,
 ): Promise<{ scenarios: Scenario[]; twinIds: Set<string> }> {
-  const { readdirSync } = await import('node:fs');
+  const { readFileSync, readdirSync } = await import('node:fs');
   const { join, dirname } = await import('node:path');
   const { fileURLToPath } = await import('node:url');
   const here = dirname(fileURLToPath(import.meta.url));
@@ -784,22 +784,38 @@ async function loadScenarios(
     obsFiles = [];
   }
   const prefix = `rules-${engine}-`;
-  const twinIds = new Set(
+  const candidateTwinIds = new Set(
     obsFiles
       .filter((f) => f.startsWith(prefix) && f.endsWith('.json'))
       .map((f) => f.slice(prefix.length, -'.json'.length)),
   );
 
   let scenarios: Scenario[];
+  const twinIds = new Set<string>();
   if (engine === 'firestore') {
     const { ALL_RULES_FIRESTORE_SCENARIOS } = await import('../rules-corpus/firestore/index.ts');
+    const { firestoreObservationMatchesScenario } = await import('./firestore-rules-input-digest.ts');
     scenarios = ALL_RULES_FIRESTORE_SCENARIOS.map((p) => ({ id: p.id, rules: p.rules }));
+    const scenariosById = new Map(ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => [scenario.id, scenario]));
+    for (const id of candidateTwinIds) {
+      const scenario = scenariosById.get(id);
+      if (!scenario) continue;
+      const observation = JSON.parse(
+        readFileSync(join(obsDir, `${prefix}${id}.json`), 'utf8'),
+      ) as {
+        inputDigest?: { algorithm?: unknown; value?: unknown };
+        behavior?: Record<string, unknown>;
+      };
+      if (firestoreObservationMatchesScenario(scenario, observation)) twinIds.add(id);
+    }
   } else if (engine === 'storage') {
     const { ALL_RULES_STORAGE_SCENARIOS } = await import('../rules-corpus/storage/index.ts');
     scenarios = ALL_RULES_STORAGE_SCENARIOS.map((p) => ({ id: p.id, rules: p.rules }));
+    for (const id of candidateTwinIds) twinIds.add(id);
   } else {
     const { ALL_RULES_RTDB_SCENARIOS } = await import('../rules-corpus/rtdb/index.ts');
     scenarios = ALL_RULES_RTDB_SCENARIOS.map((p) => ({ id: p.id, rules: p.rules }));
+    for (const id of candidateTwinIds) twinIds.add(id);
   }
   return { scenarios, twinIds };
 }

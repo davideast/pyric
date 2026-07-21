@@ -5,9 +5,13 @@
     "firestore-rules#184"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"resource-missing-document\" (RULES-B13). A missing request target makes resource a null error value. The simulator constructed a non-null empty resource for get/update/delete, so `resource != null` ALLOWed where production DENIES.",
-  "observedAt": "2026-07-13T00:00:01.625Z",
+  "observedAt": "2026-07-21T23:26:45.270Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "8ea1930836a6dcd8241852b5a10dce1b7dce3ce2dc66d0bf12cd18bc0a187fb5"
+  },
   "behavior": {
     "missing document get with resource != null → DENY": "DENY",
     "missing document update with resource != null → DENY": "DENY",
@@ -18,5 +22,77 @@
     "missing document resource == null → DENY (comparison errors)": "DENY",
     "missing document resource.data.value touch → DENY": "DENY",
     "existing document resource.data.value touch → ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "missing document get with resource != null → DENY": {
+      "notes": [
+        "Error: firestore.rules line [5], column [37]. Null value error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 5,
+          "column": 37,
+          "currentOffset": 155,
+          "endOffset": 162
+        }
+      }
+    },
+    "missing document update with resource != null → DENY": {
+      "notes": [
+        "Error: firestore.rules line [5], column [37]. Null value error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 5,
+          "column": 37,
+          "currentOffset": 155,
+          "endOffset": 162
+        }
+      }
+    },
+    "missing document delete with resource != null → DENY": {
+      "notes": [
+        "Error: firestore.rules line [5], column [37]. Null value error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 5,
+          "column": 37,
+          "currentOffset": 155,
+          "endOffset": 162
+        }
+      }
+    },
+    "missing document resource == null → DENY (comparison errors)": {
+      "notes": [
+        "Error: firestore.rules line [8], column [21]. Null value error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 8,
+          "column": 21,
+          "currentOffset": 227,
+          "endOffset": 234
+        }
+      }
+    },
+    "missing document resource.data.value touch → DENY": {
+      "notes": [
+        "Error: firestore.rules line [11], column [21]. Null value error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 11,
+          "column": 21,
+          "currentOffset": 298,
+          "endOffset": 305
+        }
+      }
+    }
   }
 }

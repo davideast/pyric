@@ -4,10 +4,14 @@
   "rowIds": [
     "firestore-rules#170"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"matches-full-string-regex\" (RULES-B4). matches() is an anchored full-string RE2 match; a pattern matching only a substring must be false (JS partial-match said true).",
-  "observedAt": "2026-07-10T22:41:19.540Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"matches-full-string-regex\" (RULES-B4). matches() is an anchored full-string RE2 match; a pattern matching only a substring must be false (JS partial-match said true).",
+  "observedAt": "2026-07-21T23:26:44.456Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "c504e6aa9925c8e7c415a3fdb339740ec348bccb4d58be786eec80b33ba7ccae"
+  },
   "behavior": {
     "'hello world'.matches('world') → DENY (no partial match)": "DENY",
     "'hello'.matches('hello') → ALLOW": "ALLOW",

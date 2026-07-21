@@ -33,7 +33,7 @@ One command answers "is the conformance graph coherent right now":
 bun run compat:check     # workspace census resolves manifest exports to source
 ```
 
-`compat:check` is not a script of its own. It chains six gates, in this
+`compat:check` is not a script of its own. It chains seven gates, in this
 order, cheapest and most specific first:
 
 | # | Gate | Fails when |
@@ -43,7 +43,8 @@ order, cheapest and most specific first:
 | 3 | `compat:census-gate` | A runtime export lacks a reviewed disposition, a NEW type gap appears, or a stale/redundant disposition remains. |
 | 4 | `compat:entry-path` | A canonical initialization program went red without a cited, currently-real gap. This is a CLIFF, not a ratchet. |
 | 5 | `compat:conformance:check` | Any ignored runtime projection—the Node developer-feature query, compact browser query, or assurance node-verdict lookup—is missing or no longer matches the central model. Run the CLI prebuild or `compat:conformance`. |
-| 6 | `compat:coverage` | A published number regressed: a `conforms` row flipped or vanished, surface coverage dropped, a new orphan observation appeared, or the high-risk-unverified count went up. Never fails for being low, only for going down. |
+| 6 | `compat:rules-score` | The ordered Firestore Rules universe, input-bound production evidence, per-construct facts, or canonical score differs from its explicitly reviewed baseline. |
+| 7 | `compat:coverage` | A published number regressed: a `conforms` row flipped or vanished, surface coverage dropped, a new orphan observation appeared, or the high-risk-unverified count went up. Never fails for being low, only for going down. |
 
 Green looks like this (trimmed):
 
@@ -72,6 +73,10 @@ Conformance model: 953 developer feature result(s), … bytes
 Browser query projection: … bytes raw, … bytes gzip
 Assurance verdicts: 1067 nodes (851 supported, 135 qualified, 81 unsupported)
 Generated verdict lookup: … bytes raw, … bytes gzip
+
+Firestore Rules conformance: 126/140 (90%) — 2 diverged, 0 unknown,
+6 acceptance-mismatch, 0 local-unsupported, 3 local-error, 3 unprobeable.
+✓ Score, denominator, and per-construct facts match the committed baseline.
 
 # Compatibility coverage
 [… the coverage table …]
@@ -823,7 +828,7 @@ These two are pure in-process probes of installed library code. That is why
 |---|---|---|
 | `oracle-run` | 130 observations across five surfaces: `auth-` (28), `firestore-` (40), `rtdb-` (14), `rtdb-modular-` (39), `storage-` (9) | `PYRIC_ORACLE_FIREBASE_CONFIG` (web config JSON) plus `PYRIC_ORACLE_SA_PATH` (service-account file). The project needs Anonymous sign-in enabled and Firestore rules scoped to the `pyric_oracle` namespace. An RTDB instance and a Storage bucket are optional: those probes self-skip when absent. |
 | `rtdb-rules` | 8 `rules-rtdb-` observations: per-case ALLOW/DENY verdicts for the RTDB rules corpus | The same two vars as `oracle-run`. The service account must additionally hold a role granting the `firebase.database` scope, so `/.settings/rules.json` PUT and GET both succeed. |
-| `rules-firestore` | 23 `rules-firestore-` observations: per-case ALLOW/DENY/UNSUPPORTED verdicts from the production Firestore Rules Test API | `PARITY_SA_BASE64`: a base64 service account holding ONLY `firebaserules.rulesets.test`. It cannot read or write any data. |
+| `rules-firestore` | 27 `rules-firestore-` observations: per-case ALLOW/DENY/UNSUPPORTED verdicts from the production Firestore Rules Test API, each SHA-256-bound to its exact rules/request inputs | `PARITY_SA_BASE64`: a base64 service account holding ONLY `firebaserules.rulesets.test`. It cannot read or write any data. |
 | `rules-storage` | 8 `rules-storage-` observations, via the same `projects.test` endpoint | `PARITY_SA_BASE64`, same minimal scope. |
 | `ai-logic` | 14 `ai-` observations: error, SSE-framing, envelope, function-call, and countTokens facts from the production Firebase AI Logic proxy | `PYRIC_AI_FIREBASE_CONFIG`. The project needs Firebase AI Logic enabled, with the Gemini Developer API backend reachable through the `firebasevertexai.googleapis.com` proxy. |
 | `messaging-send` | 10 `messaging-send-` observations: what the production FCM v1 `messages:send` endpoint accepts, and its exact error envelopes | `PYRIC_MESSAGING_SA_BASE64`. The project needs Cloud Messaging (FCM v1) enabled. |

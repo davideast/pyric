@@ -26,13 +26,13 @@ import { ALL_RULES_STORAGE_SCENARIOS } from '../rules-corpus/storage/index.ts';
 import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
 
 describe('rules-language production verdicts', () => {
-  it('does not count constructs whose positive evidence is contaminated by a production divergence', async () => {
+  it('counts rejection-parity identity constructs after their divergence is resolved', async () => {
     const report = await computeCoverageReport();
     const firestore = report.engines.find((engine) => engine.engine === 'firestore');
 
-    expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.id')?.verdict).toBe('diverged');
-    expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.__name__')?.verdict).toBe('diverged');
-    expect(firestore?.verifiedConstructs).toBe(107);
+    expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.id')?.verdict).toBe('verified');
+    expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.__name__')?.verdict).toBe('verified');
+    expect(firestore?.verifiedConstructs).toBe(129);
   });
 
   it('restores RTDB validate scope only after the ancestor case conforms', async () => {

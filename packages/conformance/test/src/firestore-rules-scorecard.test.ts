@@ -112,6 +112,16 @@ describe('Firestore Rules scorecard', () => {
     expect(() => deriveFirestoreRulesScorecard({
       constructs: [construct('x')], capabilities: [capability('x'), capability('ghost')], coverage: [coverage('x')],
     })).toThrow('outside the universe');
+    expect(() => deriveFirestoreRulesScorecard({
+      constructs: [construct('x')],
+      capabilities: [capability('x'), capability('x', 'error')],
+      coverage: [coverage('x')],
+    })).toThrow('capability input contains duplicate ids: x');
+    expect(() => deriveFirestoreRulesScorecard({
+      constructs: [construct('x')],
+      capabilities: [capability('x')],
+      coverage: [coverage('x'), coverage('x', 'unverified')],
+    })).toThrow('coverage input contains duplicate ids: x');
   });
 
   it('hashes the ordered universe deterministically and notices order changes', () => {

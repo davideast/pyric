@@ -4,10 +4,14 @@
   "rowIds": [
     "firestore-rules#174"
   ],
-  "description": "Firestore Rules Test API verdicts and diagnostics for corpus scenario \"set-algebra-difference-union-intersection\" (Item 5.1). Hosted production reports Function not found for Set.difference/union/intersection; the corpus retains intended-positive, Set-argument, and negative-control cases without claiming algebra conformance.",
-  "observedAt": "2026-07-21T23:02:24.723Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"set-algebra-difference-union-intersection\" (Item 5.1). Hosted production diagnostics report Function not found for Set.difference/union/intersection; retain intended-positive, Set-argument, and negative-control cases without claiming algebra conformance.",
+  "observedAt": "2026-07-21T23:26:45.441Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "d7ee631e77ea4fd65ba3cff060c6545d42a73c61eef517d321a5912c0d4632ae"
+  },
   "behavior": {
     "set difference (list arg) → hasOnly([c]) ALLOW": "DENY",
     "set difference (set arg) → hasOnly([x]) ALLOW": "DENY",

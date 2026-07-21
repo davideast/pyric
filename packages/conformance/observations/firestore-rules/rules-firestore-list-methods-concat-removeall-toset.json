@@ -4,10 +4,14 @@
   "rowIds": [
     "firestore-rules#168"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"list-methods-concat-removeall-toset\" (Item 5.2). Sim must implement List.concat/removeAll/toSet; pre-fix all three threw UnsupportedError.",
-  "observedAt": "2026-07-10T22:41:18.638Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"list-methods-concat-removeall-toset\" (Item 5.2). Sim must implement List.concat/removeAll/toSet; pre-fix all three threw UnsupportedError.",
+  "observedAt": "2026-07-21T23:26:44.283Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "af0fd7f58b2ef944619d8d898fd0818515b36dc29a3d72e4cc4c47c174c6c628"
+  },
   "behavior": {
     "list concat → size 4 ALLOW": "ALLOW",
     "list concat preserves order ALLOW": "ALLOW",
@@ -18,5 +22,21 @@
     "list toSet dedupes ALLOW": "ALLOW",
     "list toSet().difference chain (5.1 wiring) ALLOW": "DENY",
     "list concat with wrong expected size DENY": "DENY"
+  },
+  "diagnostics": {
+    "list toSet().difference chain (5.1 wiring) ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [42], column [44]. Unsupported operation error. Received: set.difference(list). Expected: set.difference(set)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 42,
+          "column": 44,
+          "currentOffset": 1538,
+          "endOffset": 1547
+        }
+      }
+    }
   }
 }

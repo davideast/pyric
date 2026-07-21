@@ -4,10 +4,14 @@
   "rowIds": [
     "firestore-rules#171"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"path-constructor-and-bind\" (Item 5.4). Sim must implement Path wrapper, path() constructor, and Path.bind(). Pre-fix: pathLiteral returned string (so `is path` was false), path() threw UnsupportedError, bind had no dispatch.",
-  "observedAt": "2026-07-10T22:41:18.900Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"path-constructor-and-bind\" (Item 5.4). Sim must implement Path wrapper, path() constructor, and Path.bind(). Pre-fix: pathLiteral returned string (so `is path` was false), path() threw UnsupportedError, bind had no dispatch.",
+  "observedAt": "2026-07-21T23:26:44.753Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "df3f1a02f592244335366736319cc7b4b35123392a3336b51bb7e4779756216c"
+  },
   "behavior": {
     "literal /foo/$(db)/... is path ALLOW": "ALLOW",
     "path('users/alice') is path ALLOW": "ALLOW",
@@ -18,5 +22,21 @@
     "Path[1] returns segment ALLOW": "ALLOW",
     "path() idempotent on Path arg ALLOW": "DENY",
     "wrong path equality DENY": "DENY"
+  },
+  "diagnostics": {
+    "path() idempotent on Path arg ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [43], column [12]. Unsupported operation error. Received: path(path). Expected: path(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 43,
+          "column": 12,
+          "currentOffset": 1495,
+          "endOffset": 1498
+        }
+      }
+    }
   }
 }

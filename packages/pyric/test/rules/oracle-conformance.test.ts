@@ -15,12 +15,9 @@
  * coverage is structural: an observation whose id has no corresponding scenario
  * FAILS loudly (a capture can't silently go un-checked).
  *
- * STAGING STATE: no `rules-firestore-*` observation has been captured yet
- * (no credentials were available to the staging branch, and no observation
- * files were fabricated). While the observation set is empty this suite
- * SKIPS with a clear message and passes. The moment a capture lands, the
- * assertions below go live verdict-for-verdict with no further edits — run
- * `packages/conformance/src/run-rules.ts` with PARITY_SA_BASE64 to produce them.
+ * Every committed observation is bound to the production wire inputs by a
+ * SHA-256 digest. Case-set and digest drift both fail before replay, requiring
+ * an explicit production recapture after any rules/request change.
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -32,6 +29,7 @@ import {
   type Scenario,
 } from '../../../../packages/conformance/rules-corpus/firestore/index.ts';
 import { allCompatibilityRows } from '../../../../packages/conformance/registry/index.ts';
+import { firestoreScenarioInputDigest } from '../../../../packages/conformance/src/firestore-rules-input-digest.ts';
 
 // rules-firestore-* observations live under the native 'firestore-rules'
 // conformance surface (issue #184) — distinct from the SDK-surface 'firestore'
@@ -52,6 +50,7 @@ interface RulesObservation {
   name: string;
   rowIds: string[];
   behavior: Record<string, unknown>;
+  inputDigest?: { algorithm?: unknown; value?: unknown };
 }
 
 /**
@@ -100,11 +99,13 @@ function loadObservation(file: string): RulesObservation {
     name?: string;
     rowIds?: string[];
     behavior?: Record<string, unknown>;
+    inputDigest?: { algorithm?: unknown; value?: unknown };
   };
   return {
     name: raw.name ?? file.replace(/\.json$/, ''),
     rowIds: raw.rowIds ?? [],
     behavior: raw.behavior ?? {},
+    inputDigest: raw.inputDigest,
   };
 }
 
@@ -169,6 +170,10 @@ describe('oracle conformance (rules-firestore)', () => {
         Object.keys(obs.behavior).sort(),
         `observation "${obs.name}" must contain exactly the current scenario case set; recapture after adding, removing, or renaming a case`,
       ).toEqual(scenario.cases.map(({ description }) => description).sort());
+      expect(
+        obs.inputDigest,
+        `observation "${obs.name}" is stale or unbound; recapture after changing rules or request inputs`,
+      ).toEqual(firestoreScenarioInputDigest(scenario));
 
       const sim = await simulateVerdicts(scenario);
       // Every case in the scenario is checked and any mismatch is collected here

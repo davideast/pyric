@@ -137,6 +137,24 @@ export function deriveFirestoreRulesScorecard(
   const ids = input.constructs.map(({ id }) => id);
   const uniqueIds = new Set(ids);
   if (uniqueIds.size !== ids.length) throw new Error('Firestore score universe contains duplicate construct ids');
+  const duplicateIds = (values: readonly { id: string }[]): string[] => {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const { id } of values) {
+      if (seen.has(id)) duplicates.add(id);
+      seen.add(id);
+    }
+    return [...duplicates].sort();
+  };
+  for (const [label, values] of [
+    ['capability', input.capabilities],
+    ['coverage', input.coverage],
+  ] as const) {
+    const duplicates = duplicateIds(values);
+    if (duplicates.length > 0) {
+      throw new Error(`Firestore score ${label} input contains duplicate ids: ${duplicates.join(', ')}`);
+    }
+  }
 
   const capabilities = new Map(input.capabilities.map((entry) => [entry.id, entry]));
   const coverage = new Map(input.coverage.map((entry) => [entry.id, entry]));

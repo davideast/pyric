@@ -6,7 +6,7 @@
  * when credentialed, replays each scenario against the PRODUCTION Firestore Rules
  * Test API via the same `TestFirestoreRulesHandler` the live parity harness
  * uses. One observation JSON is written per scenario into
- * `observations/firestore/rules-firestore-<scenario.id>.json`, using the
+ * `observations/firestore-rules/rules-firestore-<scenario.id>.json`, using the
  * standard Observation envelope. Production is the source of truth: the
  * captured `behavior` is a verdict table keyed by case description
  * (ALLOW / DENY), which the in-process replay suite then checks the sandbox
@@ -42,6 +42,10 @@ import {
   observationName,
   type Scenario,
 } from '../rules-corpus/firestore/index.ts';
+import {
+  firestoreScenarioInputDigest,
+  type FirestoreScenarioInputDigest,
+} from './firestore-rules-input-digest.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-firestore-* observations belong to the native 'firestore-rules' surface.
@@ -73,6 +77,7 @@ interface Observation {
   fbSdkVersion: string;
   projectId: string;
   behavior: Record<string, unknown>;
+  inputDigest: FirestoreScenarioInputDigest;
   /** Production diagnostics keyed by case description. Kept separately from
    * the verdict table so oracle replay stays stable while held/error cases
    * retain evidence of the observable boundary that produced a DENY. */
@@ -143,7 +148,7 @@ export function diagnosticTable(
 ): Record<string, { notes: string[]; api?: unknown }> {
   return Object.fromEntries(
     results
-      .filter((result) => result.notes.length > 0 || result.api !== undefined)
+      .filter((result) => result.notes.length > 0)
       .map((result) => [result.description, {
         notes: [...result.notes],
         ...(result.api !== undefined ? { api: result.api } : {}),
@@ -205,6 +210,7 @@ async function capture(scenarios: Scenario[]): Promise<void> {
       observedAt: new Date().toISOString(),
       fbSdkVersion,
       projectId: scope.projectId,
+      inputDigest: firestoreScenarioInputDigest(scenario),
       behavior,
       ...(Object.keys(diagnostics).length > 0 ? { diagnostics } : {}),
     };

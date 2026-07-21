@@ -5,14 +5,34 @@
     "firestore-rules#186"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"global-and-service-scope-functions\" (Coverage: function scopes (global, service), shadowing). Production accepts and resolves functions declared at global and service scope, with match-scope shadowing; the old grammar rejected both placements and the simulator cannot yet resolve them.",
-  "observedAt": "2026-07-17T19:19:44.371Z",
+  "observedAt": "2026-07-21T23:26:43.792Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "5982fc8219ed7e2cce41160f723790925aea18d780e4dc304a01dcfad631eca8"
+  },
   "behavior": {
-    "service-scope fn + match shadow of global \u2192 ALLOW": "ALLOW",
-    "global fn gates create (alice) \u2192 ALLOW": "ALLOW",
-    "global fn gates create (bob) \u2192 DENY": "DENY",
-    "unshadowed call resolves the global fn \u2192 ALLOW": "ALLOW",
-    "anonymous fails service-scope isSignedIn() \u2192 DENY": "DENY"
+    "service-scope fn + match shadow of global → ALLOW": "ALLOW",
+    "global fn gates create (alice) → ALLOW": "ALLOW",
+    "global fn gates create (bob) → DENY": "DENY",
+    "unshadowed call resolves the global fn → ALLOW": "ALLOW",
+    "anonymous fails service-scope isSignedIn() → DENY": "DENY"
+  },
+  "diagnostics": {
+    "anonymous fails service-scope isSignedIn() → DENY": {
+      "notes": [
+        "Error: firestore.rules line [10], column [12]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 10,
+          "column": 12,
+          "currentOffset": 178,
+          "endOffset": 184
+        }
+      }
+    }
   }
 }
