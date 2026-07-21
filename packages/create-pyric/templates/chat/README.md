@@ -13,16 +13,28 @@ npm run dev
 ```
 
 With no model configuration, Pyric's built-in scripted engine answers locally.
-To use MiniMax or another OpenAI-compatible server, copy `.env.example` to
-`.env.local` and set both:
+To use Ollama, pull a model, copy `.env.example` to `.env.local`, and select it:
 
-```dotenv
-PYRIC_AI_PROXY_UPSTREAM=http://localhost:8080/v1
-PYRIC_AI_MODEL=minimax-m2.7
+```bash
+ollama pull qwen3:4b
 ```
 
-Start that server separately, then restart Vite. The scaffold deliberately does
-not assume an operating system or a particular model launcher.
+```dotenv
+PYRIC_AI_MODEL=qwen3:4b
+```
+
+Pyric forwards the unchanged `firebase/ai` calls to Ollama's default
+OpenAI-compatible endpoint at `http://localhost:11434/v1`. For another model
+server, also set its base URL (including `/v1` when required):
+
+```dotenv
+PYRIC_AI_MODEL=minimax-m2.7
+PYRIC_AI_PROXY_UPSTREAM=http://localhost:8080/v1
+```
+
+Start the model server separately, then restart Vite.
+See the [Pyric AI Logic guide](https://pyric.dev/docs/build/ai-logic/) for the full
+engine and proxy behavior.
 
 ## What runs in the sandbox
 

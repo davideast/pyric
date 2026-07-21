@@ -9,7 +9,7 @@ import path, { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
-import { pyric, engineConfigToWire } from '../../src/serve/vite-plugin.js';
+import { pyric } from '../../src/serve/vite-plugin.js';
 import {
   SDK_MODULES,
   defaultSdkEntries,
@@ -67,19 +67,6 @@ describe('pyric — plugin shape', () => {
     const forcedOff = pyric({ swapInBuild: false });
     expect(applies(forcedOff, 'build', 'development')).toBe(false); // never swap in build
     expect(applies(forcedOff, 'serve', 'production')).toBe(true); // dev still always on
-  });
-
-  it('engineConfigToWire: openai passes model/modelMap and keeps baseUrl', () => {
-    expect(
-      engineConfigToWire({ kind: 'openai', baseUrl: 'http://host/v1', model: 'm', modelMap: { a: 'b' } }),
-    ).toEqual({ kind: 'openai', baseUrl: 'http://host/v1', model: 'm', modelMap: { a: 'b' } });
-  });
-
-  it('engineConfigToWire: scripted script passes through as plain JSON entries', () => {
-    expect(engineConfigToWire({ kind: 'scripted', script: [{ respond: { text: 'hi' } }] })).toEqual({
-      kind: 'scripted',
-      script: [{ respond: { text: 'hi' } }],
-    });
   });
 
   it('sandbox build: transformIndexHtml stamps ONLY the marker (no init/@fs, no force-in-page)', () => {
