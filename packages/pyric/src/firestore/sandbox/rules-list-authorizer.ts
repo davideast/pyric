@@ -24,6 +24,8 @@ export interface RulesListAuthorizerHost {
 }
 
 export interface ListAuthorizationRequest {
+  /** Concrete collection paths that the captured execution scope can read. */
+  matchPaths?: readonly string[];
   path: string;
   auth: Operation['auth'];
   constraints: QueryConstraints;
@@ -31,8 +33,8 @@ export interface ListAuthorizationRequest {
   bypassRules?: boolean;
   activityQuery?: unknown;
   triggeredBy?: TriggerInfo;
-  /** Preserve caller-side event timing when work precedes authorization. */
-  at?: number;
+  /** Preserve the established request.time → event.at capture order. */
+  timing?: { requestTime?: Timestamp; at: number };
 }
 
 export type ListAuthorizationResult =
@@ -60,7 +62,10 @@ export class RulesListAuthorizer {
       ...(request.activityQuery !== undefined ? { activityQuery: request.activityQuery } : {}),
     };
     const detail = Object.keys(requestDetail).length > 0 ? requestDetail : undefined;
-    const evalAt = request.at ?? Date.now();
+    const requestTime = request.timing?.requestTime ?? (
+      request.bypassRules ? undefined : Timestamp.fromMillis(Date.now())
+    );
+    const evalAt = request.timing?.at ?? Date.now();
 
     if (request.bypassRules) {
       this.emitRequest({
@@ -80,15 +85,23 @@ export class RulesListAuthorizer {
       return { allowed: true };
     }
 
-    const placeholderPath = `${path}/__listPlaceholder__`;
-    const requestTime = Timestamp.fromMillis(Date.now());
+    const matchPaths = request.matchPaths?.length ? request.matchPaths : [path];
     const evalStart = performance.now();
-    const proof = proveListQuery(this.rules.ast(), placeholderPath, auth, constraints);
-    if (proof.kind === 'unprovable') {
+    const evaluations = matchPaths.map((matchPath) => ({
+      placeholderPath: `${matchPath}/__listPlaceholder__`,
+      proof: proveListQuery(
+        this.rules.ast(),
+        `${matchPath}/__listPlaceholder__`,
+        auth,
+        constraints,
+      ),
+    }));
+    const unprovable = evaluations.find((evaluation) => evaluation.proof.kind === 'unprovable');
+    if (unprovable?.proof.kind === 'unprovable') {
       const message =
         `list ${path} denied: the query is statically unprovable for every possible ` +
-        `result (rules are not filters), so the whole query is rejected — ${proof.reason}`;
-      const remediation = renderQueryRemediation(proof.residual);
+        `result (rules are not filters), so the whole query is rejected — ${unprovable.proof.reason}`;
+      const remediation = renderQueryRemediation(unprovable.proof.residual);
       this.emitRequest({
         at: evalAt,
         evalMs: performance.now() - evalStart,
@@ -110,13 +123,19 @@ export class RulesListAuthorizer {
       return { allowed: false, error };
     }
 
-    const testCase = buildRulesTestCase(
-      this.host.state,
-      { method: 'list', path: placeholderPath, auth },
-      requestTime,
-    );
-    this.applyProof(testCase, proof, constraints);
-    const simulation = this.simulator.simulate(this.rules.source, [testCase], {
+    const testCases = evaluations.map(({ placeholderPath, proof }) => {
+      if (proof.kind === 'unprovable') {
+        throw new Error('Unprovable list query reached residual simulation');
+      }
+      const testCase = buildRulesTestCase(
+        this.host.state,
+        { method: 'list', path: placeholderPath, auth },
+        requestTime!,
+      );
+      this.applyProof(testCase, proof, constraints);
+      return testCase;
+    });
+    const simulation = this.simulator.simulate(this.rules.source, testCases, {
       getDoc: (documentPath) => this.host.state.get(documentPath),
     });
     const evalMs = performance.now() - evalStart;
@@ -141,7 +160,8 @@ export class RulesListAuthorizer {
       };
     }
 
-    const result = simulation.data.results[0]!;
+    const results = simulation.data.results;
+    const result = results.find((candidate) => candidate.state !== 'PASSED') ?? results[0]!;
     const debugMessages = renderLegacyDebugMessages(result);
     if (result.state === 'UNSUPPORTED') {
       this.emitRequest({

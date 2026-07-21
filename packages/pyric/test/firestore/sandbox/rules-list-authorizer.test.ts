@@ -53,17 +53,14 @@ describe('RulesListAuthorizer', () => {
   });
 
   test('captures request.time before query proof work begins', () => {
-    let now = 1_000;
-    const nowSpy = spyOn(Date, 'now').mockImplementation(() => now);
+    const ticks = [1_000, 1_100, 2_000];
+    const nowSpy = spyOn(Date, 'now').mockImplementation(() => ticks.shift() ?? 2_000);
     try {
       const state = new LocalState({ 'posts/public': { visibility: 'public' } });
       const events = new FirestoreEventBus();
+      const requests: RequestEvent[] = [];
+      events.request.subscribe((event) => requests.push(event));
       const rules = new RulesState(OPEN_RULES);
-      const originalAst = rules.ast.bind(rules);
-      rules.ast = () => {
-        now = 2_000;
-        return originalAst();
-      };
       const simulator = new SimulateFirestoreRulesHandler();
       const originalSimulate = simulator.simulate.bind(simulator);
       let requestTime: string | undefined;
@@ -81,6 +78,7 @@ describe('RulesListAuthorizer', () => {
       authorizer.authorize({ path: 'posts', auth: null, constraints: {}, origin: 'user' });
 
       expect(requestTime).toBe('1970-01-01T00:00:01.000Z');
+      expect(requests[0]!.at).toBe(1_100);
     } finally {
       nowSpy.mockRestore();
     }
@@ -138,7 +136,7 @@ describe('RulesListAuthorizer', () => {
       bypassRules: true,
       activityQuery: { source: 'listener' },
       origin: 'listener',
-      at: 123,
+      timing: { at: 123 },
     });
 
     expect(result).toEqual({ allowed: true });

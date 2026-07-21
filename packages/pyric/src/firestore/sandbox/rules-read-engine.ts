@@ -42,6 +42,7 @@ import { RulesListAuthorizer } from './rules-list-authorizer.js';
 import {
   executeQuery,
   gatherQueryRows,
+  queryAuthorizationPaths,
   captureQueryExecutionSpec,
   captureQueryScope,
   queryConstraintsForProof,
@@ -226,7 +227,10 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const structured = execution
       ? queryConstraintsForProof(execution)
       : {};
-    const evalAt = Date.now();
+    const timing = {
+      requestTime: Timestamp.fromMillis(Date.now()),
+      at: Date.now(),
+    };
     const triggeredBy = this.triggerScope.current();
     if (bypassRules) {
       const docs = this.state.list(collection)
@@ -241,7 +245,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
         ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
         origin: 'listener',
         ...(triggeredBy ? { triggeredBy } : {}),
-        at: evalAt,
+        timing,
       });
       if (!authorization.allowed) return authorization;
       return { allowed: true, docs: constrained };
@@ -253,7 +257,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
       origin: 'listener',
       ...(triggeredBy ? { triggeredBy } : {}),
-      at: evalAt,
+      timing,
     });
     if (!authorization.allowed) return authorization;
     const docs = this.state.list(collection)
@@ -302,6 +306,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const proof = queryConstraintsForProof(execution);
     const authorization = this.listAuthorizer.authorize({
       path: listPath,
+      matchPaths: queryAuthorizationPaths(scope, candidates),
       auth,
       constraints: proof,
       bypassRules,

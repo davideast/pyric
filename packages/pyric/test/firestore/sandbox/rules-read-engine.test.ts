@@ -9,7 +9,7 @@
  * module's own contract: allow/deny/bypass results, RULES-B11 unprovable
  * denial, and the RequestEvent / denial emissions.
  */
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, spyOn } from 'bun:test';
 import { RulesReadEngine, type RulesReadHost } from '../../../src/firestore/sandbox/rules-read-engine.js';
 import { RulesState } from '../../../src/firestore/sandbox/rules-state.js';
 import { LocalState } from '../../../src/firestore/sandbox/local-state.js';
@@ -53,15 +53,16 @@ function makeEngine(rulesSource: string, docs: Record<string, Record<string, unk
   const host: RulesReadHost = {
     get state() { return state; },
   };
+  const simulator = new SimulateFirestoreRulesHandler();
   const engine = new RulesReadEngine(
     events,
     triggerScope,
     rules,
-    new SimulateFirestoreRulesHandler(),
+    simulator,
     host,
     eventLog,
   );
-  return { engine, state, rules, events, triggerScope, eventLog };
+  return { engine, state, rules, events, triggerScope, eventLog, simulator };
 }
 
 describe('RulesReadEngine.execute', () => {
@@ -137,6 +138,30 @@ describe('RulesReadEngine.silentReadDoc', () => {
 });
 
 describe('RulesReadEngine.silentReadCollection', () => {
+  test('captures request.time before the listener request event timestamp', () => {
+    const { engine, events, simulator } = makeEngine(OPEN_RULES, {
+      'games/g1': { title: 'chess' },
+    });
+    const requests: RequestEvent[] = [];
+    events.request.subscribe((event) => requests.push(event));
+    const originalSimulate = simulator.simulate.bind(simulator);
+    let requestTime: string | undefined;
+    simulator.simulate = (source, cases, options) => {
+      requestTime = cases[0]?.requestTime;
+      return originalSimulate(source, cases, options);
+    };
+    const ticks = [1_000, 1_100, 2_000];
+    const nowSpy = spyOn(Date, 'now').mockImplementation(() => ticks.shift() ?? 2_000);
+    try {
+      engine.silentReadCollection('games', null);
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(requestTime).toBe('1970-01-01T00:00:01.000Z');
+    expect(requests[0]!.at).toBe(1_100);
+  });
+
   test('allows under open rules and returns real docs (phantom parents dropped)', () => {
     const { engine } = makeEngine(OPEN_RULES, {
       'games/g1': { title: 'chess' },
@@ -358,6 +383,33 @@ describe('RulesReadEngine.runQuery', () => {
       allowed: true,
       docs: [{ path: 'parents/b/items/two', data: { score: 2 } }],
     });
+  });
+
+  test('denies a collection group when any concrete collection path is denied', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} { allow list: if true; }
+        match /parents/{parent}/items/{id} { allow list: if false; }
+      }
+    }`;
+    const { engine, events } = makeEngine(rules, {
+      'items/top': { scope: 'top' },
+      'parents/a/items/nested': { scope: 'nested' },
+    });
+    const seen: RequestEvent[] = [];
+    events.request.subscribe((event) => seen.push(event));
+
+    const result = engine.runQuery({
+      scope: { kind: 'collection-group', collectionId: 'items' },
+      auth: null,
+      execution,
+    });
+
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) expect(result.error.code).toBe('permission-denied');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.path).toBe('items');
+    expect(seen[0]!.result).toBe('deny');
   });
 
   test('captures a request execution accessor once for both proof and execution', () => {

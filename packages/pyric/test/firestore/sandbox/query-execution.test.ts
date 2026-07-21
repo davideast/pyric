@@ -3,6 +3,7 @@ import { LocalState } from '../../../src/firestore/sandbox/local-state.js';
 import {
   executeQuery,
   gatherQueryRows,
+  queryAuthorizationPaths,
   queryConstraintsForProof,
 } from '../../../src/firestore/sandbox/query-execution.js';
 
@@ -17,6 +18,19 @@ describe('query execution', () => {
     expect(gatherQueryRows(state, { kind: 'collection', path: 'items' })).toEqual([
       { path: 'items/a', data: { score: 1 } },
     ]);
+  });
+
+  test('derives every concrete authorization path for a collection group', () => {
+    const rows = [
+      { path: 'items/top', data: {} },
+      { path: 'parents/a/items/one', data: {} },
+      { path: 'parents/a/items/two', data: {} },
+    ];
+
+    expect(queryAuthorizationPaths(
+      { kind: 'collection-group', collectionId: 'items' },
+      rows,
+    )).toEqual(['items', 'parents/a/items']);
   });
 
   test('applies filters, normalized ordering, cursors, and limits', () => {
