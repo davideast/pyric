@@ -566,8 +566,8 @@ export function incompatibleFunction(
   return functionIncompatibility(fn, service, {
     aliases: new Map(fn.parameters.map((parameter, index) => [
       parameter,
-      index < argProvenances.length
-        ? argProvenances[index] ?? null
+      index < argProvenances.length && argProvenances[index] !== null
+        ? argProvenances[index]!
         : args[index] ? ambientBindingPath(args[index]!, rootCtx) : null,
     ])),
     receiverTypes: new Map(fn.parameters.map((parameter, index) => [

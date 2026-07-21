@@ -1,0 +1,7 @@
+{
+  "observation": "stdlib-realstorage-p3-advanced-iam-enabled",
+  "scope": "normalized-injected-probe-block-only",
+  "sha256": "f49e5f53e3fa64400983481cb84e039564e4a56cc695537a8f81f38d3faf1f99",
+  "basis": "reconstructed-from-capture-commit",
+  "captureCommit": "b42fee0e430d59fab39ac92f6f4ee62c88bee0fe"
+}

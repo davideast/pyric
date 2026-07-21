@@ -7,7 +7,6 @@
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "bucket": "digame-mas.appspot.com",
-  "probeRulesSha256": "ef6ccb0b1810e2ac0c87e4b9ff8f90c15f652610a1faddaa30f0fe97515ebfb8",
   "behavior": {
     "named-default:default-true-probes-false": "ALLOW",
     "named-probes:default-true-probes-false": "DENY",

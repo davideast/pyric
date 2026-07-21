@@ -172,9 +172,27 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
           consequent.join('.') === alternate.join('.')) return consequent;
       return 'unknown-ambient';
     }
-    const nested = collectFunctionCalls(expression).flatMap(({ args }) => args)
-      .map((arg) => inferProvenance(arg, environment, functions, stack));
-    return nested.some((value) => value !== null) ? 'unknown-ambient' : null;
+    let nested: readonly Expression[];
+    switch (expression.type) {
+      case 'methodCall': nested = [expression.object, ...expression.args]; break;
+      case 'sliceAccess': nested = [expression.object, expression.start, expression.end]; break;
+      case 'binaryOp': nested = [expression.left, expression.right]; break;
+      case 'unaryOp': nested = [expression.operand]; break;
+      case 'inExpr': nested = [expression.element, expression.collection]; break;
+      case 'isExpr': nested = [expression.value]; break;
+      case 'listLiteral': nested = expression.elements; break;
+      case 'mapLiteral': nested = expression.entries.flatMap(({ key, value }) => [key, value]); break;
+      case 'pathLiteral':
+        nested = expression.segments.filter((segment): segment is Expression =>
+          typeof segment !== 'string');
+        break;
+      case 'literal': return null;
+      default: return null;
+    }
+    return nested.some((value) =>
+      inferProvenance(value, environment, functions, stack) !== null)
+      ? 'unknown-ambient'
+      : null;
   }
 
   const analyzeFunction = (

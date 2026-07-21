@@ -193,7 +193,7 @@ export function injectProbeRules(source: string, runId: string, advanced: boolea
   return `${source.slice(0, insertAt)}${block}${source.slice(insertAt)}`;
 }
 
-export function storageStdlibRealProbeDigest(advanced: boolean): string {
+export function storageStdlibRealProbeBlockDigest(advanced: boolean): string {
   const canonical = injectProbeRules(
     "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { } }",
     '__RUN_ID__',
@@ -514,7 +514,9 @@ async function run(): Promise<void> {
     diagnostics,
     cleanup: { releaseRestored, firestoreReleaseRestored, objectsRemoved, documentsRemoved, iamRestored: !temporaryIam },
     iam: { temporaryIam, externallyEnabledIam, iamChanged },
-    probeRulesSha256: storageStdlibRealProbeDigest(advanced),
+    probeBlockSha256: storageStdlibRealProbeBlockDigest(advanced),
+    deployedRulesFileSha256: createHash('sha256')
+      .update(injectProbeRules(rulesFile.content, runId, advanced)).digest('hex'),
     probeRulesetCreated: !!probeRulesetName,
   };
   } finally {

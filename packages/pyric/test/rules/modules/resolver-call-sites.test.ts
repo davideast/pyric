@@ -77,4 +77,20 @@ service firebase.storage {
 }`, { modules: { './policy': 'export function bad(value) { return value.md5Hash != null; }' } });
     expect(result.success).toBe(false);
   });
+
+  test('does not let source composites launder ambient provenance', () => {
+    for (const argument of [
+      '[resource]',
+      "{'value': resource}",
+      '[resource][0:1]',
+      'resource == null ? [resource] : [resource]',
+    ]) {
+      const result = resolveModules(`rules_version = '2+modules';
+import { bad } from './policy';
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow write: if bad(${argument}); } }
+}`, { modules: { './policy': "export function bad(value) { return value[0].data.owner == 'alice'; }" } });
+      expect(result.success, argument).toBe(false);
+    }
+  });
 });

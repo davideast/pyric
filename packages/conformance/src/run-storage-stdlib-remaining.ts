@@ -50,7 +50,7 @@ export function crossServiceRules(runId: string): string {
 `;
 }
 
-export function storageStdlibRemainingProbeDigest(): string {
+export function storageStdlibRemainingProbeBlockDigest(): string {
   return createHash('sha256').update(crossServiceRules('__RUN_ID__')).digest('hex');
 }
 
@@ -332,7 +332,12 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       namedDiagnostics,
       cleanup,
       budget,
-      { iam, namedDatabase: 'probes', probeRulesSha256: storageStdlibRemainingProbeDigest() },
+      {
+        iam,
+        namedDatabase: 'probes',
+        probeBlockSha256: storageStdlibRemainingProbeBlockDigest(),
+        deployedRulesFileSha256: createHash('sha256').update(source).digest('hex'),
+      },
     ),
     storageObservation(
       'stdlib-realstorage-p3-project-isolation',
@@ -343,7 +348,12 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       isolationDiagnostics,
       cleanup,
       budget,
-      { iam, secondaryProjectId: secondarySa.project_id, probeRulesSha256: storageStdlibRemainingProbeDigest() },
+      {
+        iam,
+        secondaryProjectId: secondarySa.project_id,
+        probeBlockSha256: storageStdlibRemainingProbeBlockDigest(),
+        deployedRulesFileSha256: createHash('sha256').update(source).digest('hex'),
+      },
     ),
   ]);
 }

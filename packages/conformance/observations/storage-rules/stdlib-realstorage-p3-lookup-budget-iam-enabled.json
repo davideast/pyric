@@ -7,7 +7,6 @@
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "bucket": "digame-mas.appspot.com",
-  "probeRulesSha256": "08abfad53b97b77b44562189354cc1ae7979066778916efb20b8a3764c49b671",
   "behavior": {
     "one": "ALLOW",
     "two": "ALLOW",
