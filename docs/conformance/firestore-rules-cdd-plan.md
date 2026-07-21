@@ -3,7 +3,8 @@
 Status: executed locally on 2026-07-21 under the explicit-classification exit contract below (no PR, push, or remote CI)
 
 Baseline date: 2026-07-21  
-Baseline main commit: `564ab7ad`
+Initial analysis main commit: `564ab7ad`  
+Final local execution base: `3011b4cc` (latest `main` on 2026-07-21)
 
 ## Execution result
 
