@@ -20,7 +20,7 @@ builds. The standalone agent Playground is developed separately.
 | `src/env.ts`        | `StudioEnvironment` + `createStudioEnvironment(mode)` factory (`@pyric/studio/env`). |
 | `src/studio-app.tsx` | Host-facing application component.                              |
 | `src/App.tsx`       | App shell — nav, tabs, panes.                                    |
-| `src/shell/routes.tsx` | Finite service routes shared with the Astro host.             |
+| `src/shell/routes.ts` | Finite service routes shared with the Astro host.              |
 | `src/styles/tokens.css` | Tailwind v4 `@theme` token contract + `[data-theme]` hook.  |
 
 ## Storage modes

@@ -35,7 +35,7 @@ import { connectStudioBridgePeer } from './clients/bridge-peer.js';
 
 /**
  * `STUDIO_STATIC` — the composed static-site build flag (`scripts/build-site.sh`).
- * Set at build time via the app bundler's `define` (Vite, `vite.config.ts`);
+ * Set at build time by the Astro host (`packages/site-docs/astro.config.mjs`);
  * absent for the normal `pyric dev --ui` build AND for the `dist/env.js`
  * library export consumed outside Vite (Node/Bun, where `import.meta.env`
  * itself doesn't exist — hence the `typeof` guard rather than a bare access).
@@ -50,7 +50,7 @@ import { connectStudioBridgePeer } from './clients/bridge-peer.js';
 function isStudioStatic(): boolean {
   if (typeof import.meta.env === 'undefined') return false;
   // `as unknown as Record<...>`: a pure compile-time assertion (erased by
-  // `tsc`, emits no runtime code), so the ACTUAL expression Vite's `define`
+  // `tsc`, emits no runtime code), so the ACTUAL expression Astro's Vite `define`
   // matches (`import.meta.env.STUDIO_STATIC`) survives untouched in the
   // compiled output. The cast only sidesteps `bun-types`' `ImportMetaEnv`
   // (merged globally via this package's `tsconfig.json` "types"), which
