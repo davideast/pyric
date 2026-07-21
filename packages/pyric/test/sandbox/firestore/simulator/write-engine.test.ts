@@ -12,7 +12,7 @@ import { TriggerScope } from '../../../../src/firestore/sandbox/trigger-scope.js
 import { WriteEngine } from '../../../../src/firestore/sandbox/write-engine.js';
 import { buildRulesTestCase } from '../../../../src/firestore/sandbox/rules-test-case.js';
 
-function createEngine() {
+function createEngine(rulesSource = DEFAULT_OPEN_RULES) {
   let state: DocStore = new LocalState();
   const notified: string[][] = [];
   const engine = new WriteEngine(
@@ -20,7 +20,7 @@ function createEngine() {
       get state() { return state; },
       notifyListenersForPaths(paths) { notified.push([...paths]); },
     },
-    new RulesState(DEFAULT_OPEN_RULES),
+    new RulesState(rulesSource),
     new SimulateFirestoreRulesHandler(),
     new EventLog(),
     new FirestoreEventBus(),
@@ -71,5 +71,95 @@ describe('WriteEngine host seam', () => {
     expect(buildRulesTestCase(harness.state, {
       method: 'set', path: 'notes/n1', auth: null, data: { value: 1 },
     }).method).toBe('update');
+  });
+
+  test('createWithAutoId mints a path and uses the ordinary write fan-out', () => {
+    const harness = createEngine();
+
+    const { path, result } = harness.engine.createWithAutoId(
+      'notes',
+      { title: 'new' },
+      null,
+    );
+
+    expect(path).toMatch(/^notes\/[A-Za-z0-9]{20}$/);
+    expect(result.allowed).toBe(true);
+    expect(harness.state.get(path)).toEqual({ title: 'new' });
+    expect(harness.notified).toEqual([[path]]);
+  });
+
+  test('batch commits atomically and fans out once for the touched set', () => {
+    const harness = createEngine();
+
+    const result = harness.engine.batch([
+      { method: 'create', path: 'notes/a', data: { value: 1 } },
+      { method: 'create', path: 'notes/b', data: { value: 2 } },
+    ], null);
+
+    expect(result.allowed).toBe(true);
+    expect(harness.state.get('notes/a')).toEqual({ value: 1 });
+    expect(harness.state.get('notes/b')).toEqual({ value: 2 });
+    expect(harness.notified).toEqual([['notes/a', 'notes/b']]);
+  });
+
+  test('batch denial rolls back every operation without fan-out', () => {
+    const harness = createEngine(DEFAULT_OPEN_RULES.replace('if true', 'if false'));
+
+    const result = harness.engine.batch([
+      { method: 'create', path: 'notes/a', data: { value: 1 } },
+      { method: 'create', path: 'notes/b', data: { value: 2 } },
+    ], null);
+
+    expect(result.allowed).toBe(false);
+    expect(harness.state.get('notes/a')).toBeNull();
+    expect(harness.state.get('notes/b')).toBeNull();
+    expect(harness.notified).toEqual([]);
+  });
+
+  test('transaction commits a synchronous callback result and write', () => {
+    const harness = createEngine();
+
+    const result = harness.engine.transaction((transaction) => {
+      transaction.create('notes/sync', { value: 1 });
+      return 'sync-result';
+    }, { auth: null });
+
+    expect(result.allowed).toBe(true);
+    expect(result.returnValue).toBe('sync-result');
+    expect(harness.state.get('notes/sync')).toEqual({ value: 1 });
+    expect(harness.notified).toEqual([['notes/sync']]);
+  });
+
+  test('transaction awaits an asynchronous callback before commit', async () => {
+    const harness = createEngine();
+
+    const result = await harness.engine.transaction(async (transaction) => {
+      await Promise.resolve();
+      transaction.create('notes/async', { value: 2 });
+      return 'async-result';
+    }, { auth: null });
+
+    expect(result.allowed).toBe(true);
+    expect(result.returnValue).toBe('async-result');
+    expect(harness.state.get('notes/async')).toEqual({ value: 2 });
+  });
+
+  test('transaction callback errors propagate unchanged and abort queued writes', () => {
+    const harness = createEngine();
+    const expected = new Error('stop');
+    let caught: unknown;
+
+    try {
+      harness.engine.transaction((transaction) => {
+        transaction.create('notes/aborted', { value: 3 });
+        throw expected;
+      }, { auth: null });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBe(expected);
+    expect(harness.state.get('notes/aborted')).toBeNull();
+    expect(harness.notified).toEqual([]);
   });
 });

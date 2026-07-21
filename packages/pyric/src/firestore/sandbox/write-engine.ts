@@ -14,7 +14,6 @@ import {
 } from 'pyric/rules/internal';
 import { RulesState } from './rules-state.js';
 import {
-  adminBypassResult,
   SimulatorUnsupportedError,
   unsupportedMessage,
 } from './rules-evaluation.js';
@@ -30,7 +29,8 @@ import { FirestoreEventBus } from './event-bus.js';
 import { TriggerScope } from './trigger-scope.js';
 import { assertNoNestedDeleteField } from './field-merge.js';
 import { generateAutoId } from './auto-id.js';
-import { walkForSentinels } from './sentinel-capture.js';
+import { walkForSentinels, type SentinelHit } from './sentinel-capture.js';
+import type { EventProvenance } from '../../sandbox/types/events.js';
 import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './request-events.js';
 import { TransactionContext, type TransactionReader } from './transaction.js';
 import { mergeQueuedWrites } from './transaction-merge.js';
@@ -40,6 +40,7 @@ import type {
   TransactionResult,
 } from './transaction-types.js';
 import { buildRulesTestCase } from './rules-test-case.js';
+import { simulateRules } from './rules-simulator.js';
 
 registerDefaultConverters();
 
@@ -77,11 +78,11 @@ export class WriteEngine {
     nextState: Record<string, unknown> | null;
     groupId?: string;
     groupKind?: 'batch' | 'transaction';
-    sentinels?: import('./sentinel-capture.js').SentinelHit[];
+    sentinels?: SentinelHit[];
     autoId?: string;
     requestTime: Timestamp;
     detail?: { admin?: boolean } & Record<string, unknown>;
-    provenance?: import('../../sandbox/types/events.js').EventProvenance;
+    provenance?: EventProvenance;
   }): void {
     if (!this.events.write.hasSubscribers) return;
     this.events.write.emit({
@@ -120,17 +121,14 @@ export class WriteEngine {
     bypassRules: boolean | undefined,
     batchProjection?: Map<string, DocumentData | null>,
   ): TestFirestoreRulesResult {
-    if (bypassRules) {
-      const results = testCases.map((tc) => adminBypassResult(tc.description));
-      return {
-        success: true,
-        data: { passed: results.length, failed: 0, unsupported: 0, results },
-      };
-    }
-    return this.simulator.simulate(this.rules.source, testCases, {
-      getDoc: (path) => this.host.state.get(path),
-      ...(batchProjection ? { batchProjection } : {}),
-    });
+    return simulateRules(
+      this.host.state,
+      this.rules,
+      this.simulator,
+      testCases,
+      bypassRules,
+      batchProjection,
+    );
   }
 
   private buildBatchProjection(testCases: TestCase[]): Map<string, DocumentData | null> {

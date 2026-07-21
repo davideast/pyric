@@ -1,9 +1,5 @@
 import type { DocStore, DocumentData } from './local-state.js';
-import type {
-  SimulateFirestoreRulesHandler,
-  TestCase,
-  TestFirestoreRulesResult,
-} from 'pyric/rules/internal';
+import type { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import {
   projectEvaluatedRule,
   renderLegacyDebugMessages,
@@ -15,12 +11,12 @@ import type { FirestoreEventBus } from './event-bus.js';
 import type { RulesState } from './rules-state.js';
 import { buildRequestEvent, type EmitRequestInput } from './request-events.js';
 import {
-  adminBypassResult,
   SimulatorUnsupportedError,
   unsupportedMessage,
 } from './rules-evaluation.js';
 import { buildRulesTestCase } from './rules-test-case.js';
 import { EventLog } from './event-log.js';
+import { simulateRules } from './rules-simulator.js';
 
 interface RulesOperationReaderHost {
   readonly state: DocStore;
@@ -48,21 +44,6 @@ export class RulesOperationReader {
   private emitDenial(error: FirestoreSimError): void {
     this.events.denial.emit(error);
   }
-  private runSimulate(
-    testCases: TestCase[],
-    bypassRules: boolean | undefined,
-  ): TestFirestoreRulesResult {
-    if (bypassRules) {
-      const results = testCases.map((testCase) => adminBypassResult(testCase.description));
-      return {
-        success: true,
-        data: { passed: results.length, failed: 0, unsupported: 0, results },
-      };
-    }
-    return this.simulator.simulate(this.rules.source, testCases, {
-      getDoc: (path) => this.state.get(path),
-    });
-  }
   execute(operation: ReadOperation): OperationResult {
     const { method, path, auth, bypassRules } = operation;
     const detail = bypassRules ? { admin: true } : undefined;
@@ -75,7 +56,13 @@ export class RulesOperationReader {
     // Issue #307 — time the simulate call for RequestEvent.evalMs.
     const evalAt = Date.now();
     const evalStart = performance.now();
-    const simResult = this.runSimulate([testCase], bypassRules);
+    const simResult = simulateRules(
+      this.state,
+      this.rules,
+      this.simulator,
+      [testCase],
+      bypassRules,
+    );
     const evalMs = performance.now() - evalStart;
 
     if (!simResult.success) {

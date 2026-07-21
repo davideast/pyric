@@ -31,6 +31,13 @@ import type {
   SnapshotListenerOptions,
   SnapshotTarget,
 } from './snapshot-listeners.js';
+import type {
+  ListenerLifecycleEvent,
+  RequestEvent,
+  SnapshotDeliveryEvent,
+  SnapshotSuppressedEvent,
+  WriteSandboxEvent,
+} from '../../sandbox/types/events.js';
 
 export type {
   Operation,
@@ -170,7 +177,7 @@ export class LocalEnvironment {
    * `silentReadCollection` build the public-shape event lazily — when
    * no subscribers are attached, eval doesn't pay the allocation cost.
    */
-  onRequest(cb: (event: import('../../sandbox/types/events.js').RequestEvent) => void): () => void {
+  onRequest(cb: (event: RequestEvent) => void): () => void {
     return this.events.request.subscribe(cb);
   }
 
@@ -180,25 +187,25 @@ export class LocalEnvironment {
    * keyspace applies the write; denied / rolled-back writes don't
    * emit here.
    */
-  onWrite(cb: (event: import('../../sandbox/types/events.js').WriteSandboxEvent) => void): () => void {
+  onWrite(cb: (event: WriteSandboxEvent) => void): () => void {
     return this.events.write.subscribe(cb);
   }
 
   /** Internal — bridge for sandbox-level `onEvent` to receive
    *  snapshot-delivery events. Fires after the user callback runs. */
-  onSnapshotDelivery(cb: (event: import('../../sandbox/types/events.js').SnapshotDeliveryEvent) => void): () => void {
+  onSnapshotDelivery(cb: (event: SnapshotDeliveryEvent) => void): () => void {
     return this.events.delivery.subscribe(cb);
   }
 
   /** Internal bridge for snapshot_suppressed events — re-evals that
    *  didn't deliver because diffing found no observable change. */
-  onSnapshotSuppressed(cb: (event: import('../../sandbox/types/events.js').SnapshotSuppressedEvent) => void): () => void {
+  onSnapshotSuppressed(cb: (event: SnapshotSuppressedEvent) => void): () => void {
     return this.events.suppressed.subscribe(cb);
   }
 
   /** Internal bridge for listener attach/detach lifecycle. Errored
    *  routes through onSnapshotError separately. */
-  onListenerLifecycle(cb: (event: import('../../sandbox/types/events.js').ListenerLifecycleEvent) => void): () => void {
+  onListenerLifecycle(cb: (event: ListenerLifecycleEvent) => void): () => void {
     return this.events.lifecycle.subscribe(cb);
   }
 
