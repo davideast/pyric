@@ -431,6 +431,16 @@ export function resolveModulesWith(
     match.children.forEach(collectMatchFunctions);
   };
   collectMatchFunctions(ast.service.match);
+  const builtinSourceCollision = [...sourceFnNames].find((name) => BUILTIN_FUNCTIONS.has(name));
+  if (builtinSourceCollision) {
+    return {
+      success: false,
+      error: {
+        code: 'DUPLICATE_FUNCTION',
+        message: `Source function '${builtinSourceCollision}' conflicts with a Rules builtin`,
+      },
+    };
+  }
   for (const fn of injected) {
     if (sourceFnNames.has(fn.name)) {
       return {

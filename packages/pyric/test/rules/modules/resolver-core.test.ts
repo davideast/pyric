@@ -64,6 +64,23 @@ service cloud.firestore {
     if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
   });
 
+  test('rejects source functions that can capture module builtin calls', () => {
+    const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { policy } from './policy';
+service cloud.firestore {
+  function get(path) { return null; }
+  match /databases/{database}/documents/{doc=**} {
+    allow read: if policy();
+  }
+}`, { modules: { './policy': `
+      export function policy() {
+        return get(/databases/(default)/documents/users/alice) != null;
+      }
+    ` } });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+  });
+
   test('rejects empty imports', () => {
     const result = resolveModulesWith(null, storageSource(
       "import { } from './policy';",
