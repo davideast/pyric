@@ -40,8 +40,8 @@ export interface GcsObject {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
-const RULES_API = 'https://firebaserules.googleapis.com/v1';
-const FIREBASE_API = 'https://firebase.googleapis.com/v1beta1';
+export const RULES_API = 'https://firebaserules.googleapis.com/v1';
+export const FIREBASE_API = 'https://firebase.googleapis.com/v1beta1';
 export const STORAGE_MATCH = /(match\s+\/b\/\{bucket\}\/o\s*\{)/;
 export const STORAGE_PROBE_LIMITS = { storage: 40, firestoreWrite: 25, rules: 20, iam: 12 } as const;
 

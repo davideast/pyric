@@ -13,23 +13,24 @@ import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cert } from 'firebase-admin/app';
 import { deleteApp, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { readObservationLinkage } from './observation-linkage.ts';
-import { resolveServiceAccount } from './storage-stdlib-real-support.ts';
-
-interface ServiceAccount { project_id: string; client_email: string; private_key: string }
-interface WebConfig { apiKey: string; projectId: string; appId?: string; authDomain?: string }
-interface Release { name: string; rulesetName: string }
-interface Ruleset { name: string; source: { files: Array<{ name: string; content: string }> } }
-interface IamBinding { role: string; members: string[]; condition?: unknown }
-interface IamPolicy { version?: number; etag?: string; bindings?: IamBinding[]; auditConfigs?: unknown[] }
+import {
+  accessHeaders,
+  canonicalPolicy,
+  FIREBASE_API,
+  jsonRequest as json,
+  resolveServiceAccount,
+  RULES_API,
+  type IamPolicy,
+  type Release,
+  type Ruleset,
+  type WebConfig,
+} from './storage-stdlib-real-support.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
-const RULES_API = 'https://firebaserules.googleapis.com/v1';
-const FIREBASE_API = 'https://firebase.googleapis.com/v1beta1';
 const IAM_SETTLE_MS = 120_000;
 const IAM_RETRY_MS = 30_000;
 const IAM_RETRY_LIMIT = 6;
@@ -67,21 +68,6 @@ function inert(): void {
   console.log('[storage-stdlib:real] credentials absent — INERT preview; no network calls.');
   console.log('Requires PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG.');
   console.log('Would evaluate the selected bounded Storage matrix, restore prior Rules releases/IAM, and verify run-scoped cleanup.');
-}
-
-function canonicalPolicy(policy: IamPolicy): string {
-  const bindings = (policy.bindings ?? []).map((binding) => ({
-    ...binding,
-    members: [...binding.members].sort(),
-  })).sort((a, b) => `${a.role}:${JSON.stringify(a.condition)}`.localeCompare(`${b.role}:${JSON.stringify(b.condition)}`));
-  return JSON.stringify({ version: policy.version ?? 0, bindings, auditConfigs: policy.auditConfigs ?? [] });
-}
-
-async function json<T>(url: string, init: RequestInit, label: string): Promise<T> {
-  const response = await fetch(url, init);
-  const text = await response.text();
-  if (!response.ok) throw new Error(`${label} failed: ${response.status} ${text}`);
-  return JSON.parse(text) as T;
 }
 
 export function injectProbeRules(source: string, runId: string, advanced: boolean): string {
@@ -226,10 +212,7 @@ async function run(): Promise<void> {
   const web = JSON.parse(process.env.PYRIC_AI_FIREBASE_CONFIG) as WebConfig;
   if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');
 
-  const credential = cert(sa as Parameters<typeof cert>[0]);
-  const access = await credential.getAccessToken();
-  const authHeaders = { Authorization: `Bearer ${access.access_token}` };
-  const jsonHeaders = { ...authHeaders, 'Content-Type': 'application/json' };
+  const { auth: authHeaders, json: jsonHeaders } = await accessHeaders(sa);
   const temporaryIam = Bun.argv.includes('--temporary-iam');
   const externallyEnabledIam = Bun.argv.includes('--iam-enabled');
   const compileAdvanced = Bun.argv.includes('--compile-advanced');
