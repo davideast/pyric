@@ -18,9 +18,10 @@ test('served canonical Messaging imports stay app-owned over the SharedWorker', 
 
     const primaryToken = await messagingModule.getToken(primaryMessaging);
     const siblingToken = await messagingModule.getToken(siblingMessaging);
+    const generation = localStorage.getItem('pyric:worker-generation');
     const worker = new SharedWorker('/__pyric/sdk/worker.js', {
       type: 'classic',
-      name: 'pyric-shared-worker',
+      name: generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker',
     });
     worker.port.start();
     const workerToken = await new Promise<string>((resolve, reject) => {
@@ -158,9 +159,10 @@ test('firebase/messaging/sw receives the shared broker from a real module Servic
       source: string,
       notification = false,
     ): Promise<{ route?: string; handlerCount?: number; payload?: unknown }> => {
+      const generation = localStorage.getItem('pyric:worker-generation');
       const worker = new SharedWorker('/__pyric/sdk/worker.js', {
         type: 'classic',
-        name: 'pyric-shared-worker',
+        name: generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker',
       });
       worker.port.start();
       return new Promise((resolve, reject) => {

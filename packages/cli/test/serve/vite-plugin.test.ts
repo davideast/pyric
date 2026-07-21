@@ -304,8 +304,12 @@ type PyricMiddleware = (req: PyricReq, res: MockRes, next: () => void) => void;
  *  `/__pyric` middleware. This runs the FULL M2 prelude — rules load, capture,
  *  state eager-load (the fail-fast), seed orchestration, worker-bundle cache-hit,
  *  namespace mount — minus a real http server. */
-async function bootPlugin(opts: Record<string, unknown>, root: string): Promise<PyricMiddleware> {
+async function bootPluginInstance(
+  opts: Record<string, unknown>,
+  root: string,
+): Promise<{ handler: PyricMiddleware; plugin: ReturnType<typeof pyric> }> {
   let handler: PyricMiddleware | undefined;
+  const plugin = pyric(opts);
   const stub = {
     config: { root, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
     middlewares: { use(p: string, h: PyricMiddleware) { if (p === '/__pyric') handler = h; } },
@@ -315,9 +319,13 @@ async function bootPlugin(opts: Record<string, unknown>, root: string): Promise<
     // port; `on` is a no-op here (the attachUpgrade spy test uses its own stub).
     httpServer: { address: () => ({ port: 5173 }), on() {}, once() {} },
   };
-  await (pyric(opts).configureServer as (s: unknown) => Promise<void>)(stub);
+  await (plugin.configureServer as (s: unknown) => Promise<void>)(stub);
   if (!handler) throw new Error('plugin did not mount the /__pyric middleware');
-  return handler;
+  return { handler, plugin };
+}
+
+async function bootPlugin(opts: Record<string, unknown>, root: string): Promise<PyricMiddleware> {
+  return (await bootPluginInstance(opts, root)).handler;
 }
 /** Invoke the captured middleware; resolve when it responds (res 'finish') OR
  *  passes through (next()). Returns the recorded response + whether it next()ed. */
@@ -446,6 +454,26 @@ describe('M2 — worker bundle + persist (via the /__pyric middleware)', () => {
     expect(html).toContain('pyric-worker-v'); // staleness stamp ⇒ worker path active
     expect(html).not.toContain('__PYRIC_FORCE_INPAGE__'); // NOT the in-page fallback
     expect(html).toContain(entries.init); // boots the sandbox
+  });
+
+  it('changes the worker version when the configured AI model changes', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-ai-epoch-'));
+    const first = await bootPluginInstance({ ai: { model: 'model-a' } }, tmp);
+    const second = await bootPluginInstance({ ai: { model: 'model-b' } }, tmp);
+
+    expect((await initJson(first.handler)).ai.engine.model).toBe('model-a');
+    expect((await initJson(second.handler)).ai.engine.model).toBe('model-b');
+
+    const htmlFor = (p: ReturnType<typeof pyric>): string =>
+      (p.transformIndexHtml as (h: string) => string)('<html><head></head></html>');
+    const epochFrom = (html: string): string | undefined =>
+      html.match(/name="pyric-worker-v" content="([^"]+)"/)?.[1];
+
+    const firstEpoch = epochFrom(htmlFor(first.plugin));
+    const secondEpoch = epochFrom(htmlFor(second.plugin));
+    expect(firstEpoch).toBeTruthy();
+    expect(secondEpoch).toBeTruthy();
+    expect(secondEpoch).not.toBe(firstEpoch);
   });
 
   it('persist mounts the /__pyric/state channel and sets persist in the payload', async () => {

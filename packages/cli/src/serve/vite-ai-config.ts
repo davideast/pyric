@@ -22,6 +22,14 @@ export interface ResolvedViteAiConfig {
   proxyUpstream: string | undefined;
 }
 
+/** Values captured once by a SharedWorker and therefore requiring replacement. */
+export function viteWorkerEpochSalt(
+  projectKey: string,
+  engineWire: AiEngineConfigWire | undefined,
+): string {
+  return JSON.stringify({ projectKey, aiEngine: engineWire ?? null });
+}
+
 /** Load env using Vite's `envDir`-relative-to-root convention. */
 export function loadViteAiEnv(
   mode: string,

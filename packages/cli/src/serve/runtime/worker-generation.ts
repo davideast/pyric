@@ -9,19 +9,41 @@ interface EpochStorage {
   removeItem?(key: string): void;
 }
 
-/** Select the replacement generation only after this page was told to move. */
+/**
+ * Select the origin's active worker generation.
+ *
+ * A browser that predates generation-aware workers has no stored epoch but may
+ * still have the legacy `pyric-shared-worker` alive. Seed the first served
+ * epoch before connecting so a new client never attaches to that incompatible
+ * worker. Later releases keep using the stored generation until replacement
+ * is explicitly committed.
+ */
 export function workerNameForEpoch(
-  _servedEpoch: string | null,
+  servedEpoch: string | null,
   storage: EpochStorage | undefined,
 ): string {
-  if (!storage) return PYRIC_WORKER_NAME;
+  const validServedEpoch = servedEpoch && /^[a-f0-9]{16}$/.test(servedEpoch)
+    ? servedEpoch
+    : null;
+  if (!storage) {
+    return validServedEpoch
+      ? `${PYRIC_WORKER_NAME}:${validServedEpoch}`
+      : PYRIC_WORKER_NAME;
+  }
   try {
     const generation = storage.getItem(PYRIC_WORKER_GENERATION_KEY);
-    return generation && /^[a-f0-9]{16}$/.test(generation)
-      ? `${PYRIC_WORKER_NAME}:${generation}`
-      : PYRIC_WORKER_NAME;
-  } catch {
+    if (generation && /^[a-f0-9]{16}$/.test(generation)) {
+      return `${PYRIC_WORKER_NAME}:${generation}`;
+    }
+    if (validServedEpoch) {
+      storage.setItem(PYRIC_WORKER_GENERATION_KEY, validServedEpoch);
+      return `${PYRIC_WORKER_NAME}:${validServedEpoch}`;
+    }
     return PYRIC_WORKER_NAME;
+  } catch {
+    return validServedEpoch
+      ? `${PYRIC_WORKER_NAME}:${validServedEpoch}`
+      : PYRIC_WORKER_NAME;
   }
 }
 

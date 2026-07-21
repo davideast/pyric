@@ -6,6 +6,7 @@ import {
   engineConfigToWire,
   loadViteAiEnv,
   resolveViteAiConfig,
+  viteWorkerEpochSalt,
 } from '../../src/serve/vite-ai-config.js';
 
 describe('Vite AI configuration', () => {
@@ -113,5 +114,17 @@ describe('Vite AI configuration', () => {
       model: 'qwen3:4b',
       engine: { kind: 'scripted' },
     }, {})).toThrow('Choose either ai.model or ai.engine');
+  });
+
+  it('changes worker boot identity when the project or AI engine changes', () => {
+    const scripted = viteWorkerEpochSalt('/app', undefined);
+    const openai = viteWorkerEpochSalt('/app', {
+      kind: 'openai',
+      baseUrl: '/__pyric/ai-proxy',
+      model: 'qwen3:4b',
+    });
+
+    expect(openai).not.toBe(scripted);
+    expect(viteWorkerEpochSalt('/other-app', undefined)).not.toBe(scripted);
   });
 });

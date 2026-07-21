@@ -14,9 +14,10 @@ test('Google popup sign-in fires onAuthStateChanged with the user', async ({ pag
   // OAuth providers are disabled by default. Enable Google on the authoritative
   // worker backend (the same control operation Studio's provider toggle uses).
   await page.evaluate(() => new Promise<void>((resolve, reject) => {
+    const generation = localStorage.getItem('pyric:worker-generation');
     const worker = new SharedWorker('/__pyric/sdk/worker.js', {
       type: 'classic',
-      name: 'pyric-shared-worker',
+      name: generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker',
     });
     const id = `enable-google-${Date.now()}`;
     worker.port.onmessage = (event) => {

@@ -495,4 +495,26 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
     expect(second.epoch).toBe(first.epoch);
     expect(readFileSync(join(firstDir, 'worker.js'), 'utf8')).toContain(first.epoch);
   }, 30_000);
+
+  it('includes restart-required configuration in the baked worker epoch', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-worker-config-epoch-'));
+    const entry = join(root, 'worker.ts');
+    writeFileSync(entry, 'globalThis.workerEpoch = __PYRIC_WORKER_VERSION__;');
+
+    const scripted = await bundleWorker({
+      outDir: join(root, 'scripted'),
+      noCache: true,
+      entryPath: entry,
+      epochSalt: 'project=/app;ai=scripted',
+    });
+    const openai = await bundleWorker({
+      outDir: join(root, 'openai'),
+      noCache: true,
+      entryPath: entry,
+      epochSalt: 'project=/app;ai=openai:qwen3',
+    });
+
+    expect(openai.epoch).not.toBe(scripted.epoch);
+    expect(readFileSync(join(root, 'openai', 'worker.js'), 'utf8')).toContain(openai.epoch);
+  }, 30_000);
 });
