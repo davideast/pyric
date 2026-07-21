@@ -416,6 +416,36 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     if (!firestore.success) expect(firestore.error.message).toContain("namespace 'mystery'");
   });
 
+  test.each([
+    ['mystery', 'bare identifier'],
+    ['mystery.value', 'member chain'],
+  ])('rejects an unresolved caller-module %s (%s)', (expression) => {
+    const result = resolveModules(
+      makeStorageSource("import { broken } from './policy';", 'broken() != null'),
+      { modules: { './policy': `export function broken() { return ${expression}; }` } },
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+      expect(result.error.message).toContain("identifier 'mystery'");
+    }
+  });
+
+  test('admits canonical service-scope identifiers in caller modules', () => {
+    const storage = resolveModules(
+      makeStorageSource("import { inBucket } from './policy';", 'inBucket()'),
+      { modules: { './policy': "export function inBucket() { return bucket != ''; }" } },
+    );
+    const firestore = resolveModules(
+      makeSource("import { inDatabase } from './policy';", 'function allowed() { return inDatabase(); }'),
+      { modules: { './policy': "export function inDatabase() { return database != ''; }" } },
+    );
+
+    expect(storage.success).toBe(true);
+    expect(firestore.success).toBe(true);
+  });
+
   test('propagates ambient provenance into helper parameters', () => {
     const result = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),

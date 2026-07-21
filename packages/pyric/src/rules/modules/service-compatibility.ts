@@ -38,6 +38,10 @@ const STORAGE_METHODS = new Set<string>(GENERATED_STORAGE_METHODS);
 const STORAGE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
   Object.entries(STORAGE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
 );
+const SERVICE_SCOPE_IDENTIFIERS: Readonly<Record<RulesServiceName, ReadonlySet<string>>> = {
+  'cloud.firestore': new Set(['database']),
+  'firebase.storage': new Set(['bucket']),
+};
 type AmbientProvenance = string[] | 'unknown-ambient' | null;
 
 interface AnalysisContext {
@@ -531,8 +535,13 @@ function serviceIncompatibility(
           }
         }
         return null;
-      case 'literal':
-      case 'identifier': return null;
+      case 'literal': return null;
+      case 'identifier':
+        if (e.name === 'request' || e.name === 'resource' || ctx.aliases.has(e.name) ||
+            SERVICE_SCOPE_IDENTIFIERS[service].has(e.name)) {
+          return null;
+        }
+        return `identifier '${e.name}'`;
       default: return assertNever(e);
     }
   };
