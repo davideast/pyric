@@ -299,10 +299,11 @@ export function resolveModulesWith(
   }
 
   if (ast.service.name === 'firebase.storage' || ast.service.name === 'cloud.firestore') {
+    const reachableFunctions = new Map(injected.map((fn) => [fn.name, fn]));
     for (const fn of injected) {
       const callSites: ModuleCallSite[] = [
         ...moduleCallSites(ast, fn.name),
-        ...functionCallSites(allModuleFunctions, fn.name)
+        ...functionCallSites(reachableFunctions, fn.name)
           .map((args) => ({ args, provenances: [], receiverTypes: [] })),
       ];
       const argumentSets = callSites.length > 0
