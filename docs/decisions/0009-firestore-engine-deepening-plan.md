@@ -161,6 +161,8 @@ sibling or stored row authorize a broader query.
 For every list query, candidate-document wildcards and `request.path` are
 result-dependent and therefore cannot prove the query safe; fixed ancestor
 wildcards and request auth/query/time/method remain query-invariant.
+Document-key (`__name__`) constraints remain part of execution but never
+discharge a rule predicate on the distinct `resource.data.__name__` field.
 Reachable helper-name collisions across lexical scopes also fail closed until
 the simulator represents helper calls with scope-aware identities; unrelated
 shadowed helpers do not taint an otherwise invariant rule.

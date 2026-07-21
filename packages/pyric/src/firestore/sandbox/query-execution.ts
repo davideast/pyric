@@ -132,6 +132,9 @@ export function queryConstraintsForProof(execution: QueryExecutionSpec): QueryCo
   const where: QueryWhereConstraint[] = [];
   const visit = (filter: QueryFilter): void => {
     if (filter.kind === 'where') {
+      // `__name__` constrains document identity during execution; it never
+      // proves a predicate on a user data field with the same spelling.
+      if (filter.field === KEY_FIELD) return;
       const value = filter.value;
       if (
         value === null || typeof value === 'string' ||

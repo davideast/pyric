@@ -487,3 +487,24 @@ describe('RULES-B11 — request.query is populated from the structured constrain
     expect(await denied(getDocs(collection(db, 'posts')))).toBe('permission-denied');
   });
 });
+
+describe('RULES-B11 — document keys cannot discharge document-data rules', () => {
+  it('denies a __name__ query when resource.data.__name__ does not satisfy the rule', async () => {
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox);
+    setRules(sandbox, `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} {
+          allow list: if resource.data.__name__ == 'allowed';
+        }
+      }
+    }`);
+    seedDocuments(sandbox, {
+      'items/allowed': { __name__: 'denied', secret: true },
+    });
+
+    expect(await denied(getDocs(
+      query(collection(db, 'items'), where('__name__', '==', 'allowed')),
+    ))).toBe('permission-denied');
+  });
+});

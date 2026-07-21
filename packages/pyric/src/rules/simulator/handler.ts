@@ -23,19 +23,15 @@ import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } fro
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
 import { projectAfterState } from './project-after-state.js';
+import {
+  collectMatches,
+  renderMatchBlockPath,
+  type MatchResult,
+} from './match-resolution.js';
 
 type Decision = 'ALLOW' | 'DENY' | 'UNSUPPORTED';
 
 // ═══ Match block resolution ═══
-
-export interface MatchResult {
-  block: MatchBlock;
-  pathVariables: Record<string, string>;
-  /** Wildcards whose value includes the final candidate-document segment. */
-  candidateVariables: string[];
-  /** Global, service, root, ancestor, and matched-block helpers in scope. */
-  functions: FunctionDef[];
-}
 
 /**
  * Collects per-block resolution attempts as `resolveMatch` walks the
@@ -54,150 +50,6 @@ class PathResolutionRecorder {
   push(entry: PathResolutionEntry): void {
     this.attempts.push(entry);
   }
-}
-
-/** Render a block's `PathPattern` back to source form for the trace
- *  entry. Literal segments pass through; wildcards become `{name}`;
- *  recursive segments become `{name=**}`. Matches the shape the agent
- *  sees in the rules file. */
-function renderBlockPath(block: MatchBlock): string {
-  const parts = block.path.segments.map(seg => {
-    if (seg.type === 'literal') return seg.value;
-    if (seg.type === 'wildcard') return `{${seg.name}}`;
-    return `{${seg.name}=**}`;
-  });
-  return '/' + parts.join('/');
-}
-
-/**
- * Given a document path like "chess/game1", find EVERY match block in the
- * AST whose path pattern fully resolves the request path. Resolves
- * wildcards and binds path variables per block.
- *
- * Why every block, not the first: production Firestore OR-combines `allow`
- * statements across ALL overlapping `match` blocks. When two sibling
- * blocks both match a path (e.g. `match /docs/{doc}` and a sibling
- * `match /{document=**}`), the request is granted if EITHER block's
- * applicable allow evaluates true — there is no first-match-wins and no
- * way for one block to revoke another's grant. Returning only the first
- * match (the previous behavior) produced a false DENY whenever the first
- * block in source order denied but a later overlapping block would have
- * allowed. Each returned block carries its OWN wildcard bindings, so a
- * block's variable names bind independently of its siblings.
- *
- * When `recorder` is supplied, every block the function considers
- * (matched or not) is logged as a `PathResolutionEntry`. Tests +
- * `debug_firestore_rules` rely on this trace; production callers can
- * omit it and pay zero cost.
- */
-export function collectMatches(
-  block: MatchBlock,
-  pathSegments: string[],
-  parentFunctions: FunctionDef[],
-  recorder?: { push(entry: PathResolutionEntry): void },
-): MatchResult[] {
-  const allFunctions = [...parentFunctions, ...block.functions];
-
-  // Check if this block's path pattern matches the remaining segments
-  const pattern = block.path.segments;
-  const bindings: Record<string, string> = {};
-  const candidateVariables: string[] = [];
-  let consumed = 0;
-  // Track WHY we stopped — needed for the resolution trace. Default
-  // 'literal-mismatch' is overwritten before the early-return paths
-  // that have a more specific reason.
-  let failureReason: PathResolutionEntry['reason'] | undefined;
-
-  for (const seg of pattern) {
-    if (seg.type === 'literal') {
-      if (consumed >= pathSegments.length) {
-        // The block path has more segments than the request supplied
-        // — distinct from a literal-mismatch even though we technically
-        // ran out of input mid-loop. Flag it for the trace before the
-        // early-return below.
-        failureReason = 'request-shorter';
-        break;
-      }
-      if (pathSegments[consumed] !== seg.value) {
-        failureReason = 'literal-mismatch';
-        break;
-      }
-      consumed++;
-    } else if (seg.type === 'wildcard') {
-      if (consumed >= pathSegments.length) {
-        failureReason = 'request-shorter';
-        break;
-      }
-      bindings[seg.name] = pathSegments[consumed];
-      if (consumed === pathSegments.length - 1) candidateVariables.push(seg.name);
-      consumed++;
-    } else if (seg.type === 'recursive') {
-      // {document=**} matches all remaining segments
-      bindings[seg.name] = pathSegments.slice(consumed).join('/');
-      if (consumed < pathSegments.length) candidateVariables.push(seg.name);
-      consumed = pathSegments.length;
-    }
-  }
-
-  // If we exited the loop early with a failureReason set, this block
-  // didn't fully consume its own pattern — record + bail.
-  if (failureReason !== undefined) {
-    recorder?.push({
-      ...(block.loc ? { line: block.loc.line } : {}),
-      blockPath: renderBlockPath(block),
-      matchedSegments: consumed,
-      totalSegments: pattern.length,
-      bindings,
-      matched: false,
-      reason: failureReason,
-    });
-    return [];
-  }
-
-  const remaining = pathSegments.slice(consumed);
-
-  // If all segments consumed, this block matches directly. Its own allow
-  // rules apply to the document at this path; nested children can't match
-  // (there are no remaining segments for them to consume), so we stop here.
-  if (remaining.length === 0) {
-    recorder?.push({
-      ...(block.loc ? { line: block.loc.line } : {}),
-      blockPath: renderBlockPath(block),
-      matchedSegments: consumed,
-      totalSegments: pattern.length,
-      bindings,
-      matched: true,
-    });
-    return [{ block, pathVariables: bindings, candidateVariables, functions: allFunctions }];
-  }
-
-  // Otherwise descend into EVERY child and collect all matches — this block
-  // is a container for the deeper document, so its own allow rules do NOT
-  // apply, but multiple children (and their descendants) may each match and
-  // must all be OR-combined.
-  const results: MatchResult[] = [];
-  for (const child of block.children) {
-    for (const childResult of collectMatches(child, remaining, allFunctions, recorder)) {
-      // Merge this block's bindings into each descendant match.
-      childResult.pathVariables = { ...bindings, ...childResult.pathVariables };
-      childResult.candidateVariables = [...candidateVariables, ...childResult.candidateVariables];
-      results.push(childResult);
-    }
-  }
-
-  // Record THIS block's own attempt: matched (as a container) when at least
-  // one descendant completed the resolution, else the near-miss reason.
-  recorder?.push({
-    ...(block.loc ? { line: block.loc.line } : {}),
-    blockPath: renderBlockPath(block),
-    matchedSegments: consumed,
-    totalSegments: pattern.length,
-    bindings,
-    ...(results.length > 0
-      ? { matched: true }
-      : { matched: false, reason: 'no-matching-child' as const }),
-  });
-  return results;
 }
 
 // ═══ Operation mapping ═══
@@ -691,7 +543,7 @@ export class SimulateFirestoreRulesHandler {
         const pathVars = { ...rootBindings, ...match.pathVariables };
         const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection);
 
-        const blockPath = renderBlockPath(match.block);
+        const blockPath = renderMatchBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx);
         for (const entry of res.trace) entry.matchPath = blockPath;
         trace.push(...res.trace);

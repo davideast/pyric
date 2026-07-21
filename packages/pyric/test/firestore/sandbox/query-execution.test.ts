@@ -58,4 +58,19 @@ describe('query execution', () => {
       orderBy: 'createdAt',
     });
   });
+
+  test('does not project the document-key sentinel as a data-field equality', () => {
+    const execution = {
+      filters: [
+        { kind: 'where' as const, field: '__name__', op: '==' as const, value: 'allowed' },
+        { kind: 'where' as const, field: 'owner', op: '==' as const, value: 'alice' },
+      ],
+      orders: [],
+      limitFromEnd: false,
+    };
+
+    expect(queryConstraintsForProof(execution).where).toEqual([
+      { field: 'owner', op: '==', value: 'alice' },
+    ]);
+  });
 });

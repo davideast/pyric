@@ -30,18 +30,17 @@
  * `resource.data` access the equalities do NOT pin errors in the evaluator
  * and the rule denies — the conservative (prod-safe) direction.
  */
-import type {
-  AllowRule,
-  FirestoreRules,
-  MatchBlock,
-} from 'pyric/rules/internal';
 import {
+  collectMatches,
   evaluateQueryProof,
+  type AllowRule,
+  type FirestoreRules,
+  type MatchBlock,
+  type MatchResult,
   type QueryConstraints,
   type QueryProofResidual,
   type QueryWhereConstraint,
-} from '../../rules/simulator/query-proof.js';
-import { collectMatches, type MatchResult } from '../../rules/simulator/handler.js';
+} from 'pyric/rules/internal';
 import {
   analyzeListRulePathInvariance,
   buildListRuleFunctionScope,
