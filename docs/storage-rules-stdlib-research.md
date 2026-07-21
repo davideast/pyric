@@ -66,7 +66,13 @@ writing its capture. With cross-service IAM disabled, every executed
 dedicated oracle service account lacks IAM-policy read/write, so the enabled
 budget/caching phase requires the Firebase Rules Firestore Service Agent role to
 be enabled externally or a separately authorized IAM credential. No IAM change
-was attempted successfully.
+was attempted successfully. The active human gcloud credential could read the
+project policy but also lacked `setIamPolicy`; its grant attempt failed before
+changing the policy, and cleanup confirmed the binding remained absent. Once a
+project administrator enables the role, run the rig with `--iam-enabled` to
+write the enabled observation without reading or mutating IAM. The separate
+`--temporary-iam` mode remains available only to a credential that can snapshot,
+change, restore, and verify the project policy.
 
 ## Baseline conclusion
 

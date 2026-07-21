@@ -8,10 +8,10 @@ export const rig: RigManifestRecord = {
   network: 'firebase-production',
   requires: {
     env: [
-      { name: 'PYRIC_ORACLE_SA_PATH', description: 'Service-account JSON path for the dedicated oracle project. Base mode needs Firestore data, Storage object, and Rules management permissions; --temporary-iam additionally requires IAM policy read/write.', permission: 'Firestore data write/delete, Storage object admin, Firebase Rules ruleset/release management; resourcemanager.projects.getIamPolicy/setIamPolicy for --temporary-iam' },
+      { name: 'PYRIC_ORACLE_SA_PATH', description: 'Service-account JSON path for the dedicated oracle project. Base and --iam-enabled modes need Firestore data, Storage object, and Rules management permissions; --temporary-iam additionally requires IAM policy read/write.', permission: 'Firestore data write/delete, Storage object admin, Firebase Rules ruleset/release management; resourcemanager.projects.getIamPolicy/setIamPolicy for --temporary-iam' },
       { name: 'PYRIC_AI_FIREBASE_CONFIG', description: 'Web SDK config whose projectId must match the oracle service account; supplies the API key for anonymous Storage requests.' },
     ],
-    projectFeatures: ['Default Firestore database and default Storage bucket provisioned.'],
+    projectFeatures: ['Default Firestore database and default Storage bucket provisioned. Pass --iam-enabled only after the Firebase Storage service agent has roles/firebaserules.firestoreServiceAgent.'],
     local: [],
   },
   safety: {

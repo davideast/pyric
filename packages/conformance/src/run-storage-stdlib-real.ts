@@ -110,6 +110,11 @@ async function run(): Promise<void> {
   const authHeaders = { Authorization: `Bearer ${access.access_token}` };
   const jsonHeaders = { ...authHeaders, 'Content-Type': 'application/json' };
   const temporaryIam = Bun.argv.includes('--temporary-iam');
+  const externallyEnabledIam = Bun.argv.includes('--iam-enabled');
+  if (temporaryIam && externallyEnabledIam) {
+    throw new Error('--temporary-iam and --iam-enabled are mutually exclusive');
+  }
+  const expectEnabledIam = temporaryIam || externallyEnabledIam;
   let originalIam: IamPolicy | undefined;
   let iamChanged = false;
   let iamGrantAttempted = false;
@@ -225,7 +230,7 @@ async function run(): Promise<void> {
     if (!canary.allowed) throw new Error(`probe rules did not become active: ${canary.code} ${canary.message}`);
 
     for (const family of ['one', 'two', 'three', 'repeat', 'get-exists', 'short', 'missing-exists', 'missing-get']) {
-      const result = await upload(family, temporaryIam && family === 'one');
+      const result = await upload(family, expectEnabledIam && family === 'one');
       behavior[family] = result.allowed ? 'ALLOW' : 'DENY';
       diagnostics[family] = { code: result.code, message: result.message };
     }
@@ -264,7 +269,7 @@ async function run(): Promise<void> {
   }
 
   completedObservation = {
-    name: temporaryIam
+    name: expectEnabledIam
       ? 'stdlib-realstorage-p3-lookup-budget-iam-enabled'
       : 'stdlib-realstorage-p3-lookup-budget',
     matrixRow: '',
@@ -277,7 +282,7 @@ async function run(): Promise<void> {
     behavior,
     diagnostics,
     cleanup: { releaseRestored, objectsRemoved, documentsRemoved, iamRestored: !temporaryIam },
-    iam: { temporaryIam, iamChanged },
+    iam: { temporaryIam, externallyEnabledIam, iamChanged },
     probeRulesetCreated: !!probeRulesetName,
   };
   } finally {
