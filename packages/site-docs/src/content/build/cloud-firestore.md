@@ -5,6 +5,7 @@ group: "Build"
 section: ""
 order: 20
 description: "Read, write, query, and stream Firestore documents locally, and derive the composite indexes your queries need from your source."
+example: "firestore-first-write"
 ---
 
 # Run Cloud Firestore locally

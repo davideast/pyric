@@ -14,12 +14,11 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolveStudioUiDir } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
 import {
   isStandalone,
-  materializeDocsUi,
   materializeServeAssets,
-  materializeStudioUi,
+  materializeSiteUi,
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { loadProjectDatabaseRules, loadProjectRules, loadProjectStorageRules, watchProjectRules } from '../serve/rules.js';
@@ -27,9 +26,9 @@ import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import {
   createEventHub,
   createPyricNamespace,
-  injectServeTags,
   type InitPayload,
 } from '../serve/namespace.js';
+import { injectServeTags } from '../serve/html-injection.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from '../serve/state-store.js';
 import { diskProjectStore, diskWorkspace } from '../serve/studio/index.js';
@@ -391,29 +390,18 @@ export async function startServe(opts: {
         projects: diskProjectStore(join(opts.cwd, '.pyric', 'projects')),
       }
     : undefined;
-  // --ui also serves the BUILT Studio app under /__pyric/ui/. The dir is
+  // --ui also serves the unified Astro site under /__pyric/ui/. The dir is
   // resolved by file path (never imported), so a missing build is a clear
   // warning rather than a crash; the data routes still mount.
-  let studioUiDir: string | undefined;
-  let docsUiDir: string | undefined;
+  let siteUiDir: string | undefined;
   if (opts.ui) {
-    // Standalone: the Studio app was embedded at compile time; materialize it.
-    const dir = isStandalone() ? await materializeStudioUi() : resolveStudioUiDir();
-    const docsDir = isStandalone() ? await materializeDocsUi() : resolveDocsUiDir();
+    const dir = isStandalone() ? await materializeSiteUi() : resolveSiteUiDir();
     if (dir) {
-      studioUiDir = dir;
+      siteUiDir = dir;
     } else {
       logger.note(
-        '  ⚠ --ui: built Studio app not found (run the full build first). ' +
+        '  ⚠ --ui: built Astro site not found (run the full build first). ' +
           'The data routes are mounted, but /__pyric/ui/ will 404.',
-      );
-    }
-    if (docsDir) {
-      docsUiDir = docsDir;
-    } else {
-      logger.note(
-        '  ⚠ --ui: built docs site not found (run the full build first). ' +
-          'Studio is mounted, but /__pyric/ui/docs/ will 404.',
       );
     }
   }
@@ -425,8 +413,8 @@ export async function startServe(opts: {
     state: state ?? undefined,
     capture: capture ?? undefined,
     studio,
-    studioUiDir,
-    docsUiDir,
+    siteUiDir,
+    workerVersion,
     logger,
   });
   let handle: Awaited<ReturnType<typeof startStaticServer>>;
@@ -455,8 +443,8 @@ export async function startServe(opts: {
   // Attach the WS upgrade to EVERY bound server so the sandbox peer connects on
   // whichever loopback family the page resolved (localhost binds both now).
   if (mount) for (const s of handle.servers) mount.attachUpgrade(s);
-  const uiUrl = studioUiDir ? `${handle.url}/__pyric/ui/` : null;
-  const docsUrl = docsUiDir ? `${handle.url}/__pyric/ui/docs/` : null;
+  const uiUrl = siteUiDir ? `${handle.url}/__pyric/ui/` : null;
+  const docsUrl = siteUiDir ? `${handle.url}/__pyric/ui/docs/` : null;
 
   // Discovery pointer (the Claude Code plugin's stdio proxy reads this so it
   // never has to guess the dynamic port). Written next to the project state

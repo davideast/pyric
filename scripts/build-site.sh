@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Composed static Pyric Studio site build. See scripts/site/build.ts for the
-# actual driver (Studio + SDK/worker bundles + demo seed + docs/llms.txt
-# placeholders → dist/site/).
+# Public unified Astro-site build. The driver builds Studio + documentation
+# from packages/site-docs, adds the SDK/SharedWorker and curated demo seed,
+# then stamps the finite Studio entry pages with the worker generation.
 #
 # Prereq: `bun run build` (root) must have already built @pyric/cli's dist/ —
 # the SDK/worker bundler is imported directly from

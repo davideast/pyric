@@ -19,11 +19,14 @@ const libraryJob = workflow.slice(libraryJobStart, libraryJobEnd);
 const browserJobStart = workflow.indexOf('  browser-conformance:');
 const browserJobEnd = workflow.indexOf('\n  packaging:', browserJobStart);
 const browserJob = workflow.slice(browserJobStart, browserJobEnd);
+const standaloneJobStart = workflow.indexOf('  standalone:');
+const standaloneJobEnd = workflow.indexOf('\n  required:', standaloneJobStart);
+const standaloneJob = workflow.slice(standaloneJobStart, standaloneJobEnd);
 
 describe('served app conformance merge gate', () => {
   test('required CI splits CLI and library tests; the docs build runs as its own job', () => {
     expect(workflow).not.toContain('\n  documentation:');
-    // The test lanes never build docs (--skip-docs below), but the
+    // The test lanes only need package artifacts (--packages-only below), but the
     // documentation build itself must be selected for BOTH docs-only and
     // full runs — a full PR must not be able to break `site-docs build`
     // undetected (regression: the selector originally gated it to
@@ -33,7 +36,7 @@ describe('served app conformance merge gate', () => {
     );
     expect(mainJobStart).toBeGreaterThanOrEqual(0);
     expect(mainJobEnd).toBeGreaterThan(mainJobStart);
-    expect(mainJob).toContain('bash scripts/build.sh --skip-docs');
+    expect(mainJob).toContain('bash scripts/build.sh --packages-only');
     expect(mainJob).toContain('bun run test:ci:cli');
     expect(mainJob).not.toContain('bun run test:ci:libraries');
     expect(libraryJobStart).toBeGreaterThanOrEqual(0);
@@ -67,8 +70,11 @@ describe('served app conformance merge gate', () => {
     expect(browserJob).toContain('bunx playwright install chromium');
     expect(browserJob).toContain('bunx playwright install-deps chromium');
     expect(browserJob).toContain('bun run --cwd packages/cli test:app-conformance');
-    expect(browserJob).toContain('bash scripts/build.sh --skip-docs');
-    const build = browserJob.indexOf('bash scripts/build.sh --skip-docs');
+    expect(browserJob).toContain('bun run --cwd packages/cli test:site-cli');
+    expect(browserJob).toContain('bun run --cwd packages/cli test:site-static');
+    expect(browserJob).toContain('bash scripts/build.sh');
+    expect(browserJob).toContain('bash scripts/build-site.sh');
+    const build = browserJob.indexOf('bash scripts/build.sh');
     const cache = browserJob.indexOf('Cache Playwright Chromium');
     const browser = browserJob.indexOf('bunx playwright install chromium');
     const dependencies = browserJob.indexOf('bunx playwright install-deps chromium');
@@ -77,5 +83,15 @@ describe('served app conformance merge gate', () => {
     expect(cache).toBeLessThan(browser);
     expect(browser).toBeLessThan(dependencies);
     expect(dependencies).toBeLessThan(proof);
+  });
+
+  test('standalone CI embeds the Astro site before compiling the binary', () => {
+    expect(standaloneJobStart).toBeGreaterThanOrEqual(0);
+    expect(standaloneJobEnd).toBeGreaterThan(standaloneJobStart);
+    expect(standaloneJob).toContain('bash scripts/build.sh');
+    expect(standaloneJob).not.toContain('bash scripts/build.sh --packages-only');
+    expect(standaloneJob.indexOf('bash scripts/build.sh')).toBeLessThan(
+      standaloneJob.indexOf('bun run --cwd packages/cli compile host'),
+    );
   });
 });

@@ -53,7 +53,7 @@
     "release:standalone": "bun run build && bun packages/cli/scripts/release.ts",
     "smoke:standalone": "bun packages/cli/scripts/standalone-smoke.ts",
     "smoke:vendor": "bun packages/cli/scripts/standalone-vendor-smoke.ts",
-    "build:studio": "bun run --cwd packages/studio build",
+    "build:studio": "bun run --cwd packages/studio build && DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build",
     "playground": "bun run --cwd packages/playground dev"
   },
   "devDependencies": {

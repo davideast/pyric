@@ -28,6 +28,8 @@ import {
   GROUP_RANK,
   GUIDE_GROUP_LABELS,
 } from './nav-groups';
+import type { PyricExampleId } from '../examples/registry';
+export { SITE_TABS as STUDIO_TABS } from './site-routes';
 
 export { GUIDE_GROUP_LABELS };
 
@@ -46,6 +48,7 @@ export interface DocData {
   apiSubpath?: string;
   apiSymbolCount?: number;
   apiEvidenceSlug?: string;
+  example?: PyricExampleId;
 }
 
 interface MarkdownModule {
@@ -105,6 +108,7 @@ function coerce(rel: string, fm: Record<string, unknown>): DocData {
     apiSubpath: str(fm.apiSubpath),
     apiSymbolCount: num(fm.apiSymbolCount),
     apiEvidenceSlug: str(fm.apiEvidenceSlug),
+    example: str(fm.example) as PyricExampleId | undefined,
   };
 }
 
@@ -175,17 +179,6 @@ export function docMdPath(entry: DocEntry): string {
 export function navLabel(entry: DocEntry): string {
   return entry.data.navLabel ?? entry.data.title;
 }
-
-export const STUDIO_TABS = [
-  { id: 'home', label: 'Home', path: '/' },
-  { id: 'firestore', label: 'Firestore', path: '/firestore' },
-  { id: 'auth', label: 'Auth', path: '/auth' },
-  { id: 'rtdb', label: 'RTDB', path: '/rtdb' },
-  { id: 'storage', label: 'Storage', path: '/storage' },
-  { id: 'traffic', label: 'Traffic', path: '/traffic' },
-  { id: 'settings', label: 'Settings', path: '/settings' },
-  { id: 'docs', label: 'Docs', path: '/docs' },
-] as const;
 
 /** Generated pages (conformance + API reference) arrive through content-layer
  * loaders; adapt them to the same DocEntry shape the authored glob produces,

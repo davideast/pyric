@@ -33,7 +33,7 @@ import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
 import type { PersistenceBackend } from 'pyric/sandbox';
-import { initializeSandbox } from 'pyric/sandbox';
+import { createSandboxRoot } from 'pyric/sandbox/internal';
 import {
   primeEventHistory,
 } from 'pyric/sandbox/internal';
@@ -485,7 +485,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
     // plain-call wrapper doesn't need (nothing in this module uses it).
     fetch: ((...args: Parameters<typeof fetch>) => ambientFetch(...args)) as typeof fetch,
   };
-  const sandbox = initializeSandbox();
+  const sandbox = createSandboxRoot();
 
   // Deploy permissive starter rules via admin-firestore.
   // Callers override at runtime via the setRules op.

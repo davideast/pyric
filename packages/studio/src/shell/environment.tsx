@@ -18,7 +18,13 @@
  * Panes read this via {@link useEnvironment} and branch on `status`.
  */
 
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   createStudioEnvironment,
   type StudioEnvironment,
@@ -33,6 +39,11 @@ export type EnvironmentState =
   | { status: 'error'; env: null; error: Error };
 
 const EnvironmentContext = createContext<EnvironmentState | null>(null);
+const PENDING_ENVIRONMENT: EnvironmentState = {
+  status: 'pending',
+  env: null,
+  error: null,
+};
 
 /** Resolve the environment for `mode`, never throwing; failures become state. */
 function resolveEnvironment(mode: StudioMode): EnvironmentState {
@@ -58,9 +69,25 @@ export function EnvironmentProvider({
   mode = 'local',
   children,
 }: EnvironmentProviderProps) {
-  // The factory is synchronous today, so resolution is stable per `mode`.
-  // Wrapped in `useMemo` so it's resolved once, not on every render.
-  const state = useMemo(() => resolveEnvironment(mode), [mode]);
+  // Resolve inside the effect so React Strict Mode can cleanly dispose its
+  // development setup pass instead of abandoning render-created listeners.
+  const [resolved, setResolved] = useState<{
+    mode: StudioMode;
+    state: EnvironmentState;
+  } | null>(null);
+  useEffect(() => {
+    const state = resolveEnvironment(mode);
+    setResolved({ mode, state });
+    return () => {
+      if (state.status === 'ready') state.env.dispose();
+    };
+  }, [mode]);
+
+  // A mode change renders once before its effect runs. Do not expose the old,
+  // soon-to-be-disposed environment during that render.
+  const state = resolved?.mode === mode
+    ? resolved.state
+    : PENDING_ENVIRONMENT;
 
   return (
     <EnvironmentContext.Provider value={state}>

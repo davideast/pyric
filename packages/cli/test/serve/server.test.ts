@@ -9,11 +9,24 @@ import {
   isAllowedHost,
   isAllowedOrigin,
   isAllowedUpgrade,
+  loopbackHosts,
   resolveStaticFile,
   silentServeLogger,
   startStaticServer,
   type ServeHandle,
 } from '../../src/serve/server.js';
+
+describe('loopback host binding', () => {
+  it('binds both localhost families', () => {
+    expect(loopbackHosts('localhost')).toEqual(['127.0.0.1', '::1']);
+  });
+
+  it('binds an explicit host only to itself', () => {
+    expect(loopbackHosts('0.0.0.0')).toEqual(['0.0.0.0']);
+    expect(loopbackHosts('192.168.1.5')).toEqual(['192.168.1.5']);
+    expect(loopbackHosts('127.0.0.1')).toEqual(['127.0.0.1']);
+  });
+});
 
 function fixtureSite(): string {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-site-'));
@@ -42,6 +55,7 @@ describe('resolveStaticFile', () => {
     expect(resolveStaticFile(site, '/docs')).toContain('docs/index.html');
     expect(resolveStaticFile(site, '/../../../etc/passwd')).toBeNull();
     expect(resolveStaticFile(site, '/%2e%2e/%2e%2e/etc/passwd')).toBeNull();
+    expect(resolveStaticFile(site, '/docs/%E0%A4%A')).toBeNull();
     expect(resolveStaticFile(site, '/missing.js')).toBeNull();
   });
 });

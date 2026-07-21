@@ -67,41 +67,15 @@ export function defaultSdkEntries(): Record<string, string> {
   };
 }
 
-/**
- * Resolve the built Studio app dir (the plugin's `ui` option + the CLI's
- * `--ui`). Reached by file path so @pyric/cli never imports `@pyric/studio`:
- * the packaged location (`dist/serve/studio-ui`, copied at build) or, in the
- * monorepo, the sibling studio build. Null when neither exists. The standalone
- * binary embeds these same bytes instead (see `standalone-assets.ts`).
- */
-export function resolveStudioUiDir(): string | null {
-  const candidates = [
-    new URL('./studio-ui/', import.meta.url),
-    new URL('../../../studio/dist/app/', import.meta.url),
-  ];
+/** Resolve the unified Astro documentation + Studio tree embedded by the build. */
+export function resolveSiteUiDir(
+  candidates: readonly string[] = [
+    fileURLToPath(new URL('./site-ui/', import.meta.url)),
+    fileURLToPath(new URL('../../../site-docs/dist/', import.meta.url)),
+  ],
+): string | null {
   for (const candidate of candidates) {
-    const dir = fileURLToPath(candidate);
-    if (existsSync(dir)) return dir;
-  }
-  return null;
-}
-
-/**
- * Resolve the built docs site dir (site-docs). `pyric dev --ui` embeds it so
- * the Studio Docs tab has local docs without the hosted site. Built with base
- * `/__pyric/ui/` (see scripts/build.sh) so every page/asset/twin URL resolves
- * under the CLI mount: pages at `/__pyric/ui/docs/<slug>/`, assets at
- * `/__pyric/ui/_astro/*`, the search index at `/__pyric/ui/docs/index.json`,
- * and the shell chrome's tab links back at `/__pyric/ui/<tab>`. The dir holds
- * the site-docs `dist/` verbatim: `docs/`, `_astro/`, `index.html`, `llms.txt`.
- */
-export function resolveDocsUiDir(): string | null {
-  const candidates = [
-    new URL('./docs-ui/', import.meta.url),
-  ];
-  for (const candidate of candidates) {
-    const dir = fileURLToPath(candidate);
-    if (existsSync(dir)) return dir;
+    if (existsSync(candidate)) return candidate;
   }
   return null;
 }

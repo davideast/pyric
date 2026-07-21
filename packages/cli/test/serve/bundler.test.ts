@@ -10,7 +10,7 @@ import {
   cacheKey,
   pyricPackageRoot,
   pyricVersion,
-  resolveDocsUiDir,
+  resolveSiteUiDir,
   sourceTreeHash,
   workerEntryPath,
   workerSourceHash,
@@ -24,13 +24,16 @@ describe('pyric dist discovery', () => {
   });
 });
 
-describe('resolveDocsUiDir (embed fallback)', () => {
-  it('returns null when the built docs-ui dir is absent (drives the CLI soft-warn)', () => {
-    // Running from src/serve, there is no sibling `docs-ui/` (that only exists
-    // in the built dist after scripts/build.sh Phase 5), so the resolver must
-    // return null rather than throw — the `--ui` path then soft-warns and
-    // leaves /__pyric/ui/docs/ un-mounted instead of crashing.
-    expect(resolveDocsUiDir()).toBeNull();
+describe('resolveSiteUiDir (embed fallback)', () => {
+  it('selects the first existing unified site tree without requiring a prior site build', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-site-ui-'));
+    const missing = join(root, 'missing');
+    const site = join(root, 'site');
+    mkdirSync(join(site, 'docs'), { recursive: true });
+    writeFileSync(join(site, 'studio-routes.json'), '[]');
+
+    expect(resolveSiteUiDir([missing, site])).toBe(site);
+    expect(resolveSiteUiDir([missing])).toBeNull();
   });
 });
 
