@@ -10,6 +10,7 @@ description: "Keep Firebase AI Logic application code unchanged while model resp
 # Run Firebase AI Logic locally
 
 Keep using the Firebase AI Logic Web API:
+
 ```ts
 import { getAI, getGenerativeModel } from 'firebase/ai';
 
@@ -17,13 +18,15 @@ const ai = getAI(app);
 const model = getGenerativeModel(ai, {
   model: 'gemini-flash-lite-latest',
 });
-const result = await model.generateContent('Summarize this report.');
+const result = await model.generateContent('Summarise this report.');
 ```
-During development, Pyric answers through a local engine instead of a Google AI endpoint. A production build runs the same application code through Firebase. Use the [Firebase AI Logic Web guide](https://firebase.google.com/docs/ai-logic/get-started?platform=web) for normal model, prompt, chat, streaming, schema, and function-calling APIs.
 
-## Choose how the sandbox answers
+During development, Pyric answers through a local engine instead of a Google AI endpoint. A normal production build runs the same application code through Firebase. Use the [Firebase AI Logic Web guide](https://firebase.google.com/docs/ai-logic/get-started?platform=web) for the application API.
 
-The default scripted engine is deterministic and makes no network requests. Test setup can queue an exact response through the sandbox-only scripting entry point:
+## Start with deterministic responses
+
+With no AI configuration, Pyric uses its built-in scripted engine. It makes no network requests and gives deterministic responses. Tests can queue an exact response through the sandbox-only scripting entry point:
+
 ```ts
 import { getAI } from 'pyric/ai';
 import { script } from 'pyric/ai/scripting';
@@ -31,42 +34,87 @@ import { script } from 'pyric/ai/scripting';
 const ai = getAI(app);
 script(ai, [
   {
-    match: 'Summarize this report.',
+    match: 'Summarise this report.',
     respond: { text: 'The report is ready for review.' },
   },
 ]);
 ```
+
 Keep scripted setup outside application code that ships.
 
-## Answer with a real local model (Ollama)
+## Use a local model
 
-The sandbox can answer through any OpenAI-compatible server — a local [Ollama](https://ollama.com), llama.cpp, anything speaking `/v1/chat/completions` — while your application keeps making unchanged Firebase AI Logic calls. Pass the `engine` option on the app's own `getAI` call from `firebase/ai`, the handle the application actually queries, so the setting reaches the code that answers:
+For Ollama, put the model identifier in `.env.local` at the Vite project root:
 
-```ts
-import { getAI, type AIOptions } from 'firebase/ai';
-
-const ai = getAI(app, {
-  engine: { kind: 'openai', model: 'llama3.2' },
-} as AIOptions);
+```bash
+ollama pull qwen3:4b
 ```
 
-The first `getAI` call for an app decides its engine; later calls with different options are ignored, so configure it where the app first creates its AI handle.
-
-`engine` is a pyric extension that only the sandbox reads. At runtime, production `firebase/ai` ignores the extra option; in TypeScript, `AIOptions` has no `engine` member, so a typed build needs the options object cast — the `as AIOptions` above — or the engine kept in a development-only branch.
-
-With no `baseUrl`, answering routes through `pyric dev`'s same-origin AI proxy at `/__pyric/ai-proxy`, which forwards to `http://localhost:11434/v1` — a locally running Ollama works with zero CORS setup, no `OLLAMA_ORIGINS`, nothing. Point the proxy at a different server with the `PYRIC_AI_PROXY_UPSTREAM` environment variable on `pyric dev`.
-
-Use `modelMap` to send specific Gemini model ids to specific upstream models; `model` stays the catch-all for anything unmatched.
-
-```ts
-engine: { kind: 'openai', modelMap: { 'gemini-2.5-flash': 'llama3.2' } }
+```dotenv
+PYRIC_AI_MODEL=qwen3:4b
 ```
 
-`maxOutputTokens`, `temperature`, `topP`, `stopSequences`, and JSON response formatting carry over to the OpenAI request. `topK` and `thinkingConfig` have no equivalent and are dropped in development, though production still honors them. When a local thinking model returns its reasoning, it surfaces as thought parts.
+Then restart Vite:
 
-Gemini-shaped requests go out as OpenAI-compatible ones and come back Gemini-shaped, so streaming, chat history, and function calling all flow through. The [AI chat example](https://github.com/davideast/pyric/tree/main/examples/ai-chat) runs both engines side by side.
+```bash
+npm run dev
+```
 
-Local engines do not reproduce model quality, safety policy, latency, quotas, billing, or service availability. Verify model-dependent behavior against the production backend before release.
+That one variable switches Pyric from the scripted engine to its OpenAI-compatible engine. `PYRIC_AI_MODEL` is the model name Pyric sends to the upstream server. It is also the catch-all mapping when the application requests a Firebase model name such as `gemini-flash-lite-latest`.
+
+Ollama's default OpenAI-compatible base URL is already Pyric's default: `http://localhost:11434/v1`. Start Ollama separately and make sure the selected model is installed.
+
+## Point Pyric at another model server
+
+Set `PYRIC_AI_PROXY_UPSTREAM` only when the model server is somewhere other than the default Ollama URL:
+
+```dotenv
+PYRIC_AI_MODEL=minimax-m2.7
+PYRIC_AI_PROXY_UPSTREAM=http://localhost:8080/v1
+```
+
+The two settings have different jobs:
+
+- `PYRIC_AI_MODEL` selects the model and activates the OpenAI-compatible engine.
+- `PYRIC_AI_PROXY_UPSTREAM` selects the server to which Pyric forwards requests. It is an OpenAI-compatible server base URL, not a Firebase endpoint and not a browser URL. Include `/v1` when that server expects it.
+
+Your browser still calls Pyric on the same origin at `/__pyric/ai-proxy`. The Vite server forwards that request to the upstream server's `/chat/completions` endpoint. This server-side hop avoids browser CORS configuration. An upstream URL alone does not select a model or replace the scripted engine, which is why `PYRIC_AI_MODEL` is still required.
+
+## Set the variables for one command
+
+On macOS, Linux, and other POSIX shells, prefix the same command with both variables:
+
+```bash
+PYRIC_AI_MODEL=qwen3:4b \
+PYRIC_AI_PROXY_UPSTREAM=http://localhost:11434/v1 \
+npm run dev
+```
+
+Do not put `&&` before `npm run dev` like this:
+
+```bash
+# Wrong: these are unexported shell variables, so Vite does not receive them.
+PYRIC_AI_MODEL=qwen3:4b PYRIC_AI_PROXY_UPSTREAM=http://localhost:11434/v1 && npm run dev
+```
+
+The prefix form adds the variables to the environment of that `npm run dev` process. The `&&` form completes a shell-only assignment first, then starts npm as a separate command without exporting those values. Use `.env.local` for a durable project configuration; Vite loads it automatically, and it remains ignored by the template's Git configuration.
+
+## Configure the Vite plugin explicitly
+
+Environment variables keep the default `pyric()` configuration small. If a project needs configuration in code, use the equivalent plugin options:
+
+```ts
+pyric({
+  ai: {
+    model: 'qwen3:4b',
+    proxyUpstream: 'http://localhost:11434/v1',
+  },
+})
+```
+
+For model-specific routing or a scripted configuration shared by the whole dev server, the advanced `ai.engine` option accepts Pyric's declarative engine configuration. Choose either `ai.model` or `ai.engine`, not both. Explicit plugin options take precedence over Vite-loaded environment variables.
+
+Generation settings such as `maxOutputTokens`, `temperature`, `topP`, `stopSequences`, and JSON response formatting carry over to the OpenAI request. `topK` and `thinkingConfig` have no equivalent and are dropped locally. Local models do not reproduce production model quality, safety policy, latency, quotas, billing, or service availability, so verify model-dependent behaviour against the production backend before release.
 
 ## Check the supported boundary
 

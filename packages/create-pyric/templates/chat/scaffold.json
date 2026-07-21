@@ -1,0 +1,21 @@
+{
+  "include": [
+    ".env.example",
+    "README.md",
+    "components.json",
+    "database.rules.json",
+    "firebase.json",
+    "firestore.indexes.json",
+    "firestore.modules.rules",
+    "firestore.rules",
+    "functions",
+    "gitignore",
+    "index.html",
+    "scripts",
+    "src",
+    "storage.rules",
+    "test",
+    "tsconfig.json",
+    "vite.config.ts"
+  ]
+}

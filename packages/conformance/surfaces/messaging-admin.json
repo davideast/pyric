@@ -2,6 +2,9 @@
   "schema": "pyric.conformance.surface.v2",
   "kind": "registry-only",
   "developerSurface": "messaging-admin",
+  "evidenceImports": [
+    "pyric-admin/messaging"
+  ],
   "observationPrefixes": [
     "messaging-send-"
   ],

@@ -31,7 +31,7 @@ export interface EmbeddedAssets {
    * materialization cache. Optional so older compiled binaries still boot.
    */
   assetVersion?: string;
-  /** Worker source hash stamped into the page (`<meta name="pyric-worker-v">`). */
+  /** Worker executable epoch stamped into the page (`<meta name="pyric-worker-v">`). */
   workerVersion: string;
   /** Lazy: flat map of SDK filename -> base64 bytes (app.js, worker.js, chunks). */
   sdk: () => Promise<Record<string, string>>;
@@ -68,7 +68,7 @@ function embedded(): EmbeddedAssets {
   return e;
 }
 
-/** The worker content hash baked in at compile time (see serve.ts). */
+/** The worker executable epoch baked in at compile time (see serve.ts). */
 export function embeddedWorkerVersion(): string {
   return embedded().workerVersion;
 }

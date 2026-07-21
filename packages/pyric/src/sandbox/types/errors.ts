@@ -89,10 +89,14 @@ export interface DenialContext {
    * Absent for single-doc and non-query denials.
    */
   query?: {
-    where?: Array<{ field: string; op: string; value: string | number | boolean | null }>;
-    limit?: number | null;
-    offset?: number | null;
-    orderBy?: string | null;
+    readonly where?: readonly {
+      readonly field: string;
+      readonly op: string;
+      readonly value: string | number | boolean | null;
+    }[];
+    readonly limit?: number | null;
+    readonly offset?: number | null;
+    readonly orderBy?: string | null;
   };
 }
 

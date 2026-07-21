@@ -4,6 +4,8 @@
 
 export {
   TEMPLATES,
+  TEMPLATE_NAMES,
+  isTemplateName,
   applyDepsMode,
   mergeIntoExistingPackageJson,
   packageJsonFor,
@@ -15,5 +17,6 @@ export {
   type ScaffoldRequest,
   type ScaffoldIo,
   type PackageJsonMerge,
+  type TemplateName,
 } from './scaffold.js';
 export { parseCreateArgs, type CreateArgs, type FlagValue } from './parse-args.js';

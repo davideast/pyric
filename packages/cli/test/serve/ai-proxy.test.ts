@@ -31,7 +31,7 @@ afterEach(async () => {
   while (upstreams.length) upstreams.pop()!.stop();
 });
 
-async function startServe(aiProxyUpstream: string): Promise<ServeHandle> {
+async function startServe(aiProxyUpstream?: string): Promise<ServeHandle> {
   const { site, sdk } = fixture();
   const ns = createPyricNamespace({
     sdkDir: sdk,
@@ -62,6 +62,31 @@ function closedLoopbackUrl(path = ''): string {
 }
 
 describe('/__pyric/ai-proxy', () => {
+  it('defaults to Ollama\'s OpenAI-compatible endpoint', async () => {
+    const h = await startServe();
+    const nativeFetch = globalThis.fetch;
+    const priorEnv = process.env.PYRIC_AI_PROXY_UPSTREAM;
+    let target = '';
+    delete process.env.PYRIC_AI_PROXY_UPSTREAM;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      target = String(input);
+      return Response.json({ choices: [] });
+    }) as typeof fetch;
+    try {
+      const res = await nativeFetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(200);
+      expect(target).toBe('http://localhost:11434/v1/chat/completions');
+    } finally {
+      globalThis.fetch = nativeFetch;
+      if (priorEnv === undefined) delete process.env.PYRIC_AI_PROXY_UPSTREAM;
+      else process.env.PYRIC_AI_PROXY_UPSTREAM = priorEnv;
+    }
+  });
+
   it('forwards POST path suffix + query + body, keeps authorization, strips origin-sensitive headers', async () => {
     const seen: Array<{ method: string; url: string; body: string; headers: Headers }> = [];
     const upstream = Bun.serve({

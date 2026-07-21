@@ -58,9 +58,10 @@ export function getMessaging(app?: FirebaseApp): Messaging {
  * Called when a message arrives while the app has NO visible window client
  * (oracle: `messaging-web-onbackgroundmessage`,
  * `messaging-web-visibility-routing`). A DATA-ONLY message still fires with
- * no `notification` key (oracle: `messaging-web-data-only-background`), and
- * registering a handler suppresses the SDK auto-display — the sandbox has
- * no display plane, so suppression is the (only) modeled behavior.
+ * no `notification` key (oracle: `messaging-web-data-only-background`). As in
+ * Firebase, registering a handler suppresses SDK auto-display. A handler that
+ * runs in a real Service Worker may use `self.registration.showNotification()`;
+ * the in-page fallback has no native display plane.
  */
 export function onBackgroundMessage(
   messaging: Messaging,

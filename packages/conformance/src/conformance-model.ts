@@ -260,6 +260,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
   const developerSurfaceByContract = new Map(surfaceContracts.map(({ key, record }) =>
     [key, record.developerSurface] as const,
   ));
+  const contractByKey = new Map(surfaceContracts.map(({ key, record }) => [key, record] as const));
   const importsByContract = new Map<string, readonly string[]>();
   const runtimeExportsByContract = new Map<string, ReadonlySet<string>>();
   for (const { key, record } of surfaceContracts) {
@@ -267,7 +268,9 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
       ? record.mirrors
       : record.kind === 'native'
         ? [record.symbolSource]
-        : [];
+        : record.kind === 'registry-only'
+          ? record.evidenceImports ?? []
+          : [];
     for (const importPath of imports) {
       const entry = workspaceEntryPaths(importPath);
       if (!entry) {
@@ -401,7 +404,12 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
     const rowVerdict = verdicts[row.id];
     for (const name of featureKeys) {
       const feature = ensure(name, developerSurfaceFor(row.surface));
-      if (runtimeExportsByContract.get(row.surface)?.has(name)) addImportPaths(feature, row.surface);
+      if (
+        runtimeExportsByContract.get(row.surface)?.has(name)
+        || contractByKey.get(row.surface)?.kind === 'registry-only'
+      ) {
+        addImportPaths(feature, row.surface);
+      }
       classify(feature, 'declared', 'available');
       feature.registryStatuses.push(row.status);
       if (rowVerdict) feature.assuranceVerdicts.push(rowVerdict);

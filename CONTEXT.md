@@ -50,7 +50,7 @@ subpaths include:
 | `pyric/app` | Firebase-shaped client app registry: `initializeApp(options, settings?)`, `getApp`, `getApps`, `deleteApp`, local `FirebaseError`, pinned `SDK_VERSION`, `onLog`, `setLogLevel`, `registerVersion`. Default and named equal-config app containers share one managed sandbox backend; a second Firebase configuration in the same runtime is intentionally rejected. It has no `firebase/app` runtime dependency; production imports stay on `firebase/app`. |
 | `pyric/auth` | Sandbox-only modular Auth mirror, identity, providers, and popup/redirect resolver. It has no `firebase/auth` runtime dependency; production imports stay on `firebase/auth`. |
 | `pyric/firestore` | Sandbox-only modular Firestore mirror plus Firestore data/inspect tools. It has no `firebase/firestore` runtime dependency; production imports stay on `firebase/firestore`. |
-| `pyric/firestore-values` | Firestore value helpers/wrappers. |
+| `pyric/firestore/internal/value-codec` | Worker-only Firestore wire-value rehydration seam; not an application-facing surface. |
 | `pyric/database` | Sandbox-only modular Realtime Database mirror. It has no `firebase/database` runtime dependency; production imports stay on `firebase/database`. |
 | `pyric/sandbox/database` | Owner controls for installing RTDB rules, seeding data, and reading detached snapshots. |
 | `pyric/storage` | Modular Storage mirror and storage admin-style tools. |
@@ -77,7 +77,7 @@ service and sandbox fronts.
 
 ### `pyric-admin`
 
-`pyric-admin/{app,auth,firestore,database,storage}` provides Admin-shaped
+`pyric-admin/{app,auth,firestore,database,storage,messaging}` provides Admin-shaped
 handles for the sandbox. Production server code should import
 `firebase-admin/*` directly. During activated development, the CLI resolver can
 map those canonical imports to the sandbox mirrors without changing source.
@@ -206,14 +206,17 @@ checks that exposed tool registries stay explicit.
 ### Firestore sandbox engine
 
 The **Firestore sandbox engine** is the module behind `LocalEnvironment`
-(`packages/pyric/src/sandbox/firestore/`). `LocalEnvironment` is its permanent
+(`packages/pyric/src/firestore/sandbox/`). `LocalEnvironment` is its permanent
 interface; `SandboxImpl` and the admin-compat wrappers are its only callers.
 Its internal seams, named by ADR-0009 and used only by the engine's own tests:
 
 - **WriteEngine** — execute/batch/transaction and write application.
 - **ListenerDispatch** — snapshot listener registry, delivery scheduling,
   metadata acks, and rules-flip re-evaluation.
-- **RulesReadEngine** — rules-gated document and collection reads.
+- **RulesReadEngine** — rules-gated document reads plus query candidate
+  gathering and execution.
+- **RulesListAuthorizer** — shared list-rule proof, residual simulation, and
+  request/denial event policy for listener and one-shot query reads.
 - **EventBus** — sandbox event emission; **History** — undo/redo over the
   event log.
 - **TriggerScope** — stack-scoped trigger attribution (`run`/`current`,

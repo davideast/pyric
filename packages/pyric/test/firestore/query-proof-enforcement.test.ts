@@ -17,7 +17,7 @@
  * unprovable queries fail whole.
  *
  * These probes drive the REAL web-modular surface (`getDocs` + `onSnapshot`)
- * end-to-end through `QueryImpl.structuredConstraints()` →
+ * end-to-end through the engine-derived execution-plan projection →
  * `LocalEnvironment`'s query-proof gate (`list-query-proof.ts` →
  * `rules/simulator/query-proof.ts:evaluateQueryProof`, landed in #547).
  * Every "provable → succeeds" case FAILED pre-fix (denied); every
@@ -485,5 +485,26 @@ describe('RULES-B11 — request.query is populated from the structured constrain
   it('no limit at all → request.query.limit is null → denied', async () => {
     const { db } = setup(QUERY_LIMIT_RULES);
     expect(await denied(getDocs(collection(db, 'posts')))).toBe('permission-denied');
+  });
+});
+
+describe('RULES-B11 — document keys cannot discharge document-data rules', () => {
+  it('denies a __name__ query when resource.data.__name__ does not satisfy the rule', async () => {
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox);
+    setRules(sandbox, `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} {
+          allow list: if resource.data.__name__ == 'allowed';
+        }
+      }
+    }`);
+    seedDocuments(sandbox, {
+      'items/allowed': { __name__: 'denied', secret: true },
+    });
+
+    expect(await denied(getDocs(
+      query(collection(db, 'items'), where('__name__', '==', 'allowed')),
+    ))).toBe('permission-denied');
   });
 });

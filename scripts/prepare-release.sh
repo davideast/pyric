@@ -72,8 +72,8 @@ BODY_FILE="$(mktemp)"
   echo
   echo "## After merging"
   echo
-  echo '- [ ] Nothing manual before publishing: publish-alpha.sh runs the full suite, the packaging gate, and the tarball behavior smoke (scripts/release-smoke.sh) before the first npm publish'
-  echo "- [ ] \`bash scripts/publish-alpha.sh ${V}\` from a clean merged-main checkout (OTP-capable terminal)"
+  echo "- [ ] \`bun run release:preflight ${V}\` from a clean merged-main checkout; confirm it reports that no packages or dist-tags changed"
+  echo "- [ ] \`bash scripts/publish-alpha.sh ${V}\` from that same clean merged-main commit after the preflight succeeds"
   echo "- [ ] \`git tag v${V} && git push origin v${V}\` on the published commit"
   echo '- [ ] Site deploy (`bash scripts/deploy-site.sh`) if the site should track the release'
 } > "$BODY_FILE"

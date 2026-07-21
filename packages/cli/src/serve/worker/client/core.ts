@@ -10,6 +10,7 @@
  * they did when all of this lived inline in `client.ts`.
  */
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
+import type { RuntimeReloadMessage } from '../protocol.js';
 // TYPE-ONLY — the auth-lens contract + the cross-service event envelope, shared
 // with the worker host + the sandbox's event provenance. Erased at build, so the
 // leaf client bundle stays engine-free.
@@ -58,6 +59,14 @@ export const _eventSubs = new Map<string, {
   next: (events: readonly SandboxEvent[]) => void;
 }>();
 const disconnectedPorts = new WeakSet<ClientPort>();
+const runtimeReloadListeners = new Set<(message: RuntimeReloadMessage) => void>();
+
+export function subscribeRuntimeReload(
+  listener: (message: RuntimeReloadMessage) => void,
+): () => void {
+  runtimeReloadListeners.add(listener);
+  return () => runtimeReloadListeners.delete(listener);
+}
 
 function appDeletedError(): Error & { code: string } {
   return Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' });
@@ -231,6 +240,8 @@ export function wirePort(port: ClientPort): void {
       // no rehydration. Deliver the whole batch to the registered subscriber.
       const subscription = _eventSubs.get(msg.subId);
       if (subscription) subscription.next(msg.events);
+    } else if (msg.t === 'runtime-reload') {
+      for (const listener of runtimeReloadListeners) listener(msg);
     }
   };
 }
@@ -328,6 +339,29 @@ export function rawRpc(port: ClientPort, msg: InboundMessage): Promise<unknown> 
 /** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
 export function rpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
   return rawRpc(port, stampIssuer(msg));
+}
+
+/**
+ * Send a client RPC with a bounded wait, while keeping correlation cleanup
+ * inside the transport module that owns the pending-request registry.
+ */
+export function rpcWithTimeout(
+  port: ClientPort,
+  msg: InboundMessage,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<unknown> {
+  const id = (msg as { id: string }).id;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      if (!_pending.delete(id)) return;
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+  });
+  return Promise.race([rpc(port, msg), timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 /**

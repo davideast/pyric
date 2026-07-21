@@ -41,7 +41,6 @@
  */
 import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
 import type { Plugin, UserConfig, ConfigEnv } from 'vite';
@@ -51,19 +50,16 @@ import {
   defaultSdkEntries,
   resolveStudioUiDir,
   pyricPackageRoot,
-  bundleWorker,
-  workerSourceHash,
   NODE_BUILTIN_RE,
   NODE_BUILTIN_SHIMS,
 } from './bundler.js';
+import { createViteWorkerRuntime } from './vite-worker-runtime.js';
 import {
   createEventHub,
   createPyricNamespace,
   type InitPayload,
 } from './namespace.js';
 import { formatActivityWarning } from './activity-warning.js';
-import type { AiEngineConfigWire } from './worker/protocol.js';
-import type { AIOptions } from 'pyric/ai';
 import { diskWorkspace, diskProjectStore } from './studio/index.js';
 import { createBridgeMount } from './bridge-mount.js';
 import {
@@ -91,6 +87,18 @@ import {
   createLinePrefixer,
   registerModuleUrl,
 } from '../cli/dev-runner.js';
+import {
+  loadViteAiEnv,
+  resolveViteAiConfig,
+  viteWorkerEpochSalt,
+  type PyricAiOptions,
+} from './vite-ai-config.js';
+import { resolveViteRulesConfig } from './vite-rules-source.js';
+import {
+  PYRIC_RUNTIME_CHIP_META,
+  runtimeChipMetaValue,
+  type PyricRuntimeChipOption,
+} from './runtime/chip-config.js';
 
 /**
  * Whether a `vite build` should run the firebase→pyric swap (produce a SANDBOX
@@ -109,41 +117,6 @@ function swapsInBuild(env: ConfigEnv, swapInBuild: boolean | undefined): boolean
 /** Any `firebase/<sub>` specifier. */
 const FB_ANY = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 
-/** The serve proxy route the browser openai engine defaults to (#98.2). */
-const AI_PROXY_PATH = '/__pyric/ai-proxy';
-
-/**
- * The plugin-level engine config surface = `pyric/ai`'s `EngineConfig` (what an
- * app passes to `getAI`), minus the custom `AnswerEngine` object variant — a
- * live object cannot cross to the SharedWorker host or serialize into the page,
- * so the plugin's declarative surface is the JSON-able `scripted` / `openai`
- * configs only (the same restriction the worker path already enforces).
- */
-export type PyricAiEngineConfig = Extract<NonNullable<AIOptions['engine']>, { kind: string }>;
-
-/**
- * Node-side `EngineConfig` → JSON-safe {@link AiEngineConfigWire}. Mirrors the
- * browser `toEngineWire` (entries/ai.ts): an openai config with no `baseUrl`
- * targets the same-origin proxy; scripted `script` entries pass through (plain
- * authoring shapes — function/RegExp matchers can't survive JSON and are not a
- * plugin-config use case).
- */
-export function engineConfigToWire(engine: PyricAiEngineConfig): AiEngineConfigWire {
-  if (engine.kind === 'openai') {
-    return {
-      kind: 'openai',
-      baseUrl: engine.baseUrl ?? AI_PROXY_PATH,
-      ...(engine.model !== undefined ? { model: engine.model } : {}),
-      ...(engine.modelMap !== undefined ? { modelMap: engine.modelMap } : {}),
-    };
-  }
-  return {
-    kind: 'scripted',
-    ...(engine.script !== undefined
-      ? { script: engine.script as unknown as Array<Record<string, unknown>> }
-      : {}),
-  };
-}
 /** The firebase subpaths with swap entries. */
 const SERVED = new Set(SDK_MODULES.map((specifier) => specifier.slice('firebase/'.length)));
 const entryKey = (subpath: string): string => subpath.replaceAll('/', '-');
@@ -159,8 +132,9 @@ function packageRootOf(file: string): string {
 }
 
 export interface PyricOptions {
-  /** firestore.rules path (relative to `root`). Default: `firebase.json`'s
-   *  `firestore.rules`, else `firestore.rules` in the project root. */
+  /** Firestore rules path (relative to `root`). Default discovery prefers an
+   *  authored `firestore.modules.rules`, then `firebase.json`, then
+   *  `firestore.rules` in the project root. */
   rules?: string;
   /** Project dir for `firebase.json` / rules discovery. Default: Vite's `root`. */
   root?: string;
@@ -193,6 +167,10 @@ export interface PyricOptions {
    *  so app, Studio, and agent all observe the one sandbox); pass `ui: false`
    *  to disable. */
   ui?: boolean;
+  /** Inject the collapsed Pyric runtime chip into the app during sandbox Vite
+   *  dev/builds. On by default. Pass `false` to hide it, or
+   *  `{ initiallyOpen: true }` when actively debugging runtime errors. */
+  runtimeChip?: PyricRuntimeChipOption;
   /** RTDB-triggered Cloud Functions under this dev server (the `pyric dev`
    *  parity fold). By default a `functions` block in `firebase.json` is
    *  discovered automatically: its `onValueCreated` triggers run in an isolated
@@ -229,11 +207,14 @@ export interface PyricOptions {
    *
    *   pyric({
    *     ai: {
-   *       engine: { kind: 'openai', model: 'llama3.2', baseUrl: '/__pyric/ai-proxy' },
+   *       model: 'llama3.2',
    *       proxyUpstream: 'http://localhost:11434/v1', // your Ollama
    *     },
    *   })
    *
+   * - `model` is the simple OpenAI-compatible path. It uses the same-origin
+   *   proxy and becomes the catch-all upstream model. `PYRIC_AI_MODEL` selects
+   *   the same path when neither `model` nor `engine` is explicit.
    * - `engine` is `pyric/ai`'s `EngineConfig` (scripted | openai), applied on
    *   both the SharedWorker and in-page paths. An openai `baseUrl` of
    *   `/__pyric/ai-proxy` (or omitted) routes through the same-origin proxy so a
@@ -241,20 +222,11 @@ export interface PyricOptions {
    * - `proxyUpstream` sets what `/__pyric/ai-proxy` forwards to (beats the
    *   `PYRIC_AI_PROXY_UPSTREAM` env var; default `http://localhost:11434/v1`).
    *
-   * Precedence: a plugin-level `engine`, when set, always wins over an engine an
-   * app's own `getAI()` passes (host-side via `ctx.aiEngine` on the worker path,
-   * page-side via an injected global on the in-page fallback); with no plugin
-   * engine the first `getAI()` call's engine is honored (first-call-wins), and
-   * with neither the zero-config scripted default applies.
+   * Precedence: explicit `engine` or `model`, then `PYRIC_AI_MODEL`, then an
+   * engine passed by the app's first `getAI()` call; with none, the zero-config
+   * scripted default applies. `model` and `engine` are mutually exclusive.
    */
-  ai?: {
-    /** Engine config (scripted | openai). Custom `AnswerEngine` objects are not
-     *  supported at the plugin level — they can't cross to the worker/page. */
-    engine?: PyricAiEngineConfig;
-    /** OpenAI-compatible upstream `/__pyric/ai-proxy` forwards to. Beats
-     *  `PYRIC_AI_PROXY_UPSTREAM`; default `http://localhost:11434/v1`. */
-    proxyUpstream?: string;
-  };
+  ai?: PyricAiOptions;
 }
 
 /**
@@ -264,6 +236,7 @@ export interface PyricOptions {
  *   export default defineConfig({ plugins: [pyric()] });
  */
 export function pyric(options: PyricOptions = {}): Plugin {
+  let resolvedAi = resolveViteAiConfig(options.ai, {});
   // Resolved once. `defaultSdkEntries()` prefers compiled dist `.js` and falls
   // back to source `.ts` in the workspace.
   const entries = defaultSdkEntries(); // { app, auth, firestore, init } → abs paths
@@ -335,11 +308,10 @@ export function pyric(options: PyricOptions = {}): Plugin {
   };
 
   // M2: the SharedWorker bundle's content hash (sync) — stamped into the page so
-  // a still-running OLD worker is detected as stale. `workerReady` flips true once
-  // `bundleWorker` succeeds in configureServer; until then (or on bundle failure)
-  // the page is forced onto the in-page sandbox path. transformIndexHtml reads it.
-  const workerVersion = workerSourceHash();
-  let workerReady = false;
+  // a still-running OLD worker is detected as stale. The collaborator becomes
+  // ready once its bundle succeeds; until then (or on bundle failure) the page
+  // is forced onto the in-page sandbox path. transformIndexHtml reads its tag.
+  const workerRuntime = createViteWorkerRuntime();
 
   // Set by the `config` hook. When the plugin runs under `vite build` at all it
   // is a SANDBOX build (the `apply` gate below only lets build through under the
@@ -364,12 +336,12 @@ export function pyric(options: PyricOptions = {}): Plugin {
   // so multi-tab is disabled under bridge to keep agent + app on one backend.
   const bridgeOpts = options.bridge === true ? {} : options.bridge || null;
 
-  // Plugin-level AI engine, normalized once to the JSON-safe wire shape. Travels
+  // Plugin-level AI engine, normalized to the JSON-safe wire shape. Travels
   // to the worker host via the init payload (→ ctx.aiEngine) AND to the in-page
-  // fallback via an injected synchronous global (see transformIndexHtml). Undefined
-  // when the `ai.engine` option is unset.
-  const aiEngineWire = options.ai?.engine ? engineConfigToWire(options.ai.engine) : undefined;
-
+  // fallback via an injected synchronous global (see transformIndexHtml).
+  // An explicit engine is available immediately (some hook tests call the HTML
+  // transform directly); Vite's config hook may otherwise select the simple
+  // PYRIC_AI_MODEL environment path for the active mode/root.
   return {
     name: 'pyric:sandbox',
     // Active for `vite dev` ALWAYS, and for `vite build` only when it is a
@@ -378,14 +350,17 @@ export function pyric(options: PyricOptions = {}): Plugin {
     // production output. A sandbox build applies the same swap so the output
     // bundles pyric's in-page adapters (self-contained; preview it under
     // `pyric dev`, never deploy it).
-    apply(_config, env) {
+    apply(config, env) {
+      void config;
       if (env.command === 'serve') return true;
       return swapsInBuild(env, options.swapInBuild);
     },
     enforce: 'pre',
 
-    config(_config, env) {
+    config(config, env) {
       sandboxBuild = env.command === 'build';
+      const loadedEnv = loadViteAiEnv(env.mode, config.root, config.envDir);
+      resolvedAi = resolveViteAiConfig(options.ai, loadedEnv);
       // Cast: the `esbuild` package's `Plugin` type skews slightly from Vite's
       // bundled esbuild types (benign — the Plugin shape is stable across the
       // versions in range).
@@ -457,10 +432,11 @@ export function pyric(options: PyricOptions = {}): Plugin {
       } catch {
         /* optional — serve without a firebase.json */
       }
-      // Honor an explicit `rules` option by overriding the resolved config.
-      const config: FirebaseJson | null = options.rules
-        ? { ...(fbJson ?? {}), firestore: { ...(fbJson?.firestore ?? {}), rules: options.rules } }
-        : fbJson;
+      // Convention-first development source: an explicit option wins; otherwise
+      // an authored 2+modules file wins over firebase.json's generated deployment
+      // target. Projects without that convention retain the normal Firebase
+      // discovery path.
+      const config = resolveViteRulesConfig(cwd, options.rules, fbJson);
       const loaded = await loadProjectRules(cwd, config);
       const loadedDatabase = await loadProjectDatabaseRules(cwd, config);
       const loadedStorage = await loadProjectStorageRules(cwd, config);
@@ -530,12 +506,10 @@ export function pyric(options: PyricOptions = {}): Plugin {
 
       // ── M2 SharedWorker host: bundle it (cached per version) and serve it at
       // /__pyric/sdk/worker.js. This is what flips runtime.ts to the worker path.
-      // On bundle failure, fall back to the in-page sandbox (workerReady stays
-      // false → transformIndexHtml forces in-page).
-      const sdkDir = path.join(homedir(), '.pyric', 'vite-worker', workerVersion);
+      // On bundle failure, the collaborator stays unready and its HTML tag
+      // forces the in-page sandbox.
       try {
-        await bundleWorker({ outDir: sdkDir });
-        workerReady = true;
+        await workerRuntime.prepare(viteWorkerEpochSalt(cwd, resolvedAi.engineWire));
       } catch (e) {
         server.config.logger.warn(
           `  ⚠ [pyric] SharedWorker bundle failed — using the in-page sandbox (single-tab, ephemeral): ${e instanceof Error ? e.message : String(e)}`,
@@ -629,7 +603,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         messaging: true,
         // Plugin-level engine → the worker host's ctx.aiEngine (host-ai.ts),
         // which wins over any op-carried engine. Null when unset.
-        ai: aiEngineWire ? { engine: aiEngineWire } : null,
+        ai: resolvedAi.engineWire ? { engine: resolvedAi.engineWire } : null,
       });
       // Pyric Studio: mount the disk-backed workspace/project routes that
       // Studio's `local` mode talks to + serve the built Studio app at
@@ -657,6 +631,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
           );
         }
       }
+      const { sdkDir } = workerRuntime.status();
       const namespace = createPyricNamespace({
         sdkDir,
         initPayload,
@@ -668,7 +643,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         studioUiDir,
         // `ai.proxyUpstream`: what `/__pyric/ai-proxy` forwards to (beats the
         // PYRIC_AI_PROXY_UPSTREAM env var; falls back to the default when unset).
-        aiProxyUpstream: options.ai?.proxyUpstream,
+        aiProxyUpstream: resolvedAi.proxyUpstream,
         // Adapt Vite's logger to the plain info/note shape the namespace's
         // diagnostics (denial relay, future hot-reload lines) expect —
         // matches the `↻`/`⚠ [pyric]` lines already logged elsewhere in this
@@ -1047,6 +1022,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     transformIndexHtml(html) {
+      const runtimeChipTag = `<meta name="${PYRIC_RUNTIME_CHIP_META}" content="${runtimeChipMetaValue(options.runtimeChip)}" data-studio="${options.ui === false ? 'off' : 'on'}" data-pyric-sandbox>`;
       // Sandbox BUILD: the app's own `firebase/*` imports were already swapped
       // (resolveId, above) to pyric's in-page adapters and BUNDLED into the app
       // chunk, and the emitted init chunk (script-tagged here) carries the
@@ -1063,7 +1039,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         const initTag = initChunkFile
           ? `<script type="module" crossorigin src="/${initChunkFile}" data-pyric-sandbox-init></script>`
           : '';
-        const tags = SANDBOX_BUILD_META + initTag;
+        const tags = SANDBOX_BUILD_META + runtimeChipTag + initTag;
         return html.includes('</head>')
           ? html.replace('</head>', `${tags}</head>`)
           : tags + html;
@@ -1076,26 +1052,24 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // module evaluates — a classic inline script runs before the deferred module.
       // The flag (not nulling `window.SharedWorker`) leaves the user's own
       // SharedWorker usage intact. We force in-page ONLY when the worker bundle
-      // failed (workerReady false) — the ephemeral fallback. `bridge` no longer
+      // failed (worker runtime unready) — the ephemeral fallback. `bridge` no longer
       // forces in-page: the bridge peer routes agent tool-calls THROUGH the
       // worker (see `connectBridgePeer`), so the agent shares the one sandbox the
       // app + Studio use.
-      const head = workerReady
-        ? `<meta name="pyric-worker-v" content="${workerVersion}" ${MARKER}>`
-        : `<script ${MARKER}>globalThis.__PYRIC_FORCE_INPAGE__=true;</script>`;
+      const head = workerRuntime.headTag(MARKER);
       // Plugin-level engine for the IN-PAGE path: a classic inline script runs
       // before the deferred init module AND before app code's `getAI`, so the
       // served `getAI` (entries/ai.ts) reads it synchronously — init.json can't
       // be awaited there. Harmless on the worker path (that branch ignores the
       // global; the worker reads ctx.aiEngine from init.json). `<` is escaped so
       // an engine value can never break out of the script tag.
-      const aiEngineTag = aiEngineWire
-        ? `<script ${MARKER}>globalThis.__PYRIC_AI_ENGINE__=${JSON.stringify(aiEngineWire).replace(/</g, '\\u003c')};</script>`
+      const aiEngineTag = resolvedAi.engineWire
+        ? `<script ${MARKER}>globalThis.__PYRIC_AI_ENGINE__=${JSON.stringify(resolvedAi.engineWire).replace(/</g, '\\u003c')};</script>`
         : '';
       // Boot the sandbox by loading the real init entry as a module (Vite
       // serves + transforms it). The init module's top-level await deploys rules
       // before app code runs. Mirrors serve's injectServeTags.
-      const tag = head + aiEngineTag + `<script type="module" src="/@fs/${entries.init}" ${MARKER}></script>`;
+      const tag = head + aiEngineTag + runtimeChipTag + `<script type="module" src="/@fs/${entries.init}" ${MARKER}></script>`;
       return html.includes('</head>') ? html.replace('</head>', `${tag}</head>`) : tag + html;
     },
   };

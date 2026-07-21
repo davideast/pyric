@@ -124,6 +124,7 @@ pack_one() {
       "$tmp/package/package.json" "$ROOT"
     (cd "$tmp" && tar -czf "$full" package)
   fi
+  node "$ROOT/scripts/lib/verify-published-sourcemaps.mjs" "$tmp/package"
   rm -rf "$tmp"
 
   # Verification: the published tarball MUST NOT contain workspace: deps.
@@ -197,6 +198,15 @@ assert_tar_has() {
     exit 1
   fi
 }
+assert_tar_lacks() {
+  local tb="$1" pattern="$2" desc="$3" listing
+  listing=$(tar -tzf "$tb")
+  if grep -qE "$pattern" <<<"$listing"; then
+    echo "  ✗ UNEXPECTED in tarball: $desc (matched pattern: $pattern)" >&2
+    exit 1
+  fi
+  echo "  ✓ $desc"
+}
 packset_check packages/pyric pyric
 packset_check packages/pyric-admin pyric-admin
 packset_check packages/create-pyric create-pyric
@@ -207,6 +217,11 @@ assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/rtdb/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/modules/stdlib/.*\.rules$' "pyric ships the rules stdlib modules (.rules)"
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/dist/bin\.js$' "create-pyric ships the create-pyric bin"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/ui/chat/chat-page\.tsx$' "create-pyric ships the canonical chat app source"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/firebase-messaging-sw\.ts$' "create-pyric ships the chat notification worker"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/README\.md$' "create-pyric ships the chat setup guide"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/\.env\.example$' "create-pyric ships the chat environment example"
+assert_tar_lacks "$TARBALL_CREATE_PYRIC" 'package/templates/chat/dist/' "create-pyric excludes the built chat dist/ tree"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
 # The Vite plugin's `ui` option + `pyric dev --ui` resolve the Studio app from
 # dist/serve/studio-ui (build-embedded). The plugin's firebase swap resolves the
@@ -226,6 +241,11 @@ assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/firestore\.js$' 
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/database\.js$' "@pyric/cli ships the firebase/database swap entry"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/storage\.js$' "@pyric/cli ships the firebase/storage swap entry"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/init\.js$' "@pyric/cli ships the sandbox boot entry"
+# The boot entry imports these modules to expose runtime health and stale-worker
+# recovery. Missing files leave installed applications without their recovery UI.
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/runtime/chip\.js$' "@pyric/cli ships the runtime chip"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/runtime/chip-install\.js$' "@pyric/cli ships the runtime chip installer"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/runtime/chip-config\.js$' "@pyric/cli ships the runtime chip configuration"
 
 # ─── Phase 3: install all tarballs into a fresh consumer project ──────
 echo ""
@@ -247,6 +267,7 @@ cat > package.json <<JSON
     "@pyric/ui": "file:${TARBALL_UI}",
     "firebase": "^12.12.0",
     "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0",
     "vite": "^5.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -360,7 +381,7 @@ run_subpath_check "${PYRIC_UI_SUBPATHS[@]}"
 # Phase 4 proves each subpath RESOLVES; this proves the load-bearing NAMED
 # exports are where consumers expect them — and, for the M3 bridge fold, that
 # the retired standalone `vitePlugin` did NOT come back. Phase 4's "≥1 export"
-# bar would pass even if `pyricSandbox` were renamed or `vitePlugin` re-added.
+# bar would pass even if `pyric` were renamed or a retired export reappeared.
 echo ""
 echo "━━━ Phase 4b: export-shape assertions ━━━"
 cat > "$WORK/consumer/__export-shape.mjs" <<'SHAPEJS'
@@ -383,11 +404,13 @@ async function assertNotExported(subpath) {
 
 // The Vite plugin entry exposes the swap+bridge plugin factory.
 const vite = await import('@pyric/cli/vite');
-if (typeof vite.pyricSandbox === 'function') ok('@pyric/cli/vite exports pyricSandbox()');
-else bad('@pyric/cli/vite is MISSING pyricSandbox (named export gone/renamed)');
+if (typeof vite.pyric === 'function') ok('@pyric/cli/vite exports pyric()');
+else bad('@pyric/cli/vite is MISSING pyric (named export gone/renamed)');
+if (!('pyricSandbox' in vite)) ok('@pyric/cli/vite does NOT export retired pyricSandbox');
+else bad('@pyric/cli/vite STILL exports retired pyricSandbox');
 
 // The bridge Node entry must NOT re-expose the retired standalone Vite plugin —
-// the Vite integration is `pyricSandbox({ bridge })`, not a bridge-only plugin.
+// the Vite integration is `pyric({ bridge })`, not a bridge-only plugin.
 const bridge = await import('@pyric/cli/bridge');
 if (!('vitePlugin' in bridge)) ok('@pyric/cli/bridge does NOT export vitePlugin (retired in M3)');
 else bad('@pyric/cli/bridge STILL exports vitePlugin (the M3 retire regressed)');
@@ -559,10 +582,44 @@ rm -rf "$CREATE_OUT"
 "$CREATE_PYRIC_BIN" "$CREATE_OUT"
 test -f "$CREATE_OUT/vite.config.ts"
 grep -q "@pyric/cli/vite" "$CREATE_OUT/vite.config.ts"
-grep -q "pyricSandbox" "$CREATE_OUT/vite.config.ts"
+grep -q "pyric()" "$CREATE_OUT/vite.config.ts"
 test -f "$CREATE_OUT/package.json"
 grep -q '"dev": "vite"' "$CREATE_OUT/package.json"
 echo "  ✓ create-pyric scaffolds Vite + @pyric/cli/vite"
+
+# Named chat smoke: prove the packaged asset tree is available to the installed
+# bin and stays free of repo/install artifacts and internal package paths.
+echo "▸ create-pyric chat smoke"
+CREATE_CHAT_OUT="$WORK/create-chat-smoke-app"
+rm -rf "$CREATE_CHAT_OUT"
+"$CREATE_PYRIC_BIN" "$CREATE_CHAT_OUT" --template chat --name packed-chat
+test -f "$CREATE_CHAT_OUT/src/ui/chat/chat-page.tsx"
+test -f "$CREATE_CHAT_OUT/src/firebase-messaging-sw.ts"
+test -f "$CREATE_CHAT_OUT/functions/index.js"
+test -f "$CREATE_CHAT_OUT/test/notification-display.test.ts"
+grep -q '"name": "packed-chat"' "$CREATE_CHAT_OUT/package.json"
+grep -q '# packed-chat' "$CREATE_CHAT_OUT/README.md"
+test ! -e "$CREATE_CHAT_OUT/bun.lock"
+test ! -e "$CREATE_CHAT_OUT/scaffold.json"
+test ! -e "$CREATE_CHAT_OUT/.pyric"
+if grep -R -qE '@inbrowser-(workspace|resumable|firebase)-|node_modules/@inbrowser' "$CREATE_CHAT_OUT/src"; then
+  echo "  ✗ chat scaffold contains an internal @inbrowser alias or node_modules import" >&2
+  exit 1
+fi
+echo "  ✓ create-pyric scaffolds the portable chat app"
+
+# Execute the unchanged Functions module through the same packed register
+# loader that the Vite plugin injects into its child. The chat template imports
+# firebase-admin/messaging, so this catches a packed pyric-admin manifest that
+# strips the mapped pyric-admin/messaging subpath even when workspace tests pass.
+ln -s "$WORK/consumer/node_modules" "$CREATE_CHAT_OUT/node_modules"
+(
+  cd "$CREATE_CHAT_OUT"
+  PYRIC_SANDBOX="remote:http://127.0.0.1:1" \
+    NODE_OPTIONS="--import @pyric/cli/register" \
+    node functions/index.js
+)
+echo "  ✓ packed chat Functions module boots through @pyric/cli/register"
 
 # ─── Phase 5.5: serve smoke (init + serve from the packed bin) ─────────
 # The subpath + bin checks above prove imports resolve, but they never boot

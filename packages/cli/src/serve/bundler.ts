@@ -382,16 +382,31 @@ export interface WorkerBundleOptions {
   /** Bypass + overwrite the cached worker bundle. */
   noCache?: boolean;
   minify?: boolean;
+  /** Test seam for proving epoch identity from an isolated executable graph. */
+  entryPath?: string;
+  /** Restart-required boot identity mixed into the baked worker epoch. */
+  epochSalt?: string;
+}
+
+const WORKER_EPOCH_PLACEHOLDER = 'PYRIC_EPOCH_HERE';
+const WORKER_EPOCH_FILE = '.worker-epoch';
+
+/** Read the executable epoch written alongside a completed worker bundle. */
+function readWorkerBundleEpoch(outDir: string): string {
+  const epoch = readFileSync(join(outDir, WORKER_EPOCH_FILE), 'utf8').trim();
+  if (!/^[a-f0-9]{16}$/.test(epoch)) {
+    throw new Error(`pyric dev: invalid SharedWorker epoch in ${join(outDir, WORKER_EPOCH_FILE)}`);
+  }
+  return epoch;
 }
 
 /**
- * Content hash of the worker's executable CLI graph + pyric version. The worker bundle
- * shares the SDK `outDir` (keyed by the SDK entries), which does NOT cover the
- * worker graph — so the worker bundle carries its OWN content marker. Hash the
- * full CLI source/dist tree because the worker imports bridge and verify leaves
- * outside `serve/worker`; an allowlist would silently miss future dependencies.
- * Installed pyric dist bytes are also hashed because workspace and prerelease
- * builds can change implementation without a version bump.
+ * Conservative worker CACHE key. The worker bundle shares the SDK `outDir`
+ * (keyed by SDK entries), which does not cover its host graph, so this broad
+ * source-tree hash decides when esbuild must run again. It is intentionally NOT
+ * the user-facing worker epoch: unrelated CLI changes may invalidate this cache,
+ * while the epoch returned by {@link bundleWorker} is derived from the executable output and only
+ * then decides whether a running SharedWorker needs replacement.
  */
 export function workerSourceHash(
   pyricRoot = pyricPackageRoot(),
@@ -449,23 +464,32 @@ export function sourceTreeHash(root: string): string {
  * or protocol edit therefore invalidates the shared SDK generation too, so
  * the page and worker halves cannot come from different source generations.
  */
-export async function bundleWorker(opts: WorkerBundleOptions): Promise<string> {
+export interface WorkerBundleResult {
+  outFile: string;
+  epoch: string;
+}
+
+export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBundleResult> {
   const outFile = join(opts.outDir, 'worker.js');
   const marker = join(opts.outDir, '.worker-complete');
-  const hash = workerSourceHash();
+  const sourceHash = workerSourceHash();
+  const hash = opts.epochSalt
+    ? createHash('sha256').update(sourceHash).update('\0').update(opts.epochSalt).digest('hex')
+    : sourceHash;
   if (
     !opts.noCache &&
     existsSync(outFile) &&
     existsSync(marker) &&
+    existsSync(join(opts.outDir, WORKER_EPOCH_FILE)) &&
     readFileSync(marker, 'utf8') === hash
   ) {
-    return outFile;
+    return { outFile, epoch: readWorkerBundleEpoch(opts.outDir) };
   }
 
   mkdirSync(opts.outDir, { recursive: true });
   const root = pyricPackageRoot();
   const result = await esbuild.build({
-    entryPoints: [workerEntryPath()],
+    entryPoints: [opts.entryPath ?? workerEntryPath()],
     outfile: outFile,
     bundle: true,
     format: 'iife',
@@ -474,10 +498,10 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<string> {
     sourcemap: 'linked',
     minify: opts.minify ?? true,
     logLevel: 'silent',
-    // Bake the build hash so the worker can report its version (staleness
-    // guard): the page warns when a still-running OLD worker is older than the
-    // served bundle. Matches the `<meta name="pyric-worker-v">` value.
-    define: { __PYRIC_WORKER_VERSION__: JSON.stringify(hash) },
+    // Reserve a fixed-width self-version slot. After esbuild writes the actual
+    // executable graph, we hash that canonical output and replace this token
+    // with the resulting epoch (same width, so the sourcemap stays aligned).
+    define: { __PYRIC_WORKER_VERSION__: JSON.stringify(WORKER_EPOCH_PLACEHOLDER) },
     banner: {
       js: '/* pyric dev: SharedWorker sandbox host serving firebase/* — NOT the real Firebase SDK */',
     },
@@ -488,6 +512,15 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<string> {
       `pyric dev: SharedWorker bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
     );
   }
+  const canonicalSource = readFileSync(outFile, 'utf8');
+  if (!canonicalSource.includes(WORKER_EPOCH_PLACEHOLDER)) {
+    throw new Error('pyric dev: SharedWorker bundle omitted its epoch placeholder');
+  }
+  const epochHash = createHash('sha256').update(canonicalSource);
+  if (opts.epochSalt) epochHash.update('\0').update(opts.epochSalt);
+  const epoch = epochHash.digest('hex').slice(0, 16);
+  writeFileSync(outFile, canonicalSource.replaceAll(WORKER_EPOCH_PLACEHOLDER, epoch));
+  writeFileSync(join(opts.outDir, WORKER_EPOCH_FILE), epoch);
   writeFileSync(marker, hash);
-  return outFile;
+  return { outFile, epoch };
 }

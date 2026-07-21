@@ -863,9 +863,9 @@ export const firestoreRegistry = {
           featureKeys: ["and","orderBy"],
           behavior: "**Canonical type-order comparison (FS-B3)** — orderBy + range filters compare by Firestore's canonical type order (`null < bool < number < timestamp < string < bytes < ref < geopoint < array < map`), then within-type; numbers sort numerically (not lexicographically), NaN sorts as the smallest number, and range filters (`<`/`<=`/`>`/`>=`) only match same-type values. Pre-FS-B3 the comparator fell back to `String(a).localeCompare(String(b))`.",
           status: "conforms",
-          evidence: "`unit:admin-compat/canonical-type-order.test.ts` (cross-type ranking, numeric sort, NaN, timestamps, arrays; verified failing pre-fix)",
+          evidence: "`unit:firestore/sandbox/query-value-order.test.ts` (cross-type ranking, numeric sort, NaN, timestamps, arrays; verified failing pre-fix)",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/sandbox/firestore/admin-compat/canonical-type-order.test.ts"],
+          conformanceTests: ["packages/pyric/test/firestore/sandbox/query-value-order.test.ts"],
           rowNumber: 59,
         }),
         row10({
@@ -873,9 +873,9 @@ export const firestoreRegistry = {
           featureKeys: ["orderBy"],
           behavior: "**orderBy excludes missing-field docs (FS-B3)** — a doc lacking an orderBy field is omitted from the result (matches prod); pre-fix it was sorted in via `compareValues(undefined, …)`.",
           status: "conforms",
-          evidence: "`unit:admin-compat/canonical-type-order.test.ts` (\"excludes the missing-field doc\")",
+          evidence: "`unit:firestore/sandbox/query-value-order.test.ts` (\"excludes the missing-field doc\")",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/sandbox/firestore/admin-compat/canonical-type-order.test.ts"],
+          conformanceTests: ["packages/pyric/test/firestore/sandbox/query-value-order.test.ts"],
           rowNumber: 59,
         }),
         row10({

@@ -1,0 +1,7 @@
+dist/
+node_modules/
+.pyric/
+.env
+.env.local
+*.lock
+test-results/

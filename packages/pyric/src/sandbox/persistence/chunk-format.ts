@@ -17,7 +17,7 @@
  * (Float32Array vector encoding is a later, backward-compatible refinement on the
  * per-bucket record shape.)
  */
-import { rehydrateDocValue } from '../../firestore-values/index.js';
+import { rehydrateDocValue } from '../../firestore/internal/value-codec.js';
 import { deserializeSnapshot } from './serialize.js';
 
 export const CHUNK_FORMAT_VERSION = 3 as const;

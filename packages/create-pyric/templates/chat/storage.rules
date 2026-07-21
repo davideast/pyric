@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/conversations/{conversationId}/attachments/{attachmentId}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null
+                   && request.auth.uid == uid
+                   && firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data.ownerUid == request.auth.uid
+                   && request.resource.size > 0
+                   && request.resource.size <= 10 * 1024 * 1024
+                   && (request.resource.contentType == 'image/jpeg'
+                       || request.resource.contentType == 'image/png'
+                       || request.resource.contentType == 'image/webp'
+                       || request.resource.contentType == 'application/pdf'
+                       || request.resource.contentType == 'text/plain');
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
