@@ -262,15 +262,15 @@ export class QueryImpl implements Query {
    * The collection path the `list` security rule evaluates against.
    * Defaults to this query's `collectionPath`; `CollectionGroupQueryImpl`
    * overrides it to the group-id match path so the group `list` rule
-   * fires. Used by {@link readCandidates}.
+   * fires. Used by {@link readQueryRows}.
    */
   protected listRulePath(): string {
     return this.collectionPath;
   }
 
   /**
-   * Gather candidates AND enforce security rules on the read (FS-B1 /
-   * RULES-B1). `get()` and `aggregate()` both run through this so query
+   * Submit the plan and return the engine's fully executed rows. `get()` and
+   * `aggregate()` both run through this rule-enforced path (FS-B1 / RULES-B1), so query
    * reads are rule-checked the same way `DocumentReference.get()` is — a
    * deny-all rule set throws `permission-denied` instead of silently
    * returning the whole collection.
@@ -278,7 +278,7 @@ export class QueryImpl implements Query {
    * `LocalEnvironment.runQuery` owns candidate gathering, RULES-B11 proof,
    * and executable constraints so no raw candidate array crosses the seam.
    */
-  protected readCandidates(opts?: OperationOptions): { path: string; data: DocumentData }[] {
+  protected readQueryRows(opts?: OperationOptions): { path: string; data: DocumentData }[] {
     const auth = opts?.auth !== undefined ? opts.auth : this.auth;
     let result: ReturnType<LocalEnvironment['runQuery']>;
     try {
@@ -301,7 +301,7 @@ export class QueryImpl implements Query {
 
   /**
    * Full executable identity for activity monitoring. The rules-proof
-   * proof projection intentionally drops OR branches, rich operands, cursor
+   * projection intentionally drops OR branches, rich operands, cursor
    * detail, and most ordering, so it cannot safely identify repeated reads.
    */
   protected activityQuery(): unknown {
@@ -383,8 +383,8 @@ export class QueryImpl implements Query {
     // to the rule eval the same way the single-doc/write paths use it.
     // Phantom parent docs are a discover-crawler affordance. The engine's
     // candidate gatherer strips them before rule proof and execution.
-    const filtered = this.readCandidates(opts);
-    const docs: QueryDocumentSnapshot[] = filtered.map((d) => {
+    const rows = this.readQueryRows(opts);
+    const docs: QueryDocumentSnapshot[] = rows.map((d) => {
       const ref = this.documentRef(d.path);
       // Translate timestamps + future typed values on the read path.
       // Done eagerly per row so .data() callers don't pay translation
@@ -410,10 +410,10 @@ export class QueryImpl implements Query {
   async aggregate(spec: AggregateSpec, opts?: OperationOptions): Promise<AggregateQuerySnapshot> {
     // Aggregates read through the rule-enforced path too (FS-B1) — the
     // count/sum/avg is computed only over docs the caller can read.
-    const filtered = this.readCandidates(opts);
+    const rows = this.readQueryRows(opts);
     const data: Record<string, number | null> = {};
     for (const alias of Object.keys(spec)) {
-      data[alias] = computeAggregate(spec[alias], filtered);
+      data[alias] = computeAggregate(spec[alias], rows);
     }
     return { data: () => data };
   }

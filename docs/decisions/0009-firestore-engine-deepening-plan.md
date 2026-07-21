@@ -115,6 +115,13 @@ the pure-move commit rule. The destination is a dependency of the newly shared
 engine executor, so the move and import rewiring were reviewed as one atomic
 query-ownership change; rewriting the already-ratcheted stack solely to alter
 commit boundaries would add integration risk without changing the final diff.
+The same exception applies to commit `06a520af`: splitting
+`CollectionRefImpl` and `CollectionGroupQueryImpl` out of `query.ts` removed
+the adapter-side listener executor and its import cycle at the same seam. The
+class extraction, required reference factory, and data-only listener plan were
+reviewed and regression-tested together; retroactively separating them after
+the security ratchet would preserve the final code while invalidating the
+reviewed stack.
 
 Query plans are immutable in structure, but opaque object/array operands retain
 their original identity. This preserves the pre-existing invariant that query
