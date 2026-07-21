@@ -242,6 +242,7 @@ type RulesReceiverType =
   | 'list'
   | 'map'
   | 'mapdiff'
+  | 'namespace'
   | 'number'
   | 'path'
   | 'set'
@@ -310,7 +311,12 @@ function expressionReceiverType(
   const ambientType = ambientReceiverType(ctx.service, ambientBindingPath(expression, ctx));
   if (ambientType) return ambientType;
   switch (expression.type) {
-    case 'identifier': return ctx.receiverTypes.get(expression.name) ?? null;
+    case 'identifier': {
+      const inferred = ctx.receiverTypes.get(expression.name);
+      if (inferred) return inferred;
+      const namespaces = ctx.service === 'cloud.firestore' ? FIRESTORE_NAMESPACES : STORAGE_NAMESPACES;
+      return namespaces[expression.name] || expression.name === 'firestore' ? 'namespace' : null;
+    }
     case 'literal':
       return typeof expression.value === 'string'
         ? 'string'
@@ -593,7 +599,10 @@ export function incompatibleFunction(
     ])),
     receiverTypes: new Map(fn.parameters.map((parameter, index) => [
       parameter,
-      args[index] ? expressionReceiverType(args[index]!, rootCtx) : null,
+      args[index]
+        ? expressionReceiverType(args[index]!, rootCtx) ??
+          (args[index]!.type === 'identifier' ? 'path' : null)
+        : null,
     ])),
     functions,
     service,

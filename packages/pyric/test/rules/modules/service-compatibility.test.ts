@@ -522,6 +522,34 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
 
+  test('does not allow namespace or path receivers to be laundered through modules', () => {
+    const cases = [
+      { call: 'broken()', module: `
+        export function broken() {
+          let fs = firestore;
+          return fs.get(/databases/(default)/documents/users/a).data.ok == true;
+        }
+      ` },
+      { call: 'broken()', module: `
+        function storageNamespace() { return firestore; }
+        export function broken() {
+          return storageNamespace().get(/databases/(default)/documents/users/a).data.ok == true;
+        }
+      ` },
+      { call: 'broken(path)', module: `
+        export function broken(value) { return value.keys().hasAll([]); }
+      ` },
+    ];
+    for (const candidate of cases) {
+      const result = resolveModules(
+        makeStorageSource("import { broken } from './policy';", candidate.call),
+        { modules: { './policy': candidate.module } },
+      );
+
+      expect(result.success, candidate.module).toBe(false);
+    }
+  });
+
   test('admits accepted path.bind and rejects production-rejected namespaces', () => {
     const bind = resolveModules(
       makeSource("import { bindPath } from './policy';"),

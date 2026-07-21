@@ -299,7 +299,7 @@ How membership CHANGES, safely — self-service join/leave on a MAP-shaped membe
 
 Production-verified 10/10 (field-level map diff IS reliable — the "nested diff unreliable" finding is about diffing through the document diff, not an explicit `.diff()` on two map values). Finding this vertical's semantics also uncovered and fixed a false-permissive simulator bug (FirestoreSet `==` was always true — RULES-B13, COMPAT row 136b).
 
-Descoped to Patterns: single-use invite consumption (join + mark invite used atomically via batch write + `getAfter()`) — not expressible in either test engine's mock surface; needs real-database validation before it can meet the stdlib bar.
+Promoted through [`atomic`](#atomic): single-use invite consumption (join + mark invite used atomically via batch write + `getAfter()`) is not expressible in either test engine's mock surface, so real-database validation now owns that wiring contract.
 
 File: `joining.rules` | Tests: `joining.test.json`
 Proven by simulator and live Rules validation after RULES-B13.
