@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import path, { join } from 'node:path';
 import { Writable } from 'node:stream';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { pyric } from '../../src/serve/vite-plugin.js';
@@ -412,6 +413,36 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     try { await bootPlugin({ rules: 'does-not-exist.rules' }, tmp); } catch { threw = true; }
     expect(threw).toBe(true);
   });
+
+  it('closeBundle disposes the session in Vite middleware mode', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-close-'));
+    let handler: PyricMiddleware | undefined;
+    const p = pyric({ ui: false });
+    const watcher = { add() {}, on() {}, off() {} };
+    await (p.configureServer as (server: unknown) => Promise<void>)({
+      config: { root: tmp, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
+      middlewares: { use(route: string, candidate: PyricMiddleware) { if (route === '/__pyric') handler = candidate; } },
+      watcher,
+      httpServer: null,
+    });
+    if (!handler) throw new Error('plugin did not mount middleware');
+
+    const request = Object.assign(new EventEmitter(), {
+      method: 'GET',
+      url: '/__pyric/events',
+      originalUrl: '/__pyric/events',
+      headers: { host: 'localhost' },
+    }) as unknown as PyricReq;
+    const response = new MockRes();
+    handler(request, response, () => {});
+    await Bun.sleep(0);
+    expect(response.body).toContain(': connected');
+    expect(response.writableEnded).toBe(false);
+
+    await (p.closeBundle as () => Promise<void>)();
+    await (p.closeBundle as () => Promise<void>)();
+    expect(response.writableEnded).toBe(true);
+  });
 });
 
 // NOTE (unit): asserts the workerReady===false → in-page output in ISOLATION
@@ -507,6 +538,12 @@ describe('M2 — seed precedence + persist validation', () => {
     return 'seed.json';
   };
   afterAll(() => { if (tmp) rmSync(tmp, { recursive: true, force: true }); });
+
+  it('keeps the existing Vite policy where fresh without persist is inert', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-fresh-inert-'));
+    const init = await initJson(await bootPlugin({ fresh: true }, tmp));
+    expect(init.persist).toBe(false);
+  });
 
   it('seed as a bare "collection/doc" map (no persist) → payload.seed IS the map', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-seedmap-'));
