@@ -6,12 +6,13 @@
  * `modules/resolver.ts` stays for Node consumers; this generator is
  * what makes `resolver-browser.ts` work.
  *
- * Reads `src/modules/stdlib/<name>.rules` for every file and writes
+ * Recursively reads `src/modules/stdlib/<name>.rules` for every file and writes
  * a single `src/modules/stdlib-content.ts` that exports:
  *
  *   export const STDLIB_INLINE: Record<string, string> = {
  *     auth: `...`,
  *     validation: `...`,
+ *     'storage/uploads': `...`,
  *     ...
  *   };
  *
@@ -33,9 +34,15 @@ const PACKAGE_ROOT = dirname(__dirname);
 const STDLIB_DIR = join(PACKAGE_ROOT, 'src', 'rules', 'modules', 'stdlib');
 const OUT_PATH = join(PACKAGE_ROOT, 'src', 'rules', 'modules', 'stdlib-content.ts');
 
-const files = readdirSync(STDLIB_DIR)
-  .filter((f) => f.endsWith('.rules'))
-  .sort();
+function rulesFiles(dir: string, prefix = ''): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) return rulesFiles(join(dir, entry.name), relative);
+    return entry.isFile() && entry.name.endsWith('.rules') ? [relative] : [];
+  }).sort();
+}
+
+const files = rulesFiles(STDLIB_DIR);
 
 const entries = files.map((file) => {
   const name = file.replace(/\.rules$/, '');
@@ -64,7 +71,7 @@ const lines: string[] = [
   'export const STDLIB_INLINE: Record<string, string> = {',
 ];
 for (const e of entries) {
-  lines.push(`  ${e.name}: \`${e.content}\`,`);
+  lines.push(`  ${JSON.stringify(e.name)}: \`${e.content}\`,`);
 }
 lines.push('};', '');
 

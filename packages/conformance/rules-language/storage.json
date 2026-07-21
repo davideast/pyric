@@ -236,7 +236,7 @@
       "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_keys_",
       "status": "accepted",
       "receiverType": "map",
-      "note": "Production Storage Rules Test API accepts request.resource.metadata.keys(); the local Storage evaluator does not implement it yet."
+      "note": "Production and the local Storage evaluator accept request.resource.metadata.keys(); replayed by the Storage upload-boundary corpus."
     },
     {
       "id": "storage.method.map.get",
@@ -245,7 +245,7 @@
       "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_get_",
       "status": "accepted",
       "receiverType": "map",
-      "note": "Production Storage Rules Test API accepts request.resource.metadata.get(key, default); the local Storage evaluator does not implement it yet."
+      "note": "Production and the local Storage evaluator accept request.resource.metadata.get(key, default); replayed by the Storage upload-boundary corpus."
     },
     {
       "id": "storage.method.set.hasAll",
@@ -254,7 +254,7 @@
       "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAll_",
       "status": "accepted",
       "receiverType": "set",
-      "note": "Production Storage Rules Test API accepts hasAll() on the set returned by custom-metadata keys(); the local Storage evaluator does not implement it yet."
+      "note": "Production and the local Storage evaluator accept hasAll() on the set returned by custom-metadata keys(); replayed by the Storage upload-boundary corpus."
     },
     {
       "id": "storage.operator.eq",

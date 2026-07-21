@@ -12,16 +12,18 @@
  * (Firestore via `lensDb`, RTDB via `lensRtdb`, Storage via `lensStorage`,
  * and Firestore subscriptions via `handleSub`→`lensDb`):
  *
- *   - anon        → rules see `request.auth == null` / `auth == null`
+ *   - anon        → Firestore/RTDB see a null auth binding; Storage sees the
+ *                   captured production absent-property error on auth reads
  *   - absent      → the port's session (signed-in uid) — the leak the lens
  *                   exists to avoid
  *   - as-uid      → rules evaluate as that uid
  *   - admin       → rules bypassed
  *
- * The rules DISTINGUISH all four: an auth-gated zone (auth required) and an
- * anon-only zone (auth must be ABSENT) — so anon can't be confused with a
- * signed-in identity in either direction, and admin is provably a bypass
- * (it writes where every authenticated identity is denied).
+ * Firestore/RTDB distinguish all four with auth-gated and anon-only zones.
+ * Storage proves the anonymous lens by denial from an auth-gated zone plus
+ * access to a public zone; its production-pinned absent auth binding cannot be
+ * used as an `== null` anon-only predicate. Admin is proven with a deny-all
+ * zone that only the bypass can write.
  *
  * Harness: REAL sandbox + fake ports driving `handleMessage()` directly
  * (mirrors auth-lens.test.ts / storage-ops.test.ts).
@@ -84,8 +86,11 @@ service firebase.storage {
     match /notes/{file} {
       allow read, write: if request.auth != null;
     }
-    match /anonOnly/{file} {
-      allow read, write: if request.auth == null;
+    match /public/{file} {
+      allow read, write: if true;
+    }
+    match /blocked/{file} {
+      allow read, write: if false;
     }
   }
 }`;
@@ -306,26 +311,24 @@ describe('anon lens — Storage (lensStorage)', () => {
     ...(actAs ? { actAs } : {}),
   });
 
-  it('anon vs absent vs as-uid vs admin, distinguished by rules', async () => {
+  it('anon vs absent vs as-uid vs admin, distinguished by Storage rules', async () => {
     const ctx = await makeCtx();
     const port = fakePort();
     const aliceUid = await signInAlice(ctx, port);
 
-    // Anon lens: auth-gated zone denied, anon-only zone allowed.
+    // Anon lens: auth-gated zone denied, public zone allowed.
     expectDenied(await sendOp(ctx, port, put('notes/a.bin', { mode: 'anon' })), 'storage/unauthorized');
-    okValue(await sendOp(ctx, port, put('anonOnly/a.bin', { mode: 'anon' })));
+    okValue(await sendOp(ctx, port, put('public/a.bin', { mode: 'anon' })));
 
     // Absent lens uses this port's app session, just like Firestore and RTDB.
     okValue(await sendOp(ctx, port, put('notes/b.bin')));
-    expectDenied(await sendOp(ctx, port, put('anonOnly/b.bin')), 'storage/unauthorized');
 
-    // as-uid → auth-gated zone allowed, anon-only zone denied.
+    // as-uid → auth-gated zone allowed.
     okValue(await sendOp(ctx, port, put('notes/c.bin', { mode: 'as', uid: aliceUid })));
-    expectDenied(await sendOp(ctx, port, put('anonOnly/c.bin', { mode: 'as', uid: aliceUid })), 'storage/unauthorized');
 
-    // admin → bypass both zones; reads honor the lens too.
+    // admin → bypasses a deny-all zone; reads honor the lens too.
     okValue(await sendOp(ctx, port, put('notes/d.bin', { mode: 'admin' })));
-    okValue(await sendOp(ctx, port, put('anonOnly/d.bin', { mode: 'admin' })));
+    okValue(await sendOp(ctx, port, put('blocked/d.bin', { mode: 'admin' })));
     expectDenied(await sendOp(ctx, port, {
       t: 'op', id: id(), method: 'storage.getBytes', path: 'notes/c.bin',
       actAs: { mode: 'anon' },

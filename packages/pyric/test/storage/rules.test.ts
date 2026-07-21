@@ -9,6 +9,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
 import {
   getStorageSandbox,
   ref,
@@ -30,7 +31,7 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /sessions/{sessionId} {
       allow write: if request.auth != null
-                   && (request.resource == null
+                   && (request.method == 'delete'
                        || (request.resource.size < 10 * 1024 * 1024
                            && request.resource.contentType == 'application/json'));
       allow read: if request.auth != null;
@@ -307,6 +308,26 @@ describe('evaluateStorageRules — custom metadata access forms', () => {
     expect(evalRead("resource.metadata.owner == request.auth.uid", { other: 'alice' }, 'alice')).toBe(false);
     expect(evalRead("resource.metadata['owner'] == request.auth.uid", { other: 'alice' }, 'alice')).toBe(false);
   });
+
+  it('supports required metadata keys through keys().hasAll()', () => {
+    expect(
+      evalRead(
+        "resource.metadata.keys().hasAll(['owner', 'purpose'])",
+        { owner: 'alice', purpose: 'avatar', extra: 'allowed' },
+        'alice',
+      ),
+    ).toBe(true);
+  });
+
+  it('supports a default for an absent metadata key through Map.get()', () => {
+    expect(
+      evalRead(
+        "resource.metadata.get('visibility', 'private') == 'private'",
+        { owner: 'alice' },
+        'alice',
+      ),
+    ).toBe(true);
+  });
 });
 
 // ─── request.time + timestamp constructors ───────────────────────
@@ -533,6 +554,47 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
     );
     expect(r.allowed).toBe(false);
   });
+
+  it('treats anonymous request.auth in a ternary condition as an error', () => {
+    const r = evalFs(
+      'request.auth != null'
+        + ' ? firestore.exists(/databases/(default)/documents/members/alice)'
+        + ' : firestore.exists(/databases/(default)/documents/members/anonymous)',
+      { 'members/anonymous': { active: true } },
+      null,
+    );
+
+    expect(r.allowed).toBe(false);
+  });
+
+  it('denies a third distinct Firestore document access', () => {
+    const r = evalFs(
+      'firestore.exists(/databases/(default)/documents/members/a)'
+        + ' && firestore.exists(/databases/(default)/documents/members/b)'
+        + ' && firestore.exists(/databases/(default)/documents/members/c)',
+      {
+        'members/a': { active: true },
+        'members/b': { active: true },
+        'members/c': { active: true },
+      },
+    );
+
+    expect(r.allowed).toBe(false);
+  });
+
+  it('does not charge repeated access to the same Firestore document more than once', () => {
+    const same = 'firestore.exists(/databases/(default)/documents/members/a)';
+    expect(evalFs(`${same} && ${same} && ${same}`, { 'members/a': { active: true } }).allowed).toBe(true);
+  });
+
+  it('denies a lookup into a named Firestore database', () => {
+    expect(
+      evalFs(
+        'firestore.exists(/databases/probes/documents/members/alice)',
+        { 'members/alice': { active: true } },
+      ).allowed,
+    ).toBe(false);
+  });
 });
 
 // ─── Granular verbs (get/list/create/update/delete) ──────────────
@@ -654,6 +716,35 @@ describe('evaluateStorageRules — granular verbs', () => {
     });
     expect(asCreate.allowed).toBe(true);
     expect(asUpdate.allowed).toBe(false);
+  });
+
+  it('treats a missing existing resource on create as an error, matching production', () => {
+    const rules = parseStorageRules(ruleset('allow create: if resource == null;'));
+    const result = evaluateStorageRules(rules, {
+      request: {
+        auth: { uid: 'alice' },
+        method: 'create',
+        path,
+        resource: { size: 1 },
+      },
+      resource: null,
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
+  it('treats a missing incoming resource on delete as an error, matching production', () => {
+    const rules = parseStorageRules(ruleset('allow delete: if request.resource == null;'));
+    const result = evaluateStorageRules(rules, {
+      request: {
+        auth: { uid: 'alice' },
+        method: 'delete',
+        path,
+      },
+      resource: { size: 1 },
+    });
+
+    expect(result.allowed).toBe(false);
   });
 });
 
@@ -1247,6 +1338,39 @@ describe('firestore lookups thread through real storage enforcement', () => {
     await expect(
       uploadBytes(ref(carol, path), new Blob(['{}']), { contentType: 'application/json' }),
     ).rejects.toThrow(/unauthorized/);
+  });
+
+  it('reads only the Firestore view owned by the same sandbox', async () => {
+    const primary = initializeSandbox({});
+    const secondary = initializeSandbox({});
+    primary.admin.setDocument('users/alice', { premium: true });
+    secondary.admin.setDocument('users/alice', { premium: false });
+
+    const primaryStorage = getStorageSandbox(primary.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('fs-project-primary'),
+      rules: PREMIUM_UPLOAD_RULES,
+    });
+    const secondaryStorage = getStorageSandbox(secondary.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('fs-project-secondary'),
+      rules: PREMIUM_UPLOAD_RULES,
+    });
+
+    await uploadBytes(ref(primaryStorage, path), new Blob(['{}']));
+    await expect(uploadBytes(ref(secondaryStorage, path), new Blob(['{}']))).rejects.toThrow(/unauthorized/);
+  });
+
+  it('bypasses Firestore client rules when Storage evaluates its qualified lookup', async () => {
+    const sandbox = initializeSandbox({});
+    setFirestoreRules(sandbox, `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents { match /{document=**} { allow read, write: if false; } }
+    }`);
+    sandbox.admin.setDocument('users/alice', { premium: true });
+    const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('fs-rules-independent'),
+      rules: PREMIUM_UPLOAD_RULES,
+    });
+
+    await uploadBytes(ref(storage, path), new Blob(['{}']));
   });
 });
 

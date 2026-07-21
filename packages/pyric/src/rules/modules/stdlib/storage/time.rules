@@ -1,0 +1,10 @@
+// Freshness checks over server-owned Storage object timestamps. Boundaries are
+// strict: equality with the deadline is not "within" the window.
+
+export function createdWithin(seconds) {
+  return request.time < resource.timeCreated + duration.value(seconds, 's');
+}
+
+export function updatedWithin(seconds) {
+  return request.time < resource.updated + duration.value(seconds, 's');
+}

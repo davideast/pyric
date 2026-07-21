@@ -26,7 +26,8 @@ const STDLIB_DIR = resolve(
 );
 
 describe('STDLIB_INLINE — drift check against disk', () => {
-  const diskFiles = readdirSync(STDLIB_DIR)
+  const diskFiles = readdirSync(STDLIB_DIR, { recursive: true })
+    .map(String)
     .filter((f) => f.endsWith('.rules'))
     .sort();
 

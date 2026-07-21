@@ -81,7 +81,7 @@ async function json<T>(url: string, init: RequestInit, label: string): Promise<T
   return JSON.parse(text) as T;
 }
 
-function injectProbeRules(source: string, runId: string, advanced: boolean): string {
+export function injectProbeRules(source: string, runId: string, advanced: boolean): string {
   const marker = `@pyric/storage-stdlib-real/${runId}`;
   const match = /(match\s+\/b\/\{bucket\}\/o\s*\{)/;
   const found = match.exec(source);

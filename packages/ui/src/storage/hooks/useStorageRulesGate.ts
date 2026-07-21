@@ -5,7 +5,7 @@ import {
   evaluateStorageRules,
   type FirebaseStorage,
   type StorageAuth,
-  type StorageMethod,
+  type StorageRequestMethod,
   type StorageRules,
 } from 'pyric/storage';
 import { normalizeStoragePath } from './usePathState.js';
@@ -25,18 +25,17 @@ export type StorageRulesGateStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type StorageRulesSource = 'option' | 'sandbox' | 'none';
 
 /**
- * Per-path verdict. `pyric/storage`'s rules subset has exactly two
- * verbs (`read` | `write` — the granular get/list/create/update/
- * delete forms are a parser follow-up), so `delete` and `upload` are
- * DERIVED aliases of `write`: Firebase Storage's `write` permission
- * governs create, overwrite, AND delete.
+ * Per-path verdict. Upload and delete are evaluated with their granular
+ * Storage request methods so `request.method` policies and missing incoming
+ * payload semantics remain truthful. `write` retains its historical upload
+ * meaning; callers use `delete` for delete affordances.
  */
 export interface StorageGateVerdict {
   read: boolean;
   write: boolean;
-  /** Derived — always `=== write` under the two-verb subset. */
+  /** Granular delete verdict (`request.method == 'delete'`). */
   delete: boolean;
-  /** Derived — always `=== write` under the two-verb subset. */
+  /** Granular create/upload verdict (`request.method == 'create'`). */
   upload: boolean;
   /**
    * Evaluator reason traces for DENIED verbs (`"no rule matches…"` /
@@ -67,12 +66,11 @@ export interface UseStorageRulesGateOptions {
   identity?: StorageAuth | null;
   /**
    * The about-to-write payload bound to `request.resource` for the
-   * WRITE evaluation — pass `{ size, contentType }` when gating a
+   * CREATE evaluation — pass `{ size, contentType }` when gating a
    * specific upload so size/contentType-conditioned rules evaluate
    * truthfully. When omitted, `request.resource` is unset, which is
-   * exactly DELETE semantics (deletes carry no inbound payload) —
-   * a rule like `request.resource.size < N` then denies, the
-   * conservative answer for uploads.
+   * absent, `upload`/`write` remain a conservative deny for payload-dependent
+   * policies. Delete is evaluated independently and never receives this value.
    */
   writeResource?: { size: number; contentType?: string };
 }
@@ -218,25 +216,27 @@ export function useStorageRulesGate(
       const objectPath = normalizeStoragePath(path);
       const bucket = target?.bucket ?? 'pyric-default';
       const rulesPath = objectPath === '' ? `b/${bucket}/o` : `b/${bucket}/o/${objectPath}`;
-      const evaluate = (method: StorageMethod) =>
+      const evaluate = (method: StorageRequestMethod) =>
         evaluateStorageRules(rules, {
           request: {
             auth: identity,
             method,
             path: rulesPath,
-            ...(method === 'write' && writeSize !== undefined
+            ...(method === 'create' && writeSize !== undefined
               ? { resource: { size: writeSize, contentType: writeContentType } }
               : {}),
           },
           resource: null,
         });
       const read = evaluate('read');
-      const write = evaluate('write');
+      const upload = evaluate('create');
+      const deletion = evaluate('delete');
+      const write = upload;
       return {
         read: read.allowed,
         write: write.allowed,
-        delete: write.allowed,
-        upload: write.allowed,
+        delete: deletion.allowed,
+        upload: upload.allowed,
         reasons: {
           read: read.allowed ? [] : read.reasons,
           write: write.allowed ? [] : write.reasons,

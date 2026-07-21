@@ -1,0 +1,14 @@
+// Storage operation identity. Use request.method rather than null checks:
+// production treats missing resource/request.resource bindings as errors.
+
+export function isCreate() {
+  return request.method == 'create';
+}
+
+export function isUpdate() {
+  return request.method == 'update';
+}
+
+export function isDelete() {
+  return request.method == 'delete';
+}

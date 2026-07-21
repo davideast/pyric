@@ -46,16 +46,16 @@ describe('rules-language production verdicts', () => {
 });
 
 describe('storage capability classification for P2 discoveries', () => {
-  it('classifies modeled identity fields as implemented and missing metadata methods as unsupported', () => {
+  it('classifies modeled identity fields and production-replayed metadata methods as implemented', () => {
     const storage = computeCapabilityReport().engines.find((engine) => engine.engine === 'storage');
     const classification = (id: string) =>
       storage?.constructs.find((construct) => construct.id === id)?.classification;
 
     expect(classification('storage.binding.resource.generation')).toBe('implemented');
     expect(classification('storage.binding.resource.metageneration')).toBe('implemented');
-    expect(classification('storage.method.map.keys')).toBe('unsupported');
-    expect(classification('storage.method.map.get')).toBe('unsupported');
-    expect(classification('storage.method.set.hasAll')).toBe('unsupported');
+    expect(classification('storage.method.map.keys')).toBe('implemented');
+    expect(classification('storage.method.map.get')).toBe('implemented');
+    expect(classification('storage.method.set.hasAll')).toBe('implemented');
   });
 });
 

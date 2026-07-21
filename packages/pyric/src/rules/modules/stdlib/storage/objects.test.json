@@ -1,0 +1,40 @@
+[
+  {
+    "description": "create method is identified without reading missing resource",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/file.bin",
+    "resource": { "size": 1 },
+    "wrapFunction": "isCreate",
+    "wrapCallExpr": "isCreate()"
+  },
+  {
+    "description": "update method is identified",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/file.bin",
+    "resource": { "size": 1 },
+    "existingResource": { "size": 1 },
+    "wrapFunction": "isUpdate",
+    "wrapCallExpr": "isUpdate()"
+  },
+  {
+    "description": "delete method is identified without reading missing request.resource",
+    "expectation": "ALLOW",
+    "method": "delete",
+    "path": "test/file.bin",
+    "existingResource": { "size": 1 },
+    "wrapFunction": "isDelete",
+    "wrapCallExpr": "isDelete()"
+  },
+  {
+    "description": "create predicate denies an update",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/file.bin",
+    "resource": { "size": 1 },
+    "existingResource": { "size": 1 },
+    "wrapFunction": "isCreate",
+    "wrapCallExpr": "isCreate()"
+  }
+]

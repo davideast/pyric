@@ -1,0 +1,43 @@
+[
+  {
+    "description": "required metadata keys permit extras",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/file.bin",
+    "auth": { "uid": "alice" },
+    "resource": { "size": 1, "metadata": { "owner": "alice", "purpose": "avatar", "extra": "ok" } },
+    "wrapFunction": "hasRequiredMetadata",
+    "wrapCallExpr": "hasRequiredMetadata(['owner', 'purpose'])"
+  },
+  {
+    "description": "missing required metadata key denies",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/file.bin",
+    "auth": { "uid": "alice" },
+    "resource": { "size": 1, "metadata": { "owner": "alice" } },
+    "wrapFunction": "hasRequiredMetadata",
+    "wrapCallExpr": "hasRequiredMetadata(['owner', 'purpose'])"
+  },
+  {
+    "description": "bounded metadata string and incoming owner allow",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/file.bin",
+    "auth": { "uid": "alice" },
+    "resource": { "size": 1, "metadata": { "owner": "alice", "purpose": "avatar" } },
+    "wrapFunction": "metadataString, incomingMetadataOwner",
+    "wrapCallExpr": "metadataString('purpose', 3, 12) && incomingMetadataOwner('owner')"
+  },
+  {
+    "description": "existing metadata owner allows owner update",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/file.bin",
+    "auth": { "uid": "alice" },
+    "resource": { "size": 1, "metadata": { "owner": "alice" } },
+    "existingResource": { "size": 1, "metadata": { "owner": "alice" } },
+    "wrapFunction": "existingMetadataOwner",
+    "wrapCallExpr": "existingMetadataOwner('owner')"
+  }
+]

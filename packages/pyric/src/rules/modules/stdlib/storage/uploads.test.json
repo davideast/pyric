@@ -1,0 +1,38 @@
+[
+  {
+    "description": "exact inclusive upload limit allows",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/file.png",
+    "resource": { "size": 10, "contentType": "image/png" },
+    "wrapFunction": "sizeAtMost",
+    "wrapCallExpr": "sizeAtMost(10)"
+  },
+  {
+    "description": "one byte over upload limit denies",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/file.png",
+    "resource": { "size": 11, "contentType": "image/png" },
+    "wrapFunction": "sizeAtMost",
+    "wrapCallExpr": "sizeAtMost(10)"
+  },
+  {
+    "description": "whole-string MIME and allowlist policy composes",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/file.png",
+    "resource": { "size": 5, "contentType": "image/png" },
+    "wrapFunction": "contentTypeMatches, contentTypeIsOneOf",
+    "wrapCallExpr": "contentTypeMatches('image/(png|jpeg)') && contentTypeIsOneOf(['image/png'])"
+  },
+  {
+    "description": "parameterized MIME does not pass exact allowlist",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/file.png",
+    "resource": { "size": 5, "contentType": "image/png; charset=binary" },
+    "wrapFunction": "contentTypeIsOneOf",
+    "wrapCallExpr": "contentTypeIsOneOf(['image/png'])"
+  }
+]

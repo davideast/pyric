@@ -9,12 +9,14 @@
 The first trust slice recommended by this report is now implemented. Normal
 Storage setup lowers `2+modules` through a service-aware resolver; `auth` and
 `membership` are the only bundled modules admitted for both Firestore and
-Storage; every other bundled module is explicitly Firestore-only; and caller
+Storage; `storage/uploads`, `storage/metadata`, `storage/objects`, and
+`storage/time` are Storage-only; every other bundled module is explicitly
+Firestore-only; and caller
 modules are checked transitively for Storage-incompatible bindings and
-functions. A single targeted `projects.test` request captured 12 production
-verdicts for the exact six admitted function bodies, and the local evaluator
-matches all 12. The observation is registered as
-`oracle:rules-storage-common-auth-membership` / `storage-rules#125`.
+functions. Two targeted `projects.test` requests captured 27 production
+verdicts for the exact six shared and 13 Storage-only function bodies, and the
+local evaluator matches all 27. The observations are registered as
+`storage-rules#125` and `storage-rules#132`.
 
 The first P2 Storage-native and mocked P3 cross-service matrices are now
 captured as `rules-storage-upload-primitives-boundaries` and
@@ -26,17 +28,17 @@ resolver and normal Storage service setup.
 The captures established inclusive size limits, exact/whole-string MIME
 behavior, metadata `keys().hasAll()` and `get(default)`, generation and
 metageneration integer comparisons, strict time boundaries, and lazy
-cross-service lookup evaluation. They also found three local divergences:
-metadata collection methods are not implemented; missing `request.resource`
-on delete is locally modeled as null instead of a production error; and an
-anonymous `request.auth != null` ternary condition locally selects the alternate
-branch while production errors before branch selection.
+cross-service lookup evaluation. The three local divergences they found are now
+closed: metadata collection methods are implemented, missing
+`request.resource` carries a Rules error, and anonymous-auth ternaries deny in
+the same way as production.
 
 The mocked API ALLOWed three distinct lookup calls and reported all three in its
 function-call diagnostics. Therefore mocks do **not** prove the documented
-real-resource access budget. IAM, billing, database boundaries, rules
-independence, and consistency still require the real-resource rig and remain
-unclaimed.
+real-resource access budget. The later real-resource rig proves the two-distinct
+document limit, repeat-path caching, default-database and owning-project
+boundaries, and independence from Firestore client rules (`storage-rules#131`).
+Consistency remains bounded characterization rather than a latency guarantee.
 
 ### Follow-up discovery captures (2026-07-21)
 
@@ -133,11 +135,16 @@ remaining cross-service cases combined. Both independently verified the prior
 Storage release, empty object namespace, deleted documents, and—where used—the
 restored IAM policy before writing observations.
 
-## Baseline conclusion
+## Historical baseline at the investigation fixed point
 
-`storage.rules` does **not yet work end to end with `rules_version = '2+modules'` in Pyric's normal Storage path**.
+At the report's original `6e5ecd6e3718` fixed point, `storage.rules` did **not**
+work end to end with `rules_version = '2+modules'` in Pyric's normal Storage
+path. The implementation-status section above supersedes this historical
+baseline: the normal Storage path now lowers modules through the checked
+resolver, and only the production-proven `auth` and `membership` modules are
+shared with Storage.
 
-There are two distinct behaviors today:
+There were two distinct behaviors at that fixed point:
 
 1. The generic module compiler can structurally resolve a Storage source. It parses the service name, loads imports from one flat standard-library catalog, injects the requested functions, and rewrites `2+modules` to `2`. It does not check whether an imported function is compatible with `firebase.storage` ([resolver core](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/rules/modules/resolver-core.ts#L242-L354), [browser catalog](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/rules/modules/resolver-browser.ts#L41-L69)).
 2. The Storage service does not call that compiler. It passes the source directly to `parseStorageRules()`, which turns imports into unresolved stubs; calling one denies with an explicit “module resolution is not implemented” reason ([Storage service](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/storage/service.ts#L171-L204), [Storage parser](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/storage/rules.ts#L436-L480), [call behavior](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/storage/rules.ts#L1043-L1060)).
@@ -176,9 +183,14 @@ The Rules management API adds another layer: a `Source` is a bundle of one or mo
 
 Therefore module portability is a contract Pyric must define and prove; it cannot be inferred from shared syntax, parser acceptance, or a multi-file REST payload.
 
-### Existing trust contradiction
+### Resolved trust contradiction
 
-The current Storage syntax-acceptance test says every case is accepted by production, but includes `rules_version = '2'; import { isOwner } from 'shared';` ([test](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/test/storage/rules-syntax-features.test.ts#L1-L108)). That conflicts with both the documented v2 surface and the repository's later live observation that braced imports were rejected on an ordinary project even under `2+modules` ([commit](https://github.com/davideast/pyric/commit/d24ee1e5ae0de444963683bc053222c59c4aef14)). The test currently proves only **Pyric parser acceptance**. Its production claim should be removed or qualified until project-entitlement probes establish otherwise, and the Storage rules-language inventory needs an explicit import/preview construct analogous to Firestore's existing discrepancy row.
+At the investigation fixed point, the Storage syntax-acceptance test said every
+case was accepted by production while including a braced import. That claim is
+now corrected: the test describes parser acceptance, and the P0 capture records
+that production rejected braced imports under both v2 and `2+modules`, including
+multi-file source bundles. Pyric's portable contract is the resolver's emitted
+single-file v2 source; Firebase is not claimed to link Pyric modules.
 
 ### The documented shared language surface
 
@@ -275,9 +287,14 @@ allow read: if hasRole(membershipDoc(request.auth.uid), 'editor');
 
 `hasRole(data, role)` is common policy; `firestore.get(...)` remains visibly Storage-specific, billable, limited, and path-bound. A convenience helper that hides the lookup should live under `storage/firestore-access`, declare the lookup capability and budget cost, and only ship after limit/caching probes.
 
-## Candidate Storage modules
+## Shipped and candidate Storage modules
 
-These are proposals to probe, not implementation commitments.
+The four common-layer rows below are now shipped as Storage-only modules;
+advanced-layer rows remain production-probed candidates. The only modules
+admitted for both Firestore and Storage are `auth` and `membership`. A
+candidate becomes shipped only after its function bodies
+are implemented locally, replayed against the applicable observations, listed
+in the service contract, and covered by executable stdlib fixtures.
 
 ### Common modules to promote first
 
@@ -287,14 +304,14 @@ These are proposals to probe, not implementation commitments.
 | `membership` | existing claim and explicit-map helpers | Reuses explicit parameters and avoids ambient `.data`. |
 | `values` (possible extraction) | `validString(value,min,max)`, `isOneOf(value,values)`, `boundedNumber(value,min,max)` | Value-oriented variants are genuinely portable and avoid separate Firestore/Storage field conventions. Only add if this reduces rather than duplicates the public concept set. |
 
-### Storage common layer
+### Shipped Storage layer
 
-| Module | Candidate exports | Required evidence |
+| Module | Shipped exports | Production proof |
 |---|---|---|
-| `storage/uploads` | `sizeAtMost(bytes)`, `sizeBetween(min,max)`, `contentTypeMatches(re)`, `contentTypeIsOneOf(types)` | create/update/delete availability of `request.resource`; missing `contentType`; RE2 and list membership. |
-| `storage/metadata` | `hasRequiredMetadata(keys)`, `hasOnlyMetadata(keys)`, `metadataString(key,min,max)`, `incomingMetadataOwner(key)`, `existingMetadataOwner(key)` | exact map methods on `Map<String,String>`, absent-key error behavior, empty metadata, create vs update. |
-| `storage/objects` | `isCreate()`, `isUpdate()`, `isDelete()`, `contentUnchanged()`, `metadataOnlyUpdate()` | `resource == null`, `request.resource` on each verb, which server fields are comparable, generation/metageneration behavior. |
-| `storage/time` | `createdWithin(seconds)`, `updatedWithin(seconds)` | timestamp arithmetic, strict boundary, future timestamps, missing resource, method applicability. |
+| `storage/uploads` | `sizeAtMost(bytes)`, `sizeBetween(min,max)`, `contentTypeMatches(re)`, `contentTypeIsOneOf(types)` | Exact bodies and boundary cases in `rules-storage-stdlib-storage-modules`. |
+| `storage/metadata` | `hasRequiredMetadata(keys)`, `metadataString(key,min,max)`, `incomingMetadataOwner(key)`, `existingMetadataOwner(key)` | Exact bodies, missing keys, string bounds, and owner cases in `rules-storage-stdlib-storage-modules`. |
+| `storage/objects` | `isCreate()`, `isUpdate()`, `isDelete()` | Exact bodies on all three verbs in `rules-storage-stdlib-storage-modules`. |
+| `storage/time` | `createdWithin(seconds)`, `updatedWithin(seconds)` | Exact bodies immediately before and at strict deadlines in `rules-storage-stdlib-storage-modules`. |
 
 ### Storage advanced layer
 
@@ -392,7 +409,17 @@ High-value module candidates emerge from these outcomes. For example, if repeate
 
 ## Answer to the trust question
 
-Today, `2+modules` is trustworthy for the Firestore path it was built around, but not as a multi-service claim. Storage syntax acceptance, generic compilation, direct Storage parsing, local evaluation, and production behavior are five different facts and currently do not line up.
+On this branch, `2+modules` is trustworthy as a service-scoped authoring
+contract. Normal Storage setup resolves admitted modules to portable v2;
+`auth` and `membership` are production-proven under both services; Firestore-
+only exports and incompatible transitive helpers fail before evaluation. This
+is deliberately narrower than claiming the entire Firestore stdlib works in
+Storage.
+
+The real-resource P2/P3 captures expand the evidence available for future
+Storage-specific modules, but they remain discovery evidence until local replay
+and registry rows promote the exact behavior. In particular, a production
+observation is not itself a shipped helper.
 
 The smallest honest contract is:
 

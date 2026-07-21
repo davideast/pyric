@@ -19,6 +19,7 @@ interface ModuleContract {
 }
 
 const FIRESTORE_ONLY: readonly RulesServiceName[] = ['cloud.firestore'];
+const STORAGE_ONLY: readonly RulesServiceName[] = ['firebase.storage'];
 const FIRESTORE_AND_STORAGE: readonly RulesServiceName[] = ['cloud.firestore', 'firebase.storage'];
 
 /**
@@ -47,6 +48,10 @@ const STDLIB_MODULE_CONTRACTS: Readonly<Record<string, ModuleContract>> = {
   transitions: { defaultServices: FIRESTORE_ONLY },
   turns: { defaultServices: FIRESTORE_ONLY },
   validation: { defaultServices: FIRESTORE_ONLY },
+  'storage/uploads': { defaultServices: STORAGE_ONLY },
+  'storage/metadata': { defaultServices: STORAGE_ONLY },
+  'storage/objects': { defaultServices: STORAGE_ONLY },
+  'storage/time': { defaultServices: STORAGE_ONLY },
 };
 
 /**
@@ -60,7 +65,7 @@ export const STDLIB_SERVICE_CONTRACT_MODULES = Object.freeze(
 );
 
 function stdlibContractKey(moduleName: string): string {
-  const pathMatch = moduleName.match(/^\.\/stdlib\/([^/]+?)(?:\.rules)?$/);
+  const pathMatch = moduleName.match(/^\.\/stdlib\/(.+?)(?:\.rules)?$/);
   return pathMatch?.[1] ?? moduleName;
 }
 
@@ -116,7 +121,7 @@ function storageIncompatibility(expr: Expression): string | null {
             return null;
           }
         }
-        if (e.method !== 'matches' && e.method !== 'split' && e.method !== 'size') {
+        if (!['matches', 'split', 'size', 'keys', 'get', 'hasAll'].includes(e.method)) {
           return `method '.${e.method}()'`;
         }
         const objectIssue = walk(e.object);

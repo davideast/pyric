@@ -624,6 +624,7 @@ export function evaluateStorageRules(
   const nowMillis = now.getTime();
   const pathSegments = splitPath(input.request.path);
   const reasons: string[] = [];
+  const firestoreAccesses = new Set<string>();
 
   // The operation's verb, reduced to its granular set. A coarse
   // request method expands to its sub-verbs so umbrella semantics are
@@ -668,6 +669,7 @@ export function evaluateStorageRules(
                 funcs: block.visibleFuncs ?? new Map(),
                 depth: 0,
                 firestoreLookup,
+                firestoreAccesses,
               })
             : true;
           // An error value reaching the allow boundary DENIES, carrying
@@ -848,6 +850,8 @@ interface EvalCtx {
   /** Optional Firestore read capability for `firestore.get()/exists()`.
    *  Absent in pure/test usage → those methods deny "unsupported". */
   firestoreLookup?: FirestoreLookup;
+  /** Distinct Firestore document paths charged during this evaluation. */
+  firestoreAccesses: Set<string>;
 }
 
 /**
@@ -869,9 +873,14 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // Local (param / let) bindings win over globals and path params.
       if (expr.name in ctx.locals) return ctx.locals[expr.name];
       if (expr.name === 'request') return buildRequestObject(ctx.input, ctx.now);
-      // `resource` stays a real `null` on a create (no object yet) so the
-      // documented `resource == null` idiom evaluates, rather than erroring.
-      if (expr.name === 'resource') return buildResourceObject(ctx.input.resource);
+      // Production exposes no usable `resource` value when the target object
+      // does not exist. Even comparing the missing binding with null errors
+      // and denies; it is not a JavaScript-like null sentinel.
+      if (expr.name === 'resource') {
+        return ctx.input.resource === null
+          ? new RuleError('Null value error.')
+          : buildResourceObject(ctx.input.resource);
+      }
       if (expr.name in ctx.params) return ctx.params[expr.name];
       return undefined;
     }
@@ -1002,10 +1011,7 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       const r = evalExpr(expr.right, ctx);
       if (isErr(r)) return r;
       switch (expr.op) {
-        // Firebase rules treat `null` and `undefined` as
-        // equivalent (helpful for `request.resource == null` on
-        // deletes, which don't carry a resource payload). Lists and
-        // maps compare STRUCTURALLY (production `[a] == [a]` is true;
+        // Lists and maps compare STRUCTURALLY (production `[a] == [a]` is true;
         // JS reference identity would make every literal comparison
         // false). Everything else is strict equality.
         case '==': return rulesEquals(l, r);
@@ -1080,6 +1086,7 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
     funcs: fn.declScope ?? new Map(),
     depth,
     firestoreLookup: ctx.firestoreLookup,
+    firestoreAccesses: ctx.firestoreAccesses,
   };
   // `let` bindings evaluated in order; each is visible to the next and
   // to the return expression (they share the `locals` object).
@@ -1151,14 +1158,10 @@ function numOp(a: unknown, b: unknown, fn: (x: number, y: number) => number): un
  * `request.time` (which {@link buildRequestObject} models the same way) and
  * against each other (`resource.timeCreated == resource.updated`).
  *
- * `null` in → `null` out: on a create there is no object, and `resource` must
- * stay a real null so `resource == null` evaluates rather than erroring.
- *
  * A field the record does not carry is left `undefined`, which
  * {@link readProperty} reports as production's absent-property ERROR.
  */
-function buildResourceObject(resource: StorageResource | null): Record<string, unknown> | null {
-  if (resource === null) return null;
+function buildResourceObject(resource: StorageResource): Record<string, unknown> {
   return {
     size: resource.size,
     contentType: resource.contentType,
@@ -1182,11 +1185,15 @@ function isoToMillis(iso: string | undefined): number | undefined {
 
 function buildRequestObject(input: EvaluationInput, now: number): Record<string, unknown> {
   return {
-    auth: input.request.auth,
-    // Present-but-null on reads (rather than absent) so the documented
-    // `request.resource == null` idiom evaluates. A read THROUGH it
-    // (`request.resource.size` on a get) still hits the null-dereference error.
-    resource: input.request.resource ?? null,
+    // The production Storage engine represents anonymous auth as an absent
+    // property, not a usable null value. Ordinary `request.auth != null`
+    // gates still deny, while conditionals cannot incorrectly select a
+    // fallback branch from the synthetic null.
+    auth: input.request.auth ?? new RuleError('Property auth is undefined on object.'),
+    // Production treats an operation without an incoming object (notably
+    // delete/read) as an absent binding. A direct null comparison errors just
+    // like a property read; neither may turn the missing value into an allow.
+    resource: input.request.resource ?? new RuleError('Property resource is undefined on object.'),
     method: input.request.method,
     path: input.request.path,
     // `request.time` as epoch millis — see the timestamp constructors in
@@ -1259,6 +1266,18 @@ function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCt
     return evalSize(expr, ctx);
   }
 
+  if (expr.method === 'keys') {
+    return evalMapKeys(expr, ctx);
+  }
+
+  if (expr.method === 'hasAll') {
+    return evalHasAll(expr, ctx);
+  }
+
+  if (expr.method === 'get') {
+    return evalMapGet(expr, ctx);
+  }
+
   throw new RuleEvalError(`unsupported method .${expr.method}()`);
 }
 
@@ -1301,13 +1320,20 @@ function evalFirestoreBuiltin(
     throw new RuleEvalError(`firestore.${expr.method}() requires a /databases/.../documents/... path literal`);
   }
   const docPath = buildFirestoreDocPath(arg, ctx);
+  if (!ctx.firestoreAccesses.has(docPath)) {
+    if (ctx.firestoreAccesses.size >= 2) {
+      throw new RuleEvalError('firestore access limit exceeded: at most two distinct documents');
+    }
+    ctx.firestoreAccesses.add(docPath);
+  }
   if (expr.method === 'exists') {
     return ctx.firestoreLookup.exists(docPath);
   }
   const fields = ctx.firestoreLookup.get(docPath);
   if (fields === null) {
-    // Production: `get()` on a missing document errors, and errors deny.
-    throw new RuleEvalError(`firestore.get() targeted a nonexistent document: ${docPath}`);
+    // A missing get is a Rules error VALUE: it denies at the allow boundary,
+    // but participates in CEL error absorption (`error || true` allows).
+    return new RuleError(`firestore.get() targeted a nonexistent document: ${docPath}`);
   }
   return { data: fields };
 }
@@ -1336,6 +1362,11 @@ function buildFirestoreDocPath(
   if (parts.length < 4 || parts[0] !== 'databases' || parts[2] !== 'documents') {
     throw new RuleEvalError(
       `malformed Firestore path — expected /databases/<db>/documents/... , got /${parts.join('/')}`,
+    );
+  }
+  if (parts[1] !== '(default)') {
+    throw new RuleEvalError(
+      `Storage rules may access only the default Firestore database, got ${parts[1]}`,
     );
   }
   const docSegments = parts.slice(3);
@@ -1507,6 +1538,59 @@ function evalSize(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): un
   if (typeof subject === 'string' || Array.isArray(subject)) return subject.length;
   if (subject !== null && typeof subject === 'object') return Object.keys(subject).length;
   throw new RuleEvalError(`size() requires a string, list, or map target, got ${describeType(subject)}`);
+}
+
+/** `Map.keys()` returns the map's own keys and never exposes JS prototypes. */
+function evalMapKeys(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
+  const subject = evalExpr(expr.target, ctx);
+  if (isErr(subject)) return subject;
+  if (expr.args.length !== 0) {
+    throw new RuleEvalError(`keys() expects no arguments`);
+  }
+  if (subject === null || typeof subject !== 'object' || Array.isArray(subject)) {
+    throw new RuleEvalError(`keys() requires a map target, got ${describeType(subject)}`);
+  }
+  return Object.keys(subject);
+}
+
+/** `List/Set.hasAll(other)` with Rules structural value equality. */
+function evalHasAll(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
+  const subject = evalExpr(expr.target, ctx);
+  if (isErr(subject)) return subject;
+  if (!Array.isArray(subject)) {
+    throw new RuleEvalError(`hasAll() requires a list or set target, got ${describeType(subject)}`);
+  }
+  if (expr.args.length !== 1) {
+    throw new RuleEvalError(`hasAll() expects one list or set argument`);
+  }
+  const required = evalExpr(expr.args[0], ctx);
+  if (isErr(required)) return required;
+  if (!Array.isArray(required)) {
+    throw new RuleEvalError(`hasAll() argument must be a list or set`);
+  }
+  return required.every((candidate) => subject.some((value) => rulesEquals(value, candidate)));
+}
+
+/** `Map.get(key, default)` for the production-probed string-key form. */
+function evalMapGet(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
+  const subject = evalExpr(expr.target, ctx);
+  if (isErr(subject)) return subject;
+  if (subject === null || typeof subject !== 'object' || Array.isArray(subject)) {
+    throw new RuleEvalError(`get() requires a map target, got ${describeType(subject)}`);
+  }
+  if (expr.args.length !== 2) {
+    throw new RuleEvalError(`get() expects a key and default value`);
+  }
+  const key = evalExpr(expr.args[0], ctx);
+  if (isErr(key)) return key;
+  if (typeof key !== 'string') {
+    throw new RuleEvalError(`get() key must be a string`);
+  }
+  const fallback = evalExpr(expr.args[1], ctx);
+  if (isErr(fallback)) return fallback;
+  return Object.prototype.hasOwnProperty.call(subject, key)
+    ? (subject as Record<string, unknown>)[key]
+    : fallback;
 }
 
 /**

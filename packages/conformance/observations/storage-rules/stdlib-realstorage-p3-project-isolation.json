@@ -1,7 +1,7 @@
 {
   "name": "stdlib-realstorage-p3-project-isolation",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": ["storage-rules#131"],
   "description": "Storage hosted by digame-mas reading an identical Firestore path whose values are opposite in digame-mas and genkit-idx.",
   "observedAt": "2026-07-21T15:32:24.336Z",
   "fbSdkVersion": "12.13.0",

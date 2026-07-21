@@ -1,26 +1,37 @@
-# Firestore Rules Standard Library — Module Manifest
+# Rules Standard Library — Module Manifest
 
-Last audited: 2026-07-03
+Last audited: 2026-07-21
+
+The catalog remains Firestore-first, with a small Storage-native layer. Service compatibility is enforced per
+module/export by the `2+modules` resolver rather than inferred from shared Rules
+syntax. Only `auth` and `membership` are admitted for both Firestore and
+Storage; the `storage/*` modules are Storage-only; all remaining modules are
+Firestore-only. A module is listed only after its production observations
+replay locally and its executable fixtures pass.
 
 ## Module Index
 
-| Module | Exports | Dependency | Pattern | Verified |
-|--------|---------|------------|---------|----------|
-| [auth](#auth) | 2 | Self-contained | — | Simulator |
-| [validation](#validation) | 2 | Self-contained | — | Simulator |
-| [lobby](#lobby) | 3 | Self-contained | — | Simulator |
-| [turns](#turns) | 2 | Self-contained | — | Simulator |
-| [state](#state) | 3 | Self-contained | — | Simulator |
-| [membership](#membership) | 4 | Self-contained | — | Simulator |
-| [lifecycle](#lifecycle) | 2 | Self-contained | — | Simulator |
-| [transitions](#transitions) | 3 | Self-contained | — | Simulator |
-| [geometry](#geometry) | 2 | Explicit param | Patterns 12-14 | Simulator + live Rules validation |
-| [counters](#counters) | 3 | Self-contained | — | Simulator |
-| [timing](#timing) | 1 | Self-contained | — | Simulator + live Rules validation |
-| [content](#content) | 4 | Self-contained | — | Simulator |
-| [spaces](#spaces) | 3 | Explicit param | — | Simulator + live Rules validation |
-| [joining](#joining) | 2 | Self-contained | — | Simulator + live Rules validation |
-| [atomic](#atomic) | 2 | Explicit param | — | Simulator bodies + live real-DB validation |
+| Module | Exports | Services | Dependency | Pattern | Verified |
+|--------|---------|----------|------------|---------|----------|
+| [auth](#auth) | 2 | Firestore + Storage | Self-contained | — | Simulator + Storage production |
+| [validation](#validation) | 2 | Firestore | Self-contained | — | Simulator |
+| [lobby](#lobby) | 3 | Firestore | Self-contained | — | Simulator |
+| [turns](#turns) | 2 | Firestore | Self-contained | — | Simulator |
+| [state](#state) | 3 | Firestore | Self-contained | — | Simulator |
+| [membership](#membership) | 4 | Firestore + Storage | Self-contained | — | Simulator + Storage production |
+| [storage/uploads](#storageuploads) | 4 | Storage | Self-contained | — | Storage evaluator + production oracle |
+| [storage/metadata](#storagemetadata) | 4 | Storage | Self-contained | — | Storage evaluator + production oracle |
+| [storage/objects](#storageobjects) | 3 | Storage | Self-contained | — | Storage evaluator + production oracle |
+| [storage/time](#storagetime) | 2 | Storage | Self-contained | — | Storage evaluator + production oracle |
+| [lifecycle](#lifecycle) | 2 | Firestore | Self-contained | — | Simulator |
+| [transitions](#transitions) | 3 | Firestore | Self-contained | — | Simulator |
+| [geometry](#geometry) | 2 | Firestore | Explicit param | Patterns 12-14 | Simulator + live Rules validation |
+| [counters](#counters) | 3 | Firestore | Self-contained | — | Simulator |
+| [timing](#timing) | 1 | Firestore | Self-contained | — | Simulator + live Rules validation |
+| [content](#content) | 4 | Firestore | Self-contained | — | Simulator |
+| [spaces](#spaces) | 3 | Firestore | Explicit param | — | Simulator + live Rules validation |
+| [joining](#joining) | 2 | Firestore | Self-contained | — | Simulator + live Rules validation |
+| [atomic](#atomic) | 2 | Firestore | Explicit param | — | Simulator bodies + live real-DB validation |
 
 ## Dependency Types
 
@@ -104,6 +115,61 @@ Role-based and claims-based access control.
 | `hasRole(membersMap, role)` | membersMap: map field, role: string | bool | Auth uid has specific role in members map |
 
 File: `membership.rules` | Tests: `membership.test.json`
+
+### storage/uploads
+
+Storage upload-request limits over declared size and MIME metadata.
+
+| Function | Params | Returns | Description |
+|----------|--------|---------|-------------|
+| `sizeAtMost(maxBytes)` | maxBytes: int | bool | Incoming size is at most the inclusive byte limit |
+| `sizeBetween(minBytes, maxBytes)` | min/max: int | bool | Incoming size is within the inclusive range |
+| `contentTypeMatches(pattern)` | pattern: string | bool | Incoming MIME metadata matches the entire RE2 pattern |
+| `contentTypeIsOneOf(types)` | types: list | bool | Incoming MIME metadata equals one allowlisted value |
+
+These functions inspect metadata supplied with the object. They do not inspect
+or authenticate file bytes, so they are upload-policy helpers—not content
+validation.
+
+File: `storage/uploads.rules` | Tests: `storage/uploads.test.json`
+
+### storage/metadata
+
+Custom-metadata shape and ownership helpers.
+
+| Function | Params | Returns | Description |
+|----------|--------|---------|-------------|
+| `hasRequiredMetadata(keys)` | keys: list | bool | Incoming custom metadata contains every required own key; extras are allowed |
+| `metadataString(key, min, max)` | key: string, min/max: int | bool | Incoming value is a bounded string; missing keys deny |
+| `incomingMetadataOwner(key)` | key: string | bool | Incoming metadata value equals the authenticated UID |
+| `existingMetadataOwner(key)` | key: string | bool | Existing metadata value equals the authenticated UID |
+
+File: `storage/metadata.rules` | Tests: `storage/metadata.test.json`
+
+### storage/objects
+
+Operation identity without unsafe missing-binding null checks.
+
+| Function | Params | Returns | Description |
+|----------|--------|---------|-------------|
+| `isCreate()` | — | bool | `request.method == 'create'` |
+| `isUpdate()` | — | bool | `request.method == 'update'` |
+| `isDelete()` | — | bool | `request.method == 'delete'` |
+
+File: `storage/objects.rules` | Tests: `storage/objects.test.json`
+
+### storage/time
+
+Strict freshness windows over server-owned existing-object timestamps.
+
+| Function | Params | Returns | Description |
+|----------|--------|---------|-------------|
+| `createdWithin(seconds)` | seconds: int | bool | Request time is strictly before creation time plus the window |
+| `updatedWithin(seconds)` | seconds: int | bool | Request time is strictly before update time plus the window |
+
+Equality with the deadline denies. These helpers require an existing object.
+
+File: `storage/time.rules` | Tests: `storage/time.test.json`
 
 ### lifecycle
 
@@ -251,9 +317,9 @@ When new patterns or approaches are discovered:
 1. **Check this manifest** — does an existing module need updating? Is anything obsolete?
 2. **Evaluate for stdlib** — is the function reusable across games/apps, or game-specific?
 3. **Choose dependency type** — prefer self-contained. If external data is needed, use explicit parameters (never implicit hooks).
-4. **Add .rules + .test.json** — every module must have both. The
-   fixtures are EXECUTED against the in-repo simulator by
-   `test/rules/modules/stdlib-cases.test.ts` (every case must decide
+4. **Add .rules + .test.json** — every module must have both. Firestore
+   fixtures are executed by `test/rules/modules/stdlib-cases.test.ts`; Storage
+   fixtures are executed by `test/storage/stdlib-cases.test.ts` (every case must decide
    ALLOW/DENY as expected; UNSUPPORTED is a hard failure). Cases whose
    rules call `get()`/`exists()` must carry `functionMocks` so the
    fixture is self-contained.

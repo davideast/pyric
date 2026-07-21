@@ -1,7 +1,7 @@
 {
   "name": "stdlib-realstorage-p3-lookup-budget-iam-enabled",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": ["storage-rules#131"],
   "description": "Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents. The rig restores the exact prior Storage release and verifies all run-scoped data is absent before writing this file.",
   "observedAt": "2026-07-21T13:36:22.347Z",
   "fbSdkVersion": "12.13.0",

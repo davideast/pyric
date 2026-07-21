@@ -1,0 +1,21 @@
+// Storage custom-metadata policies. Custom metadata is a flat string map.
+
+export function hasRequiredMetadata(keys) {
+  return request.resource.metadata.keys().hasAll(keys);
+}
+
+export function metadataString(key, min, max) {
+  return request.resource.metadata[key] is string
+    && request.resource.metadata[key].size() >= min
+    && request.resource.metadata[key].size() <= max;
+}
+
+export function incomingMetadataOwner(key) {
+  return request.auth != null
+    && request.resource.metadata[key] == request.auth.uid;
+}
+
+export function existingMetadataOwner(key) {
+  return request.auth != null
+    && resource.metadata[key] == request.auth.uid;
+}

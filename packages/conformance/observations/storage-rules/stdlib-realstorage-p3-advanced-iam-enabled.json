@@ -1,7 +1,7 @@
 {
   "name": "stdlib-realstorage-p3-advanced-iam-enabled",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": ["storage-rules#131"],
   "description": "Real-resource Storage-to-Firestore advanced behavior for return types, evaluation order, path boundaries, helper composition, and independence from the Firestore ruleset.",
   "observedAt": "2026-07-21T13:49:37.407Z",
   "fbSdkVersion": "12.13.0",
