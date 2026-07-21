@@ -9,10 +9,6 @@ import { activityValue } from '../../../firestore/sandbox/activity-query-value.j
 // rule-enforced read paths so the query-proof gate ("rules are not
 // filters") can discharge per-doc rule predicates from the query's
 // equality constraints.
-import type {
-  QueryConstraints,
-  QueryWhereConstraint,
-} from '../../../rules/simulator/query-proof.js';
 import type { QueryConstraintPlan } from '../snapshot-listeners.js';
 import {
   normalizedQueryOrders,
@@ -139,14 +135,6 @@ function cursorValuesFromSnapshot(
   );
 }
 
-/**
- * Compare a row's ordered field values to a cursor's values in the
- * direction of the orderBy clauses. Returns negative when the row
- * precedes the cursor in ordered position, 0 on tie, positive when
- * it follows. Lexicographic across `cursor.values.length` orderBy
- * clauses — any tail of orderBy clauses beyond the cursor length is
- * not consulted (matches production's "prefix cursor" semantics).
- */
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — QueryImpl.
 // ─────────────────────────────────────────────────────────────────────────
@@ -298,7 +286,6 @@ export class QueryImpl implements Query {
         listPath: this.listRulePath(),
         auth,
         execution: this.executionSpec(),
-        proof: this.structuredConstraints(),
         bypassRules: this.bypassRules,
         activityQuery: this.activityQuery(),
       });
@@ -309,40 +296,6 @@ export class QueryImpl implements Query {
     }
     if (!result.allowed) throw new FirestoreCompatError(result.error);
     return result.docs;
-  }
-
-  /**
-   * RULES-B11 — this query's proof constraints as data. `where` carries every leaf
-   * equality/inequality reachable through top-level AND composition —
-   * the conjunctive spine, where each clause is unconditionally
-   * guaranteed for every returned doc. Clauses under an `or(...)` are
-   * NOT included (they guarantee nothing individually), and non-primitive
-   * operand values are skipped — both omissions are conservative: the
-   * proof can only fail to discharge a rule predicate (deny), never
-   * falsely discharge one.
-   */
-  protected structuredConstraints(): QueryConstraints {
-    const where: QueryWhereConstraint[] = [];
-    const visit = (f: Filter): void => {
-      if (f.kind === 'where') {
-        const v = f.value;
-        if (v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
-          where.push({ field: f.field, op: f.op, value: v });
-        }
-        return;
-      }
-      if (f.kind === 'and') f.filters.forEach(visit);
-      // 'or' — skip: sub-clauses are not unconditionally guaranteed.
-    };
-    for (const f of this.clauses) visit(f);
-    const proof: QueryConstraints = {
-      where,
-      limit: this.limitCount ?? null,
-      offset: null,
-      orderBy: this.orders.length > 0 ? this.orders[0].field : null,
-    };
-    Object.freeze(where);
-    return Object.freeze(proof);
   }
 
   /**
@@ -410,14 +363,12 @@ export class QueryImpl implements Query {
    * the whole collection. Bare collection listens retain an empty plan so
    * the activity monitor still receives their complete query identity.
    *
-   * RULES-B11 — the plan also carries the structured constraints (see
-   * {@link structuredConstraints}) so the listener read path can run the
-   * query-proof gate against the matched `list` rule.
+   * RULES-B11 — the read engine derives proof constraints from this same
+   * execution plan, preventing proof/execution drift.
    */
   snapshotConstraints(): QueryConstraintPlan {
     return Object.freeze({
       execution: this.executionSpec(),
-      structured: this.structuredConstraints(),
       activityQuery: this.activityQuery(),
     });
   }

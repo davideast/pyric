@@ -366,16 +366,10 @@ export class Timestamp {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// FirestoreCompatError — throwable Error subclass that carries the
-// SDK's typed `FirestoreErrorCode` on `.code`. Real Admin SDK throws a
-// `FirestoreError extends Error` with the same shape, so consumer code
-// patterns like `try {} catch (e) { if (e.code === 'already-exists') }`
-// work unchanged against this wrapper.
+// Simulator error types re-exported for the admin-compatible surface.
 // ─────────────────────────────────────────────────────────────────────────
 
-// Re-exported so consumers reaching for the typed-error surface don't
-// need to import from `../errors.js` separately. Used by the slice-1
-// stub paths and the slice-4 UNSUPPORTED_VALUE_TYPE checks.
+// Consumers reaching for typed errors need not import the engine module.
 export type {
   FirestoreErrorCode,
   FirestoreSimError,

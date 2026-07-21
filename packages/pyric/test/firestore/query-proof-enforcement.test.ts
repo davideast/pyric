@@ -17,7 +17,7 @@
  * unprovable queries fail whole.
  *
  * These probes drive the REAL web-modular surface (`getDocs` + `onSnapshot`)
- * end-to-end through `QueryImpl.structuredConstraints()` →
+ * end-to-end through the engine-derived execution-plan projection →
  * `LocalEnvironment`'s query-proof gate (`list-query-proof.ts` →
  * `rules/simulator/query-proof.ts:evaluateQueryProof`, landed in #547).
  * Every "provable → succeeds" case FAILED pre-fix (denied); every

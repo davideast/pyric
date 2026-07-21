@@ -44,6 +44,7 @@ import { RulesOperationReader } from './rules-operation-reader.js';
 import {
   executeQuery,
   gatherQueryRows,
+  queryConstraintsForProof,
   type RunQueryRequest,
   type RunQueryResult,
 } from './query-execution.js';
@@ -219,7 +220,9 @@ export class RulesReadEngine implements ListenerDispatchHost {
     // local-env-reads tests). Without it, a `list` against a bare
     // collection path falls through to no match and is denied.
     const listPath = `${collection}/__listPlaceholder__`;
-    const structured: QueryConstraints = constraints?.structured ?? {};
+    const structured: QueryConstraints = constraints
+      ? queryConstraintsForProof(constraints.execution)
+      : {};
     const requestQuery = listQueryFromStructured(structured);
     const detailFields = {
       ...(bypassRules ? { admin: true } : {}),
@@ -407,11 +410,12 @@ export class RulesReadEngine implements ListenerDispatchHost {
    */
   runQuery(request: RunQueryRequest): RunQueryResult {
     const candidates = gatherQueryRows(this.state, request.scope);
+    const proof = queryConstraintsForProof(request.execution);
     const read = this.readQueryCandidates(
       candidates,
       request.listPath,
       request.auth,
-      request.proof,
+      proof,
       request.bypassRules,
       request.activityQuery,
     );

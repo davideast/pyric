@@ -19,9 +19,6 @@ import type { Operation } from './local-environment.js';
 // `typeName` field and no `nanoseconds`). `read-translation.ts` carries no
 // admin-compat-surface dependency, so importing it here is cycle-free.
 import { translateReadData } from './admin-compat/read-translation.js';
-// RULES-B11 — structured `where`/`limit`/`orderBy` view of a query, consumed
-// by the listener path's query-proof gate ("rules are not filters").
-import type { QueryConstraints } from '../../rules/simulator/query-proof.js';
 import type { QueryExecutionSpec } from './query-execution.js';
 
 /**
@@ -32,16 +29,11 @@ import type { QueryExecutionSpec } from './query-execution.js';
  * `getDocs(query(...))`. `undefined` means a bare collection listen
  * (no constraints) — the whole rule-allowed collection is delivered.
  *
- * RULES-B11 — the plan also carries `structured`, the query's
- * `where`/`limit`/`orderBy` proof projection, so
- * `silentReadCollection` can run `evaluateQueryProof` against the matched
- * `list` rule: an unprovable query is DENIED whole ("rules are not
- * filters"), never silently filtered.
+ * RULES-B11 — `RulesReadEngine` derives its proof projection from this same
+ * execution plan, so authorization and row selection cannot diverge.
  */
 export interface QueryConstraintPlan {
   execution: QueryExecutionSpec;
-  /** Structured constraints for the query-proof gate (RULES-B11). */
-  structured?: QueryConstraints;
   /** Complete executable query identity for diagnostics. Kept separate from
    *  `structured`, whose deliberately lossy shape exists only for rules proof. */
   activityQuery?: unknown;

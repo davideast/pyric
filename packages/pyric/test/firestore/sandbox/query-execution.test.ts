@@ -3,6 +3,7 @@ import { LocalState } from '../../../src/firestore/sandbox/local-state.js';
 import {
   executeQuery,
   gatherQueryRows,
+  queryConstraintsForProof,
 } from '../../../src/firestore/sandbox/query-execution.js';
 
 describe('query execution', () => {
@@ -31,5 +32,30 @@ describe('query execution', () => {
       limitCount: 1,
       limitFromEnd: false,
     })).toEqual([{ path: 'items/a', data: { score: 2, visible: true } }]);
+  });
+
+  test('derives rules proof from the same executable plan', () => {
+    const execution = {
+      filters: [
+        { kind: 'where' as const, field: 'owner', op: '==' as const, value: 'alice' },
+        {
+          kind: 'or' as const,
+          filters: [
+            { kind: 'where' as const, field: 'status', op: '==' as const, value: 'open' },
+            { kind: 'where' as const, field: 'status', op: '==' as const, value: 'closed' },
+          ],
+        },
+      ],
+      orders: [{ field: 'createdAt', direction: 'desc' as const }],
+      limitCount: 25,
+      limitFromEnd: false,
+    };
+
+    expect(queryConstraintsForProof(execution)).toEqual({
+      where: [{ field: 'owner', op: '==', value: 'alice' }],
+      limit: 25,
+      offset: null,
+      orderBy: 'createdAt',
+    });
   });
 });

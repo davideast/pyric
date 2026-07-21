@@ -41,9 +41,10 @@ import {
   referencesResourceData,
   type QueryConstraints,
   type QueryProofResidual,
+  type QueryWhereConstraint,
 } from '../../rules/simulator/query-proof.js';
 
-export type { QueryConstraints, QueryProofResidual };
+export type { QueryConstraints, QueryProofResidual, QueryWhereConstraint };
 
 /** Auth shape the sandbox threads through reads (`Operation['auth']`). */
 type ReadAuth = { uid: string; token?: Record<string, unknown> } | null;

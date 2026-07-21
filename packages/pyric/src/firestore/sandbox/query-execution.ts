@@ -3,7 +3,7 @@ import { firestoreValuesEqual } from './value-equality.js';
 import { compareValues, typeOrderRank } from './query-value-order.js';
 import { FirestoreCompatError } from './firestore-compat-error.js';
 import type { DocStore } from './local-state.js';
-import type { QueryConstraints } from './list-query-proof.js';
+import type { QueryConstraints, QueryWhereConstraint } from './list-query-proof.js';
 import type { FirestoreSimError } from './errors.js';
 
 export type QueryDocumentData = Record<string, unknown>;
@@ -46,13 +46,44 @@ export interface RunQueryRequest {
   listPath: string;
   auth: { uid: string; token?: Record<string, unknown> } | null;
   execution: QueryExecutionSpec;
-  proof?: QueryConstraints;
   bypassRules?: boolean;
   activityQuery?: unknown;
 }
 export type RunQueryResult =
   | { allowed: true; docs: QueryRow[] }
   | { allowed: false; error: FirestoreSimError };
+
+/** Derive the conservative rules-proof projection from the executable plan.
+ * Keeping this derivation beside execution prevents authorization from ever
+ * proving a different query than the engine subsequently runs. */
+export function queryConstraintsForProof(execution: QueryExecutionSpec): QueryConstraints {
+  const where: QueryWhereConstraint[] = [];
+  const visit = (filter: QueryFilter): void => {
+    if (filter.kind === 'where') {
+      const value = filter.value;
+      if (
+        value === null || typeof value === 'string' ||
+        typeof value === 'number' || typeof value === 'boolean'
+      ) {
+        where.push(Object.freeze({
+          field: filter.field,
+          op: filter.op,
+          value,
+        }));
+      }
+      return;
+    }
+    if (filter.kind === 'and') filter.filters.forEach(visit);
+    // OR branches guarantee no individual predicate for every result.
+  };
+  execution.filters.forEach(visit);
+  return Object.freeze({
+    where: Object.freeze(where),
+    limit: execution.limitCount ?? null,
+    offset: null,
+    orderBy: execution.orders.length > 0 ? execution.orders[0]!.field : null,
+  });
+}
 
 export function gatherQueryRows(state: DocStore, scope: QueryScope): QueryRow[] {
   if (scope.kind === 'collection') {
