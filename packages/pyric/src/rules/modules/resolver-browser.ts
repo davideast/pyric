@@ -59,9 +59,11 @@ export function resolveModulesBrowser(
   source: string,
   options?: ResolveOptions,
 ): ResolveResult {
-  const callerModules = options?.modules ?? {};
+  const callerEntries = Object.entries(options?.modules ?? {});
+  const callerModules = Object.fromEntries(callerEntries);
+  const callerModuleNames = new Set(callerEntries.map(([name]) => name));
   const bundledModules = new Set(
-    [...BUNDLED_STDLIB_NAMES].filter((name) => !(name in callerModules)),
+    [...BUNDLED_STDLIB_NAMES].filter((name) => !callerModuleNames.has(name)),
   );
   return resolveModulesWith(null, source, {
     ...options,

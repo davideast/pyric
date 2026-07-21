@@ -128,6 +128,29 @@ service firebase.storage {
     if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
   });
 
+  test('rejects global helpers that reach imports through service helpers', () => {
+    const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { policy } from './policy';
+function globalGate() { return serviceGate(); }
+service firebase.storage {
+  function serviceGate() { return policy(); }
+  match /b/{bucket}/o { match /{file} { allow read: if globalGate(); } }
+}`, { modules: { './policy': 'export function policy() { return true; }' } });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+  });
+
+  test('preserves valid service helpers that call global helpers', () => {
+    const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { policy } from './policy';
+function globalGate() { return true; }
+service firebase.storage {
+  function serviceGate() { return globalGate() && policy(); }
+  match /b/{bucket}/o { match /{file} { allow read: if serviceGate(); } }
+}`, { modules: { './policy': 'export function policy() { return true; }' } });
+    expect(result.success).toBe(true);
+  });
+
   test('rejects imported function collisions in every source scope', () => {
     const declarations = {
       global: `function policy() { return true; }

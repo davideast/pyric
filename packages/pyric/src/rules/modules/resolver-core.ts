@@ -380,20 +380,23 @@ export function resolveModulesWith(
 
   const injectedNames = new Set(injected.map((fn) => fn.name));
   const globalFunctions = new Map((ast.functions ?? []).map((fn) => [fn.name, fn]));
-  const globalCallsImport = (fn: FunctionDef, visiting: ReadonlySet<string>): boolean => {
+  const serviceFunctionNames = new Set((ast.service.functions ?? []).map((fn) => fn.name));
+  const globalCallsServiceScope = (fn: FunctionDef, visiting: ReadonlySet<string>): boolean => {
     if (visiting.has(fn.name)) return false;
     const next = new Set([...visiting, fn.name]);
     const calls = [...fn.lets.flatMap(({ value }) => collectCalls(value)), ...collectCalls(fn.body)];
     return calls.some((call) => injectedNames.has(call) ||
-      globalFunctions.has(call) && globalCallsImport(globalFunctions.get(call)!, next));
+      serviceFunctionNames.has(call) ||
+      globalFunctions.has(call) && globalCallsServiceScope(globalFunctions.get(call)!, next));
   };
-  const invalidGlobal = [...globalFunctions.values()].find((fn) => globalCallsImport(fn, new Set()));
+  const invalidGlobal = [...globalFunctions.values()]
+    .find((fn) => globalCallsServiceScope(fn, new Set()));
   if (invalidGlobal) {
     return {
       success: false,
       error: {
         code: 'INCOMPATIBLE_FUNCTION',
-        message: `Global function '${invalidGlobal.name}' cannot call a service-scoped imported function`,
+        message: `Global function '${invalidGlobal.name}' cannot call a service-scoped function`,
       },
     };
   }

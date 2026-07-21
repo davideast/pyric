@@ -48,6 +48,23 @@ service firebase.storage {
     }
   });
 
+  it('ignores inherited module-map properties when classifying bundled provenance', () => {
+    const inherited = Object.create({
+      auth: 'export function isAuthenticated() { return false; }',
+    }) as Record<string, string>;
+    const result = resolveModulesBrowser(`rules_version = '2+modules';
+import { isAuthenticated } from 'auth';
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if isAuthenticated(); } }
+}`, { modules: inherited });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.resolved).toContain('request.auth != null');
+      expect(result.data.bundledModules).toEqual(['auth']);
+    }
+  });
+
+
   it('rejects Storage-only modules from a Firestore target', () => {
     const result = resolveModulesBrowser(`rules_version = '2+modules';
 import { sizeAtMost } from 'storage/uploads';
