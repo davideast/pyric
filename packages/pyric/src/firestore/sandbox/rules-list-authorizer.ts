@@ -1,12 +1,9 @@
 import type {
-  Expression,
-  FirestoreRules,
-  FunctionDef,
-  MatchBlock,
   SimulateFirestoreRulesHandler,
   TestCase,
 } from 'pyric/rules/internal';
 import { assembleRules, projectEvaluatedRule, renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
+import { proveGlobalCollectionGroupRules } from './collection-group-rule-proof.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import { makeError, type FirestoreSimError } from './errors.js';
 import {
@@ -94,7 +91,7 @@ export class RulesListAuthorizer {
 
     const deployedAst = this.rules.ast();
     const evaluationAst = request.collectionGroup
-      ? globalCollectionGroupRules(deployedAst)
+      ? proveGlobalCollectionGroupRules(deployedAst)
       : deployedAst;
     if (request.collectionGroup && !evaluationAst) {
       const message =
@@ -269,111 +266,3 @@ export class RulesListAuthorizer {
     if (origin === 'user') this.events.denial.emit(error);
   }
 }
-
-/**
- * A root-level `{document=**}` match governs every possible collection-group
- * result. Isolating only those universal blocks prevents a concrete root path
- * rule from accidentally authorizing the group's unbounded nested scope.
- * Group-specific `/{path=**}/items/{id}` proofs remain fail-closed until the
- * rules matcher can evaluate recursive wildcards with trailing segments.
- */
-function globalCollectionGroupRules(ast: FirestoreRules | null): FirestoreRules | null {
-  if (!ast) return null;
-  const outerFunctions = [
-    ...(ast.functions ?? []),
-    ...(ast.service.functions ?? []),
-    ...ast.service.match.functions,
-  ];
-  const children = ast.service.match.children.filter((block) =>
-    block.path.segments.length === 1 &&
-    block.path.segments[0]?.type === 'recursive' &&
-    globalRuleIsPathInvariant(block, outerFunctions) &&
-    block.allows.some((rule) => rule.operations.some((operation) =>
-      operation === 'list' || operation === 'read'
-    )),
-  );
-  if (children.length === 0) return null;
-  return {
-    ...ast,
-    service: {
-      ...ast.service,
-      match: {
-        ...ast.service.match,
-        children,
-      },
-    },
-  };
-}
-
-function globalRuleIsPathInvariant(
-  block: MatchBlock,
-  outerFunctions: readonly FunctionDef[],
-): boolean {
-  const segment = block.path.segments[0];
-  if (segment?.type !== 'recursive') return false;
-  const listRules = block.allows.filter((rule) => rule.operations.some((operation) =>
-    operation === 'list' || operation === 'read'
-  ));
-  const expressions = [
-    ...listRules.map((rule) => rule.condition),
-    ...[...outerFunctions, ...block.functions].flatMap((fn) => [
-      ...fn.lets.map((binding) => binding.value),
-      fn.body,
-    ]),
-  ];
-  return expressions.every((expression) =>
-    !expressionDependsOnPath(expression, segment.name)
-  );
-}
-
-function expressionDependsOnPath(expression: Expression, recursiveName: string): boolean {
-  const depends = (candidate: Expression): boolean =>
-    expressionDependsOnPath(candidate, recursiveName);
-  switch (expression.type) {
-    case 'literal':
-      return false;
-    case 'identifier':
-      // A bare request can be aliased and inspected later. Only explicit,
-      // path-invariant request fields are accepted below.
-      return expression.name === recursiveName || expression.name === 'request';
-    case 'memberAccess': {
-      if (expression.object.type === 'identifier' && expression.object.name === 'request') {
-        return !REQUEST_PATH_INVARIANT_FIELDS.has(expression.property);
-      }
-      return depends(expression.object);
-    }
-    case 'methodCall':
-      return depends(expression.object) || expression.args.some(depends);
-    case 'bracketAccess':
-      if (expression.object.type === 'identifier' && expression.object.name === 'request') {
-        return !(
-          expression.index.type === 'literal' &&
-          typeof expression.index.value === 'string' &&
-          REQUEST_PATH_INVARIANT_FIELDS.has(expression.index.value)
-        );
-      }
-      return depends(expression.object) || depends(expression.index);
-    case 'sliceAccess':
-      return depends(expression.object) || depends(expression.start) || depends(expression.end);
-    case 'binaryOp':
-      return depends(expression.left) || depends(expression.right);
-    case 'unaryOp':
-      return depends(expression.operand);
-    case 'ternary':
-      return depends(expression.condition) || depends(expression.consequent) || depends(expression.alternate);
-    case 'inExpr':
-      return depends(expression.element) || depends(expression.collection);
-    case 'isExpr':
-      return depends(expression.value);
-    case 'listLiteral':
-      return expression.elements.some(depends);
-    case 'mapLiteral':
-      return expression.entries.some((entry) => depends(entry.key) || depends(entry.value));
-    case 'pathLiteral':
-      return expression.segments.some((segment) => typeof segment !== 'string' && depends(segment));
-    case 'functionCall':
-      return expression.args.some(depends);
-  }
-}
-
-const REQUEST_PATH_INVARIANT_FIELDS = new Set(['auth', 'method', 'query', 'time']);

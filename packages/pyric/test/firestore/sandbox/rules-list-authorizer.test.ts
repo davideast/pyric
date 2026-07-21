@@ -32,6 +32,16 @@ function makeAuthorizer(source: string) {
   return { authorizer, events };
 }
 
+function authorizeCollectionGroup(source: string) {
+  return makeAuthorizer(source).authorizer.authorize({
+    path: 'items',
+    collectionGroup: true,
+    auth: null,
+    constraints: {},
+    origin: 'user',
+  });
+}
+
 describe('RulesListAuthorizer', () => {
   test('authorizes a provable list rule and emits one allow event', () => {
     const { authorizer, events } = makeAuthorizer(DATA_GATED_RULES);
@@ -147,5 +157,129 @@ describe('RulesListAuthorizer', () => {
       detail: { admin: true, activityQuery: { source: 'listener' } },
     });
     expect(requests[0]!.reasons[0]).toBe('admin lens — rules bypassed');
+  });
+
+  test('uses a safe universal allow when an unrelated allow is path-dependent', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{document=**} {
+          allow list: if true;
+          allow list: if request.path.document == 'items/__listPlaceholder__';
+        }
+      }
+    }`;
+
+    expect(authorizeCollectionGroup(rules)).toEqual({ allowed: true });
+  });
+
+  test('ignores an unused path-dependent helper when proving a safe universal allow', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{document=**} {
+          function unsafe() {
+            return request.path.document == 'items/__listPlaceholder__';
+          }
+          allow list: if true;
+        }
+      }
+    }`;
+
+    expect(authorizeCollectionGroup(rules)).toEqual({ allowed: true });
+  });
+
+  test('retains reachable path-invariant helpers in the projected ruleset', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        function signedOut() { return request.auth == null; }
+        match /{document=**} {
+          allow list: if signedOut();
+        }
+      }
+    }`;
+
+    expect(authorizeCollectionGroup(rules)).toEqual({ allowed: true });
+  });
+
+  test('fails closed when only the current root collection is authorized', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} { allow list: if true; }
+      }
+    }`;
+
+    expect(authorizeCollectionGroup(rules).allowed).toBe(false);
+  });
+
+  test('isolates universal rules so a root-only allow cannot mask their denial', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} { allow list: if true; }
+        match /{document=**} { allow list: if false; }
+      }
+    }`;
+
+    expect(authorizeCollectionGroup(rules).allowed).toBe(false);
+  });
+
+  test('fails closed when a universal rule depends on its recursive path binding', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{document=**} {
+          allow list: if request.path.document == 'items/__listPlaceholder__';
+        }
+      }
+    }`;
+
+    expect(authorizeCollectionGroup(rules).allowed).toBe(false);
+  });
+
+  test("fails closed for bracket access to request['path']", () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{document=**} {
+          allow list: if request['path'].document == 'items/__listPlaceholder__';
+        }
+      }
+    }`;
+
+    expect(authorizeCollectionGroup(rules).allowed).toBe(false);
+  });
+
+  test('fails closed when a reachable helper aliases the request before reading its path', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{document=**} {
+          function allowsSyntheticRoot() {
+            let aliased = request;
+            return aliased.path.document == 'items/__listPlaceholder__';
+          }
+          allow list: if allowsSyntheticRoot();
+        }
+      }
+    }`;
+
+    expect(authorizeCollectionGroup(rules).allowed).toBe(false);
+  });
+
+  test('fails closed for an empty group without authorizing from current rows', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} { allow list: if true; }
+      }
+    }`;
+
+    expect(authorizeCollectionGroup(rules).allowed).toBe(false);
+  });
+
+  test('fails closed for recursive-suffix collection-group rules', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{path=**}/items/{id} { allow list: if true; }
+      }
+    }`;
+
+    const result = authorizeCollectionGroup(rules);
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) expect(result.error.message).toContain('symbolic collection-group proof');
   });
 });
