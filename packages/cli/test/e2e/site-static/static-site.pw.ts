@@ -35,6 +35,10 @@ test('Studio loads at / with no console errors', async ({ page }) => {
   if (!workerUrl) throw new Error(`Studio did not request its SharedWorker bundle:\n${urls.join('\n')}`);
   expect(await page.evaluate(async (url) => (await fetch(url)).status, workerUrl)).toBe(200);
 
+  // The runtime keeps a hot-reload request open, so `networkidle` can never
+  // settle. Give the remaining mount effects one short, bounded turn before
+  // asserting that none reached for the retired server APIs.
+  await page.waitForTimeout(250);
   const retiredServerRoutes = /\/__pyric\/(state|projects|workspace|capture)(\?|$|\/)/;
   expect(urls.filter((url) => retiredServerRoutes.test(url))).toEqual([]);
   expect(errors, `uncaught page errors: ${errors.join('\n')}`).toEqual([]);
