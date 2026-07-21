@@ -204,7 +204,7 @@ export function createStudioEnvironment(
       dispose() {
         disposed = true;
         bridgeConnection?.disconnect();
-        live?.dispose();
+        void live?.dispose();
       },
     };
   }

@@ -91,6 +91,7 @@ import {
   type PresenceSession,
   readPyricRuntimeManifest,
   workerNameForEpoch,
+  disconnectClient,
 } from '@pyric/cli/serve/worker';
 
 export type { PresenceSnapshot };
@@ -241,7 +242,7 @@ export interface WorkerLivePlane {
   /** Live presence snapshots from the SharedWorker (authoritative). */
   subscribePresence(cb: (snapshot: PresenceSnapshot) => void): () => void;
   /** Stop page-lifetime listeners, presence, and worker replacement observers. */
-  dispose(): void;
+  dispose(): Promise<void>;
 }
 
 /**
@@ -380,13 +381,17 @@ export function connectWorkerLive(
   // handle reusing the same port (the single-backend invariant).
   const feed = workerEventFeed(db);
   const authHandle = workerGetAuth(db);
+  let disposed = false;
 
   return {
     db,
     runtime,
-    dispose: () => {
+    dispose: async () => {
+      if (disposed) return;
+      disposed = true;
       presence.stop();
       runtime.dispose();
+      await disconnectClient(db).catch(() => {});
     },
     presenceClientId: presence.clientId,
     subscribePresence: (cb) => workerSubscribePresence(db, cb),

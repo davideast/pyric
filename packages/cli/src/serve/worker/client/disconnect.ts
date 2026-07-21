@@ -1,4 +1,4 @@
-/** Internal app-port teardown; intentionally absent from the public worker-client barrel. */
+/** Browser-safe app-port teardown shared by served apps and Pyric Studio. */
 import type { InboundMessage } from '../protocol.js';
 import { disconnectPort, nextId, rawRpc } from './core.js';
 import type { ClientDb } from './handles.js';

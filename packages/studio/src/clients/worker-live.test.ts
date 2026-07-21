@@ -38,6 +38,7 @@ function shimSharedWorker(): () => void {
       start() {},
       onmessage: null as unknown,
       addEventListener() {},
+      close() {},
     };
     constructor(_url: unknown, _opts: unknown) {}
   };
@@ -112,6 +113,24 @@ describe('connectWorkerLive', () => {
     // app-session is the default → reads back as undefined (no lens).
     expect(plane.getLens()).toBeUndefined();
   });
+
+  it('disconnects and closes its SharedWorker port when disposed', async () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const plane = connectWorkerLive('worker://test')!;
+
+    const disposed = plane.dispose();
+    const disconnect = sw.port.sent.find(
+      (message): message is { t: 'disconnect'; id: string } =>
+        (message as { t?: string }).t === 'disconnect',
+    );
+    expect(disconnect).toBeDefined();
+
+    sw.deliver({ t: 'res', id: disconnect!.id, ok: true, value: null });
+    await disposed;
+
+    expect(sw.port.closeCalls).toBe(1);
+  });
 });
 
 /**
@@ -125,6 +144,7 @@ function controllableSharedWorker(): {
   port: {
     sent: unknown[];
     onmessage: ((ev: { data: unknown }) => void) | null;
+    closeCalls: number;
   };
   deliver: (msg: unknown) => void;
 } {
@@ -132,11 +152,15 @@ function controllableSharedWorker(): {
   const port = {
     sent: [] as unknown[],
     onmessage: null as ((ev: { data: unknown }) => void) | null,
+    closeCalls: 0,
     postMessage(msg: unknown) {
       port.sent.push(msg);
     },
     start() {},
     addEventListener() {},
+    close() {
+      port.closeCalls += 1;
+    },
   };
   (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
     port = port;

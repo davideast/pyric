@@ -39,6 +39,10 @@ export {
   onWorkerRuntimeReload,
   retireWorkerRuntime,
 } from './client/runtime-control.js';
+export {
+  disconnectClient,
+  type DisconnectClientOptions,
+} from './client/disconnect.js';
 
 export {
   // Bridge-peer relay seams (leaf-safe: ids are re-minted in-page, frames go
