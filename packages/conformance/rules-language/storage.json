@@ -152,6 +152,22 @@
       "note": "resource.bucket is the bucket the object resides in, sourced from the persisted record. Production returns it as a literal on the resource map; an absent bucket denies."
     },
     {
+      "id": "storage.binding.resource.generation",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#generation",
+      "status": "accepted",
+      "note": "Production types resource.generation as an int; exact comparison succeeds and an absent field errors and denies."
+    },
+    {
+      "id": "storage.binding.resource.metageneration",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#metageneration",
+      "status": "accepted",
+      "note": "Production types resource.metageneration as an int; captured together with generation on the existing-object binding."
+    },
+    {
       "id": "storage.function.timestamp.date",
       "kind": "function",
       "engine": "storage",
@@ -212,6 +228,33 @@
       "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "receiverType": "string"
+    },
+    {
+      "id": "storage.method.map.keys",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_keys_",
+      "status": "accepted",
+      "receiverType": "map",
+      "note": "Production Storage Rules Test API accepts request.resource.metadata.keys(); the local Storage evaluator does not implement it yet."
+    },
+    {
+      "id": "storage.method.map.get",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_get_",
+      "status": "accepted",
+      "receiverType": "map",
+      "note": "Production Storage Rules Test API accepts request.resource.metadata.get(key, default); the local Storage evaluator does not implement it yet."
+    },
+    {
+      "id": "storage.method.set.hasAll",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAll_",
+      "status": "accepted",
+      "receiverType": "set",
+      "note": "Production Storage Rules Test API accepts hasAll() on the set returned by custom-metadata keys(); the local Storage evaluator does not implement it yet."
     },
     {
       "id": "storage.operator.eq",

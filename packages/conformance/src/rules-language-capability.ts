@@ -351,7 +351,7 @@ export const ST_INPUT: EvaluationInput = {
   request: {
     auth: { uid: 'u', token: { admin: true } },
     method: 'read',
-    path: 'probe/x',
+    path: '/b/demo-pyric.appspot.com/o/probe/x',
     resource: { size: 10, contentType: 'text/plain', metadata: { owner: 'u' } },
   },
   // The existing-object binding carries the object-identity/time fields, so a
@@ -420,6 +420,9 @@ const ST_EXPR: Record<string, StProbe> = {
   'storage.function.firestore.get': { expr: "firestore.get(/databases/(default)/documents/u/x).data.k == 'v'" },
   'storage.function.firestore.exists': { expr: 'firestore.exists(/databases/(default)/documents/u/x)' },
   'storage.method.string.matches': { expr: "request.resource.contentType.matches('text/.*')" },
+  'storage.method.map.keys': { expr: "request.resource.metadata.keys().hasAll(['owner'])" },
+  'storage.method.map.get': { expr: "request.resource.metadata.get('owner', '') == 'u'" },
+  'storage.method.set.hasAll': { expr: "request.resource.metadata.keys().hasAll(['owner'])" },
   'storage.operator.eq': { expr: 'request.resource.size == 10' },
   'storage.operator.neq': { expr: 'request.resource.size != 0' },
   'storage.operator.lt': { expr: 'request.resource.size < 100' },
@@ -442,6 +445,8 @@ const ST_EXPR: Record<string, StProbe> = {
   // ST_EXPR is consulted before that heuristic.
   'storage.binding.resource.name': { expr: "resource.name.matches('probe/.*')" },
   'storage.binding.resource.bucket': { expr: 'resource.bucket == resource.bucket' },
+  'storage.binding.resource.generation': { expr: 'resource.generation == 1' },
+  'storage.binding.resource.metageneration': { expr: 'resource.metageneration == 1' },
   // Both timestamp probes compare the two object timestamps against EACH OTHER
   // rather than against `request.time`. A `request.time` comparison is not
   // time-independent: the acceptance probe pins production's request.time to

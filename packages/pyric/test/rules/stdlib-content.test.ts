@@ -18,6 +18,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STDLIB_INLINE } from '../../src/rules/modules/stdlib-content.js';
+import { STDLIB_SERVICE_CONTRACT_MODULES } from '../../src/rules/modules/resolver-core.js';
 
 const STDLIB_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -33,6 +34,11 @@ describe('STDLIB_INLINE — drift check against disk', () => {
     const inlineKeys = Object.keys(STDLIB_INLINE).sort();
     const diskKeys = diskFiles.map((f) => f.replace(/\.rules$/, '')).sort();
     expect(inlineKeys).toEqual(diskKeys);
+  });
+
+  it('requires an explicit service contract for every bundled module', () => {
+    const diskKeys = diskFiles.map((f) => f.replace(/\.rules$/, '')).sort();
+    expect(STDLIB_SERVICE_CONTRACT_MODULES).toEqual(diskKeys);
   });
 
   for (const file of diskFiles) {

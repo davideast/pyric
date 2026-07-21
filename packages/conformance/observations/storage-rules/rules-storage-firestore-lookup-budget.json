@@ -1,0 +1,377 @@
+{
+  "name": "rules-storage-firestore-lookup-budget",
+  "matrixRow": "Storage rules engine #129-#130",
+  "rowIds": ["storage-rules#129", "storage-rules#130"],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"firestore-lookup-budget\" (STORAGE-P3-LOOKUP-BUDGET). Mocked firestore.get/exists return, error, caching, distinct-document budget, and lazy-evaluation behavior without touching a real Firestore database.",
+  "observedAt": "2026-07-21T06:03:34.592Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "get: existing mocked document field allows": "ALLOW",
+    "get: missing mocked document field errors and denies": "DENY",
+    "exists: true mock allows": "ALLOW",
+    "exists: false mock denies": "DENY",
+    "budget: three repeated calls to one document allow": "ALLOW",
+    "budget: two distinct documents allow": "ALLOW",
+    "budget: three distinct documents deny": "ALLOW",
+    "cache: get and exists same path plus second document allow": "ALLOW",
+    "cache: literal and interpolated paths resolving identically allow": "ALLOW",
+    "lazy OR: true left branch skips unmocked lookup and allows": "ALLOW",
+    "lazy AND: false left branch skips unmocked lookup and denies": "DENY",
+    "lazy budget: short-circuited third distinct lookup does not deny": "ALLOW",
+    "ternary: authenticated branch executes only first lookup": "ALLOW",
+    "ternary: anonymous branch executes only alternate lookup": "DENY"
+  },
+  "diagnostics": {
+    "get: existing mocked document field allows": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 123,
+              "endOffset": 131
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "get: missing mocked document field errors and denies": {
+      "notes": [
+        "Error: storage.rules line [8], column [24]. Property missing is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 8,
+          "column": 24,
+          "currentOffset": 267,
+          "endOffset": 275
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          }
+        ]
+      }
+    },
+    "exists: true mock allows": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 403,
+              "endOffset": 411
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "exists: false mock denies": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 403,
+              "endOffset": 411
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "budget: three repeated calls to one document allow": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 24,
+              "currentOffset": 521,
+              "endOffset": 529
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "budget: two distinct documents allow": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/b"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 19,
+              "column": 24,
+              "currentOffset": 772,
+              "endOffset": 780
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "budget: three distinct documents deny": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/b"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/c"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 23,
+              "column": 24,
+              "currentOffset": 957,
+              "endOffset": 965
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "cache: get and exists same path plus second document allow": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/b"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 28,
+              "column": 24,
+              "currentOffset": 1224,
+              "endOffset": 1232
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "cache: literal and interpolated paths resolving identically allow": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/alice"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/alice"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 33,
+              "column": 24,
+              "currentOffset": 1518,
+              "endOffset": 1526
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "lazy OR: true left branch skips unmocked lookup and allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 37,
+              "column": 24,
+              "currentOffset": 1718,
+              "endOffset": 1721
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "lazy AND: false left branch skips unmocked lookup and denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 40,
+              "column": 24,
+              "currentOffset": 1847,
+              "endOffset": 1851
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "lazy budget: short-circuited third distinct lookup does not deny": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/b"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 43,
+              "column": 24,
+              "currentOffset": 1979,
+              "endOffset": 1987
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "ternary: authenticated branch executes only first lookup": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/probe/a"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 48,
+              "column": 24,
+              "currentOffset": 2244,
+              "endOffset": 2250
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "ternary: anonymous branch executes only alternate lookup": {
+      "notes": [
+        "Error: storage.rules line [48], column [24]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 48,
+          "column": 24,
+          "currentOffset": 2244,
+          "endOffset": 2250
+        }
+      }
+    }
+  }
+}

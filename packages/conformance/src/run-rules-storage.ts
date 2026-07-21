@@ -36,7 +36,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { TestFirestoreRulesResult } from '../../../packages/pyric/src/rules/test/spec.ts';
+import type { TestFirestoreRulesResult, TestResult } from '../../../packages/pyric/src/rules/test/spec.ts';
 import {
   ALL_RULES_STORAGE_SCENARIOS,
   RULES_STORAGE_OBSERVATION_PREFIX,
@@ -66,6 +66,7 @@ interface Observation {
   fbSdkVersion: string;
   projectId: string;
   behavior: Record<string, unknown>;
+  diagnostics?: Record<string, { notes?: string[]; api?: TestResult['api'] }>;
 }
 
 /** Absolute path an observation for `scenario` writes to. */
@@ -91,28 +92,76 @@ function verdictTable(
   return table;
 }
 
-function printInertPlan(): void {
+/** Keep hosted diagnostics next to advanced probe verdicts. Empty entries are
+ * omitted so ordinary observations stay compact. */
+export function diagnosticTable(
+  results: TestResult[],
+): Record<string, { notes?: string[]; api?: TestResult['api'] }> {
+  const table: Record<string, { notes?: string[]; api?: TestResult['api'] }> = {};
+  for (const result of results) {
+    const entry = {
+      ...(result.notes.length > 0 ? { notes: result.notes } : {}),
+      ...(result.api ? { api: result.api } : {}),
+    };
+    if (Object.keys(entry).length > 0) table[result.description] = entry;
+  }
+  return table;
+}
+
+export function selectStorageScenarios(
+  args: string[],
+  scenarios: StorageScenario[] = ALL_RULES_STORAGE_SCENARIOS,
+): StorageScenario[] {
+  const requested: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--scenario') {
+      const id = args[i + 1];
+      if (!id || id.startsWith('--')) throw new Error('--scenario requires a scenario id');
+      requested.push(id);
+      i += 1;
+    } else if (arg.startsWith('--scenario=')) {
+      const id = arg.slice('--scenario='.length);
+      if (!id) throw new Error('--scenario requires a scenario id');
+      requested.push(id);
+    }
+  }
+  if (requested.length === 0) return scenarios;
+
+  const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+  return requested.map((id) => {
+    const scenario = byId.get(id);
+    if (!scenario) {
+      throw new Error(
+        `Unknown Storage rules scenario '${id}'. Available: ${scenarios.map((item) => item.id).join(', ')}`,
+      );
+    }
+    return scenario;
+  });
+}
+
+function printInertPlan(scenarios: StorageScenario[]): void {
   console.log('[oracle:rules-storage] PARITY_SA_BASE64 not set — INERT preview, no network calls.\n');
   console.log(`  Credential env var expected: PARITY_SA_BASE64`);
   console.log(`    (base64-encoded service-account JSON with firebaserules.rulesets.test)\n`);
   console.log(`  Observation output directory: ${OBS_DIR}`);
   console.log(`  Observation filename prefix:  ${RULES_STORAGE_OBSERVATION_PREFIX}\n`);
-  console.log(`  Would capture ${ALL_RULES_STORAGE_SCENARIOS.length} scenario(s):`);
+  console.log(`  Would capture ${scenarios.length} scenario(s):`);
   let totalCases = 0;
-  for (const scenario of ALL_RULES_STORAGE_SCENARIOS) {
+  for (const scenario of scenarios) {
     totalCases += scenario.cases.length;
     console.log(
       `    - ${scenario.id.padEnd(28)} [${scenario.fm.padEnd(13)}] ` +
         `${String(scenario.cases.length).padStart(2)} cases → ${storageObservationName(scenario)}.json`,
     );
   }
-  console.log(`\n  Total: ${ALL_RULES_STORAGE_SCENARIOS.length} scenarios, ${totalCases} cases.`);
+  console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases} cases.`);
   console.log('\n  To capture for real:');
   console.log('    PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \\');
   console.log('      bun run packages/conformance/src/run-rules-storage.ts');
 }
 
-async function capture(): Promise<void> {
+async function capture(scenarios: StorageScenario[]): Promise<void> {
   // Heavy imports (firebase-admin credential + handler) deferred to the
   // credentialed path so the inert preview stays dependency-light.
   const { parityScope } = await import(
@@ -126,12 +175,19 @@ async function capture(): Promise<void> {
   const handler = new TestStorageRulesHandler();
   mkdirSync(OBS_DIR, { recursive: true });
 
-  console.log(`[oracle:rules-storage] capturing ${ALL_RULES_STORAGE_SCENARIOS.length} scenario(s) against project "${scope.projectId}"`);
+  console.log(`[oracle:rules-storage] capturing ${scenarios.length} scenario(s) against project "${scope.projectId}"`);
   console.log(`[oracle:rules-storage] firebase ${fbSdkVersion}\n`);
 
-  for (const scenario of ALL_RULES_STORAGE_SCENARIOS) {
+  for (const scenario of scenarios) {
     const res = await handler.execute(scope, scenario.rules, scenario.cases);
+    if (!res.success) {
+      throw new Error(
+        `Production Rules Test API failed for scenario "${scenario.id}": ` +
+          `${res.error.code} ${res.error.message}`,
+      );
+    }
     const behavior = verdictTable(scenario, res);
+    const diagnostics = diagnosticTable(res.data.results);
     const obs: Observation = {
       name: storageObservationName(scenario),
       matrixRow: '',
@@ -141,6 +197,7 @@ async function capture(): Promise<void> {
       fbSdkVersion,
       projectId: scope.projectId,
       behavior,
+      ...(Object.keys(diagnostics).length > 0 ? { diagnostics } : {}),
     };
     const path = observationPath(scenario);
     writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
@@ -159,9 +216,10 @@ async function capture(): Promise<void> {
 }
 
 if (import.meta.main) {
+  const scenarios = selectStorageScenarios(Bun.argv.slice(2));
   if (!process.env.PARITY_SA_BASE64) {
-    printInertPlan();
+    printInertPlan(scenarios);
     process.exit(0);
   }
-  await capture();
+  await capture(scenarios);
 }

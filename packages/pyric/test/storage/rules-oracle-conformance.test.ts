@@ -105,6 +105,30 @@ const KNOWN_DIVERGENCES: Record<
       'production throws a "Null value error" referencing `resource` on a create where no object exists yet (live-probed with both an omitted resource field and an explicit null — both denied identically), instead of evaluating `resource == null` as documented; the evaluator models resource as null on create and allows, per the documented semantics',
     issue: '#134',
   },
+  'rules-storage-upload-primitives-boundaries :: metadata keys: required keys with an extra key are allowed': {
+    prodVerdict: 'ALLOW',
+    evalVerdict: 'DENY',
+    reason: 'production supports Map.keys().hasAll() on Storage custom metadata; the local Storage evaluator does not implement either method yet',
+    issue: '#134',
+  },
+  'rules-storage-upload-primitives-boundaries :: metadata get: missing key returns supplied default': {
+    prodVerdict: 'ALLOW',
+    evalVerdict: 'DENY',
+    reason: 'production supports Map.get(key, default) on Storage custom metadata; the local Storage evaluator does not implement Map.get yet',
+    issue: '#134',
+  },
+  'rules-storage-upload-primitives-boundaries :: delete: missing request.resource does not become a usable null guard': {
+    prodVerdict: 'DENY',
+    evalVerdict: 'ALLOW',
+    reason: 'production errors when request.resource is absent on delete, while the local evaluator models the absent incoming resource as null and lets the null guard allow',
+    issue: '#134',
+  },
+  'rules-storage-firestore-lookup-budget :: ternary: anonymous branch executes only alternate lookup': {
+    prodVerdict: 'DENY',
+    evalVerdict: 'ALLOW',
+    reason: 'production treats absent request.auth as an error in the ternary condition before branch selection; the local evaluator models it as null, selects the alternate branch, and allows',
+    issue: '#134',
+  },
 };
 
 function loadObservation(file: string): RulesObservation {

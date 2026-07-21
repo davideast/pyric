@@ -300,15 +300,18 @@ Today's sideways edges, enumerated:
    second vote for the shared-leaf move: when the leaf lands, both edges
    dissolve together.
 
-3. **storage -> rules/grammar, shared syntax layer only.** Firebase Security
+3. **storage -> rules grammar and module compiler, no foreign evaluator.** Firebase Security
    Rules is one language (#150); `storage/rules.ts` parses via the shared Ohm
    grammar (`rules/grammar/FirestoreParser.js`, `rules/grammar/FirestoreAST.js`)
-   and converts the shared AST into its own evaluator shapes. Ruling: permitted,
-   because the syntax layer is engine-neutral by design (its `serviceName` and
-   `Operation` productions are generic) and the alternative is the hand-rolled
-   parser drift #150 exists to kill. The dependency is parse-only: storage
-   imports no simulator, linter, or evaluation code from `rules/` (the float
-   wrapper edge above is tracked separately). Encode narrowly (8.7 check 2).
+   and converts the shared AST into its own evaluator shapes. Storage service
+   setup also calls the browser-safe module compiler
+   (`rules/modules/resolver-browser.js`) to lower `2+modules` source after its
+   service contracts have rejected incompatible exports and bindings. Ruling:
+   permitted, because grammar and module lowering are engine-neutral compiler
+   capabilities and the alternative is service-specific parser/compiler drift.
+   Storage imports no Firestore simulator, linter, or evaluation code from
+   `rules/` (the float wrapper edge above is tracked separately). Encode
+   narrowly (8.7 check 2).
 
 4. **app/dispatch.test.ts -> firestore/auth/database barrels.** An app-registry
    integration test importing surface barrels to exercise their public service
@@ -413,7 +416,9 @@ every rule in this section mechanically.
    syntax layer `rules/grammar/{FirestoreParser,FirestoreAST}.js` (8.3 case 3,
    parse-only); (d) `storage/rules.ts` importing
    `rules/simulator/wrappers/float.js` (8.3 case 2's misfiled shared primitive,
-   second consumer — dissolves with the shared-leaf move). Any other
+   second consumer — dissolves with the shared-leaf move); (e)
+   `storage/service.ts` importing the browser-safe module compiler
+   `rules/modules/resolver-browser.js` (8.3 case 3, compile-only). Any other
    cross-surface deep import fails.
 
 3. **Central-sandbox whitelist.** The top-level entries of `src/sandbox/` must

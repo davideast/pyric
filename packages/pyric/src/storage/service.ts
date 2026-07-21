@@ -28,6 +28,7 @@ import {
 } from 'pyric/sandbox/internal';
 import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
 import { parseStorageRules, type StorageRules } from './rules.js';
+import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
 
 /**
  * Default sandbox bucket identifier. v1 has a single implicit
@@ -184,7 +185,20 @@ function ensureService(
     }
     return existing;
   }
-  const rules = options.rules ? parseStorageRules(options.rules) : null;
+  let rules: StorageRules | null = null;
+  if (options.rules) {
+    let source = options.rules;
+    if (/rules_version\s*=\s*['"]2\+modules['"]\s*;/.test(source)) {
+      const resolved = resolveModulesBrowser(source);
+      if (!resolved.success) {
+        throw new SyntaxError(
+          `Storage rules module resolution failed (${resolved.error.code}): ${resolved.error.message}`,
+        );
+      }
+      source = resolved.data.resolved;
+    }
+    rules = parseStorageRules(source);
+  }
   // Explicit dbName wins; otherwise scope the default by project identity so
   // two projects on one origin never share a storage database (issue #359).
   const servicePromise = openStorageBackend(

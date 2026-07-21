@@ -11,6 +11,164 @@ import type { FunctionDef, Expression } from '../grammar/FirestoreAST.js';
 
 const BUILTIN_FUNCTIONS = new Set(['get', 'exists', 'getAfter', 'debug']);
 
+type RulesServiceName = 'cloud.firestore' | 'firebase.storage';
+
+interface ModuleContract {
+  defaultServices: readonly RulesServiceName[];
+  exports?: Readonly<Record<string, readonly RulesServiceName[]>>;
+}
+
+const FIRESTORE_ONLY: readonly RulesServiceName[] = ['cloud.firestore'];
+const FIRESTORE_AND_STORAGE: readonly RulesServiceName[] = ['cloud.firestore', 'firebase.storage'];
+
+/**
+ * Reviewed service contracts for the bundled standard library. The catalog is
+ * Firestore-first today; only auth and membership have bodies whose complete
+ * ambient-binding surface has been admitted for Storage. Keeping this list
+ * fail-closed prevents a newly added Firestore module from silently becoming a
+ * Storage promise merely because both services share a parser.
+ *
+ * `exports` permits a mixed module to admit individual functions later without
+ * widening every export in the file.
+ */
+const STDLIB_MODULE_CONTRACTS: Readonly<Record<string, ModuleContract>> = {
+  auth: { defaultServices: FIRESTORE_AND_STORAGE },
+  membership: { defaultServices: FIRESTORE_AND_STORAGE },
+  atomic: { defaultServices: FIRESTORE_ONLY },
+  content: { defaultServices: FIRESTORE_ONLY },
+  counters: { defaultServices: FIRESTORE_ONLY },
+  geometry: { defaultServices: FIRESTORE_ONLY },
+  joining: { defaultServices: FIRESTORE_ONLY },
+  lifecycle: { defaultServices: FIRESTORE_ONLY },
+  lobby: { defaultServices: FIRESTORE_ONLY },
+  spaces: { defaultServices: FIRESTORE_ONLY },
+  state: { defaultServices: FIRESTORE_ONLY },
+  timing: { defaultServices: FIRESTORE_ONLY },
+  transitions: { defaultServices: FIRESTORE_ONLY },
+  turns: { defaultServices: FIRESTORE_ONLY },
+  validation: { defaultServices: FIRESTORE_ONLY },
+};
+
+/**
+ * Bundled modules that have an explicit service contract. Exported for the
+ * stdlib drift test: adding a module to the bundle without classifying its
+ * supported services must fail CI instead of silently widening the Storage
+ * surface.
+ */
+export const STDLIB_SERVICE_CONTRACT_MODULES = Object.freeze(
+  Object.keys(STDLIB_MODULE_CONTRACTS).sort(),
+);
+
+function stdlibContractKey(moduleName: string): string {
+  const pathMatch = moduleName.match(/^\.\/stdlib\/([^/]+?)(?:\.rules)?$/);
+  return pathMatch?.[1] ?? moduleName;
+}
+
+function incompatibleStdlibExport(
+  service: RulesServiceName,
+  moduleName: string,
+  functionName: string,
+): string | null {
+  const contract = STDLIB_MODULE_CONTRACTS[stdlibContractKey(moduleName)];
+  if (!contract) return null;
+  const services = contract.exports?.[functionName] ?? contract.defaultServices;
+  return services.includes(service)
+    ? null
+    : `Function '${functionName}' from module '${moduleName}' is not compatible with service '${service}'`;
+}
+
+function storageIncompatibility(expr: Expression): string | null {
+  const walk = (e: Expression): string | null => {
+    switch (e.type) {
+      case 'memberAccess': {
+        if (
+          e.property === 'data' &&
+          (e.object.type === 'identifier' && e.object.name === 'resource' ||
+            e.object.type === 'memberAccess' &&
+            e.object.property === 'resource' &&
+            e.object.object.type === 'identifier' &&
+            e.object.object.name === 'request')
+        ) {
+          return `binding '${e.object.type === 'identifier' ? 'resource.data' : 'request.resource.data'}'`;
+        }
+        return walk(e.object);
+      }
+      case 'functionCall': {
+        if (BUILTIN_FUNCTIONS.has(e.name)) return `function '${e.name}()'`;
+        for (const arg of e.args) {
+          const issue = walk(arg);
+          if (issue) return issue;
+        }
+        return null;
+      }
+      case 'methodCall': {
+        if (e.object.type === 'identifier') {
+          const namespace = e.object.name;
+          const allowedNamespaceMethod =
+            namespace === 'timestamp' && (e.method === 'date' || e.method === 'value') ||
+            namespace === 'duration' && e.method === 'value' ||
+            namespace === 'firestore' && (e.method === 'get' || e.method === 'exists');
+          if (allowedNamespaceMethod) {
+            for (const arg of e.args) {
+              const issue = walk(arg);
+              if (issue) return issue;
+            }
+            return null;
+          }
+        }
+        if (e.method !== 'matches' && e.method !== 'split' && e.method !== 'size') {
+          return `method '.${e.method}()'`;
+        }
+        const objectIssue = walk(e.object);
+        if (objectIssue) return objectIssue;
+        for (const arg of e.args) {
+          const issue = walk(arg);
+          if (issue) return issue;
+        }
+        return null;
+      }
+      case 'binaryOp': return walk(e.left) ?? walk(e.right);
+      case 'unaryOp': return walk(e.operand);
+      case 'bracketAccess': return walk(e.object) ?? walk(e.index);
+      case 'sliceAccess': return walk(e.object) ?? walk(e.start) ?? walk(e.end);
+      case 'ternary': return walk(e.condition) ?? walk(e.consequent) ?? walk(e.alternate);
+      case 'inExpr': return walk(e.element) ?? walk(e.collection);
+      case 'isExpr': return walk(e.value);
+      case 'listLiteral':
+        for (const element of e.elements) {
+          const issue = walk(element);
+          if (issue) return issue;
+        }
+        return null;
+      case 'mapLiteral':
+        for (const entry of e.entries) {
+          const issue = walk(entry.key) ?? walk(entry.value);
+          if (issue) return issue;
+        }
+        return null;
+      case 'pathLiteral':
+        for (const segment of e.segments) {
+          if (typeof segment !== 'string') {
+            const issue = walk(segment);
+            if (issue) return issue;
+          }
+        }
+        return null;
+      default:
+        return null;
+    }
+  };
+  return walk(expr);
+}
+
+function incompatibleStorageFunction(fn: FunctionDef): string | null {
+  for (const binding of fn.lets) {
+    const issue = storageIncompatibility(binding.value);
+    if (issue) return issue;
+  }
+  return storageIncompatibility(fn.body);
+}
+
 /**
  * Injectable disk access for the two load paths that read files: relative
  * imports (priority 2) and the on-disk stdlib fallback (priority 4). The
@@ -317,6 +475,12 @@ export function resolveModulesWith(
           : `Function '${fnName}' not found in module '${imp.module}'`;
         return { success: false, error: { code: 'UNKNOWN_FUNCTION', message: msg } };
       }
+      if (ast.service.name === 'cloud.firestore' || ast.service.name === 'firebase.storage') {
+        const message = incompatibleStdlibExport(ast.service.name, imp.module, fnName);
+        if (message) {
+          return { success: false, error: { code: 'INCOMPATIBLE_FUNCTION', message } };
+        }
+      }
     }
   }
 
@@ -356,6 +520,21 @@ export function resolveModulesWith(
   for (const imp of ast.imports) {
     for (const fnName of imp.functions) {
       addWithDeps(fnName);
+    }
+  }
+
+  if (ast.service.name === 'firebase.storage') {
+    for (const fn of injected) {
+      const requirement = incompatibleStorageFunction(fn);
+      if (requirement) {
+        return {
+          success: false,
+          error: {
+            code: 'INCOMPATIBLE_FUNCTION',
+            message: `Function '${fn.name}' requires unsupported ${requirement} for service 'firebase.storage'`,
+          },
+        };
+      }
     }
   }
 

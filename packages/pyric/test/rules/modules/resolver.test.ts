@@ -93,6 +93,14 @@ service cloud.firestore {
   }
 }`;
 
+const makeStorageSource = (imports: string, condition: string) => `rules_version = '2+modules';
+${imports}
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow read, write: if ${condition}; }
+  }
+}`;
+
 describe('resolveModules', () => {
   test('resolves single module', () => {
     const result = resolveModules(makeSource("import { isAuthenticated } from 'auth';"));
@@ -189,6 +197,74 @@ service cloud.firestore {
     const result = resolveModules(makeSource("import { isOwner } from 'auth';"));
     if (result.success) {
       expect(result.data.resolved).not.toContain('import');
+    }
+  });
+});
+
+describe('service-aware module compatibility', () => {
+  test('admits every production-probed common auth and membership export in Storage', () => {
+    const result = resolveModules(makeStorageSource(
+      `import { isAuthenticated, isOwner } from 'auth';
+import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
+      "isAuthenticated() && isOwner(request.auth.uid) && hasClaim('plan') && hasClaimRole('role', 'editor') && isMemberOf(request.auth.token.members) && hasRole(request.auth.token.members, 'editor')",
+    ));
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.modules).toEqual(['auth', 'membership']);
+      expect(result.data.resolved).toContain("rules_version = '2';");
+      expect(result.data.resolved).not.toContain('import ');
+      const resolved = parseToAST(result.data.resolved);
+      expect(resolved.service.name).toBe('firebase.storage');
+      expect(resolved.service.match.functions.map((fn) => fn.name)).toEqual([
+        'isAuthenticated',
+        'isOwner',
+        'hasClaim',
+        'hasClaimRole',
+        'isMemberOf',
+        'hasRole',
+      ]);
+    }
+  });
+
+  test('rejects a Firestore-only stdlib export in Storage before emitting source', () => {
+    const result = resolveModules(makeStorageSource(
+      "import { immutableFields } from 'lifecycle';",
+      "immutableFields(['owner'])",
+    ));
+
+    expect(result).toEqual({
+      success: false,
+      error: {
+        code: 'INCOMPATIBLE_FUNCTION',
+        message: "Function 'immutableFields' from module 'lifecycle' is not compatible with service 'firebase.storage'",
+      },
+    });
+  });
+
+  test('rejects an incompatible transitive private helper from a caller module', () => {
+    const result = resolveModules(
+      makeStorageSource("import { allowed } from './policy';", 'allowed()'),
+      {
+        modules: {
+          './policy': `
+            function firestoreDocumentOwner() {
+              return resource.data.owner;
+            }
+            export function allowed() {
+              return firestoreDocumentOwner() == request.auth.uid;
+            }
+          `,
+        },
+      },
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+      expect(result.error.message).toContain('policy__firestoreDocumentOwner');
+      expect(result.error.message).toContain("binding 'resource.data'");
+      expect(result.error.message).toContain("service 'firebase.storage'");
     }
   });
 });

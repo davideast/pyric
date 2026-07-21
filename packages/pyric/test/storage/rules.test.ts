@@ -884,6 +884,51 @@ function authedStorage(label: string, auth: { uid: string } | null) {
 }
 
 describe('uploadBytes with rules', () => {
+  it('rejects a Firestore-only module during Storage setup', () => {
+    const sandbox = initializeSandbox({});
+    expect(() => getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('modules-incompatible'),
+      rules: `rules_version = '2+modules';
+import { immutableFields } from 'lifecycle';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileId} {
+      allow create: if immutableFields(['owner']);
+    }
+  }
+}`,
+    })).toThrow(/INCOMPATIBLE_FUNCTION.*immutableFields.*firebase\.storage/);
+  });
+
+  it('resolves a checked auth module before enforcing Storage rules', async () => {
+    const moduleRules = `rules_version = '2+modules';
+import { isAuthenticated } from 'auth';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileId} {
+      allow create: if isAuthenticated();
+    }
+  }
+}`;
+    const authedSandbox = initializeSandbox({});
+    const authed = getStorageSandbox(authedSandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('modules-auth-allow'),
+      rules: moduleRules,
+    });
+    await expect(
+      uploadBytes(ref(authed, 'uploads/a.txt'), new Blob(['ok'])),
+    ).resolves.toBeDefined();
+
+    const anonSandbox = initializeSandbox({});
+    const anon = getStorageSandbox(anonSandbox.withAuth(null), {
+      dbName: uniqueDbName('modules-auth-deny'),
+      rules: moduleRules,
+    });
+    await expect(
+      uploadBytes(ref(anon, 'uploads/a.txt'), new Blob(['no'])),
+    ).rejects.toThrow(/unauthorized/);
+  });
+
   it('maps ordinary SDK object paths into the canonical bucket rules namespace', async () => {
     const storage = authedStorage('upload-canonical-path', { uid: 'alice' });
     const ordinaryRef = ref(storage, 'sessions/s1.json');
