@@ -7,13 +7,10 @@
  */
 import type { StorageScenarioRecord } from './types.ts';
 
-const metadataMethodsGap =
-  'The local Storage evaluator does not yet implement Map.keys/Map.get/Set.hasAll; capture production before deciding whether to add them.';
-
 export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-P2-PRIMITIVES',
   rationale:
-    'Boundary-first evidence for possible Storage size, MIME, metadata, path, identity, and time helpers; metadata methods remain unimplemented locally until production establishes their contract.',
+    'Boundary-first evidence for Storage size, MIME, metadata, path, identity, and time helpers, including production-pinned metadata collection methods.',
   rules: `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
@@ -81,10 +78,10 @@ service firebase.storage {
     { description: 'MIME regex: suffix defeats whole-string match', expectation: 'DENY', method: 'create', path: 'mime-regex/a.jpg', resource: { size: 1, contentType: 'image/jpeg-extra' } },
 
     { description: 'metadata keys: required keys with an extra key are allowed', expectation: 'ALLOW', method: 'create', path: 'metadata-required/a.bin', resource: { size: 1, metadata: { owner: 'alice', purpose: 'avatar', extra: 'ok' } } },
-    { description: 'metadata keys: missing required key is denied', expectation: 'DENY', method: 'create', path: 'metadata-required/a.bin', resource: { size: 1, metadata: { owner: 'alice' } }, knownGap: metadataMethodsGap },
-    { description: 'metadata keys: absent metadata map is denied', expectation: 'DENY', method: 'create', path: 'metadata-required/a.bin', resource: { size: 1 }, knownGap: metadataMethodsGap },
+    { description: 'metadata keys: missing required key is denied', expectation: 'DENY', method: 'create', path: 'metadata-required/a.bin', resource: { size: 1, metadata: { owner: 'alice' } } },
+    { description: 'metadata keys: absent metadata map is denied', expectation: 'DENY', method: 'create', path: 'metadata-required/a.bin', resource: { size: 1 } },
     { description: 'metadata get: missing key returns supplied default', expectation: 'ALLOW', method: 'create', path: 'metadata-default/a.bin', resource: { size: 1, metadata: {} } },
-    { description: 'metadata get: present non-default value is denied', expectation: 'DENY', method: 'create', path: 'metadata-default/a.bin', resource: { size: 1, metadata: { visibility: 'public' } }, knownGap: metadataMethodsGap },
+    { description: 'metadata get: present non-default value is denied', expectation: 'DENY', method: 'create', path: 'metadata-default/a.bin', resource: { size: 1, metadata: { visibility: 'public' } } },
 
     { description: 'metadata update: unchanged bytes and owner are allowed', expectation: 'ALLOW', method: 'update', path: 'metadata-update/a.bin', resource: { size: 8, metadata: { owner: 'alice', label: 'new' } }, existingResource: { size: 8, metadata: { owner: 'alice', label: 'old' } } },
     { description: 'metadata update: changed byte size is denied', expectation: 'DENY', method: 'update', path: 'metadata-update/a.bin', resource: { size: 9, metadata: { owner: 'alice' } }, existingResource: { size: 8, metadata: { owner: 'alice' } } },

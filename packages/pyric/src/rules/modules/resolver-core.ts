@@ -7,7 +7,7 @@
  */
 import { parseToASTOrError, parseFunctions } from '../grammar/FirestoreParser.js';
 import { assembleRules } from '../grammar/FirestoreAssembler.js';
-import type { FunctionDef, Expression, FirestoreRules, MatchBlock } from '../grammar/FirestoreAST.js';
+import type { FunctionDef, Expression } from '../grammar/FirestoreAST.js';
 import {
   incompatibleFunction,
   incompatibleStdlibExport,
@@ -15,6 +15,11 @@ import {
 import {
   prefixPrivateFunctions,
 } from './resolver-transform.js';
+import {
+  collectFunctionCalls,
+  moduleCallSites,
+  type ModuleCallSite,
+} from './resolver-call-sites.js';
 export {
   prefixPrivateFunctions,
   rewriteCalls,
@@ -60,56 +65,8 @@ type LoadResult =
 
 // ---- Function call collection (for transitive deps) ----
 
-type FunctionCallExpression = Extract<Expression, { type: 'functionCall' }>;
-
-function collectFunctionCalls(expr: Expression): FunctionCallExpression[] {
-  const calls: FunctionCallExpression[] = [];
-  const walk = (e: Expression) => {
-    switch (e.type) {
-      case 'functionCall': calls.push(e); e.args.forEach(walk); break;
-      case 'binaryOp': walk(e.left); walk(e.right); break;
-      case 'unaryOp': walk(e.operand); break;
-      case 'methodCall': walk(e.object); e.args.forEach(walk); break;
-      case 'memberAccess': walk(e.object); break;
-      case 'bracketAccess': walk(e.object); walk(e.index); break;
-      case 'sliceAccess': walk(e.object); walk(e.start); walk(e.end); break;
-      case 'ternary': walk(e.condition); walk(e.consequent); walk(e.alternate); break;
-      case 'inExpr': walk(e.element); walk(e.collection); break;
-      case 'isExpr': walk(e.value); break;
-      case 'listLiteral': e.elements.forEach(walk); break;
-      case 'mapLiteral': e.entries.forEach(en => { walk(en.key); walk(en.value); }); break;
-      case 'pathLiteral': e.segments.forEach(segment => {
-        if (typeof segment !== 'string') walk(segment);
-      }); break;
-      case 'literal':
-      case 'identifier': break;
-      default: assertNever(e);
-    }
-  };
-  walk(expr);
-  return calls;
-}
-
 function collectCalls(expr: Expression): string[] {
   return collectFunctionCalls(expr).map(({ name }) => name);
-}
-
-function moduleCallSites(ast: FirestoreRules, functionName: string): readonly Expression[][] {
-  const expressions: Expression[] = [];
-  const addFunction = (fn: FunctionDef) => {
-    expressions.push(...fn.lets.map(({ value }) => value), fn.body);
-  };
-  const addMatch = (match: MatchBlock) => {
-    match.functions.forEach(addFunction);
-    expressions.push(...match.allows.map(({ condition }) => condition));
-    match.children.forEach(addMatch);
-  };
-  ast.functions?.forEach(addFunction);
-  ast.service.functions?.forEach(addFunction);
-  addMatch(ast.service.match);
-  return expressions.flatMap(collectFunctionCalls)
-    .filter(({ name }) => name === functionName)
-    .map(({ args }) => args);
 }
 
 function functionCallSites(
@@ -343,13 +300,19 @@ export function resolveModulesWith(
 
   if (ast.service.name === 'firebase.storage' || ast.service.name === 'cloud.firestore') {
     for (const fn of injected) {
-      const callSites = [
+      const callSites: ModuleCallSite[] = [
         ...moduleCallSites(ast, fn.name),
-        ...functionCallSites(allModuleFunctions, fn.name),
+        ...functionCallSites(allModuleFunctions, fn.name).map((args) => ({ args, receiverTypes: [] })),
       ];
-      const argumentSets = callSites.length > 0 ? callSites : [[]];
-      for (const args of argumentSets) {
-        const requirement = incompatibleFunction(fn, ast.service.name, allModuleFunctions, args);
+      const argumentSets = callSites.length > 0 ? callSites : [{ args: [], receiverTypes: [] }];
+      for (const { args, receiverTypes } of argumentSets) {
+        const requirement = incompatibleFunction(
+          fn,
+          ast.service.name,
+          allModuleFunctions,
+          args,
+          receiverTypes,
+        );
         if (requirement) {
           return {
             success: false,

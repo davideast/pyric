@@ -4,7 +4,7 @@
   "sources": [
     "Firebase Storage Security Rules language reference (firebase.google.com/docs/reference/security/storage)",
     "Storage security rules conditions guide",
-    "Repo ground truth: src/storage/rules.ts (parseStorageRules + evaluateStorageRules, the standalone subset)"
+    "Repo ground truth: packages/pyric/src/storage/sandbox/rules.ts (parser) and rules-evaluator.ts (evaluator)"
   ],
   "constructs": [
     {

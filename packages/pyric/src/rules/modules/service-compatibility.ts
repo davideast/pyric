@@ -552,6 +552,7 @@ export function incompatibleFunction(
   service: RulesServiceName,
   functions: ReadonlyMap<string, FunctionDef> = new Map([[fn.name, fn]]),
   args: readonly Expression[] = [],
+  argReceiverTypes: readonly (RulesReceiverType | null)[] = [],
 ): string | null {
   const rootCtx: AnalysisContext = {
     aliases: new Map(),
@@ -568,8 +569,7 @@ export function incompatibleFunction(
     receiverTypes: new Map(fn.parameters.map((parameter, index) => [
       parameter,
       args[index]
-        ? expressionReceiverType(args[index]!, rootCtx) ??
-          (args[index]!.type === 'identifier' ? 'path' : null)
+        ? expressionReceiverType(args[index]!, rootCtx) ?? argReceiverTypes[index] ?? null
         : null,
     ])),
     functions,

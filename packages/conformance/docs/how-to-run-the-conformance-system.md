@@ -332,11 +332,11 @@ rtdb-modular               79.5%          53.3%             82.1%               
 storage                    72.2%          52.9%               86%                93.5%          6            0
 messaging                   100%           100%              100%                 100%          0            0
 functions-rtdb       integration    integration             92.3%                92.3%          0            1
-firestore-rules           native         native               72%                  72%          7            0
-storage-rules             native         native             94.4%                94.4%          1            0
+firestore-rules           native         native             74.1%                74.1%          7            0
+storage-rules             native         native             96.9%                96.9%          1            0
 rtdb-rules                native         native              100%                 100%          0            0
 ---------------------------------------------------------------------------------------------------------
-OVERALL                    73.5%          54.8%             84.3%                88.9%         67           15
+OVERALL                    73.5%          54.8%             84.6%                89.1%         67           15
 
 High-risk unverified conforms rows: 5
 Orphan observations: 0

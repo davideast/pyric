@@ -15,17 +15,10 @@
  * this completeness check is live even before any data exists.
  *
  * KNOWN-GAP CASES: the storage evaluator has no `UNSUPPORTED` verdict channel
- * (it returns allow/deny), so a case exercising a field the evaluator does not
- * model (e.g. resource.timeCreated) is marked `knownGap` in the corpus. Those
- * cases are RECORDED but NOT ASSERTED here — the exact analogue of the
- * Firestore replay skipping its simulator's UNSUPPORTED abstentions.
- *
- * STAGING STATE: no `rules-storage-*` observation has been captured yet (no
- * credentials were available to the staging branch, and no observation files
- * were fabricated). While the observation set is empty this suite SKIPS the
- * replay with a clear message and passes. The moment a capture lands, the
- * assertions go live verdict-for-verdict with no further edits — run
- * `packages/conformance/src/run-rules-storage.ts` with PARITY_SA_BASE64 to produce them.
+ * (it returns allow/deny), so any explicitly retained `knownGap` case is
+ * recorded but not asserted. Current captured Storage observations replay
+ * without known-gap skips; documented divergences remain registry rows rather
+ * than hidden expectations in this harness.
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
