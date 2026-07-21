@@ -5,6 +5,25 @@ export interface ListRulePathAnalysis {
   requiredFunctions: ReadonlySet<string>;
 }
 
+export interface ListRuleFunctionScope {
+  functions: Map<string, FunctionDef>;
+  ambiguousNames: ReadonlySet<string>;
+}
+
+/** Builds the simulator's nearest-definition lookup while retaining name
+ * collisions that require conservative proof behavior. */
+export function buildListRuleFunctionScope(
+  definitions: readonly FunctionDef[],
+): ListRuleFunctionScope {
+  const functions = new Map<string, FunctionDef>();
+  const ambiguousNames = new Set<string>();
+  for (const fn of definitions) {
+    if (functions.has(fn.name)) ambiguousNames.add(fn.name);
+    functions.set(fn.name, fn);
+  }
+  return { functions, ambiguousNames };
+}
+
 /**
  * Proves that a list rule cannot change its decision across candidate paths.
  * Candidate document wildcards and `request.path` are result-dependent;
@@ -14,6 +33,7 @@ export function analyzeListRulePathInvariance(
   expression: Expression,
   candidateVariables: ReadonlySet<string>,
   functions: ReadonlyMap<string, FunctionDef>,
+  ambiguousFunctions: ReadonlySet<string> = EMPTY_NAMES,
 ): ListRulePathAnalysis {
   const requiredFunctions = new Set<string>();
   return {
@@ -21,6 +41,7 @@ export function analyzeListRulePathInvariance(
       expression,
       candidateVariables,
       functions,
+      ambiguousFunctions,
       new Set(),
       new Set(),
       requiredFunctions,
@@ -33,6 +54,7 @@ function expressionDependsOnPath(
   expression: Expression,
   candidateVariables: ReadonlySet<string>,
   functions: ReadonlyMap<string, FunctionDef>,
+  ambiguousFunctions: ReadonlySet<string>,
   locals: ReadonlySet<string>,
   visiting: ReadonlySet<string>,
   requiredFunctions: Set<string>,
@@ -41,6 +63,7 @@ function expressionDependsOnPath(
     candidate,
     candidateVariables,
     functions,
+    ambiguousFunctions,
     locals,
     visiting,
     requiredFunctions,
@@ -89,6 +112,7 @@ function expressionDependsOnPath(
       return expression.segments.some((segment) => typeof segment !== 'string' && depends(segment));
     case 'functionCall': {
       if (expression.args.some(depends)) return true;
+      if (ambiguousFunctions.has(expression.name)) return true;
       const fn = functions.get(expression.name);
       if (!fn) return false;
       requiredFunctions.add(fn.name);
@@ -100,6 +124,7 @@ function expressionDependsOnPath(
           binding.value,
           candidateVariables,
           functions,
+          ambiguousFunctions,
           fnLocals,
           nextVisiting,
           requiredFunctions,
@@ -110,6 +135,7 @@ function expressionDependsOnPath(
         fn.body,
         candidateVariables,
         functions,
+        ambiguousFunctions,
         fnLocals,
         nextVisiting,
         requiredFunctions,
@@ -119,3 +145,4 @@ function expressionDependsOnPath(
 }
 
 const REQUEST_PATH_INVARIANT_FIELDS = new Set(['auth', 'method', 'query', 'time']);
+const EMPTY_NAMES: ReadonlySet<string> = new Set();

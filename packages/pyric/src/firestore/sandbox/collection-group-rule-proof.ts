@@ -3,7 +3,10 @@ import type {
   FunctionDef,
   MatchBlock,
 } from 'pyric/rules/internal';
-import { analyzeListRulePathInvariance } from './list-rule-path-proof.js';
+import {
+  analyzeListRulePathInvariance,
+  buildListRuleFunctionScope,
+} from './list-rule-path-proof.js';
 
 /**
  * Projects the ruleset down to path-invariant, root-level `{document=**}`
@@ -56,8 +59,7 @@ function projectGlobalBlock(
   const segment = block.path.segments[0];
   if (block.path.segments.length !== 1 || segment?.type !== 'recursive') return null;
 
-  const functions = new Map<string, FunctionDef>();
-  for (const fn of [...outerFunctions, ...block.functions]) functions.set(fn.name, fn);
+  const functionScope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
 
   const allows = block.allows.filter((rule) => {
     if (!rule.operations.some((operation) => operation === 'list' || operation === 'read')) {
@@ -66,7 +68,8 @@ function projectGlobalBlock(
     const analysis = analyzeListRulePathInvariance(
       rule.condition,
       new Set([segment.name]),
-      functions,
+      functionScope.functions,
+      functionScope.ambiguousNames,
     );
     if (analysis.pathInvariant) {
       for (const name of analysis.requiredFunctions) requiredFunctions.add(name);

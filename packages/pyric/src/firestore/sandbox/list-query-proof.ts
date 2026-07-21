@@ -33,7 +33,6 @@
 import type {
   AllowRule,
   FirestoreRules,
-  FunctionDef,
   MatchBlock,
 } from 'pyric/rules/internal';
 import {
@@ -43,7 +42,10 @@ import {
   type QueryWhereConstraint,
 } from '../../rules/simulator/query-proof.js';
 import { collectMatches, type MatchResult } from '../../rules/simulator/handler.js';
-import { analyzeListRulePathInvariance } from './list-rule-path-proof.js';
+import {
+  analyzeListRulePathInvariance,
+  buildListRuleFunctionScope,
+} from './list-rule-path-proof.js';
 
 export type { QueryConstraints, QueryProofResidual, QueryWhereConstraint };
 
@@ -104,10 +106,8 @@ export function proveListQuery(
   const provableRules = new Set<AllowRule>();
   let applicableRuleCount = 0;
   for (const match of matches) {
-    const fnMap = new Map<string, FunctionDef>();
-    for (const fn of match.functions) {
-      fnMap.set(fn.name, fn);
-    }
+    const functionScope = buildListRuleFunctionScope(match.functions);
+    const fnMap = functionScope.functions;
     for (const rule of match.block.allows) {
       if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
       applicableRuleCount++;
@@ -115,6 +115,7 @@ export function proveListQuery(
         rule.condition,
         new Set(match.candidateVariables),
         fnMap,
+        functionScope.ambiguousNames,
       );
       if (!pathAnalysis.pathInvariant) {
         failures.push({

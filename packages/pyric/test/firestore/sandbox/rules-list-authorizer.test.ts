@@ -345,4 +345,32 @@ describe('RulesListAuthorizer', () => {
     expect(result).toEqual({ allowed: true });
   });
 
+  for (const collectionGroup of [false, true]) {
+    test(`fails closed on reachable helper shadowing for ${collectionGroup ? 'group' : 'collection'} queries`, () => {
+      const childPath = collectionGroup ? '/{document=**}' : '/items/{id}';
+      const rules = `rules_version = '2'; service cloud.firestore {
+        match /databases/{database}/documents {
+          function testPath() {
+            return request.path.id == '__listPlaceholder__';
+          }
+          function outer() { return testPath(); }
+          match ${childPath} {
+            function testPath() { return true; }
+            allow list: if outer();
+          }
+        }
+      }`;
+
+      const result = makeAuthorizer(rules).authorizer.authorize({
+        path: 'items',
+        ...(collectionGroup ? { collectionGroup: true } : {}),
+        auth: null,
+        constraints: {},
+        origin: 'user',
+      });
+
+      expect(result.allowed).toBe(false);
+    });
+  }
+
 });
