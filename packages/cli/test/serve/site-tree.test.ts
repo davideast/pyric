@@ -91,6 +91,12 @@ describe('Astro site tree', () => {
     expect((await fetch(h.url + '/__pyric/ui/_astro/missing.js')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/firestore/missing.js')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/firestore/missing.css')).status).toBe(404);
+    expect((await fetch(
+      h.url + '/__pyric/ui/firestore/users/logo.png/child',
+    )).status).toBe(404);
+    expect((await fetch(
+      h.url + '/__pyric/ui/firestore/a.b/c',
+    )).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/docs/missing')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/docs/%E0%A4%A')).status).toBe(404);
     const handler = createSiteTreeHandler(siteRoot, '0123456789abcdef');
@@ -103,6 +109,10 @@ describe('Astro site tree', () => {
     expect(invokeRawPath(
       handler,
       '/__pyric/ui/firestore/%2e%2e/docs/index.json',
+    ).status).toBe(404);
+    expect(invokeRawPath(
+      handler,
+      '/__pyric/ui/storage/%2e%2e%5cdocs/index.json',
     ).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/not-a-service')).status).toBe(404);
 

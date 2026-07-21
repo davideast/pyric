@@ -53,7 +53,7 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
 
     const rel = rawPathname.slice('/__pyric/ui'.length) || '/';
     const decodedRel = decodeStaticPathname(rel);
-    if (decodedRel === null) {
+    if (decodedRel === null || decodedRel.includes('\\')) {
       res.writeHead(404).end('not found');
       return true;
     }
@@ -76,7 +76,10 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
     // Storage object names commonly contain extensions (logo.png), while the
     // other Studio routes reserve extension-bearing misses for static assets.
     const allowsDottedState = first === 'storage';
-    if (!file && studioRequest && (allowsDottedState || !extname(decodedRel))) {
+    const hasDottedStateSegment = decodedSegments
+      .slice(1)
+      .some((segment) => segment.includes('.'));
+    if (!file && studioRequest && (allowsDottedState || !hasDottedStateSegment)) {
       const entry = first === undefined ? '/index.html' : `/${first}/index.html`;
       file = resolveStaticFile(root, entry);
     }
