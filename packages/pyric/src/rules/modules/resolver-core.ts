@@ -201,6 +201,17 @@ export function resolveModulesWith(
     }
     if (!modulesUsed.includes(imp.module)) modulesUsed.push(imp.module);
 
+    const builtinCollision = loaded.functions.find((fn) => BUILTIN_FUNCTIONS.has(fn.name));
+    if (builtinCollision) {
+      return {
+        success: false,
+        error: {
+          code: 'DUPLICATE_FUNCTION',
+          message: `Function '${builtinCollision.name}' from module '${imp.module}' conflicts with a Rules builtin`,
+        },
+      };
+    }
+
     // Track original private names before prefixing (for error messages)
     const privateNames = new Set<string>();
     for (const fn of loaded.functions) {

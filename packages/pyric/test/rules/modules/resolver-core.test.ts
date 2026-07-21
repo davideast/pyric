@@ -23,6 +23,21 @@ service firebase.storage {
 }
 
 describe('resolver core export isolation', () => {
+  test('rejects module functions that collide with Rules builtins', () => {
+    const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { policy } from './policy';
+service cloud.firestore {
+  match /databases/{database}/documents/{doc=**} {
+    allow read: if policy();
+  }
+}`, { modules: { './policy': `
+      export function debug(value) { return false; }
+      export function policy() { return debug(true); }
+    ` } });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+  });
+
   test('rejects imported function collisions in every source scope', () => {
     const declarations = {
       global: `function policy() { return true; }
