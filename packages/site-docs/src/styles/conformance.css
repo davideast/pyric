@@ -249,7 +249,6 @@
   border-top: 2px solid var(--line);
   border-bottom: 0;
 }
-}
 
 .prose .compat-score-tbd {
   color: var(--ink-3, #667);

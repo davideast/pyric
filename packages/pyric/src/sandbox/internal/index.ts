@@ -94,3 +94,4 @@ export * from '../../firestore/sandbox/wire-encoder.js';
 // this list first. Future-us should consider replacing the stars
 // with explicit named re-exports once the admin-compat layer's
 // surface stops drifting.
+export { createSandboxRoot } from './root.js';

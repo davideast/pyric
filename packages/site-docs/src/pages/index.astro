@@ -1,17 +1,5 @@
 ---
-import { withBase } from '../lib/content';
-const target = withBase('/docs/overview');
+import StudioLayout from '../layouts/studio-layout.astro';
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="refresh" content={`0; url=${target}`} />
-    <link rel="canonical" href={target} />
-    <title>Pyric docs</title>
-  </head>
-  <body>
-    <p><a href={target}>Open the Pyric docs</a></p>
-  </body>
-</html>
+<StudioLayout />

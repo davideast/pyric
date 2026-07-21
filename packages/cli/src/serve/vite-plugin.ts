@@ -48,7 +48,7 @@ import type { Plugin as EsbuildPlugin } from 'esbuild';
 import {
   SDK_MODULES,
   defaultSdkEntries,
-  resolveStudioUiDir,
+  resolveSiteUiDir,
   pyricPackageRoot,
   NODE_BUILTIN_RE,
   NODE_BUILTIN_SHIMS,
@@ -161,8 +161,8 @@ export interface PyricOptions {
   bridge?: boolean | { project?: string; disableAuditLog?: boolean };
   /** Serve the **Pyric Studio** app at `/__pyric/ui/` on Vite's dev origin (the
    *  `pyric dev --ui` equivalent). Mounts the disk-backed workspace/project
-   *  routes Studio's `local` mode talks to AND serves the built Studio assets
-   *  (vendored in this package at `dist/serve/studio-ui`). **On by default**,
+   *  routes Studio's `local` mode talks to AND serves the unified Astro site
+   *  (vendored in this package at `dist/serve/site-ui`). **On by default**,
    *  including under `bridge` (the bridge peer routes through the SharedWorker,
    *  so app, Studio, and agent all observe the one sandbox); pass `ui: false`
    *  to disable. */
@@ -607,8 +607,8 @@ export function pyric(options: PyricOptions = {}): Plugin {
       });
       // Pyric Studio: mount the disk-backed workspace/project routes that
       // Studio's `local` mode talks to + serve the built Studio app at
-      // /__pyric/ui/. Mirrors `pyric dev --ui`; the studio-ui assets are
-      // vendored in this package's dist (resolveStudioUiDir).
+      // /__pyric/ui/. Mirrors `pyric dev --ui`; the unified Astro site is
+      // vendored in this package's dist (resolveSiteUiDir).
       //
       // ON BY DEFAULT, including under `bridge`: the bridge now routes agent
       // tool-calls THROUGH the SharedWorker (see `connectBridgePeer`), so the
@@ -621,17 +621,17 @@ export function pyric(options: PyricOptions = {}): Plugin {
             projects: diskProjectStore(path.join(cwd, '.pyric', 'projects')),
           }
         : undefined;
-      let studioUiDir: string | undefined;
+      let siteUiDir: string | undefined;
       if (uiEnabled) {
-        studioUiDir = resolveStudioUiDir() ?? undefined;
-        if (!studioUiDir) {
+        siteUiDir = resolveSiteUiDir() ?? undefined;
+        if (!siteUiDir) {
           server.config.logger.warn(
-            '[pyric] ui: built Studio app not found; /__pyric/ui/ will 404 ' +
+            '[pyric] ui: built Astro site not found; /__pyric/ui/ will 404 ' +
               '(run the full build, or reinstall @pyric/cli).',
           );
         }
       }
-      const { sdkDir } = workerRuntime.status();
+      const { sdkDir, epoch: workerVersion } = workerRuntime.status();
       const namespace = createPyricNamespace({
         sdkDir,
         initPayload,
@@ -640,7 +640,8 @@ export function pyric(options: PyricOptions = {}): Plugin {
         state,
         capture,
         studio,
-        studioUiDir,
+        siteUiDir,
+        workerVersion: workerVersion ?? undefined,
         // `ai.proxyUpstream`: what `/__pyric/ai-proxy` forwards to (beats the
         // PYRIC_AI_PROXY_UPSTREAM env var; falls back to the default when unset).
         aiProxyUpstream: resolvedAi.proxyUpstream,

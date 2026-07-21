@@ -1,4 +1,4 @@
-interface WorkerReplacementOptions {
+export interface WorkerReplacementOptions {
   targetEpoch: string;
   retire(): Promise<void>;
   subscribeReload(listener: (epoch: string) => void): () => void;

@@ -252,6 +252,7 @@ describe('connectStudioBridgePeer', () => {
     // The fire-and-forget peer connect opened the bridge WS.
     expect(FakeWebSocket.instances).toHaveLength(1);
     expect(FakeWebSocket.instances[0]!.url).toBe('ws://localhost:3473/__pyric/sandbox');
+    env.dispose();
   });
 
   it('reconnects after a WS drop (the app page resilience, inherited)', async () => {

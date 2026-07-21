@@ -35,12 +35,8 @@ export interface EmbeddedAssets {
   workerVersion: string;
   /** Lazy: flat map of SDK filename -> base64 bytes (app.js, worker.js, chunks). */
   sdk: () => Promise<Record<string, string>>;
-  /** Lazy: Studio UI relpath (posix) -> base64 bytes (index.html, assets/*). */
-  studio: () => Promise<Record<string, string>>;
-  /** Lazy: docs site relpath (posix) -> base64 bytes (the site-docs `dist/`
-   *  tree: `docs/*`, `_astro/*`, `index.html`, `llms.txt`). Optional for older
-   *  compiled binaries; missing means the Studio Docs tab 404s in standalone. */
-  docs?: () => Promise<Record<string, string>>;
+  /** Lazy: unified Astro site relpath (posix) -> base64 bytes. */
+  site: () => Promise<Record<string, string>>;
   /** Lazy: packed npm tarballs of the unpublished workspace packages
    *  (`pyric.tgz`, `pyric-admin.tgz`, `create-pyric.tgz`, `pyric-cli.tgz`)
    *  -> base64. Used by `pyric init` / `pyric vendor` to vendor them into a
@@ -154,27 +150,14 @@ export async function materializeServeAssets(): Promise<{ outDir: string; cached
   return { outDir, cached };
 }
 
-let studioDirOnce: string | null = null;
+let siteDirOnce: string | null = null;
 
-/** Materialize the embedded Studio UI tree to a temp dir for `dev --ui`. */
-export async function materializeStudioUi(): Promise<string> {
-  if (studioDirOnce) return studioDirOnce;
+/** Materialize the embedded Astro documentation + Studio tree for `dev --ui`. */
+export async function materializeSiteUi(): Promise<string> {
+  if (siteDirOnce) return siteDirOnce;
   const e = embedded();
-  const dir = join(materializationRoot(e), 'studio-ui');
-  materialize(dir, await e.studio(), e.version);
-  studioDirOnce = dir;
-  return dir;
-}
-
-let docsDirOnce: string | null = null;
-
-/** Materialize the embedded docs site tree to a temp dir for `dev --ui`. */
-export async function materializeDocsUi(): Promise<string | null> {
-  if (docsDirOnce) return docsDirOnce;
-  const e = embedded();
-  if (!e.docs) return null;
-  const dir = join(materializationRoot(e), 'docs-ui');
-  materialize(dir, await e.docs(), e.version);
-  docsDirOnce = dir;
+  const dir = join(materializationRoot(e), 'site-ui');
+  materialize(dir, await e.site(), e.version);
+  siteDirOnce = dir;
   return dir;
 }

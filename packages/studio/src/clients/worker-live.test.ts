@@ -14,7 +14,11 @@
  */
 
 import { describe, it, expect, afterEach } from 'bun:test';
-import { connectWorkerLive, workerEventFeed } from './worker-live.js';
+import {
+  connectWorkerLive,
+  studioWorkerConnection,
+  workerEventFeed,
+} from './worker-live.js';
 import { createStudioEnvironment } from '../env.js';
 import type { SandboxEvent } from 'pyric/sandbox';
 import {
@@ -34,6 +38,7 @@ function shimSharedWorker(): () => void {
       start() {},
       onmessage: null as unknown,
       addEventListener() {},
+      close() {},
     };
     constructor(_url: unknown, _opts: unknown) {}
   };
@@ -64,6 +69,27 @@ describe('connectWorkerLive', () => {
     expect(connectWorkerLive()).toBeNull();
   });
 
+  it('selects the same served worker generation as the application runtime', () => {
+    const values = new Map<string, string>();
+    const target = studioWorkerConnection({
+      document: {
+        querySelector: () => ({
+          getAttribute: (name) => name === 'content' ? '0123456789abcdef' : null,
+        }),
+      },
+      storage: {
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => { values.set(key, value); },
+      },
+    });
+
+    expect(target).toEqual({
+      url: '/__pyric/sdk/worker.js',
+      name: 'pyric-shared-worker:0123456789abcdef',
+    });
+    expect(values.get('pyric:worker-generation')).toBe('0123456789abcdef');
+  });
+
   it('returns a live plane with feed + lens seams when SharedWorker exists', () => {
     restore = shimSharedWorker();
     const plane = connectWorkerLive();
@@ -87,6 +113,24 @@ describe('connectWorkerLive', () => {
     // app-session is the default → reads back as undefined (no lens).
     expect(plane.getLens()).toBeUndefined();
   });
+
+  it('disconnects and closes its SharedWorker port when disposed', async () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const plane = connectWorkerLive('worker://test')!;
+
+    const disposed = plane.dispose();
+    const disconnect = sw.port.sent.find(
+      (message): message is { t: 'disconnect'; id: string } =>
+        (message as { t?: string }).t === 'disconnect',
+    );
+    expect(disconnect).toBeDefined();
+
+    sw.deliver({ t: 'res', id: disconnect!.id, ok: true, value: null });
+    await disposed;
+
+    expect(sw.port.closeCalls).toBe(1);
+  });
 });
 
 /**
@@ -100,6 +144,7 @@ function controllableSharedWorker(): {
   port: {
     sent: unknown[];
     onmessage: ((ev: { data: unknown }) => void) | null;
+    closeCalls: number;
   };
   deliver: (msg: unknown) => void;
 } {
@@ -107,11 +152,15 @@ function controllableSharedWorker(): {
   const port = {
     sent: [] as unknown[],
     onmessage: null as ((ev: { data: unknown }) => void) | null,
+    closeCalls: 0,
     postMessage(msg: unknown) {
       port.sent.push(msg);
     },
     start() {},
     addEventListener() {},
+    close() {
+      port.closeCalls += 1;
+    },
   };
   (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
     port = port;
@@ -340,6 +389,7 @@ describe("createStudioEnvironment('local') live-plane gating", () => {
     // The HTTP-fallback ports are still wired.
     expect(env.projects).toBeDefined();
     expect(env.persistence).toBeDefined();
+    env.dispose();
   });
 
   it('omits the live plane when disableLive is set, even with a SharedWorker', () => {
@@ -349,6 +399,7 @@ describe("createStudioEnvironment('local') live-plane gating", () => {
       disableLive: true,
     });
     expect(env.live).toBeUndefined();
+    env.dispose();
   });
 
   it('surfaces the live plane when a SharedWorker is available', () => {
@@ -356,6 +407,7 @@ describe("createStudioEnvironment('local') live-plane gating", () => {
     const env = createStudioEnvironment('local', { persistence: 'memory' });
     expect(env.live).toBeDefined();
     expect(typeof env.live!.feed.subscribe).toBe('function');
+    env.dispose();
   });
 });
 
@@ -438,5 +490,9 @@ describe('presence live-plane contract (#227)', () => {
     });
     expect(seen).toEqual([1, 2]);
     unsub();
+    plane.dispose();
+    expect(sw.port.sent.some(
+      (message) => (message as { method?: string }).method === 'presence.disconnect',
+    )).toBe(true);
   });
 });
