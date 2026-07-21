@@ -93,6 +93,11 @@ import {
   type PyricAiOptions,
 } from './vite-ai-config.js';
 import { resolveViteRulesConfig } from './vite-rules-source.js';
+import {
+  PYRIC_RUNTIME_CHIP_META,
+  runtimeChipMetaValue,
+  type PyricRuntimeChipOption,
+} from './runtime/chip-config.js';
 
 /**
  * Whether a `vite build` should run the firebase→pyric swap (produce a SANDBOX
@@ -161,6 +166,10 @@ export interface PyricOptions {
    *  so app, Studio, and agent all observe the one sandbox); pass `ui: false`
    *  to disable. */
   ui?: boolean;
+  /** Inject the collapsed Pyric runtime chip into the app during sandbox Vite
+   *  dev/builds. On by default. Pass `false` to hide it, or
+   *  `{ initiallyOpen: true }` when actively debugging runtime errors. */
+  runtimeChip?: PyricRuntimeChipOption;
   /** RTDB-triggered Cloud Functions under this dev server (the `pyric dev`
    *  parity fold). By default a `functions` block in `firebase.json` is
    *  discovered automatically: its `onValueCreated` triggers run in an isolated
@@ -1012,6 +1021,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     transformIndexHtml(html) {
+      const runtimeChipTag = `<meta name="${PYRIC_RUNTIME_CHIP_META}" content="${runtimeChipMetaValue(options.runtimeChip)}" data-studio="${options.ui === false ? 'off' : 'on'}" data-pyric-sandbox>`;
       // Sandbox BUILD: the app's own `firebase/*` imports were already swapped
       // (resolveId, above) to pyric's in-page adapters and BUNDLED into the app
       // chunk, and the emitted init chunk (script-tagged here) carries the
@@ -1028,7 +1038,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         const initTag = initChunkFile
           ? `<script type="module" crossorigin src="/${initChunkFile}" data-pyric-sandbox-init></script>`
           : '';
-        const tags = SANDBOX_BUILD_META + initTag;
+        const tags = SANDBOX_BUILD_META + runtimeChipTag + initTag;
         return html.includes('</head>')
           ? html.replace('</head>', `${tags}</head>`)
           : tags + html;
@@ -1058,7 +1068,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // Boot the sandbox by loading the real init entry as a module (Vite
       // serves + transforms it). The init module's top-level await deploys rules
       // before app code runs. Mirrors serve's injectServeTags.
-      const tag = head + aiEngineTag + `<script type="module" src="/@fs/${entries.init}" ${MARKER}></script>`;
+      const tag = head + aiEngineTag + runtimeChipTag + `<script type="module" src="/@fs/${entries.init}" ${MARKER}></script>`;
       return html.includes('</head>') ? html.replace('</head>', `${tag}</head>`) : tag + html;
     },
   };

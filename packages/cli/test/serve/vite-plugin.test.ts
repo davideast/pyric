@@ -69,7 +69,7 @@ describe('pyric — plugin shape', () => {
     expect(applies(forcedOff, 'serve', 'production')).toBe(true); // dev still always on
   });
 
-  it('sandbox build: transformIndexHtml stamps ONLY the marker (no init/@fs, no force-in-page)', () => {
+  it('sandbox build: transformIndexHtml stamps sandbox metadata (no init/@fs or force-in-page)', () => {
     const p = pyric();
     // Flag the plugin as a build (apply already gated it upstream).
     (p.config as (c: unknown, env: unknown) => unknown)({}, { command: 'build', mode: 'development' });
@@ -196,6 +196,7 @@ describe('transformIndexHtml — sandbox boot injection', () => {
   it('omits the AI global when no plugin engine is configured', () => {
     expect(xform('<html><head></head></html>')).not.toContain('__PYRIC_AI_ENGINE__');
   });
+
 });
 
 // ── integration: the plugin works inside a REAL Vite dev server ───────────────

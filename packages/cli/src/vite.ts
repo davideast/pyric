@@ -8,6 +8,7 @@
  */
 export { pyric } from './serve/vite-plugin.js';
 export type { PyricOptions } from './serve/vite-plugin.js';
+export type { PyricRuntimeChipOption } from './serve/runtime/chip-config.js';
 
 // The benign node-builtin shims serve's bundler and this plugin apply when
 // bundling pyric's browser graph (`fs`/`path`/`url` reached via the rules
