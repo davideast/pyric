@@ -47,7 +47,8 @@ import {
   type StorageService,
   type Target,
 } from './service.js';
-import { evaluateStorageRules, type EvaluationInput, type FirestoreLookup } from './rules.js';
+import { evaluateStorageRules } from './sandbox/rules-evaluator.js';
+import type { EvaluationInput, FirestoreLookup } from './sandbox/rules.js';
 import { unauthorized } from './errors.js';
 
 export function enforceRules(

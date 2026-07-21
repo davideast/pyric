@@ -42,10 +42,10 @@ import {
 } from '../../src/rules/test/spec.ts';
 import {
   parseStorageRules,
-  evaluateStorageRules,
   type EvaluationInput,
   type FirestoreLookup,
-} from '../../src/storage/rules.ts';
+} from '../../src/storage/sandbox/rules.ts';
+import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
 
 // rules-storage-* observations live under the native 'storage-rules'
 // conformance surface (issue #184) — distinct from the SDK-surface 'storage'

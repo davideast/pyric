@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { cert } from 'firebase-admin/app';
 import { deleteApp, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
+import { readObservationLinkage } from './observation-linkage.ts';
 
 interface ServiceAccount { project_id: string; client_email: string; private_key: string }
 interface WebConfig { apiKey: string; projectId: string; appId?: string; authDomain?: string }
@@ -482,14 +483,16 @@ async function run(): Promise<void> {
     throw new Error(`cleanup verification failed: releaseRestored=${releaseRestored} firestoreReleaseRestored=${firestoreReleaseRestored} objectsRemoved=${objectsRemoved} documentsRemoved=${documentsRemoved}`);
   }
 
-  completedObservation = {
-    name: advanced
+  const observationName = advanced
       ? 'stdlib-realstorage-p3-advanced-iam-enabled'
       : expectEnabledIam
       ? 'stdlib-realstorage-p3-lookup-budget-iam-enabled'
-      : 'stdlib-realstorage-p3-lookup-budget',
-    matrixRow: '',
-    rowIds: [],
+      : 'stdlib-realstorage-p3-lookup-budget';
+  const linkage = readObservationLinkage(join(OBS_DIR, `${observationName}.json`));
+  completedObservation = {
+    name: observationName,
+    matrixRow: linkage.matrixRow,
+    rowIds: linkage.rowIds,
     description: advanced
       ? 'Real-resource Storage-to-Firestore advanced behavior for return types, evaluation order, path boundaries, helper composition, and independence from the Firestore ruleset.'
       : 'Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents.',

@@ -27,7 +27,7 @@ import {
   resolveOperationContext,
 } from 'pyric/sandbox/internal';
 import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
-import { parseStorageRules, type StorageRules } from './rules.js';
+import { parseStorageRules, type StorageRules } from './sandbox/rules.js';
 import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
 
 /**

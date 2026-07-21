@@ -2,7 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveModulesBrowser } from '../../src/rules/modules/resolver-browser.ts';
-import { evaluateStorageRules, parseStorageRules, type StorageAuth, type StorageResource } from '../../src/storage/rules.ts';
+import { parseStorageRules, type StorageAuth, type StorageResource } from '../../src/storage/sandbox/rules.ts';
+import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
 
 const FIXTURE_DIR = join(import.meta.dir, '..', '..', 'src', 'rules', 'modules', 'stdlib', 'storage');
 

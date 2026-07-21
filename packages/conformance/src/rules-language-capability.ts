@@ -30,9 +30,9 @@ import { SimulateFirestoreRulesHandler } from '../../../packages/pyric/src/rules
 import type { TestCase } from '../../../packages/pyric/src/rules/test/spec.ts';
 import {
   parseStorageRules,
-  evaluateStorageRules,
   type EvaluationInput,
-} from '../../../packages/pyric/src/storage/rules.ts';
+} from '../../../packages/pyric/src/storage/sandbox/rules.ts';
+import { evaluateStorageRules } from '../../../packages/pyric/src/storage/sandbox/rules-evaluator.ts';
 import {
   compileRtdbRules,
   simulateRtdbRules,

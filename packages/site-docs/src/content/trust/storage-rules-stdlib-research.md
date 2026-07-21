@@ -1,3 +1,11 @@
+---
+title: "Storage Rules modules: evidence and design"
+group: "Trust"
+section: ""
+order: 40
+description: "The production probes, service boundaries, and staged proposal behind Pyric's Storage Rules standard library."
+---
+
 # Storage Rules, `2+modules`, and a service-aware standard library
 
 **Investigated:** 2026-07-20 at `6e5ecd6e3718`
@@ -11,9 +19,9 @@ Storage setup lowers `2+modules` through a service-aware resolver; `auth` and
 `membership` are the only bundled modules admitted for both Firestore and
 Storage; `storage/uploads`, `storage/metadata`, `storage/objects`, and
 `storage/time` are Storage-only; every other bundled module is explicitly
-Firestore-only; and caller
-modules are checked transitively for Storage-incompatible bindings and
-functions. Two targeted `projects.test` requests captured 27 production
+Firestore-only; and caller modules are checked transitively against the target
+service's ambient bindings and functions, with unclassified requirements
+failing closed. Two targeted `projects.test` requests captured 27 production
 verdicts for the exact six shared and 13 Storage-only function bodies, and the
 local evaluator matches all 27. The observations are registered as
 `storage-rules#125` and `storage-rules#132`.
@@ -214,14 +222,14 @@ The Storage object-field contract is documented in the Storage reference ([reque
 
 ## Current standard-library cross-reference
 
-The existing manifest intentionally calls itself the **Firestore Rules Standard Library** and divides its advanced functions by patterns and evidence ([manifest](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/rules/modules/stdlib/STDLIB.md)). Its useful design lesson is not the current flat catalog; it is the progression from small reusable primitives to advanced functions discovered and production-verified through probes, especially `timing`, `geometry`, `spaces`, `joining`, and `atomic`.
+Before this branch, the manifest intentionally called itself the **Firestore Rules Standard Library** ([historical manifest](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/rules/modules/stdlib/STDLIB.md)). The current manifest is service-aware: it separates common, Firestore-only, and Storage-only modules. The useful design lesson retained from the earlier catalog is the progression from small reusable primitives to advanced functions discovered and production-verified through probes, especially `timing`, `geometry`, `spaces`, `joining`, and `atomic`.
 
 ### Existing exports by portability
 
 | Existing module/functions | Classification for Storage | Reason |
 |---|---|---|
-| `auth`: `isAuthenticated`, `isOwner(userId)` | common candidate, executable now | Uses only `request.auth`; Storage documents the same UID/token shape. |
-| `membership`: `hasClaim`, `hasClaimRole`, `isMemberOf(map)`, `hasRole(map, role)` | common candidate, executable now; production probe required | Uses auth plus explicit map parameters, not `.data`. This is the strongest existing reusable module. |
+| `auth`: `isAuthenticated`, `isOwner(userId)` | shipped common module; production-probed | Uses only `request.auth`; the exact bodies agree across the captured Firestore and Storage cases. |
+| `membership`: `hasClaim`, `hasClaimRole`, `isMemberOf(map)`, `hasRole(map, role)` | shipped common module; production-probed | Uses auth plus explicit map parameters, not `.data`; the exact bodies agree across the captured Firestore and Storage cases. |
 | `atomic`: `companionChangedBy`, `consumedFlag` | source-pure common candidate, executable now; production probe required | Inputs are explicit maps and the bodies use only indexing, equality, and arithmetic. The module name and Firestore batch examples are misleading for Storage, so portable value-transition helpers may deserve a neutral home rather than promoting `atomic` unchanged. |
 | `validation`, `lifecycle`, `content`, `counters`, `transitions`, `timing` | Firestore-specific as written | Close over `request.resource.data` and/or `resource.data`. Storage analogues need object/metadata semantics, not blind reuse. |
 | `spaces` | mixed | Read-side membership helpers accept explicit data and can be generalized; `validMemberCreate` closes over Firestore `.data`. |

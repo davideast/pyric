@@ -19,7 +19,7 @@ import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/intern
 import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
-import { resourceFromStored, requestResourceFor } from './rules.js';
+import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
 import { objectNotFound, invalidRootOperation } from './errors.js';
 import type { StoredMetadata } from './persistence.js';
 import type { StorageReference } from './reference.js';

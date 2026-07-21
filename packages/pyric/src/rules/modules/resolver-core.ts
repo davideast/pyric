@@ -82,24 +82,68 @@ function incompatibleStdlibExport(
     : `Function '${functionName}' from module '${moduleName}' is not compatible with service '${service}'`;
 }
 
-function storageIncompatibility(expr: Expression): string | null {
+function ambientBindingPath(expr: Expression): string[] | null {
+  if (expr.type === 'identifier') {
+    return expr.name === 'request' || expr.name === 'resource' ? [expr.name] : null;
+  }
+  if (expr.type !== 'memberAccess') return null;
+  const parent = ambientBindingPath(expr.object);
+  return parent ? [...parent, expr.property] : null;
+}
+
+function allowedAmbientBinding(service: RulesServiceName, path: readonly string[]): boolean {
+  if (path.length === 1) return true;
+
+  if (service === 'firebase.storage') {
+    if (path[0] === 'request') {
+      if (path[1] === 'auth') return true;
+      if (['time', 'method', 'path'].includes(path[1]!)) return path.length === 2;
+      if (path[1] !== 'resource') return false;
+      if (path.length === 2) return true;
+      if (path[2] === 'metadata') return true;
+      return path.length === 3 && ['size', 'contentType', 'name'].includes(path[2]!);
+    }
+    if (path[0] === 'resource') {
+      if (path[1] === 'metadata') return true;
+      return path.length === 2 && [
+        'name',
+        'bucket',
+        'size',
+        'contentType',
+        'timeCreated',
+        'updated',
+        'generation',
+        'metageneration',
+        'md5Hash',
+        'crc32c',
+        'etag',
+      ].includes(path[1]!);
+    }
+    return false;
+  }
+
+  if (path[0] === 'request') {
+    if (path[1] === 'auth' || path[1] === 'query') return true;
+    if (['time', 'method', 'path'].includes(path[1]!)) return path.length === 2;
+    return path[1] === 'resource' && (path.length === 2 || path[2] === 'data');
+  }
+  return path[0] === 'resource' && (path.length === 1 || path[1] === 'data');
+}
+
+function serviceIncompatibility(expr: Expression, service: RulesServiceName): string | null {
   const walk = (e: Expression): string | null => {
     switch (e.type) {
       case 'memberAccess': {
-        if (
-          e.property === 'data' &&
-          (e.object.type === 'identifier' && e.object.name === 'resource' ||
-            e.object.type === 'memberAccess' &&
-            e.object.property === 'resource' &&
-            e.object.object.type === 'identifier' &&
-            e.object.object.name === 'request')
-        ) {
-          return `binding '${e.object.type === 'identifier' ? 'resource.data' : 'request.resource.data'}'`;
+        const path = ambientBindingPath(e);
+        if (path && !allowedAmbientBinding(service, path)) {
+          return `binding '${path.join('.')}'`;
         }
         return walk(e.object);
       }
       case 'functionCall': {
-        if (BUILTIN_FUNCTIONS.has(e.name)) return `function '${e.name}()'`;
+        if (service === 'firebase.storage' && BUILTIN_FUNCTIONS.has(e.name)) {
+          return `function '${e.name}()'`;
+        }
         for (const arg of e.args) {
           const issue = walk(arg);
           if (issue) return issue;
@@ -112,7 +156,8 @@ function storageIncompatibility(expr: Expression): string | null {
           const allowedNamespaceMethod =
             namespace === 'timestamp' && (e.method === 'date' || e.method === 'value') ||
             namespace === 'duration' && e.method === 'value' ||
-            namespace === 'firestore' && (e.method === 'get' || e.method === 'exists');
+            service === 'firebase.storage' && namespace === 'firestore' &&
+              (e.method === 'get' || e.method === 'exists');
           if (allowedNamespaceMethod) {
             for (const arg of e.args) {
               const issue = walk(arg);
@@ -120,8 +165,16 @@ function storageIncompatibility(expr: Expression): string | null {
             }
             return null;
           }
+          if (namespace === 'firestore') return `method 'firestore.${e.method}()'`;
         }
-        if (!['matches', 'split', 'size', 'keys', 'get', 'hasAll'].includes(e.method)) {
+        const methods = service === 'firebase.storage'
+          ? ['matches', 'split', 'size', 'keys', 'get', 'hasAll']
+          : [
+              'addedKeys', 'affectedKeys', 'changedKeys', 'diff', 'get', 'hasAll',
+              'hasAny', 'hasOnly', 'includes', 'keys', 'matches', 'removedKeys',
+              'size', 'split', 'toSet', 'unchangedKeys',
+            ];
+        if (!methods.includes(e.method)) {
           return `method '.${e.method}()'`;
         }
         const objectIssue = walk(e.object);
@@ -166,12 +219,12 @@ function storageIncompatibility(expr: Expression): string | null {
   return walk(expr);
 }
 
-function incompatibleStorageFunction(fn: FunctionDef): string | null {
+function incompatibleFunction(fn: FunctionDef, service: RulesServiceName): string | null {
   for (const binding of fn.lets) {
-    const issue = storageIncompatibility(binding.value);
+    const issue = serviceIncompatibility(binding.value, service);
     if (issue) return issue;
   }
-  return storageIncompatibility(fn.body);
+  return serviceIncompatibility(fn.body, service);
 }
 
 /**
@@ -528,15 +581,15 @@ export function resolveModulesWith(
     }
   }
 
-  if (ast.service.name === 'firebase.storage') {
+  if (ast.service.name === 'firebase.storage' || ast.service.name === 'cloud.firestore') {
     for (const fn of injected) {
-      const requirement = incompatibleStorageFunction(fn);
+      const requirement = incompatibleFunction(fn, ast.service.name);
       if (requirement) {
         return {
           success: false,
           error: {
             code: 'INCOMPATIBLE_FUNCTION',
-            message: `Function '${fn.name}' requires unsupported ${requirement} for service 'firebase.storage'`,
+            message: `Function '${fn.name}' requires unsupported ${requirement} for service '${ast.service.name}'`,
           },
         };
       }

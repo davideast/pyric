@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { resolveModulesBrowser } from '../../src/rules/modules/resolver-browser.ts';
-import { evaluateStorageRules, parseStorageRules, type EvaluationInput } from '../../src/storage/rules.ts';
+import { parseStorageRules, type EvaluationInput } from '../../src/storage/sandbox/rules.ts';
+import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
 
 function evaluateModule(
   moduleName: string,

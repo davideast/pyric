@@ -43,6 +43,7 @@ import {
   storageObservationName,
   type StorageScenario,
 } from '../rules-corpus/storage/index.ts';
+import { readObservationLinkage } from './observation-linkage.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-storage-* observations belong to the native 'storage-rules' surface.
@@ -188,10 +189,11 @@ async function capture(scenarios: StorageScenario[]): Promise<void> {
     }
     const behavior = verdictTable(scenario, res);
     const diagnostics = diagnosticTable(res.data.results);
+    const linkage = readObservationLinkage(observationPath(scenario));
     const obs: Observation = {
       name: storageObservationName(scenario),
-      matrixRow: '',
-      rowIds: [],
+      matrixRow: linkage.matrixRow,
+      rowIds: linkage.rowIds,
       description: `Storage Rules Test API verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). ${scenario.rationale}`,
       observedAt: new Date().toISOString(),
       fbSdkVersion,

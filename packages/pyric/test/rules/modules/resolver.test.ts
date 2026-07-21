@@ -263,7 +263,51 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     if (!result.success) {
       expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
       expect(result.error.message).toContain('policy__firestoreDocumentOwner');
-      expect(result.error.message).toContain("binding 'resource.data'");
+      expect(result.error.message).toContain("binding 'resource.data");
+      expect(result.error.message).toContain("service 'firebase.storage'");
+    }
+  });
+
+  test('rejects Storage-only ambient object fields from a Firestore caller module', () => {
+    const result = resolveModules(
+      makeSource("import { uploadIsSmall } from './policy';"),
+      {
+        modules: {
+          './policy': `
+            export function uploadIsSmall() {
+              return request.resource.size < 1024;
+            }
+          `,
+        },
+      },
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+      expect(result.error.message).toContain("binding 'request.resource.size'");
+      expect(result.error.message).toContain("service 'cloud.firestore'");
+    }
+  });
+
+  test('fails closed on an unclassified Storage ambient object field', () => {
+    const result = resolveModules(
+      makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
+      {
+        modules: {
+          './policy': `
+            export function hasDigest() {
+              return request.resource.md5Hash != null;
+            }
+          `,
+        },
+      },
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+      expect(result.error.message).toContain("binding 'request.resource.md5Hash'");
       expect(result.error.message).toContain("service 'firebase.storage'");
     }
   });

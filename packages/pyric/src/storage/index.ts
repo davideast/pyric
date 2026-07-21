@@ -42,7 +42,8 @@ export type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js
 export { listAll } from './list.js';
 export type { ListResult } from './list.js';
 
-export { parseStorageRules, evaluateStorageRules } from './rules.js';
+export { parseStorageRules } from './sandbox/rules.js';
+export { evaluateStorageRules } from './sandbox/rules-evaluator.js';
 export type {
   StorageRules,
   StorageMethod,
@@ -55,7 +56,7 @@ export type {
   EvaluationInput,
   EvaluationResult,
   FirestoreLookup,
-} from './rules.js';
+} from './sandbox/rules.js';
 
 // ─── Admin / control-plane surface ───────────────────────────────────
 // Firebase Storage provisioning + status. The pure-fetch `api.ts`

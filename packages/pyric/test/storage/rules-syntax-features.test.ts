@@ -14,7 +14,7 @@
  * suites.
  */
 import { describe, it, expect } from 'bun:test';
-import { parseStorageRules } from '../../src/storage/rules.js';
+import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
 
 function ruleset(condition: string, extra = ''): string {
   return `rules_version = '2';

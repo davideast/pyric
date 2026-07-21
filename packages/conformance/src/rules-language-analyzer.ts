@@ -56,7 +56,7 @@ import type {
   FirestoreRules,
   MatchBlock,
 } from '../../../packages/pyric/src/rules/grammar/FirestoreAST.ts';
-import { parseStorageRules } from '../../../packages/pyric/src/storage/rules.ts';
+import { parseStorageRules } from '../../../packages/pyric/src/storage/sandbox/rules.ts';
 import {
   createRtdbExpressionSemantics,
   matchRtdbExpression,
@@ -456,7 +456,7 @@ export function analyzeFirestore(source: string): AnalyzeResult {
 // ════════════════════════════════════════════════════════════════════
 
 /** Structural view of the storage AST (its node types are module-private in
- *  src/storage/rules.ts; we walk `StorageRules._root` by shape). */
+ *  src/storage/sandbox/rules.ts; we walk `StorageRules._root` by shape). */
 interface StExpr {
   kind: string;
   value?: unknown;

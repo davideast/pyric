@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseStorageRules, evaluateStorageRules } from '../../pyric/src/storage/rules.ts';
+import { parseStorageRules } from '../../pyric/src/storage/sandbox/rules.ts';
+import { evaluateStorageRules } from '../../pyric/src/storage/sandbox/rules-evaluator.ts';
 import { injectProbeRules } from './run-storage-stdlib-real.ts';
 
 const OBS_DIR = join(import.meta.dir, '..', 'observations', 'storage-rules');
