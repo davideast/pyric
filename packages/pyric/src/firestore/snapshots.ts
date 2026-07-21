@@ -20,11 +20,57 @@ import {
   finalizeSandboxData,
   type Target,
 } from './state.js';
+import { firestoreValuesEqual } from './sandbox/value-equality.js';
 import type {
   DocumentSnapshot,
   QueryDocumentSnapshot,
   FirestoreDataConverter,
 } from './types.js';
+
+interface DocumentSnapshotEqualityState {
+  readonly target: Target;
+  readonly path: string;
+  readonly converter: FirestoreDataConverter<unknown> | null;
+  readonly raw: ChainDocSnap;
+}
+
+const documentSnapshotEquality = new WeakMap<object, DocumentSnapshotEqualityState>();
+
+function recordDocumentSnapshot(
+  snapshot: object,
+  raw: ChainDocSnap,
+  target: Target,
+  converter: FirestoreDataConverter<unknown> | null,
+): void {
+  documentSnapshotEquality.set(snapshot, {
+    target,
+    path: raw.ref.path,
+    converter,
+    raw,
+  });
+}
+
+function snapshotExists(snapshot: ChainDocSnap): boolean {
+  return typeof snapshot.exists === 'function'
+    ? (snapshot.exists as () => boolean)()
+    : snapshot.exists === true;
+}
+
+/** Compare tagged snapshots without invoking consumer converters. */
+export function taggedSnapshotsEqual(left: object, right: object): boolean {
+  if (left === right) return true;
+  const a = documentSnapshotEquality.get(left);
+  const b = documentSnapshotEquality.get(right);
+  // Distinct query snapshots intentionally remain unequal, matching the
+  // production observation. Document snapshots carry raw engine state below.
+  if (!a || !b) return false;
+  if (a.target !== b.target || a.path !== b.path || a.converter !== b.converter) return false;
+  const aExists = snapshotExists(a.raw);
+  const bExists = snapshotExists(b.raw);
+  if (aExists !== bExists) return false;
+  if (!aExists) return true;
+  return firestoreValuesEqual(a.raw.data(), b.raw.data());
+}
 
 /**
  * Wrap a raw sandbox `DocumentSnapshot` so `.data()` runs the final
@@ -52,9 +98,11 @@ export function wrapSandboxDocSnap<T>(snap: object): DocumentSnapshot<T> {
 export function applyConverterToDocSnap<AppModel>(
   snap: ChainDocSnap,
   conv: FirestoreDataConverter<AppModel>,
+  target: Target,
 ): DocumentSnapshot<AppModel> {
-  return {
+  const wrapped = {
     id: snap.id,
+    ref: snap.ref,
     exists: snap.exists,
     data: () => {
       // Sandbox snaps expose `exists` as a property (Admin shape).
@@ -74,6 +122,16 @@ export function applyConverterToDocSnap<AppModel>(
       return conv.fromFirestore(queryDocSnap);
     },
   };
+  tag(wrapped, target);
+  tag(snap.ref as object, target);
+  wireSnapshotRefToUnderlying(snap.ref, target);
+  recordDocumentSnapshot(
+    wrapped,
+    snap,
+    target,
+    conv as FirestoreDataConverter<unknown>,
+  );
+  return wrapped;
 }
 
 /**
@@ -113,12 +171,18 @@ export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
   normalizeExists(s);
   if (Array.isArray(s.docs)) {
     for (const doc of s.docs) {
+      if (doc) {
+        tag(doc as object, target);
+        recordDocumentSnapshot(doc as object, doc as unknown as ChainDocSnap, target, null);
+      }
       if (doc?.ref) {
         tag(doc.ref as object, target);
         wireSnapshotRefToUnderlying(doc.ref, target);
       }
       if (doc) normalizeExists(doc);
     }
+  } else if (s.ref) {
+    recordDocumentSnapshot(snap, snap as unknown as ChainDocSnap, target, null);
   }
   return snap;
 }

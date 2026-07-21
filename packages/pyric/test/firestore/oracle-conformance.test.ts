@@ -30,6 +30,7 @@ import { describe, it, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
+import { FirebaseError } from '../../src/app/index.js';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
@@ -550,6 +551,7 @@ describe('oracle conformance (firestore)', () => {
     expect(e instanceof Error).toBe(obs.isErrorInstance as boolean);
     expect(e.name).toBe(obs.errorName as string);
     expect(e.constructor.name).toBe(obs.constructorName as string);
+    expect(e instanceof FirebaseError).toBe(obs.isFirebaseError as boolean);
   });
 
   it('firestore-delete-denied-error-code', async () => {

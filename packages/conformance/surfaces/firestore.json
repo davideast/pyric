@@ -32,8 +32,6 @@
     "oracle-run"
   ],
   "registry": "firestore",
-  "conformanceSuite": "packages/pyric/test/firestore/oracle-conformance.test.ts",
-  "climb": true,
   "dispositions": [
     {
       "id": "firestore.cache-indexes",

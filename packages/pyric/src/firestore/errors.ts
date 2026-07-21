@@ -18,11 +18,22 @@ export function toFirestoreFirebaseError(error: unknown): unknown {
   const customData: Record<string, unknown> = {};
   if (error.denialContext !== undefined) customData.denialContext = error.denialContext;
   if (error.remediation !== undefined) customData.remediation = error.remediation;
-  return new FirebaseError(
+  const translated = new FirebaseError(
     error.code,
     error.message,
     Object.keys(customData).length === 0 ? undefined : customData,
   );
+  // Sandbox diagnostics predate FirebaseError.customData and are part of the
+  // worker-relay contract, which serializes these fields from the error's
+  // top level. Keep both views so modular callers get Firebase's class shape
+  // without losing the sandbox debugger frame.
+  if (error.denialContext !== undefined) {
+    Object.assign(translated, { denialContext: error.denialContext });
+  }
+  if (error.remediation !== undefined) {
+    Object.assign(translated, { remediation: error.remediation });
+  }
+  return translated;
 }
 
 export async function withFirestoreFirebaseError<T>(

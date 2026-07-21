@@ -6,7 +6,6 @@
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { translateReadData } from './snapshots.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
-import { firestoreValuesEqual } from '../value-equality.js';
 // RULES-B11 — structured `where`/`limit`/`orderBy` view threaded into the
 // rule-enforced read paths so the query-proof gate ("rules are not
 // filters") can discharge per-doc rule predicates from the query's
@@ -93,6 +92,69 @@ function snapshotFilter(filter: Filter | QueryFilter): QueryFilter {
     kind: filter.kind,
     filters: Object.freeze(filter.filters.map(snapshotFilter)),
   }) as QueryFilter;
+}
+
+function queryOperandEqual(left: unknown, right: unknown): boolean {
+  if (
+    (typeof left === 'object' && left !== null) || typeof left === 'function'
+    || (typeof right === 'object' && right !== null) || typeof right === 'function'
+  ) {
+    return left === right;
+  }
+  // Firestore numeric equality treats both zero signs alike and NaN as equal.
+  return left === right
+    || (typeof left === 'number' && typeof right === 'number'
+      && Number.isNaN(left) && Number.isNaN(right));
+}
+
+function queryFiltersEqual(
+  left: readonly QueryFilter[],
+  right: readonly QueryFilter[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((filter, index) => {
+    const other = right[index]!;
+    if (filter.kind !== other.kind) return false;
+    if (filter.kind === 'where' && other.kind === 'where') {
+      return filter.field === other.field
+        && filter.op === other.op
+        // Opaque operands retain identity. Inspecting their properties here
+        // would invoke user getters/Proxy traps during a diagnostic helper.
+        && queryOperandEqual(filter.value, other.value);
+    }
+    return filter.kind !== 'where'
+      && other.kind !== 'where'
+      && queryFiltersEqual(filter.filters, other.filters);
+  });
+}
+
+function queryCursorsEqual(left?: QueryCursor, right?: QueryCursor): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.inclusive === right.inclusive
+    && left.fromSnapshot === right.fromSnapshot
+    && left.values.length === right.values.length
+    && left.values.every((value, index) => queryOperandEqual(value, right.values[index]));
+}
+
+function queryScopesEqual(left: QueryScope, right: QueryScope): boolean {
+  if (left.kind !== right.kind) return false;
+  return left.kind === 'collection' && right.kind === 'collection'
+    ? left.path === right.path
+    : left.kind === 'collection-group' && right.kind === 'collection-group'
+      && left.collectionId === right.collectionId;
+}
+
+function queryExecutionEqual(left: QueryExecutionSpec, right: QueryExecutionSpec): boolean {
+  return queryFiltersEqual(left.filters, right.filters)
+    && left.orders.length === right.orders.length
+    && left.orders.every((order, index) => {
+      const other = right.orders[index]!;
+      return order.field === other.field && order.direction === other.direction;
+    })
+    && left.limitCount === right.limitCount
+    && left.limitFromEnd === right.limitFromEnd
+    && queryCursorsEqual(left.start, right.start)
+    && queryCursorsEqual(left.end, right.end);
 }
 
 // FS-B8 — the document-key sentinel field. Firestore normalizes every
@@ -238,8 +300,8 @@ export class QueryImpl implements Query {
     if (!(other instanceof QueryImpl)) return false;
     return this.env === other.env
       && this.bypassRules === other.bypassRules
-      && firestoreValuesEqual(this.queryScope(), other.queryScope())
-      && firestoreValuesEqual(this.executionSpec(), other.executionSpec());
+      && queryScopesEqual(this.queryScope(), other.queryScope())
+      && queryExecutionEqual(this.executionSpec(), other.executionSpec());
   }
 
   /**
