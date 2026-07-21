@@ -385,7 +385,7 @@ describe('RulesReadEngine.runQuery', () => {
     });
   });
 
-  test('denies a collection group when any concrete collection path is denied', () => {
+  test('fails closed for mixed collection-group rules with one request event', () => {
     const rules = `rules_version = '2'; service cloud.firestore {
       match /databases/{database}/documents {
         match /items/{id} { allow list: if true; }
@@ -410,6 +410,76 @@ describe('RulesReadEngine.runQuery', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]!.path).toBe('items');
     expect(seen[0]!.result).toBe('deny');
+  });
+
+  test('fails closed when only the current root collection is authorized', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} { allow list: if true; }
+      }
+    }`;
+    const { engine } = makeEngine(rules, { 'items/top': { scope: 'top' } });
+
+    const result = engine.runQuery({
+      scope: { kind: 'collection-group', collectionId: 'items' },
+      auth: null,
+      execution,
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
+  test('isolates universal rules so a root-only allow cannot mask their denial', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} { allow list: if true; }
+        match /{document=**} { allow list: if false; }
+      }
+    }`;
+    const { engine } = makeEngine(rules, { 'items/top': { scope: 'top' } });
+
+    const result = engine.runQuery({
+      scope: { kind: 'collection-group', collectionId: 'items' },
+      auth: null,
+      execution,
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
+  test('fails closed for an empty collection group instead of authorizing from current rows', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /items/{id} { allow list: if true; }
+      }
+    }`;
+    const { engine } = makeEngine(rules);
+
+    const result = engine.runQuery({
+      scope: { kind: 'collection-group', collectionId: 'items' },
+      auth: null,
+      execution,
+    });
+
+    expect(result.allowed).toBe(false);
+  });
+
+  test('documents recursive collection-group proof as fail-closed until symbolically supported', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{path=**}/items/{id} { allow list: if true; }
+      }
+    }`;
+    const { engine } = makeEngine(rules, { 'parents/a/items/one': { scope: 'nested' } });
+
+    const result = engine.runQuery({
+      scope: { kind: 'collection-group', collectionId: 'items' },
+      auth: null,
+      execution,
+    });
+
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) expect(result.error.message).toContain('symbolic collection-group proof');
   });
 
   test('captures a request execution accessor once for both proof and execution', () => {

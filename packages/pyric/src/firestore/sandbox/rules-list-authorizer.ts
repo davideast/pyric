@@ -1,5 +1,5 @@
-import type { SimulateFirestoreRulesHandler, TestCase } from 'pyric/rules/internal';
-import { projectEvaluatedRule, renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
+import type { FirestoreRules, SimulateFirestoreRulesHandler, TestCase } from 'pyric/rules/internal';
+import { assembleRules, projectEvaluatedRule, renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
 import type { FirestoreEventBus } from './event-bus.js';
 import { makeError, type FirestoreSimError } from './errors.js';
 import {
@@ -24,8 +24,8 @@ export interface RulesListAuthorizerHost {
 }
 
 export interface ListAuthorizationRequest {
-  /** Concrete collection paths that the captured execution scope can read. */
-  matchPaths?: readonly string[];
+  /** Collection groups require a symbolic all-path proof, never row sampling. */
+  collectionGroup?: boolean;
   path: string;
   auth: Operation['auth'];
   constraints: QueryConstraints;
@@ -85,23 +85,45 @@ export class RulesListAuthorizer {
       return { allowed: true };
     }
 
-    const matchPaths = request.matchPaths?.length ? request.matchPaths : [path];
-    const evalStart = performance.now();
-    const evaluations = matchPaths.map((matchPath) => ({
-      placeholderPath: `${matchPath}/__listPlaceholder__`,
-      proof: proveListQuery(
-        this.rules.ast(),
-        `${matchPath}/__listPlaceholder__`,
+    const deployedAst = this.rules.ast();
+    const evaluationAst = request.collectionGroup
+      ? globalCollectionGroupRules(deployedAst)
+      : deployedAst;
+    if (request.collectionGroup && !evaluationAst) {
+      const message =
+        `list ${path} denied: symbolic collection-group proof is not supported; ` +
+        'the query is rejected rather than authorizing from the currently stored rows';
+      this.emitRequest({
+        at: evalAt,
+        evalMs: 0,
+        method: 'list',
+        path,
         auth,
-        constraints,
-      ),
-    }));
-    const unprovable = evaluations.find((evaluation) => evaluation.proof.kind === 'unprovable');
-    if (unprovable?.proof.kind === 'unprovable') {
+        result: 'deny',
+        debugMessages: [message],
+        origin,
+        ...(detail ? { detail } : {}),
+        ...(triggeredBy ? { triggeredBy } : {}),
+      });
+      const error = makeError('permission-denied', message, {
+        request: { method: 'list', path, auth },
+        query: constraints,
+      });
+      this.emitUserDenial(origin, error);
+      return { allowed: false, error };
+    }
+
+    const placeholderPath = `${path}/__listPlaceholder__`;
+    const evaluationSource = request.collectionGroup
+      ? assembleRules(evaluationAst!)
+      : this.rules.source;
+    const evalStart = performance.now();
+    const proof = proveListQuery(evaluationAst, placeholderPath, auth, constraints);
+    if (proof.kind === 'unprovable') {
       const message =
         `list ${path} denied: the query is statically unprovable for every possible ` +
-        `result (rules are not filters), so the whole query is rejected — ${unprovable.proof.reason}`;
-      const remediation = renderQueryRemediation(unprovable.proof.residual);
+        `result (rules are not filters), so the whole query is rejected — ${proof.reason}`;
+      const remediation = renderQueryRemediation(proof.residual);
       this.emitRequest({
         at: evalAt,
         evalMs: performance.now() - evalStart,
@@ -123,19 +145,13 @@ export class RulesListAuthorizer {
       return { allowed: false, error };
     }
 
-    const testCases = evaluations.map(({ placeholderPath, proof }) => {
-      if (proof.kind === 'unprovable') {
-        throw new Error('Unprovable list query reached residual simulation');
-      }
-      const testCase = buildRulesTestCase(
-        this.host.state,
-        { method: 'list', path: placeholderPath, auth },
-        requestTime!,
-      );
-      this.applyProof(testCase, proof, constraints);
-      return testCase;
-    });
-    const simulation = this.simulator.simulate(this.rules.source, testCases, {
+    const testCase = buildRulesTestCase(
+      this.host.state,
+      { method: 'list', path: placeholderPath, auth },
+      requestTime!,
+    );
+    this.applyProof(testCase, proof, constraints);
+    const simulation = this.simulator.simulate(evaluationSource, [testCase], {
       getDoc: (documentPath) => this.host.state.get(documentPath),
     });
     const evalMs = performance.now() - evalStart;
@@ -160,8 +176,7 @@ export class RulesListAuthorizer {
       };
     }
 
-    const results = simulation.data.results;
-    const result = results.find((candidate) => candidate.state !== 'PASSED') ?? results[0]!;
+    const result = simulation.data.results[0]!;
     const debugMessages = renderLegacyDebugMessages(result);
     if (result.state === 'UNSUPPORTED') {
       this.emitRequest({
@@ -246,4 +261,33 @@ export class RulesListAuthorizer {
   private emitUserDenial(origin: ListAuthorizationRequest['origin'], error: FirestoreSimError): void {
     if (origin === 'user') this.events.denial.emit(error);
   }
+}
+
+/**
+ * A root-level `{document=**}` match governs every possible collection-group
+ * result. Isolating only those universal blocks prevents a concrete root path
+ * rule from accidentally authorizing the group's unbounded nested scope.
+ * Group-specific `/{path=**}/items/{id}` proofs remain fail-closed until the
+ * rules matcher can evaluate recursive wildcards with trailing segments.
+ */
+function globalCollectionGroupRules(ast: FirestoreRules | null): FirestoreRules | null {
+  if (!ast) return null;
+  const children = ast.service.match.children.filter((block) =>
+    block.path.segments.length === 1 &&
+    block.path.segments[0]?.type === 'recursive' &&
+    block.allows.some((rule) => rule.operations.some((operation) =>
+      operation === 'list' || operation === 'read'
+    )),
+  );
+  if (children.length === 0) return null;
+  return {
+    ...ast,
+    service: {
+      ...ast.service,
+      match: {
+        ...ast.service.match,
+        children,
+      },
+    },
+  };
 }

@@ -139,3 +139,16 @@ described as deep operand immutability. A follow-up design must introduce an
 engine-owned opaque operand capsule (or explicitly lock identity semantics) and
 prove all three properties together: no user-code observation, stable listener
 membership after registration, and Firestore-compatible equality/membership.
+
+## Amendment (2026-07-21): collection-group rules fail closed
+
+A collection-group query ranges over every collection with the requested ID,
+including empty and future nested collections. Authorizing only concrete paths
+present in the current local state would make rules act as filters and could
+approve a narrower scope than the query actually represents. Rules-enforced
+collection-group reads therefore authorize only through an isolated global
+`/{document=**}` list/read match, which truly governs every possible result.
+Group-specific version-2 shapes such as `/{path=**}/items/{id}` return
+`permission-denied` until the rules matcher can symbolically evaluate a
+recursive wildcard with trailing segments. The explicit `bypassRules` admin
+lens still executes every collection-group plan.

@@ -42,7 +42,6 @@ import { RulesListAuthorizer } from './rules-list-authorizer.js';
 import {
   executeQuery,
   gatherQueryRows,
-  queryAuthorizationPaths,
   captureQueryExecutionSpec,
   captureQueryScope,
   queryConstraintsForProof,
@@ -290,6 +289,9 @@ export class RulesReadEngine implements ListenerDispatchHost {
    * The request is an immutable plan. This engine gathers collection or
    * collection-group candidates, proves the list rule, and executes the
    * filters/order/cursors/limit without exposing raw rows to the adapter.
+   * Rules-enforced collection-group reads use only universal recursive rules;
+   * group-specific recursive-suffix shapes fail closed until symbolic proof is
+   * supported. bypassRules remains available to the explicit admin lens.
    *
    * Emits `origin: 'user'` request events (one per `list`) so inspector
    * consumers see query reads the same way they see writes. UNSUPPORTED
@@ -306,7 +308,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const proof = queryConstraintsForProof(execution);
     const authorization = this.listAuthorizer.authorize({
       path: listPath,
-      matchPaths: queryAuthorizationPaths(scope, candidates),
+      collectionGroup: scope.kind === 'collection-group',
       auth,
       constraints: proof,
       bypassRules,

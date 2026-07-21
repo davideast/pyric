@@ -175,24 +175,6 @@ export function gatherQueryRows(state: DocStore, scope: QueryScope): QueryRow[] 
   return rows;
 }
 
-/**
- * Resolve the concrete collection paths whose rules can govern the gathered
- * rows. Collection-group queries can cross match blocks, so proving only the
- * group ID would authorize a different scope than the one being executed.
- */
-export function queryAuthorizationPaths(
-  scope: QueryScope,
-  rows: readonly QueryRow[],
-): readonly string[] {
-  if (scope.kind === 'collection') return Object.freeze([scope.path]);
-  const paths = new Set<string>();
-  for (const row of rows) {
-    const segments = row.path.split('/').filter((segment) => segment.length > 0);
-    paths.add(segments.slice(0, -1).join('/'));
-  }
-  return Object.freeze(paths.size > 0 ? [...paths] : [scope.collectionId]);
-}
-
 const KEY_FIELD = '__name__';
 
 /** Operators that make a `where` clause an inequality filter — these imply
