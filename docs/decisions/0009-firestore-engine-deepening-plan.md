@@ -85,7 +85,7 @@ The admin-compat query adapter also reaches across the seam for raw candidates
 
 ## Amendment (2026-07-18): ListenerDispatch file size accepted
 
-`firestore/sandbox/listener-dispatch.ts` (902 lines) exceeds the 600-line
+`firestore/sandbox/listener-dispatch.ts` (914 lines) exceeds the 600-line
 structural trigger. Accepted deliberately: the file is one concept — the
 listener registry, delivery scheduler, notify paths, metadata acks, and
 rules-flip re-evaluation form a single dispatch machine with one injected
