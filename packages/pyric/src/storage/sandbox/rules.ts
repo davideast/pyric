@@ -223,6 +223,9 @@ export interface FirestoreLookup {
 /** Opaque parsed-rules handle returned by `parseStorageRules`. */
 export interface StorageRules {
   readonly _root: MatchBlock;
+  /** Parsed declaration used by Storage setup to select module lowering
+   * without inspecting comments or formatting in the raw source. */
+  readonly _version: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -475,7 +478,7 @@ export function parseStorageRules(source: string): StorageRules {
     ],
   };
   resolveFunctions(root, new Map());
-  return { _root: root };
+  return { _root: root, _version: ast.version };
 }
 
 /**

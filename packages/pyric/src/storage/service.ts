@@ -195,7 +195,8 @@ function ensureService(
   if (options.rules) {
     let source = options.rules;
     let modules: readonly string[] = [];
-    if (/rules_version\s*=\s*['"]2\+modules['"]\s*;/.test(source)) {
+    rules = parseStorageRules(source);
+    if (rules._version === '2+modules') {
       const resolved = resolveModulesBrowser(source);
       if (!resolved.success) {
         throw new SyntaxError(
@@ -204,8 +205,8 @@ function ensureService(
       }
       source = resolved.data.resolved;
       modules = resolved.data.modules;
+      rules = parseStorageRules(source);
     }
-    rules = parseStorageRules(source);
     resolution = createStorageRulesResolution(source, modules, rules);
   }
   // Explicit dbName wins; otherwise scope the default by project identity so

@@ -205,4 +205,34 @@ service firebase.storage {
     expect(Object.isFrozen(resolution?.modules)).toBe(true);
   });
 
+  it('ignores module-version text inside comments on ordinary v2 rules', () => {
+    const rules = `rules_version = '2';
+// Documentation example only: rules_version = '2+modules';
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if true; } }
+}`;
+    const storage = getStorageSandbox(initializeSandbox({}), {
+      dbName: uniqueDbName('commented-module-version'),
+      rules,
+    });
+
+    expect(getStorageRulesResolution(storage)).toMatchObject({ source: rules, modules: [] });
+  });
+
+  it('resolves a parser-valid commented module-version declaration', () => {
+    const storage = getStorageSandbox(initializeSandbox({}), {
+      dbName: uniqueDbName('commented-version-declaration'),
+      rules: `rules_version /* syntax comment */ = '2+modules';
+import { isAuthenticated } from 'auth';
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if isAuthenticated(); } }
+}`,
+    });
+    const resolution = getStorageRulesResolution(storage);
+
+    expect(resolution?.modules).toEqual(['auth']);
+    expect(resolution?.source).toContain("rules_version = '2';");
+    expect(resolution?.source).not.toContain('import ');
+  });
+
 });
