@@ -183,7 +183,8 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /{file} {
       allow create: if isAuthenticated() && sizeAtMost(10)
-        && hasRole(firestore.get(/databases/(default)/documents/members/$(request.auth.uid)).data, 'editor');
+        && hasRole(firestore
+          .get(/databases/(default)/documents/members/$(request.auth.uid)).data, 'editor');
     }
   }
 }`,
@@ -198,5 +199,20 @@ service firebase.storage {
     expect(resolution?.source).not.toContain('import ');
     expect(Object.isFrozen(resolution)).toBe(true);
     expect(Object.isFrozen(resolution?.modules)).toBe(true);
+  });
+
+  it('does not infer lookup evidence from comments or strings', () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox, {
+      dbName: uniqueDbName('rules-resolution-false-positive'),
+      rules: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // firestore.get(...) is documentation, not an executed lookup.
+    match /{file} { allow read: if 'firestore.exists(' == 'not a call'; }
+  }
+}`,
+    });
+    expect(getStorageRulesResolution(storage)?.evidenceIds).toEqual([]);
   });
 });

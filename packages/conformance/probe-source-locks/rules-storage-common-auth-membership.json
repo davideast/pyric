@@ -1,0 +1,6 @@
+{
+  "observation": "rules-storage-common-auth-membership",
+  "scope": "normalized-function-ast",
+  "sha256": "69a7f455c75eaf30cd9d8f5740cf691d446ab6d2bd9fa3c1d9b26f73e1491eff",
+  "basis": "reviewed-reconstruction-from-historical-capture-code"
+}
