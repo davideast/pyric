@@ -24,7 +24,7 @@ export const onPresenceOnline = onValueCreated('/presence/{uid}', async (event) 
   const profile = getFirestore().collection('users').doc(uid);
   const snapshot = await profile.get();
   const now = FieldValue.serverTimestamp();
-  const seen = snapshot.exists && snapshot.get('firstSeenAt')
+  const seen = snapshot.exists && snapshot.data()?.firstSeenAt
     ? { lastSeenAt: now }
     : { firstSeenAt: now, lastSeenAt: now };
   await profile.set(seen, { merge: true });

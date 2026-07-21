@@ -169,6 +169,9 @@ describe('runScaffold', () => {
       expect(viteConfig).not.toContain('loadEnv');
       expect(viteConfig).not.toContain('bridge: true');
       expect(viteConfig).not.toContain('modelMap');
+      const functions = readFileSync(join(project, 'functions/index.js'), 'utf8');
+      expect(functions).toContain('snapshot.data()?.firstSeenAt');
+      expect(functions).not.toContain("snapshot.get('firstSeenAt')");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
