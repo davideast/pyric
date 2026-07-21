@@ -550,6 +550,21 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     }
   });
 
+  test('enforces receiver types on Storage firestore lookup results', () => {
+    for (const expression of [
+      "firestore.get(/databases/(default)/documents/users/a).data.matches('x')",
+      'firestore.exists(/databases/(default)/documents/users/a).keys().hasAll([])',
+      "firestore.get(/databases/(default)/documents/users/a).data.split('x').size() > 0",
+    ]) {
+      const result = resolveModules(
+        makeStorageSource("import { broken } from './policy';", 'broken()'),
+        { modules: { './policy': `export function broken() { return ${expression}; }` } },
+      );
+
+      expect(result.success, expression).toBe(false);
+    }
+  });
+
   test('admits accepted path.bind and rejects production-rejected namespaces', () => {
     const bind = resolveModules(
       makeSource("import { bindPath } from './policy';"),

@@ -720,6 +720,7 @@ export const rulesRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-stdlib-storage-modules"],
           conformanceTests: [
+            "packages/conformance/test/src/storage-stdlib-source-lock.test.ts",
             "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
             "packages/pyric/test/storage/stdlib-cases.test.ts",
             "packages/pyric/test/storage/stdlib.test.ts",

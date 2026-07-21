@@ -1,10 +1,10 @@
 import { describe, test, expect } from 'bun:test';
 import {
   prefixPrivateFunctions,
-  resolveModules,
   rewriteCalls,
   sanitizeModuleName,
-} from '../../../src/rules/modules/resolver.js';
+} from '../../../src/rules/modules/resolver-transform.js';
+import { resolveModules } from '../../../src/rules/modules/resolver.js';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
 import type { Expression } from '../../../src/rules/grammar/FirestoreAST.js';
 

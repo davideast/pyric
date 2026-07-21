@@ -4,23 +4,27 @@ import {
   FIRESTORE_METHODS as GENERATED_FIRESTORE_METHODS,
   FIRESTORE_METHOD_RECEIVER_TYPES,
   FIRESTORE_NAMESPACE_METHODS,
-  STORAGE_BINDING_PATHS,
   STORAGE_METHODS as GENERATED_STORAGE_METHODS,
   STORAGE_METHOD_RECEIVER_TYPES,
   STORAGE_NAMESPACE_METHODS,
 } from './rules-capabilities.generated.js';
 import {
+  type RulesServiceName,
+  incompatibleStdlibExport,
+} from './stdlib-service-compatibility.js';
+import {
+  allowedAmbientBinding,
+  allowsDynamicAmbientAccess,
+} from './service-bindings.js';
+export {
   STDLIB_SERVICE_CONTRACT_MODULES,
-  STDLIB_SERVICE_CONTRACTS,
-} from './stdlib-services.generated.js';
-
-export type RulesServiceName = 'cloud.firestore' | 'firebase.storage';
+  incompatibleStdlibExport,
+} from './stdlib-service-compatibility.js';
+export type { RulesServiceName } from './stdlib-service-compatibility.js';
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled Rules expression: ${JSON.stringify(value)}`);
 }
-
-export { STDLIB_SERVICE_CONTRACT_MODULES };
 
 // Generated from accepted rules-language inventory rows. An accepted Storage
 // row is admitted only after local implementation and production replay.
@@ -34,32 +38,6 @@ const STORAGE_METHODS = new Set<string>(GENERATED_STORAGE_METHODS);
 const STORAGE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
   Object.entries(STORAGE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
 );
-const STORAGE_BINDINGS = new Set<string>(STORAGE_BINDING_PATHS);
-const STORAGE_DYNAMIC_BINDING_PREFIXES = [
-  'request.auth.token',
-  'request.resource.metadata',
-  'resource.metadata',
-] as const;
-
-function stdlibContractKey(moduleName: string): string {
-  const pathMatch = moduleName.match(/^\.\/stdlib\/(.+?)(?:\.rules)?$/);
-  return pathMatch?.[1] ?? moduleName;
-}
-
-export function incompatibleStdlibExport(
-  service: RulesServiceName,
-  moduleName: string,
-  functionName: string,
-): string | null {
-  const contractKey = stdlibContractKey(moduleName);
-  const services = STDLIB_SERVICE_CONTRACTS[contractKey as keyof typeof STDLIB_SERVICE_CONTRACTS] as
-    readonly RulesServiceName[] | undefined;
-  if (!services) return null;
-  return services.includes(service)
-    ? null
-    : `Function '${functionName}' from module '${moduleName}' is not compatible with service '${service}'`;
-}
-
 type AmbientProvenance = string[] | 'unknown-ambient' | null;
 
 interface AnalysisContext {
@@ -167,32 +145,6 @@ function ambientBindingPath(expr: Expression, ctx: AnalysisContext): AmbientProv
   }
 }
 
-function allowedAmbientBinding(service: RulesServiceName, path: readonly string[]): boolean {
-  if (path.length === 1) return true;
-  if (service === 'firebase.storage') {
-    const binding = path.join('.');
-    return STORAGE_BINDINGS.has(binding) ||
-      STORAGE_DYNAMIC_BINDING_PREFIXES.some((prefix) => binding.startsWith(`${prefix}.`));
-  }
-  if (path[0] === 'request') {
-    if (path[1] === 'auth' || path[1] === 'query') return true;
-    if (['time', 'method', 'path'].includes(path[1]!)) return path.length === 2;
-    return path[1] === 'resource' && (path.length === 2 || path[2] === 'data');
-  }
-  return path[0] === 'resource' && (path.length === 1 || path[1] === 'data');
-}
-
-function allowsDynamicAmbientAccess(service: RulesServiceName, path: readonly string[]): boolean {
-  if (path[0] === 'request' && path[1] === 'auth' && path[2] === 'token') return true;
-  if (service === 'firebase.storage') {
-    return path[0] === 'resource' && path[1] === 'metadata' ||
-      path[0] === 'request' && path[1] === 'resource' && path[2] === 'metadata';
-  }
-  return path[0] === 'resource' && path[1] === 'data' ||
-    path[0] === 'request' && path[1] === 'resource' && path[2] === 'data' ||
-    path[0] === 'request' && path[1] === 'query';
-}
-
 function provenanceIssue(
   provenance: AmbientProvenance,
   service: RulesServiceName,
@@ -237,6 +189,8 @@ function ambientCollectionMethodIssue(
 
 type RulesReceiverType =
   | 'bytes'
+  | 'boolean'
+  | 'document'
   | 'duration'
   | 'latlng'
   | 'list'
@@ -278,6 +232,10 @@ function ambientReceiverType(
 function ambientMethodReturnType(expression: Expression): RulesReceiverType | null {
   if (expression.type !== 'methodCall') return null;
   if (expression.object.type === 'identifier') {
+    if (expression.object.name === 'firestore') {
+      if (expression.method === 'get') return 'document';
+      if (expression.method === 'exists') return 'boolean';
+    }
     if (expression.object.name === 'duration') return 'duration';
     if (expression.object.name === 'timestamp') return 'timestamp';
     if (expression.object.name === 'latlng') return 'latlng';
@@ -325,6 +283,8 @@ function expressionReceiverType(
     case 'mapLiteral': return 'map';
     case 'pathLiteral': return 'path';
     case 'memberAccess': {
+      if (expression.property === 'data' &&
+          expressionReceiverType(expression.object, ctx) === 'document') return 'map';
       if (expression.object.type === 'mapLiteral') {
         const entry = expression.object.entries.find(({ key }) =>
           key.type === 'literal' && key.value === expression.property);
@@ -357,6 +317,10 @@ function expressionReceiverType(
       return objectType === 'list' || objectType === 'string' ? objectType : null;
     }
     case 'methodCall': {
+      const namespaceReturnType = ambientMethodReturnType(expression);
+      if (expression.object.type === 'identifier' && namespaceReturnType) {
+        return namespaceReturnType;
+      }
       if (expression.method === 'get') {
         const objectPath = ambientBindingPath(expression.object, ctx);
         if (ctx.service === 'firebase.storage' && Array.isArray(objectPath) &&
