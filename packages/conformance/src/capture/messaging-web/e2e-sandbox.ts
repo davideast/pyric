@@ -94,7 +94,7 @@ if (!built.success) {
 const pageJs = await built.outputs[0]!.text();
 
 const workerOutDir = mkdtempSync(join(tmpdir(), 'pyric-msg-e2e-worker-'));
-const workerFile = await bundleWorker({ outDir: workerOutDir, noCache: true });
+const { outFile: workerFile } = await bundleWorker({ outDir: workerOutDir, noCache: true });
 const workerJs = readFileSync(workerFile, 'utf8');
 const workerMap = existsSync(`${workerFile}.map`) ? readFileSync(`${workerFile}.map`, 'utf8') : null;
 console.log(`worker bundle: ${workerFile} (${(workerJs.length / 1024 / 1024).toFixed(1)} MB)`);

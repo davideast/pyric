@@ -451,7 +451,7 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
 
   it('bundles the real worker entry as a classic-worker iife; marker caches', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-worker-bundle-'));
-    const file = await bundleWorker({ outDir: dir, noCache: true, minify: false });
+    const { outFile: file } = await bundleWorker({ outDir: dir, noCache: true, minify: false });
     expect(file.endsWith('/worker.js')).toBe(true);
     const src = readFileSync(file, 'utf8');
 
@@ -475,6 +475,24 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
 
     // Marker cache: a second call without noCache returns the same file fast.
     const again = await bundleWorker({ outDir: dir });
-    expect(again).toBe(file);
+    expect(again.outFile).toBe(file);
+  }, 30_000);
+
+  it('derives the worker epoch from executable output, not unrelated files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-worker-epoch-'));
+    const entry = join(root, 'worker.ts');
+    const unrelated = join(root, 'runtime-chip.ts');
+    writeFileSync(entry, 'globalThis.workerEpoch = __PYRIC_WORKER_VERSION__;');
+    writeFileSync(unrelated, 'export const chip = 1;');
+
+    const firstDir = join(root, 'first');
+    const first = await bundleWorker({ outDir: firstDir, noCache: true, entryPath: entry });
+
+    writeFileSync(unrelated, 'export const chip = 2;');
+    const secondDir = join(root, 'second');
+    const second = await bundleWorker({ outDir: secondDir, noCache: true, entryPath: entry });
+
+    expect(second.epoch).toBe(first.epoch);
+    expect(readFileSync(join(firstDir, 'worker.js'), 'utf8')).toContain(first.epoch);
   }, 30_000);
 });

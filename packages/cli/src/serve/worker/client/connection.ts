@@ -11,6 +11,7 @@ import {
   nextSubId,
   wirePort,
   rpc,
+  rpcWithTimeout,
   rawRpc,
   openSnapshotSubscription,
   closeSubscription,
@@ -29,7 +30,15 @@ import type { ClientDb } from './handles.js';
  * `getFirestore` mirrors `pyric/firestore`'s `getFirestore(sandbox)` shape
  * but returns a `ClientDb` backed by a `MessagePort` instead of a sandbox.
  */
-export function getFirestore(workerUrl: string | URL, name?: string): ClientDb {
+export interface SharedWorkerConnectionOptions {
+  onError?: (error: Error) => void;
+}
+
+export function getFirestore(
+  workerUrl: string | URL,
+  name?: string,
+  options: SharedWorkerConnectionOptions = {},
+): ClientDb {
   if (typeof SharedWorker === 'undefined') {
     throw new Error(
       'SharedWorker is not available. ' +
@@ -41,6 +50,12 @@ export function getFirestore(workerUrl: string | URL, name?: string): ClientDb {
     type: 'classic',
     name: name ?? 'pyric-shared-worker',
   });
+  if (options.onError) {
+    worker.addEventListener('error', (event) => {
+      const detail = event.message || `failed to load ${String(workerUrl)}`;
+      options.onError?.(new Error(`Pyric SharedWorker error: ${detail}`));
+    });
+  }
   const port = worker.port;
   port.start();
   wirePort(port);
@@ -52,8 +67,18 @@ export function getFirestore(workerUrl: string | URL, name?: string): ClientDb {
  * compares it to the served bundle version and warns when a still-running OLD
  * worker is older than what's served (a SharedWorker can't hot-update).
  */
-export async function getWorkerVersion(db: ClientDb): Promise<string> {
-  const r = (await rpc(db.port, { t: 'op', id: nextId(), method: 'getVersion' })) as { version: string };
+export async function getWorkerVersion(
+  db: ClientDb,
+  options: { timeoutMs?: number } = {},
+): Promise<string> {
+  const id = nextId();
+  const timeoutMs = options.timeoutMs ?? 2_000;
+  const r = (await rpcWithTimeout(
+    db.port,
+    { t: 'op', id, method: 'getRuntimeEpoch' },
+    timeoutMs,
+    `Timed out waiting for the Pyric SharedWorker version handshake after ${timeoutMs}ms.`,
+  )) as { version: string };
   return r.version;
 }
 

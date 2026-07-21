@@ -41,7 +41,6 @@
  */
 import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
 import type { Plugin, UserConfig, ConfigEnv } from 'vite';
@@ -51,11 +50,10 @@ import {
   defaultSdkEntries,
   resolveStudioUiDir,
   pyricPackageRoot,
-  bundleWorker,
-  workerSourceHash,
   NODE_BUILTIN_RE,
   NODE_BUILTIN_SHIMS,
 } from './bundler.js';
+import { createViteWorkerRuntime } from './vite-worker-runtime.js';
 import {
   createEventHub,
   createPyricNamespace,
@@ -300,11 +298,10 @@ export function pyric(options: PyricOptions = {}): Plugin {
   };
 
   // M2: the SharedWorker bundle's content hash (sync) — stamped into the page so
-  // a still-running OLD worker is detected as stale. `workerReady` flips true once
-  // `bundleWorker` succeeds in configureServer; until then (or on bundle failure)
-  // the page is forced onto the in-page sandbox path. transformIndexHtml reads it.
-  const workerVersion = workerSourceHash();
-  let workerReady = false;
+  // a still-running OLD worker is detected as stale. The collaborator becomes
+  // ready once its bundle succeeds; until then (or on bundle failure) the page
+  // is forced onto the in-page sandbox path. transformIndexHtml reads its tag.
+  const workerRuntime = createViteWorkerRuntime();
 
   // Set by the `config` hook. When the plugin runs under `vite build` at all it
   // is a SANDBOX build (the `apply` gate below only lets build through under the
@@ -499,12 +496,10 @@ export function pyric(options: PyricOptions = {}): Plugin {
 
       // ── M2 SharedWorker host: bundle it (cached per version) and serve it at
       // /__pyric/sdk/worker.js. This is what flips runtime.ts to the worker path.
-      // On bundle failure, fall back to the in-page sandbox (workerReady stays
-      // false → transformIndexHtml forces in-page).
-      const sdkDir = path.join(homedir(), '.pyric', 'vite-worker', workerVersion);
+      // On bundle failure, the collaborator stays unready and its HTML tag
+      // forces the in-page sandbox.
       try {
-        await bundleWorker({ outDir: sdkDir });
-        workerReady = true;
+        await workerRuntime.prepare();
       } catch (e) {
         server.config.logger.warn(
           `  ⚠ [pyric] SharedWorker bundle failed — using the in-page sandbox (single-tab, ephemeral): ${e instanceof Error ? e.message : String(e)}`,
@@ -626,6 +621,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
           );
         }
       }
+      const { sdkDir } = workerRuntime.status();
       const namespace = createPyricNamespace({
         sdkDir,
         initPayload,
@@ -1045,13 +1041,11 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // module evaluates — a classic inline script runs before the deferred module.
       // The flag (not nulling `window.SharedWorker`) leaves the user's own
       // SharedWorker usage intact. We force in-page ONLY when the worker bundle
-      // failed (workerReady false) — the ephemeral fallback. `bridge` no longer
+      // failed (worker runtime unready) — the ephemeral fallback. `bridge` no longer
       // forces in-page: the bridge peer routes agent tool-calls THROUGH the
       // worker (see `connectBridgePeer`), so the agent shares the one sandbox the
       // app + Studio use.
-      const head = workerReady
-        ? `<meta name="pyric-worker-v" content="${workerVersion}" ${MARKER}>`
-        : `<script ${MARKER}>globalThis.__PYRIC_FORCE_INPAGE__=true;</script>`;
+      const head = workerRuntime.headTag(MARKER);
       // Plugin-level engine for the IN-PAGE path: a classic inline script runs
       // before the deferred init module AND before app code's `getAI`, so the
       // served `getAI` (entries/ai.ts) reads it synchronously — init.json can't
