@@ -81,10 +81,10 @@ import { ListenerDispatch } from './listener-dispatch.js';
 import { HistoryControls } from './history-controls.js';
 import { RulesState } from './rules-state.js';
 import { RulesReadEngine } from './rules-read-engine.js';
+import { WriteEngine } from './write-engine.js';
 import {
   SimulatorUnsupportedError,
   unsupportedMessage,
-  adminBypassResult,
   isoFromTimestamp,
   DEFAULT_OPEN_RULES,
 } from './rules-evaluation.js';
@@ -129,6 +129,9 @@ export class LocalEnvironment {
    */
   private readonly reads: RulesReadEngine;
 
+  /** Rules-aware writes behind the stable LocalEnvironment facade. */
+  private readonly writes: WriteEngine;
+
   /**
    * Snapshot-listener registry + delivery machinery (ADR-0009, PR B2).
    * Rules-gated silent reads arrive through {@link RulesReadEngine},
@@ -139,14 +142,7 @@ export class LocalEnvironment {
   constructor() {
     this.state = new LocalState();
     this.eventLog = new EventLog();
-    // Undo/redo needs live keyspace access (`seed()` replaces `state`) and
-    // the engine's write application — injected as a narrow HistoryHost.
     const engine = this;
-    this.history = new HistoryControls(this.eventLog, {
-      get state() { return engine.state; },
-      capturePriors: (paths) => this.capturePriors(paths),
-      applyWrite: (method, path, data, merge) => this.applyWrite(method, path, data, merge),
-    });
     this.simulator = new SimulateFirestoreRulesHandler();
     // Default to an allow-all ruleset so a freshly-constructed sandbox
     // works for the quickstart `addDoc` / `getDoc` flow without forcing
@@ -158,12 +154,24 @@ export class LocalEnvironment {
     // the default is just "don't blow up before you've thought about
     // rules."
     this.rules = new RulesState(DEFAULT_OPEN_RULES);
+    this.writes = new WriteEngine(
+      { get state() { return engine.state; } },
+      this.rules,
+      this.simulator,
+    );
+    // Undo/redo needs live keyspace access (`seed()` replaces `state`) and
+    // the write engine's affected-path helpers.
+    this.history = new HistoryControls(this.eventLog, {
+      get state() { return engine.state; },
+      capturePriors: (paths) => this.writes.capturePriors(paths),
+      applyWrite: (method, path, data, merge) => this.writes.applyWrite(method, path, data, merge),
+    });
     // Rules-gated reads need live keyspace access (`seed()` replaces
     // `state`) and the facade's buildTestCase (shared with the write
     // engine's simulate path) — injected as a narrow RulesReadHost.
     this.reads = new RulesReadEngine(this.events, this.triggerScope, this.rules, this.simulator, {
       get state() { return engine.state; },
-      buildTestCase: (operation, serverTime) => this.buildTestCase(operation, serverTime),
+      buildTestCase: (operation, serverTime) => this.writes.buildTestCase(operation, serverTime),
     });
     // Listener dispatch calls back into the engine only for rules-gated
     // silent reads — RulesReadEngine IS its ListenerDispatchHost.
@@ -550,12 +558,7 @@ export class LocalEnvironment {
    * Must be called BEFORE the write applies.
    */
   private capturePriors(paths: readonly string[]): Record<string, DocumentData | null> {
-    const priors: Record<string, DocumentData | null> = {};
-    for (const path of paths) {
-      const prior = this.state.get(path);
-      priors[path] = prior ? { ...prior } : null;
-    }
-    return priors;
+    return this.writes.capturePriors(paths);
   }
 
   // ═══ Write operations (bypass rules — admin access) ═══
@@ -604,17 +607,7 @@ export class LocalEnvironment {
     bypassRules: boolean | undefined,
     batchProjection?: Map<string, DocumentData | null>,
   ): TestFirestoreRulesResult {
-    if (bypassRules) {
-      const results = testCases.map((tc) => adminBypassResult(tc.description));
-      return {
-        success: true,
-        data: { passed: results.length, failed: 0, unsupported: 0, results },
-      };
-    }
-    return this.simulator.simulate(this.rules.source, testCases, {
-      getDoc: (path) => this.state.get(path),
-      ...(batchProjection ? { batchProjection } : {}),
-    });
+    return this.writes.runSimulate(testCases, bypassRules, batchProjection);
   }
 
   /**
@@ -632,12 +625,7 @@ export class LocalEnvironment {
    * per-document `getAfter()`.
    */
   private buildBatchProjection(testCases: TestCase[]): Map<string, DocumentData | null> {
-    const projection = new Map<string, DocumentData | null>();
-    for (const tc of testCases) {
-      if (tc.method === 'get' || tc.method === 'list') continue;
-      projection.set(tc.path, tc.method === 'delete' ? null : (tc.data ?? {}));
-    }
-    return projection;
+    return this.writes.buildBatchProjection(testCases);
   }
 
   // ═══ Single operation (rules evaluated) ═══
