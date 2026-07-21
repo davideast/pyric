@@ -204,7 +204,7 @@ single-file v2 source; Firebase is not claimed to link Pyric modules.
 
 The two service references overlap on core values and operations: null, Boolean, integer/float arithmetic, strings, paths, lists, maps, timestamps, durations, type checks, functions, and short-circuit error semantics. Storage additionally documents `math` helpers, string `matches`/`split`, list membership/`join`/`hasAll`, map `keys`/`values`, and timestamp accessors ([Storage reference](https://firebase.google.com/docs/reference/security/storage)). Firestore's reference is richer and separately lists Bytes, LatLng, MapDiff, Set, hashing, and additional methods and namespaces ([Firestore Rules API overview](https://firebase.google.com/docs/reference/rules)).
 
-Do **not** treat the union of those references as a universal surface. In particular, Firestore's MapDiff/Set and hashing/Bytes/LatLng APIs are only candidates for paired probes unless the Storage reference or production observations establish them. Even the documented overlap is not proof that Pyric's two evaluators implement every item. The current Storage evaluator implements only a subset: `matches`, `split`, `size`, `timestamp.date/value`, `duration.value`, and injected `firestore.get/exists`, while unknown methods deny ([Storage built-ins](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/storage/rules.ts#L1200-L1263)). Pyric's Storage rules-language inventory already labels it a “standalone subset” and records the injected-lookup qualification ([inventory](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/conformance/rules-language/storage.json#L1-L190)).
+Do **not** treat the union of those references as a universal surface. In particular, Firestore's MapDiff/Set and hashing/Bytes/LatLng APIs are only candidates for paired probes unless the Storage reference or production observations establish them. Even the documented overlap is not proof that Pyric's two evaluators implement every item. The current Storage evaluator implements the production-pinned subset needed by the shipped modules: string `matches`/`split`, collection `size`, map `keys`/`get`, list `hasAll`, `timestamp.date/value`, `duration.value`, and injected `firestore.get/exists`; unknown methods deny. Pyric's Storage rules-language inventory labels it a “standalone subset” and records the injected-lookup qualification ([inventory](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/conformance/rules-language/storage.json#L1-L190)).
 
 ### Ambient bindings are service-specific
 
@@ -241,7 +241,7 @@ The safe rule is: **a shared name is not a shared type**. Only helpers whose ful
 
 Storage Rules may read Cloud Firestore documents through `firestore.get()` and `firestore.exists()` with fully specified paths. Firebase caps a Storage evaluation at two Firestore document accesses, may cache repeated accesses, charges the reads, and limits access to the default Firestore database in multi-database projects ([Storage conditions](https://firebase.google.com/docs/storage/security/rules-conditions#enhance_with_cloud_firestore), [Rules limits](https://firebase.google.com/docs/rules/rules-behavior#security_rule_limits)). Enabling this feature grants the Firebase Storage service account the `Firebase Rules Firestore Service Agent` IAM role; removing it makes such Storage evaluations fail ([cross-service permissions](https://firebase.google.com/docs/rules/manage-deploy#manage_permissions_for_cross-service_cloud_storage_security_rules)).
 
-This is cross-service **data access**, not cross-service rules composition. Firebase still deploys the two rulesets separately. The IAM-backed design implies that a Storage lookup is not a simulated client request authorized by the matched clauses in `firestore.rules`; the Storage condition itself decides how the returned document affects object access. That last sentence is an inference from the documented separate releases plus service-agent IAM mechanism, and should be pinned with a real-database probe before Pyric publishes it as a guarantee.
+This is cross-service **data access**, not cross-service rules composition. Firebase still deploys the two rulesets separately. The IAM-backed design implies that a Storage lookup is not a simulated client request authorized by the matched clauses in `firestore.rules`; the Storage condition itself decides how the returned document affects object access. The production rules-independence probe now pins that behavior: the same Storage lookup result held while the Firestore ruleset changed between deny-all and allow-all, with IAM and the document fixed.
 
 Pyric already models the sanctioned direction: its Storage evaluator accepts an injected `FirestoreLookup`; sandbox enforcement supplies the project Firestore view, while pure evaluation without the capability denies ([interface and contract](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/storage/rules.ts#L197-L221), [evaluation](https://github.com/davideast/pyric/blob/6e5ecd6e3718/packages/pyric/src/storage/rules.ts#L1266-L1320)). That does not justify importing Firestore helpers. A Firestore helper that calls bare `get()` or reads `resource.data` remains incompatible inside Storage; a Storage-specific helper may call qualified `firestore.get()`, or preferably accept the looked-up `.data` as an explicit parameter so lookup count and path stay visible at the call site.
 
@@ -304,13 +304,13 @@ candidate becomes shipped only after its function bodies
 are implemented locally, replayed against the applicable observations, listed
 in the service contract, and covered by executable stdlib fixtures.
 
-### Common modules to promote first
+### Shipped common modules and remaining candidate
 
-| Module | Candidate exports | Why first |
+| Module | Status and exports | Why |
 |---|---|---|
-| `auth` | existing `isAuthenticated`, `isOwner(userId)` | Same documented auth binding; no object-model dependency. |
-| `membership` | existing claim and explicit-map helpers | Reuses explicit parameters and avoids ambient `.data`. |
-| `values` (possible extraction) | `validString(value,min,max)`, `isOneOf(value,values)`, `boundedNumber(value,min,max)` | Value-oriented variants are genuinely portable and avoid separate Firestore/Storage field conventions. Only add if this reduces rather than duplicates the public concept set. |
+| `auth` | shipped: `isAuthenticated`, `isOwner(userId)` | Same documented auth binding; exact bodies are production-probed on both services. |
+| `membership` | shipped: existing claim and explicit-map helpers | Reuses explicit parameters, avoids ambient `.data`, and is production-probed on both services. |
+| `values` (possible extraction) | candidate: `validString(value,min,max)`, `isOneOf(value,values)`, `boundedNumber(value,min,max)` | Value-oriented variants could be portable and avoid separate field conventions, but should ship only if probes show they reduce rather than duplicate the public concept set. |
 
 ### Shipped Storage layer
 

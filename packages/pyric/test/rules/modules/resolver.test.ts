@@ -311,6 +311,103 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.error.message).toContain("service 'firebase.storage'");
     }
   });
+
+  test('does not let literal bracket notation bypass ambient binding checks', () => {
+    const storage = resolveModules(
+      makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
+      { modules: { './policy': `
+        export function hasDigest() {
+          return request.resource['md5Hash'] != null;
+        }
+      ` } },
+    );
+    const firestore = resolveModules(
+      makeSource("import { uploadIsSmall } from './policy';"),
+      { modules: { './policy': `
+        export function uploadIsSmall() {
+          return request.resource['size'] < 1024;
+        }
+      ` } },
+    );
+
+    expect(storage.success).toBe(false);
+    expect(firestore.success).toBe(false);
+    if (!storage.success) expect(storage.error.message).toContain("binding 'request.resource.md5Hash'");
+    if (!firestore.success) expect(firestore.error.message).toContain("binding 'request.resource.size'");
+  });
+
+  test('fails closed on dynamic access to a closed ambient object', () => {
+    const result = resolveModules(
+      makeStorageSource("import { readsResource } from './policy';", "readsResource('size')"),
+      { modules: { './policy': `
+        export function readsResource(field) {
+          return request.resource[field] != null;
+        }
+      ` } },
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.message).toContain("binding 'request.resource[...]'");
+  });
+
+  test('finds transitive private calls hidden in slices and rewrites them', () => {
+    const result = resolveModules(
+      makeStorageSource("import { allowed } from './policy';", 'allowed()'),
+      { modules: { './policy': `
+        function firestoreOwners() {
+          return [resource.data.owner];
+        }
+        export function allowed() {
+          return firestoreOwners()[0:1].size() == 1;
+        }
+      ` } },
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain('policy__firestoreOwners');
+      expect(result.error.message).toContain("binding 'resource.data.owner'");
+    }
+  });
+
+  test('finds transitive private calls hidden in interpolated paths', () => {
+    const result = resolveModules(
+      makeStorageSource("import { allowed } from './policy';", 'allowed()'),
+      { modules: { './policy': `
+        function firestoreOwner() {
+          return resource.data.owner;
+        }
+        export function allowed() {
+          return firestore.exists(/databases/(default)/documents/users/$(firestoreOwner()));
+        }
+      ` } },
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain('policy__firestoreOwner');
+      expect(result.error.message).toContain("binding 'resource.data.owner'");
+    }
+  });
+
+  test('admits production-known Firestore methods and namespaces in caller modules', () => {
+    const result = resolveModules(
+      makeSource(
+        "import { validFirestoreApis } from './policy';",
+        'function usesValidFirestoreApis() { return validFirestoreApis(); }',
+      ),
+      { modules: { './policy': `
+        export function validFirestoreApis() {
+          return 'HELLO'.lower() == 'hello'
+            && math.abs(-1) == 1
+            && hashing.sha256('hello').size() > 0
+            && latlng.value(0, 0).latitude() == 0;
+        }
+      ` } },
+    );
+
+    expect(result.success).toBe(true);
+  });
 });
 
 // ---- Increment 5: Transitive dependencies ----
@@ -685,6 +782,38 @@ describe('rewriteCalls', () => {
     const expr = call('helper');
     const result = rewriteCalls(expr, new Map());
     expect(result).toBe(expr); // same reference
+  });
+
+  test('rewrites calls inside slice bounds and objects', () => {
+    const expr: Expression = {
+      type: 'sliceAccess',
+      object: call('helper'),
+      start: call('helper'),
+      end: call('other'),
+    };
+    const result = rewriteCalls(expr, renames);
+
+    expect(result.type).toBe('sliceAccess');
+    if (result.type === 'sliceAccess') {
+      expect(result.object).toMatchObject({ type: 'functionCall', name: 'mod__helper' });
+      expect(result.start).toMatchObject({ type: 'functionCall', name: 'mod__helper' });
+      expect(result.end).toMatchObject({ type: 'functionCall', name: 'other' });
+    }
+  });
+
+  test('rewrites calls inside interpolated path segments', () => {
+    const expr: Expression = {
+      type: 'pathLiteral',
+      raw: '/documents/$(helper())',
+      segments: ['documents', call('helper')],
+    };
+    const result = rewriteCalls(expr, renames);
+
+    expect(result.type).toBe('pathLiteral');
+    if (result.type === 'pathLiteral') {
+      expect(result.segments[0]).toBe('documents');
+      expect(result.segments[1]).toMatchObject({ type: 'functionCall', name: 'mod__helper' });
+    }
   });
 });
 

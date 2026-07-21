@@ -8,224 +8,13 @@
 import { parseToASTOrError, parseFunctions } from '../grammar/FirestoreParser.js';
 import { assembleRules } from '../grammar/FirestoreAssembler.js';
 import type { FunctionDef, Expression } from '../grammar/FirestoreAST.js';
+import {
+  incompatibleFunction,
+  incompatibleStdlibExport,
+} from './service-compatibility.js';
+export { STDLIB_SERVICE_CONTRACT_MODULES } from './service-compatibility.js';
 
 const BUILTIN_FUNCTIONS = new Set(['get', 'exists', 'getAfter', 'debug']);
-
-type RulesServiceName = 'cloud.firestore' | 'firebase.storage';
-
-interface ModuleContract {
-  defaultServices: readonly RulesServiceName[];
-  exports?: Readonly<Record<string, readonly RulesServiceName[]>>;
-}
-
-const FIRESTORE_ONLY: readonly RulesServiceName[] = ['cloud.firestore'];
-const STORAGE_ONLY: readonly RulesServiceName[] = ['firebase.storage'];
-const FIRESTORE_AND_STORAGE: readonly RulesServiceName[] = ['cloud.firestore', 'firebase.storage'];
-
-/**
- * Reviewed service contracts for the bundled standard library. The catalog is
- * Firestore-first today; only auth and membership have bodies whose complete
- * ambient-binding surface has been admitted for Storage. Keeping this list
- * fail-closed prevents a newly added Firestore module from silently becoming a
- * Storage promise merely because both services share a parser.
- *
- * `exports` permits a mixed module to admit individual functions later without
- * widening every export in the file.
- */
-const STDLIB_MODULE_CONTRACTS: Readonly<Record<string, ModuleContract>> = {
-  auth: { defaultServices: FIRESTORE_AND_STORAGE },
-  membership: { defaultServices: FIRESTORE_AND_STORAGE },
-  atomic: { defaultServices: FIRESTORE_ONLY },
-  content: { defaultServices: FIRESTORE_ONLY },
-  counters: { defaultServices: FIRESTORE_ONLY },
-  geometry: { defaultServices: FIRESTORE_ONLY },
-  joining: { defaultServices: FIRESTORE_ONLY },
-  lifecycle: { defaultServices: FIRESTORE_ONLY },
-  lobby: { defaultServices: FIRESTORE_ONLY },
-  spaces: { defaultServices: FIRESTORE_ONLY },
-  state: { defaultServices: FIRESTORE_ONLY },
-  timing: { defaultServices: FIRESTORE_ONLY },
-  transitions: { defaultServices: FIRESTORE_ONLY },
-  turns: { defaultServices: FIRESTORE_ONLY },
-  validation: { defaultServices: FIRESTORE_ONLY },
-  'storage/uploads': { defaultServices: STORAGE_ONLY },
-  'storage/metadata': { defaultServices: STORAGE_ONLY },
-  'storage/objects': { defaultServices: STORAGE_ONLY },
-  'storage/time': { defaultServices: STORAGE_ONLY },
-};
-
-/**
- * Bundled modules that have an explicit service contract. Exported for the
- * stdlib drift test: adding a module to the bundle without classifying its
- * supported services must fail CI instead of silently widening the Storage
- * surface.
- */
-export const STDLIB_SERVICE_CONTRACT_MODULES = Object.freeze(
-  Object.keys(STDLIB_MODULE_CONTRACTS).sort(),
-);
-
-function stdlibContractKey(moduleName: string): string {
-  const pathMatch = moduleName.match(/^\.\/stdlib\/(.+?)(?:\.rules)?$/);
-  return pathMatch?.[1] ?? moduleName;
-}
-
-function incompatibleStdlibExport(
-  service: RulesServiceName,
-  moduleName: string,
-  functionName: string,
-): string | null {
-  const contract = STDLIB_MODULE_CONTRACTS[stdlibContractKey(moduleName)];
-  if (!contract) return null;
-  const services = contract.exports?.[functionName] ?? contract.defaultServices;
-  return services.includes(service)
-    ? null
-    : `Function '${functionName}' from module '${moduleName}' is not compatible with service '${service}'`;
-}
-
-function ambientBindingPath(expr: Expression): string[] | null {
-  if (expr.type === 'identifier') {
-    return expr.name === 'request' || expr.name === 'resource' ? [expr.name] : null;
-  }
-  if (expr.type !== 'memberAccess') return null;
-  const parent = ambientBindingPath(expr.object);
-  return parent ? [...parent, expr.property] : null;
-}
-
-function allowedAmbientBinding(service: RulesServiceName, path: readonly string[]): boolean {
-  if (path.length === 1) return true;
-
-  if (service === 'firebase.storage') {
-    if (path[0] === 'request') {
-      if (path[1] === 'auth') return true;
-      if (['time', 'method', 'path'].includes(path[1]!)) return path.length === 2;
-      if (path[1] !== 'resource') return false;
-      if (path.length === 2) return true;
-      if (path[2] === 'metadata') return true;
-      return path.length === 3 && ['size', 'contentType', 'name'].includes(path[2]!);
-    }
-    if (path[0] === 'resource') {
-      if (path[1] === 'metadata') return true;
-      return path.length === 2 && [
-        'name',
-        'bucket',
-        'size',
-        'contentType',
-        'timeCreated',
-        'updated',
-        'generation',
-        'metageneration',
-        'md5Hash',
-        'crc32c',
-        'etag',
-      ].includes(path[1]!);
-    }
-    return false;
-  }
-
-  if (path[0] === 'request') {
-    if (path[1] === 'auth' || path[1] === 'query') return true;
-    if (['time', 'method', 'path'].includes(path[1]!)) return path.length === 2;
-    return path[1] === 'resource' && (path.length === 2 || path[2] === 'data');
-  }
-  return path[0] === 'resource' && (path.length === 1 || path[1] === 'data');
-}
-
-function serviceIncompatibility(expr: Expression, service: RulesServiceName): string | null {
-  const walk = (e: Expression): string | null => {
-    switch (e.type) {
-      case 'memberAccess': {
-        const path = ambientBindingPath(e);
-        if (path && !allowedAmbientBinding(service, path)) {
-          return `binding '${path.join('.')}'`;
-        }
-        return walk(e.object);
-      }
-      case 'functionCall': {
-        if (service === 'firebase.storage' && BUILTIN_FUNCTIONS.has(e.name)) {
-          return `function '${e.name}()'`;
-        }
-        for (const arg of e.args) {
-          const issue = walk(arg);
-          if (issue) return issue;
-        }
-        return null;
-      }
-      case 'methodCall': {
-        if (e.object.type === 'identifier') {
-          const namespace = e.object.name;
-          const allowedNamespaceMethod =
-            namespace === 'timestamp' && (e.method === 'date' || e.method === 'value') ||
-            namespace === 'duration' && e.method === 'value' ||
-            service === 'firebase.storage' && namespace === 'firestore' &&
-              (e.method === 'get' || e.method === 'exists');
-          if (allowedNamespaceMethod) {
-            for (const arg of e.args) {
-              const issue = walk(arg);
-              if (issue) return issue;
-            }
-            return null;
-          }
-          if (namespace === 'firestore') return `method 'firestore.${e.method}()'`;
-        }
-        const methods = service === 'firebase.storage'
-          ? ['matches', 'split', 'size', 'keys', 'get', 'hasAll']
-          : [
-              'addedKeys', 'affectedKeys', 'changedKeys', 'diff', 'get', 'hasAll',
-              'hasAny', 'hasOnly', 'includes', 'keys', 'matches', 'removedKeys',
-              'size', 'split', 'toSet', 'unchangedKeys',
-            ];
-        if (!methods.includes(e.method)) {
-          return `method '.${e.method}()'`;
-        }
-        const objectIssue = walk(e.object);
-        if (objectIssue) return objectIssue;
-        for (const arg of e.args) {
-          const issue = walk(arg);
-          if (issue) return issue;
-        }
-        return null;
-      }
-      case 'binaryOp': return walk(e.left) ?? walk(e.right);
-      case 'unaryOp': return walk(e.operand);
-      case 'bracketAccess': return walk(e.object) ?? walk(e.index);
-      case 'sliceAccess': return walk(e.object) ?? walk(e.start) ?? walk(e.end);
-      case 'ternary': return walk(e.condition) ?? walk(e.consequent) ?? walk(e.alternate);
-      case 'inExpr': return walk(e.element) ?? walk(e.collection);
-      case 'isExpr': return walk(e.value);
-      case 'listLiteral':
-        for (const element of e.elements) {
-          const issue = walk(element);
-          if (issue) return issue;
-        }
-        return null;
-      case 'mapLiteral':
-        for (const entry of e.entries) {
-          const issue = walk(entry.key) ?? walk(entry.value);
-          if (issue) return issue;
-        }
-        return null;
-      case 'pathLiteral':
-        for (const segment of e.segments) {
-          if (typeof segment !== 'string') {
-            const issue = walk(segment);
-            if (issue) return issue;
-          }
-        }
-        return null;
-      default:
-        return null;
-    }
-  };
-  return walk(expr);
-}
-
-function incompatibleFunction(fn: FunctionDef, service: RulesServiceName): string | null {
-  for (const binding of fn.lets) {
-    const issue = serviceIncompatibility(binding.value, service);
-    if (issue) return issue;
-  }
-  return serviceIncompatibility(fn.body, service);
-}
 
 /**
  * Injectable disk access for the two load paths that read files: relative
@@ -269,11 +58,15 @@ function collectCalls(expr: Expression): string[] {
       case 'methodCall': walk(e.object); e.args.forEach(walk); break;
       case 'memberAccess': walk(e.object); break;
       case 'bracketAccess': walk(e.object); walk(e.index); break;
+      case 'sliceAccess': walk(e.object); walk(e.start); walk(e.end); break;
       case 'ternary': walk(e.condition); walk(e.consequent); walk(e.alternate); break;
       case 'inExpr': walk(e.element); walk(e.collection); break;
       case 'isExpr': walk(e.value); break;
       case 'listLiteral': e.elements.forEach(walk); break;
       case 'mapLiteral': e.entries.forEach(en => { walk(en.key); walk(en.value); }); break;
+      case 'pathLiteral': e.segments.forEach(segment => {
+        if (typeof segment !== 'string') walk(segment);
+      }); break;
     }
   };
   walk(expr);
@@ -320,6 +113,13 @@ export function rewriteCalls(expr: Expression, renames: Map<string, string>): Ex
       const index = rewriteCalls(expr.index, renames);
       return object === expr.object && index === expr.index ? expr : { ...expr, object, index };
     }
+    case 'sliceAccess': {
+      const object = rewriteCalls(expr.object, renames);
+      const start = rewriteCalls(expr.start, renames);
+      const end = rewriteCalls(expr.end, renames);
+      return object === expr.object && start === expr.start && end === expr.end
+        ? expr : { ...expr, object, start, end };
+    }
     case 'ternary': {
       const condition = rewriteCalls(expr.condition, renames);
       const consequent = rewriteCalls(expr.consequent, renames);
@@ -348,8 +148,14 @@ export function rewriteCalls(expr: Expression, renames: Map<string, string>): Ex
       });
       return entries.every((e, i) => e === expr.entries[i]) ? expr : { ...expr, entries };
     }
+    case 'pathLiteral': {
+      const segments = expr.segments.map(segment =>
+        typeof segment === 'string' ? segment : rewriteCalls(segment, renames));
+      return segments.every((segment, i) => segment === expr.segments[i])
+        ? expr : { ...expr, segments };
+    }
     default:
-      return expr; // literals, identifiers, pathLiterals — no function calls to rewrite
+      return expr; // literals and identifiers
   }
 }
 
