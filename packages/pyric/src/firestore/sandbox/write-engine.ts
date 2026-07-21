@@ -25,6 +25,7 @@ import { FirestoreEventBus } from './event-bus.js';
 import { TriggerScope } from './trigger-scope.js';
 import { ListenerDispatch } from './listener-dispatch.js';
 import { assertNoNestedDeleteField } from './field-merge.js';
+import { generateAutoId } from './auto-id.js';
 import { walkForSentinels } from './sentinel-capture.js';
 import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './request-events.js';
 
@@ -540,6 +541,22 @@ export class WriteEngine {
       );
     }
     return out;
+  }
+  createWithAutoId(
+    collection: string,
+    data: DocumentData,
+    auth: Operation['auth'],
+    bypassRules?: boolean,
+  ): { path: string; result: OperationResult } {
+    const trimmed = collection.endsWith('/') ? collection.slice(0, -1) : collection;
+    const id = generateAutoId();
+    const path = `${trimmed}/${id}`;
+    // Signal that this create came via auto-id minting so emitWrite
+    // populates WriteSandboxEvent.autoId. The replay engine reads this
+    // to know the path's last segment should alias to a fresh mint on
+    // replay rather than reuse the original ID.
+    const result = this.execute({ method: 'create', path, auth, data, autoId: true, bypassRules });
+    return { path, result };
   }
 
 }

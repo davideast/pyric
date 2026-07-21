@@ -34,7 +34,6 @@ import {
 import { assertNoNestedDeleteField } from './field-merge.js';
 import { Timestamp } from 'pyric/rules/internal';
 import { makeError, type FirestoreSimError } from './errors.js';
-import { generateAutoId } from './auto-id.js';
 import { walkForSentinels, type SentinelHit } from './sentinel-capture.js';
 import { TransactionContext, type TransactionReader } from './transaction.js';
 import { mergeQueuedWrites } from './transaction-merge.js';
@@ -660,17 +659,8 @@ export class LocalEnvironment {
     auth: Operation['auth'],
     bypassRules?: boolean,
   ): { path: string; result: OperationResult } {
-    const trimmed = collection.endsWith('/') ? collection.slice(0, -1) : collection;
-    const id = generateAutoId();
-    const path = `${trimmed}/${id}`;
-    // Signal that this create came via auto-id minting so emitWrite
-    // populates WriteSandboxEvent.autoId. The replay engine reads this
-    // to know the path's last segment should alias to a fresh mint on
-    // replay rather than reuse the original ID.
-    const result = this.execute({ method: 'create', path, auth, data, autoId: true, bypassRules });
-    return { path, result };
+    return this.writes.createWithAutoId(collection, data, auth, bypassRules);
   }
-
   // ═══ Batch operations ═══
 
   /** Execute multiple writes atomically. All must pass rules or none apply. */
