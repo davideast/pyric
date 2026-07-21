@@ -122,7 +122,7 @@ export async function runRemoteTransaction<R>(
   }
 
   throw new SandboxError(
-    'failed-precondition',
+    'aborted',
     `Transaction failed after ${maxAttempts} attempts due to repeated conflicts. ` +
       'Another writer is concurrently updating the same documents.',
   );

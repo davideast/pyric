@@ -25,11 +25,13 @@
     "_validateIsNotUsedTogether"
   ],
   "observationPrefixes": [
-    "firestore-"
+    "firestore-",
+    "admin-firestore-"
   ],
   "coverage": true,
   "captureRigs": [
-    "oracle-run"
+    "oracle-run",
+    "admin-firestore"
   ],
   "registry": "firestore",
   "dispositions": [

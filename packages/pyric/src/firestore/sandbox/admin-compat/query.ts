@@ -5,6 +5,7 @@
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { translateReadData } from './snapshots.js';
+import { getSnapshotField } from './field-path.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
 import {
   executionCursor,
@@ -430,6 +431,7 @@ export class QueryImpl implements Query {
         ref,
         exists: true,
         data: () => translated,
+        get: (fieldPath) => getSnapshotField(translated, fieldPath),
       };
     });
     return {

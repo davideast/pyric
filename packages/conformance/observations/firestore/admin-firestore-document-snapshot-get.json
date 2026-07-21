@@ -1,0 +1,119 @@
+{
+  "name": "admin-firestore-document-snapshot-get",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin DocumentSnapshot.get(fieldPath) behavior across one-shot document/query reads, transaction document/query reads, and document/query listeners, including missing fields/documents, dotted strings, literal-dot FieldPath segments, and invalid path validation.",
+  "observedAt": "2026-07-21T00:14:49.250Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "oneShotDocument": {
+      "getType": "function",
+      "topLevel": "top-level",
+      "dottedString": "nested-value",
+      "dottedFieldPath": "nested-value",
+      "literalDotFieldPath": "literal-dot-value",
+      "literalDotAsStringTraverses": "nested-dot-value",
+      "missingFieldIsUndefined": true,
+      "scalarIntermediateIsUndefined": true
+    },
+    "oneShotQueryDocument": {
+      "getType": "function",
+      "topLevel": "top-level",
+      "dottedString": "nested-value",
+      "dottedFieldPath": "nested-value",
+      "literalDotFieldPath": "literal-dot-value",
+      "literalDotAsStringTraverses": "nested-dot-value",
+      "missingFieldIsUndefined": true,
+      "scalarIntermediateIsUndefined": true
+    },
+    "transactionDocument": {
+      "getType": "function",
+      "topLevel": "top-level",
+      "dottedString": "nested-value",
+      "dottedFieldPath": "nested-value",
+      "literalDotFieldPath": "literal-dot-value",
+      "literalDotAsStringTraverses": "nested-dot-value",
+      "missingFieldIsUndefined": true,
+      "scalarIntermediateIsUndefined": true
+    },
+    "transactionQueryDocument": {
+      "getType": "function",
+      "topLevel": "top-level",
+      "dottedString": "nested-value",
+      "dottedFieldPath": "nested-value",
+      "literalDotFieldPath": "literal-dot-value",
+      "literalDotAsStringTraverses": "nested-dot-value",
+      "missingFieldIsUndefined": true,
+      "scalarIntermediateIsUndefined": true
+    },
+    "listenerDocument": {
+      "getType": "function",
+      "topLevel": "top-level",
+      "dottedString": "nested-value",
+      "dottedFieldPath": "nested-value",
+      "literalDotFieldPath": "literal-dot-value",
+      "literalDotAsStringTraverses": "nested-dot-value",
+      "missingFieldIsUndefined": true,
+      "scalarIntermediateIsUndefined": true
+    },
+    "listenerQueryDocument": {
+      "getType": "function",
+      "topLevel": "top-level",
+      "dottedString": "nested-value",
+      "dottedFieldPath": "nested-value",
+      "literalDotFieldPath": "literal-dot-value",
+      "literalDotAsStringTraverses": "nested-dot-value",
+      "missingFieldIsUndefined": true,
+      "scalarIntermediateIsUndefined": true
+    },
+    "missingDocument": {
+      "exists": false,
+      "dataIsUndefined": true,
+      "getIsUndefined": true
+    },
+    "invalidPaths": {
+      "empty": {
+        "threw": true,
+        "name": "Error",
+        "code": null,
+        "message": "Value for argument \"field\" is not a valid field path. Paths can't be empty and must not contain\n    \"*~/[]\"."
+      },
+      "leadingDot": {
+        "threw": true,
+        "name": "Error",
+        "code": null,
+        "message": "Value for argument \"field\" is not a valid field path. Paths must not start or end with \".\"."
+      },
+      "trailingDot": {
+        "threw": true,
+        "name": "Error",
+        "code": null,
+        "message": "Value for argument \"field\" is not a valid field path. Paths must not start or end with \".\"."
+      },
+      "doubleDot": {
+        "threw": true,
+        "name": "Error",
+        "code": null,
+        "message": "Value for argument \"field\" is not a valid field path. Paths must not contain \"..\" in them."
+      },
+      "forbiddenCharacter": {
+        "threw": true,
+        "name": "Error",
+        "code": null,
+        "message": "Value for argument \"field\" is not a valid field path. Paths can't be empty and must not contain\n    \"*~/[]\"."
+      },
+      "omitted": {
+        "threw": true,
+        "name": "Error",
+        "code": null,
+        "message": "Value for argument \"field\" is not a valid field path. The path cannot be omitted."
+      },
+      "wrongType": {
+        "threw": true,
+        "name": "Error",
+        "code": null,
+        "message": "Value for argument \"field\" is not a valid field path. Paths can only be specified as strings or via a FieldPath object."
+      }
+    }
+  }
+}

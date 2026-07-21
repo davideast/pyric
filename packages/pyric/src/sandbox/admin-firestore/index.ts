@@ -63,7 +63,8 @@ export type {
   WriteBatch,
 } from 'pyric/sandbox/admin-compat';
 export type { LintResult, LintWarning, RulesMetrics } from 'pyric/rules/internal';
-export { FieldValue, Timestamp } from 'pyric/sandbox/admin-compat';
+export { FieldPath, FieldValue, Timestamp } from 'pyric/sandbox/admin-compat';
+export type { SnapshotFieldPath } from 'pyric/sandbox/admin-compat';
 
 // Web-SDK-shaped snapshot types — what `onSnapshot` callbacks receive.
 // Spelled with the conventional Web SDK names so consumers can type
