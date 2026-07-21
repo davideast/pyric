@@ -63,16 +63,24 @@ The first real-resource rig run restored the exact prior Storage release and
 verified all run-scoped Firestore documents and Storage objects absent before
 writing its capture. With cross-service IAM disabled, every executed
 `firestore.get`/`exists` rule denied while a `true || lookup` rule allowed. The
-dedicated oracle service account lacks IAM-policy read/write, so the enabled
-budget/caching phase requires the Firebase Rules Firestore Service Agent role to
-be enabled externally or a separately authorized IAM credential. No IAM change
-was attempted successfully. The active human gcloud credential could read the
-project policy but also lacked `setIamPolicy`; its grant attempt failed before
-changing the policy, and cleanup confirmed the binding remained absent. Once a
-project administrator enables the role, run the rig with `--iam-enabled` to
-write the enabled observation without reading or mutating IAM. The separate
-`--temporary-iam` mode remains available only to a credential that can snapshot,
-change, restore, and verify the project policy.
+original oracle service account and active human gcloud credential both lacked
+`setIamPolicy`, so neither could run the enabled phase on `genkit-idx`; their
+grant attempts failed before changing its policy. The separate `digame-mas`
+credential had the complete bounded permission set and was used for the
+temporary-IAM capture below. The rig also supports `--iam-enabled` when a
+project administrator has enabled the role beforehand, without reading or
+mutating IAM.
+
+The IAM-enabled run on `digame-mas` established the core access contract: one
+and two distinct existing-document lookups allowed, while three denied.
+Repeating one path three times allowed, and combining `get` plus `exists` over
+two distinct paths allowed, consistent with access-call caching. A negated
+`exists` check for a missing document allowed; dereferencing a missing `get`
+denied. The always-true short-circuit control allowed. IAM propagation required
+a two-minute quiet interval; dense early retries incorrectly resembled a
+disabled permission boundary. IAM removal also showed eventually consistent
+reads, so the rig now performs delayed restoration verification and one bounded
+repeat restoration before accepting cleanup.
 
 ## Baseline conclusion
 

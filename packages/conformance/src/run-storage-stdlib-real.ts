@@ -25,11 +25,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 const FIREBASE_API = 'https://firebase.googleapis.com/v1beta1';
+const IAM_SETTLE_MS = 120_000;
+const IAM_RETRY_MS = 30_000;
+const IAM_RETRY_LIMIT = 6;
 
 function inert(): void {
   console.log('[storage-stdlib:real] credentials absent — INERT preview; no network calls.');
   console.log('Requires PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG.');
-  console.log('Would create 3 Firestore docs, make 9 Storage upload attempts, restore the prior Storage release, and verify cleanup.');
+  console.log('Would create 3 Firestore docs, evaluate 9 Storage cases with a bounded IAM retry, restore the prior Storage release, and verify cleanup.');
 }
 
 function canonicalPolicy(policy: IamPolicy): string {
@@ -152,7 +155,7 @@ async function run(): Promise<void> {
         'grant temporary cross-service IAM role',
       );
       iamChanged = true;
-      await new Promise((resolveWait) => setTimeout(resolveWait, 3_000));
+      await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
     }
   }
   const config = await json<{ storageBucket: string; projectId: string }>(
@@ -197,8 +200,8 @@ async function run(): Promise<void> {
     };
     if (!retry) return attempt();
     let last = await attempt();
-    for (let i = 0; !last.allowed && i < 20; i += 1) {
-      await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+    for (let i = 0; !last.allowed && i < IAM_RETRY_LIMIT; i += 1) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, IAM_RETRY_MS));
       last = await attempt();
     }
     return last;
@@ -301,11 +304,26 @@ async function run(): Promise<void> {
           'restore original IAM policy',
         );
       }
-      const finalPolicy = await json<IamPolicy>(
+      await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
+      let finalPolicy = await json<IamPolicy>(
         `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`,
         { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
-        'verify restored IAM policy',
+        'verify settled IAM policy restoration',
       );
+      if (canonicalPolicy(finalPolicy) !== canonicalPolicy(originalIam)) {
+        const restore = { ...originalIam, etag: finalPolicy.etag };
+        await json<IamPolicy>(
+          `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
+          { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ policy: restore }) },
+          'repeat original IAM policy restoration after propagation drift',
+        );
+        await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
+        finalPolicy = await json<IamPolicy>(
+          `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`,
+          { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
+          'verify repeated IAM policy restoration',
+        );
+      }
       iamRestored = canonicalPolicy(finalPolicy) === canonicalPolicy(originalIam);
     } else if (temporaryIam) {
       iamRestored = true;

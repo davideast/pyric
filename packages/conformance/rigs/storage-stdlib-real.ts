@@ -15,8 +15,8 @@ export const rig: RigManifestRecord = {
     local: [],
   },
   safety: {
-    writes: 'Temporarily points the default bucket release at a ruleset containing one unique run namespace; writes three Firestore docs and only small objects beneath that namespace.',
-    cleanup: 'A finally block restores the exact prior Storage ruleset pointer, deletes every run-scoped object/document with admin credentials, verifies the release pointer, lists the object prefix, and requires every document read to return 404 before writing an observation.',
+    writes: 'Temporarily points the default bucket release at a ruleset containing one unique run namespace; writes three Firestore docs and only 5-byte objects beneath that namespace. IAM-enabled mode waits two minutes, then retries only the one-document case at 30-second intervals while waiting for role propagation.',
+    cleanup: 'A finally block restores the exact prior Storage ruleset pointer, deletes every run-scoped object/document with admin credentials, verifies the release pointer, lists the object prefix, and requires every document read to return 404. Temporary-IAM mode also waits through a propagation interval, verifies the original policy again, and repeats restoration once if the binding reappears before writing an observation.',
     unattendedSafe: false,
   },
   freshness: {
