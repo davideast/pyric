@@ -64,7 +64,9 @@ type AmbientProvenance = string[] | 'unknown-ambient' | null;
 
 interface AnalysisContext {
   aliases: ReadonlyMap<string, AmbientProvenance>;
+  receiverTypes: ReadonlyMap<string, RulesReceiverType | null>;
   functions: ReadonlyMap<string, FunctionDef>;
+  service: RulesServiceName;
   stack: ReadonlySet<string>;
 }
 
@@ -114,13 +116,20 @@ function ambientBindingPath(expr: Expression, ctx: AnalysisContext): AmbientProv
     }
     const aliases = new Map<string, AmbientProvenance>();
     fn.parameters.forEach((parameter, index) => aliases.set(parameter, args[index] ?? null));
+    const receiverTypes = new Map(fn.parameters.map((parameter, index) => [
+      parameter,
+      expr.args[index] ? expressionReceiverType(expr.args[index]!, ctx) : null,
+    ]));
     const nested: AnalysisContext = {
       aliases,
+      receiverTypes,
       functions: ctx.functions,
+      service: ctx.service,
       stack: new Set([...ctx.stack, fn.name]),
     };
     for (const binding of fn.lets) {
       aliases.set(binding.name, ambientBindingPath(binding.value, nested));
+      receiverTypes.set(binding.name, expressionReceiverType(binding.value, nested));
     }
     return ambientBindingPath(fn.body, nested);
   }
@@ -261,6 +270,18 @@ function ambientReceiverType(
 
 function ambientMethodReturnType(expression: Expression): RulesReceiverType | null {
   if (expression.type !== 'methodCall') return null;
+  if (expression.object.type === 'identifier') {
+    if (expression.object.name === 'duration') return 'duration';
+    if (expression.object.name === 'timestamp') return 'timestamp';
+    if (expression.object.name === 'latlng') return 'latlng';
+    if (expression.object.name === 'hashing') return 'bytes';
+    if (expression.object.name === 'math') return 'number';
+    if (expression.object.name === 'cast') {
+      if (expression.method === 'string') return 'string';
+      if (expression.method === 'path') return 'path';
+      if (expression.method === 'int' || expression.method === 'float') return 'number';
+    }
+  }
   if (['lower', 'upper', 'trim', 'replace', 'join', 'toBase64', 'toHexString']
     .includes(expression.method)) return 'string';
   if (['concat', 'removeAll', 'split', 'values'].includes(expression.method)) return 'list';
@@ -275,6 +296,54 @@ function ambientMethodReturnType(expression: Expression): RulesReceiverType | nu
   return null;
 }
 
+function expressionReceiverType(
+  expression: Expression,
+  ctx: AnalysisContext,
+): RulesReceiverType | null {
+  const ambientType = ambientReceiverType(ctx.service, ambientBindingPath(expression, ctx));
+  if (ambientType) return ambientType;
+  switch (expression.type) {
+    case 'identifier': return ctx.receiverTypes.get(expression.name) ?? null;
+    case 'literal':
+      return typeof expression.value === 'string'
+        ? 'string'
+        : typeof expression.value === 'number' ? 'number' : null;
+    case 'listLiteral': return 'list';
+    case 'mapLiteral': return 'map';
+    case 'pathLiteral': return 'path';
+    case 'methodCall': return ambientMethodReturnType(expression);
+    case 'ternary': {
+      const consequent = expressionReceiverType(expression.consequent, ctx);
+      const alternate = expressionReceiverType(expression.alternate, ctx);
+      return consequent && consequent === alternate ? consequent : null;
+    }
+    case 'functionCall': {
+      const fn = ctx.functions.get(expression.name);
+      if (!fn || ctx.stack.has(fn.name)) return null;
+      const aliases = new Map<string, AmbientProvenance>();
+      const receiverTypes = new Map<string, RulesReceiverType | null>();
+      fn.parameters.forEach((parameter, index) => {
+        const arg = expression.args[index];
+        aliases.set(parameter, arg ? ambientBindingPath(arg, ctx) : null);
+        receiverTypes.set(parameter, arg ? expressionReceiverType(arg, ctx) : null);
+      });
+      const nested: AnalysisContext = {
+        aliases,
+        receiverTypes,
+        functions: ctx.functions,
+        service: ctx.service,
+        stack: new Set([...ctx.stack, fn.name]),
+      };
+      for (const binding of fn.lets) {
+        aliases.set(binding.name, ambientBindingPath(binding.value, nested));
+        receiverTypes.set(binding.name, expressionReceiverType(binding.value, nested));
+      }
+      return expressionReceiverType(fn.body, nested);
+    }
+    default: return null;
+  }
+}
+
 function ambientMethodReceiverIssue(
   object: Expression,
   method: string,
@@ -282,7 +351,7 @@ function ambientMethodReceiverIssue(
   ctx: AnalysisContext,
 ): string | null {
   const provenance = ambientBindingPath(object, ctx);
-  const receiverType = ambientReceiverType(service, provenance) ?? ambientMethodReturnType(object);
+  const receiverType = expressionReceiverType(object, ctx);
   if (!receiverType) {
     return provenance === 'unknown-ambient' ? "binding '<derived ambient receiver>'" : null;
   }
@@ -336,12 +405,17 @@ function serviceIncompatibility(
         }
         if (called && !ctx.stack.has(called.name)) {
           const aliases = new Map<string, AmbientProvenance>();
+          const receiverTypes = new Map<string, RulesReceiverType | null>();
           called.parameters.forEach((parameter, index) => {
-            aliases.set(parameter, e.args[index] ? ambientBindingPath(e.args[index]!, ctx) : null);
+            const arg = e.args[index];
+            aliases.set(parameter, arg ? ambientBindingPath(arg, ctx) : null);
+            receiverTypes.set(parameter, arg ? expressionReceiverType(arg, ctx) : null);
           });
           const issue = functionIncompatibility(called, service, {
             aliases,
+            receiverTypes,
             functions: ctx.functions,
+            service,
             stack: new Set([...ctx.stack, called.name]),
           });
           if (issue) return issue;
@@ -422,11 +496,13 @@ function functionIncompatibility(
   ctx: AnalysisContext,
 ): string | null {
   const aliases = new Map(ctx.aliases);
-  const localCtx = { ...ctx, aliases };
+  const receiverTypes = new Map(ctx.receiverTypes);
+  const localCtx = { ...ctx, aliases, receiverTypes };
   for (const binding of fn.lets) {
     const issue = serviceIncompatibility(binding.value, service, localCtx);
     if (issue) return issue;
     aliases.set(binding.name, ambientBindingPath(binding.value, localCtx));
+    receiverTypes.set(binding.name, expressionReceiverType(binding.value, localCtx));
   }
   return serviceIncompatibility(fn.body, service, localCtx);
 }
@@ -438,7 +514,9 @@ export function incompatibleFunction(
 ): string | null {
   return functionIncompatibility(fn, service, {
     aliases: new Map(fn.parameters.map((parameter) => [parameter, null])),
+    receiverTypes: new Map(fn.parameters.map((parameter) => [parameter, null])),
     functions,
+    service,
     stack: new Set([fn.name]),
   });
 }

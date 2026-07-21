@@ -275,6 +275,40 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     }
   });
 
+  test('rejects invalid literal and namespace-result method receivers', () => {
+    for (const expression of [
+      "[1].matches('x')",
+      "{'x': 1}.split('x').size() > 0",
+      "'text'.keys().hasAll([])",
+      "1.matches('x')",
+      "duration.value(1, 's').keys().hasAll([])",
+    ]) {
+      const result = resolveModules(
+        makeStorageSource("import { broken } from './policy';", 'broken()'),
+        { modules: { './policy': `export function broken() { return ${expression}; }` } },
+      );
+
+      expect(result.success, expression).toBe(false);
+    }
+  });
+
+  test('preserves valid receiver types through lets and helper returns', () => {
+    const result = resolveModules(
+      makeStorageSource("import { valid } from './policy';", 'valid()'),
+      { modules: { './policy': `
+        function parts(value) {
+          return value.split('/');
+        }
+        export function valid() {
+          let direct = request.resource.contentType.split('/');
+          return direct.size() == 2 && parts(request.resource.contentType).size() == 2;
+        }
+      ` } },
+    );
+
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+  });
+
   test('admits accepted string methods on known Storage string bindings', () => {
     const result = resolveModules(
       makeStorageSource("import { valid } from './policy';", 'valid()'),
