@@ -13,6 +13,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import { getStorage } from '../../src/storage/index.js';
 import { getStorageSandbox, getStorageService, targetOf } from '../../src/storage/service.js';
+import { getStorageRulesResolution } from '../../src/storage/internal.js';
 
 function uniqueDbName(label: string): string {
   return `pyric-storage-test-${label}-${Math.random().toString(36).slice(2, 10)}`;
@@ -168,5 +169,34 @@ describe('getStorageSandbox', () => {
       bucket: 'fake',
     } as unknown as ReturnType<typeof getStorageSandbox>);
     expect(() => getStorageService(fake)).toThrow(/not a FirebaseStorage handle/);
+  });
+
+  it('retains an immutable module-resolution descriptor for assurance', () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox, {
+      dbName: uniqueDbName('rules-resolution'),
+      rules: `rules_version = '2+modules';
+import { isAuthenticated } from 'auth';
+import { hasRole } from 'membership';
+import { sizeAtMost } from 'storage/uploads';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{file} {
+      allow create: if isAuthenticated() && sizeAtMost(10)
+        && hasRole(firestore.get(/databases/(default)/documents/members/$(request.auth.uid)).data, 'editor');
+    }
+  }
+}`,
+    });
+    const resolution = getStorageRulesResolution(storage);
+    expect(resolution).toMatchObject({
+      targetService: 'firebase.storage',
+      modules: ['auth', 'membership', 'storage/uploads'],
+      evidenceIds: ['storage-rules#125', 'storage-rules#131', 'storage-rules#132'],
+    });
+    expect(resolution?.source).toContain("rules_version = '2';");
+    expect(resolution?.source).not.toContain('import ');
+    expect(Object.isFrozen(resolution)).toBe(true);
+    expect(Object.isFrozen(resolution?.modules)).toBe(true);
   });
 });

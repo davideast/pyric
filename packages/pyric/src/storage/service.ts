@@ -159,6 +159,31 @@ const BARE_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
  * fine (idempotent multi-handle construction, e.g. per-user contexts).
  */
 const SERVICE_RULES_SOURCE = new WeakMap<Sandbox, string | null>();
+const SERVICE_RULES_RESOLUTION = new WeakMap<Sandbox, StorageRulesResolution | null>();
+
+export interface StorageRulesResolution {
+  readonly targetService: 'firebase.storage';
+  readonly source: string;
+  readonly modules: readonly string[];
+  readonly evidenceIds: readonly string[];
+}
+
+function rulesResolution(source: string, modules: readonly string[]): StorageRulesResolution {
+  const evidenceIds = new Set<string>();
+  if (modules.some((name) => name === 'auth' || name === 'membership')) {
+    evidenceIds.add('storage-rules#125');
+  }
+  if (modules.some((name) => name.startsWith('storage/'))) {
+    evidenceIds.add('storage-rules#132');
+  }
+  if (/firestore\.(?:get|exists)\s*\(/.test(source)) evidenceIds.add('storage-rules#131');
+  return Object.freeze({
+    targetService: 'firebase.storage',
+    source,
+    modules: Object.freeze([...modules]),
+    evidenceIds: Object.freeze([...evidenceIds].sort()),
+  });
+}
 
 /**
  * Get (or open) the ONE per-sandbox `StorageService`. Loud on the
@@ -186,8 +211,10 @@ function ensureService(
     return existing;
   }
   let rules: StorageRules | null = null;
+  let resolution: StorageRulesResolution | null = null;
   if (options.rules) {
     let source = options.rules;
+    let modules: readonly string[] = [];
     if (/rules_version\s*=\s*['"]2\+modules['"]\s*;/.test(source)) {
       const resolved = resolveModulesBrowser(source);
       if (!resolved.success) {
@@ -196,8 +223,10 @@ function ensureService(
         );
       }
       source = resolved.data.resolved;
+      modules = resolved.data.modules;
     }
     rules = parseStorageRules(source);
+    resolution = rulesResolution(source, modules);
   }
   // Explicit dbName wins; otherwise scope the default by project identity so
   // two projects on one origin never share a storage database (issue #359).
@@ -208,6 +237,7 @@ function ensureService(
   );
   SERVICES.set(sandbox, servicePromise);
   SERVICE_RULES_SOURCE.set(sandbox, options.rules ?? null);
+  SERVICE_RULES_RESOLUTION.set(sandbox, resolution);
   // Join the sandbox's persistable-service REGISTRY so `sandbox.resetAll()`
   // reaches storage (issue #359: Studio's reset cleared Firestore + auth but
   // never storage — storage was invisible to the sandbox). Storage does NOT
@@ -400,4 +430,11 @@ export function targetOf(storage: FirebaseStorage): Target {
  */
 export function getStorageService(storage: FirebaseStorage): Promise<StorageService> {
   return targetOf(storage).servicePromise;
+}
+
+/** Internal assurance seam for the exact rules source retained by Storage setup. */
+export function getStorageRulesResolution(
+  storage: FirebaseStorage,
+): StorageRulesResolution | null {
+  return SERVICE_RULES_RESOLUTION.get(targetOf(storage).sandbox) ?? null;
 }

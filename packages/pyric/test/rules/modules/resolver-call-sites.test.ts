@@ -93,4 +93,24 @@ service firebase.storage {
       expect(result.success, argument).toBe(false);
     }
   });
+
+  test('does not taint Firestore lookup results with ambient path interpolation', () => {
+    for (const sourceExpression of [
+      'firestore.get(/databases/(default)/documents/members/$(request.auth.uid)).data',
+      'membershipDoc(request.auth.uid)',
+    ]) {
+      const helper = sourceExpression.startsWith('membershipDoc')
+        ? 'function membershipDoc(uid) { return firestore.get(/databases/(default)/documents/members/$(uid)).data; }'
+        : '';
+      const result = resolveModules(`rules_version = '2+modules';
+import { hasRole } from 'membership';
+service firebase.storage {
+  match /b/{bucket}/o {
+    ${helper}
+    match /{file} { allow read: if hasRole(${sourceExpression}, 'editor'); }
+  }
+}`);
+      expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+    }
+  });
 });

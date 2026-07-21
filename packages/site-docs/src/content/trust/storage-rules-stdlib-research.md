@@ -415,6 +415,13 @@ High-value module candidates emerge from these outcomes. For example, if repeate
 7. Run P3 before adding advanced cross-service helpers. Record lookup-budget and IAM limitations in both module documentation and conformance nodes.
 8. Keep every unsupported or unverified function queryable as such. A compiler rejection with a precise missing capability is more trustworthy than a module that resolves and silently denies at runtime.
 
+The delivered assurance seam for item 5 is `getStorageRulesResolution()` from
+`pyric/storage/internal`. It returns an immutable descriptor containing the
+target service, exact emitted plain-v2 source, resolved modules, and the
+applicable Storage Rules evidence row IDs. Normal public Storage handles remain
+opaque and rules-honest; assurance tooling opts into the internal inspection
+subpath.
+
 ## Answer to the trust question
 
 On this branch, `2+modules` is trustworthy as a service-scoped authoring

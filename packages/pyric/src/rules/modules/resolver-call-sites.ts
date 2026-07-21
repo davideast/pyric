@@ -164,6 +164,11 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
         stack,
       ) : null;
     }
+    if (expression.type === 'methodCall' && expression.object.type === 'identifier' &&
+        expression.object.name === 'firestore' &&
+        (expression.method === 'get' || expression.method === 'exists')) {
+      return null;
+    }
     if (expression.type === 'ternary') {
       const consequent = inferProvenance(expression.consequent, environment, functions, stack);
       const alternate = inferProvenance(expression.alternate, environment, functions, stack);
