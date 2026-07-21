@@ -21,7 +21,6 @@ import {
   registerActivityValue,
 } from '../../../firestore/sandbox/activity-value-registry.js';
 import type {
-  QueryFilter,
   QueryOrderDirection,
   QueryWhereFilterOp,
 } from '../query-execution.js';
@@ -116,7 +115,10 @@ export type OrderDirection = QueryOrderDirection;
  * as a tagged-union value type (the SDK's classes carry an `_op`
  * field; ours is the `kind` discriminant).
  */
-export type Filter = QueryFilter;
+export type Filter =
+  | { kind: 'where'; field: string; op: WhereFilterOp; value: unknown }
+  | { kind: 'and'; filters: Filter[] }
+  | { kind: 'or'; filters: Filter[] };
 
 export interface Query {
   where(field: string, op: WhereFilterOp, value: unknown): Query;

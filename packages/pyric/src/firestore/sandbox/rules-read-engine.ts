@@ -27,7 +27,7 @@ import { renderLegacyDebugMessages, projectEvaluatedRule, Timestamp } from 'pyri
 import { proveListQuery, renderQueryRemediation, type QueryConstraints } from './list-query-proof.js';
 import { makeError, type FirestoreSimError } from './errors.js';
 import type { Operation, OperationResult, ReadOperation } from './writes.js';
-import type { ListenerAuth, QueryConstraintPlan } from './snapshot-listeners.js';
+import type { ListenerAuth, QueryConstraintInput } from './snapshot-listeners.js';
 import type { ListenerDispatchHost } from './listener-dispatch.js';
 import { buildRequestEvent, type EmitRequestInput } from './request-events.js';
 import { listQueryFromStructured } from './reads.js';
@@ -210,9 +210,18 @@ export class RulesReadEngine implements ListenerDispatchHost {
   silentReadCollection(
     collection: string,
     auth: ListenerAuth,
-    constraints?: QueryConstraintPlan,
+    constraints?: QueryConstraintInput,
     bypassRules = false,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
+    if (typeof constraints === 'function') {
+      return {
+        allowed: false,
+        error: makeError(
+          'invalid-argument',
+          'Callable query constraints are no longer executable; pass an immutable QueryConstraintPlan.',
+        ),
+      };
+    }
     const execution = constraints?.execution;
     const readServerTime = Timestamp.fromMillis(Date.now());
     // List rules are defined at the document-match level, so the

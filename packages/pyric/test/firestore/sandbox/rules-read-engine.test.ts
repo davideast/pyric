@@ -18,6 +18,7 @@ import { TriggerScope } from '../../../src/firestore/sandbox/trigger-scope.js';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import type { RequestEvent } from '../../../src/sandbox/types/events.js';
 import { EventLog } from '../../../src/firestore/sandbox/event-log.js';
+import type { QueryConstraintApplier } from '../../../src/firestore/sandbox/snapshot-listeners.js';
 
 const OPEN_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -209,6 +210,22 @@ describe('RulesReadEngine.silentReadCollection', () => {
       allowed: true,
       docs: [{ path: 'posts/public', data: { visibility: 'public' } }],
     });
+  });
+
+  test('fails closed for the deprecated callable listener constraint', () => {
+    const { engine } = makeEngine(OPEN_RULES, {
+      'posts/public': { visibility: 'public' },
+      'posts/private': { visibility: 'private' },
+    });
+    const legacy: QueryConstraintApplier = (rows) => rows;
+
+    const result = engine.silentReadCollection('posts', null, legacy);
+
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) {
+      expect(result.error.code).toBe('invalid-argument');
+      expect(result.error.message).toContain('Callable query constraints');
+    }
   });
 });
 

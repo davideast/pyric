@@ -77,7 +77,7 @@ describe('FS-B2 — filtered onSnapshot excludes non-matching docs', () => {
       (snapshot) => delivered.push(snapshot as { docs: Array<{ id: string }> }),
     );
 
-    (callerFilter as { value: unknown }).value = 'private';
+    callerFilter.value = 'private';
     env.flushListeners();
 
     expect(delivered).toHaveLength(1);

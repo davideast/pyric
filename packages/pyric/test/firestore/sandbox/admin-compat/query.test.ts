@@ -23,7 +23,7 @@ describe('QueryImpl', () => {
     const query = makeQuery().applyFilter(callerFilter) as QueryImpl;
     const plan = query.snapshotConstraints();
 
-    (leaf as { value: unknown }).value = 'private';
+    leaf.value = 'private';
     (callerFilter.filters as Filter[]).length = 0;
 
     expect(plan.execution.filters).toEqual([{

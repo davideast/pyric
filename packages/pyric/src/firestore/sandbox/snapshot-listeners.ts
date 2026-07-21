@@ -20,6 +20,7 @@ import type { Operation } from './local-environment.js';
 // admin-compat-surface dependency, so importing it here is cycle-free.
 import { translateReadData } from './admin-compat/read-translation.js';
 import type { QueryExecutionSpec } from './query-execution.js';
+import type { QueryConstraints } from './list-query-proof.js';
 
 /**
  * A query's `where` / `orderBy` / cursor / `limit` constraints as a
@@ -39,8 +40,19 @@ export interface QueryConstraintPlan {
   readonly activityQuery?: unknown;
 }
 
-/** @deprecated Internal compatibility alias; query constraints are immutable data. */
-export type QueryConstraintApplier = QueryConstraintPlan;
+/**
+ * @deprecated The callable listener seam cannot guarantee that rules proof and
+ * execution describe the same rows. Kept source-compatible for consumers that
+ * still name the type; passing one as a target now fails closed with an
+ * `invalid-argument` stream error. Build a {@link QueryConstraintPlan} instead.
+ */
+export interface QueryConstraintApplier {
+  (rows: { path: string; data: DocumentData }[]): { path: string; data: DocumentData }[];
+  structured?: QueryConstraints;
+  activityQuery?: unknown;
+}
+
+export type QueryConstraintInput = QueryConstraintPlan | QueryConstraintApplier;
 
 /**
  * What a listener is watching. Query targets carry their `where` /
@@ -50,7 +62,7 @@ export type QueryConstraintApplier = QueryConstraintPlan;
  */
 export type SnapshotTarget =
   | { kind: 'doc'; path: string }
-  | { kind: 'query'; collection: string; constraints?: QueryConstraintPlan };
+  | { kind: 'query'; collection: string; constraints?: QueryConstraintInput };
 
 /**
  * Mirrors `SnapshotListenOptions` from the Web SDK. `source: 'cache'` has

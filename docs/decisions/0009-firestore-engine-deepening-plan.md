@@ -123,6 +123,13 @@ reviewed and regression-tested together; retroactively separating them after
 the security ratchet would preserve the final code while invalidating the
 reviewed stack.
 
+The previously exported callable `QueryConstraintApplier` type remains as a
+deprecated source-compatibility declaration, but it is no longer executable as
+a listener target: runtime use fails closed with `invalid-argument`. Supporting
+that callback would restore two independently mutable representations (proof
+metadata plus executable code), violating the single-plan security invariant.
+New integrations use `QueryConstraintPlan`.
+
 Query plans are immutable in structure, but opaque object/array operands retain
 their original identity. This preserves the pre-existing invariant that query
 construction and diagnostics never invoke user getters or Proxy traps. Deeply

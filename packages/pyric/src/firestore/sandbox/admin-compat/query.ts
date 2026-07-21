@@ -13,6 +13,7 @@ import { activityValue } from '../../../firestore/sandbox/activity-query-value.j
 import type { QueryConstraintPlan } from '../snapshot-listeners.js';
 import {
   normalizedQueryOrders,
+  type QueryFilter,
   type QueryCursor,
   type QueryExecutionSpec,
   type QueryOrderClause,
@@ -55,7 +56,7 @@ export interface QueryState {
   auth: AuthContext;
   collectionPath: string;
   documentRef: DocumentRefFactory;
-  clauses?: readonly Filter[];
+  clauses?: readonly QueryFilter[];
   orders?: readonly OrderClause[];
   limitCount?: number;
   limitFromEnd?: boolean;
@@ -78,7 +79,7 @@ function snapshotQueryValue(value: unknown): unknown {
   return value;
 }
 
-function snapshotFilter(filter: Filter): Filter {
+function snapshotFilter(filter: Filter | QueryFilter): QueryFilter {
   if (filter.kind === 'where') {
     return Object.freeze({
       kind: 'where',
@@ -90,7 +91,7 @@ function snapshotFilter(filter: Filter): Filter {
   return Object.freeze({
     kind: filter.kind,
     filters: Object.freeze(filter.filters.map(snapshotFilter)),
-  });
+  }) as QueryFilter;
 }
 
 // FS-B8 — the document-key sentinel field. Firestore normalizes every
@@ -151,7 +152,7 @@ export class QueryImpl implements Query {
   protected readonly env: LocalEnvironment;
   protected readonly auth: AuthContext;
   protected readonly collectionPath: string;
-  protected readonly clauses: readonly Filter[];
+  protected readonly clauses: readonly QueryFilter[];
   protected readonly orders: readonly OrderClause[];
   protected readonly limitCount?: number;
   protected readonly limitFromEnd: boolean;
@@ -305,7 +306,7 @@ export class QueryImpl implements Query {
    * detail, and most ordering, so it cannot safely identify repeated reads.
    */
   protected activityQuery(): unknown {
-    const filter = (value: Filter): unknown => value.kind === 'where'
+    const filter = (value: QueryFilter): unknown => value.kind === 'where'
       ? { kind: 'where', field: value.field, op: value.op, value: activityValue(value.value) }
       : { kind: value.kind, filters: value.filters.map(filter) };
     const cursor = (value: Cursor | undefined): unknown => value === undefined ? null : {

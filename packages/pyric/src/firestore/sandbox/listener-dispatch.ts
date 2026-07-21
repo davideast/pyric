@@ -18,7 +18,7 @@ import type { FirestoreSimError } from './errors.js';
 import type {
   ListenerAuth,
   ListenerRecord,
-  QueryConstraintPlan,
+  QueryConstraintInput,
   SnapshotCallback,
   SnapshotErrorCallback,
   SnapshotListenerOptions,
@@ -57,7 +57,7 @@ export interface ListenerDispatchHost {
   silentReadCollection(
     collection: string,
     auth: ListenerAuth,
-    constraints?: QueryConstraintPlan,
+    constraints?: QueryConstraintInput,
     bypassRules?: boolean,
   ):
     | { allowed: true; docs: { path: string; data: DocumentData }[] }
