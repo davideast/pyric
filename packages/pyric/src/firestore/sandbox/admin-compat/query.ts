@@ -53,6 +53,49 @@ import {
 type OrderClause = QueryOrderClause;
 type DocumentRefFactory = (path: string) => DocumentReference;
 
+export interface QueryState {
+  env: LocalEnvironment;
+  auth: AuthContext;
+  collectionPath: string;
+  documentRef: DocumentRefFactory;
+  clauses?: readonly Filter[];
+  orders?: readonly OrderClause[];
+  limitCount?: number;
+  limitFromEnd?: boolean;
+  start?: Cursor;
+  end?: Cursor;
+  bypassRules?: boolean;
+}
+
+export type QueryStatePatch = Partial<Pick<
+  QueryState,
+  'clauses' | 'orders' | 'limitCount' | 'limitFromEnd' | 'start' | 'end'
+>>;
+
+function snapshotQueryValue(value: unknown): unknown {
+  // Query operands are deliberately opaque. Reading arrays/maps here would
+  // execute user getters or Proxy traps and would replace the stable object
+  // identity used by activity diagnostics. Primitive operands (the only
+  // values consumed by rules proof) are immutable; structural filter and
+  // cursor containers are copied separately.
+  return value;
+}
+
+function snapshotFilter(filter: Filter): Filter {
+  if (filter.kind === 'where') {
+    return Object.freeze({
+      kind: 'where',
+      field: filter.field,
+      op: filter.op,
+      value: snapshotQueryValue(filter.value),
+    });
+  }
+  return Object.freeze({
+    kind: filter.kind,
+    filters: Object.freeze(filter.filters.map(snapshotFilter)),
+  });
+}
+
 // FS-B8 — the document-key sentinel field. Firestore normalizes every
 // query's sort to include an implicit final ordering on the document key
 // (`__name__`) so equal-valued docs have a deterministic order and cursors
@@ -105,7 +148,7 @@ function cursorValuesFromSnapshot(
  * not consulted (matches production's "prefix cursor" semantics).
  */
 // ─────────────────────────────────────────────────────────────────────────
-// Public surface — QueryImpl + CollectionRefImpl.
+// Public surface — QueryImpl.
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
@@ -116,30 +159,37 @@ function cursorValuesFromSnapshot(
 type Cursor = QueryCursor;
 
 export class QueryImpl implements Query {
-  constructor(
-    protected readonly env: LocalEnvironment,
-    protected readonly auth: AuthContext,
-    protected readonly collectionPath: string,
-    protected readonly clauses: readonly Filter[] = [],
-    protected readonly orders: readonly OrderClause[] = [],
-    protected readonly limitCount?: number,
-    /**
-     * When true, the query was built via `limitToLast(n)`. The
-     * query execution reverses each orderBy direction
-     * before slicing and re-reverses afterwards. Requires at least
-     * one `orderBy` clause (the runtime check fires in `get()` /
-     * `aggregate()`).
-     */
-    protected readonly limitFromEnd: boolean = false,
-    protected readonly start?: Cursor,
-    protected readonly end?: Cursor,
-    // Studio admin lens (Gap #2): stamped on the `list`/`get` reads this
-    // query issues so rule evaluation is skipped. Preserved across `clone`
-    // (so chained `.where`/`.orderBy`/etc keep the bypass) and through to
-    // the `DocumentReference`s `.get()` returns. Default false.
-    protected readonly bypassRules: boolean = false,
-    private readonly documentRef?: DocumentRefFactory,
-  ) {}
+  protected readonly env: LocalEnvironment;
+  protected readonly auth: AuthContext;
+  protected readonly collectionPath: string;
+  protected readonly clauses: readonly Filter[];
+  protected readonly orders: readonly OrderClause[];
+  protected readonly limitCount?: number;
+  protected readonly limitFromEnd: boolean;
+  protected readonly start?: Cursor;
+  protected readonly end?: Cursor;
+  protected readonly bypassRules: boolean;
+  private readonly documentRef: DocumentRefFactory;
+
+  constructor(state: QueryState) {
+    this.env = state.env;
+    this.auth = state.auth;
+    this.collectionPath = state.collectionPath;
+    this.documentRef = state.documentRef;
+    this.clauses = Object.freeze((state.clauses ?? []).map(snapshotFilter));
+    this.orders = Object.freeze((state.orders ?? []).map((order) => Object.freeze({ ...order })));
+    this.limitCount = state.limitCount;
+    this.limitFromEnd = state.limitFromEnd ?? false;
+    this.start = state.start === undefined ? undefined : Object.freeze({
+      ...state.start,
+      values: Object.freeze(state.start.values.map(snapshotQueryValue)),
+    });
+    this.end = state.end === undefined ? undefined : Object.freeze({
+      ...state.end,
+      values: Object.freeze(state.end.values.map(snapshotQueryValue)),
+    });
+    this.bypassRules = state.bypassRules ?? false;
+  }
 
   where(field: string, op: WhereFilterOp, value: unknown): Query {
     return this.clone({ clauses: [...this.clauses, { kind: 'where', field, op, value }] });
@@ -195,33 +245,25 @@ export class QueryImpl implements Query {
    * (`CollectionGroupQueryImpl`) override this to construct their own
    * type so chained calls preserve the cross-collection semantics.
    */
-  protected clone(overrides: Partial<{
-    clauses: readonly Filter[];
-    orders: readonly OrderClause[];
-    limitCount: number | undefined;
-    limitFromEnd: boolean;
-    start: Cursor | undefined;
-    end: Cursor | undefined;
-  }>): QueryImpl {
-    return new QueryImpl(
-      this.env,
-      this.auth,
-      this.collectionPath,
-      overrides.clauses ?? this.clauses,
-      overrides.orders ?? this.orders,
-      overrides.limitCount !== undefined || 'limitCount' in overrides ? overrides.limitCount : this.limitCount,
-      overrides.limitFromEnd ?? this.limitFromEnd,
-      'start' in overrides ? overrides.start : this.start,
-      'end' in overrides ? overrides.end : this.end,
-      this.bypassRules,
-      this.documentRef,
-    );
+  protected clone(overrides: QueryStatePatch): QueryImpl {
+    return new QueryImpl({
+      env: this.env,
+      auth: this.auth,
+      collectionPath: this.collectionPath,
+      documentRef: this.documentRef,
+      clauses: overrides.clauses ?? this.clauses,
+      orders: overrides.orders ?? this.orders,
+      limitCount: 'limitCount' in overrides ? overrides.limitCount : this.limitCount,
+      limitFromEnd: overrides.limitFromEnd ?? this.limitFromEnd,
+      start: 'start' in overrides ? overrides.start : this.start,
+      end: 'end' in overrides ? overrides.end : this.end,
+      bypassRules: this.bypassRules,
+    });
   }
 
   /**
    * Hook subclasses (e.g. `CollectionGroupQueryImpl`) override to
-   * change WHERE docs come from. The default scans this query's
-   * Describe where the engine gathers this query's candidates.
+   * describe where the engine gathers this query's candidates.
    */
   protected queryScope(): QueryScope {
     return { kind: 'collection', path: this.collectionPath };
@@ -270,8 +312,7 @@ export class QueryImpl implements Query {
   }
 
   /**
-   * RULES-B11 — this query's constraints as DATA (vs. the opaque row
-   * transformer {@link applyConstraints} is). `where` carries every leaf
+   * RULES-B11 — this query's proof constraints as data. `where` carries every leaf
    * equality/inequality reachable through top-level AND composition —
    * the conjunctive spine, where each clause is unconditionally
    * guaranteed for every returned doc. Clauses under an `or(...)` are
@@ -294,12 +335,14 @@ export class QueryImpl implements Query {
       // 'or' — skip: sub-clauses are not unconditionally guaranteed.
     };
     for (const f of this.clauses) visit(f);
-    return {
+    const proof: QueryConstraints = {
       where,
       limit: this.limitCount ?? null,
       offset: null,
       orderBy: this.orders.length > 0 ? this.orders[0].field : null,
     };
+    Object.freeze(where);
+    return Object.freeze(proof);
   }
 
   /**
@@ -333,11 +376,6 @@ export class QueryImpl implements Query {
   }
 
   /**
-   * Apply this query's clauses + orders + limit to a candidate set.
-   * Used by both `get()` and `aggregate()` so the filter logic
-   * stays single-sourced.
-   */
-  /**
    * FS-B8 — the normalized sort order, mirroring upstream
    * `core/query.ts:queryNormalizedOrderBy`:
    *   1. explicit orderBy clauses as-is;
@@ -352,7 +390,7 @@ export class QueryImpl implements Query {
   }
 
   private executionSpec(): QueryExecutionSpec {
-    return {
+    const execution: QueryExecutionSpec = {
       filters: this.clauses,
       orders: this.orders,
       limitCount: this.limitCount,
@@ -360,6 +398,7 @@ export class QueryImpl implements Query {
       start: this.start,
       end: this.end,
     };
+    return Object.freeze(execution);
   }
 
   /**
@@ -376,11 +415,11 @@ export class QueryImpl implements Query {
    * query-proof gate against the matched `list` rule.
    */
   snapshotConstraints(): QueryConstraintPlan {
-    return {
+    return Object.freeze({
       execution: this.executionSpec(),
       structured: this.structuredConstraints(),
       activityQuery: this.activityQuery(),
-    };
+    });
   }
 
   async get(opts?: OperationOptions): Promise<QuerySnapshot> {
@@ -390,12 +429,11 @@ export class QueryImpl implements Query {
     // equalities can't discharge denies the WHOLE query — never a
     // silently filtered subset. The `opts.auth` override threads through
     // to the rule eval the same way the single-doc/write paths use it.
-    // Phantom parent docs are a discover-crawler affordance — already
-    // stripped by `gatherCandidates`; the rule-enforced read preserves
-    // that (see file header).
+    // Phantom parent docs are a discover-crawler affordance. The engine's
+    // candidate gatherer strips them before rule proof and execution.
     const filtered = this.readCandidates(opts);
     const docs: QueryDocumentSnapshot[] = filtered.map((d) => {
-      const ref = this.documentRef!(d.path);
+      const ref = this.documentRef(d.path);
       // Translate timestamps + future typed values on the read path.
       // Done eagerly per row so .data() callers don't pay translation
       // cost twice if they invoke it more than once.

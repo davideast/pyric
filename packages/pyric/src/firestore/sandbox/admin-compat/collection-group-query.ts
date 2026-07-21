@@ -1,43 +1,28 @@
-import type { LocalEnvironment } from 'pyric/sandbox/internal';
-import type { QueryCursor, QueryOrderClause, QueryScope } from '../query-execution.js';
-import type { AuthContext, Filter } from './types.js';
-import { QueryImpl } from './query.js';
-import { DocumentRefImpl } from './doc-ref.js';
+import type { QueryScope } from '../query-execution.js';
+import { QueryImpl, type QueryState, type QueryStatePatch } from './query.js';
+import { createDocumentRef } from './collection-ref.js';
 
-type Cursor = QueryCursor;
-type OrderClause = QueryOrderClause;
+interface CollectionGroupQueryState extends Omit<QueryState, 'collectionPath' | 'documentRef'> {
+  collectionId: string;
+}
 
 /** Cross-collection query plan for `Firestore.collectionGroup`. */
 export class CollectionGroupQueryImpl extends QueryImpl {
   private readonly collectionId: string;
 
-  constructor(
-    env: LocalEnvironment,
-    auth: AuthContext,
-    collectionId: string,
-    clauses: readonly Filter[] = [],
-    orders: readonly OrderClause[] = [],
-    limitCount?: number,
-    limitFromEnd: boolean = false,
-    start?: Cursor,
-    end?: Cursor,
-    bypassRules: boolean = false,
-  ) {
+  constructor(state: CollectionGroupQueryState) {
     // The engine uses queryScope(), not the empty collectionPath.
-    super(
-      env,
-      auth,
-      '',
-      clauses,
-      orders,
-      limitCount,
-      limitFromEnd,
-      start,
-      end,
-      bypassRules,
-      (path) => new DocumentRefImpl(env, auth, path, bypassRules),
-    );
-    this.collectionId = collectionId;
+    super({
+      ...state,
+      collectionPath: '',
+      documentRef: (path) => createDocumentRef(
+        state.env,
+        state.auth,
+        path,
+        state.bypassRules ?? false,
+      ),
+    });
+    this.collectionId = state.collectionId;
   }
 
   /**
@@ -47,26 +32,19 @@ export class CollectionGroupQueryImpl extends QueryImpl {
    * identity. The base-class methods all dispatch through this
    * hook — no per-method overrides needed.
    */
-  protected override clone(overrides: Partial<{
-    clauses: readonly Filter[];
-    orders: readonly OrderClause[];
-    limitCount: number | undefined;
-    limitFromEnd: boolean;
-    start: Cursor | undefined;
-    end: Cursor | undefined;
-  }>): QueryImpl {
-    return new CollectionGroupQueryImpl(
-      this.env,
-      this.auth,
-      this.collectionId,
-      overrides.clauses ?? this.clauses,
-      overrides.orders ?? this.orders,
-      'limitCount' in overrides ? overrides.limitCount : this.limitCount,
-      overrides.limitFromEnd ?? this.limitFromEnd,
-      'start' in overrides ? overrides.start : this.start,
-      'end' in overrides ? overrides.end : this.end,
-      this.bypassRules,
-    );
+  protected override clone(overrides: QueryStatePatch): QueryImpl {
+    return new CollectionGroupQueryImpl({
+      env: this.env,
+      auth: this.auth,
+      collectionId: this.collectionId,
+      clauses: overrides.clauses ?? this.clauses,
+      orders: overrides.orders ?? this.orders,
+      limitCount: 'limitCount' in overrides ? overrides.limitCount : this.limitCount,
+      limitFromEnd: overrides.limitFromEnd ?? this.limitFromEnd,
+      start: 'start' in overrides ? overrides.start : this.start,
+      end: 'end' in overrides ? overrides.end : this.end,
+      bypassRules: this.bypassRules,
+    });
   }
 
   /** Describe the collection-group scope gathered by RulesReadEngine. */

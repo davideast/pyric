@@ -14,8 +14,8 @@ export type QueryWhereFilterOp =
 export type QueryOrderDirection = 'asc' | 'desc';
 export type QueryFilter =
   | { kind: 'where'; field: string; op: QueryWhereFilterOp; value: unknown }
-  | { kind: 'and'; filters: QueryFilter[] }
-  | { kind: 'or'; filters: QueryFilter[] };
+  | { kind: 'and'; filters: readonly QueryFilter[] }
+  | { kind: 'or'; filters: readonly QueryFilter[] };
 export interface QueryOrderClause {
   field: string;
   direction: QueryOrderDirection;

@@ -11,31 +11,40 @@ import type {
 } from './types.js';
 import { QueryImpl } from './query.js';
 
+export function createDocumentRef(
+  env: LocalEnvironment,
+  auth: AuthContext,
+  path: string,
+  bypassRules: boolean,
+): DocumentReference {
+  return new DocumentRefImpl(
+    env,
+    auth,
+    path,
+    bypassRules,
+    (collectionPath) => new CollectionRefImpl(env, auth, collectionPath, bypassRules),
+  );
+}
+
 export class CollectionRefImpl extends QueryImpl implements CollectionReference {
   readonly id: string;
   readonly path: string;
 
   constructor(env: LocalEnvironment, auth: AuthContext, path: string, bypassRules: boolean = false) {
-    super(
+    super({
       env,
       auth,
-      path,
-      [],
-      [],
-      undefined,
-      false,
-      undefined,
-      undefined,
+      collectionPath: path,
       bypassRules,
-      (docPath) => new DocumentRefImpl(env, auth, docPath, bypassRules),
-    );
+      documentRef: (docPath) => createDocumentRef(env, auth, docPath, bypassRules),
+    });
     this.path = path;
     this.id = lastSegment(path);
   }
 
   doc(id?: string): DocumentReference {
     const finalId = id ?? generateAutoId();
-    return new DocumentRefImpl(this.env, this.auth, `${this.path}/${finalId}`, this.bypassRules);
+    return createDocumentRef(this.env, this.auth, `${this.path}/${finalId}`, this.bypassRules);
   }
 
   async add(data: DocumentData, opts?: OperationOptions): Promise<DocumentReference> {

@@ -36,8 +36,7 @@ import { makeError } from 'pyric/sandbox/internal';
 import { ReadAfterWriteError } from 'pyric/sandbox/internal';
 import { isCollectionPath, isDocumentPath } from './paths.js';
 import { CollectionGroupQueryImpl } from './collection-group-query.js';
-import { CollectionRefImpl } from './collection-ref.js';
-import { DocumentRefImpl } from './doc-ref.js';
+import { CollectionRefImpl, createDocumentRef } from './collection-ref.js';
 import { WriteBatchImpl } from './batch.js';
 import { TransactionImpl } from './transaction.js';
 import {
@@ -85,7 +84,7 @@ export class FirestoreImpl implements Firestore {
         ),
       );
     }
-    return new DocumentRefImpl(this.env, this.auth, path, this.bypassRules);
+    return createDocumentRef(this.env, this.auth, path, this.bypassRules);
   }
 
   collectionGroup(collectionId: string): Query {
@@ -97,9 +96,12 @@ export class FirestoreImpl implements Firestore {
         ),
       );
     }
-    return new CollectionGroupQueryImpl(
-      this.env, this.auth, collectionId, [], [], undefined, false, undefined, undefined, this.bypassRules,
-    );
+    return new CollectionGroupQueryImpl({
+      env: this.env,
+      auth: this.auth,
+      collectionId,
+      bypassRules: this.bypassRules,
+    });
   }
 
   batch(): WriteBatch {

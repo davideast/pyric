@@ -96,11 +96,10 @@ function extractCollectionPath(ref: unknown): string | null {
 
 /**
  * Pull the query's `where` / `orderBy` / cursor / `limit` constraints
- * off a query-shaped ref as a pure row transformer (FS-B2), so a
+ * off a query-shaped ref as an immutable execution plan (FS-B2), so a
  * filtered `onSnapshot(query(...))` delivers the same membership as a
  * one-shot `getDocs(query(...))`. `QueryImpl.snapshotConstraints()` is a
- * public method on every query produced by `db.collection(...).where(...)`
- * etc.; a bare `CollectionReference` returns `undefined` (no filtering).
+ * public method on every local query, including bare collection references.
  * Structural lookup keeps this adapter from importing the compat class.
  */
 function extractSnapshotConstraints(
