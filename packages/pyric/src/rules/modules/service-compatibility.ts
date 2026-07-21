@@ -91,6 +91,15 @@ interface AnalysisContext {
   stack: ReadonlySet<string>;
 }
 
+function derivedAmbientProvenance(
+  expressions: readonly Expression[],
+  ctx: AnalysisContext,
+): AmbientProvenance {
+  return expressions.some((expression) => ambientBindingPath(expression, ctx) !== null)
+    ? 'unknown-ambient'
+    : null;
+}
+
 function ambientBindingPath(expr: Expression, ctx: AnalysisContext): AmbientProvenance {
   if (expr.type === 'identifier') {
     if (expr.name === 'request' || expr.name === 'resource') return [expr.name];
@@ -119,6 +128,10 @@ function ambientBindingPath(expr: Expression, ctx: AnalysisContext): AmbientProv
   if (expr.type === 'functionCall') {
     const fn = ctx.functions.get(expr.name);
     const args = expr.args.map((arg) => ambientBindingPath(arg, ctx));
+    // A lookup result is sourced from Firestore, not from the path expression
+    // used to address it. Ambient interpolation in that path must still be
+    // walked for compatibility, but it does not taint the returned document.
+    if (!fn && FIRESTORE_DIRECT_FUNCTIONS.has(expr.name)) return null;
     if (!fn || ctx.stack.has(fn.name)) {
       return args.some((arg) => arg !== null) ? 'unknown-ambient' : null;
     }
@@ -136,15 +149,28 @@ function ambientBindingPath(expr: Expression, ctx: AnalysisContext): AmbientProv
   }
   switch (expr.type) {
     case 'literal':
+      return null;
     case 'methodCall':
+      return derivedAmbientProvenance([expr.object, ...expr.args], ctx);
     case 'sliceAccess':
+      return derivedAmbientProvenance([expr.object, expr.start, expr.end], ctx);
     case 'binaryOp':
+      return derivedAmbientProvenance([expr.left, expr.right], ctx);
     case 'unaryOp':
+      return derivedAmbientProvenance([expr.operand], ctx);
     case 'inExpr':
+      return derivedAmbientProvenance([expr.element, expr.collection], ctx);
     case 'isExpr':
+      return derivedAmbientProvenance([expr.value], ctx);
     case 'listLiteral':
+      return derivedAmbientProvenance(expr.elements, ctx);
     case 'mapLiteral':
-    case 'pathLiteral': return null;
+      return derivedAmbientProvenance(expr.entries.flatMap((entry) => [entry.key, entry.value]), ctx);
+    case 'pathLiteral':
+      return derivedAmbientProvenance(
+        expr.segments.filter((segment): segment is Expression => typeof segment !== 'string'),
+        ctx,
+      );
     default: return assertNever(expr);
   }
 }
@@ -247,6 +273,7 @@ function serviceIncompatibility(
             return null;
           }
           if (e.object.name === 'firestore') return `method 'firestore.${e.method}()'`;
+          return `namespace '${e.object.name}'`;
         }
         const methods = service === 'cloud.firestore' ? FIRESTORE_METHODS : STORAGE_METHODS;
         if (!methods.has(e.method)) return `method '.${e.method}()'`;

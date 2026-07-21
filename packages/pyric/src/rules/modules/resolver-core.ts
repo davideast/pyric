@@ -302,6 +302,7 @@ export function resolveModulesWith(
   const exportedFunctions = new Map<string, FunctionDef>();
   const allModuleFunctions = new Map<string, FunctionDef>();
   const moduleOrigin = new Map<string, string>();
+  const functionOrigin = new Map<string, string>();
   const modulesUsed: string[] = [];
   const privateNamesPerModule = new Map<string, Set<string>>();
 
@@ -324,6 +325,17 @@ export function resolveModulesWith(
       prefixed.filter((fn) => fn.exported).map((fn) => fn.name),
     );
     for (const fn of prefixed) {
+      const existingOrigin = functionOrigin.get(fn.name);
+      if (existingOrigin && existingOrigin !== imp.module) {
+        return {
+          success: false,
+          error: {
+            code: 'DUPLICATE_FUNCTION',
+            message: `Function '${fn.name}' from module '${imp.module}' conflicts with module '${existingOrigin}'`,
+          },
+        };
+      }
+      functionOrigin.set(fn.name, imp.module);
       allModuleFunctions.set(fn.name, fn);
 
       if (fn.exported) {

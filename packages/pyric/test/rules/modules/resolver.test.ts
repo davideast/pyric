@@ -245,6 +245,33 @@ describe('transitive dependencies', () => {
     });
   });
 
+  test('rejects colliding private helper names from distinct module paths', () => {
+    const result = resolveModules(
+      makeStorageSource(
+        "import { allowedA } from './a-b';\nimport { allowedB } from './a/b';",
+        'allowedA() && allowedB()',
+      ),
+      { modules: {
+        './a-b': `
+          function helper() { return resource.data.owner == request.auth.uid; }
+          export function allowedA() { return helper(); }
+        `,
+        './a/b': `
+          function helper() { return true; }
+          export function allowedB() { return helper(); }
+        `,
+      } },
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+      expect(result.error.message).toContain("'./a-b'");
+      expect(result.error.message).toContain("'./a/b'");
+      expect(result.error.message).toContain('a_b__helper');
+    }
+  });
+
   test('transitive dep appears before dependent', () => {
     const result = resolveModules(makeSource("import { isOwner } from 'auth';"));
     if (result.success) {

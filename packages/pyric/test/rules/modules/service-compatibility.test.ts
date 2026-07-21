@@ -206,6 +206,45 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     expect(result.success).toBe(false);
   });
 
+  test('does not let composite expressions launder incompatible ambient bindings', () => {
+    const expressions = [
+      '(request.resource || {}).md5Hash',
+      '[request.resource][0].md5Hash',
+      "{'incoming': request.resource}.incoming.md5Hash",
+      '[request.resource][0:1][0].md5Hash',
+    ];
+
+    for (const expression of expressions) {
+      const result = resolveModules(
+        makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
+        { modules: { './policy': `
+          export function hasDigest() {
+            return ${expression} != null;
+          }
+        ` } },
+      );
+
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.message).toContain('<derived ambient value>');
+    }
+  });
+
+  test('rejects unknown bare namespaces even when the method name is otherwise allowed', () => {
+    const storage = resolveModules(
+      makeStorageSource("import { mysteryValue } from './policy';", 'mysteryValue()'),
+      { modules: { './policy': "export function mysteryValue() { return mystery.get('x') != null; }" } },
+    );
+    const firestore = resolveModules(
+      makeSource("import { mysteryValue } from './policy';"),
+      { modules: { './policy': "export function mysteryValue() { return mystery.get('x') != null; }" } },
+    );
+
+    expect(storage.success).toBe(false);
+    expect(firestore.success).toBe(false);
+    if (!storage.success) expect(storage.error.message).toContain("namespace 'mystery'");
+    if (!firestore.success) expect(firestore.error.message).toContain("namespace 'mystery'");
+  });
+
   test('propagates ambient provenance into helper parameters', () => {
     const result = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
@@ -297,5 +336,3 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     expect(rejected.success).toBe(false);
   });
 });
-
-

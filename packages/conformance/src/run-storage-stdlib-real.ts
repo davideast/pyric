@@ -10,12 +10,13 @@
  * cross-service database/project boundaries through the same exclusive lock.
  */
 import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cert } from 'firebase-admin/app';
 import { deleteApp, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { readObservationLinkage } from './observation-linkage.ts';
+import { resolveServiceAccount } from './storage-stdlib-real-support.ts';
 
 interface ServiceAccount { project_id: string; client_email: string; private_key: string }
 interface WebConfig { apiKey: string; projectId: string; appId?: string; authDomain?: string }
@@ -211,8 +212,7 @@ async function run(): Promise<void> {
     return runStorageStdlibRemaining(Bun.argv.includes('--native-fields') ? 'native-fields' : 'remaining-cross-service');
   }
 
-  const saPath = resolve('/home/david/repos/davideast/pyric', process.env.PYRIC_ORACLE_SA_PATH);
-  const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
+  const sa = resolveServiceAccount(process.env.PYRIC_ORACLE_SA_PATH);
   const web = JSON.parse(process.env.PYRIC_AI_FIREBASE_CONFIG) as WebConfig;
   if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');
 

@@ -106,8 +106,12 @@ export function canonicalPolicy(policy: IamPolicy): string {
   return JSON.stringify({ version: policy.version ?? 0, bindings, auditConfigs: policy.auditConfigs ?? [] });
 }
 
+export function resolveCredentialPath(path: string, cwd = process.cwd()): string {
+  return resolve(cwd, path);
+}
+
 export function resolveServiceAccount(path: string): ServiceAccount {
-  const resolved = resolve('/home/david/repos/davideast/pyric', path);
+  const resolved = resolveCredentialPath(path);
   return JSON.parse(readFileSync(resolved, 'utf8')) as ServiceAccount;
 }
 

@@ -25,7 +25,6 @@ describe('sanitizeModuleName', () => {
   test('auth → auth', () => expect(sanitizeModuleName('auth')).toBe('auth'));
   test('../shared/utils → _shared_utils', () => expect(sanitizeModuleName('../shared/utils')).toBe('_shared_utils'));
 });
-
 describe('rewriteCalls', () => {
   const renames = new Map([['helper', 'mod__helper']]);
   const id = (name: string): Expression => ({ type: 'identifier', name });
@@ -297,4 +296,3 @@ describe('end-to-end private collision resolution', () => {
     }
   });
 });
-
