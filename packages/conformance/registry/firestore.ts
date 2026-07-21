@@ -1894,7 +1894,7 @@ export const firestoreRegistry = {
         }),
         row22({
           rowRef: "138a",
-          behavior: "Strict boolean control flow matches production: non-booleans in `&&`, `||`, or a ternary condition error and deny. Firestore double payloads retain float identity in the simulator (fractional JSON numbers are revived directly; `{ __type:'float', value }` preserves an explicitly tagged double). On create, the pre-write `resource` is null while `request.resource` carries incoming data.",
+          behavior: "Strict boolean control flow matches production: non-booleans in `&&`, `||`, or a ternary condition error and deny. Firestore double payloads retain float identity in the simulator (fractional JSON numbers are revived directly; `{ __type:'float', value }` preserves an explicitly tagged double). On create, accessing pre-write `resource` identity errors because `resource` is null.",
           status: "conforms",
           evidence: "Oracle-backed by `rules-firestore-strict-boolean-control-flow` (three non-boolean cases DENY; the boolean control case ALLOW), `rules-firestore-int-float-and-division` (a float payload is float and not int), and `rules-firestore-globals-request-path-and-resource-id` (resource identity access on create DENYs because pre-write resource is null). Replayed verdict-for-verdict by `unit:rules/oracle-conformance.test.ts`; direct evaluator/handler tests guard strict operands, fractional-number revival, the explicit float tag, and create-time resource semantics.",
           risk: ["specific-value","specific-field"],
@@ -1903,6 +1903,11 @@ export const firestoreRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rules-firestore-strict-boolean-control-flow","rules-firestore-int-float-and-division","rules-firestore-globals-request-path-and-resource-id"],
           conformanceTests: ["packages/pyric/test/rules/oracle-conformance.test.ts","packages/pyric/test/rules/simulator/evaluator.test.ts","packages/pyric/test/rules/simulator/handler.test.ts"],
+          conformanceChecks: [
+            {"finding":"FS-138A-BOOL","observation":"rules-firestore-strict-boolean-control-flow","expect":{"non-boolean && operand errors → DENY":"DENY","non-boolean || operand errors → DENY":"DENY","non-boolean ternary condition errors → DENY":"DENY","boolean control-flow operands evaluate normally → ALLOW":"ALLOW"},"probe":"packages/pyric/test/rules/oracle-conformance.test.ts","guards":"strict boolean operands in &&, ||, and ternary control flow match production verdicts."},
+            {"finding":"FS-138A-FLOAT","observation":"rules-firestore-int-float-and-division","expect":{"float payload is float / not int ALLOW":"ALLOW"},"probe":"packages/pyric/test/rules/oracle-conformance.test.ts","guards":"fractional Firestore payload numbers retain float identity in Rules evaluation."},
+            {"finding":"FS-138A-RESOURCE","observation":"rules-firestore-globals-request-path-and-resource-id","expect":{"resource.id on create → DENY (resource is null pre-write)":"DENY","resource.__name__ on create → DENY (resource is null pre-write)":"DENY"},"probe":"packages/pyric/test/rules/oracle-conformance.test.ts","guards":"accessing pre-write resource identity during create denies because resource is null."},
+          ],
           rowNumber: 138,
         }),
         row22({

@@ -139,6 +139,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts 1 specific value(s)","asserts rules-denial behavior"],
           oracleObservations: ["rules-firestore-int-float-and-division"],
+          conformanceChecks: [{"finding":"RULES-B5","observation":"rules-firestore-int-float-and-division","expect":{"10 / 4 == 2 (integer truncation) ALLOW":"ALLOW","10.0 / 4.0 == 2.5 (float division) ALLOW":"ALLOW","10 / 4.0 == 2.5 (mixed promotes to float) ALLOW":"ALLOW","10 / 0 errors → DENY (not Infinity)":"DENY","integer payload is int / not float ALLOW":"ALLOW","float payload is float / not int ALLOW":"ALLOW"},"probe":"packages/pyric/test/rules/oracle-conformance.test.ts","guards":"integer and float division, zero-division denial, and payload type identity match production verdicts."}],
           constructs: ["firestore.operator.div","firestore.operator.is","firestore.function.cast.int","firestore.function.cast.float"],
         }),
         row1({

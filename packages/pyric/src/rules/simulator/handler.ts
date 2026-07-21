@@ -22,8 +22,8 @@ import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
-import { RulesFloat } from './wrappers/float.js';
 import { projectAfterState } from './project-after-state.js';
+import { reviveTestValue } from './revive-test-value.js';
 import {
   collectMatches,
   renderMatchBlockPath,
@@ -208,26 +208,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
-}
-
-/** Rehydrate type tags carried by JSON-shaped Rules Test API fixtures. */
-function reviveTestValue(value: unknown): unknown {
-  // The hosted Rules Test API preserves JSON numbers with a fractional part
-  // as Firestore doubles. Plain JS has one Number type, so recover that
-  // unambiguous wire distinction before the evaluator sees the payload.
-  if (typeof value === 'number' && !Number.isInteger(value)) {
-    return new RulesFloat(value);
-  }
-  if (Array.isArray(value)) return value.map(reviveTestValue);
-  if (!isPlainObject(value)) return value;
-  if (value.__type === 'float' && typeof value.value === 'number') {
-    return new RulesFloat(value.value);
-  }
-  const revived: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    revived[key] = reviveTestValue(child);
-  }
-  return revived;
 }
 
 /**
