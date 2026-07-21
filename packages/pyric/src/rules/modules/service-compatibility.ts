@@ -17,8 +17,8 @@ import {
   allowsDynamicAmbientAccess,
 } from './service-bindings.js';
 import {
-  ambientMethodReturnType,
   ambientReceiverType,
+  methodReturnType,
   type RulesReceiverType,
 } from './receiver-types.js';
 export {
@@ -253,7 +253,7 @@ function expressionReceiverType(
       return objectType === 'list' || objectType === 'string' ? objectType : null;
     }
     case 'methodCall': {
-      const namespaceReturnType = ambientMethodReturnType(expression);
+      const namespaceReturnType = methodReturnType(expression);
       if (expression.object.type === 'identifier' && namespaceReturnType) {
         return namespaceReturnType;
       }
@@ -271,7 +271,7 @@ function expressionReceiverType(
         const fallback = expression.args[1];
         return fallback ? expressionReceiverType(fallback, ctx) : null;
       }
-      return ambientMethodReturnType(expression);
+      return methodReturnType(expression);
     }
     case 'binaryOp': {
       const left = expressionReceiverType(expression.left, ctx);
@@ -333,12 +333,12 @@ function ambientMethodReceiverIssue(
   const receiverType = expressionReceiverType(object, ctx);
   if (!receiverType) {
     if (provenance === 'unknown-ambient') return "binding '<derived ambient receiver>'";
-    const projectedObject = object.type === 'memberAccess' || object.type === 'bracketAccess'
-      ? object.object
-      : object.type === 'methodCall' && object.method === 'get' ? object.object : null;
-    const projectedType = projectedObject?.type === 'identifier'
-      ? expressionReceiverType(projectedObject, ctx)
-      : null;
+    let projectionSource: Expression = object;
+    while (projectionSource.type === 'memberAccess' || projectionSource.type === 'bracketAccess' ||
+      projectionSource.type === 'methodCall' && projectionSource.method === 'get') {
+      projectionSource = projectionSource.object;
+    }
+    const projectedType = expressionReceiverType(projectionSource, ctx);
     if (projectedType === 'map' || projectedType === 'list' || projectedType === 'document') {
       return `method '.${method}()' has an unresolved projected receiver`;
     }

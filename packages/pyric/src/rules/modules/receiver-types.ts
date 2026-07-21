@@ -45,7 +45,7 @@ export function ambientReceiverType(
   return null;
 }
 
-export function ambientMethodReturnType(expression: Expression): RulesReceiverType | null {
+export function methodReturnType(expression: Expression): RulesReceiverType | null {
   if (expression.type !== 'methodCall') return null;
   if (expression.object.type === 'identifier') {
     if (expression.object.name === 'firestore') {

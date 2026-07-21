@@ -52,16 +52,21 @@ service firebase.storage {
     expect(result.success).toBe(false);
   });
 
-  test('rejects an unresolved member receiver projected from a map parameter', () => {
-    const result = resolveModules(`rules_version = '2+modules';
+  test('rejects unresolved nested receivers projected from a map parameter', () => {
+    for (const expression of [
+      "value.nested.flag.matches('x')",
+      "value['nested']['flag'].matches('x')",
+    ]) {
+      const result = resolveModules(`rules_version = '2+modules';
 import { broken } from './policy';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /{file} { allow read: if broken({'flag': true}); }
+    match /{file} { allow read: if broken({'nested': {'flag': true}}); }
   }
-}`, { modules: { './policy': "export function broken(value) { return value.flag.matches('x'); }" } });
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+}`, { modules: { './policy': `export function broken(value) { return ${expression}; }` } });
+      expect(result.success, expression).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+    }
   });
 
   test('preserves a valid receiver through source parameters, lets, and helper returns', () => {
@@ -74,6 +79,20 @@ service firebase.storage {
     match /{file} { allow read: if gate(file); }
   }
 }`, { modules: { './policy': "export function check(value) { return value.matches('.*'); }" } });
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+  });
+
+  test('preserves Map.keys return types through source helpers', () => {
+    const result = resolveModules(`rules_version = '2+modules';
+import { required } from './policy';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function metadataKeys() { return request.resource.metadata.keys(); }
+    match /{file} { allow write: if required(metadataKeys()); }
+  }
+}`, { modules: {
+      './policy': "export function required(keys) { return keys.hasAll(['owner']); }",
+    } });
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
 

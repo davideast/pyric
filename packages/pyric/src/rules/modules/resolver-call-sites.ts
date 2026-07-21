@@ -1,7 +1,8 @@
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from '../grammar/FirestoreAST.js';
+import { methodReturnType, type RulesReceiverType } from './receiver-types.js';
 
 type FunctionCallExpression = Extract<Expression, { type: 'functionCall' }>;
-type SourceReceiverType = 'boolean' | 'list' | 'map' | 'number' | 'path' | 'string' | 'unknown';
+type SourceReceiverType = RulesReceiverType;
 
 export interface ModuleCallSite {
   args: readonly Expression[];
@@ -91,14 +92,11 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
         ) : null;
       }
       case 'methodCall':
-        if (['lower', 'upper', 'trim', 'replace', 'join'].includes(expression.method)) return 'string';
-        if (['concat', 'removeAll', 'split', 'values'].includes(expression.method)) return 'list';
         if (expression.method === 'get') {
           const fallback = expression.args[1];
           return fallback ? inferType(fallback, environment, functions, stack) : null;
         }
-        if (['size', 'toMillis'].includes(expression.method)) return 'number';
-        return null;
+        return methodReturnType(expression);
       case 'sliceAccess': return inferType(expression.object, environment, functions, stack);
       case 'binaryOp': {
         const left = inferType(expression.left, environment, functions, stack);
