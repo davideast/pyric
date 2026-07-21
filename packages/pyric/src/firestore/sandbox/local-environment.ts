@@ -43,6 +43,8 @@ import type {
   OperationResult,
   BatchOperationInput,
   BatchResult,
+  ReadOperation,
+  WriteOperation,
 } from './writes.js';
 export { SimulatorUnsupportedError } from './rules-evaluation.js';
 import { FirestoreEventBus } from './event-bus.js';
@@ -115,6 +117,18 @@ export class LocalEnvironment {
     // the default is just "don't blow up before you've thought about
     // rules."
     this.rules = new RulesState(DEFAULT_OPEN_RULES);
+    // Rules-gated reads need live keyspace access (`seed()` replaces state).
+    this.reads = new RulesReadEngine(
+      this.events,
+      this.triggerScope,
+      this.rules,
+      this.simulator,
+      { get state() { return engine.state; } },
+      this.eventLog,
+    );
+    // Listener dispatch calls back into the engine only for rules-gated
+    // silent reads — RulesReadEngine IS its ListenerDispatchHost.
+    this.listeners = new ListenerDispatch(this.events, this.triggerScope, this.reads);
     this.writes = new WriteEngine(
       {
         get state() { return engine.state; },
@@ -126,16 +140,6 @@ export class LocalEnvironment {
       this.events,
       this.triggerScope,
     );
-    // Rules-gated reads need live keyspace access (`seed()` replaces
-    // `state`) and the facade's buildTestCase (shared with the write
-    // engine's simulate path) — injected as a narrow RulesReadHost.
-    this.reads = new RulesReadEngine(this.events, this.triggerScope, this.rules, this.simulator, {
-      get state() { return engine.state; },
-      buildTestCase: (operation, serverTime) => this.writes.buildTestCase(operation, serverTime),
-    });
-    // Listener dispatch calls back into the engine only for rules-gated
-    // silent reads — RulesReadEngine IS its ListenerDispatchHost.
-    this.listeners = new ListenerDispatch(this.events, this.triggerScope, this.reads);
     // Undo/redo needs live keyspace access (`seed()` replaces `state`) and
     // the write engine's affected-path helpers.
     this.history = new HistoryControls(this.eventLog, {
@@ -472,7 +476,10 @@ export class LocalEnvironment {
    *  the same apply + emit path, so structural preconditions, events, and
    *  listeners behave exactly as a rule-allowed op would. */
   execute(operation: Operation): OperationResult {
-    return this.writes.execute(operation);
+    if (operation.method === 'get' || operation.method === 'list') {
+      return this.reads.execute(operation as ReadOperation);
+    }
+    return this.writes.execute(operation as WriteOperation);
   }
   // ═══ Auto-ID create ═══
 

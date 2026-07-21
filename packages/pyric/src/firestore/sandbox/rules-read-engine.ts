@@ -2,19 +2,15 @@
  * RulesReadEngine — the rules-gated read machinery for the Firestore
  * sandbox engine (ADR-0009, PR B3).
  *
- * Owns the silent (no event-log) rules-evaluated reads that back
- * snapshot listeners — `silentReadDoc` / `silentReadCollection` — and
- * the query-read enforcement path (`readQueryCandidates`) used by the
+ * Owns user reads through {@link RulesOperationReader}, silent reads that
+ * back snapshot listeners, and the query-read enforcement path used by the
  * web-modular + admin-compat query surfaces. It implements
  * {@link ListenerDispatchHost} directly, replacing the facade closures
  * PR B2 injected into ListenerDispatch.
  *
  * Dependencies are the narrow slices these reads actually touch:
  *   - {@link RulesReadHost} — live DocStore access (`seed()` replaces the
- *     keyspace, so the getter must not capture a stale reference) and the
- *     engine's `buildTestCase` (shared with the write engine's simulate
- *     path — its `set`→create/update translation and post-write-doc
- *     merge must stay byte-identical across both).
+ *     keyspace, so the getter must not capture a stale reference).
  *   - {@link RulesState} — deployed source + RULES-B11 parsed-AST cache
  *     for the query-proof gate.
  *   - the simulator, {@link TriggerScope} (listener-origin RequestEvents
@@ -22,12 +18,15 @@
  *     denial channels; payload building stays here for lazy allocation).
  */
 import type { DocStore, DocumentData } from './local-state.js';
-import type { SimulateFirestoreRulesHandler, TestCase } from 'pyric/rules/internal';
+import type {
+  SimulateFirestoreRulesHandler,
+  TestCase,
+} from 'pyric/rules/internal';
 import { renderLegacyDebugMessages, projectEvaluatedRule, Timestamp } from 'pyric/rules/internal';
 // RULES-B11 — query-proof gate for list reads ("rules are not filters").
 import { proveListQuery, renderQueryRemediation, type QueryConstraints } from './list-query-proof.js';
 import { makeError, type FirestoreSimError } from './errors.js';
-import type { Operation } from './writes.js';
+import type { Operation, OperationResult, ReadOperation } from './writes.js';
 import type { ListenerAuth, QueryConstraintApplier } from './snapshot-listeners.js';
 import type { ListenerDispatchHost } from './listener-dispatch.js';
 import { buildRequestEvent, type EmitRequestInput } from './request-events.js';
@@ -35,27 +34,41 @@ import { listQueryFromStructured } from './reads.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import type { TriggerScope } from './trigger-scope.js';
 import type { RulesState } from './rules-state.js';
-import { SimulatorUnsupportedError, unsupportedMessage } from './rules-evaluation.js';
+import {
+  SimulatorUnsupportedError,
+  unsupportedMessage,
+} from './rules-evaluation.js';
+import { buildRulesTestCase } from './rules-test-case.js';
+import { EventLog } from './event-log.js';
+import { RulesOperationReader } from './rules-operation-reader.js';
 
 /**
- * The engine capabilities the read paths need from the facade. `state`
- * is a live getter because `seed()` swaps the whole keyspace object;
- * `buildTestCase` stays owned by the facade (the write engine's residual)
- * so read and write evaluation build byte-identical test cases.
+ * The engine capability read paths need from the facade. `state` is a live
+ * getter because `seed()` swaps the whole keyspace object.
  */
 export interface RulesReadHost {
   readonly state: DocStore;
-  buildTestCase(operation: Operation, serverTime?: Timestamp): TestCase;
 }
 
 export class RulesReadEngine implements ListenerDispatchHost {
+  private readonly operationReader: RulesOperationReader;
+
   constructor(
     private readonly events: FirestoreEventBus,
     private readonly triggerScope: TriggerScope,
     private readonly rules: RulesState,
     private readonly simulator: SimulateFirestoreRulesHandler,
     private readonly host: RulesReadHost,
-  ) {}
+    eventLog: EventLog,
+  ) {
+    this.operationReader = new RulesOperationReader(
+      events,
+      rules,
+      simulator,
+      host,
+      eventLog,
+    );
+  }
 
   private get state(): DocStore {
     return this.host.state;
@@ -71,6 +84,9 @@ export class RulesReadEngine implements ListenerDispatchHost {
     this.events.denial.emit(err);
   }
 
+  execute(operation: ReadOperation): OperationResult {
+    return this.operationReader.execute(operation);
+  }
   /**
    * Run a `get` through the rules without touching the event log.
    * Returns the read shape used by listener-snapshot construction.
@@ -104,7 +120,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       return { allowed: true, data };
     }
     const readServerTime = Timestamp.fromMillis(Date.now());
-    const testCase = this.host.buildTestCase({ method: 'get', path, auth }, readServerTime);
+    const testCase = buildRulesTestCase(this.state, { method: 'get', path, auth }, readServerTime);
     // Issue #307 — time the simulate call for listener-origin RequestEvents.
     const evalAt = Date.now();
     const evalStart = performance.now();
@@ -249,7 +265,11 @@ export class RulesReadEngine implements ListenerDispatchHost {
         }),
       };
     }
-    const testCase = this.host.buildTestCase({ method: 'list', path: listPath, auth }, readServerTime);
+    const testCase = buildRulesTestCase(
+      this.state,
+      { method: 'list', path: listPath, auth },
+      readServerTime,
+    );
     this.applyListProof(testCase, proof, structured);
     // Issue #307 — time the outer list eval.
     const simResult = this.simulator.simulate(this.rules.source, [testCase], {
@@ -440,7 +460,11 @@ export class RulesReadEngine implements ListenerDispatchHost {
       this.emitDenial(error);
       return { allowed: false, error };
     }
-    const testCase = this.host.buildTestCase({ method: 'list', path: placeholderPath, auth }, readServerTime);
+    const testCase = buildRulesTestCase(
+      this.state,
+      { method: 'list', path: placeholderPath, auth },
+      readServerTime,
+    );
     this.applyListProof(testCase, proof, structured);
     const simResult = this.simulator.simulate(this.rules.source, [testCase], {
       getDoc: (path) => this.state.get(path),

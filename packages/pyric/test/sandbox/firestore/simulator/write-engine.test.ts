@@ -10,6 +10,7 @@ import { DEFAULT_OPEN_RULES } from '../../../../src/firestore/sandbox/rules-eval
 import { RulesState } from '../../../../src/firestore/sandbox/rules-state.js';
 import { TriggerScope } from '../../../../src/firestore/sandbox/trigger-scope.js';
 import { WriteEngine } from '../../../../src/firestore/sandbox/write-engine.js';
+import { buildRulesTestCase } from '../../../../src/firestore/sandbox/rules-test-case.js';
 
 function createEngine() {
   let state: DocStore = new LocalState();
@@ -62,12 +63,12 @@ describe('WriteEngine host seam', () => {
 
   test('projects set as create or update from the live pre-write state', () => {
     const harness = createEngine();
-    expect(harness.engine.buildTestCase({
+    expect(buildRulesTestCase(harness.state, {
       method: 'set', path: 'notes/n1', auth: null, data: { value: 1 },
     }).method).toBe('create');
 
     harness.state.set('notes/n1', { value: 0 });
-    expect(harness.engine.buildTestCase({
+    expect(buildRulesTestCase(harness.state, {
       method: 'set', path: 'notes/n1', auth: null, data: { value: 1 },
     }).method).toBe('update');
   });

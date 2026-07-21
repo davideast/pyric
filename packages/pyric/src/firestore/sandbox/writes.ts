@@ -53,6 +53,11 @@ export interface Operation {
   bypassRules?: boolean;
 }
 
+export type ReadOperation = Operation & { method: 'get' | 'list' };
+export type WriteOperation = Operation & {
+  method: 'create' | 'update' | 'set' | 'delete';
+};
+
 export interface OperationResult {
   allowed: boolean;
   data?: DocumentData | null;

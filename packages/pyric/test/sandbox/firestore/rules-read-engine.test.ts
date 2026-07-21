@@ -15,9 +15,9 @@ import { RulesState } from '../../../src/firestore/sandbox/rules-state.js';
 import { LocalState } from '../../../src/firestore/sandbox/local-state.js';
 import { FirestoreEventBus } from '../../../src/firestore/sandbox/event-bus.js';
 import { TriggerScope } from '../../../src/firestore/sandbox/trigger-scope.js';
-import { isoFromTimestamp } from '../../../src/firestore/sandbox/rules-evaluation.js';
-import { SimulateFirestoreRulesHandler, type TestCase, Timestamp } from 'pyric/rules/internal';
+import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import type { RequestEvent } from '../../../src/sandbox/types/events.js';
+import { EventLog } from '../../../src/firestore/sandbox/event-log.js';
 
 const OPEN_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -48,24 +48,48 @@ function makeEngine(rulesSource: string, docs: Record<string, Record<string, unk
   const rules = new RulesState(rulesSource);
   const events = new FirestoreEventBus();
   const triggerScope = new TriggerScope();
-  // Read-only honest replica of the facade's buildTestCase for get/list
-  // ops (reads carry no request data; `resource` is the existing doc).
+  const eventLog = new EventLog();
   const host: RulesReadHost = {
     get state() { return state; },
-    buildTestCase: (op, serverTime?: Timestamp): TestCase => ({
-      description: `${op.method} ${op.path}`,
-      expectation: 'ALLOW',
-      method: op.method as TestCase['method'],
-      path: op.path,
-      auth: op.auth ? { uid: op.auth.uid, token: op.auth.token } : null,
-      data: undefined,
-      resource: state.get(op.path) ?? undefined,
-      ...(serverTime ? { requestTime: isoFromTimestamp(serverTime) } : {}),
-    }),
   };
-  const engine = new RulesReadEngine(events, triggerScope, rules, new SimulateFirestoreRulesHandler(), host);
-  return { engine, state, rules, events, triggerScope };
+  const engine = new RulesReadEngine(
+    events,
+    triggerScope,
+    rules,
+    new SimulateFirestoreRulesHandler(),
+    host,
+    eventLog,
+  );
+  return { engine, state, rules, events, triggerScope, eventLog };
 }
+
+describe('RulesReadEngine.execute', () => {
+  test('owns user read evaluation and history recording', () => {
+    const { engine, eventLog } = makeEngine(OPEN_RULES, {
+      'games/g1': { title: 'chess' },
+    });
+
+    const result = engine.execute({ method: 'get', path: 'games/g1', auth: null });
+
+    expect(result.allowed).toBe(true);
+    expect(result.data).toEqual({ title: 'chess' });
+    expect(eventLog.size()).toBe(1);
+  });
+
+  test('emits a structured denial for a user read', () => {
+    const { engine, events } = makeEngine(CLOSED_RULES, {
+      'games/g1': { title: 'chess' },
+    });
+    const denials: unknown[] = [];
+    events.denial.subscribe((error) => denials.push(error));
+
+    const result = engine.execute({ method: 'get', path: 'games/g1', auth: null });
+
+    expect(result.allowed).toBe(false);
+    expect(result.error?.code).toBe('permission-denied');
+    expect(denials).toHaveLength(1);
+  });
+});
 
 describe('RulesReadEngine.silentReadDoc', () => {
   test('allows under open rules and returns the doc data', () => {
