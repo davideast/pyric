@@ -1,3 +1,11 @@
+---
+title: "Rules standard library reference"
+group: "Trust"
+section: ""
+order: 41
+description: "Service compatibility, evidence level, and function reference for every bundled Rules module."
+---
+
 # Rules Standard Library — Module Manifest
 
 Last audited: 2026-07-21

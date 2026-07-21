@@ -130,6 +130,27 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     }
   });
 
+  test('rejects Storage bindings that production exposes but the evaluator does not implement', () => {
+    for (const expression of [
+      'request.resource.name',
+      'resource.md5Hash',
+      'resource.crc32c',
+      'resource.etag',
+    ]) {
+      const result = resolveModules(
+        makeStorageSource("import { readsUnimplemented } from './policy';", 'readsUnimplemented()'),
+        { modules: { './policy': `
+          export function readsUnimplemented() {
+            return ${expression} != null;
+          }
+        ` } },
+      );
+
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.message).toContain(`binding '${expression}'`);
+    }
+  });
+
   test('does not let literal bracket notation bypass ambient binding checks', () => {
     const storage = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),

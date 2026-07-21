@@ -700,7 +700,7 @@ export const rulesRegistry = {
             "stdlib-realstorage-p3-project-isolation",
           ],
           conformanceTests: [
-            "packages/conformance/src/storage-stdlib-real-replay.test.ts",
+            "packages/conformance/test/src/storage-stdlib-real-replay.test.ts",
             "packages/pyric/test/storage/rules.test.ts",
           ],
           constructs: [

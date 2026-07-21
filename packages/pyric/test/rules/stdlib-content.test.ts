@@ -19,6 +19,7 @@ import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STDLIB_INLINE } from '../../src/rules/modules/stdlib-content.js';
 import { STDLIB_SERVICE_CONTRACT_MODULES } from '../../src/rules/modules/resolver-core.js';
+import { STDLIB_SERVICE_CONTRACTS } from '../../src/rules/modules/stdlib-services.generated.js';
 
 const STDLIB_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -40,6 +41,18 @@ describe('STDLIB_INLINE — drift check against disk', () => {
   it('requires an explicit service contract for every bundled module', () => {
     const diskKeys = diskFiles.map((f) => f.replace(/\.rules$/, '')).sort();
     expect(STDLIB_SERVICE_CONTRACT_MODULES).toEqual(diskKeys);
+  });
+
+  it('derives service contracts from the stdlib directory convention', () => {
+    for (const moduleName of STDLIB_SERVICE_CONTRACT_MODULES) {
+      const expected = moduleName.startsWith('storage/')
+        ? ['firebase.storage']
+        : moduleName === 'auth' || moduleName === 'membership'
+          ? ['cloud.firestore', 'firebase.storage']
+          : ['cloud.firestore'];
+      expect(STDLIB_SERVICE_CONTRACTS[moduleName as keyof typeof STDLIB_SERVICE_CONTRACTS])
+        .toEqual(expected);
+    }
   });
 
   for (const file of diskFiles) {

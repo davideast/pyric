@@ -35,12 +35,12 @@ const KNOWN_BUILTIN_METHODS = [
   'hasAll', 'hasAny', 'hasOnly', 'toSet', 'toUtf8',
 ] as const;
 
-// STDLIB.md user-authored module names. We parse the markdown file
+// Canonical site reference user-authored module names. We parse the markdown file
 // rather than hard-coding so a new module added there fails the
 // test until it's mirrored here.
 const STDLIB_MD_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  '../../src/rules/modules/stdlib/STDLIB.md',
+  '../../../site-docs/src/content/trust/rules-standard-library.md',
 );
 
 function readUserModuleNames(): string[] {
@@ -94,14 +94,14 @@ describe('STDLIB_MODULES — drift check against runtime constants', () => {
     }
   });
 
-  it('covers every STDLIB.md user-module as a user-module key', () => {
+  it('covers every documented user-module as a user-module key', () => {
     const userModuleKeys = new Set(
       STDLIB_MODULES.filter((m) => m.kind === 'user-module').map((m) => m.key),
     );
     const docNames = readUserModuleNames();
-    expect(docNames.length, 'STDLIB.md parsed zero modules — parser regressed').toBeGreaterThan(0);
+    expect(docNames.length, 'stdlib reference parsed zero modules — parser regressed').toBeGreaterThan(0);
     for (const name of docNames) {
-      expect(userModuleKeys.has(name), `STDLIB.md module not mirrored as user-module: ${name}`).toBe(true);
+      expect(userModuleKeys.has(name), `documented module not mirrored as user-module: ${name}`).toBe(true);
     }
   });
 });

@@ -3,7 +3,14 @@ import {
   FIRESTORE_DIRECT_FUNCTIONS as GENERATED_FIRESTORE_DIRECT_FUNCTIONS,
   FIRESTORE_METHODS as GENERATED_FIRESTORE_METHODS,
   FIRESTORE_NAMESPACE_METHODS,
-} from './firestore-capabilities.generated.js';
+  STORAGE_BINDING_PATHS,
+  STORAGE_METHODS as GENERATED_STORAGE_METHODS,
+  STORAGE_NAMESPACE_METHODS,
+} from './rules-capabilities.generated.js';
+import {
+  STDLIB_SERVICE_CONTRACT_MODULES,
+  STDLIB_SERVICE_CONTRACTS,
+} from './stdlib-services.generated.js';
 
 export type RulesServiceName = 'cloud.firestore' | 'firebase.storage';
 
@@ -11,59 +18,26 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled Rules expression: ${JSON.stringify(value)}`);
 }
 
-interface ModuleContract {
-  defaultServices: readonly RulesServiceName[];
-  exports?: Readonly<Record<string, readonly RulesServiceName[]>>;
-}
+export { STDLIB_SERVICE_CONTRACT_MODULES };
 
-const FIRESTORE_ONLY: readonly RulesServiceName[] = ['cloud.firestore'];
-const STORAGE_ONLY: readonly RulesServiceName[] = ['firebase.storage'];
-const FIRESTORE_AND_STORAGE: readonly RulesServiceName[] = ['cloud.firestore', 'firebase.storage'];
-
-/**
- * Reviewed service contracts for bundled modules. A module is never admitted
- * to a second service merely because its source parses there.
- */
-const STDLIB_MODULE_CONTRACTS: Readonly<Record<string, ModuleContract>> = {
-  auth: { defaultServices: FIRESTORE_AND_STORAGE },
-  membership: { defaultServices: FIRESTORE_AND_STORAGE },
-  atomic: { defaultServices: FIRESTORE_ONLY },
-  content: { defaultServices: FIRESTORE_ONLY },
-  counters: { defaultServices: FIRESTORE_ONLY },
-  geometry: { defaultServices: FIRESTORE_ONLY },
-  joining: { defaultServices: FIRESTORE_ONLY },
-  lifecycle: { defaultServices: FIRESTORE_ONLY },
-  lobby: { defaultServices: FIRESTORE_ONLY },
-  spaces: { defaultServices: FIRESTORE_ONLY },
-  state: { defaultServices: FIRESTORE_ONLY },
-  timing: { defaultServices: FIRESTORE_ONLY },
-  transitions: { defaultServices: FIRESTORE_ONLY },
-  turns: { defaultServices: FIRESTORE_ONLY },
-  validation: { defaultServices: FIRESTORE_ONLY },
-  'storage/uploads': { defaultServices: STORAGE_ONLY },
-  'storage/metadata': { defaultServices: STORAGE_ONLY },
-  'storage/objects': { defaultServices: STORAGE_ONLY },
-  'storage/time': { defaultServices: STORAGE_ONLY },
-};
-
-export const STDLIB_SERVICE_CONTRACT_MODULES = Object.freeze(
-  Object.keys(STDLIB_MODULE_CONTRACTS).sort(),
-);
-
-// Generated from accepted rules-language inventory rows. Storage stays
-// deliberately narrower: only its locally implemented, observed subset is admitted.
+// Generated from accepted rules-language inventory rows. An accepted Storage
+// row is admitted only after local implementation and production replay.
 const FIRESTORE_DIRECT_FUNCTIONS = new Set<string>(GENERATED_FIRESTORE_DIRECT_FUNCTIONS);
 const FIRESTORE_METHODS = new Set<string>(GENERATED_FIRESTORE_METHODS);
 const FIRESTORE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
   Object.entries(FIRESTORE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
 );
 
-const STORAGE_METHODS = new Set(['get', 'hasAll', 'keys', 'matches', 'size', 'split']);
-const STORAGE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = {
-  duration: new Set(['value']),
-  firestore: new Set(['exists', 'get']),
-  timestamp: new Set(['date', 'value']),
-};
+const STORAGE_METHODS = new Set<string>(GENERATED_STORAGE_METHODS);
+const STORAGE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
+  Object.entries(STORAGE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
+);
+const STORAGE_BINDINGS = new Set<string>(STORAGE_BINDING_PATHS);
+const STORAGE_DYNAMIC_BINDING_PREFIXES = [
+  'request.auth.token',
+  'request.resource.metadata',
+  'resource.metadata',
+] as const;
 
 function stdlibContractKey(moduleName: string): string {
   const pathMatch = moduleName.match(/^\.\/stdlib\/(.+?)(?:\.rules)?$/);
@@ -75,9 +49,10 @@ export function incompatibleStdlibExport(
   moduleName: string,
   functionName: string,
 ): string | null {
-  const contract = STDLIB_MODULE_CONTRACTS[stdlibContractKey(moduleName)];
-  if (!contract) return null;
-  const services = contract.exports?.[functionName] ?? contract.defaultServices;
+  const contractKey = stdlibContractKey(moduleName);
+  const services = STDLIB_SERVICE_CONTRACTS[contractKey as keyof typeof STDLIB_SERVICE_CONTRACTS] as
+    readonly RulesServiceName[] | undefined;
+  if (!services) return null;
   return services.includes(service)
     ? null
     : `Function '${functionName}' from module '${moduleName}' is not compatible with service '${service}'`;
@@ -178,22 +153,9 @@ function ambientBindingPath(expr: Expression, ctx: AnalysisContext): AmbientProv
 function allowedAmbientBinding(service: RulesServiceName, path: readonly string[]): boolean {
   if (path.length === 1) return true;
   if (service === 'firebase.storage') {
-    if (path[0] === 'request') {
-      if (path[1] === 'auth') return true;
-      if (['time', 'method', 'path'].includes(path[1]!)) return path.length === 2;
-      if (path[1] !== 'resource') return false;
-      if (path.length === 2) return true;
-      if (path[2] === 'metadata') return true;
-      return path.length === 3 && ['size', 'contentType', 'name'].includes(path[2]!);
-    }
-    if (path[0] === 'resource') {
-      if (path[1] === 'metadata') return true;
-      return path.length === 2 && [
-        'name', 'bucket', 'size', 'contentType', 'timeCreated', 'updated',
-        'generation', 'metageneration', 'md5Hash', 'crc32c', 'etag',
-      ].includes(path[1]!);
-    }
-    return false;
+    const binding = path.join('.');
+    return STORAGE_BINDINGS.has(binding) ||
+      STORAGE_DYNAMIC_BINDING_PREFIXES.some((prefix) => binding.startsWith(`${prefix}.`));
   }
   if (path[0] === 'request') {
     if (path[1] === 'auth' || path[1] === 'query') return true;

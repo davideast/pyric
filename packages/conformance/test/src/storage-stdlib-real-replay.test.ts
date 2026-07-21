@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseStorageRules } from '../../pyric/src/storage/sandbox/rules.ts';
-import { evaluateStorageRules } from '../../pyric/src/storage/sandbox/rules-evaluator.ts';
-import { injectProbeRules } from './run-storage-stdlib-real.ts';
+import { parseStorageRules } from '../../../pyric/src/storage/sandbox/rules.ts';
+import { evaluateStorageRules } from '../../../pyric/src/storage/sandbox/rules-evaluator.ts';
+import { injectProbeRules } from '../../src/run-storage-stdlib-real.ts';
 
-const OBS_DIR = join(import.meta.dir, '..', 'observations', 'storage-rules');
+const OBS_DIR = join(import.meta.dir, '..', '..', 'observations', 'storage-rules');
 const RUN_ID = 'local-replay';
 const PREFIX = `__pyric_storage_stdlib/${RUN_ID}`;
 

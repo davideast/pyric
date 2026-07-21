@@ -28,7 +28,7 @@
  *   - `BUILTIN_NAMESPACES` (`simulator/evaluator.ts`)
  *   - `KNOWN_BUILTIN_METHODS` (`linter/hallucinations.ts`)
  *   - wrapper-class implementations (`simulator/wrappers/*.ts`)
- *   - `modules/stdlib/STDLIB.md`
+ *   - `packages/site-docs/src/content/trust/rules-standard-library.md`
  * by a drift-check vitest in `test/stdlib-modules.test.ts`. If a
  * runtime constant grows, the test fails until this file catches up.
  */
@@ -512,7 +512,7 @@ const RESOURCE_GLOBALS: StdlibModule = {
   relatedKeys: ['request'],
 };
 
-// ─── User-authored modules (mirror of STDLIB.md) ──────────────────────
+// ─── User-authored modules (mirror of the canonical site reference) ──
 
 const AUTH_MODULE: StdlibModule = {
   key: 'auth',

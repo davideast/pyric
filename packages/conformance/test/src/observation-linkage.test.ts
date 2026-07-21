@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { observationLinkageOf, readObservationLinkage } from './observation-linkage.ts';
+import { observationLinkageOf, readObservationLinkage } from '../../src/observation-linkage.ts';
 
 describe('observation linkage', () => {
   test('retains only the authored registry linkage fields', () => {

@@ -6,8 +6,8 @@ import {
   resolveCredentialPath,
   rulesLiteral,
   runCleanupSteps,
-} from './storage-stdlib-real-support.ts';
-import { acquireRunLock } from './run-storage-stdlib-real.ts';
+} from '../../src/storage-stdlib-real-support.ts';
+import { acquireRunLock } from '../../src/run-storage-stdlib-real.ts';
 
 describe('storage stdlib real-resource support', () => {
   test('credential paths resolve from the invoking working directory', () => {
