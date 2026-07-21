@@ -8,6 +8,7 @@ import { LocalState } from '../../../src/firestore/sandbox/local-state.js';
 import { DEFAULT_OPEN_RULES } from '../../../src/firestore/sandbox/rules-evaluation.js';
 import { RulesState } from '../../../src/firestore/sandbox/rules-state.js';
 import { TriggerScope } from '../../../src/firestore/sandbox/trigger-scope.js';
+import { KEEP, registerConverter } from '../../../src/firestore/sandbox/value-resolver.js';
 
 describe('BatchWriteExecutor', () => {
   test('commits all writes and notifies their touched paths once', () => {
@@ -31,5 +32,41 @@ describe('BatchWriteExecutor', () => {
     expect(state.get('notes/a')).toEqual({ value: 1 });
     expect(state.get('notes/b')).toEqual({ value: 2 });
     expect(notifications).toEqual([['notes/a', 'notes/b']]);
+  });
+
+  test('records resolution failure before request emission and preserves duplicate-path errors', () => {
+    registerConverter({
+      name: 'batch-executor-ordering-probe',
+      convert(value) {
+        if ((value as { orderingProbe?: unknown })?.orderingProbe === true) {
+          throw new Error('probe failed');
+        }
+        return KEEP;
+      },
+    });
+    const state = new LocalState();
+    const events = new FirestoreEventBus();
+    const eventLog = new EventLog();
+    const observedHistorySizes: number[] = [];
+    events.request.subscribe(() => observedHistorySizes.push(eventLog.size()));
+    const runtime = new WriteRuntime(
+      { state, notifyListenersForPaths: () => {} },
+      new RulesState(DEFAULT_OPEN_RULES),
+      new SimulateFirestoreRulesHandler(),
+      eventLog,
+      events,
+      new TriggerScope(),
+    );
+
+    const result = new BatchWriteExecutor(runtime).batch([
+      { method: 'create', path: 'notes/same', data: { value: 1 } },
+      { method: 'update', path: 'notes/same', data: { value: { orderingProbe: true } } },
+    ], null);
+
+    expect(observedHistorySizes).toEqual([1]);
+    expect(result.results.map((entry) => entry.error?.code)).toEqual([
+      'invalid-argument',
+      'invalid-argument',
+    ]);
   });
 });

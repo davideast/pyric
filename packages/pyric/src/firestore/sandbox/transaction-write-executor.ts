@@ -142,6 +142,7 @@ export class TransactionWriteExecutor {
           `FieldValue resolve error on '${prepared.input.path}': ${prepared.message}`,
         ],
       });
+      this.runtime.emitRequest(prepared.request);
       return {
         allowed: false,
         reads: [...reads],

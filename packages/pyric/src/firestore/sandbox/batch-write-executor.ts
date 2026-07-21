@@ -52,13 +52,14 @@ export class BatchWriteExecutor {
           `FieldValue resolve error on '${prepared.input.path}': ${prepared.message}`,
         ],
       });
+      this.runtime.emitRequest(prepared.request);
       return {
         allowed: false,
-        results: operations.map((operation, index) => ({
+        results: operations.map((operation) => ({
           path: operation.path,
           allowed: false,
           debugMessages: [prepared.message],
-          ...(index === prepared.index ? { error: prepared.error } : {}),
+          ...(operation.path === prepared.input.path ? { error: prepared.error } : {}),
         })),
         event,
         error: prepared.error,

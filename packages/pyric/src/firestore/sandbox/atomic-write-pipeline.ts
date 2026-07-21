@@ -44,6 +44,7 @@ export interface AtomicResolutionFailure {
   input: AtomicWriteInput;
   message: string;
   error: FirestoreSimError;
+  request: EmitRequestInput;
 }
 
 export interface AtomicWriteOutcome {
@@ -90,7 +91,7 @@ export class AtomicWritePipeline {
         const message = (error as Error).message;
         const wrapped = makeError('invalid-argument', message);
         const prior = context.snapshot[input.path] ?? null;
-        this.runtime.emitRequest({
+        const request: EmitRequestInput = {
           at: Date.now(),
           evalMs: 0,
           method: input.ruleMethod,
@@ -106,8 +107,8 @@ export class AtomicWritePipeline {
           groupId: context.groupId,
           ...(context.bypassRules ? { detail: { admin: true } } : {}),
           ...(context.provenance ? { provenance: context.provenance } : {}),
-        });
-        return { index, input, message, error: wrapped };
+        };
+        return { index, input, message, error: wrapped, request };
       }
     }
     return { context, inputs, resolvedOps, serverTime };
