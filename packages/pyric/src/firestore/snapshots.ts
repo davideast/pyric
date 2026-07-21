@@ -97,6 +97,10 @@ export function applyConverterToDocSnap<AppModel>(
  */
 export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
   if (!snap || typeof snap !== 'object') return snap;
+  // Equality helpers receive the snapshot object itself, not only its refs.
+  // Brand the snapshot with the same owner so `snapshotEqual` can validate
+  // sandbox snapshots without mistaking them for foreign SDK values.
+  tag(snap, target);
   const s = snap as {
     ref?: { id?: string; path?: string };
     docs?: Array<{ ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean) }>;

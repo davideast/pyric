@@ -20,7 +20,11 @@ export function refEqual(a: DocumentReference, b: DocumentReference): boolean {
 
 export function queryEqual(a: Query, b: Query): boolean {
   assertRecognizedPair(a as object, b as object);
-  return a === b;
+  const left = underlyingOf(a as object) as {
+    isStructurallyEqual?: (other: unknown) => boolean;
+  };
+  const right = underlyingOf(b as object);
+  return left.isStructurallyEqual?.(right) ?? a === b;
 }
 
 export function snapshotEqual(

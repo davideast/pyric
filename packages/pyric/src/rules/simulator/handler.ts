@@ -22,6 +22,7 @@ import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
+import { RulesFloat } from './wrappers/float.js';
 import { projectAfterState } from './project-after-state.js';
 import {
   collectMatches,
@@ -209,6 +210,20 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
+/** Rehydrate type tags carried by JSON-shaped Rules Test API fixtures. */
+function reviveTestValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(reviveTestValue);
+  if (!isPlainObject(value)) return value;
+  if (value.__type === 'float' && typeof value.value === 'number') {
+    return new RulesFloat(value.value);
+  }
+  const revived: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    revived[key] = reviveTestValue(child);
+  }
+  return revived;
+}
+
 /**
  * Populate `request.query` for `list` operations from the optional
  * TestCase.query payload (REBUILD_PLAN.md Item 6 follow-up).
@@ -284,8 +299,10 @@ function buildContext(
   // tc.resource for read methods, and null for delete. The legacy fallback
   // keeps every existing test passing while letting new tests opt into
   // proper merge semantics.
-  const payload = tc.data ?? {};
-  const existing = tc.resource ?? null;
+  const payload = reviveTestValue(tc.data ?? {}) as Record<string, unknown>;
+  const existing = tc.resource === undefined || tc.resource === null
+    ? null
+    : reviveTestValue(tc.resource) as Record<string, unknown>;
   let afterState: Record<string, unknown> | null;
   let existsAfter: boolean;
   if (tc.writeMode) {

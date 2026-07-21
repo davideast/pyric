@@ -6,6 +6,7 @@
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { translateReadData } from './snapshots.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
+import { firestoreValuesEqual } from '../value-equality.js';
 // RULES-B11 — structured `where`/`limit`/`orderBy` view threaded into the
 // rule-enforced read paths so the query-proof gate ("rules are not
 // filters") can discharge per-doc rule predicates from the query's
@@ -227,6 +228,18 @@ export class QueryImpl implements Query {
         fromSnapshot: true,
       },
     });
+  }
+
+  /** Package-internal structural equality used by the modular
+   * `queryEqual` helper. Firebase query identity is the owning Firestore
+   * instance plus target and constraints; caller auth is runtime state, not
+   * part of the query value. */
+  isStructurallyEqual(other: unknown): boolean {
+    if (!(other instanceof QueryImpl)) return false;
+    return this.env === other.env
+      && this.bypassRules === other.bypassRules
+      && firestoreValuesEqual(this.queryScope(), other.queryScope())
+      && firestoreValuesEqual(this.executionSpec(), other.executionSpec());
   }
 
   /**

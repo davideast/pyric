@@ -305,20 +305,14 @@ describe('oracle conformance (firestore)', () => {
     expect(excluded).toBe(obs.excludedEqualValuedPredecessor as boolean);
   });
 
-  it('firestore-limittolast-preconditions (KNOWN DIVERGENCE: error code)', async () => {
-    // Prod: limitToLast() with no orderBy throws code `unimplemented`; the
-    // sandbox (src/firestore) throws `invalid-argument` for the same
-    // precondition. Same class of failure (rejected before running), but
-    // the recorded code differs. Pin BOTH sides so neither drifts.
+  it('firestore#61 limitToLast without orderBy uses the production error code', async () => {
     const obs = load('firestore-limittolast-preconditions.json');
     expect(obs.noOrderByThrew).toBe(true);
-    expect(obs.code).toBe('unimplemented'); // prod's code (the target)
 
     const db = freshDb();
     seedDb(db, { 'c/a': { pos: 1 }, 'c/b': { pos: 2 } });
-    // Sandbox today: invalid-argument, not unimplemented.
     const e = await caught(() => getDocs(query(collection(db, 'c'), limitToLast(2))));
-    expect(e.code).toBe('invalid-argument');
+    expect(e.code).toBe(obs.code as string);
 
     // With an orderBy, limitToLast returns the trailing window — matches prod.
     const trailing = (await getDocs(
@@ -537,32 +531,25 @@ describe('oracle conformance (firestore)', () => {
     expect(e instanceof Error).toBe(obs.isErrorInstance as boolean);
   });
 
-  it('firestore-write-denied-error-code (KNOWN DIVERGENCE: error class name)', async () => {
-    // Prod throws a FirebaseError (constructorName/errorName "FirebaseError");
-    // the sandbox throws a SandboxError. Both carry code `permission-denied`
-    // and are `instanceof Error`, which is the portable contract we assert.
-    // The class NAME differs — pinned here as the representative denied case;
-    // the other denied tests (read/write/delete/tx/batch) assert only the
-    // portable `code` + `instanceof Error`.
+  it('firestore#32 rules-denied setDoc preserves the production error shape', async () => {
     const obs = load('firestore-write-denied-error-code.json');
-    expect(obs.constructorName).toBe('FirebaseError'); // prod class (the target)
-    expect(obs.isFirebaseError).toBe(true);
 
     const db = freshDb(RULES);
     const e = await caught(() => setDoc(doc(db, 'blocked/x'), { v: 1 }));
     expect(e.code).toBe(obs.code as string);
     expect(e instanceof Error).toBe(obs.isErrorInstance as boolean);
-    // Sandbox today: the class is SandboxError, not FirebaseError.
-    expect(e.name).toBe('SandboxError');
+    expect(e.name).toBe(obs.errorName as string);
+    expect(e.constructor.name).toBe(obs.constructorName as string);
   });
 
-  it('firestore-rules-denied-error', async () => {
-    // Companion write-denied capture (#21). Same permission-denied contract.
+  it('firestore#21 rules-denied modular writes throw a Firebase-shaped error', async () => {
     const obs = load('firestore-rules-denied-error.json');
     const db = freshDb(RULES);
     const e = await caught(() => setDoc(doc(db, 'blocked/y'), { v: 1 }));
     expect(e.code).toBe(obs.code as string);
     expect(e instanceof Error).toBe(obs.isErrorInstance as boolean);
+    expect(e.name).toBe(obs.errorName as string);
+    expect(e.constructor.name).toBe(obs.constructorName as string);
   });
 
   it('firestore-delete-denied-error-code', async () => {
@@ -865,37 +852,23 @@ describe('oracle conformance (firestore)', () => {
 
   // ── query / snapshot equality ────────────────────────────────────────
 
-  it('firestore-queryequal-structural (KNOWN DIVERGENCE: structural vs identity)', async () => {
-    // Prod queryEqual is STRUCTURAL: two queries built the same way compare
-    // equal (sameQueryBuiltTwice:true). The sandbox's queryEqual
-    // (src/firestore/index.ts) falls back to IDENTITY (`a === b`) for
-    // sandbox-target queries, so a query built twice compares UNEQUAL. Same-
-    // object identity and different-value inequality still hold. Pin both.
+  it('firestore#116 queryEqual compares independently-built queries structurally', async () => {
     const obs = load('firestore-queryequal-structural.json');
-    expect(obs.sameQueryBuiltTwice).toBe(true); // prod: structural (the target)
 
     const db = freshDb();
     seedDb(db, { 'c/x': { v: 1 } });
     const q1 = query(collection(db, 'c'), where('v', '==', 1));
     const q2 = query(collection(db, 'c'), where('v', '==', 1));
     const q3 = query(collection(db, 'c'), where('v', '==', 2));
-    // Sandbox today: identity-only — built-twice is NOT equal.
-    expect(queryEqual(q1, q2)).toBe(false);
-    // Same-object identity matches prod's `identity:true`.
+    expect(queryEqual(q1, q2)).toBe(obs.sameQueryBuiltTwice as boolean);
     expect(queryEqual(q1, q1)).toBe(obs.identity as boolean);
-    // Different value is unequal on both — matches prod's `differentValue:false`.
     expect(queryEqual(q1, q3)).toBe(obs.differentValue as boolean);
   });
 
-  it('firestore-snapshotequal-structural (KNOWN DIVERGENCE: throws on sandbox snapshots)', async () => {
-    // Prod snapshotEqual returns a boolean: same-object → true (identity),
-    // two separate fetches of the same query → false (twoFetchesSameData).
-    // The sandbox's snapshotEqual routes both args through the ref-tagging
-    // path, which does not recognize sandbox QuerySnapshots, so it THROWS
-    // "unrecognized reference" instead of returning a boolean. Pin both.
+  it('firestore#117 snapshotEqual returns production identity booleans', async () => {
+    // Prod snapshotEqual is identity-based for these query snapshots:
+    // same-object → true, two separate fetches of the same data → false.
     const obs = load('firestore-snapshotequal-structural.json');
-    expect(obs.identity).toBe(true); // prod: same object compares equal
-    expect(obs.twoFetchesSameData).toBe(false); // prod: two fetches are not equal
 
     const db = freshDb();
     seedDb(db, { 'c/x': { v: 1 } });
@@ -903,17 +876,8 @@ describe('oracle conformance (firestore)', () => {
     const s1 = (await getDocs(q)) as QuerySnapshot;
     const s2 = (await getDocs(q)) as QuerySnapshot;
     expect(s1.size).toBe(obs.size as number);
-    // Sandbox today: snapshotEqual throws rather than returning a boolean.
-    const e1 = await (async () => {
-      try {
-        snapshotEqual(s1 as unknown as DocumentSnapshot, s2 as unknown as DocumentSnapshot);
-        return null;
-      } catch (err) {
-        return err as Error;
-      }
-    })();
-    expect(e1).not.toBeNull();
-    expect(e1!.message.includes('unrecognized reference')).toBe(true);
+    expect(snapshotEqual(s1, s1)).toBe(obs.identity as boolean);
+    expect(snapshotEqual(s1, s2)).toBe(obs.twoFetchesSameData as boolean);
   });
 
   // ── completeness: every observation is asserted or explicitly N/A ─────

@@ -346,7 +346,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
     }
 
     case 'ternary': {
-      const cond = evaluate(expr.condition, ctx, scope);
+      const cond = requireBoolean(evaluate(expr.condition, ctx, scope), expr.condition);
       return cond ? evaluate(expr.consequent, ctx, scope) : evaluate(expr.alternate, ctx, scope);
     }
 
@@ -621,8 +621,8 @@ function evaluateBinaryOp(
   // so the handler DENYs.
   if (op === '&&') {
     let lv: unknown, lErr: unknown;
-    try { lv = evaluate(left, ctx, scope); } catch (e) { lErr = e; }
-    if (lErr === undefined && !lv) {
+    try { lv = requireBoolean(evaluate(left, ctx, scope), left); } catch (e) { lErr = e; }
+    if (lErr === undefined && lv === false) {
       // LHS is false → determines the result; RHS need not be evaluated.
       ctx.trace?.skip(right);
       return false;
@@ -630,26 +630,26 @@ function evaluateBinaryOp(
     // LHS errored or was true — RHS may absorb the error (if RHS is false)
     // or determine the truthy result.
     let rv: unknown, rErr: unknown;
-    try { rv = evaluate(right, ctx, scope); } catch (e) { rErr = e; }
-    if (rErr === undefined && !rv) return false; // RHS false absorbs any LHS error
+    try { rv = requireBoolean(evaluate(right, ctx, scope), right); } catch (e) { rErr = e; }
+    if (rErr === undefined && rv === false) return false; // RHS false absorbs any LHS error
     if (lErr !== undefined) throw lErr;           // LHS error not absorbed
     if (rErr !== undefined) throw rErr;           // RHS error, LHS was true
-    return !!rv;
+    return rv;
   }
   if (op === '||') {
     let lv: unknown, lErr: unknown;
-    try { lv = evaluate(left, ctx, scope); } catch (e) { lErr = e; }
-    if (lErr === undefined && lv) {
+    try { lv = requireBoolean(evaluate(left, ctx, scope), left); } catch (e) { lErr = e; }
+    if (lErr === undefined && lv === true) {
       // LHS is true → determines the result; RHS need not be evaluated.
       ctx.trace?.skip(right);
       return true;
     }
     let rv: unknown, rErr: unknown;
-    try { rv = evaluate(right, ctx, scope); } catch (e) { rErr = e; }
-    if (rErr === undefined && rv) return true; // RHS true absorbs any LHS error
+    try { rv = requireBoolean(evaluate(right, ctx, scope), right); } catch (e) { rErr = e; }
+    if (rErr === undefined && rv === true) return true; // RHS true absorbs any LHS error
     if (lErr !== undefined) throw lErr;          // LHS error not absorbed
     if (rErr !== undefined) throw rErr;          // RHS error, LHS was false
-    return !!rv;
+    return rv;
   }
 
   const lv = evaluate(left, ctx, scope);
@@ -768,6 +768,14 @@ function evaluateBinaryOp(
       return (lv as number) % (rv as number);
     default: throw new EvalError(`Unknown binary op: ${op}`);
   }
+}
+
+function requireBoolean(value: unknown, expr: Expression): boolean {
+  if (typeof value === 'boolean') return value;
+  throw new EvalError(
+    `Expected a boolean control-flow operand, got ${value === null ? 'null' : typeof value}`,
+    expr,
+  );
 }
 
 // ═══ Type-conversion builtins (RULES-B5 / RULES-B6) ═══

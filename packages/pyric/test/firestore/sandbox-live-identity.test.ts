@@ -126,8 +126,9 @@ describe('per-op identity reads', () => {
     try {
       await setDoc(doc(db, 'users/alice'), { name: 'Spoofed' });
     } catch (e) { err = e; }
-    expect(err).toBeInstanceOf(SandboxError);
-    expect((err as SandboxError).code).toBe('permission-denied');
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe('FirebaseError');
+    expect((err as { code?: string }).code).toBe('permission-denied');
   });
 
   it('anonymous fallback — currentUser=null lets the public path through', async () => {
@@ -149,8 +150,9 @@ describe('per-op identity reads', () => {
     try {
       await setDoc(doc(db, 'public/p2'), { title: 'blocked' });
     } catch (e) { err = e; }
-    expect(err).toBeInstanceOf(SandboxError);
-    expect((err as SandboxError).code).toBe('permission-denied');
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe('FirebaseError');
+    expect((err as { code?: string }).code).toBe('permission-denied');
   });
 
   it('held doc ref re-resolves under the current user', async () => {
@@ -188,8 +190,9 @@ describe('per-op identity reads', () => {
     try {
       await updateDoc(doc(db, 'users/alice'), { age: 99 });
     } catch (e) { err = e; }
-    expect(err).toBeInstanceOf(SandboxError);
-    expect((err as SandboxError).code).toBe('permission-denied');
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe('FirebaseError');
+    expect((err as { code?: string }).code).toBe('permission-denied');
   });
 });
 
