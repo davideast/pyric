@@ -1,8 +1,11 @@
 # 0009: Deepen the Firestore sandbox engine behind a permanent facade
 
-Status: Accepted plan; extends ADR-0007
+Status: Implemented; extends ADR-0007
 
 Date: 2026-07-16
+
+Implemented by [PR #425](https://github.com/davideast/pyric/pull/425), merged
+as commit `f3992eb6b62ec35e8e74aac359759956910c8576` on 2026-07-21.
 
 ## Context
 
