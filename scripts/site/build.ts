@@ -170,12 +170,16 @@ function stampStudioEntries(workerEpoch: string): void {
   }
   const manifestPath = join(DIST, 'studio-routes.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as StudioRouteManifest;
-  if (!Array.isArray(manifest.routes) || !manifest.routes.includes('home')) {
+  if (
+    !Array.isArray(manifest.routes) ||
+    manifest.routes.some((route) => typeof route !== 'string' || route === 'home')
+  ) {
     throw new Error(`build-site: invalid Studio route manifest at ${manifestPath}`);
   }
 
-  for (const route of manifest.routes) {
-    const htmlPath = route === 'home' ? join(DIST, 'index.html') : join(DIST, route, 'index.html');
+  const entries = [null, ...manifest.routes] as const;
+  for (const route of entries) {
+    const htmlPath = route === null ? join(DIST, 'index.html') : join(DIST, route, 'index.html');
     const html = readFileSync(htmlPath, 'utf8');
     if (!html.includes('<head>')) {
       throw new Error(`build-site: Studio entry has no <head>: ${htmlPath}`);
@@ -183,7 +187,7 @@ function stampStudioEntries(workerEpoch: string): void {
     const meta = `<meta name="pyric-worker-v" content="${workerEpoch}">`;
     writeFileSync(htmlPath, html.replace('<head>', `<head>${meta}`));
   }
-  log(`Stamped ${manifest.routes.length} Studio entries with worker ${workerEpoch}`);
+  log(`Stamped ${entries.length} Studio entries with worker ${workerEpoch}`);
 }
 
 await main();

@@ -1,7 +1,7 @@
-import { PUBLISHED_STUDIO_ROUTES } from '../lib/site-routes';
+import { studioStaticPaths } from '../lib/site-routes';
 
 export function GET(): Response {
   return Response.json({
-    routes: PUBLISHED_STUDIO_ROUTES.map((route) => route.id),
+    routes: studioStaticPaths().map(({ params }) => params.studio),
   });
 }

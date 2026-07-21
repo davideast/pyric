@@ -26,9 +26,9 @@ import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import {
   createEventHub,
   createPyricNamespace,
-  injectServeTags,
   type InitPayload,
 } from '../serve/namespace.js';
+import { injectServeTags } from '../serve/html-injection.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from '../serve/state-store.js';
 import { diskProjectStore, diskWorkspace } from '../serve/studio/index.js';

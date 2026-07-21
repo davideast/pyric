@@ -32,7 +32,7 @@ const SITE_BLOB: Record<string, string> = {
   'index.html': b64('<!doctype html>studio'),
   '_astro/app.js': b64('// unified site bundle'),
   'docs/overview/index.html': b64('<!doctype html>docs'),
-  'studio-routes.json': b64('{"routes":["home"]}'),
+  'studio-routes.json': b64('{"routes":[]}'),
 };
 const TMP_ROOT = join(tmpdir(), `pyric-serve-${VERSION}-${ASSET_VERSION}`);
 

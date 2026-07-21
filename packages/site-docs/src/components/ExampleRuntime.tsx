@@ -1,40 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { createEmbeddedExampleRuntime } from '../examples/embedded-runtime';
 import { pyricExample, type PyricExampleId } from '../examples/registry';
+import { useExampleRuntime } from './use-example-runtime';
 
 interface Props {
   id: PyricExampleId;
 }
 
-type State =
-  | { status: 'running'; output: null; error: null }
-  | { status: 'ready'; output: unknown; error: null }
-  | { status: 'error'; output: null; error: string };
-
 export function ExampleRuntime({ id }: Props) {
   const definition = pyricExample(id).definition;
-  const runtime = useRef(createEmbeddedExampleRuntime(definition));
-  const [generation, setGeneration] = useState(0);
-  const [state, setState] = useState<State>({ status: 'running', output: null, error: null });
-
-  useEffect(() => {
-    let active = true;
-    setState({ status: 'running', output: null, error: null });
-    runtime.current.run().then(
-      (output) => active && setState({ status: 'ready', output, error: null }),
-      (error) => active && setState({
-        status: 'error',
-        output: null,
-        error: error instanceof Error ? error.stack ?? error.message : String(error),
-      }),
-    );
-    return () => { active = false; };
-  }, [generation]);
-
-  const reset = () => {
-    runtime.current = runtime.current.reset();
-    setGeneration((value) => value + 1);
-  };
+  const { state, reset } = useExampleRuntime(definition);
 
   const copyError = async () => {
     if (state.error) await navigator.clipboard.writeText(state.error);

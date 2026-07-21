@@ -5,7 +5,6 @@ export interface PyricExampleContext {
 }
 
 export interface PyricExampleDefinition {
-  id: string;
   title: string;
   description: string;
   service: 'firestore';

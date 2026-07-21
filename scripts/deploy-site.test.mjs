@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { studioStaticPaths } from '../packages/site-docs/src/lib/site-routes.ts';
 
 const sourceScript = new URL('./deploy-site.sh', import.meta.url);
 const repoRoot = new URL('../', import.meta.url);
@@ -97,6 +98,10 @@ describe('firebase.json hosting rewrites', () => {
   });
 
   test('scopes deep links to their finite Astro Studio entry documents', () => {
+    const sources = firebaseJson.hosting.rewrites.map((rewrite) => rewrite.source);
+    expect(sources.sort()).toEqual(
+      studioStaticPaths().map(({ params }) => `/${params.studio}/**`).sort(),
+    );
     for (const rewrite of firebaseJson.hosting.rewrites) {
       const match = rewrite.source.match(/^\/([a-z]+)\/\*\*$/);
       expect(match).not.toBeNull();
@@ -119,9 +124,12 @@ describe('dist/site/404.html', () => {
 
   test.skipIf(!built)('stamps the worker generation only into finite Studio entries', () => {
     const manifest = JSON.parse(readFileSync(new URL('studio-routes.json', distSite), 'utf8'));
+    expect(readFileSync(new URL('index.html', distSite), 'utf8')).toMatch(
+      /<meta name="pyric-worker-v" content="[a-f0-9]{16}">/,
+    );
+    expect(manifest.routes).not.toContain('home');
     for (const route of manifest.routes) {
-      const path = route === 'home' ? 'index.html' : `${route}/index.html`;
-      expect(readFileSync(new URL(path, distSite), 'utf8')).toMatch(
+      expect(readFileSync(new URL(`${route}/index.html`, distSite), 'utf8')).toMatch(
         /<meta name="pyric-worker-v" content="[a-f0-9]{16}">/,
       );
     }

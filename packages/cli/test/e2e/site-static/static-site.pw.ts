@@ -38,6 +38,11 @@ test('a documentation page stays static and does not start the Studio SharedWork
   expect(urls.filter((url) => url.includes('/__pyric/sdk/worker.js'))).toEqual([]);
 });
 
+test('the public tree generates service entries without a home alias', async ({ request }) => {
+  expect((await request.get('/firestore/')).status()).toBe(200);
+  expect((await request.get('/home/')).status()).toBe(404);
+});
+
 test('the checked-in Firestore example runs in its isolated iframe and resets', async ({ page }) => {
   await page.goto('/docs/build/cloud-firestore/');
   const frame = page.frameLocator('iframe[title="Write to an isolated Firestore sandbox"]');
