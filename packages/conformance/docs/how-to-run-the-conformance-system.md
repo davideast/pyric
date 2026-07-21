@@ -201,24 +201,16 @@ derivations in memory and never read these files.
 bun run packages/conformance/src/rules-language-analyzer.ts    # -> coverage-report.json
 bun run packages/conformance/src/rules-language-capability.ts  # -> capability-report.json
 bun run packages/conformance/src/rules-language-acceptance.ts  # -> acceptance-report.json (PRODUCTION probe, needs PARITY_SA_BASE64)
-```
-
-```
-$ bun run packages/conformance/src/rules-language-analyzer.ts
-firestore: exercised 128/140 (91.4%), verified 128/140 (91.4%) over 23 scenarios (23 with twins); 5 unresolved refs
-storage: exercised 55/55 (100.0%), verified 55/55 (100.0%) over 8 scenarios (8 with twins); 0 unresolved refs
-rtdb: exercised 52/55 (94.5%), verified 52/55 (94.5%) over 14 scenarios (14 with twins); 0 unresolved refs
-
-$ bun run packages/conformance/src/rules-language-capability.ts
-firestore: implemented 133, unsupported 3, error 1, unprobeable 3 / 140; language coverage 97.8% (of 136 probeable)
-storage: implemented 56, unsupported 0, error 0, unprobeable 0 / 56; language coverage 100.0% (of 56 probeable)
-rtdb: implemented 55, unsupported 0, error 0, unprobeable 1 / 56; language coverage 100.0% (of 55 probeable)
+bun run compat:rules-score                                   # canonical Firestore score + exact baseline gate
 ```
 
 The analyzer and the capability probe are offline and deterministic: run them
 after touching the corpus, the snapshots, or the simulator. The acceptance
 probe talks to production and is the only one of the three that needs a
-credential.
+credential. Their output is intentionally not copied into this guide: live
+diagnostics change and hand-maintained percentages go stale. The Firestore
+score command recomputes the central model and compares its ordered universe
+and every per-construct fact with the committed baseline.
 
 ### Reports (informational; read them, do not gate on them)
 
@@ -446,14 +438,33 @@ Two derived views sit on top. Their JSON forms are optional ignored artifacts.
 
 **The capability report** answers "does OUR simulator evaluate this
 construct?" `languageCoverage` is implemented over probeable (implemented plus
-unsupported): firestore 97.8%, storage 100%, RTDB 100%. This is a claim about
-Pyric's simulator, not about production.
+unsupported). This is a claim about Pyric's simulator, not about production.
+Its percentage excludes `error` and `unprobeable`, so it is never a conformance
+score.
 
 **The coverage report** answers "is this construct backed by PRODUCTION
 evidence?" A construct is verified when at least one corpus scenario that has an
-observation twin exercises it. `verifiedCoverage` is verified over total:
-firestore 91.4%, storage 100%, RTDB 94.5%. This is the honest trust number for
-the rules engines, and it is the low one, which is the point.
+observation twin exercises it, or a conforming oracle-backed behavioral row
+adjudicates it. A scoped divergence overrides positive evidence. This is an
+evidence-breadth axis, not a claim that local behavior conforms.
+
+**The Firestore scorecard** is the strict conformance view. Every ordered
+Firestore construct ID remains in its denominator. A construct enters the
+numerator only when production acceptance, local capability, and uncontaminated
+production-backed behavior agree. Local acceptance is a separate published
+axis: implemented probes are accepted, evaluation errors are rejected, and
+abstentions remain unsupported/unprobeable. A production rejection earns
+credit only when the same minimal local probe rejects and its behavior is
+verified; accepted-local/rejected-production pairs remain explicit acceptance
+mismatches. `compat:rules-score` compares the result with
+a committed universe hash and per-construct baseline. Update that baseline only
+after reviewing the evidence/implementation delta:
+
+```sh
+bun run compat:rules-score -- --update
+```
+
+Never average this headline with capability, evidence, or registry-row axes.
 
 Attribution is deliberately conservative, in two distinct ways, and they are
 easy to confuse.
@@ -624,50 +635,26 @@ Zero today, and they cannot accumulate silently: `compat:validate` treats an
 uncited observation as fatal unless `exceptions/<observation-name>.ts` exists
 and gives a written reason.
 
-### Which rules-language constructs have NO production evidence?
+### Which rules-language constructs are diverged or lack production evidence?
 
-The single most useful gap query for the rules engines. A construct with an
-empty `verifiedBy` is one the simulator may well handle correctly, but nothing
-captured from production says so.
+Use the derived verdict, not an empty `verifiedBy`: behavioral rows can prove a
+semantic without a source node, and a divergence must remain visible even when
+another scenario supplies positive evidence.
 
 ```sh
 python3 -c "
 import json
 d = json.load(open('packages/conformance/rules-language/coverage-report.json'))
 for e in d['engines']:
-    un = [c['id'] for c in e['constructs'] if not c.get('verifiedBy')]
-    print(f\"{e['engine']}: {len(un)} uncredited of {e['totalConstructs']}\")
-    for i in un: print('   ', i)
+    gaps = [c for c in e['constructs'] if c['verdict'] != 'verified']
+    print(f\"{e['engine']}: {len(gaps)} non-verified of {e['totalConstructs']}\")
+    for c in gaps: print(f\"    {c['verdict']:10} {c['id']}\")
 "
 ```
 
-```
-firestore: 12 uncredited of 140
-    firestore.binding.request.resource.id
-    firestore.function.debug
-    firestore.function.math.isInfinite
-    firestore.function.cast.bool
-    firestore.method.map.hasAll
-    firestore.method.map.hasAny
-    firestore.method.map.hasOnly
-    firestore.method.duration.seconds
-    firestore.method.duration.nanos
-    firestore.rule-kind.import
-    firestore.semantic.get-budget
-    firestore.semantic.type-dispatch
-storage: 1 uncredited of 55
-    storage.semantic.deny-by-default
-rtdb: 4 uncredited of 55
-    rtdb.semantic.read-cascade
-    rtdb.semantic.write-cascade
-    rtdb.semantic.validate-non-cascade
-    rtdb.semantic.deny-by-default
-```
-
-That is the 91.4% / 100% / 94.5% verified coverage, itemized. Closing a gap
-means writing a corpus scenario that exercises the construct and running the
-rig that captures it against production, which is exactly how RTDB went from
-18/55 to 52/55.
+Closing an `unverified` gap requires a distinguishing production capture (or a
+justified behavioral row). Closing a `diverged` gap additionally requires a
+simulator fix; remove its two-sided pin only after the replay matches.
 
 The complement (`verifiedBy` non-empty) names WHICH scenarios credit a
 construct, which is how you check whether a scenario is pulling its weight.
@@ -1040,6 +1027,10 @@ Documented so nobody has to rediscover them:
   bun run packages/conformance/src/rules-language-capability.ts
   # Inspect the ignored outputs locally; do not git-add them.
   ```
+- **The Firestore Rules scorecard is canonical and gated.**
+  `compat:rules-score` derives it from the in-memory model, checks the committed
+  ordered-universe/per-construct baseline, and runs in `compat:check`. Updating
+  that baseline is a reviewed number movement, not report generation.
 - **`compat:coverage --json` prints its `bun run` banner to stderr**, so piping
   stdout straight into a JSON parser works with no redirection. The one-liners
   above rely on that.

@@ -3,7 +3,7 @@
  *
  * Per Globals table:
  *   request.path     → Path     full /databases/(default)/documents/<rel>
- *   request.query    → Map      empty for non-list methods
+ *   request.query    → Map      list methods only; absent otherwise
  *
  * resource.id / resource.__name__ are NOT in that table: production does not
  * populate them. It builds `resource` from the stored document alone and
@@ -85,18 +85,18 @@ describe('request.path — Item 6', () => {
 });
 
 describe('request.query — Item 6', () => {
-  test('request.query is map (empty for non-list ops)', () => {
+  test('request.query is absent for non-list ops', () => {
     const r = sim.simulate(
       rules('request.query is map'),
-      [tc('request.query typed as map', 'ALLOW')],
+      [tc('request.query typed as map', 'DENY')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test('request.query.size() == 0 for create', () => {
+  test('request.query.size() errors for create', () => {
     const r = sim.simulate(
       rules('request.query.size() == 0'),
-      [tc('request.query empty for create', 'ALLOW')],
+      [tc('request.query absent for create', 'DENY')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
@@ -213,10 +213,10 @@ describe('Globals — composability', () => {
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test('request.path and request.query still compose without resource identity', () => {
+  test('request.path does not make absent request.query available on update', () => {
     const r = sim.simulate(
       rules("request.path is path && request.query is map", 'docs/{id}', 'update'),
-      [tcExisting('path + query', 'ALLOW')],
+      [tcExisting('path + query', 'DENY')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });

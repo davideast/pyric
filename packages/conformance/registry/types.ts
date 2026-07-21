@@ -27,6 +27,12 @@ export type Automation =
   | 'unsupported'
   | 'unverified';
 
+export type ConformanceDisposition =
+  | 'pending-fix'
+  | 'held'
+  | 'by-design'
+  | 'probe-limitation';
+
 export interface OracleConformanceCheck {
   finding: string;
   observation: string;
@@ -62,6 +68,8 @@ export interface CompatibilityRow {
   oracleObservations: string[];
   conformanceTests: string[];
   exceptionReason?: string;
+  /** Reviewed outcome for a non-conforming row in an active CDD climb. */
+  conformanceDisposition?: ConformanceDisposition;
   notes?: string;
   conformanceChecks?: OracleConformanceCheck[];
   /**

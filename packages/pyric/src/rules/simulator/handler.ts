@@ -22,6 +22,7 @@ import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
+import { RulesFloat } from './wrappers/float.js';
 import { projectAfterState } from './project-after-state.js';
 import {
   collectMatches,
@@ -210,6 +211,22 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Restore the Firestore numeric tag that JSON's single Number type erases.
+ * Non-integral wire values can only be doubles, while integral values remain
+ * integers unless a future explicit typed sentinel says otherwise.
+ */
+export function reviveFirestoreNumbers(value: unknown): unknown {
+  if (typeof value === 'number' && !Number.isInteger(value)) return new RulesFloat(value);
+  if (Array.isArray(value)) return value.map(reviveFirestoreNumbers);
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, reviveFirestoreNumbers(child)]),
+    );
+  }
+  return value;
+}
+
+/**
  * Populate `request.query` for `list` operations from the optional
  * TestCase.query payload (REBUILD_PLAN.md Item 6 follow-up).
  *
@@ -219,11 +236,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * expose the three keys (null when the test omits them) rather than omitting
  * them; otherwise, after RULES-B2 (dotted-field access of a MISSING key
  * errors), `request.query.limit` would error instead of reading null, breaking
- * the legitimate `== null` guard. For non-list methods `request.query` is the
- * empty map (the fields don't apply), matching production.
+ * the legitimate `== null` guard. For non-list methods `request.query` is
+ * absent, so accessing it errors and the rule denies, matching production.
  */
-function buildRequestQuery(tc: TestCase): Record<string, unknown> {
-  if (tc.method !== 'list') return {};
+function buildRequestQuery(tc: TestCase): Record<string, unknown> | undefined {
+  if (tc.method !== 'list') return undefined;
   return {
     limit: tc.query?.limit ?? null,
     offset: tc.query?.offset ?? null,
@@ -242,12 +259,17 @@ function buildContext(
   for (const fn of functions) fnMap.set(fn.name, fn);
 
   const mockDocs = new Map<string, Record<string, unknown>>();
+  const identitylessFunctionMocks = new Set<string>();
   if (tc.functionMocks) {
     for (const mock of tc.functionMocks) {
       if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
-        mockDocs.set(mock.path, mock.result as Record<string, unknown>);
+        mockDocs.set(mock.path, reviveFirestoreNumbers(mock.result) as Record<string, unknown>);
+        identitylessFunctionMocks.add(mock.path);
       } else if (mock.function === 'exists') {
-        if (mock.result === true) mockDocs.set(mock.path, {});
+        if (mock.result === true) {
+          mockDocs.set(mock.path, {});
+          identitylessFunctionMocks.add(mock.path);
+        }
       }
     }
   }
@@ -321,7 +343,7 @@ function buildContext(
     }
   }
   const projectedAfter = afterState !== null
-    ? resolveServerTimestamps(afterState, serverTime)
+    ? reviveFirestoreNumbers(resolveServerTimestamps(afterState, serverTime)) as Record<string, unknown>
     : null;
 
   // request.resource.data: for non-write methods (get/list) Firestore exposes
@@ -336,7 +358,7 @@ function buildContext(
       resource: { data: reqResourceData },
       method: tc.method,
       path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
-      query: buildRequestQuery(tc),
+      ...(buildRequestQuery(tc) ? { query: buildRequestQuery(tc) } : {}),
       time: serverTime,
     },
     // `resource` is the PRE-WRITE stored document. When the request target does
@@ -359,8 +381,9 @@ function buildContext(
     // and is likewise `{ data }` only — `request.resource.id` errors in prod too.
     resource: tc.method === 'create' || existing === null
       ? null
-      : { data: existing },  // NOT resolved — resource is pre-write, no sentinels
+      : { data: reviveFirestoreNumbers(existing) as Record<string, unknown> },  // NOT resolved — resource is pre-write, no sentinels
     mockDocuments: mockDocs,
+    identitylessFunctionMocks,
     getDoc,
     pathVariables,
     functions: fnMap,

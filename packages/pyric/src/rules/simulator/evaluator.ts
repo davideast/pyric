@@ -40,11 +40,10 @@ export interface SimRequest {
   // Item 6: request.path is a Path wrapper (was string). The full document
   // path including /databases/(default)/documents prefix.
   path: Path;
-  // Item 6: request.query is the projection/limit map for `list` operations.
-  // Empty {} for non-list methods. Production exposes limit/offset/orderBy;
-  // we model as a plain map and defer field-level coverage until a real
-  // rule references it (most rules don't).
-  query: Record<string, unknown>;
+  // Item 6: request.query exists only for `list` operations. Production makes
+  // the property absent on get/write requests, so reading it errors to DENY.
+  // On list, limit/offset/orderBy are always-present nullable fields.
+  query?: Record<string, unknown>;
   time: Timestamp; // request.time as Timestamp wrapper (Item 1.3 flip — was ISO string)
 }
 
@@ -88,6 +87,10 @@ export interface SimulationContext {
    *  from `functionMocks` (the serializable Test API path) and/or populated
    *  lazily by {@link getDoc}. */
   mockDocuments: Map<string, Record<string, unknown>>;
+  /** Paths populated by serializable Rules Test API `functionMocks`. Production
+   *  exposes only the supplied data for these synthetic get() results; unlike a
+   *  real DocStore read, no `id`/`__name__` identity is attached. */
+  identitylessFunctionMocks?: ReadonlySet<string>;
   /** Lazy fault-in resolver. When a get()/exists() path misses
    *  {@link mockDocuments}, the evaluator resolves it through this (the DocStore
    *  point-read) and memoizes the result into mockDocuments. Lets the sandbox
@@ -438,8 +441,8 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       //   String: `[i:j]` returns substring, j exclusive.
       // Indices must be integers; production rejects non-integer (incl.
       // booleans coerced) so we surface as EvalError → DENY.
-      // Out-of-bounds: clamp to [0, length] (matches JS Array.slice and
-      // is the standard CEL-style semantics — locked in by parity scenario).
+      // Production rejects an end index beyond the value's length instead of
+      // applying JavaScript's clamping semantics.
       // Negative indices: rejected (CEL doesn't support Python negatives).
       const obj = evaluate(expr.object, ctx, scope);
       const start = evaluate(expr.start, ctx, scope);
@@ -454,8 +457,12 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       if (start < 0 || end < 0) {
         throw new EvalError(`Slice indices must be non-negative, got [${start}:${end}]`);
       }
-      if (typeof obj === 'string') return obj.slice(start, end);
-      if (Array.isArray(obj)) return obj.slice(start, end);
+      if (typeof obj === 'string' || Array.isArray(obj)) {
+        if (end > obj.length) {
+          throw new EvalError(`Slice end ${end} exceeds length ${obj.length}`);
+        }
+        return obj.slice(start, end);
+      }
       throw new EvalError(`Slice not supported on ${typeof obj}`);
     }
 
@@ -893,11 +900,9 @@ function evaluateFunctionCall(
     case 'float': return rulesFloatBuiltin(evaluate(args[0], ctx, scope));
     case 'bool': return rulesBool(evaluate(args[0], ctx, scope));
     case 'path': {
-      // Item 5.4 — `path('users/alice')` returns a Path wrapper. Accepts
-      // strings or existing Paths (idempotent). Other inputs throw —
-      // mismatched argument is a real type error in the rule.
+      // Item 5.4 — `path('users/alice')` returns a Path wrapper. Production
+      // accepts only strings; passing an existing Path is a type error.
       const arg = evaluate(args[0], ctx, scope);
-      if (arg instanceof Path) return arg;
       if (typeof arg === 'string') return Path.fromString(arg);
       throw new EvalError(`path() requires a string argument, got ${typeof arg}`);
     }
@@ -1018,20 +1023,14 @@ function evaluateMethodCall(
       case 'hasAll': return obj.hasAll(argValues[0] as string[] | FirestoreSet);
       case 'hasAny': return obj.hasAny(argValues[0] as string[] | FirestoreSet);
       case 'size': return obj.size();
-      // Set.difference/union/intersection: the sim CAN compute these (see
-      // FirestoreSet.difference/union/intersection), but oracle capture
-      // shows production denies every call that reaches them — these
-      // methods don't behave as modeled in the real Firestore Rules CEL
-      // dialect (see triage: set-algebra-difference-union-intersection /
-      // list-methods-concat-removeall-toset scenarios, both false-ALLOW
-      // against a prod DENY). Abstain rather than emit a confident wrong
-      // verdict; do not "fix" this by re-deriving semantics without a
-      // fresh oracle capture that actually isolates correct behavior.
+      // Production accepts the syntax but errors when these calls evaluate.
+      // Preserve that DENY boundary; do not expose the host helper's guessed
+      // algebra as Firestore Rules behavior without a distinguishing capture.
       case 'difference':
       case 'union':
       case 'intersection':
-        throw new UnsupportedError(
-          `Set.${method}() is not faithfully modeled by the simulator (oracle capture shows production denies calls that reach it) — abstaining rather than guessing`,
+        throw new EvalError(
+          `Set.${method}() is unavailable in the captured production Firestore Rules evaluator`,
         );
     }
   }
@@ -1262,23 +1261,23 @@ function evaluateHashingMethod(method: string, args: unknown[]): unknown {
     }
     case 'crc32': {
       const u32 = crc32(input.data);
-      return new Bytes(u32ToBeBytes(u32));
+      return new Bytes(u32ToLeBytes(u32));
     }
     case 'crc32c': {
       const u32 = crc32c(input.data);
-      return new Bytes(u32ToBeBytes(u32));
+      return new Bytes(u32ToLeBytes(u32));
     }
   }
   throw new UnsupportedError(`Unknown hashing method '${method}'`);
 }
 
-function u32ToBeBytes(n: number): Uint8Array {
-  // Big-endian 4 bytes — matches how Firestore returns CRC results.
+function u32ToLeBytes(n: number): Uint8Array {
+  // Production serializes CRC integers least-significant byte first.
   return new Uint8Array([
-    (n >>> 24) & 0xff,
-    (n >>> 16) & 0xff,
-    (n >>> 8) & 0xff,
     n & 0xff,
+    (n >>> 8) & 0xff,
+    (n >>> 16) & 0xff,
+    (n >>> 24) & 0xff,
   ]);
 }
 
@@ -1413,12 +1412,9 @@ function normalizePath(rawPath: string, ctx: SimulationContext): string {
 }
 
 /**
- * Build the resource value `get()` / `getAfter()` return for an existing
- * document. RULES-B8: production exposes the document identity alongside
- * `data` — `get(path).id` is the last path segment and `get(path).__name__`
- * is the full Path. These were never populated, so rules reading them
- * silently denied (the access returned undefined → now, post-B2, would
- * even error). Mirrors the top-level `resource` shape (SimResource).
+ * Build the resource value a REAL document lookup returns. Serializable
+ * Rules Test API function mocks are handled separately in resolveGet: their
+ * result carries data only and production does not synthesize identity.
  */
 function makeGetResource(relPath: string, data: Record<string, unknown>): SimResource {
   const segs = relPath.split('/').filter(Boolean);
@@ -1437,7 +1433,11 @@ function resolveGet(rawPath: string, ctx: SimulationContext): SimResource {
       doc = faulted;
     }
   }
-  if (doc) return makeGetResource(path, doc);
+  if (doc) {
+    return ctx.identitylessFunctionMocks?.has(path)
+      ? { data: doc }
+      : makeGetResource(path, doc);
+  }
   // RULES-B8: get() of a missing document is a runtime ERROR in production
   // (it performs a real read; a non-existent doc denies the request), NOT
   // the silent null this used to return. The safe pattern is

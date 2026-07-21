@@ -21,6 +21,9 @@ describe('multi-axis conformance model', () => {
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
+    expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
+      numerator: 126, denominator: 140, ratio: 126 / 140, percent: 90,
+    });
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);
     expect(model.documentation.rows.length).toBeGreaterThan(600);
@@ -150,7 +153,7 @@ describe('multi-axis conformance model', () => {
     });
   });
 
-  it('does not mistake production syntax acceptance for behavioral conformance', () => {
+  it('requires behavioral evidence beyond production syntax acceptance', () => {
     for (const feature of ['set.difference', 'set.intersection', 'set.union']) {
       expect(one(`firestore-rules/${feature}`)).toMatchObject({
         availability: 'available',
@@ -161,8 +164,8 @@ describe('multi-axis conformance model', () => {
     for (const feature of ['duration.seconds', 'duration.nanos']) {
       expect(one(`firestore-rules/${feature}`)).toMatchObject({
         availability: 'available',
-        fidelity: 'unverified',
-        assurance: 'qualified',
+        fidelity: 'conforms',
+        assurance: 'eligible',
       });
     }
   });

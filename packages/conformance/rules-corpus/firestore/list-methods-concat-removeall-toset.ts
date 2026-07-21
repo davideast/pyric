@@ -118,7 +118,7 @@ service cloud.firestore {
     },
     {
       description: 'list toSet().difference chain (5.1 wiring) ALLOW',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'create',
       path: 'toSetChainAllow/d8',
       auth: { uid: 'alice' },

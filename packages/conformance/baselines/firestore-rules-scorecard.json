@@ -1,0 +1,1187 @@
+{
+  "schema": "pyric.conformance.firestore-rules-scorecard-baseline.v1",
+  "generatedNote": "Exact Firestore Rules conformance ratchet. Update only with reviewed evidence or implementation changes. Every construct remains in the denominator; the ordered ids and per-axis facts make score movement auditable.",
+  "universe": {
+    "hashAlgorithm": "sha256",
+    "hash": "c096e0fd13900b095ffdfe235da72e5dd6a1a7f469ef91bb90ad878eaff4b03a",
+    "denominator": 140,
+    "constructIds": [
+      "firestore.binding.request",
+      "firestore.binding.request.auth",
+      "firestore.binding.request.auth.uid",
+      "firestore.binding.request.auth.token",
+      "firestore.binding.request.resource",
+      "firestore.binding.request.resource.data",
+      "firestore.binding.request.time",
+      "firestore.binding.request.path",
+      "firestore.binding.request.method",
+      "firestore.binding.request.query",
+      "firestore.binding.resource",
+      "firestore.binding.resource.data",
+      "firestore.binding.resource.id",
+      "firestore.binding.resource.__name__",
+      "firestore.binding.request.resource.id",
+      "firestore.binding.path-variable",
+      "firestore.function.get",
+      "firestore.function.exists",
+      "firestore.function.getAfter",
+      "firestore.function.existsAfter",
+      "firestore.function.debug",
+      "firestore.function.math.abs",
+      "firestore.function.math.ceil",
+      "firestore.function.math.floor",
+      "firestore.function.math.round",
+      "firestore.function.math.sqrt",
+      "firestore.function.math.pow",
+      "firestore.function.math.isInfinite",
+      "firestore.function.math.isNaN",
+      "firestore.function.timestamp.date",
+      "firestore.function.timestamp.value",
+      "firestore.function.duration.value",
+      "firestore.function.duration.time",
+      "firestore.function.duration.abs",
+      "firestore.function.latlng.value",
+      "firestore.function.hashing.md5",
+      "firestore.function.hashing.sha256",
+      "firestore.function.hashing.crc32",
+      "firestore.function.hashing.crc32c",
+      "firestore.function.cast.string",
+      "firestore.function.cast.int",
+      "firestore.function.cast.float",
+      "firestore.function.cast.bool",
+      "firestore.function.cast.path",
+      "firestore.method.string.matches",
+      "firestore.method.string.lower",
+      "firestore.method.string.upper",
+      "firestore.method.string.trim",
+      "firestore.method.string.size",
+      "firestore.method.string.split",
+      "firestore.method.string.replace",
+      "firestore.method.string.toUtf8",
+      "firestore.method.list.hasAll",
+      "firestore.method.list.hasAny",
+      "firestore.method.list.hasOnly",
+      "firestore.method.list.size",
+      "firestore.method.list.toSet",
+      "firestore.method.list.concat",
+      "firestore.method.list.removeAll",
+      "firestore.method.list.join",
+      "firestore.method.map.keys",
+      "firestore.method.map.values",
+      "firestore.method.map.size",
+      "firestore.method.map.get",
+      "firestore.method.map.hasAll",
+      "firestore.method.map.hasAny",
+      "firestore.method.map.hasOnly",
+      "firestore.method.map.diff",
+      "firestore.method.mapdiff.addedKeys",
+      "firestore.method.mapdiff.removedKeys",
+      "firestore.method.mapdiff.changedKeys",
+      "firestore.method.mapdiff.affectedKeys",
+      "firestore.method.mapdiff.unchangedKeys",
+      "firestore.method.set.difference",
+      "firestore.method.set.union",
+      "firestore.method.set.intersection",
+      "firestore.method.set.hasAll",
+      "firestore.method.set.hasAny",
+      "firestore.method.set.hasOnly",
+      "firestore.method.set.size",
+      "firestore.method.bytes.size",
+      "firestore.method.bytes.toBase64",
+      "firestore.method.bytes.toHexString",
+      "firestore.method.path.bind",
+      "firestore.method.timestamp.year",
+      "firestore.method.timestamp.month",
+      "firestore.method.timestamp.day",
+      "firestore.method.timestamp.hours",
+      "firestore.method.timestamp.minutes",
+      "firestore.method.timestamp.seconds",
+      "firestore.method.timestamp.nanos",
+      "firestore.method.timestamp.dayOfWeek",
+      "firestore.method.timestamp.dayOfYear",
+      "firestore.method.timestamp.date",
+      "firestore.method.timestamp.time",
+      "firestore.method.timestamp.toMillis",
+      "firestore.method.duration.seconds",
+      "firestore.method.duration.nanos",
+      "firestore.method.latlng.latitude",
+      "firestore.method.latlng.longitude",
+      "firestore.method.latlng.distance",
+      "firestore.operator.eq",
+      "firestore.operator.neq",
+      "firestore.operator.lt",
+      "firestore.operator.gt",
+      "firestore.operator.lte",
+      "firestore.operator.gte",
+      "firestore.operator.add",
+      "firestore.operator.sub",
+      "firestore.operator.mul",
+      "firestore.operator.div",
+      "firestore.operator.mod",
+      "firestore.operator.and",
+      "firestore.operator.or",
+      "firestore.operator.not",
+      "firestore.operator.ternary",
+      "firestore.operator.in",
+      "firestore.operator.is",
+      "firestore.operator.unary-minus",
+      "firestore.operator.member",
+      "firestore.operator.index",
+      "firestore.operator.slice",
+      "firestore.rule-kind.allow-read",
+      "firestore.rule-kind.allow-write",
+      "firestore.rule-kind.allow-get",
+      "firestore.rule-kind.allow-list",
+      "firestore.rule-kind.allow-create",
+      "firestore.rule-kind.allow-update",
+      "firestore.rule-kind.allow-delete",
+      "firestore.rule-kind.match",
+      "firestore.rule-kind.function",
+      "firestore.rule-kind.let",
+      "firestore.rule-kind.rules_version",
+      "firestore.rule-kind.import",
+      "firestore.semantic.hierarchical-match-cascade",
+      "firestore.semantic.recursive-wildcard",
+      "firestore.semantic.error-absorption-and",
+      "firestore.semantic.error-absorption-or",
+      "firestore.semantic.get-budget",
+      "firestore.semantic.type-dispatch"
+    ]
+  },
+  "score": {
+    "numerator": 126,
+    "denominator": 140,
+    "ratio": 0.9,
+    "percent": 90
+  },
+  "axes": {
+    "productionAcceptance": {
+      "unprobed": 0,
+      "accepted": 126,
+      "rejected": 11,
+      "unprobeable": 3
+    },
+    "localAcceptance": {
+      "accepted": 131,
+      "rejected": 6,
+      "unsupported": 0,
+      "unprobeable": 3
+    },
+    "localCapability": {
+      "implemented": 131,
+      "unsupported": 0,
+      "error": 6,
+      "unprobeable": 3
+    },
+    "productionEvidence": {
+      "verified": 129,
+      "diverged": 2,
+      "unverified": 9
+    }
+  },
+  "counts": {
+    "conformant": 126,
+    "diverged": 2,
+    "unknown": 0,
+    "acceptance-mismatch": 6,
+    "local-unsupported": 0,
+    "local-error": 3,
+    "unprobeable": 3
+  },
+  "constructs": {
+    "firestore.binding.request": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.auth": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.auth.uid": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.auth.token": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.resource": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.resource.data": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.time": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.path": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.method": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.query": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.resource": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.resource.data": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.resource.id": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "productionRejectionSignature": "undefined-field:id",
+      "localRejectionSignature": "undefined-field:id",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.resource.__name__": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "productionRejectionSignature": "undefined-field:__name__",
+      "localRejectionSignature": "undefined-field:__name__",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.request.resource.id": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "rejected",
+      "productionRejectionSignature": "undefined-field:id",
+      "localRejectionSignature": "undefined-field:id",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.binding.path-variable": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.get": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.exists": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.getAfter": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "productionRejectionSignature": "function-not-found:getAfter",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged"
+    },
+    "firestore.function.existsAfter": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "productionRejectionSignature": "function-not-found:existsAfter",
+      "localCapability": "implemented",
+      "productionEvidence": "diverged",
+      "classification": "diverged"
+    },
+    "firestore.function.debug": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "productionRejectionSignature": "function-not-found:debug",
+      "localCapability": "implemented",
+      "productionEvidence": "unverified",
+      "classification": "acceptance-mismatch"
+    },
+    "firestore.function.math.abs": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.math.ceil": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.math.floor": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.math.round": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.math.sqrt": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.math.pow": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.math.isInfinite": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "productionRejectionSignature": "function-not-found:math.isInfinite",
+      "localCapability": "implemented",
+      "productionEvidence": "unverified",
+      "classification": "acceptance-mismatch"
+    },
+    "firestore.function.math.isNaN": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.timestamp.date": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.timestamp.value": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.duration.value": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.duration.time": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.duration.abs": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.latlng.value": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.hashing.md5": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.hashing.sha256": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.hashing.crc32": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.hashing.crc32c": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.cast.string": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.cast.int": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.cast.float": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.function.cast.bool": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "productionRejectionSignature": "function-not-found:bool",
+      "localCapability": "implemented",
+      "productionEvidence": "unverified",
+      "classification": "acceptance-mismatch"
+    },
+    "firestore.function.cast.path": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.string.matches": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.string.lower": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.string.upper": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.string.trim": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.string.size": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.string.split": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.string.replace": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.string.toUtf8": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.list.hasAll": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.list.hasAny": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.list.hasOnly": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.list.size": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.list.toSet": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.list.concat": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.list.removeAll": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.list.join": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.map.keys": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.map.values": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.map.size": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.map.get": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.map.hasAll": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "productionRejectionSignature": "function-not-found:hasAll",
+      "localCapability": "implemented",
+      "productionEvidence": "unverified",
+      "classification": "acceptance-mismatch"
+    },
+    "firestore.method.map.hasAny": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "productionRejectionSignature": "function-not-found:hasAny",
+      "localCapability": "implemented",
+      "productionEvidence": "unverified",
+      "classification": "acceptance-mismatch"
+    },
+    "firestore.method.map.hasOnly": {
+      "productionAcceptance": "rejected",
+      "localAcceptance": "accepted",
+      "productionRejectionSignature": "function-not-found:hasOnly",
+      "localCapability": "implemented",
+      "productionEvidence": "unverified",
+      "classification": "acceptance-mismatch"
+    },
+    "firestore.method.map.diff": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.mapdiff.addedKeys": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.mapdiff.removedKeys": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.mapdiff.changedKeys": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.mapdiff.affectedKeys": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.mapdiff.unchangedKeys": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.set.difference": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "local-error"
+    },
+    "firestore.method.set.union": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "local-error"
+    },
+    "firestore.method.set.intersection": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "rejected",
+      "localCapability": "error",
+      "productionEvidence": "verified",
+      "classification": "local-error"
+    },
+    "firestore.method.set.hasAll": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.set.hasAny": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.set.hasOnly": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.set.size": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.bytes.size": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.bytes.toBase64": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.bytes.toHexString": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.path.bind": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.year": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.month": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.day": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.hours": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.minutes": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.seconds": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.nanos": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.dayOfWeek": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.dayOfYear": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.date": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.time": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.timestamp.toMillis": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.duration.seconds": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.duration.nanos": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.latlng.latitude": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.latlng.longitude": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.method.latlng.distance": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.eq": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.neq": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.lt": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.gt": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.lte": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.gte": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.add": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.sub": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.mul": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.div": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.mod": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.and": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.or": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.not": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.ternary": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.in": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.is": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.unary-minus": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.member": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.index": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.operator.slice": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.allow-read": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.allow-write": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.allow-get": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.allow-list": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.allow-create": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.allow-update": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.allow-delete": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.match": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.function": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.let": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.rules_version": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.rule-kind.import": {
+      "productionAcceptance": "unprobeable",
+      "localAcceptance": "unprobeable",
+      "localCapability": "unprobeable",
+      "productionEvidence": "unverified",
+      "classification": "unprobeable"
+    },
+    "firestore.semantic.hierarchical-match-cascade": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.semantic.recursive-wildcard": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.semantic.error-absorption-and": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.semantic.error-absorption-or": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionEvidence": "verified",
+      "classification": "conformant"
+    },
+    "firestore.semantic.get-budget": {
+      "productionAcceptance": "unprobeable",
+      "localAcceptance": "unprobeable",
+      "localCapability": "unprobeable",
+      "productionEvidence": "unverified",
+      "classification": "unprobeable"
+    },
+    "firestore.semantic.type-dispatch": {
+      "productionAcceptance": "unprobeable",
+      "localAcceptance": "unprobeable",
+      "localCapability": "unprobeable",
+      "productionEvidence": "unverified",
+      "classification": "unprobeable"
+    }
+  }
+}

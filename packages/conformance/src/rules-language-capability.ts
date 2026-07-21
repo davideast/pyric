@@ -158,7 +158,7 @@ const FS_EXPR: Record<string, FsProbe> = {
   'firestore.function.cast.int': { expr: 'int(5) == 5' },
   'firestore.function.cast.float': { expr: 'float(1) == float(1)' },
   'firestore.function.cast.bool': { expr: 'bool(true) == true' },
-  'firestore.function.cast.path': { expr: 'path(/databases/x/documents/a/b) == path(/databases/x/documents/a/b)' },
+  'firestore.function.cast.path': { expr: "path('/databases/x/documents/a/b') == path('/databases/x/documents/a/b')" },
   // String methods
   'firestore.method.string.matches': { expr: "'abc'.matches('a.*') == true" },
   'firestore.method.string.lower': { expr: "'AB'.lower() == 'ab'" },
@@ -205,7 +205,7 @@ const FS_EXPR: Record<string, FsProbe> = {
   'firestore.method.bytes.toBase64': { expr: "hashing.crc32('x').toBase64().size() >= 0" },
   'firestore.method.bytes.toHexString': { expr: "hashing.crc32('x').toHexString().size() >= 0" },
   // Path methods
-  'firestore.method.path.bind': { expr: 'path(/databases/d/documents/a/b) == path(/databases/d/documents/a/b)' },
+  'firestore.method.path.bind': { expr: "path('a/{id}').bind({'id': 'b'}) == path('a/b')" },
   // Timestamp methods (request.time is a timestamp)
   'firestore.method.timestamp.year': { expr: 'request.time.year() >= 1970' },
   'firestore.method.timestamp.month': { expr: 'request.time.month() >= 1' },

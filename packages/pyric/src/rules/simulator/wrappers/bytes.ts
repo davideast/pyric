@@ -3,8 +3,8 @@
  *
  * Per type table:
  *   size() → Integer       byte count
- *   toBase64() → String    Base64url per RFC 4648 (URL-safe, no padding)
- *   toHexString() → String lowercase hex
+ *   toBase64() → String    Base64url per RFC 4648 (URL-safe, padded)
+ *   toHexString() → String uppercase hex
  *
  * Per 0.B per-wrapper table:
  *   typeName: 'bytes'
@@ -24,7 +24,7 @@ import { RulesValue, NO_OP, type NoOp } from './base.js';
 // Base64url + hex encoders. Browser-safe — no Buffer, no node:crypto.
 // Behavior pinned by bytes.test.ts to match the previous Buffer-based
 // output across UTF-8 / arbitrary-byte / empty fixtures.
-const HEX = '0123456789abcdef';
+const HEX = '0123456789ABCDEF';
 
 function toHex(bytes: Uint8Array): string {
   let out = '';
@@ -37,12 +37,12 @@ function toHex(bytes: Uint8Array): string {
 
 function toBase64Url(bytes: Uint8Array): string {
   // btoa exists in browsers and Node 16+; we encode the byte string
-  // through it, then map the standard alphabet to URL-safe (- _) and
-  // strip padding per RFC 4648 section 5.
+  // through it, then map the standard alphabet to URL-safe (- _). Firebase
+  // preserves RFC 4648 padding (for example, the documented MD5 Bytes value).
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
   const std = btoa(bin);
-  return std.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return std.replace(/\+/g, '-').replace(/\//g, '_');
 }
 
 function lexicographicCompare(a: Uint8Array, b: Uint8Array): number {
@@ -86,12 +86,12 @@ export class Bytes extends RulesValue {
     return this.data.length;
   }
 
-  /** Base64url per RFC 4648 (URL-safe, no padding). */
+  /** Base64url per RFC 4648 (URL-safe, padded). */
   toBase64(): string {
     return toBase64Url(this.data);
   }
 
-  /** Lowercase hex. */
+  /** Uppercase hex, matching rules.Bytes.toHexString(). */
   toHexString(): string {
     return toHex(this.data);
   }

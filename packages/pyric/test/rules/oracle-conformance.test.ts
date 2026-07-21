@@ -31,6 +31,7 @@ import {
   observationName,
   type Scenario,
 } from '../../../../packages/conformance/rules-corpus/firestore/index.ts';
+import { allCompatibilityRows } from '../../../../packages/conformance/registry/index.ts';
 
 // rules-firestore-* observations live under the native 'firestore-rules'
 // conformance surface (issue #184) — distinct from the SDK-surface 'firestore'
@@ -41,9 +42,15 @@ const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'confo
 const SCENARIO_BY_OBSERVATION = new Map<string, Scenario>(
   ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => [observationName(scenario), scenario]),
 );
+const ROW_STATUS = new Map(
+  allCompatibilityRows
+    .filter(({ surface }) => surface === 'firestore-rules')
+    .map(({ id, status }) => [id, status]),
+);
 
 interface RulesObservation {
   name: string;
+  rowIds: string[];
   behavior: Record<string, unknown>;
 }
 
@@ -62,36 +69,6 @@ const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string; issue: string }
 > = {
-  "rules-firestore-bytes-toutf8-and-hashing :: toBase64 round-trip ALLOW": {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator toBase64() round-trip does not match production byte encoding, so the rule that should deny passes locally',
-    issue: '#135',
-  },
-  "rules-firestore-bytes-toutf8-and-hashing :: md5 empty string ALLOW": {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator md5() over the empty string diverges from production hashing output',
-    issue: '#135',
-  },
-  "rules-firestore-bytes-toutf8-and-hashing :: sha256 abc ALLOW": {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator sha256() diverges from production hashing output',
-    issue: '#135',
-  },
-  "rules-firestore-bytes-toutf8-and-hashing :: crc32 IEEE 802.3 ref ALLOW": {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator crc32() reference implementation diverges from production',
-    issue: '#135',
-  },
-  "rules-firestore-bytes-toutf8-and-hashing :: crc32c Castagnoli ref ALLOW": {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator crc32c() reference implementation diverges from production',
-    issue: '#135',
-  },
   "rules-firestore-get-after-and-exists-after :: getAfter target == request.resource.data ALLOW": {
     prodVerdict: 'DENY',
     simVerdict: 'ALLOW',
@@ -116,57 +93,17 @@ const KNOWN_DIVERGENCES: Record<
     reason: 'simulator existsAfter() over an unrelated mocked path does not match production',
     issue: '#135',
   },
-  "rules-firestore-get-missing-doc :: get(mocked).id == 'site' → DENY (mocked get() has no resource identity in production)": {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator synthesizes a resource identity for mocked get() results that production leaves absent',
-    issue: '#135',
-  },
-  "rules-firestore-get-missing-doc :: get(mocked).__name__ == path literal → DENY (mocked get() has no resource identity in production)": {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator synthesizes a __name__ for mocked get() results that production leaves absent',
-    issue: '#135',
-  },
-  'rules-firestore-globals-request-path-and-resource-id :: request.query empty map ALLOW': {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator models request.query as an empty map where production denies the equivalent comparison',
-    issue: '#135',
-  },
-  'rules-firestore-int-float-and-division :: float payload is float / not int ALLOW': {
-    prodVerdict: 'ALLOW',
-    simVerdict: 'DENY',
-    reason: 'simulator narrows a float-valued payload field toward int, unlike production which preserves the float type',
-    issue: '#135',
-  },
-  "rules-firestore-path-constructor-and-bind :: path() idempotent on Path arg ALLOW": {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator treats path() as idempotent on an already-Path argument where production denies',
-    issue: '#135',
-  },
-  'rules-firestore-range-slice-list-and-string :: list slice end OOB clamps to length ALLOW': {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator clamps an out-of-bounds list slice end to the list length; production denies',
-    issue: '#135',
-  },
-  'rules-firestore-range-slice-list-and-string :: string slice end OOB clamps to length ALLOW': {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason: 'simulator clamps an out-of-bounds string slice end to the string length; production denies',
-    issue: '#135',
-  },
 };
 
 function loadObservation(file: string): RulesObservation {
   const raw = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as {
     name?: string;
+    rowIds?: string[];
     behavior?: Record<string, unknown>;
   };
   return {
     name: raw.name ?? file.replace(/\.json$/, ''),
+    rowIds: raw.rowIds ?? [],
     behavior: raw.behavior ?? {},
   };
 }
@@ -214,8 +151,12 @@ describe('oracle conformance (rules-firestore)', () => {
   for (const file of files) {
     const obs = loadObservation(file);
     const scenario = SCENARIO_BY_OBSERVATION.get(obs.name);
+    if (obs.rowIds.length !== 1) {
+      throw new Error(`observation "${obs.name}" must name exactly one Firestore Rules row; got ${obs.rowIds.join(', ') || '(none)'}`);
+    }
+    const rowId = obs.rowIds[0]!;
 
-    it(`${obs.name}: simulator matches captured production verdicts`, async () => {
+    it(`${rowId}: ${obs.name}: simulator matches captured production verdicts`, async () => {
       // Completeness is structural: an observation with no corpus scenario is a
       // silent-gap failure — either the scenario was removed or the file is stale.
       expect(
@@ -223,6 +164,11 @@ describe('oracle conformance (rules-firestore)', () => {
         `observation "${obs.name}" has no matching corpus scenario — coverage gap`,
       ).toBeDefined();
       if (!scenario) return;
+
+      expect(
+        Object.keys(obs.behavior).sort(),
+        `observation "${obs.name}" must contain exactly the current scenario case set; recapture after adding, removing, or renaming a case`,
+      ).toEqual(scenario.cases.map(({ description }) => description).sort());
 
       const sim = await simulateVerdicts(scenario);
       // Every case in the scenario is checked and any mismatch is collected here
@@ -233,13 +179,16 @@ describe('oracle conformance (rules-firestore)', () => {
       const mismatches: string[] = [];
       for (const [caseKey, prodVerdict] of Object.entries(obs.behavior)) {
         const simVerdict = sim[caseKey];
-        // The simulator's documented third state: when it abstains
-        // (UNSUPPORTED) it is neither agreement nor a bug — it mirrors the
-        // parity harness's SIM_NOT_SUPPORTED. Record but do not fail on it;
-        // everything else must match production exactly.
-        if (simVerdict === 'UNSUPPORTED') continue;
-
         const divergenceKey = `${obs.name} :: ${caseKey}`;
+        // Abstention is only valid when the registry says the row is
+        // unsupported. A conforming row may not turn every case into
+        // UNSUPPORTED and receive accidental credit.
+        if (simVerdict === 'UNSUPPORTED') {
+          if (ROW_STATUS.get(rowId) !== 'unsupported') {
+            mismatches.push(`${divergenceKey}: simulator abstained but ${rowId} is ${ROW_STATUS.get(rowId) ?? 'missing'}`);
+          }
+          continue;
+        }
         const known = KNOWN_DIVERGENCES[divergenceKey];
         if (known) {
           // Pinned, tracked gap (see KNOWN_DIVERGENCES above): the captured

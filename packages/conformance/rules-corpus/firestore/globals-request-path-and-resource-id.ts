@@ -1,8 +1,7 @@
 /**
  * ─── Scenario 11: globals-request-path-and-resource-id ────────────────────────
- * Targets Item 6 — populates request.path / request.query / resource.id /
- * resource.__name__. Pre-fix: all four were undefined; rules touching them
- * silently denied. Each case asserts a wrapper invariant against prod so
+ * Targets Item 6 — populates request.path and the list-only request.query /
+ * resource identity surfaces. Each case asserts a wrapper invariant against prod so
  * any divergence (e.g. prod uses a different path canonical form) shows up
  * as SIM_BUG in the divergence accountant.
  */
@@ -10,7 +9,7 @@ import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   fm: 'Item 6',
-  rationale: 'Sim must populate request.path (Path), request.query (Map), resource.id (String), resource.__name__ (Path). Pre-fix: all undefined; rules using them silently denied.',
+  rationale: 'Sim must populate request.path, expose request.query only for list requests, and preserve production absence/error semantics for document identity.',
   rules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -24,7 +23,7 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.path == /databases/$(database)/documents/reqPathEqAllow/$(id);
     }
-    // request.query is map (empty for non-list)
+    // request.query is absent for non-list requests; reading it errors → DENY.
     match /reqQueryAllow/{id} {
       allow create: if request.auth != null
         && request.query is map
@@ -69,8 +68,10 @@ service cloud.firestore {
       data: {},
     },
     {
+      // The description is the frozen observation join key and retains its
+      // historical ALLOW suffix; production's captured verdict is DENY.
       description: 'request.query empty map ALLOW',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'create',
       path: 'reqQueryAllow/d3',
       auth: { uid: 'alice' },

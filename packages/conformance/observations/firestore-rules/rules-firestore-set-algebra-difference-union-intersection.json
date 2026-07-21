@@ -4,8 +4,8 @@
   "rowIds": [
     "firestore-rules#174"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"set-algebra-difference-union-intersection\" (Item 5.1). Sim must implement Set.difference/union/intersection; pre-fix all three threw UnsupportedError on FirestoreSet.",
-  "observedAt": "2026-07-10T22:41:18.535Z",
+  "description": "Firestore Rules Test API verdicts and diagnostics for corpus scenario \"set-algebra-difference-union-intersection\" (Item 5.1). Hosted production reports Function not found for Set.difference/union/intersection; the corpus retains intended-positive, Set-argument, and negative-control cases without claiming algebra conformance.",
+  "observedAt": "2026-07-21T23:02:24.723Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -17,5 +17,206 @@
     "set intersection no overlap → empty ALLOW": "DENY",
     "chained union+difference → hasOnly([b,c]) ALLOW": "DENY",
     "difference with wrong expected size DENY": "DENY"
+  },
+  "diagnostics": {
+    "set difference (list arg) → hasOnly([c]) ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [7], column [12]. Function not found error: Name: [difference]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 7,
+          "column": 12,
+          "currentOffset": 234,
+          "endOffset": 240
+        },
+        "functionCalls": [
+          {
+            "function": "difference",
+            "args": [
+              [
+                "a",
+                "b"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "set difference (set arg) → hasOnly([x]) ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [12], column [12]. Function not found error: Name: [difference]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 12,
+          "column": 12,
+          "currentOffset": 435,
+          "endOffset": 441
+        },
+        "functionCalls": [
+          {
+            "function": "difference",
+            "args": [
+              [
+                "y",
+                "z"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "set union → size 4 ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [17], column [12]. Function not found error: Name: [union]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 17,
+          "column": 12,
+          "currentOffset": 646,
+          "endOffset": 652
+        },
+        "functionCalls": [
+          {
+            "function": "union",
+            "args": [
+              [
+                "c",
+                "d"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "set union dedupes overlap → size 3 ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [22], column [12]. Function not found error: Name: [union]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 22,
+          "column": 12,
+          "currentOffset": 833,
+          "endOffset": 839
+        },
+        "functionCalls": [
+          {
+            "function": "union",
+            "args": [
+              [
+                "b",
+                "c"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "set intersection → hasOnly([b,c]) ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [27], column [12]. Function not found error: Name: [intersection]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 27,
+          "column": 12,
+          "currentOffset": 1020,
+          "endOffset": 1026
+        },
+        "functionCalls": [
+          {
+            "function": "intersection",
+            "args": [
+              [
+                "b",
+                "c",
+                "d"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "set intersection no overlap → empty ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [32], column [12]. Function not found error: Name: [intersection]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 32,
+          "column": 12,
+          "currentOffset": 1238,
+          "endOffset": 1244
+        },
+        "functionCalls": [
+          {
+            "function": "intersection",
+            "args": [
+              [
+                "x",
+                "y"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "chained union+difference → hasOnly([b,c]) ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [37], column [12]. Function not found error: Name: [union]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 37,
+          "column": 12,
+          "currentOffset": 1434,
+          "endOffset": 1440
+        },
+        "functionCalls": [
+          {
+            "function": "union",
+            "args": [
+              [
+                "c"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "difference with wrong expected size DENY": {
+      "notes": [
+        "Error: firestore.rules line [42], column [12]. Function not found error: Name: [difference]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 42,
+          "column": 12,
+          "currentOffset": 1654,
+          "endOffset": 1660
+        },
+        "functionCalls": [
+          {
+            "function": "difference",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    }
   }
 }

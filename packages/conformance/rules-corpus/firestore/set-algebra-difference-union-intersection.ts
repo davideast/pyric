@@ -1,16 +1,16 @@
 /**
  * ─── Scenario 7: set-algebra-difference-union-intersection ────────────────────
  * Targets Item 5.1 of the rebuild plan — Set.difference / union /
- * intersection. Pre-fix the simulator only implemented hasOnly/hasAll/
- * hasAny/size on FirestoreSet; the three set-algebra methods threw
- * UnsupportedError. Sets are constructed via Map.keys() (the only
- * public constructor) — scenario chains through there.
+ * intersection. The hosted production Test API accepts the ruleset but reports
+ * Function-not-found evaluation errors for all three methods. The scenario
+ * retains intended-positive shapes, a Set-argument case, and a negative control
+ * so that limitation is distinguishable from working algebra.
  */
 import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   fm: 'Item 5.1',
-  rationale: 'Sim must implement Set.difference/union/intersection; pre-fix all three threw UnsupportedError on FirestoreSet.',
+  rationale: 'Hosted production diagnostics report Function not found for Set.difference/union/intersection; retain intended-positive, Set-argument, and negative-control cases without claiming algebra conformance.',
   rules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -59,7 +59,7 @@ service cloud.firestore {
   cases: [
     {
       description: 'set difference (list arg) → hasOnly([c]) ALLOW',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'create',
       path: 'diffListAllow/d1',
       auth: { uid: 'alice' },
@@ -67,7 +67,7 @@ service cloud.firestore {
     },
     {
       description: 'set difference (set arg) → hasOnly([x]) ALLOW',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'create',
       path: 'diffSetAllow/d2',
       auth: { uid: 'alice' },
@@ -75,7 +75,7 @@ service cloud.firestore {
     },
     {
       description: 'set union → size 4 ALLOW',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'create',
       path: 'unionAllow/d3',
       auth: { uid: 'alice' },
@@ -83,7 +83,7 @@ service cloud.firestore {
     },
     {
       description: 'set union dedupes overlap → size 3 ALLOW',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'create',
       path: 'unionDedupAllow/d4',
       auth: { uid: 'alice' },
@@ -91,7 +91,7 @@ service cloud.firestore {
     },
     {
       description: 'set intersection → hasOnly([b,c]) ALLOW',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'create',
       path: 'interAllow/d5',
       auth: { uid: 'alice' },
@@ -99,7 +99,7 @@ service cloud.firestore {
     },
     {
       description: 'set intersection no overlap → empty ALLOW',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'create',
       path: 'interEmptyAllow/d6',
       auth: { uid: 'alice' },
@@ -107,7 +107,7 @@ service cloud.firestore {
     },
     {
       description: 'chained union+difference → hasOnly([b,c]) ALLOW',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'create',
       path: 'chainAllow/d7',
       auth: { uid: 'alice' },

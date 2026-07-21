@@ -19,6 +19,10 @@ import {
 import { surfaceContracts, surfaceDescriptors } from '../surfaces/load.ts';
 import type { CapabilityReport } from './rules-language-capability.ts';
 import type { CoverageReport } from './rules-language-analyzer.ts';
+import {
+  deriveFirestoreRulesScorecard,
+  type FirestoreRulesScorecard,
+} from './firestore-rules-scorecard.ts';
 import type { SurfaceDescriptor } from '../surfaces/types.ts';
 import type { CompatibilitySurfaceRegistry } from '../registry/types.ts';
 import coverageBaselineJson from '../baselines/coverage-baseline.json' with { type: 'json' };
@@ -86,6 +90,7 @@ export interface ConformanceModel {
   rulesLanguage: {
     capability: CapabilityReport;
     coverage: CoverageReport;
+    firestoreScorecard: FirestoreRulesScorecard;
   };
   documentation: {
     registries: readonly CompatibilitySurfaceRegistry[];
@@ -253,6 +258,17 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
   const verdicts = deriveAllNodeVerdicts(evidence.graph);
   const surfaceVerdicts: Record<string, ConformanceVerdict> = {};
   const snapshots = Object.values(loadAllSnapshots());
+  const firestoreSnapshot = snapshots.find(({ engine }) => engine === 'firestore');
+  const firestoreCapability = evidence.capabilityReport.engines.find(({ engine }) => engine === 'firestore');
+  const firestoreCoverage = evidence.coverageReport.engines.find(({ engine }) => engine === 'firestore');
+  if (!firestoreSnapshot || !firestoreCapability || !firestoreCoverage) {
+    throw new Error('Firestore Rules scorecard inputs are missing from the central conformance model');
+  }
+  const firestoreScorecard = deriveFirestoreRulesScorecard({
+    constructs: firestoreSnapshot.constructs,
+    capabilities: firestoreCapability.constructs,
+    coverage: firestoreCoverage.constructs,
+  });
   const constructFeatures = new Map(snapshots.flatMap(({ constructs }) =>
     constructs.map((construct) => [construct.id, featureKeysForConstruct(construct)] as const),
   ));
@@ -478,6 +494,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
     rulesLanguage: {
       capability: evidence.capabilityReport,
       coverage: evidence.coverageReport,
+      firestoreScorecard,
     },
     documentation: {
       registries: surfaceRegistries,
