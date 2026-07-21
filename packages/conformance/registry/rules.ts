@@ -590,6 +590,7 @@ export const rulesRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-common-auth-membership"],
           conformanceTests: [
+            "packages/conformance/test/src/storage-stdlib-source-lock.test.ts",
             "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
             "packages/pyric/test/rules/modules/resolver.test.ts",
             "packages/pyric/test/storage/rules.test.ts",

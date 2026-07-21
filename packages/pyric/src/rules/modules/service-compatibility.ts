@@ -354,6 +354,10 @@ function expressionReceiverType(
     }
     case 'functionCall': {
       const fn = ctx.functions.get(expression.name);
+      if (!fn && ctx.service === 'cloud.firestore') {
+        if (expression.name === 'get' || expression.name === 'getAfter') return 'document';
+        if (expression.name === 'exists') return 'boolean';
+      }
       if (!fn || ctx.stack.has(fn.name)) return null;
       const aliases = new Map<string, AmbientProvenance>();
       const receiverTypes = new Map<string, RulesReceiverType | null>();
