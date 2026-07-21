@@ -400,50 +400,21 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     }
   });
 
-  test('rejects unknown bare namespaces even when the method name is otherwise allowed', () => {
-    const storage = resolveModules(
-      makeStorageSource("import { mysteryValue } from './policy';", 'mysteryValue()'),
-      { modules: { './policy': "export function mysteryValue() { return mystery.get('x') != null; }" } },
-    );
-    const firestore = resolveModules(
-      makeSource("import { mysteryValue } from './policy';"),
-      { modules: { './policy': "export function mysteryValue() { return mystery.get('x') != null; }" } },
-    );
-
-    expect(storage.success).toBe(false);
-    expect(firestore.success).toBe(false);
-    if (!storage.success) expect(storage.error.message).toContain("namespace 'mystery'");
-    if (!firestore.success) expect(firestore.error.message).toContain("namespace 'mystery'");
-  });
-
   test.each([
-    ['mystery', 'bare identifier'],
-    ['mystery.value', 'member chain'],
-  ])('rejects an unresolved caller-module %s (%s)', (expression) => {
-    const result = resolveModules(
-      makeStorageSource("import { broken } from './policy';", 'broken() != null'),
-      { modules: { './policy': `export function broken() { return ${expression}; }` } },
-    );
-
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
-      expect(result.error.message).toContain("identifier 'mystery'");
-    }
-  });
-
-  test('admits canonical service-scope identifiers in caller modules', () => {
-    const storage = resolveModules(
-      makeStorageSource("import { inBucket } from './policy';", 'inBucket()'),
-      { modules: { './policy': "export function inBucket() { return bucket != ''; }" } },
-    );
-    const firestore = resolveModules(
-      makeSource("import { inDatabase } from './policy';", 'function allowed() { return inDatabase(); }'),
-      { modules: { './policy': "export function inDatabase() { return database != ''; }" } },
-    );
-
-    expect(storage.success).toBe(true);
-    expect(firestore.success).toBe(true);
+    ['storage', "mystery.get('x') != null", false, "namespace 'mystery'"],
+    ['firestore', "mystery.get('x') != null", false, "namespace 'mystery'"],
+    ['storage', 'mystery', false, "identifier 'mystery'"],
+    ['storage', 'mystery.value', false, "identifier 'mystery'"],
+    ['storage', "bucket != ''", true, ''],
+    ['firestore', "database != ''", true, ''],
+  ])('checks caller-module identifiers: %s %s', (service, expression, success, issue) => {
+    const imports = "import { probe } from './policy';";
+    const source = service === 'storage' ? makeStorageSource(imports, 'probe() != null') : makeSource(imports);
+    const result = resolveModules(source, {
+      modules: { './policy': `export function probe() { return ${expression}; }` },
+    });
+    expect(result.success).toBe(success);
+    if (!result.success) expect(result.error.message).toContain(issue);
   });
 
   test('propagates ambient provenance into helper parameters', () => {
