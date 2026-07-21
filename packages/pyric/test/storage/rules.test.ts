@@ -333,6 +333,10 @@ describe('evaluateStorageRules — custom metadata access forms', () => {
     expect(evalRead("1.0.get('value', 0) == 1", {}, 'alice')).toBe(false);
     expect(evalRead("1.0.keys().hasAll(['value'])", {}, 'alice')).toBe(false);
     expect(evalRead('1.0.size() == 1', {}, 'alice')).toBe(false);
+    expect(evalRead('1.0 is map', {}, 'alice')).toBe(false);
+    expect(evalRead("'value' in 1.0", {}, 'alice')).toBe(false);
+    expect(evalRead('1.0.value == 1', {}, 'alice')).toBe(false);
+    expect(evalRead("1.0['value'] == 1", {}, 'alice')).toBe(false);
   });
 });
 

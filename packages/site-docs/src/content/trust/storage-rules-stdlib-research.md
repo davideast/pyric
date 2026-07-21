@@ -297,7 +297,7 @@ allow read: if hasRole(membershipDoc(request.auth.uid), 'editor');
 
 ## Shipped and candidate Storage modules
 
-The four common-layer rows below are now shipped as Storage-only modules;
+The four Storage-native rows below are now shipped as Storage-only modules;
 advanced-layer rows remain production-probed candidates. The only modules
 admitted for both Firestore and Storage are `auth` and `membership`. A
 candidate becomes shipped only after its function bodies
@@ -317,7 +317,7 @@ in the service contract, and covered by executable stdlib fixtures.
 | Module | Shipped exports | Production proof |
 |---|---|---|
 | `storage/uploads` | `sizeAtMost(bytes)`, `sizeBetween(min,max)`, `contentTypeMatches(re)`, `contentTypeIsOneOf(types)` | Exact bodies and boundary cases in `rules-storage-stdlib-storage-modules`. |
-| `storage/metadata` | `hasRequiredMetadata(keys)`, `metadataString(key,min,max)`, `incomingMetadataOwner(key)`, `existingMetadataOwner(key)` | Exact bodies, missing keys, string bounds, and owner cases in `rules-storage-stdlib-storage-modules`. |
+| `storage/metadata` | `hasRequiredMetadata(keys)`, `metadataString(key,min,max)`, `incomingMetadataOwner(key)`, `existingMetadataOwner(key)` | Exact bodies, required-key failure, one in-range string execution, and incoming/existing owner cases in `rules-storage-stdlib-storage-modules`. |
 | `storage/objects` | `isCreate()`, `isUpdate()`, `isDelete()` | Exact bodies on all three verbs in `rules-storage-stdlib-storage-modules`. |
 | `storage/time` | `createdWithin(seconds)`, `updatedWithin(seconds)` | Exact bodies immediately before and at strict deadlines in `rules-storage-stdlib-storage-modules`. |
 

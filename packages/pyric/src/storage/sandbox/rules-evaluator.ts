@@ -17,6 +17,7 @@ import {
   RuleEvalError,
   describeRulesType as describeType,
   isRuleError as isErr,
+  isRulesMap,
   numericValue as numVal,
   rulesEquals,
 } from './rules-values.js';
@@ -127,8 +128,11 @@ export function evaluateStorageRules(
 /** Property read against `obj`, with production's absent-property semantics:
  *  a key that is missing — or present but holding `undefined` — is an ERROR,
  *  never a silent `undefined`. */
-function readProperty(obj: Record<string, unknown>, name: string): unknown {
-  const v = obj[name];
+function readProperty(obj: unknown, name: string): unknown {
+  if (!isRulesMap(obj) && !Array.isArray(obj)) {
+    return new RuleError(`Property ${name} is undefined on ${describeType(obj)}.`);
+  }
+  const v = obj[name as keyof typeof obj];
   if (v === undefined) return new RuleError(`Property ${name} is undefined on object.`);
   return v;
 }
@@ -212,7 +216,7 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // Production: dereferencing a null (e.g. `resource.name` on a create) is
       // a "Null value error" — it denies, and denies through a negation too.
       if (t === null || t === undefined) return new RuleError(`Null value error.`);
-      return readProperty(t as Record<string, unknown>, expr.name);
+      return readProperty(t, expr.name);
     }
     case 'index': {
       const t = evalExpr(expr.target, ctx);
@@ -220,7 +224,7 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (t === null || t === undefined) return new RuleError(`Null value error.`);
       const idx = evalExpr(expr.index, ctx);
       if (isErr(idx)) return idx;
-      return readProperty(t as Record<string, unknown>, String(idx));
+      return readProperty(t, String(idx));
     }
     case 'call':
       return evalCall(expr, ctx);
@@ -260,7 +264,7 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // live-pinned by rules-firestore-prototype-chain-keys), so JS `in`
       // (which walks the prototype chain) would false-ALLOW here.
       if (Array.isArray(coll)) return coll.some((v) => rulesEquals(v, el));
-      if (coll !== null && typeof coll === 'object') return typeof el === 'string' && Object.prototype.hasOwnProperty.call(coll, el);
+      if (isRulesMap(coll)) return typeof el === 'string' && Object.prototype.hasOwnProperty.call(coll, el);
       return new RuleError(`'in' applied to ${describeType(coll)} (expected a list or map).`);
     }
     case 'is': {
@@ -434,7 +438,7 @@ function typeMatches(v: unknown, typeName: string): boolean | RuleError {
     case 'float': return v instanceof RulesFloat || (typeof v === 'number' && !Number.isInteger(v));
     case 'number': return v instanceof RulesFloat || typeof v === 'number';
     case 'list': return Array.isArray(v);
-    case 'map': return v !== null && typeof v === 'object' && !Array.isArray(v);
+    case 'map': return isRulesMap(v);
     default:
       // timestamp/duration/path/latlng are modeled as plain millis/strings
       // here — a type test against them cannot answer honestly, so deny
