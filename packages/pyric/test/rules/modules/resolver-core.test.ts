@@ -35,6 +35,11 @@ describe('resolver core export isolation', () => {
       `export function policy() { return false; }
        export function policy() { return true; }`,
     ],
+    [
+      'private/export duplicate original name',
+      `function policy() { return false; }
+       export function policy() { return true; }`,
+    ],
   ])('rejects ambiguous same-module names: %s', (_name, moduleSource) => {
     const result = resolveModulesWith(null, storageSource(
       "import { policy } from './m';",
@@ -57,6 +62,53 @@ service cloud.firestore {
     ` } });
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+  });
+
+  test('rejects empty imports', () => {
+    const result = resolveModulesWith(null, storageSource(
+      "import { } from './policy';",
+      'false',
+    ), { modules: { './policy': 'export function policy() { return true; }' } });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('UNKNOWN_FUNCTION');
+  });
+
+  test('does not bind undeclared calls across module ownership boundaries', () => {
+    const result = resolveModulesWith(null, storageSource(
+      "import { policy } from './a';\nimport { unrelated } from './b';",
+      'policy()',
+    ), { modules: {
+      './a': 'export function policy() { return helper(); }',
+      './b': `export function helper() { return true; }
+              export function unrelated() { return true; }`,
+    } });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('UNKNOWN_FUNCTION');
+  });
+
+  test('injects imports at service scope so service helpers can call them', () => {
+    const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { policy } from './policy';
+service firebase.storage {
+  function gate() { return policy(); }
+  match /b/{bucket}/o { match /{file} { allow read: if gate(); } }
+}`, { modules: { './policy': 'export function policy() { return true; }' } });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.resolved.indexOf('function policy()'))
+        .toBeLessThan(result.data.resolved.indexOf('function gate()'));
+    }
+  });
+
+  test('rejects global helpers that call service-scoped imports', () => {
+    const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { policy } from './policy';
+function gate() { return policy(); }
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if gate(); } }
+}`, { modules: { './policy': 'export function policy() { return true; }' } });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
   });
 
   test('rejects imported function collisions in every source scope', () => {

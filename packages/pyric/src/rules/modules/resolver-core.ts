@@ -186,6 +186,17 @@ export function resolveModulesWith(
     return { success: true, data: { resolved: assembleRules(ast), modules: [] } };
   }
 
+  const emptyImport = ast.imports.find((imp) => imp.functions.length === 0);
+  if (emptyImport) {
+    return {
+      success: false,
+      error: {
+        code: 'UNKNOWN_FUNCTION',
+        message: `Import from '${emptyImport.module}' must request at least one function`,
+      },
+    };
+  }
+
   // 3. Load all modules and collect exported functions + all functions (for transitive deps)
   const exportedFunctions = new Map<string, FunctionDef>();
   const allModuleFunctions = new Map<string, FunctionDef>();
@@ -200,6 +211,22 @@ export function resolveModulesWith(
       return { success: false, error: loaded.error };
     }
     if (!modulesUsed.includes(imp.module)) modulesUsed.push(imp.module);
+
+    const originalNames = new Set<string>();
+    const originalCollision = loaded.functions.find((fn) => {
+      if (originalNames.has(fn.name)) return true;
+      originalNames.add(fn.name);
+      return false;
+    });
+    if (originalCollision) {
+      return {
+        success: false,
+        error: {
+          code: 'DUPLICATE_FUNCTION',
+          message: `Module '${imp.module}' defines duplicate function '${originalCollision.name}'`,
+        },
+      };
+    }
 
     const builtinCollision = loaded.functions.find((fn) => BUILTIN_FUNCTIONS.has(fn.name));
     if (builtinCollision) {
@@ -283,6 +310,25 @@ export function resolveModulesWith(
     }
   }
 
+  const requestedNames = new Set(ast.imports.flatMap((imp) => imp.functions));
+  for (const [fnName, fn] of allModuleFunctions) {
+    const origin = functionOrigin.get(fnName);
+    const calls = [...fn.lets.flatMap(({ value }) => collectCalls(value)), ...collectCalls(fn.body)];
+    const foreignCall = calls.find((call) => {
+      const calledOrigin = functionOrigin.get(call);
+      return calledOrigin && calledOrigin !== origin && !requestedNames.has(call);
+    });
+    if (foreignCall) {
+      return {
+        success: false,
+        error: {
+          code: 'UNKNOWN_FUNCTION',
+          message: `Function '${fnName}' in module '${origin}' cannot call '${foreignCall}' from another module`,
+        },
+      };
+    }
+  }
+
   // 4. Collect requested functions + transitive dependencies
   const needed = new Set<string>();
   for (const imp of ast.imports) {
@@ -320,6 +366,26 @@ export function resolveModulesWith(
     for (const fnName of imp.functions) {
       addWithDeps(fnName);
     }
+  }
+
+  const injectedNames = new Set(injected.map((fn) => fn.name));
+  const globalFunctions = new Map((ast.functions ?? []).map((fn) => [fn.name, fn]));
+  const globalCallsImport = (fn: FunctionDef, visiting: ReadonlySet<string>): boolean => {
+    if (visiting.has(fn.name)) return false;
+    const next = new Set([...visiting, fn.name]);
+    const calls = [...fn.lets.flatMap(({ value }) => collectCalls(value)), ...collectCalls(fn.body)];
+    return calls.some((call) => injectedNames.has(call) ||
+      globalFunctions.has(call) && globalCallsImport(globalFunctions.get(call)!, next));
+  };
+  const invalidGlobal = [...globalFunctions.values()].find((fn) => globalCallsImport(fn, new Set()));
+  if (invalidGlobal) {
+    return {
+      success: false,
+      error: {
+        code: 'INCOMPATIBLE_FUNCTION',
+        message: `Global function '${invalidGlobal.name}' cannot call a service-scoped imported function`,
+      },
+    };
   }
 
   if (ast.service.name === 'firebase.storage' || ast.service.name === 'cloud.firestore') {
@@ -377,8 +443,8 @@ export function resolveModulesWith(
     }
   }
 
-  // 7. Inject functions at root scope and rewrite version
-  ast.service.match.functions = [...injected, ...ast.service.match.functions];
+  // 7. Inject functions at service scope so service helpers and every match can see them.
+  ast.service.functions = [...injected, ...(ast.service.functions ?? [])];
   ast.version = '2';
   ast.imports = [];
 

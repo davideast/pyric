@@ -34,7 +34,7 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.data.resolved).not.toContain('import ');
       const resolved = parseToAST(result.data.resolved);
       expect(resolved.service.name).toBe('firebase.storage');
-      expect(resolved.service.match.functions.map((fn) => fn.name)).toEqual([
+      expect(resolved.service.functions?.map((fn) => fn.name)).toEqual([
         'isAuthenticated',
         'isOwner',
         'hasClaim',
