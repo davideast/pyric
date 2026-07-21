@@ -212,6 +212,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /** Rehydrate type tags carried by JSON-shaped Rules Test API fixtures. */
 function reviveTestValue(value: unknown): unknown {
+  // The hosted Rules Test API preserves JSON numbers with a fractional part
+  // as Firestore doubles. Plain JS has one Number type, so recover that
+  // unambiguous wire distinction before the evaluator sees the payload.
+  if (typeof value === 'number' && !Number.isInteger(value)) {
+    return new RulesFloat(value);
+  }
   if (Array.isArray(value)) return value.map(reviveTestValue);
   if (!isPlainObject(value)) return value;
   if (value.__type === 'float' && typeof value.value === 'number') {

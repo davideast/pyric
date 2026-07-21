@@ -854,7 +854,7 @@ describe('oracle conformance (firestore)', () => {
 
   // ── query / snapshot equality ────────────────────────────────────────
 
-  it('firestore#116 queryEqual compares independently-built queries structurally', async () => {
+  it('firestore#116 queryEqual matches the captured primitive-constraint envelope', async () => {
     const obs = load('firestore-queryequal-structural.json');
 
     const db = freshDb();

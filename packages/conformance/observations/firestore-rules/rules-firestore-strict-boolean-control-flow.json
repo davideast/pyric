@@ -1,0 +1,17 @@
+{
+  "name": "rules-firestore-strict-boolean-control-flow",
+  "matrixRow": "firestore #138a",
+  "rowIds": [
+    "firestore#138a"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"strict-boolean-control-flow\" (RULES-B6). Firestore Rules requires boolean operands for &&, ||, and ternary conditions; non-booleans error and deny.",
+  "observedAt": "2026-07-21T23:32:35.681Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "non-boolean && operand errors → DENY": "DENY",
+    "non-boolean || operand errors → DENY": "DENY",
+    "non-boolean ternary condition errors → DENY": "DENY",
+    "boolean control-flow operands evaluate normally → ALLOW": "ALLOW"
+  }
+}

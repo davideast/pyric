@@ -134,12 +134,6 @@ const KNOWN_DIVERGENCES: Record<
     reason: 'simulator models request.query as an empty map where production denies the equivalent comparison',
     issue: '#135',
   },
-  'rules-firestore-int-float-and-division :: float payload is float / not int ALLOW': {
-    prodVerdict: 'ALLOW',
-    simVerdict: 'DENY',
-    reason: 'simulator narrows a float-valued payload field toward int, unlike production which preserves the float type',
-    issue: '#135',
-  },
   "rules-firestore-path-constructor-and-bind :: path() idempotent on Path arg ALLOW": {
     prodVerdict: 'DENY',
     simVerdict: 'ALLOW',
