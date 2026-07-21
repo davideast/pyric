@@ -14,7 +14,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolveStudioUiDir } from '../serve/bundler.js';
 import {
   isStandalone,
   materializeDocsUi,
@@ -318,9 +318,9 @@ export async function startServe(opts: {
   // and is identical either way.
   const t0 = performance.now();
   let bundle: { outDir: string; cached: boolean; dispose?: () => void };
-  // The worker content hash: stamped into the page (`<meta name="pyric-worker-v">`)
+  // The worker executable epoch: stamped into the page (`<meta name="pyric-worker-v">`)
   // so the page can WARN when a still-running worker is older than the served
-  // bundle. The worker NAME is stable (`pyric-shared-worker`) — all tabs share
+  // bundle. The worker NAME is origin-generation scoped — all tabs share
   // one backend — so a SharedWorker (which can't hot-update) is detected as
   // stale, not auto-replaced; the user closes all tabs to load the new worker.
   let workerVersion: string;
@@ -335,12 +335,12 @@ export async function startServe(opts: {
     // fall back to the in-page sandbox. Built alongside the SDK so a warm
     // start skips both.
     try {
-      await bundleWorker({ outDir: bundle.outDir, noCache: opts.noCache });
+      const worker = await bundleWorker({ outDir: bundle.outDir, noCache: opts.noCache });
+      workerVersion = worker.epoch;
     } catch (error) {
       bundle.dispose?.();
       throw error;
     }
-    workerVersion = workerSourceHash();
   }
   const bundleMs = Math.round(performance.now() - t0);
 

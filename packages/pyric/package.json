@@ -1,6 +1,6 @@
 {
   "name": "pyric",
-  "version": "0.1.0-alpha.10",
+  "version": "0.1.0-alpha.14",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
@@ -33,6 +33,10 @@
     "./firestore/internal": {
       "types": "./dist/firestore/internal/index.d.ts",
       "import": "./dist/firestore/internal/index.js"
+    },
+    "./firestore/internal/value-codec": {
+      "types": "./dist/firestore/internal/value-codec.d.ts",
+      "import": "./dist/firestore/internal/value-codec.js"
     },
     "./auth": {
       "types": "./dist/auth/index.d.ts",
@@ -78,10 +82,6 @@
       "types": "./dist/rules/index.d.ts",
       "import": "./dist/rules/index.js"
     },
-    "./firestore-values": {
-      "types": "./dist/firestore-values/index.d.ts",
-      "import": "./dist/firestore-values/index.js"
-    },
     "./rules/internal": {
       "types": "./dist/rules/internal/index.d.ts",
       "import": "./dist/rules/internal/index.js"
@@ -125,6 +125,7 @@
   },
   "files": [
     "dist",
+    "src",
     "README.md",
     "LICENSE"
   ],

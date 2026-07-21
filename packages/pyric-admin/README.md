@@ -21,6 +21,7 @@ loads `firebase-admin` directly.
 | `pyric-admin/auth` | Admin Auth shape |
 | `pyric-admin/database` | Admin Realtime Database shape |
 | `pyric-admin/storage` | Admin Storage shape |
+| `pyric-admin/messaging` | Admin Cloud Messaging send plane |
 
 ## Explicit sandbox setup
 
@@ -46,3 +47,4 @@ without sandbox activation and therefore resolves Firebase Admin directly.
 - [Auth API](https://pyric.dev/docs/pyric-admin-auth-reference-api/)
 - [Realtime Database API](https://pyric.dev/docs/pyric-admin-database-reference-api/)
 - [Storage API](https://pyric.dev/docs/pyric-admin-storage-reference-api/)
+- [Messaging API](https://pyric.dev/docs/pyric-admin-messaging-reference-api/)

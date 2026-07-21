@@ -64,11 +64,12 @@ describe('multi-axis conformance model', () => {
     expect(siblingEntry.supports.map(({ feature }) => feature)).not.toContain('getToken');
   });
 
-  it('scopes real native exports without scoping rules constructs or unreleased registry-only APIs', () => {
+  it('scopes published native and registry-only APIs without scoping rules constructs', () => {
     expect(canIUse(model, 'evaluateStorageRules', { importPath: 'pyric/storage' }).match).toBe('exact');
-    // Messaging Admin remains explicitly unreleased, so it cannot be used as
-    // a published import scope until it graduates from pyricUnreleasedExports.
-    expect(canIUse(model, 'send', { importPath: 'pyric-admin/messaging' }).match).toBe('none');
+    expect(canIUse(model, 'send', { importPath: 'pyric-admin/messaging' })).toMatchObject({
+      match: 'exact',
+      supports: [expect.objectContaining({ surface: 'messaging-admin', availability: 'available' })],
+    });
     expect(canIUse(model, 'getAfter', { importPath: 'pyric/rules' }).match).toBe('none');
   });
 

@@ -5,7 +5,9 @@ describe('workspace entry resolution', () => {
   it('maps published workspace exports back to source for clean-checkout generation', () => {
     expect(workspaceSourceEntry('pyric/ai')).toEndWith('packages/pyric/src/ai/index.ts');
     expect(workspaceSourceEntry('pyric/messaging/sw')).toEndWith('packages/pyric/src/messaging/sw.ts');
-    expect(workspaceSourceEntry('pyric-admin/messaging')).toBeNull();
+    expect(workspaceSourceEntry('pyric-admin/messaging')).toEndWith(
+      'packages/pyric-admin/src/messaging/index.ts',
+    );
     expect(workspaceSourceEntry('@pyric/conformance/docs')).toBeNull();
     expect(workspaceSourceEntry('firebase/ai')).toBeNull();
   });

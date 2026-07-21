@@ -55,13 +55,22 @@ The God-object rule. A single class longer than 400 lines is a design smell, not
 - Test files are the source file name plus `.test.ts`, at the mirrored path under `test/`. A test file tests exactly one source file.
 - No file is named `utils`, `helpers`, `misc`, `common`, `shared`, or `index` with implementation in it. These names are the audit signal for a junk drawer.
 
-## 3a. Documentation lives in one home
+## 3a. Documentation has one home per audience
 
-- All authored documentation lives under `packages/site-docs/src/content/`, as
+- All user-facing product documentation lives under
+  `packages/site-docs/src/content/`, as
   plain nested markdown with plain-YAML front matter (`title`, `group`, `order`,
   …). There is no second copy in a package's own `docs/` tree, and no content
   collection or zod schema — pages are discovered by `import.meta.glob` and
   validated by the site build's own assertions.
+- Repository-maintainer runbooks live under root `docs/`. They document
+  contributor-only operations such as publishing and local package testing and
+  are not duplicated into the user-facing product documentation.
+- A generated project template may include a README containing only the
+  artifact-local commands and configuration needed to run that generated
+  project. Canonical product concepts, explanations, and reference material
+  remain under `packages/site-docs/src/content/`; template READMEs link there
+  rather than becoming a second documentation set.
 - Generated documentation is never committed: the conformance matrices and the
   TypeDoc API reference are written into `packages/site-docs/src/content/_generated/`
   (gitignored) by `bun run generate` immediately before `astro build`.
@@ -217,12 +226,11 @@ packages/pyric/src/
     sandbox/                THIS surface's no-network backend
       backend.ts            the service facade (wires collaborators, owns lifecycle)
       <concept>.ts          state, query, converters/, rules-eval, sentinels, ...
-    internal.ts             host-only seam (optional; published as ./internal)
+    internal.ts | internal/ host-only seam (optional; published below ./internal)
   sandbox/                  CROSS-SURFACE runtime only (whitelist above), including
     internal/client-app.ts  neutral FirebaseApp-to-runtime adapter seam
   app/                      FirebaseApp registry + app-owned runtime/lifecycle
   rules/                    native surface (no prod/sandbox split)
-  firestore-values/         native leaf codec (no prod/sandbox split)
 ```
 
 ### Alternatives considered
@@ -256,7 +264,7 @@ app registry  ->  app runtime  ->  sandbox/ runtime
               sandbox/internal/client-app  <-  surface service factories
 
 surface barrel  ->  X/ families  ->  X/sandbox/ backend
-                                      ->  sandbox/ runtime  ->  firestore-values (leaf)
+                                      ->  sandbox/ runtime  ->  firestore/internal/value-codec (leaf)
 ```
 
 A surface depends downward on its backend and the shared runtime. A surface
@@ -283,17 +291,17 @@ Today's sideways edges, enumerated:
    `rules/rtdb/expression-engine.ts`, so importing `pyric/rules` does not compile
    the RTDB grammar.
 
-2. **firestore-values -> rules/simulator/wrappers/*, deep leaf import.**
-   `firestore-values/index.ts` imports the seven wrapper value classes (Timestamp,
+2. **firestore/internal/value-codec -> rules/simulator/wrappers/*, deep leaf import.**
+   `firestore/internal/value-codec.ts` imports the seven wrapper value classes (Timestamp,
    Bytes, LatLng, Duration, Reference, Path, Vector) by their direct leaf paths,
    to avoid executing the `pyric/rules` barrel (which pulls the parser, linter,
    and simulator, roughly 10 MB) into every serve page. This is a real sideways
    deep import. It is tolerated today only because the imported files are
    zero-dependency leaves. Ruling: this is a misfiled shared primitive, not a
-   firestore-values-specific dependency. The wrapper value classes are a leaf
-   that both `rules` and `firestore-values` should depend on downward. Target
-   (low priority, no climb blocks on it): host the wrapper classes as a shared
-   leaf (fold them into `firestore-values`, or a new `values/` leaf) and have
+   value-codec-specific dependency. The wrapper value classes are a leaf that
+   both `rules` and the internal codec should depend on downward. Target (low
+   priority, no climb blocks on it): host the wrapper classes as a shared
+   `values/` leaf and have
    `rules/simulator` import them from there. That dissolves the sideways edge.
    Until then it is a whitelisted exception (8.7 check 2). The
    `storage/sandbox/rules*.ts` engine became the wrapper leaf's SECOND sideways
@@ -333,10 +341,11 @@ no `X/sandbox/`. It still obeys the barrel, family, size, and direction rules.
   reached by package-internal consumers through the published `rules/internal`
   subpaths. No prod/sandbox split. The database sandbox consumes the RTDB engine
   through the private adapter described in 8.3 case 1.
-- **firestore-values.** A leaf value codec with two consumers (the sandbox
-  persistence serializer and the serve worker client). It is a single-file
-  native surface by design: it must stay small so the per-page bundle does not
-  drag the rules engine. See 8.3 case 2 for its one sideways edge.
+- **Firestore's internal value codec.** A leaf module with two consumers (the
+  sandbox persistence serializer and the serve worker client). Its interface is
+  published only as `pyric/firestore/internal/value-codec`; it is not a native
+  product surface. It must stay small so the per-page bundle does not drag the
+  rules engine. See 8.3 case 2 for its one sideways edge.
 - **The `pyric/sandbox` public API** is itself a native surface: `sandbox/index.ts`
   is its barrel, `sandbox/types/` its types, and the whitelist in 8.2 its
   implementation. It is the runtime every mirror surface sits on, so it lives at
@@ -392,7 +401,7 @@ its own commit, export path unchanged).
 | messaging | `messaging/broker/*` | unchanged. reference example | no move | nothing |
 | ai | `ai/broker/*` + `ai/backend.ts` + `ai/sandbox-plane.ts` | conforms. optional tidy: fold `backend.ts` and `sandbox-plane.ts` under `ai/sandbox/` for symmetry | opportunistic, next time ai backend is touched | low priority; not blocking |
 | rules | Firestore engine under `rules/*`; RTDB engine historically under `database/{grammar,constraints,simulation}` | both native engines under `rules/`, with RTDB isolated in `rules/rtdb/` | RTDB pure-engine relocation | move the RTDB grammar, constraints compiler, compiled tree, simulator, and their tests under `rules/rtdb/`; keep `pyric/rules` and `pyric/rules/internal/rtdb` import paths stable |
-| firestore-values | leaf codec, deep-imports rules wrappers | unchanged near-term; long-term host the wrapper leaf here (8.3 case 2) | deferred, no climb blocks on it | eventually the wrapper value classes move to a shared leaf; not scheduled |
+| Firestore internal value codec | leaf codec, deep-imports rules wrappers | unchanged near-term; long-term depend on a shared wrapper leaf (8.3 case 2) | deferred, no climb blocks on it | eventually the wrapper value classes move to a shared leaf; not scheduled |
 
 New code rule, restated for the table: under this convention, any firestore
 backend concept a climb adds goes in `firestore/sandbox/` even before the bulk
@@ -410,10 +419,11 @@ every rule in this section mechanically.
    that grows inline implementation.
 
 2. **No sideways surface imports.** For any file under `src/<A>/`, a relative
-   import that crosses into another surface `src/<B>/` fails, with four
+   import that crosses into another surface `src/<B>/` fails, with five
    whitelisted exceptions: (a) `database/sandbox/rules-eval.ts` importing the
    private `rules/rtdb` engine described in 8.3; (b) the
-   `firestore-values -> rules/simulator/wrappers/*` leaf edge, listed explicitly
+   `firestore/internal/value-codec -> rules/simulator/wrappers/*` leaf edge,
+   listed explicitly
    so it is visible and removable; (c) `storage/sandbox/rules.ts` importing the shared
    syntax layer `rules/grammar/{FirestoreParser,FirestoreAST}.js` (8.3 case 3,
    parse-only); (d) `storage/sandbox/rules.ts` and

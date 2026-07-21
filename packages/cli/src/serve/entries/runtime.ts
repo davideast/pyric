@@ -34,6 +34,7 @@ import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
 import type { InitPayload } from '../init-payload.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
+import { getPyricRuntimeStatus } from '../runtime/status.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
 
@@ -102,6 +103,11 @@ const diagnostics: ServeDiagnostics = {
   seedSkipped: false,
 };
 globalThis.__pyricServe = diagnostics;
+const runtimeStatus = getPyricRuntimeStatus();
+
+if (!useWorker) {
+  sandbox.onEvent((event) => runtimeStatus.recordSandboxEvents([event]));
+}
 
 let bridgeUrlFromPayload: string | null = null;
 let activityTokenFromPayload: string | null = null;
@@ -359,6 +365,7 @@ if (!useWorker) try {
   }
 } catch (e) {
   diagnostics.initError = e instanceof Error ? e.message : String(e);
+  runtimeStatus.reportError(e, 'runtime');
   console.error(
     '[pyric dev] init failed — the sandbox is running WITHOUT your project rules:',
     diagnostics.initError,
@@ -393,15 +400,21 @@ console.info(
 );
 
 let provenanceHintShown = false;
-function explainSandboxFrame(stackOrUrl: string | undefined): void {
-  if (provenanceHintShown || !stackOrUrl || !stackOrUrl.includes('/__pyric/sdk/')) return;
-  provenanceHintShown = true;
-  console.info(
-    '[pyric dev] the error above originates in the pyric sandbox shim serving firebase/*, ' +
-      'not the real Firebase SDK — behavior can differ where COMPAT coverage is incomplete.',
-  );
+function explainSandboxFrame(stackOrUrl: string | undefined): boolean {
+  if (!stackOrUrl || !stackOrUrl.includes('/__pyric/sdk/')) return false;
+  if (!provenanceHintShown) {
+    provenanceHintShown = true;
+    console.info(
+      '[pyric dev] the error above originates in the pyric sandbox shim serving firebase/*, ' +
+        'not the real Firebase SDK — behavior can differ where COMPAT coverage is incomplete.',
+    );
+  }
+  return true;
 }
 if (typeof window !== 'undefined') {
+  // Stack containment is useful provenance context, but it is NOT an ownership
+  // boundary: an app callback thrown from an SDK caller also contains an SDK
+  // frame. Explicit sandbox events and runtime catches feed the status model.
   window.addEventListener('error', (e) =>
     explainSandboxFrame(e.error instanceof Error ? (e.error.stack ?? e.filename) : e.filename),
   );
@@ -447,6 +460,7 @@ if (bridgeUrlFromPayload) {
   try {
     await connectBridgePeer(bridgeUrlFromPayload);
   } catch (e) {
+    runtimeStatus.reportError(e, 'runtime');
     console.error('[pyric dev] bridge connect failed:', e instanceof Error ? e.message : String(e));
   }
 } else if (useWorker) {
@@ -461,6 +475,7 @@ if (bridgeUrlFromPayload) {
       const url = res.ok ? ((await res.json()) as InitPayload).bridgeUrl : null;
       if (url) await connectBridgePeer(url);
     } catch (e) {
+      runtimeStatus.reportError(e, 'runtime');
       console.error('[pyric dev] bridge connect failed:', e instanceof Error ? e.message : String(e));
     }
   })();
@@ -534,6 +549,7 @@ if (!useWorker && typeof EventSource !== 'undefined') {
       diagnostics.rulesHash = rulesHash;
       console.info(`[pyric dev] firestore.rules hot-reloaded (hash ${rulesHash})`);
     } catch (err) {
+      runtimeStatus.reportError(err, 'runtime');
       console.error('[pyric dev] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
     }
   });

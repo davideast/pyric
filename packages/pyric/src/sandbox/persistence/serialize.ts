@@ -19,12 +19,12 @@
  * be detected and reported (rather than corrupting silently).
  */
 
-// The marker-based value codec lives in a STANDALONE leaf module
-// (`firestore-values`) so the SharedWorker client can rehydrate doc values
-// WITHOUT pulling the rules engine. `serialize.ts` re-uses that same codec so
-// there is exactly one rehydrate implementation — the IDB persistence format
-// and the MessagePort wire format can't drift.
-import { rehydrateDocValue } from '../../firestore-values/index.js';
+// The marker-based value codec lives behind Firestore's leaf internal seam so
+// the SharedWorker client can rehydrate doc values WITHOUT pulling the rules
+// engine. `serialize.ts` re-uses that same codec so there is exactly one
+// rehydrate implementation — the IDB persistence format and the MessagePort
+// wire format can't drift.
+import { rehydrateDocValue } from '../../firestore/internal/value-codec.js';
 
 // Re-exported so existing consumers (`sandbox/persistence/index.ts` →
 // `pyric/sandbox`) keep their import path; the implementation now lives in the

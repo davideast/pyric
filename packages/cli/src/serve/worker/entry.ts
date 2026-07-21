@@ -48,6 +48,7 @@
 // without enabling the full webworker lib.
 interface SharedWorkerGlobalScope {
   onconnect: ((e: MessageEvent) => void) | null;
+  close(): void;
 }
 
 import { createIndexedDBBackend } from 'pyric/sandbox';
@@ -65,6 +66,17 @@ import {
   type ServiceWorkerChannelMessage,
 } from './service-worker-channel.js';
 import { createServiceWorkerRelay } from './service-worker-relay.js';
+import { createWorkerRetirement } from './retirement.js';
+
+declare const __PYRIC_WORKER_VERSION__: string;
+const workerEpoch = typeof __PYRIC_WORKER_VERSION__ !== 'undefined'
+  ? __PYRIC_WORKER_VERSION__
+  : 'dev';
+const workerScope = self as unknown as SharedWorkerGlobalScope;
+const retirement = createWorkerRetirement({
+  closeWorker: () => workerScope.close(),
+  beforeAnnounce: async () => { await _ctx?.captureFlush?.(); },
+});
 
 // ─── Singleton context ────────────────────────────────────────────────────
 
@@ -125,12 +137,37 @@ async function buildCtx(): Promise<HostCtx> {
  * Each tab gets its own `MessagePort`; we start() it (required for
  * classic-mode workers to un-pause the message queue) and wire onmessage.
  */
-(self as unknown as SharedWorkerGlobalScope).onconnect = (e: MessageEvent) => {
+workerScope.onconnect = (e: MessageEvent) => {
   const port = e.ports[0];
   port.start();
+  retirement.connect(port);
 
   let messageQueue = Promise.resolve();
   port.onmessage = (ev: MessageEvent<InboundMessage>) => {
+    if (ev.data.t === 'op' && ev.data.method === 'getRuntimeEpoch') {
+      port.postMessage({
+        t: 'res',
+        id: ev.data.id,
+        ok: true,
+        value: {
+          version: workerEpoch,
+        },
+      });
+      return;
+    }
+    if (ev.data.t === 'op' && ev.data.method === 'retireRuntime') {
+      void retirement.retire(port, ev.data.id, ev.data.targetEpoch);
+      return;
+    }
+    if (!retirement.accepting()) {
+      if ('id' in ev.data) {
+        port.postMessage({
+          t: 'res', id: ev.data.id, ok: false,
+          error: { code: 'pyric/worker-retiring', message: 'The Pyric worker is restarting.' },
+        });
+      }
+      return;
+    }
     // Serialize each port's frames. A disconnect acknowledgement therefore
     // cannot overtake an already-posted mutation, and later frames see the
     // disconnected-port tombstone instead of touching the shared backend.
@@ -143,12 +180,14 @@ async function buildCtx(): Promise<HostCtx> {
         console.error('[pyric worker] message handler error:', (e as Error)?.stack ?? e, 'msg:', ev.data);
       }
     });
+    retirement.track(port, messageQueue);
   };
 
   // Best-effort port cleanup on tab close/navigation.
   // Chrome doesn't reliably fire 'close' on MessagePort — handled as
   // best-effort; subscriptions also GC when the worker itself dies.
   port.addEventListener('close', () => {
+    retirement.disconnect(port);
     if (_ctx) cleanupPort(_ctx, port as unknown as PortLike);
   });
 };
@@ -174,6 +213,11 @@ if (typeof BroadcastChannel !== 'undefined') {
   channel.onmessage = (event: MessageEvent<ServiceWorkerChannelMessage>) => {
     const envelope = event.data;
     if (envelope.direction !== 'host') return;
-    void relay.handle(envelope);
+    // A generation-targeted replacement can briefly overlap this old worker
+    // with its successor. Only the accepting generation may answer the shared
+    // service-worker relay channel, otherwise both workers would reply.
+    if (!retirement.accepting()) return;
+    const work = relay.handle(envelope);
+    retirement.trackDetached(work);
   };
 }

@@ -14,6 +14,8 @@ import { useWorker, workerDb } from './worker-runtime.js';
 import { ServeAuthHelper } from './auth-helper-core.js';
 import { installServeAuthResolver } from './auth-helper-runtime.js';
 import { mountAuthHelperDialog } from './auth-helper-dom.js';
+import { installPyricRuntimeChip } from '../runtime/chip-install.js';
+import { getPyricRuntimeStatus } from '../runtime/status.js';
 
 const localAuth = useWorker ? null : getAuth(sandbox);
 const workerAuth = useWorker && workerDb ? getWorkerAuth(workerDb) : null;
@@ -42,5 +44,6 @@ const resolver = helper.resolver();
 installServeAuthResolver(resolver);
 if (localAuth) authSandbox.setAuthFlowResolver(localAuth, resolver);
 mountAuthHelperDialog(helper);
+installPyricRuntimeChip({ runtime: getPyricRuntimeStatus(), document });
 
 export {};
