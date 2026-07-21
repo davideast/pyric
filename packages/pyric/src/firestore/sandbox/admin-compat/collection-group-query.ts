@@ -52,15 +52,6 @@ export class CollectionGroupQueryImpl extends QueryImpl {
     return { kind: 'collection-group', collectionId: this.collectionId };
   }
 
-  /**
-   * Group reads span many parent collections, so there's no single
-   * concrete collection path to evaluate the `list` rule against. Use
-   * the group id as the representative match path for the list proof.
-   */
-  protected override listRulePath(): string {
-    return this.collectionId;
-  }
-
   protected override activityScope(): unknown {
     return { kind: 'collection-group' };
   }

@@ -270,7 +270,6 @@ describe('RulesReadEngine.runQuery', () => {
     events.request.subscribe((e) => seen.push(e));
     const r = engine.runQuery({
       scope: { kind: 'collection', path: 'games' },
-      listPath: 'games',
       auth: { uid: 'u1' },
       execution,
     });
@@ -286,13 +285,35 @@ describe('RulesReadEngine.runQuery', () => {
     expect(seen[0]!.origin).toBe('user');
   });
 
+  test('derives authorization path from candidate scope', () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents {
+        match /secret/{id} { allow list: if false; }
+        match /public/{id} { allow list: if true; }
+      }
+    }`;
+    const { engine } = makeEngine(rules, { 'secret/s1': { value: 'hidden' } });
+    const request = {
+      scope: { kind: 'collection' as const, path: 'secret' },
+      auth: null,
+      execution,
+      // A pre-PR-C caller may still emit this removed field at runtime. It
+      // must never override the path derived from the captured scope.
+      listPath: 'public',
+    };
+
+    const result = engine.runQuery(request);
+
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) expect(result.error.code).toBe('permission-denied');
+  });
+
   test('denies under closed rules and emits on the denial channel', () => {
     const { engine, events } = makeEngine(CLOSED_RULES, docs);
     const denials: unknown[] = [];
     events.denial.subscribe((e) => denials.push(e));
     const r = engine.runQuery({
       scope: { kind: 'collection', path: 'games' },
-      listPath: 'games',
       auth: { uid: 'u1' },
       execution,
     });
@@ -307,7 +328,6 @@ describe('RulesReadEngine.runQuery', () => {
     events.request.subscribe((e) => seen.push(e));
     const r = engine.runQuery({
       scope: { kind: 'collection', path: 'games' },
-      listPath: 'games',
       auth: null,
       execution,
       bypassRules: true,
@@ -326,7 +346,6 @@ describe('RulesReadEngine.runQuery', () => {
 
     const result = engine.runQuery({
       scope: { kind: 'collection-group', collectionId: 'items' },
-      listPath: 'items',
       auth: null,
       execution: {
         filters: [{ kind: 'where', field: 'score', op: '>=', value: 2 }],
@@ -349,7 +368,6 @@ describe('RulesReadEngine.runQuery', () => {
     let reads = 0;
     const request = {
       scope: { kind: 'collection' as const, path: 'posts' },
-      listPath: 'posts',
       auth: null,
       get execution() {
         reads += 1;
@@ -390,7 +408,6 @@ describe('RulesReadEngine.runQuery', () => {
 
     const result = engine.runQuery({
       scope: { kind: 'collection', path: 'posts' },
-      listPath: 'posts',
       auth: null,
       execution: { filters: [filter], orders: [], limitFromEnd: false },
     });

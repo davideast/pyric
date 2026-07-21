@@ -45,6 +45,7 @@ import {
   executeQuery,
   gatherQueryRows,
   captureQueryExecutionSpec,
+  captureQueryScope,
   queryConstraintsForProof,
   type RunQueryRequest,
   type RunQueryResult,
@@ -422,16 +423,21 @@ export class RulesReadEngine implements ListenerDispatchHost {
    * rules still bubble as {@link SimulatorUnsupportedError}.
    */
   runQuery(request: RunQueryRequest): RunQueryResult {
+    const scope = captureQueryScope(request.scope);
     const execution = captureQueryExecutionSpec(request.execution);
-    const candidates = gatherQueryRows(this.state, request.scope);
+    const auth = request.auth;
+    const bypassRules = request.bypassRules;
+    const activityQuery = request.activityQuery;
+    const candidates = gatherQueryRows(this.state, scope);
+    const listPath = scope.kind === 'collection' ? scope.path : scope.collectionId;
     const proof = queryConstraintsForProof(execution);
     const read = this.readQueryCandidates(
       candidates,
-      request.listPath,
-      request.auth,
+      listPath,
+      auth,
       proof,
-      request.bypassRules,
-      request.activityQuery,
+      bypassRules,
+      activityQuery,
     );
     if (!read.allowed) return read;
     return { allowed: true, docs: executeQuery(read.docs, execution) };

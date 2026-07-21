@@ -43,7 +43,6 @@ export type QueryScope =
   | { kind: 'collection-group'; collectionId: string };
 export interface RunQueryRequest {
   readonly scope: QueryScope;
-  readonly listPath: string;
   readonly auth: { uid: string; token?: Record<string, unknown> } | null;
   readonly execution: QueryExecutionSpec;
   readonly bypassRules?: boolean;
@@ -52,6 +51,23 @@ export interface RunQueryRequest {
 export type RunQueryResult =
   | { allowed: true; docs: QueryRow[] }
   | { allowed: false; error: FirestoreSimError };
+
+/** Capture the candidate/authorization scope as one indivisible value. */
+export function captureQueryScope(input: QueryScope): QueryScope {
+  const kind = input.kind;
+  if (kind === 'collection') {
+    const path = input.path;
+    return Object.freeze({ kind, path });
+  }
+  if (kind === 'collection-group') {
+    const collectionId = input.collectionId;
+    return Object.freeze({ kind, collectionId });
+  }
+  throw new FirestoreCompatError({
+    code: 'invalid-argument',
+    message: `Unknown query scope kind: ${String(kind)}`,
+  });
+}
 
 /** Capture untrusted structural plan data exactly once at the engine boundary.
  * Opaque operands remain identity-preserving references; only the query-plan

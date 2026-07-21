@@ -260,16 +260,6 @@ export class QueryImpl implements Query {
   }
 
   /**
-   * The collection path the `list` security rule evaluates against.
-   * Defaults to this query's `collectionPath`; `CollectionGroupQueryImpl`
-   * overrides it to the group-id match path so the group `list` rule
-   * fires. Used by {@link readQueryRows}.
-   */
-  protected listRulePath(): string {
-    return this.collectionPath;
-  }
-
-  /**
    * Submit the plan and return the engine's fully executed rows. `get()` and
    * `aggregate()` both run through this rule-enforced path (FS-B1 / RULES-B1), so query
    * reads are rule-checked the same way `DocumentReference.get()` is — a
@@ -285,7 +275,6 @@ export class QueryImpl implements Query {
     try {
       result = this.env.runQuery({
         scope: this.queryScope(),
-        listPath: this.listRulePath(),
         auth,
         execution: this.executionSpec(),
         bypassRules: this.bypassRules,
