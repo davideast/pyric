@@ -20,17 +20,13 @@
 import type { DocStore, DocumentData } from './local-state.js';
 import type {
   SimulateFirestoreRulesHandler,
-  TestCase,
 } from 'pyric/rules/internal';
 import { renderLegacyDebugMessages, projectEvaluatedRule, Timestamp } from 'pyric/rules/internal';
-// RULES-B11 — query-proof gate for list reads ("rules are not filters").
-import { proveListQuery, renderQueryRemediation, type QueryConstraints } from './list-query-proof.js';
 import { makeError, type FirestoreSimError } from './errors.js';
-import type { Operation, OperationResult, ReadOperation } from './writes.js';
+import type { OperationResult, ReadOperation } from './writes.js';
 import type { ListenerAuth, QueryConstraintInput } from './snapshot-listeners.js';
 import type { ListenerDispatchHost } from './listener-dispatch.js';
 import { buildRequestEvent, type EmitRequestInput } from './request-events.js';
-import { listQueryFromStructured } from './reads.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import type { TriggerScope } from './trigger-scope.js';
 import type { RulesState } from './rules-state.js';
@@ -41,6 +37,7 @@ import {
 import { buildRulesTestCase } from './rules-test-case.js';
 import { EventLog } from './event-log.js';
 import { RulesOperationReader } from './rules-operation-reader.js';
+import { RulesListAuthorizer } from './rules-list-authorizer.js';
 import {
   executeQuery,
   gatherQueryRows,
@@ -61,6 +58,7 @@ export interface RulesReadHost {
 
 export class RulesReadEngine implements ListenerDispatchHost {
   private readonly operationReader: RulesOperationReader;
+  private readonly listAuthorizer: RulesListAuthorizer;
 
   constructor(
     private readonly events: FirestoreEventBus,
@@ -77,6 +75,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       host,
       eventLog,
     );
+    this.listAuthorizer = new RulesListAuthorizer(events, rules, simulator, host);
   }
 
   private get state(): DocStore {
@@ -87,10 +86,6 @@ export class RulesReadEngine implements ListenerDispatchHost {
   private emitRequest(input: EmitRequestInput): void {
     if (!this.events.request.hasSubscribers) return;
     this.events.request.emit(buildRequestEvent(input));
-  }
-
-  private emitDenial(err: FirestoreSimError): void {
-    this.events.denial.emit(err);
   }
 
   execute(operation: ReadOperation): OperationResult {
@@ -227,171 +222,44 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const execution = constraints
       ? captureQueryExecutionSpec(constraints.execution)
       : undefined;
-    const readServerTime = Timestamp.fromMillis(Date.now());
-    // List rules are defined at the document-match level, so the
-    // simulator expects a document-style path with a synthetic
-    // placeholder segment (matches the convention used by
-    // local-env-reads tests). Without it, a `list` against a bare
-    // collection path falls through to no match and is denied.
-    const listPath = `${collection}/__listPlaceholder__`;
-    const structured: QueryConstraints = execution
+    const structured = execution
       ? queryConstraintsForProof(execution)
       : {};
-    const requestQuery = listQueryFromStructured(structured);
-    const detailFields = {
-      ...(bypassRules ? { admin: true } : {}),
-      ...(requestQuery ? { query: requestQuery } : {}),
-      ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
-    };
-    const requestDetail = Object.keys(detailFields).length > 0 ? detailFields : undefined;
     const evalAt = Date.now();
-    const evalStart = performance.now();
+    const triggeredBy = this.triggerScope.current();
     if (bypassRules) {
       const docs = this.state.list(collection)
         .filter((document) => !document.phantom)
         .map((document) => ({ path: document.path, data: document.data }));
       const constrained = execution ? executeQuery(docs, execution) : docs;
-      this.emitRequest({
-        at: evalAt,
-        evalMs: 0,
-        method: 'list',
+      const authorization = this.listAuthorizer.authorize({
         path: collection,
         auth,
-        result: 'allow',
-        debugMessages: ['admin lens — rules bypassed'],
+        constraints: structured,
+        bypassRules,
+        ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
         origin: 'listener',
-        ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
+        ...(triggeredBy ? { triggeredBy } : {}),
+        at: evalAt,
       });
+      if (!authorization.allowed) return authorization;
       return { allowed: true, docs: constrained };
     }
-    // ── RULES-B11 gate: prove the query before evaluating the rule. ──
-    const proof = proveListQuery(this.rules.ast(), listPath, auth, structured);
-    if (proof.kind === 'unprovable') {
-      const evalMs = performance.now() - evalStart;
-      const message =
-        `list ${collection} denied: the query is statically unprovable for every possible ` +
-        `result (rules are not filters), so the whole query is rejected — ${proof.reason}`;
-      const remediation = renderQueryRemediation(proof.residual);
-      this.emitRequest({
-        at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
-        debugMessages: [message], origin: 'listener',
-        ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-      });
-      return {
-        allowed: false,
-        error: makeError('permission-denied', message, {
-          request: { method: 'list', path: collection, auth },
-          query: structured,
-          ...(remediation ? { remediation } : {}),
-        }),
-      };
-    }
-    const testCase = buildRulesTestCase(
-      this.state,
-      { method: 'list', path: listPath, auth },
-      readServerTime,
-    );
-    this.applyListProof(testCase, proof, structured);
-    // Issue #307 — time the outer list eval.
-    const simResult = this.simulator.simulate(this.rules.source, [testCase], {
-      getDoc: (path) => this.state.get(path),
+    const authorization = this.listAuthorizer.authorize({
+      path: collection,
+      auth,
+      constraints: structured,
+      ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
+      origin: 'listener',
+      ...(triggeredBy ? { triggeredBy } : {}),
+      at: evalAt,
     });
-    const evalMs = performance.now() - evalStart;
-    if (!simResult.success) {
-      this.emitRequest({
-        at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
-        debugMessages: [`Simulation error: ${simResult.error.message}`],
-        origin: 'listener',
-        ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-      });
-      return {
-        allowed: false,
-        error: makeError('permission-denied', `list ${collection} simulator error`, {
-          request: { method: 'list', path: collection, auth },
-        }),
-      };
-    }
-    const result = simResult.data.results[0]!;
-    if (result.state === 'UNSUPPORTED') {
-      this.emitRequest({
-        at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'unsupported',
-        debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
-        ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-      });
-      throw new SimulatorUnsupportedError(
-        unsupportedMessage('list', collection, renderLegacyDebugMessages(result)),
-        'list', collection, renderLegacyDebugMessages(result),
-      );
-    }
-    if (result.state !== 'PASSED') {
-      this.emitRequest({
-        at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
-        debugMessages: renderLegacyDebugMessages(result),
-        evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
-        ...(requestDetail ? { detail: requestDetail } : {}),
-        ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-      });
-      return {
-        allowed: false,
-        error: makeError('permission-denied', `list ${collection} denied by rules`, {
-          request: { method: 'list', path: collection, auth },
-        }),
-      };
-    }
-    // One allow event for the whole list — one query listener fire =
-    // one event in the consumer's stream.
-    this.emitRequest({
-      at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'allow',
-      debugMessages: renderLegacyDebugMessages(result),
-      evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
-      ...(requestDetail ? { detail: requestDetail } : {}),
-      ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-    });
-    // RULES-B11 — the proof + list-rule eval decided the WHOLE query; no
-    // per-doc `get` re-evaluation. Production queries are governed by the
-    // `list` rule alone — a per-doc filter here was the rules-as-filters
-    // divergence (docs the user couldn't `get` were silently omitted
-    // where prod would have returned them, list rule permitting).
+    if (!authorization.allowed) return authorization;
     const docs = this.state.list(collection)
-      .filter((d) => !d.phantom)
-      .map((d) => ({ path: d.path, data: d.data }));
-    // FS-B2 — apply the query's where / orderBy / cursor / limit
-    // constraints, so a filtered listener delivers the same membership a
-    // one-shot `getDocs(query(...))` would (instead of the whole
-    // collection). The proof above guaranteed the rule holds for every
-    // doc the constraints admit.
+      .filter((document) => !document.phantom)
+      .map((document) => ({ path: document.path, data: document.data }));
     const constrained = execution ? executeQuery(docs, execution) : docs;
     return { allowed: true, docs: constrained };
-  }
-
-  /**
-   * RULES-B11 — apply a PROVABLE proof to the `list` test case before the
-   * residual simulate() run:
-   *   - inject the synthetic representative `resource` (the fields the
-   *     query pins with `where(field, ==, value)`) so doc-data conjuncts
-   *     evaluate against what every returnable doc is guaranteed to carry;
-   *   - populate `request.query` from the structured constraints so rules
-   *     reading `request.query.limit` / `.orderBy` see the real values.
-   */
-  private applyListProof(
-    testCase: TestCase,
-    proof: { kind: 'provable'; syntheticResource?: Record<string, unknown> } | { kind: 'no-rule' },
-    structured: QueryConstraints,
-  ): void {
-    if (proof.kind === 'provable' && proof.syntheticResource) {
-      testCase.resource = proof.syntheticResource;
-    }
-    if (structured.limit != null || structured.offset != null || structured.orderBy != null) {
-      testCase.query = {
-        ...(structured.limit != null ? { limit: structured.limit } : {}),
-        ...(structured.offset != null ? { offset: structured.offset } : {}),
-        ...(structured.orderBy != null ? { orderBy: structured.orderBy } : {}),
-      };
-    }
   }
 
   /**
@@ -431,133 +299,15 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const candidates = gatherQueryRows(this.state, scope);
     const listPath = scope.kind === 'collection' ? scope.path : scope.collectionId;
     const proof = queryConstraintsForProof(execution);
-    const read = this.readQueryCandidates(
-      candidates,
-      listPath,
+    const authorization = this.listAuthorizer.authorize({
+      path: listPath,
       auth,
-      proof,
+      constraints: proof,
       bypassRules,
-      activityQuery,
-    );
-    if (!read.allowed) return read;
-    return { allowed: true, docs: executeQuery(read.docs, execution) };
-  }
-
-  private readQueryCandidates(
-    candidates: { path: string; data: DocumentData }[],
-    listPath: string,
-    auth: Operation['auth'],
-    query?: QueryConstraints,
-    bypassRules?: boolean,
-    activityQuery?: unknown,
-  ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
-    const structured: QueryConstraints = query ?? {};
-    const requestQuery = listQueryFromStructured(structured);
-    const requestDetail = {
-      ...(bypassRules ? { admin: true } : {}),
-      ...(requestQuery ? { query: requestQuery } : {}),
       ...(activityQuery !== undefined ? { activityQuery } : {}),
-    };
-    const detail = Object.keys(requestDetail).length > 0 ? requestDetail : undefined;
-    // Studio admin lens (Gap #2): skip the query-proof gate + `list` rule
-    // eval entirely and return every candidate. The proof model ("rules
-    // are not filters") doesn't apply when rules are off — admin sees the
-    // whole collection. Emit a single `allow` list event so the read still
-    // shows up on the traffic log, mirroring the rule-allowed branch below.
-    if (bypassRules) {
-      this.emitRequest({
-        at: Date.now(), evalMs: 0, method: 'list', path: listPath, auth, result: 'allow',
-        debugMessages: ['admin lens — rules bypassed (Studio Gap #2)'], origin: 'user',
-        ...(detail ? { detail } : {}),
-      });
-      return { allowed: true, docs: candidates };
-    }
-    const readServerTime = Timestamp.fromMillis(Date.now());
-    // List rules match at the document level, so the `list` eval needs a
-    // document-style path with a synthetic placeholder segment (same
-    // convention as silentReadCollection).
-    const placeholderPath = `${listPath}/__listPlaceholder__`;
-    const evalAt = Date.now();
-    const evalStart = performance.now();
-    // ── RULES-B11 gate: prove the query before evaluating the rule. ──
-    const proof = proveListQuery(this.rules.ast(), placeholderPath, auth, structured);
-    if (proof.kind === 'unprovable') {
-      const evalMs = performance.now() - evalStart;
-      const message =
-        `list ${listPath} denied: the query is statically unprovable for every possible ` +
-        `result (rules are not filters), so the whole query is rejected — ${proof.reason}`;
-      const remediation = renderQueryRemediation(proof.residual);
-      this.emitRequest({
-        at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'deny',
-        debugMessages: [message], origin: 'user',
-        ...(detail ? { detail } : {}),
-      });
-      const error = makeError('permission-denied', message, {
-        request: { method: 'list', path: listPath, auth },
-        query: structured,
-        ...(remediation ? { remediation } : {}),
-      });
-      this.emitDenial(error);
-      return { allowed: false, error };
-    }
-    const testCase = buildRulesTestCase(
-      this.state,
-      { method: 'list', path: placeholderPath, auth },
-      readServerTime,
-    );
-    this.applyListProof(testCase, proof, structured);
-    const simResult = this.simulator.simulate(this.rules.source, [testCase], {
-      getDoc: (path) => this.state.get(path),
+      origin: 'user',
     });
-    const evalMs = performance.now() - evalStart;
-    if (!simResult.success) {
-      this.emitRequest({
-        at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'deny',
-        debugMessages: [`Simulation error: ${simResult.error.message}`], origin: 'user',
-        ...(detail ? { detail } : {}),
-      });
-      return {
-        allowed: false,
-        error: makeError('permission-denied', `list ${listPath} simulator error`, {
-          request: { method: 'list', path: listPath, auth },
-        }),
-      };
-    }
-    const result = simResult.data.results[0]!;
-    if (result.state === 'UNSUPPORTED') {
-      this.emitRequest({
-        at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'unsupported',
-        debugMessages: renderLegacyDebugMessages(result), origin: 'user',
-        ...(detail ? { detail } : {}),
-      });
-      throw new SimulatorUnsupportedError(
-        unsupportedMessage('list', listPath, renderLegacyDebugMessages(result)),
-        'list', listPath, renderLegacyDebugMessages(result),
-      );
-    }
-    if (result.state !== 'PASSED') {
-      const debugMessages = renderLegacyDebugMessages(result);
-      this.emitRequest({
-        at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'deny',
-        debugMessages, evaluatedRule: projectEvaluatedRule(result), origin: 'user',
-        ...(detail ? { detail } : {}),
-      });
-      const error = makeError('permission-denied', `list ${listPath} denied by rules`, {
-        request: { method: 'list', path: listPath, auth },
-      });
-      this.emitDenial(error);
-      return { allowed: false, error };
-    }
-    // List allowed — one allow event covers the whole query read.
-    this.emitRequest({
-      at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'allow',
-      debugMessages: renderLegacyDebugMessages(result),
-      evaluatedRule: projectEvaluatedRule(result), origin: 'user',
-      ...(detail ? { detail } : {}),
-    });
-    // RULES-B11 — no per-doc `get` filtering: the proof + list rule
-    // decided the whole query (prod's model — the old per-doc loop was
-    // the rules-as-filters divergence this replaces).
-    return { allowed: true, docs: candidates };
+    if (!authorization.allowed) return authorization;
+    return { allowed: true, docs: executeQuery(candidates, execution) };
   }
 }
