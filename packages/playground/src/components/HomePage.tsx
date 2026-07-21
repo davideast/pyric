@@ -55,10 +55,13 @@ import { suggestRepoNameFromPrompt } from '~/lib/git/suggest-repo-name';
 import { PROVIDER_LIST, PROVIDERS } from '~/lib/llm/registry';
 import { ensureBufferPolyfill } from '~/lib/git/buffer-polyfill';
 import { useOllamaModelsStore } from '~/lib/store/ollamaModels';
+import { useLlamaServerModelsStore } from '~/lib/store/llamaServerModels';
 import {
-  importFromGitHub,
+  finalizeGitHubImport,
+  prepareGitHubImport,
   WorkspaceImportError,
 } from '~/lib/workspace/import-from-github';
+import type { WorkspaceProbeResult } from '~/lib/workspace/probe-from-repo';
 import '~/lib/debug/expose';
 import {
   isPlaygroundCommandMessage,
@@ -123,6 +126,12 @@ export function HomePage() {
   const [createRepo, setCreateRepo] = useState(false);
   const [importRepo, setImportRepo] = useState(false);
   const [selectedCloneUrl, setSelectedCloneUrl] = useState('');
+  const [pendingImport, setPendingImport] = useState<{
+    sessionId: string;
+    probe: WorkspaceProbeResult;
+    githubRepo: NonNullable<SessionMeta['githubRepo']>;
+  } | null>(null);
+  const [selectedEntryPath, setSelectedEntryPath] = useState('');
   const [reposState, setReposState] = useState<GitHubReposState>({ kind: 'idle' });
   const [startPhase, setStartPhase] = useState<string | null>(null);
   const [importBlockers, setImportBlockers] = useState<string[] | null>(null);
@@ -166,6 +175,8 @@ export function HomePage() {
       if (expanded) {
         setCreateRepo(false);
         setImportBlockers(null);
+        setPendingImport(null);
+        setSelectedEntryPath('');
         if (reposState.kind === 'idle') void loadImportRepos();
       }
     },
@@ -235,15 +246,20 @@ export function HomePage() {
 
   const handleSaveKeys = useCallback((values: Record<string, string>) => {
     let ollamaUrlChanged = false;
+    let llamaServerUrlChanged = false;
     for (const def of PROVIDER_LIST) {
       const value = values[def.id];
       if (value && value.trim().length > 0) {
         def.byok.setKey(value);
         if (def.id === 'ollama') ollamaUrlChanged = true;
+        if (def.id === 'llamaServer') llamaServerUrlChanged = true;
       }
     }
     if (ollamaUrlChanged) {
       void useOllamaModelsStore.getState().refresh();
+    }
+    if (llamaServerUrlChanged) {
+      void useLlamaServerModelsStore.getState().refresh();
     }
     setKeysTick((t) => t + 1);
     setKeysOpen(false);
@@ -381,7 +397,7 @@ export function HomePage() {
     setError(null);
     setImportBlockers(null);
     try {
-      const sessionId = newSessionId();
+      const sessionId = pendingImport?.sessionId ?? newSessionId();
       const sandboxMode = typeof window !== 'undefined'
         ? readPlaygroundSandboxMode(window.location.search)
         : 'isolated';
@@ -395,17 +411,48 @@ export function HomePage() {
             : undefined;
         if (!repo) throw new Error('Selected repository not found — refresh the repo list.');
 
-        const imported = await importFromGitHub({
-          sessionId,
-          repo,
-          onProgress: setStartPhase,
-        });
-        payload = {
-          version: 1,
-          workspace: imported.workspace,
-          conversation: [],
-        };
-        githubRepo = imported.githubRepo;
+        if (!pendingImport) {
+          const prepared = await prepareGitHubImport({ sessionId, repo, onProgress: setStartPhase });
+          if ((!prepared.scaffoldable && prepared.probe.blockers.length > 0) || !prepared.githubRepo) {
+            throw new WorkspaceImportError(prepared.probe.blockers.join('\n'), prepared.probe);
+          }
+          if (prepared.scaffoldable) {
+            payload = {
+              version: 1,
+              workspace: { rules: '', code: '', appSource: '' },
+              conversation: [],
+            };
+            githubRepo = prepared.githubRepo;
+          } else {
+            setPendingImport({
+              sessionId,
+              probe: prepared.probe,
+              githubRepo: prepared.githubRepo,
+            });
+            setSelectedEntryPath('');
+            setStarting(false);
+            setStartPhase(null);
+            return;
+          }
+        } else {
+          const appEntryPath = selectedEntryPath === '__none__' ? null : selectedEntryPath;
+          const imported = await finalizeGitHubImport({
+            probe: pendingImport.probe,
+            appEntryPath,
+            githubRepo: pendingImport.githubRepo,
+          });
+          payload = {
+            version: 1,
+            workspace: {
+              ...imported.workspace,
+              preview: appEntryPath
+                ? { mode: 'react', entryPath: appEntryPath }
+                : { mode: 'none' },
+            },
+            conversation: [],
+          };
+          githubRepo = imported.githubRepo;
+        }
       } else {
         if (createRepo) {
           const result = await createRepository({
@@ -479,7 +526,9 @@ export function HomePage() {
     selectedCloneUrl,
     patPresent,
   });
-  const canStart = importRepo ? canStartImport : canStartGithub && !!prompt.trim();
+  const canStart = importRepo
+    ? canStartImport && (!pendingImport || !!selectedEntryPath)
+    : canStartGithub && !!prompt.trim();
   const githubBlockReason = importRepo
     ? githubImportBlockReason({ importRepo, selectedCloneUrl, patPresent })
     : githubStartBlockReason({ createRepo, repoName, patPresent });
@@ -545,11 +594,19 @@ export function HomePage() {
                 importRepo={importRepo}
                 onImportRepoChange={handleImportRepoChange}
                 selectedCloneUrl={selectedCloneUrl}
-                onSelectedCloneUrlChange={setSelectedCloneUrl}
+                onSelectedCloneUrlChange={(value) => {
+                  setSelectedCloneUrl(value);
+                  setPendingImport(null);
+                  setSelectedEntryPath('');
+                }}
                 reposState={reposState}
                 onReloadRepos={loadImportRepos}
                 importBlockers={importBlockers}
                 startPhase={startPhase}
+                importPrepared={!!pendingImport}
+                importProbe={pendingImport?.probe ?? null}
+                selectedEntryPath={selectedEntryPath}
+                onSelectedEntryPathChange={setSelectedEntryPath}
                 repoName={repoName}
                 onRepoNameChange={(v) => {
                   repoNameTouchedRef.current = true;
@@ -665,6 +722,10 @@ interface PromptComposerProps {
   onReloadRepos: () => void;
   importBlockers: string[] | null;
   startPhase: string | null;
+  importPrepared: boolean;
+  importProbe: WorkspaceProbeResult | null;
+  selectedEntryPath: string;
+  onSelectedEntryPathChange: (v: string) => void;
   repoName: string;
   onRepoNameChange: (v: string) => void;
   repoNameSuggestion: string | null;
@@ -706,6 +767,10 @@ function PromptComposer({
   onReloadRepos,
   importBlockers,
   startPhase,
+  importPrepared,
+  importProbe,
+  selectedEntryPath,
+  onSelectedEntryPathChange,
   repoName,
   onRepoNameChange,
   repoNameSuggestion,
@@ -795,6 +860,27 @@ function PromptComposer({
               onOpenSettings={onOpenSettings}
             />
 
+            {importRepo && importProbe ? (
+              <label className="block rounded border border-[#3a3a48] bg-[#0f0f17] p-3 text-[12px] text-slate-gray">
+                React preview
+                <select
+                  aria-label="React preview entry"
+                  value={selectedEntryPath}
+                  onChange={(e) => onSelectedEntryPathChange(e.target.value)}
+                  className="mt-1.5 w-full rounded border border-[#2a2a35] bg-[#0f0f17] px-2 py-1.5 font-mono text-[12px] text-soft-white"
+                >
+                  <option value="">Choose an entry…</option>
+                  {importProbe.reactEntries.map((entry) => (
+                    <option key={entry.path} value={entry.path}>{entry.label}</option>
+                  ))}
+                  <option value="__none__">No preview (files and Firebase only)</option>
+                </select>
+                <span className="mt-1.5 block text-[11px]">
+                  The repository is cloned. Pick the React component to mount, or continue without a preview.
+                </span>
+              </label>
+            ) : null}
+
             <GitHubRepoSetup
               expanded={createRepo}
               onExpandedChange={onCreateRepoChange}
@@ -871,7 +957,7 @@ function PromptComposer({
               {starting
                 ? startPhase ?? (importRepo ? 'Importing…' : 'Starting…')
                 : importRepo
-                  ? 'Import & start session'
+                  ? importPrepared ? 'Start imported session' : 'Clone & inspect repository'
                   : createRepo
                     ? 'Start session & create repo'
                     : 'Start session'}

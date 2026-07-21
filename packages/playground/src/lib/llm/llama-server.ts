@@ -39,16 +39,36 @@ export const DEFAULT_LLAMA_SERVER_MODEL = FALLBACK_LLAMA_SERVER_MODELS[0]!.id;
 
 /** llama-server's default listen address. */
 const DEFAULT_LLAMA_SERVER_BASE_URL = 'http://localhost:8080';
+let transportBaseUrlOverride: string | null = null;
 
 /**
  * Resolve the base URL: the BYOK-stored override wins, else the default
  * `http://localhost:8080`. (No env-var layer like Ollama's `OLLAMA_HOST`;
  * set the URL via the key modal when it isn't the default.)
  */
-export function resolveLlamaServerBaseUrl(): string {
+export function resolveConfiguredLlamaServerBaseUrl(): string {
   const stored = llamaServerByok.getStoredKey();
   if (stored && stored.length > 0) return stored;
   return DEFAULT_LLAMA_SERVER_BASE_URL;
+}
+
+/** The route inference should use. Discovery installs the local dev
+ * proxy here when the browser cannot reach llama-server directly. */
+export function resolveLlamaServerBaseUrl(): string {
+  return transportBaseUrlOverride ?? resolveConfiguredLlamaServerBaseUrl();
+}
+
+/** Same-origin Vite proxy available only while serving the Playground
+ * locally. Production builds must continue to call the user's URL
+ * directly—the hosted server cannot reach a model on their machine. */
+export function resolveLocalLlamaServerProxyBaseUrl(): string | null {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return null;
+  if (!['localhost', '127.0.0.1'].includes(window.location.hostname)) return null;
+  return new URL('/__llama-server', window.location.origin).toString().replace(/\/$/, '');
+}
+
+export function useLlamaServerTransportBaseUrl(baseUrl: string | null): void {
+  transportBaseUrlOverride = baseUrl;
 }
 
 interface OpenAiModelsResponse {

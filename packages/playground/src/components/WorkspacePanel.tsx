@@ -21,6 +21,7 @@
 import { useEffect, useRef } from 'react';
 
 import { useFilesStore, APP_ENTRY_PATH, RULES_PATH } from '~/lib/store/files';
+import { useWorkspaceStore } from '~/lib/store/workspace';
 import type { AgentPromptProfile } from '~/lib/skills/registry';
 
 import { AppPreview } from './AppPreview';
@@ -55,7 +56,8 @@ export function WorkspacePanel({
 }: WorkspacePanelProps) {
   const activeFilePath = useFilesStore((s) => s.activeFilePath);
   const setActiveFilePath = useFilesStore((s) => s.setActiveFilePath);
-  const tabs = workspaceTabsForProfile(promptProfile);
+  const previewEnabled = useWorkspaceStore((s) => s.preview.mode === 'react');
+  const tabs = workspaceTabsForProfile(promptProfile, previewEnabled);
   const active = tabs.some((tab) => tab.id === activeTab)
     ? activeTab
     : (tabs[0]!.id as WorkspaceTabId);

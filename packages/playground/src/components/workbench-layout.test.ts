@@ -18,6 +18,13 @@ describe('Playground workbench layout helpers', () => {
     ]);
   });
 
+  test('no-preview workspaces omit the Preview tab', () => {
+    expect(workspaceTabsForProfile('app-builder', false).map((tab) => tab.id)).toEqual([
+      'firebase',
+      'file',
+    ]);
+  });
+
   test('app-builder Firebase workbench has no production deploy surface', () => {
     expect(firebaseSubTabsForProfile('app-builder').map((tab) => tab.id)).toEqual([
       'sandbox',

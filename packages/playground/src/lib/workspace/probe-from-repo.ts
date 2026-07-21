@@ -31,8 +31,8 @@ export interface WorkspaceFileMappings {
   contentRoot: string;
   /** Absolute VFS path to rules source file. */
   rulesPath: string;
-  /** Absolute VFS path to React app entry. */
-  appEntryPath: string;
+  /** Absolute VFS path to React app entry, absent for no-preview imports. */
+  appEntryPath: string | null;
   /** Canonical playground targets after materialize. */
   canonical: {
     rulesPath: typeof RULES_PATH;
@@ -47,6 +47,13 @@ export interface WorkspaceProbeResult {
   blockers: string[];
   warnings: string[];
   mappings: WorkspaceFileMappings | null;
+  reactEntries: WorkspaceReactEntryCandidate[];
+}
+
+export interface WorkspaceReactEntryCandidate {
+  path: string;
+  label: string;
+  exportName: string;
 }
 
 export interface WorkspaceProbeInput {
@@ -56,6 +63,7 @@ export interface WorkspaceProbeInput {
   listFiles?: (root: string) => Promise<string[]>;
   /** Read UTF-8 file contents; return null when missing. */
   readFile: (path: string) => Promise<string | null>;
+  selectedAppEntryPath?: string | null;
 }
 
 /** package.json dependency names that imply a non-playground stack. */
@@ -170,6 +178,38 @@ export function discoverAppEntry(
   return null;
 }
 
+const REACT_ENTRY_EXT = /\.(?:tsx|jsx)$/;
+const REACT_ENTRY_EXCLUDE = /\/(?:node_modules|dist|build|coverage|\.git)\//;
+
+/** Discover renderable React component modules, including monorepo package roots. */
+export async function discoverReactEntries(
+  allFiles: string[],
+  contentRoot: string,
+  readFile: (path: string) => Promise<string | null>,
+): Promise<WorkspaceReactEntryCandidate[]> {
+  const paths = allFiles.filter((path) =>
+    path.startsWith(`${contentRoot}/`) &&
+    REACT_ENTRY_EXT.test(path) &&
+    !REACT_ENTRY_EXCLUDE.test(path) &&
+    !/\.(?:test|spec)\.(?:tsx|jsx)$/.test(path),
+  );
+  const found = await Promise.all(paths.map(async (path) => {
+    const source = await readFile(path);
+    if (!source) return null;
+    if (!/(?:from\s+['"]react['"]|<\/?[A-Za-z]|React\.)/.test(source)) return null;
+    const named = source.match(/\bexport\s+(?:function|const|class)\s+([A-Z][A-Za-z0-9_]*)/);
+    const exportName = /\bexport\s+default\b/.test(source) ? 'default' : named?.[1];
+    if (!exportName) return null;
+    return { path, label: path.slice(contentRoot.length + 1), exportName };
+  }));
+  const conventional = new Map(APP_ENTRY_RELATIVE.map(({ rel }, i) => [rel, i]));
+  return found.filter((v): v is WorkspaceReactEntryCandidate => !!v).sort((a, b) => {
+    const ar = conventional.get(a.label) ?? 100;
+    const br = conventional.get(b.label) ?? 100;
+    return ar - br || a.label.localeCompare(b.label);
+  });
+}
+
 export function discoverTestPaths(allFiles: string[], contentRoot: string): string[] {
   const prefix = `${joinPath(contentRoot, TESTS_DIR)}/`;
   return allFiles
@@ -273,7 +313,8 @@ function computeTier(
   hasRules: boolean,
   hasApp: boolean,
 ): WorkspaceProbeTier {
-  if (blockers.length > 0 || !hasRules || !hasApp) return 'red';
+  if (blockers.length > 0 || !hasRules) return 'red';
+  if (!hasApp) return 'yellow';
   if (
     layout === 'playground-native' &&
     warnings.length === 0
@@ -292,7 +333,7 @@ function computeTier(
  */
 export async function probeWorkspaceFiles(
   allFiles: string[],
-  input: Pick<WorkspaceProbeInput, 'readFile'> & { root?: string },
+  input: Pick<WorkspaceProbeInput, 'readFile' | 'selectedAppEntryPath'> & { root?: string },
 ): Promise<WorkspaceProbeResult> {
   const workspaceRoot = input.root ?? WORKSPACE_ROOT;
   const blockers: string[] = [];
@@ -306,8 +347,17 @@ export async function probeWorkspaceFiles(
   }
 
   const rulesPath = discoverRulesPath(allFiles, contentRoot);
-  const appHit = discoverAppEntry(allFiles, contentRoot);
-  const appPath = appHit?.path ?? null;
+  const reactEntries = await discoverReactEntries(allFiles, contentRoot, input.readFile);
+  const requestedEntry = input.selectedAppEntryPath;
+  const conventionalHit = discoverAppEntry(allFiles, contentRoot);
+  const appPath = requestedEntry === null
+    ? null
+    : requestedEntry && reactEntries.some((entry) => entry.path === requestedEntry)
+      ? requestedEntry
+      : reactEntries.length === 1
+        ? reactEntries[0]!.path
+        : conventionalHit?.path ?? null;
+  const appHit = appPath ? APP_ENTRY_RELATIVE.find(({ rel }) => joinPath(contentRoot, rel) === appPath) : null;
   const layout = classifyLayout(contentRoot, appHit?.kind ?? null, rulesPath, appPath);
 
   if (!rulesPath) {
@@ -316,10 +366,10 @@ export async function probeWorkspaceFiles(
     );
   }
 
-  if (!appPath) {
-    blockers.push(
-      `No supported app entry found — expected src/App.tsx (or src/App.jsx / src/generated/app-source.tsx) under ${contentRoot}.`,
-    );
+  if (!appPath && reactEntries.length === 0) {
+    warnings.push('No React app entry found — import can continue without a live preview.');
+  } else if (!appPath) {
+    warnings.push('Choose a React entry for the live preview, or continue without one.');
   } else if (layout === 'pyric-init-web') {
     blockers.push(
       'Repo uses pyric init web (public/app.js) — playground preview requires a React TSX entry; import not supported yet.',
@@ -331,7 +381,11 @@ export async function probeWorkspaceFiles(
     const pkgText = await input.readFile(pkgPath);
     if (pkgText) {
       const pkg = analyzePackageJson(pkgText);
-      blockers.push(...pkg.blockers);
+      if (requestedEntry === null) {
+        warnings.push(...pkg.blockers.map((message) => `${message} Continue without a preview.`));
+      } else {
+        blockers.push(...pkg.blockers);
+      }
       warnings.push(...pkg.warnings);
     }
   }
@@ -342,9 +396,6 @@ export async function probeWorkspaceFiles(
       const scan = scanEntryImports(entryText);
       blockers.push(...scan.blockers);
       warnings.push(...scan.warnings);
-      if (!/\bexport\s+default\b/.test(entryText)) {
-        warnings.push('App entry has no `export default` — preview expects a default-exported React component.');
-      }
     } else {
       warnings.push(`Could not read app entry at ${appPath}.`);
     }
@@ -355,7 +406,7 @@ export async function probeWorkspaceFiles(
   const tier = computeTier(blockers, warnings, layout, !!rulesPath, !!appPath);
 
   const mappings: WorkspaceFileMappings | null =
-    rulesPath && appPath
+    rulesPath
       ? {
           contentRoot,
           rulesPath,
@@ -368,7 +419,7 @@ export async function probeWorkspaceFiles(
         }
       : null;
 
-  return { tier, layout, blockers, warnings, mappings };
+  return { tier, layout, blockers, warnings, mappings, reactEntries };
 }
 
 /** Probe the live session VFS under {@link WORKSPACE_ROOT}. */
@@ -389,5 +440,5 @@ export async function probeWorkspace(
     });
 
   const allFiles = await listFiles(root);
-  return probeWorkspaceFiles(allFiles, { root, readFile });
+  return probeWorkspaceFiles(allFiles, { root, readFile, selectedAppEntryPath: input.selectedAppEntryPath });
 }

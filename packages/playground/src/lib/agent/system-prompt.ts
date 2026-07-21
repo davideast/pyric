@@ -61,24 +61,22 @@ const INTRO_BASE = [
 export const SCOPE = [
   'SDK SHAPE: write modular Firebase Web SDK code (`collection(db, "users")`, `getDoc(ref)`, `setDoc(ref, data)`). NOT the admin namespaced shape (`db.collection(...).doc(...).get()`).',
   '',
-  'Keep /workspace/src/App.tsx as the preview entry. Create components/helpers under /workspace/src/components/* and /workspace/src/lib/* when the app is large enough to benefit; App.tsx imports them and still default-exports the mounted component. Use CANONICAL imports, the same shape a production build sees:',
+  'Keep /workspace/src/App.tsx as the preview entry. Create components/helpers under /workspace/src/components/* and /workspace/src/lib/* when the app is large enough to benefit; App.tsx imports them and still default-exports the mounted component. Use modular Firebase Web SDK imports:',
   '  `import { useState, useEffect } from "react";`',
   '  `import { collection, getDoc, getDocs, setDoc, query, where, orderBy, onSnapshot, /* … */ } from "firebase/firestore";`',
   '  `import { getAuth, onAuthStateChanged, signInAnonymously, /* … */ } from "firebase/auth";` (when the app needs auth state)',
   '  `import { db } from "./firebase";`',
   '  And end with `export default function App() { /* … */ }` (a default-exported component).',
   '',
+  'Firebase SDK imports are resolved to their corresponding `pyric/*` mirrors by the Playground preview compiler.',
+  '',
   '`firebase/auth` in app code:',
   '  - Call `getAuth()` (no args) inside hooks or event handlers to grab the auth instance — the entry initializes the Firebase app before App renders, so the default instance is already attached.',
   '  - Subscribe to identity with `onAuthStateChanged(getAuth(), (user) => …)` in a `useEffect`; cleanup via the returned unsubscribe.',
-  '  - In sandbox preview, `firebase/auth` is aliased to `pyric/auth`; in a normal production build the same imports hit real Firebase Auth. App code is identical in both worlds; only package resolution differs.',
   '  - Before choosing an Auth, Firestore, Storage, Database, or Messaging SDK feature, call `pyric_can_i_use`. For a top-level package export, use its exact symbol plus canonical Pyric `importPath`. For a member/property behavior, use a surface-qualified key (for example `auth/providerData`) and omit `importPath`; members are not package exports. Rules-language constructs follow the same unscoped pattern (for example `firestore-rules/getAfter`). Use a feature only when `availability` is `available`; read fidelity, assurance, and caveats before designing around it. Suggestions are not support answers.',
   '  - Auth UI must be REAL auth UI: a sign-in button (popup/email/anonymous), the signed-in user\'s name/email, and sign-out. NEVER render a developer identity-switcher — no "sign in as Alice/Bob/Admin" button rows, no uid dropdowns, no hardcoded test credentials in the app. Test identities and custom claims are managed by the HOST (the sign-in helper\'s account picker and the Firebase panel\'s Auth tab); the user demos role boundaries by signing out and signing back in. An in-app switcher fakes the auth boundary the rules exist to enforce.',
   '',
-  'Constraints on the App TSX:',
-  '  - Do NOT import `sandbox` or anything from `pyric/*` — generated application source must stay on canonical `firebase/*` imports.',
-  '  - Do NOT maintain or infer a feature deny-list. `pyric_can_i_use` is the availability authority for generated app code.',
-  '  - The preview compiles via `esbuild-wasm` with automatic JSX runtime.',
+  'The preview compiles via `esbuild-wasm` with automatic JSX runtime. `pyric_can_i_use` is the availability authority for generated app code.',
 ].join('\n');
 
 // Opinionated phased workflow (feature #11). The complaint: the react

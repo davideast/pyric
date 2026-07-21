@@ -81,9 +81,14 @@ const mirrorRoutes: Record<string, (content: string) => void> = {
 export function notifyVfsWrite(path: string, content: string): void {
   const route = mirrorRoutes[path];
   if (route) route(content);
+  const preview = useWorkspaceStore.getState().preview;
+  const isSelectedEntry = preview.mode === 'react' && preview.entryPath === path;
+  if (isSelectedEntry && path !== APP_ENTRY_PATH) {
+    useWorkspaceStore.getState().setAppSource(content);
+  }
   const files = useFilesStore.getState();
   files.bumpTree();
-  if (path.startsWith(`${SRC_DIR}/`)) files.bumpSrc();
+  if (path.startsWith(`${SRC_DIR}/`) || isSelectedEntry) files.bumpSrc();
 }
 
 /**
@@ -93,7 +98,11 @@ export function notifyVfsWrite(path: string, content: string): void {
  * always bumps the tree, and src when applicable.
  */
 export function notifyVfsPathChanged(path: string): void {
-  const route = mirrorRoutes[path];
+  const preview = useWorkspaceStore.getState().preview;
+  const isSelectedEntry = preview.mode === 'react' && preview.entryPath === path;
+  const route = mirrorRoutes[path] ?? (isSelectedEntry
+    ? (content: string) => useWorkspaceStore.getState().setAppSource(content)
+    : undefined);
   if (route) {
     try {
       void getVFS()
@@ -106,7 +115,7 @@ export function notifyVfsPathChanged(path: string): void {
   }
   const files = useFilesStore.getState();
   files.bumpTree();
-  if (path.startsWith(`${SRC_DIR}/`)) files.bumpSrc();
+  if (path.startsWith(`${SRC_DIR}/`) || isSelectedEntry) files.bumpSrc();
 }
 
 /**

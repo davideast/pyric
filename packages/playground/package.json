@@ -20,7 +20,8 @@
     "test": "bun test src functions scripts",
     "test:can-i-use": "bun test test/lib/tools/core/can-i-use.test.ts src/lib/agent/system-prompt-brief.test.ts src/lib/tools/index.test.ts && bun scripts/check-can-i-use-bundle.ts",
     "preview:proof": "bun scripts/preview-proof.ts",
-    "preview:proof:headed": "bun scripts/preview-proof.ts --headed"
+    "preview:proof:headed": "bun scripts/preview-proof.ts --headed",
+    "import:proof": "bun scripts/import-entry-proof.ts"
   },
   "dependencies": {
     "@astrojs/node": "^9.0.0",

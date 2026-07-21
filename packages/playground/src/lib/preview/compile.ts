@@ -25,13 +25,17 @@ import { APP_ENTRY_PATH } from '~/lib/store/files';
 
 import { getEsbuild } from './esbuild-service';
 import { installPreviewScope, type PreviewScope } from './preview-scope';
+import {
+  dependenciesForEntry,
+  discoverWorkspacePackageExports,
+  repoCdnPlugin,
+} from './repo-imports-plugin';
 import { vfsLoadPlugin } from './vfs-load-plugin';
 import { virtualImportsPlugin } from './virtual-imports-plugin';
 
 // Entry path inside the OPFS VFS. The string passed into compileApp
 // is the entry file's content; relative imports inside it resolve
 // against this path through `vfsLoadPlugin`.
-const ENTRY_PATH = APP_ENTRY_PATH;
 const ENTRY_NAMESPACE = 'pyric-preview-entry';
 const GLOBAL_NAME = '__pyricCompiledApp__';
 const REQUIRE_GLOBAL = '__pyricPreviewRequire__';
@@ -55,7 +59,11 @@ export interface CompileFailure {
 
 export type CompileResult = CompileSuccess | CompileFailure;
 
-export async function compileApp(source: string): Promise<CompileResult> {
+export async function compileApp(source: string, entryPath: string = APP_ENTRY_PATH): Promise<CompileResult> {
+  const namedComponent = source.match(/\bexport\s+(?:function|const|class)\s+([A-Z][A-Za-z0-9_]*)/)?.[1];
+  const entrySource = !/\bexport\s+default\b/.test(source) && namedComponent
+    ? `${source}\nexport default ${namedComponent};\n`
+    : source;
   let esbuild: Awaited<ReturnType<typeof getEsbuild>>;
   try {
     esbuild = await getEsbuild();
@@ -74,12 +82,12 @@ export async function compileApp(source: string): Promise<CompileResult> {
   const entryPlugin: Plugin = {
     name: 'pyric-preview-entry',
     setup(build: PluginBuild) {
-      build.onResolve({ filter: new RegExp(`^${escapeRegex(ENTRY_PATH)}$`) }, () => ({
-        path: ENTRY_PATH,
+      build.onResolve({ filter: new RegExp(`^${escapeRegex(entryPath)}$`) }, () => ({
+        path: entryPath,
         namespace: ENTRY_NAMESPACE,
       }));
       build.onLoad({ filter: /.*/, namespace: ENTRY_NAMESPACE }, () => ({
-        contents: source,
+        contents: entrySource,
         loader: 'tsx' as const,
       }));
     },
@@ -98,13 +106,18 @@ export async function compileApp(source: string): Promise<CompileResult> {
   }
 
   const hasCdnImports = Object.keys(userImportMap).length > 0;
+  const [workspacePackages, repoDependencies] = await Promise.all([
+    discoverWorkspacePackageExports(),
+    dependenciesForEntry(entryPath),
+  ]);
 
   let result: Awaited<ReturnType<typeof esbuild.build>>;
   try {
     result = await esbuild.build({
-      entryPoints: [ENTRY_PATH],
+      entryPoints: [entryPath],
       bundle: true,
       write: false,
+      outdir: '/out',
       format: 'iife',
       globalName: GLOBAL_NAME,
       jsx: 'automatic',
@@ -114,8 +127,19 @@ export async function compileApp(source: string): Promise<CompileResult> {
         entryPlugin,
         virtualImportsPlugin(),
         cdnImportPlugin(userImportMap),
-        vfsLoadPlugin(),
+        vfsLoadPlugin({ entryPath, workspacePackages }),
+        repoCdnPlugin(repoDependencies),
       ],
+      define: {
+        'import.meta.env.DEV': 'true',
+        'import.meta.env.PROD': 'false',
+        'import.meta.env.BASE_URL': '"/"',
+        'import.meta.env.PUBLIC_FIREBASE_CONFIG': '"{}"',
+        'import.meta.env.PUBLIC_GIS_CLIENT_ID': 'null',
+        'import.meta.env.PUBLIC_OLLAMA_HOST': 'null',
+        'import.meta.env.PUBLIC_INFERENCE_ACCESS_TOKEN': 'null',
+        'import.meta.env.PUBLIC_PLAYGROUND_STATIC': '"false"',
+      },
       // When the user has installed packages, esbuild's IIFE output
       // turns each `external: true` import into a synchronous
       // `require(...)` call. Hoist a script-scoped alias for that
@@ -149,7 +173,7 @@ export async function compileApp(source: string): Promise<CompileResult> {
     }
   }
 
-  const out = result.outputFiles?.[0];
+  const out = result.outputFiles?.find((file) => file.path.endsWith('.js')) ?? result.outputFiles?.[0];
   if (!out) {
     return { ok: false, message: 'esbuild produced no output' };
   }

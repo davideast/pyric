@@ -103,6 +103,8 @@ export interface SessionPayload {
     databaseRules?: string;
     code: string;
     appSource: string;
+    /** Explicit preview policy for imported repositories. Legacy sessions default to React. */
+    preview?: { mode: 'react'; entryPath: string } | { mode: 'none' };
   };
   /** Chat / conversation messages. Opaque to this module — the
    *  workspace page owns the shape and writes whatever it stores in

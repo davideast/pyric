@@ -8,6 +8,9 @@
  *     or ask the agent.
  */
 import { create } from 'zustand';
+import { APP_ENTRY_PATH } from './files';
+
+export type WorkspacePreview = { mode: 'react'; entryPath: string } | { mode: 'none' };
 
 // 2026-06-11 — backend-IR removal hygiene. The removed backend-IR
 // feature persisted a crawl of the user's REAL Firebase project under
@@ -22,18 +25,22 @@ interface WorkspaceState {
   rules: string;
   databaseRules: string;
   appSource: string;
+  preview: WorkspacePreview;
   setRules: (next: string) => void;
   setDatabaseRules: (next: string) => void;
   setAppSource: (next: string) => void;
+  setPreview: (next: WorkspacePreview) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   rules: '',
   databaseRules: '',
   appSource: '',
+  preview: { mode: 'react', entryPath: APP_ENTRY_PATH },
   setRules: (rules) => set({ rules }),
   setDatabaseRules: (databaseRules) => set({ databaseRules }),
   setAppSource: (appSource) => set({ appSource }),
+  setPreview: (preview) => set({ preview }),
 }));
 
 // ─── Test-only seed hatch ────────────────────────────────────────────

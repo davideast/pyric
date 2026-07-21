@@ -8,8 +8,7 @@
  * `react` imports — the same shape a production build sees. The
  * preview compiles via `esbuild-wasm` and aliases those imports
  * to pyric-flavored values exposed on
- * `globalThis.__pyricPreview__`. `sandbox.*` is deliberately not
- * in scope here — it belongs to the runner (`code` artifact) only.
+ * `globalThis.__pyricPreview__`.
  *
  * Recompile is async. No HMR semantics — every recompile is a
  * fresh mount, so any local useState resets.
@@ -23,6 +22,16 @@
 import * as React from 'react';
 import * as ReactJsxRuntime from 'react/jsx-runtime';
 import * as ReactJsxDevRuntime from 'react/jsx-dev-runtime';
+import * as ReactDOM from 'react-dom';
+import * as ReactDOMClient from 'react-dom/client';
+import * as PyricApp from 'pyric/app';
+import * as PyricFirestore from 'pyric/firestore';
+import * as PyricAuth from 'pyric/auth';
+import * as PyricDatabase from 'pyric/database';
+import * as PyricStorage from 'pyric/storage';
+import * as PyricMessaging from 'pyric/messaging';
+import * as PyricMessagingSw from 'pyric/messaging/sw';
+import * as PyricCliConformanceBrowser from '@pyric/cli/conformance/browser';
 import {
   getFirestore,
   onSnapshot,
@@ -105,7 +114,7 @@ import type { Sandbox } from 'pyric/sandbox';
 import { compileApp, type CompileResult } from '~/lib/preview/compile';
 import type { PreviewScope } from '~/lib/preview/preview-scope';
 import { useWorkspaceStore } from '~/lib/store/workspace';
-import { useFilesStore } from '~/lib/store/files';
+import { APP_ENTRY_PATH, useFilesStore } from '~/lib/store/files';
 import {
   getWorkerDb,
   getPlaygroundRuntime,
@@ -151,17 +160,16 @@ function buildFixPrompt(kind: 'compile' | 'runtime', body: string): string {
     '- Export the component as `export default function App() { … }`.',
     '- Use the MODULAR Firestore shape (`collection(db, "users")`, `getDoc(ref)`,',
     '  `setDoc(ref, data)`) — not `db.collection(...).get()`.',
-    '- `firebase/auth` IS available in app code (aliased to `pyric/auth` in',
-    '  sandbox preview, real `firebase/auth` in a production build). Call `getAuth()` inside',
+    '- Firebase SDK imports resolve to their corresponding `pyric/*` preview mirrors. Call `getAuth()` inside',
     '  hooks; subscribe with `onAuthStateChanged(getAuth(), …)` in a `useEffect`.',
-    '- The `sandbox` global is NOT available in app code — only in runner `code`.',
-    '- Import from canonical `firebase/*` paths; the Playground compiler owns the sandbox mapping.',
     'After editing, call runOnce to make sure rules still pass.',
   ].join('\n');
 }
 
 export function AppPreview({ onFixRequest, onOpenDenials }: AppPreviewProps) {
   const appSource = useWorkspaceStore((s) => s.appSource);
+  const preview = useWorkspaceStore((s) => s.preview);
+  const entryPath = preview.mode === 'react' ? preview.entryPath : APP_ENTRY_PATH;
   // Recompile triggers, debounced TOGETHER:
   //  - appSource: the App.tsx entry text (store mirror).
   //  - srcVersion: bumps on ANY /workspace/src/ mutation — esbuild reads
@@ -201,14 +209,14 @@ export function AppPreview({ onFixRequest, onOpenDenials }: AppPreviewProps) {
       return;
     }
     let cancelled = false;
-    compileApp(debounced).then((result) => {
+    compileApp(debounced, entryPath).then((result) => {
       if (!cancelled) setCompile({ result, forKey: resetKey });
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetKey]);
+  }, [resetKey, entryPath]);
 
   if (!compile) {
     return (
@@ -278,7 +286,12 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
       react: React,
       'react/jsx-runtime': ReactJsxRuntime as unknown as Record<string, unknown>,
       'react/jsx-dev-runtime': ReactJsxDevRuntime as unknown as Record<string, unknown>,
-      'firebase/firestore': {
+      'react-dom': ReactDOM,
+      'react-dom/client': ReactDOMClient,
+      '@pyric/cli/conformance/browser': PyricCliConformanceBrowser,
+      'pyric/app': PyricApp,
+      'pyric/firestore': {
+        ...PyricFirestore,
         // `getFirestore` is wrapped so a bare `getFirestore()` call
         // in app code (the canonical
         // `import { getFirestore } from "firebase/firestore"` shape)
@@ -341,7 +354,8 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
       // shape) defaults to the runner's sandbox in the preview. In a
       // production build the canonical import resolves directly to
       // Firebase, so app code stays portable between worlds.
-      'firebase/auth': {
+      'pyric/auth': {
+        ...PyricAuth,
         getAuth: shared
           ? (((target?: unknown) => sharedWorkerRuntime.getAuth(
               target && typeof target === 'object' && '__kind' in target
@@ -372,10 +386,6 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
         browserLocalPersistence,
         browserSessionPersistence,
         inMemoryPersistence,
-        // Preview-only sandbox driver — `seedUsers`, `setUser`,
-        // `mockSignInResult`. Lets preview tests pre-stage
-        // test users with customClaims. Generated application source
-        // must not use this host-only testing capability.
         sandbox: authSandbox,
       },
       // `firebase/database` is aliased to `pyric/database` at preview-
@@ -383,10 +393,8 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
       // `getAuth` / `getFirestore` above: a bare `getDatabase()`
       // call with no args defaults to the runner's sandbox so app
       // code stays portable between sandbox preview and production.
-      // The `sandbox.*` test-driver namespace from `pyric/database`
-      // is intentionally NOT exposed to app code — that's runner-
-      // side only.
-      'firebase/database': {
+      'pyric/database': {
+        ...PyricDatabase,
         getDatabase: shared
           ? ((() => sharedWorkerRuntime.rtdbGetDatabase(workerDb!)) as unknown as typeof getDatabase)
           : ((target?: Parameters<typeof getDatabase>[0]) =>
@@ -403,6 +411,9 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
         serverTimestamp: shared ? sharedWorkerRuntime.rtdbServerTimestamp : rtdbServerTimestamp,
         connectDatabaseEmulator: shared ? sharedWorkerRuntime.rtdbConnectDatabaseEmulator : connectDatabaseEmulator,
       },
+      'pyric/storage': PyricStorage,
+      'pyric/messaging': PyricMessaging,
+      'pyric/messaging/sw': PyricMessagingSw,
       './firebase': { db: shared ? workerDb : runner!.getDb() },
     };
     const resolved = evaluate(scope as unknown as PreviewScope, shared ? { runtime: 'shared-worker' } : runner!.getSandbox());
