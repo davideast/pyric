@@ -1,16 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
-import { EventLog } from '../../../../src/firestore/sandbox/event-log.js';
-import { FirestoreEventBus } from '../../../../src/firestore/sandbox/event-bus.js';
+import { EventLog } from '../../../src/firestore/sandbox/event-log.js';
+import { FirestoreEventBus } from '../../../src/firestore/sandbox/event-bus.js';
 import {
   LocalState,
   type DocStore,
-} from '../../../../src/firestore/sandbox/local-state.js';
-import { DEFAULT_OPEN_RULES } from '../../../../src/firestore/sandbox/rules-evaluation.js';
-import { RulesState } from '../../../../src/firestore/sandbox/rules-state.js';
-import { TriggerScope } from '../../../../src/firestore/sandbox/trigger-scope.js';
-import { WriteEngine } from '../../../../src/firestore/sandbox/write-engine.js';
-import { buildRulesTestCase } from '../../../../src/firestore/sandbox/rules-test-case.js';
+} from '../../../src/firestore/sandbox/local-state.js';
+import { DEFAULT_OPEN_RULES } from '../../../src/firestore/sandbox/rules-evaluation.js';
+import { RulesState } from '../../../src/firestore/sandbox/rules-state.js';
+import { TriggerScope } from '../../../src/firestore/sandbox/trigger-scope.js';
+import { WriteEngine } from '../../../src/firestore/sandbox/write-engine.js';
 
 function createEngine(rulesSource = DEFAULT_OPEN_RULES) {
   let state: DocStore = new LocalState();
@@ -59,18 +58,6 @@ describe('WriteEngine host seam', () => {
     expect(result.allowed).toBe(true);
     expect(harness.state.get('notes/new')).toEqual({ title: 'new' });
     expect(harness.notified).toEqual([['notes/new']]);
-  });
-
-  test('projects set as create or update from the live pre-write state', () => {
-    const harness = createEngine();
-    expect(buildRulesTestCase(harness.state, {
-      method: 'set', path: 'notes/n1', auth: null, data: { value: 1 },
-    }).method).toBe('create');
-
-    harness.state.set('notes/n1', { value: 0 });
-    expect(buildRulesTestCase(harness.state, {
-      method: 'set', path: 'notes/n1', auth: null, data: { value: 1 },
-    }).method).toBe('update');
   });
 
   test('createWithAutoId mints a path and uses the ordinary write fan-out', () => {

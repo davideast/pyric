@@ -67,10 +67,6 @@ import {
 
 
 
-
-
-
-
 export class LocalEnvironment {
   private state: DocStore;
   private eventLog: EventLog;
