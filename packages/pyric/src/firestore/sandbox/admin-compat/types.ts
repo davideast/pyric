@@ -20,6 +20,7 @@ import {
   boundedActivityIdentity,
   registerActivityValue,
 } from '../../../firestore/sandbox/activity-value-registry.js';
+import type { SnapshotFieldPath } from './field-path.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — what agent code calls.
@@ -74,6 +75,7 @@ export interface DocumentSnapshot {
   readonly ref: DocumentReference;
   readonly exists: boolean;
   data(): DocumentData | undefined;
+  get(fieldPath: SnapshotFieldPath): unknown;
 }
 
 export interface QueryDocumentSnapshot extends DocumentSnapshot {

@@ -19,6 +19,10 @@ import type { Operation } from './local-environment.js';
 // `typeName` field and no `nanoseconds`). `read-translation.ts` carries no
 // admin-compat-surface dependency, so importing it here is cycle-free.
 import { translateReadData } from './admin-compat/read-translation.js';
+import {
+  getSnapshotField,
+  type SnapshotFieldPath,
+} from './admin-compat/field-path.js';
 // RULES-B11 — structured `where`/`limit`/`orderBy` view of a query, consumed
 // by the listener path's query-proof gate ("rules are not filters").
 import type { QueryConstraints } from '../../rules/simulator/query-proof.js';
@@ -224,7 +228,7 @@ export interface DocumentSnapshot {
    * Dotted paths supported. Missing intermediate keys yield `undefined`
    * — production behavior; agents commonly chain optional reads.
    */
-  get(fieldPath: string): unknown;
+  get(fieldPath: SnapshotFieldPath): unknown;
 }
 
 /**
@@ -292,22 +296,6 @@ export const SANDBOX_METADATA_PENDING: SnapshotMetadata = Object.freeze({
 
 // ─── Snapshot construction helpers ───────────────────────────────────
 
-/**
- * Walk a dotted path against a data tree. Returns `undefined` on any
- * missing intermediate or non-object node — matching production's
- * forgiving accessor (Web SDK `DocumentSnapshot.get`).
- */
-function getByPath(data: DocumentData | undefined, fieldPath: string): unknown {
-  if (data === undefined) return undefined;
-  const parts = fieldPath.split('.');
-  let cur: unknown = data;
-  for (const p of parts) {
-    if (cur === null || cur === undefined || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[p];
-  }
-  return cur;
-}
-
 function lastSegment(path: string): string {
   const i = path.lastIndexOf('/');
   return i === -1 ? path : path.slice(i + 1);
@@ -335,7 +323,7 @@ export function buildDocumentSnapshot(
     metadata,
     exists: () => exists,
     data: () => translated,
-    get: (fieldPath: string) => getByPath(translated, fieldPath),
+    get: (fieldPath) => getSnapshotField(translated, fieldPath),
   };
 }
 
@@ -353,7 +341,7 @@ function buildQueryDocumentSnapshot(
     metadata,
     exists: () => true,
     data: () => translated,
-    get: (fieldPath: string) => getByPath(translated, fieldPath),
+    get: (fieldPath) => getSnapshotField(translated, fieldPath),
   };
 }
 

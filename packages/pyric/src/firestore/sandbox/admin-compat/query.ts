@@ -35,6 +35,7 @@ import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { generateAutoId } from 'pyric/sandbox/internal';
 import { lastSegment } from './paths.js';
 import { translateReadData } from './snapshots.js';
+import { getSnapshotField } from './field-path.js';
 import { DocumentRefImpl } from './doc-ref.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
 // Canonical Firestore value comparison (FS-B3) — type-order-aware,
@@ -786,6 +787,7 @@ export class QueryImpl implements Query {
         ref,
         exists: true,
         data: () => translated,
+        get: (fieldPath) => getSnapshotField(translated, fieldPath),
       };
     });
     return {
