@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { synthesizeVirtualModule } from './virtual-imports-plugin';
+import { synthesizeVirtualModule } from '../../../src/lib/preview/virtual-imports-plugin';
 
 describe('firebase/database preview exports', () => {
   it('synthesizes the child-listener exports used by first-user app source', () => {
