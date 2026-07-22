@@ -11,6 +11,8 @@ import type {
   DataSnapshot,
   QueryConstraint,
   TransactionResult,
+  Query,
+  DatabaseReference,
 } from '../../src/database/index.js';
 
 type BothWays<Left, Right> =
@@ -23,7 +25,7 @@ function assertBothWays<Value extends true>(): Value {
 }
 
 describe('RTDB public type parity', () => {
-  it('exports the six census-visible types with upstream-compatible shapes', () => {
+  it('exports census-visible types with upstream-compatible shapes', () => {
     const emulator = assertBothWays<BothWays<
       EmulatorMockTokenOptions,
       FirebaseDatabase.EmulatorMockTokenOptions
@@ -45,6 +47,8 @@ describe('RTDB public type parity', () => {
     const snapshotToFirebase = (snapshot: DataSnapshot): FirebaseDatabase.DataSnapshot => snapshot;
     const constraintToFirebase = (constraint: QueryConstraint): FirebaseDatabase.QueryConstraint => constraint;
     const transactionToFirebase = (result: TransactionResult): FirebaseDatabase.TransactionResult => result;
+    const queryToFirebase = (value: Query): FirebaseDatabase.Query => value;
+    const referenceToFirebase = (value: DatabaseReference): FirebaseDatabase.DatabaseReference => value;
 
     expect([emulator, event, listen, constraint, transaction]).toEqual([
       true, true, true, true, true,
@@ -56,6 +60,8 @@ describe('RTDB public type parity', () => {
       snapshotToFirebase,
       constraintToFirebase,
       transactionToFirebase,
+      queryToFirebase,
+      referenceToFirebase,
     ].every((value) => typeof value === 'function')).toBe(true);
   });
 });

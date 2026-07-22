@@ -1,6 +1,7 @@
 import type { JsonValue } from './sandbox/data-tree.js';
 import { applyConstraint, emptySpec, type QuerySpec } from './sandbox/query.js';
-import { buildConstraint, isQuery } from './query-shape.js';
+import { buildConstraint, isQuery, queryIdentifier } from './query-shape.js';
+import { targetOf } from './routing.js';
 import { CONSTRAINT_SYMBOL, QUERY_SYMBOL, type DatabaseReference, type Query, type QueryConstraint } from './types.js';
 
 // ─── Queries (Tier 3) ────────────────────────────────────────────────
@@ -48,7 +49,7 @@ export function query(
   for (const c of constraints) {
     spec = applyConstraint(spec, c[CONSTRAINT_SYMBOL]);
   }
-  if (spec.orderBy?.kind === 'priority') {
+  if (spec.orderBy === null || spec.orderBy.kind === 'priority') {
     for (const bound of spec.bounds) {
       const value = bound.value;
       if (value !== null && typeof value !== 'string'
@@ -63,6 +64,19 @@ export function query(
     ref: baseRef,
     _spec: spec,
     [QUERY_SYMBOL]: true,
+    isEqual(other: Query | null) {
+      if (!other || typeof other !== 'object' || !('ref' in other) || !('_spec' in other)) return false;
+      try {
+        return targetOf(other.ref as unknown as object) === targetOf(baseRef as unknown as object)
+          && other.ref._path === baseRef._path
+          && queryIdentifier(other._spec) === queryIdentifier(spec);
+      } catch {
+        return false;
+      }
+    },
+    toJSON() {
+      return baseRef.toString();
+    },
     toString() {
       return baseRef.toString();
     },

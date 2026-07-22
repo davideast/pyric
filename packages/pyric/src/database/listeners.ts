@@ -2,7 +2,8 @@ import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf, type Target } from './routing.js';
-import { isQuery } from './query-shape.js';
+import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
+import type { QueryRow } from './sandbox/query.js';
 import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
 import { child } from './references.js';
 import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
@@ -51,7 +52,7 @@ function subscribeWithLiveAuth(
 }
 
 function queryScope(r: DatabaseReference | Query): string {
-  return isQuery(r as object) ? JSON.stringify((r as Query)._spec) : 'default';
+  return queryIdentifier(r._spec);
 }
 
 /**
@@ -77,6 +78,16 @@ export function onValue(
   cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
   options?: ListenOptions,
 ): Unsubscribe {
+  return onValueInternal(r, cb, cancelCallbackOrOptions, options, cb);
+}
+
+function onValueInternal(
+  r: DatabaseReference | Query,
+  cb: (snap: DataSnapshot) => void,
+  cancelCallbackOrOptions: ((error: Error) => void) | ListenOptions | undefined,
+  options: ListenOptions | undefined,
+  registryCallback: (snap: DataSnapshot) => void,
+): Unsubscribe {
   const cancelCallback = typeof cancelCallbackOrOptions === 'function'
     ? cancelCallbackOrOptions
     : undefined;
@@ -98,7 +109,7 @@ export function onValue(
       if (unsub) unsub();
       cb(snap);
     };
-    unsub = onValue(r, onceCb, cancelCallback);
+    unsub = onValueInternal(r, onceCb, cancelCallback, undefined, registryCallback);
     // Synchronous initial fire: `onceCb` ran before `unsub` was set, so
     // remove the now-stale listener here.
     if (fired) unsub();
@@ -112,14 +123,8 @@ export function onValue(
     const q = r as Query;
     const target = targetOf(q.ref as unknown as object);
     const scope = queryScope(q);
-    const deliver = (raw: { val: JsonValue; key: string | null }): void => {
-      const rows = raw.val !== null && typeof raw.val === 'object' && !Array.isArray(raw.val)
-        ? Object.entries(raw.val as Record<string, JsonValue>).map(([key, value]) => ({
-          key,
-          value,
-          priority: target.backend.getPriority(child(q.ref, key)._path),
-        }))
-        : [];
+    const deliver = (raw: { val: JsonValue; key: string | null; rows?: QueryRow[] }): void => {
+      const rows = raw.rows ?? [];
       const snap = buildSandboxQuerySnap(target, q.ref, rows);
       try {
         cb(snap);
@@ -134,7 +139,7 @@ export function onValue(
     let registration: ListenerRegistration | undefined;
     const unregister = (): void => {
       if (registration) {
-        listenerRegistry.removeExact(target, q.ref._path, 'value', cb, registration, scope);
+        listenerRegistry.removeExact(target, q.ref._path, 'value', registryCallback, registration, scope);
       }
     };
     const subscribed = target.admin
@@ -155,7 +160,7 @@ export function onValue(
       ? () => { unregister(); subscribed(); }
       : subscribed;
     registration = { unsubscribe: unsub };
-    listenerRegistry.add(target, q.ref._path, 'value', cb, registration, scope);
+    listenerRegistry.add(target, q.ref._path, 'value', registryCallback, registration, scope);
     return unsub;
   }
   const ref0 = r as DatabaseReference;
@@ -171,7 +176,7 @@ export function onValue(
   };
   let registration: ListenerRegistration | undefined;
   const unregister = (): void => {
-    if (registration) listenerRegistry.removeExact(target, ref0._path, 'value', cb, registration);
+    if (registration) listenerRegistry.removeExact(target, ref0._path, 'value', registryCallback, registration);
   };
   const subscribed = target.admin
     ? target.backend.adminOnValue(ref0._path, wrapper)
@@ -191,7 +196,7 @@ export function onValue(
     ? () => { unregister(); subscribed(); }
     : subscribed;
   registration = { unsubscribe: unsub };
-  listenerRegistry.add(target, ref0._path, 'value', cb, registration);
+  listenerRegistry.add(target, ref0._path, 'value', registryCallback, registration);
   return unsub;
 }
 
@@ -274,10 +279,9 @@ export function onChildRemoved(
  *
  * Semantics (oracle: `rtdb-modular-onchildmoved-with-orderby`):
  *
- *   - Only fires under an ordered query (`query(ref, orderByChild(...))`).
- *   - Under a plain ref, this listener is effectively a no-op — the
- *     upstream SDK accepts the subscription but never fires it
- *     (matches RTDB docs).
+ *   - Explicit queries use their active `orderBy*` index.
+ *   - Plain refs use Firebase's default priority index, so changing a
+ *     child's priority can move it while an ordinary value-only write does not.
  *
  * Accepts a {@link Query} and fires when the active ordered value changes,
  * including the Firebase `previousChildName` second callback argument.
@@ -323,7 +327,7 @@ function subscribeChild(
       unsubscribe();
       cb(snap, previousChildName);
     };
-    unsubscribe = onChildEvent(r, event, wrapped, cancelCallback);
+    unsubscribe = onChildEvent(r, event, wrapped, cancelCallback, cb);
     attaching = false;
     if (initial.length > 0) {
       stopped = true;
@@ -350,7 +354,7 @@ function subscribeChild(
     unsubscribe?.();
     cb(snap, event === 'child_removed' ? null : previousChildName);
   };
-  unsubscribe = onChildEvent(r, event, once, cancelCallback);
+  unsubscribe = onChildEvent(r, event, once, cancelCallback, cb);
   // Initial child_added delivery is synchronous, before `unsubscribe` is
   // assigned. Remove the registration after attachment in that case.
   if (fired) unsubscribe();
@@ -386,6 +390,7 @@ function onChildEvent(
   event: ChildEvent,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
   cancelCallback?: (error: Error) => void,
+  registryCallback = cb,
 ): Unsubscribe {
   // Unwrap a Query into its base ref + spec; a plain ref has no spec.
   const isQ = isQuery(r as object);
@@ -413,7 +418,7 @@ function onChildEvent(
   let registration: ListenerRegistration | undefined;
   const unregister = (): void => {
     if (registration) {
-      listenerRegistry.removeExact(target, baseRef._path, event, cb, registration, scope);
+      listenerRegistry.removeExact(target, baseRef._path, event, registryCallback, registration, scope);
     }
   };
   const unsub = subscribeWithLiveAuth(
@@ -430,7 +435,7 @@ function onChildEvent(
     unregister,
   );
   registration = { unsubscribe: unsub };
-  listenerRegistry.add(target, baseRef._path, event, cb, registration, scope);
+  listenerRegistry.add(target, baseRef._path, event, registryCallback, registration, scope);
   return unsub;
 }
 
@@ -457,7 +462,7 @@ export function off(
   callback?: (snap: DataSnapshot) => void,
 ): void {
   const baseRef = isQuery(r as object) ? (r as Query).ref : r as DatabaseReference;
-  const scope = isQuery(r as object) ? queryScope(r) : undefined;
+  const scope = isQuery(r as object) && !isDefaultQuerySpec(r._spec) ? queryScope(r) : undefined;
   const target = targetOf(baseRef as unknown as object);
   if (callback !== undefined && eventType !== undefined) {
     listenerRegistry.takeFirst(target, baseRef._path, eventType, callback, scope)?.unsubscribe();

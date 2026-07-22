@@ -23,7 +23,11 @@ import {
   off,
   query,
   orderByChild,
+  startAt,
+  endAt,
   limitToLast,
+  setPriority,
+  setWithPriority,
   sandbox as rtdbSandbox,
 } from '../../../src/database/index.js';
 
@@ -369,6 +373,26 @@ describe('off() variants (oracle: rtdb-modular-off-stops-child-fires)', () => {
     expect({ queryFires, refFires }).toEqual({ queryFires: 1, refFires: 2 });
   });
 
+  it('off(query) recognizes equivalent constraints supplied in a different order', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    let queryFires = 0;
+    onValue(query(parent, orderByChild('v'), startAt(1), endAt(3)), () => { queryFires++; });
+    off(query(parent, endAt(3), orderByChild('v'), startAt(1)));
+    await set(ref(db, 'parent/a'), { v: 2 });
+    expect(queryFires).toBe(1);
+  });
+
+  it('off(query(ref)) removes a listener registered on the equivalent reference', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    let refFires = 0;
+    onValue(parent, () => { refFires++; });
+    off(query(parent));
+    await set(ref(db, 'parent/a'), { v: 1 });
+    expect(refFires).toBe(1);
+  });
+
   it('off(ref) removes listeners across every query view at that path', async () => {
     const { db } = setup();
     const parent = ref(db, 'parent');
@@ -426,6 +450,27 @@ describe('off() variants (oracle: rtdb-modular-off-stops-child-fires)', () => {
     await set(ref(db, 'parent/k2'), { v: 2 });
     expect(firesA).toBe(1); // off
     expect(firesB).toBe(2); // still listening
+  });
+
+  it('off(ref, eventType, cb) matches the user callback behind onlyOnce wrappers', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    await setWithPriority(ref(db, 'parent/a'), { value: 1 }, 1);
+    await setWithPriority(ref(db, 'parent/b'), { value: 2 }, 2);
+    const fires = { changed: 0, removed: 0, moved: 0 };
+    const changed = (): void => { fires.changed++; };
+    const removed = (): void => { fires.removed++; };
+    const moved = (): void => { fires.moved++; };
+    onChildChanged(parent, changed, { onlyOnce: true });
+    onChildRemoved(parent, removed, { onlyOnce: true });
+    onChildMoved(parent, moved, { onlyOnce: true });
+    off(parent, 'child_changed', changed);
+    off(parent, 'child_removed', removed);
+    off(parent, 'child_moved', moved);
+    await set(ref(db, 'parent/a'), { value: 10 });
+    await setPriority(ref(db, 'parent/b'), 0);
+    await remove(ref(db, 'parent/a'));
+    expect(fires).toEqual({ changed: 0, removed: 0, moved: 0 });
   });
 
   it('returned-unsubscribe from onChildAdded is functionally equivalent to off()', async () => {

@@ -75,7 +75,7 @@ import { normalizeWrite, coerceArrays } from './normalize.js';
 export interface ValueListener {
   id: string;
   auth: AuthState;
-  cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void;
+  cb: (snap: ValueListenerSnapshot) => void;
   path: string;
   cancelCallback?: (error: Error) => void;
   /** Stops the client-owned live-auth registration after terminal denial. */
@@ -106,6 +106,14 @@ export interface ValueListener {
    * last value of `null` is stored as `null`, distinct from `undefined`).
    */
   lastValue?: JsonValue;
+}
+
+interface ValueListenerSnapshot {
+  val: JsonValue;
+  exists: boolean;
+  key: string | null;
+  /** Preserves executor order for integer-looking keys in query listeners. */
+  rows?: QueryRow[];
 }
 
 /**
@@ -275,6 +283,14 @@ export class RtdbBackend {
   private replacePriority(path: string, priority: Priority): void {
     this.clearPrioritiesAtOrBelow(path);
     if (priority !== null) this.priorities.set(joinPath(pathSegments(path)), priority);
+  }
+
+  private priorityStateAtOrBelow(path: string): string {
+    const canonical = joinPath(pathSegments(path));
+    const prefix = canonical === '/' ? '/' : `${canonical}/`;
+    return JSON.stringify([...this.priorities]
+      .filter(([key]) => key === canonical || key.startsWith(prefix))
+      .sort(([a], [b]) => a.localeCompare(b)));
   }
 
   private applyPriorityEffectsForUpdate(writes: Array<{ path: string; value: JsonValue }>): void {
@@ -577,11 +593,13 @@ export class RtdbBackend {
       resourceAfter: { data: resolved, exists: resolved !== null },
     });
     const priors = this.snapshotChildListenerParents();
+    const priorPriorityState = this.priorityStateAtOrBelow(path);
     this.tree.write(path, resolved);
     this.replacePriority(path, resolved === null ? null : priority);
+    const priorityChanged = priorPriorityState !== this.priorityStateAtOrBelow(path);
     this.markMutation(path);
-    this.fanOut([path]);
-    this.fanOutChildren(priors);
+    this.fanOut([path], priorityChanged ? path : undefined);
+    this.fanOutChildren(priors, priorityChanged ? path : undefined);
     const after = this.tree.read(path);
     const method = after === null ? 'remove' : 'set';
     this.emitCommit(null, method, path, {
@@ -674,10 +692,13 @@ export class RtdbBackend {
     validatePriority(priority);
     if (this.tree.read(path) === null) return;
     const priors = this.snapshotChildListenerParents();
+    const previousPriority = this.getPriority(path);
     if (priority === null) this.priorities.delete(joinPath(pathSegments(path)));
     else this.priorities.set(joinPath(pathSegments(path)), priority);
     this.markMutation(path);
-    this.fanOutChildren(priors, path);
+    const priorityChanged = previousPriority !== priority;
+    if (priorityChanged) this.fanOut([path], path);
+    this.fanOutChildren(priors, priorityChanged ? path : undefined);
     this.notifyWrite();
   }
 
@@ -769,11 +790,13 @@ export class RtdbBackend {
       resourceAfter,
     });
     const priors = this.snapshotChildListenerParents();
+    const priorPriorityState = this.priorityStateAtOrBelow(path);
     this.tree.write(path, resolved);
     this.replacePriority(path, resolved === null ? null : priority);
+    const priorityChanged = priorPriorityState !== this.priorityStateAtOrBelow(path);
     this.markMutation(path);
-    this.fanOut([path]);
-    this.fanOutChildren(priors);
+    this.fanOut([path], priorityChanged ? path : undefined);
+    this.fanOutChildren(priors, priorityChanged ? path : undefined);
     // A write that pruned to nothing (`set(ref, null)` / `set(ref, {})`)
     // is semantically a remove; label it as such even if it arrived via
     // `set`. `after` is the post-write value at the path (`null` when the
@@ -814,10 +837,13 @@ export class RtdbBackend {
     }
     if (current === null) return;
     const priors = this.snapshotChildListenerParents();
+    const previousPriority = this.getPriority(path);
     if (priority === null) this.priorities.delete(joinPath(pathSegments(path)));
     else this.priorities.set(joinPath(pathSegments(path)), priority);
     this.markMutation(path);
-    this.fanOutChildren(priors, path);
+    const priorityChanged = previousPriority !== priority;
+    if (priorityChanged) this.fanOut([path], path);
+    this.fanOutChildren(priors, priorityChanged ? path : undefined);
     this.notifyWrite();
   }
 
@@ -1035,7 +1061,7 @@ export class RtdbBackend {
   onValue(
     auth: AuthState,
     path: string,
-    cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void,
+    cb: (snap: ValueListenerSnapshot) => void,
     query?: QuerySpec,
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
@@ -1097,7 +1123,7 @@ export class RtdbBackend {
    */
   adminOnValue(
     path: string,
-    cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void,
+    cb: (snap: ValueListenerSnapshot) => void,
     query?: QuerySpec,
   ): () => void {
     return this.attachValueListener(null, path, cb, query, {
@@ -1118,7 +1144,7 @@ export class RtdbBackend {
   private attachValueListener(
     auth: AuthState,
     path: string,
-    cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void,
+    cb: (snap: ValueListenerSnapshot) => void,
     query: QuerySpec | undefined,
     provenance: {
       origin: 'listener' | 'admin';
@@ -1162,6 +1188,7 @@ export class RtdbBackend {
         val: rowsToVal(initialWindow),
         exists: initialWindow.length > 0,
         key: this.keyForPath(path),
+        rows: initialWindow,
       };
       try {
         cb(snap);
@@ -1264,7 +1291,7 @@ export class RtdbBackend {
    * paths or is an ancestor/descendant of any (the listener observes
    * the subtree it's watching, so any descendant write triggers).
    */
-  private fanOut(touched: string[]): void {
+  private fanOut(touched: string[], priorityChangedPath?: string): void {
     if (this.valueListeners.size === 0) return;
     const touchedSet = touched.map((p) => joinPath(pathSegments(p)));
     for (const listener of this.valueListeners) {
@@ -1277,6 +1304,9 @@ export class RtdbBackend {
         if (lp === '/') return true;
         // Touched is a descendant of the listener's path → fires.
         if (tp.startsWith(lpp)) return true;
+        // A priority belongs only to its node, so changing an ancestor's
+        // priority does not change a descendant snapshot.
+        if (priorityChangedPath !== undefined) return false;
         // Touched is an ancestor of the listener's path → also fires
         // (the listener's subtree might be different now).
         if (lp.startsWith(tpp)) return true;
@@ -1306,6 +1336,7 @@ export class RtdbBackend {
           val: rowsToVal(nextWindow),
           exists: nextWindow.length > 0,
           key: this.keyForPath(listener.path),
+          rows: nextWindow,
         };
         this.emitListener('delivery', listener, listener.auth, {
           event: 'value',
@@ -1332,7 +1363,8 @@ export class RtdbBackend {
       // unchanged must NOT re-fire — RTDB's SyncTree dedups no-change.
       const snap = this.makeSnap(listener.path);
       const last = listener.lastValue;
-      if (last !== undefined && jsonValuesEqual(last, snap.val)) {
+      if (priorityChangedPath === undefined
+        && last !== undefined && jsonValuesEqual(last, snap.val)) {
         this.emitListener('suppressed', listener, listener.auth, {
           event: 'value',
           reason: 'no-op',
@@ -1609,8 +1641,8 @@ export class RtdbBackend {
    *   - `child_removed`: no initial replay. Fires when a child is
    *     deleted (its value transitions to absent). Snapshot carries
    *     the PRIOR (now-removed) value.
-   *   - `child_moved`: fires on a position-changing priority update for
-   *     plain refs, or when an explicit query's active order changes.
+   *   - `child_moved`: fires for the reprioritized direct child even when
+   *     its predecessor is unchanged, matching Firebase's priority index.
    *
    * Rules check happens at subscribe time, identical to `onValue`. A
    * denied subscribe throws the plain-`Error` `PERMISSION_DENIED`
@@ -1879,23 +1911,13 @@ export class RtdbBackend {
       if (changedPriorityKey !== null) {
         const priorIndex = priorEntries.findIndex((row) => row.key === changedPriorityKey);
         const nextIndex = nextEntries.findIndex((row) => row.key === changedPriorityKey);
-        if (priorIndex >= 0 && nextIndex >= 0 && priorIndex !== nextIndex) {
-          const crossedKeys = new Set(
-            priorIndex > nextIndex
-              ? priorEntries.slice(nextIndex, priorIndex).map((row) => row.key)
-              : priorEntries.slice(priorIndex + 1, nextIndex + 1).map((row) => row.key),
-          );
-          const crossed = nextEntries.filter((row) => crossedKeys.has(row.key));
+        if (priorIndex >= 0 && nextIndex >= 0) {
           const reprioritized = nextEntries[nextIndex]!;
           moved = [{
             key: reprioritized.key,
             val: reprioritized.val,
             previousChildName: previousNameFromValues(nextEntries, reprioritized.key),
-          }, ...crossed.map((row) => ({
-            key: row.key,
-            val: row.val,
-            previousChildName: previousNameFromValues(crossed, row.key),
-          }))];
+          }];
         }
       }
       for (const listener of listeners) {
@@ -1980,27 +2002,13 @@ export class RtdbBackend {
           if (changedPriorityKey !== null) {
             const priorIndex = prior.findIndex((row) => row.key === changedPriorityKey);
             const nextIndex = next.findIndex((row) => row.key === changedPriorityKey);
-            if (priorIndex >= 0 && nextIndex >= 0 && priorIndex !== nextIndex) {
-              // Firebase first emits the reprioritized child, then the
-              // siblings it crossed in their resulting relative order. The
-              // crossed-sibling predecessors are computed with the changed
-              // child omitted (captured by rtdb-modular-priority-contract).
-              const crossedKeys = new Set(
-                priorIndex > nextIndex
-                  ? prior.slice(nextIndex, priorIndex).map((row) => row.key)
-                  : prior.slice(priorIndex + 1, nextIndex + 1).map((row) => row.key),
-              );
-              const crossed = next.filter((row) => crossedKeys.has(row.key));
+            if (priorIndex >= 0 && nextIndex >= 0) {
               const changed = next[nextIndex]!;
               events = [{
                 key: changed.key,
                 val: changed.value,
                 previousChildName: previousName(next, changed.key),
-              }, ...crossed.map((row) => ({
-                key: row.key,
-                val: row.value,
-                previousChildName: previousName(crossed, row.key),
-              }))];
+              }];
               break;
             }
           }
@@ -2283,6 +2291,7 @@ function windowsEqual(a: QueryRow[], b: QueryRow[]): boolean {
     const ai = a[i]!;
     const bi = b[i]!;
     if (ai.key !== bi.key) return false;
+    if (ai.priority !== bi.priority) return false;
     if (!jsonValuesEqual(ai.value, bi.value)) return false;
   }
   return true;

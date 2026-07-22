@@ -473,6 +473,10 @@ describe('RTDB CDD climb row cases', () => {
         orderByPriority(),
         startAt(invalid as never),
       )).toThrow(priorityObservation.invalidPriorityBounds.boolean.message);
+      expect(() => query(
+        target,
+        startAt(invalid as never),
+      )).toThrow(priorityObservation.invalidPriorityBounds.defaultBoolean.message);
     }
   });
 
@@ -484,15 +488,39 @@ describe('RTDB CDD climb row cases', () => {
     await setWithPriority(ref(first, 'priority-move/c'), { value: 3 }, 5);
     const moved: Array<[string | null, string | null]> = [];
     const plainMoved: Array<[string | null, string | null]> = [];
+    let orderedValueDeliveries = 0;
     onChildMoved(query(target, orderByPriority()), (snap, previous) => {
       moved.push([snap.key, previous]);
     });
     onChildMoved(target, (snap, previous) => {
       plainMoved.push([snap.key, previous]);
     });
+    onValue(query(target, orderByPriority()), () => { orderedValueDeliveries++; });
     await setPriority(ref(first, 'priority-move/a'), 0);
     expect(moved).toEqual(priorityObservation.moved);
     expect(plainMoved).toEqual(priorityObservation.plainMoved);
+    expect(orderedValueDeliveries).toBe(priorityObservation.orderedValueDeliveriesAfterMove);
+    await setPriority(ref(first, 'priority-move/c'), 6);
+    expect(orderedValueDeliveries).toBe(
+      priorityObservation.orderedValueDeliveriesAfterSamePositionChange,
+    );
+    expect(moved.slice(priorityObservation.moved.length)).toEqual(
+      priorityObservation.samePositionMoved,
+    );
+    expect(plainMoved.slice(priorityObservation.plainMoved.length)).toEqual(
+      priorityObservation.samePositionPlainMoved,
+    );
+    const beforeNoopPriority = {
+      moved: moved.length,
+      plainMoved: plainMoved.length,
+      orderedValueDeliveries,
+    };
+    await setPriority(ref(first, 'priority-move/c'), 6);
+    expect({
+      moved: moved.length,
+      plainMoved: plainMoved.length,
+      orderedValueDeliveries,
+    }).toEqual(beforeNoopPriority);
     expect((await get(ref(first, 'priority-move/a'))).exportVal()).toEqual(
       priorityObservation.afterMove.exportVal,
     );
@@ -502,6 +530,11 @@ describe('RTDB CDD climb row cases', () => {
       value: ((current as { value: number }).value ?? 0) + 1,
     }));
     expect((await get(ref(first, 'priority-move/a'))).priority).toBe(priorityObservation.afterTransaction);
+    await set(ref(first, 'priority-move/b'), { value: 20 });
+    await setPriority(ref(first, 'priority-move/c'), null);
+    expect(moved).toEqual(priorityObservation.allMoved);
+    expect(plainMoved).toEqual(priorityObservation.allPlainMoved);
+    expect(orderedValueDeliveries).toBe(priorityObservation.totalOrderedValueDeliveries);
   });
 
   it('rtdb-modular#157 accumulates concurrent increment sentinels', async () => {

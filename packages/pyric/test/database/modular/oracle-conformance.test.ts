@@ -215,7 +215,7 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect(Object.getPrototypeOf(constraint) === (constructor as Function).prototype).toBe(
         (obs.queryConstraint as Record<string, boolean>).prototypeIsExportPrototype,
       );
-      expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
+      expect(Object.getOwnPropertyNames(Object.getPrototypeOf(constraint) as object).sort()).toEqual(
         (obs.queryConstraint as Record<string, unknown>).prototypeKeys,
       );
       const factories = {
@@ -334,6 +334,36 @@ describe('oracle conformance (rtdb-modular)', () => {
       const expected = obs.forgedReference as Record<string, unknown>;
       const actual = await invocationShape(() => get({} as never));
       expect(actual).toEqual({ timing: expected.timing, name: expected.name });
+    });
+
+    it('rtdb-modular#M93 preserves Query and DatabaseReference equality and JSON shape', () => {
+      const obs = load('rtdb-modular-reference-shape-url.json');
+      const expected = obs.queryIdentity as Record<string, unknown>;
+      const first = setup();
+      const second = setup();
+      const target = ref(first.db, 'parent/child');
+      const same = child(ref(first.db, 'parent'), 'child');
+      const constrained = query(target, orderByValue(), startAt(1), endAt(2));
+      const equivalent = query(target, endAt(2), orderByValue(), startAt(1));
+      expect({
+        referenceToJSON: typeof target.toJSON(),
+        queryToJSON: typeof constrained.toJSON(),
+        sameReference: target.isEqual(same),
+        defaultQueryEqualsReference: target.isEqual(query(target)),
+        referenceEqualsDefaultQuery: query(target).isEqual(target),
+        equivalentConstraintOrder: constrained.isEqual(equivalent),
+        differentSpec: constrained.isEqual(query(target, orderByValue(), startAt(2))),
+        differentPath: target.isEqual(ref(first.db, 'other')),
+        differentApp: target.isEqual(ref(second.db, 'parent/child')),
+        nullValue: target.isEqual(null),
+        nonQuery: target.isEqual({} as never),
+      }).toEqual({
+        ...expected,
+        referenceToJSON: 'string',
+        queryToJSON: 'string',
+      });
+      expect(target.toJSON()).toBe(target.toString());
+      expect(constrained.toJSON()).toBe(constrained.toString());
     });
 
     it('rtdb-modular#111 set resolves undefined', async () => {

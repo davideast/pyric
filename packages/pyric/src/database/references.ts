@@ -1,6 +1,8 @@
 import { joinPath, pathSegments } from './sandbox/data-tree.js';
+import { emptySpec } from './sandbox/query.js';
 import { tag, targetOf, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
-import type { Database, DatabaseReference } from './types.js';
+import { QUERY_SYMBOL, type Database, type DatabaseReference, type Query } from './types.js';
+import { queryIdentifier } from './query-shape.js';
 
 // ─── Reference constructors ──────────────────────────────────────────
 
@@ -62,6 +64,11 @@ export function buildSandboxRef(
   const self: DatabaseReference = {
     key,
     _path: canonical,
+    _spec: emptySpec(),
+    [QUERY_SYMBOL]: true,
+    get ref() {
+      return self;
+    },
     get parent() {
       if (segs.length === 0) return null;
       return buildSandboxRef(target, joinPath(segs.slice(0, -1)));
@@ -71,6 +78,19 @@ export function buildSandboxRef(
     },
     toString() {
       return `sandbox://rtdb${canonical}`;
+    },
+    toJSON() {
+      return self.toString();
+    },
+    isEqual(other: Query | null) {
+      if (!other || typeof other !== 'object' || !('ref' in other) || !('_spec' in other)) return false;
+      try {
+        return targetOf(other.ref as unknown as object) === target
+          && other.ref._path === canonical
+          && queryIdentifier(other._spec) === 'default';
+      } catch {
+        return false;
+      }
     },
   };
   tag(self as unknown as object, target);

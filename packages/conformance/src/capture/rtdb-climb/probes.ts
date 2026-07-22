@@ -135,7 +135,7 @@ function prototypeShape(value: object, constructor: Function): Record<string, un
     constructorName: value.constructor.name,
     instanceOf: value instanceof constructor,
     prototypeIsExportPrototype: Object.getPrototypeOf(value) === constructor.prototype,
-    prototypeKeys: Object.getOwnPropertyNames(constructor.prototype).sort(),
+    prototypeKeys: Object.getOwnPropertyNames(Object.getPrototypeOf(value)).sort(),
   };
 }
 
@@ -578,6 +578,9 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
               query(target, orderByPriority(), startAt(false))),
             object: await captureInvocation(() =>
               query(target, orderByPriority(), startAt({ invalid: true } as unknown as null))),
+            defaultBoolean: await captureInvocation(() => query(target, startAt(false))),
+            defaultObject: await captureInvocation(() =>
+              query(target, startAt({ invalid: true } as unknown as null))),
           };
           onChildMoved(query(target, orderByPriority()), (snap, previous) => moved.push([snap.key, previous]));
           onChildMoved(target, (snap, previous) => plainMoved.push([snap.key, previous]));
@@ -585,7 +588,16 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           await waitFor('priority listener initial readiness', () => orderedValueDeliveries === 1);
           await setPriority(child(target, 'a'), 0);
           await waitFor('priority movement readiness', () =>
-            moved.length > 0 && plainMoved.length > 0 && orderedValueDeliveries === 2);
+            moved.length === 1 && plainMoved.length === 1 && orderedValueDeliveries === 2);
+          const movedAfterReorder = [...moved];
+          const plainMovedAfterReorder = [...plainMoved];
+          const orderedValueDeliveriesAfterMove = orderedValueDeliveries;
+          await setPriority(child(target, 'c'), 6);
+          await waitFor('same-position priority listener readiness', () =>
+            moved.length === 2 && plainMoved.length === 2 && orderedValueDeliveries === 3);
+          const samePositionMoved = moved.slice(movedAfterReorder.length);
+          const samePositionPlainMoved = plainMoved.slice(plainMovedAfterReorder.length);
+          const orderedValueDeliveriesAfterSamePositionChange = orderedValueDeliveries;
           const afterMove = await get(child(target, 'a'));
           await update(target, { 'a/value': 4 });
           const afterUpdate = (await get(child(target, 'a'))).priority;
@@ -607,8 +619,15 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
             parentExportVal,
             parentToJSON,
             invalidPriorityBounds,
-            moved,
-            plainMoved,
+            moved: movedAfterReorder,
+            plainMoved: plainMovedAfterReorder,
+            samePositionMoved,
+            samePositionPlainMoved,
+            allMoved: moved,
+            allPlainMoved: plainMoved,
+            orderedValueDeliveriesAfterMove,
+            orderedValueDeliveriesAfterSamePositionChange,
+            totalOrderedValueDeliveries: orderedValueDeliveries,
             afterMove: { priority: afterMove.priority, exportVal: afterMove.exportVal() },
             afterUpdate,
             afterTransaction,
@@ -730,17 +749,18 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
     },
     {
       name: 'rtdb-modular-reference-shape-url',
-      matrixRow: 'rtdb-modular#100-105, rtdb-modular#174',
+      matrixRow: 'rtdb-modular#100-105, rtdb-modular#174, rtdb-modular#M93',
       rowIds: [
         'rtdb-modular#100', 'rtdb-modular#101', 'rtdb-modular#102',
         'rtdb-modular#103', 'rtdb-modular#104', 'rtdb-modular#105',
-        'rtdb-modular#174',
+        'rtdb-modular#174', 'rtdb-modular#M93',
       ],
       description:
         'Reference navigation/string shape, refFromURL validation, forged-reference failure timing, and a successful normal read control.',
       observe: () => repeatStable(2, async (attempt) => {
         const path = scenarioPath(ctx, 'reference-shape-url', attempt);
         const client = await createClient(ctx, `reference-shape-url-${attempt}`);
+        const otherClient = await createClient(ctx, `reference-shape-url-other-${attempt}`);
         try {
           const root = ref(client.db);
           const nested = ref(client.db, `${path}/parent/child`);
@@ -751,6 +771,8 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           const otherHost = new URL(ctx.config.databaseURL);
           otherHost.hostname = `other-${otherHost.hostname}`;
           otherHost.pathname = `/${path}/parent/child`;
+          const constrained = query(nested, orderByValue(), startAt(1), endAt(2));
+          const equivalent = query(nested, endAt(2), orderByValue(), startAt(1));
           return {
             root: {
               key: root.key,
@@ -765,6 +787,19 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
               toString: referenceStringShape(nested.toString(), `${path}/parent/child`),
               childToStringMatches: viaChild.toString() === nested.toString(),
             },
+            queryIdentity: {
+              referenceToJSON: referenceStringShape(nested.toJSON(), `${path}/parent/child`),
+              queryToJSON: referenceStringShape(constrained.toJSON(), `${path}/parent/child`),
+              sameReference: nested.isEqual(viaChild),
+              defaultQueryEqualsReference: nested.isEqual(query(nested)),
+              referenceEqualsDefaultQuery: query(nested).isEqual(nested),
+              equivalentConstraintOrder: constrained.isEqual(equivalent),
+              differentSpec: constrained.isEqual(query(nested, orderByValue(), startAt(2))),
+              differentPath: nested.isEqual(ref(client.db, `${path}/other`)),
+              differentApp: nested.isEqual(ref(otherClient.db, `${path}/parent/child`)),
+              nullValue: nested.isEqual(null),
+              nonQuery: nested.isEqual({} as never),
+            },
             matchingUrl: {
               key: matching.key,
               value: (await get(matching)).val(),
@@ -776,7 +811,7 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
             terminal: await adminRead(ctx, path),
           };
         } finally {
-          await cleanup([() => client.close(), () => adminRemove(ctx, path)]);
+          await cleanup([() => client.close(), () => otherClient.close(), () => adminRemove(ctx, path)]);
         }
       }),
     },
@@ -858,6 +893,18 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
             defaultCount: defaultValues.length,
             orderedCount: orderedValues.length,
           };
+          const reorderedValues: unknown[] = [];
+          const reorderedControl: unknown[] = [];
+          onValue(query(queryTarget, orderByChild('rank'), startAt(1), endAt(3)), (snapshot) => {
+            reorderedValues.push(snapshot.val());
+          });
+          onValue(queryTarget, (snapshot) => reorderedControl.push(snapshot.val()));
+          await waitFor('reordered query off initial readiness', () =>
+            reorderedValues.length === 1 && reorderedControl.length === 1);
+          off(query(queryTarget, endAt(3), orderByChild('rank'), startAt(1)));
+          await set(child(queryTarget, 'reordered'), { rank: 2 });
+          await waitFor('reordered query off control readiness', () => reorderedControl.length === 2);
+          const reorderedEquivalentStopped = reorderedValues.length === 1;
           const survivingQueryValues: unknown[] = [];
           onValue(query(queryTarget, orderByChild('rank')), (snapshot) => {
             survivingQueryValues.push(snapshot.val());
@@ -870,6 +917,16 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           await set(child(queryTarget, 'c'), { rank: 3 });
           await waitFor('ref off fresh-listener control readiness', () =>
             postRefOffControl.length === 2);
+          const defaultTarget = ref(client.db, `${path}/default-equivalence`);
+          await set(defaultTarget, 0);
+          const referenceValues: unknown[] = [];
+          onValue(defaultTarget, (snapshot) => referenceValues.push(snapshot.val()));
+          await waitFor('default query equivalence initial readiness', () => referenceValues.length === 1);
+          off(query(defaultTarget));
+          const defaultControl: unknown[] = [];
+          onValue(defaultTarget, (snapshot) => defaultControl.push(snapshot.val()));
+          await set(defaultTarget, 1);
+          await waitFor('default query equivalence control readiness', () => defaultControl.length === 2);
           return {
             afterInitial,
             afterFirstWrite,
@@ -877,6 +934,8 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
             afterSecondOff: values,
             queryScope: {
               afterQueryOff,
+              reorderedEquivalentStopped,
+              defaultQueryStoppedReference: referenceValues.length === 1,
               constrainedStoppedByRefOff: survivingQueryValues.length === 1,
             },
             terminal: await adminRead(ctx, path),

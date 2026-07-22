@@ -45,11 +45,19 @@ export type AppDatabase = Database & { readonly app: FirebaseApp };
  *
  * `toString()` returns a stable `sandbox://` URL.
  */
-export interface DatabaseReference {
+export interface Query {
+  readonly ref: DatabaseReference;
+  isEqual(other: Query | null): boolean;
+  toJSON(): string;
+  toString(): string;
+  readonly _spec: QuerySpec;
+  readonly [QUERY_SYMBOL]: true;
+}
+
+export interface DatabaseReference extends Query {
   readonly key: string | null;
   readonly parent: DatabaseReference | null;
   readonly root: DatabaseReference;
-  toString(): string;
   /** Internal — the canonical path (`'/users/alice'`). */
   readonly _path: string;
 }
@@ -157,14 +165,6 @@ export interface ThenableReference extends DatabaseReference {
 }
 
 export type Unsubscribe = () => void;
-
-/** RTDB query: a reference plus its immutable sandbox constraint spec. */
-export interface Query {
-  readonly ref: DatabaseReference;
-  toString(): string;
-  readonly _spec: QuerySpec;
-  readonly [QUERY_SYMBOL]: true;
-}
 
 /** Opaque constraint produced by the order/filter/limit query functions. */
 export type QueryConstraintType =
