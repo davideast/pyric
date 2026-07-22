@@ -1,12 +1,14 @@
-import { readdirSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
+import { SERVICE_COMMANDS } from './service-commands.generated.js';
 
-type ServiceCommandPath = readonly [service: string, artifact: string, operation: string];
+export type ServiceCommandPath = readonly [service: string, artifact: string, operation: string];
 
-interface ServiceCommand {
+export interface ServiceCommand {
   path: ServiceCommandPath;
-  run: (parsed: ParsedArgs) => Promise<number>;
+  run: ServiceCommandHandler;
 }
+
+export type ServiceCommandHandler = (parsed: ParsedArgs) => Promise<number>;
 
 function routeKey(path: readonly string[]): string {
   return JSON.stringify(path);
@@ -26,22 +28,8 @@ export function createServiceCommandRegistry(
   return registry;
 }
 
-async function loadServiceCommands(): Promise<readonly ServiceCommand[]> {
-  const directory = new URL('./service-command-records/', import.meta.url);
-  const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
-  const files = readdirSync(directory)
-    .filter((file) => file.endsWith(extension) && !file.endsWith('.d.ts'))
-    .sort();
-  return await Promise.all(files.map(async (file) => {
-    const module = await import(new URL(file, directory).href) as { default: ServiceCommand };
-    return module.default;
-  }));
-}
-
-const serviceCommands = loadServiceCommands().then((commands) => ({
-  registry: createServiceCommandRegistry(commands),
-  services: new Set(commands.map(({ path }) => path[0])),
-}));
+const SERVICE_COMMAND_REGISTRY = createServiceCommandRegistry(SERVICE_COMMANDS);
+const SERVICES: ReadonlySet<string> = new Set(SERVICE_COMMANDS.map(({ path }) => path[0]));
 
 function invocation(parsed: ParsedArgs): string {
   return [parsed.subcommand, ...parsed.positional].filter(Boolean).join(' ');
@@ -53,12 +41,11 @@ function invocation(parsed: ParsedArgs): string {
  * top-level dispatcher can continue with commands such as `dev` and `verify`.
  */
 export async function dispatchServiceCommand(parsed: ParsedArgs): Promise<number | null> {
-  const { registry, services } = await serviceCommands;
   const service = parsed.subcommand;
-  if (!service || !services.has(service)) return null;
+  if (!service || !SERVICES.has(service)) return null;
 
   const [artifact, operation] = parsed.positional;
-  const command = registry.get(routeKey([service, artifact, operation]));
+  const command = SERVICE_COMMAND_REGISTRY.get(routeKey([service, artifact, operation]));
   if (command) {
     return await command.run({
       ...parsed,

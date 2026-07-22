@@ -1,2 +1,3 @@
 import { runRulesLint } from '../rules.js';
-export default { path: ['firestore', 'rules', 'lint'], run: runRulesLint } as const;
+import type { ServiceCommandHandler } from '../service-commands.js';
+export default runRulesLint satisfies ServiceCommandHandler;

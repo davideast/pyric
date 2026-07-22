@@ -1,2 +1,3 @@
 import { runDatabaseRulesValidate } from '../database-rules.js';
-export default { path: ['database', 'rules', 'validate'], run: runDatabaseRulesValidate } as const;
+import type { ServiceCommandHandler } from '../service-commands.js';
+export default runDatabaseRulesValidate satisfies ServiceCommandHandler;

@@ -1,2 +1,3 @@
 import { runDatabaseRulesGenerate } from '../database-rules.js';
-export default { path: ['database', 'rules', 'generate'], run: runDatabaseRulesGenerate } as const;
+import type { ServiceCommandHandler } from '../service-commands.js';
+export default runDatabaseRulesGenerate satisfies ServiceCommandHandler;

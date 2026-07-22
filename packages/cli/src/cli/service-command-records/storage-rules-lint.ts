@@ -1,2 +1,3 @@
 import { runStorageRulesLint } from '../storage-rules.js';
-export default { path: ['storage', 'rules', 'lint'], run: runStorageRulesLint } as const;
+import type { ServiceCommandHandler } from '../service-commands.js';
+export default runStorageRulesLint satisfies ServiceCommandHandler;

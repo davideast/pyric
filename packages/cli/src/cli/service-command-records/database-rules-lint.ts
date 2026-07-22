@@ -1,2 +1,3 @@
 import { runDatabaseRulesLint } from '../database-rules.js';
-export default { path: ['database', 'rules', 'lint'], run: runDatabaseRulesLint } as const;
+import type { ServiceCommandHandler } from '../service-commands.js';
+export default runDatabaseRulesLint satisfies ServiceCommandHandler;

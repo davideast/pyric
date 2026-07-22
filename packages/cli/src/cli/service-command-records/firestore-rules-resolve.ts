@@ -1,2 +1,3 @@
 import { runRulesResolve } from '../rules.js';
-export default { path: ['firestore', 'rules', 'resolve'], run: runRulesResolve } as const;
+import type { ServiceCommandHandler } from '../service-commands.js';
+export default runRulesResolve satisfies ServiceCommandHandler;
