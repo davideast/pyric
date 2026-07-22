@@ -1,0 +1,29 @@
+---
+import { PYRIC_EXAMPLES } from '../examples/registry';
+import { withBase } from '../lib/content';
+
+const examples = Object.entries(PYRIC_EXAMPLES)
+  .sort(([, left], [, right]) => Number(right.definition.presentation === 'showcase') - Number(left.definition.presentation === 'showcase'));
+---
+
+<div class="example-gallery">
+  {examples.map(([id, example]) => (
+    <a class:list={['example-card', { 'is-showcase': example.definition.presentation === 'showcase' }]} href={withBase(example.definition.docsPath)}>
+      <span>{example.definition.subLabel}</span>
+      <h2>{example.definition.header}</h2>
+      <p>{example.definition.summary}</p>
+      <code>{id}</code>
+    </a>
+  ))}
+</div>
+
+<style>
+  .example-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; margin: 2rem 0; }
+  .example-card { display: block; border: 1px solid var(--border); border-radius: .85rem; padding: 1.15rem; background: var(--surface-1); color: inherit; text-decoration: none; transition: border-color .15s, transform .15s; }
+  .example-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .example-card.is-showcase { grid-column: 1 / -1; padding: clamp(1.25rem, 3vw, 2rem); background: radial-gradient(circle at 80% 10%, #463d7138, transparent 55%), var(--surface-1); }
+  .example-card > span { color: var(--accent); font-size: .7rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+  .example-card h2 { margin: .45rem 0; font-size: 1.2rem; }
+  .example-card p { margin: 0 0 1rem; color: var(--muted); }
+  .example-card code { font-size: .72rem; }
+</style>

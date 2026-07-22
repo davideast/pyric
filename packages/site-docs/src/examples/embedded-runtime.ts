@@ -1,6 +1,6 @@
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import { createSandboxRoot } from 'pyric/sandbox/internal';
-import type { PyricExampleDefinition } from './definition';
+import type { PyricSnippetDefinition } from './definition';
 
 export interface EmbeddedExampleRuntime {
   run(): Promise<unknown>;
@@ -9,7 +9,7 @@ export interface EmbeddedExampleRuntime {
 
 /** One disposable, memory-backed runtime. Nothing escapes its iframe realm. */
 export function createEmbeddedExampleRuntime(
-  definition: PyricExampleDefinition,
+  definition: PyricSnippetDefinition,
 ): EmbeddedExampleRuntime {
   const sandbox = createSandboxRoot();
   const { rules, seed } = definition.firestore;

@@ -21,4 +21,54 @@ const { title } = Astro.props;
   .status-ready { background: #22c55e; }
   .status-error { background: #ef4444; }
   .copy-error { float: right; }
+  .chess-showcase { padding: clamp(1rem, 3vw, 2.25rem); background: #15151d; color: #f4f4f7; }
+  .chess-play { display: grid; grid-template-columns: minmax(20rem, 42rem) minmax(18rem, 25rem); gap: clamp(1rem, 3vw, 2rem); align-items: start; max-width: 70rem; margin: 0 auto; }
+  .chess-board-wrap { padding: clamp(.55rem, 1.5vw, 1rem); border: 1px solid #474258; border-radius: .5rem; background: #201f2a; }
+  .chess-board { display: grid; grid-template: repeat(8, minmax(0, 1fr)) / repeat(8, minmax(0, 1fr)); overflow: hidden; width: 100%; aspect-ratio: 1; }
+  .chess-square { position: relative; display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; place-items: center; overflow: hidden; border: 0; border-radius: 0; padding: 0; cursor: pointer; font-size: clamp(1.6rem, 5vw, 3.6rem); line-height: 1; text-shadow: 0 2px 2px #0005; }
+  .chess-piece { position: absolute; inset: 0; display: grid; place-items: center; line-height: 1; }
+  .chess-square.is-light { background: #d7d0e3; color: #17151d; }
+  .chess-square.is-dark { background: #756b91; color: #111018; }
+  .chess-square:hover { box-shadow: inset 0 0 0 .22rem #c7ff5f; z-index: 1; }
+  .chess-square.is-selected { box-shadow: inset 0 0 0 .3rem #b8ff3d; background: #9caa64; z-index: 2; }
+  .chess-square small { position: absolute; font: 700 .58rem/1 Inter, sans-serif; opacity: .65; }
+  .rank-label { top: .25rem; left: .25rem; }
+  .file-label { right: .25rem; bottom: .22rem; }
+  .chess-console { display: grid; gap: 1rem; }
+  .turn-row, .identity-picker, .scenario-picker, .verdict { border: 1px solid #413e4d; border-radius: .5rem; background: #1e1d27; padding: 1rem; }
+  .turn-row { display: flex; gap: 1rem; align-items: center; justify-content: space-between; }
+  .turn-row strong { display: block; margin-top: .25rem; font-size: 1rem; }
+  .verdict strong { display: flex; align-items: center; gap: .45rem; margin-top: .25rem; font-size: 1rem; }
+  .verdict strong i { width: .48rem; height: .48rem; border-radius: 50%; background: #8f8b9d; }
+  .console-label { color: #9995a6; font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .chess-showcase button { border: 1px solid #504c5d; border-radius: .5rem; padding: .55rem .7rem; background: #292733; color: inherit; cursor: pointer; }
+  .chess-showcase button:hover { border-color: #8d84ae; background: #322f40; }
+  .chess-showcase button:disabled { opacity: .45; cursor: not-allowed; }
+  .identity-picker { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+  .identity-picker legend, .scenario-picker legend { grid-column: 1 / -1; padding: 0 .2rem; color: #aaa6b7; font-size: .78rem; }
+  .identity-picker button[aria-pressed='true'], .source-tabs button[aria-selected='true'] { border-color: #9d8dff; background: #443c70; }
+  .identity-picker code { display: block; margin-top: .2rem; color: #c5bfd6; font-size: .65rem; }
+  .try-row { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+  .scenario-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; }
+  .scenario-action select { min-width: 0; border: 1px solid #504c5d; border-radius: .5rem; padding: .55rem .7rem; background: #292733; color: inherit; font: inherit; }
+  .scenario-picker p { margin: .7rem 0 .35rem; }
+  .scenario-picker > code { color: #c5bfd6; font-size: .7rem; line-height: 1.5; }
+  .verdict { min-height: 10rem; }
+  .verdict.is-allowed { border-color: #4d735c; }
+  .verdict.is-denied { border-color: #754956; }
+  .verdict.is-allowed strong i { background: #4ade80; }
+  .verdict.is-denied strong i { background: #fb7185; }
+  .verdict dl { display: grid; gap: .3rem; margin: .85rem 0; }
+  .verdict dl div { display: flex; justify-content: space-between; gap: 1rem; }
+  .verdict dt { color: #9995a6; font-size: .75rem; }
+  .verdict dd { margin: 0; font-size: .75rem; }
+  .verdict p { margin: .75rem 0 0; color: #bbb8c8; font-size: .8rem; line-height: 1.5; }
+  @media (max-width: 820px) {
+    .chess-play { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 430px) {
+    .chess-showcase { padding: .75rem; }
+    .chess-square { font-size: 1.8rem; }
+    .try-row, .scenario-action { grid-template-columns: 1fr; }
+  }
 </style>

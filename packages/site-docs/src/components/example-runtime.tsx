@@ -1,4 +1,5 @@
 import { pyricExample, type PyricExampleId } from '../examples/registry';
+import { assertPyricSnippet } from '../examples/definition';
 import { useExampleRuntime } from './use-example-runtime';
 
 interface Props {
@@ -7,6 +8,7 @@ interface Props {
 
 export function ExampleRuntime({ id }: Props) {
   const definition = pyricExample(id).definition;
+  assertPyricSnippet(definition);
   const { state, reset } = useExampleRuntime(definition);
 
   const copyError = async () => {
@@ -17,10 +19,10 @@ export function ExampleRuntime({ id }: Props) {
     <main className="example-runtime">
       <header>
         <span className={`status status-${state.status}`} aria-hidden="true" />
-        <strong>{definition.title}</strong>
+        <strong>{definition.header}</strong>
         <button type="button" onClick={reset}>Reset sandbox</button>
       </header>
-      <p>{definition.description}</p>
+      <p>{definition.summary}</p>
       <pre aria-live="polite">{state.status === 'running'
         ? 'Running…'
         : state.status === 'ready'

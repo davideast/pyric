@@ -7,6 +7,6 @@ describe('PyricExample', () => {
       new URL('../../src/components/pyric-example.astro', import.meta.url),
       'utf8',
     );
-    expect(source).toContain('sandbox="allow-scripts allow-same-origin"');
+    expect(source).toContain("import IsolatedExampleStage from './isolated-example-stage.astro'");
   });
 });

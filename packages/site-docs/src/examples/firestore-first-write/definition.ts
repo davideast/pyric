@@ -2,8 +2,10 @@ import { definePyricExample } from '../definition';
 import { run } from './run';
 
 export default definePyricExample({
-  title: 'Write to an isolated Firestore sandbox',
-  description: 'Run a Firestore write and read without starting a SharedWorker or touching another example.',
+  header: 'Write to an isolated Firestore sandbox',
+  subLabel: 'Cloud Firestore · Browser sandbox',
+  summary: 'Run a Firestore write and read without starting a SharedWorker or touching another example.',
+  docsPath: '/docs/build/cloud-firestore/',
   service: 'firestore',
   firestore: {
     rules: `

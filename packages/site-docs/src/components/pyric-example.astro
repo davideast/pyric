@@ -1,6 +1,6 @@
 ---
 import { pyricExample, type PyricExampleId } from '../examples/registry';
-import { withBase } from '../lib/content';
+import IsolatedExampleStage from './isolated-example-stage.astro';
 
 interface Props {
   id: PyricExampleId;
@@ -8,19 +8,14 @@ interface Props {
 
 const { id } = Astro.props;
 const example = pyricExample(id);
-const frameUrl = withBase(`/examples/${id}/`);
+const isShowcase = example.definition.presentation === 'showcase';
 ---
 
-<figure class="pyric-example">
-  <figcaption>{example.definition.title}</figcaption>
+<figure class:list={['pyric-example', { 'pyric-showcase': isShowcase }]}>
+  <figcaption>{example.definition.header}</figcaption>
   <div class="pyric-example-grid">
-    <pre><code>{example.source.trim()}</code></pre>
-    <iframe
-      title={example.definition.title}
-      src={frameUrl}
-      sandbox="allow-scripts allow-same-origin"
-      loading="lazy"
-    ></iframe>
+    {!isShowcase ? <pre><code>{example.source.trim()}</code></pre> : null}
+    <IsolatedExampleStage id={id} title={example.definition.header} showcase={isShowcase} />
   </div>
 </figure>
 
@@ -28,8 +23,8 @@ const frameUrl = withBase(`/examples/${id}/`);
   .pyric-example { margin: 2rem 0; }
   figcaption { margin-bottom: .75rem; font-weight: 650; }
   .pyric-example-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(19rem, .8fr); gap: 1rem; }
-  pre, iframe { box-sizing: border-box; width: 100%; min-height: 19rem; margin: 0; border: 1px solid var(--border, #30303a); border-radius: .75rem; }
+  pre { box-sizing: border-box; width: 100%; min-height: 19rem; margin: 0; border: 1px solid var(--border, #30303a); border-radius: .5rem; }
   pre { overflow: auto; padding: 1rem; background: #0f0f17; color: #e8e8ef; }
-  iframe { background: #15151d; }
+  .pyric-showcase .pyric-example-grid { grid-template-columns: 1fr; }
   @media (max-width: 800px) { .pyric-example-grid { grid-template-columns: 1fr; } }
 </style>

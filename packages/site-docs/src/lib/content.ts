@@ -49,6 +49,7 @@ export interface DocData {
   apiSymbolCount?: number;
   apiEvidenceSlug?: string;
   example?: PyricExampleId;
+  gallery: boolean;
 }
 
 interface MarkdownModule {
@@ -109,6 +110,7 @@ function coerce(rel: string, fm: Record<string, unknown>): DocData {
     apiSymbolCount: num(fm.apiSymbolCount),
     apiEvidenceSlug: str(fm.apiEvidenceSlug),
     example: str(fm.example) as PyricExampleId | undefined,
+    gallery: fm.gallery === true,
   };
 }
 

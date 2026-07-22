@@ -5,8 +5,10 @@ import { createEmbeddedExampleRuntime } from '../../src/examples/embedded-runtim
 import { definePyricExample } from '../../src/examples/definition';
 
 const statefulDefinition = definePyricExample({
-  title: 'State isolation test',
-  description: 'Increment a document so reset behavior is observable.',
+  header: 'State isolation test',
+  subLabel: 'Test fixture',
+  summary: 'Increment a document so reset behavior is observable.',
+  docsPath: '/test/',
   service: 'firestore',
   firestore: {
     rules: `
