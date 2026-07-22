@@ -23,6 +23,15 @@ import type {
   CollectionReference,
   FirestoreDataConverter,
 } from './types.js';
+import { withFirestoreFirebaseError } from './errors.js';
+import {
+  boundedActivityIdentity,
+  registerActivityValue,
+} from './sandbox/activity-value-registry.js';
+import {
+  copyQueryValueRegistration,
+  registerReferenceQueryValue,
+} from './sandbox/query-value-registry.js';
 
 // ─── Writes ───────────────────────────────────────────────────────────
 
@@ -58,7 +67,9 @@ export async function setDoc<T = DocumentData>(
   const payload = conv
     ? (conv as FirestoreDataConverter<T>).toFirestore(data)
     : (data as unknown as DocumentData);
-  return chainDocFor(target, ref).set(payload, options as ChainSetOptions | undefined);
+  return withFirestoreFirebaseError(() =>
+    chainDocFor(target, ref).set(payload, options as ChainSetOptions | undefined),
+  );
 }
 
 /**
@@ -71,12 +82,12 @@ export async function setDoc<T = DocumentData>(
  */
 export async function updateDoc(ref: DocumentReference, data: DocumentData): Promise<void> {
   const target = targetOf(ref);
-  return chainDocFor(target, ref).update(data);
+  return withFirestoreFirebaseError(() => chainDocFor(target, ref).update(data));
 }
 
 export async function deleteDoc(ref: DocumentReference): Promise<void> {
   const target = targetOf(ref);
-  return chainDocFor(target, ref).delete();
+  return withFirestoreFirebaseError(() => chainDocFor(target, ref).delete());
 }
 
 export async function addDoc<T = DocumentData>(
@@ -88,19 +99,23 @@ export async function addDoc<T = DocumentData>(
   const payload = conv
     ? (conv as FirestoreDataConverter<T>).toFirestore(data)
     : (data as unknown as DocumentData);
-  const ref = await chainCollFor(target, coll).add(payload);
+  const ref = await withFirestoreFirebaseError(() => chainCollFor(target, coll).add(payload));
   const absPath = (ref as unknown as { path: string }).path;
   const tagged = tagSandboxRef(
     ref as object,
     target,
     (fresh) => fresh.doc(absPath) as unknown as object,
   );
+  registerActivityValue(tagged, boundedActivityIdentity('reference', absPath));
+  registerReferenceQueryValue(tagged, absPath, target, tagged);
   if (conv) {
-    return buildSandboxShell(
+    const shell = buildSandboxShell(
       tagged as { id: string; path: string },
       target,
       conv,
-    ) as DocumentReference<T>;
+    );
+    copyQueryValueRegistration(tagged, shell);
+    return shell as DocumentReference<T>;
   }
   return tagged as DocumentReference<T>;
 }

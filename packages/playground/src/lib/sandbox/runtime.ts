@@ -43,7 +43,10 @@ export function isSharedSandboxMode(): boolean {
 }
 
 export function getWorkerDb(): WorkerRuntime.ClientDb {
-  if (!workerDb) workerDb = WorkerRuntime.getFirestore(WORKER_URL);
+  if (!workerDb) {
+    workerDb = WorkerRuntime.getFirestore(WORKER_URL);
+    WorkerRuntime.ownClientUntilPagehide(workerDb);
+  }
   return workerDb;
 }
 

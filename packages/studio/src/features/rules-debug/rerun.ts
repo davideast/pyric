@@ -43,7 +43,6 @@ import {
   getDoc,
   getDocs,
   query,
-  SandboxError,
 } from 'pyric/firestore';
 import { lintFirestoreRules, type LintWarning } from 'pyric/rules/internal';
 import type { Denial } from './model.js';
@@ -176,7 +175,8 @@ export async function rerunAgainstRules(
  *
  * The op runs through a frozen-identity handle (`sandbox.withAuth(auth)`), so
  * rules evaluate exactly as they did for the original attempt. A
- * `permission-denied` `SandboxError` becomes `{ outcome: 'deny', ... }` carrying
+ * A Firebase-shaped or sandbox `permission-denied` error becomes
+ * `{ outcome: 'deny', ... }` carrying
  * the fresh denial reasons; any other throw is `{ outcome: 'error' }`.
  */
 export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunResult> {
@@ -213,12 +213,20 @@ export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunRe
     }
     return { outcome: 'allow' };
   } catch (e) {
-    if (e instanceof SandboxError && e.code === 'permission-denied') {
-      const reasons = e.denialContext?.reasons;
-      return { outcome: 'deny', code: e.code, message: e.message, ...(reasons ? { reasons } : {}) };
+    const coded = e as {
+      code?: unknown;
+      message?: unknown;
+      denialContext?: { reasons?: string[] };
+    };
+    const code = typeof coded?.code === 'string' ? coded.code : 'unknown';
+    const message = typeof coded?.message === 'string'
+      ? coded.message
+      : e instanceof Error ? e.message : String(e);
+    if (code === 'permission-denied') {
+      const reasons = coded.denialContext?.reasons;
+      return { outcome: 'deny', code, message, ...(reasons ? { reasons } : {}) };
     }
-    const code = e instanceof SandboxError ? e.code : 'unknown';
-    return { outcome: 'error', code, message: e instanceof Error ? e.message : String(e) };
+    return { outcome: 'error', code, message };
   }
 }
 

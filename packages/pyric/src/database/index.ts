@@ -5,4 +5,15 @@
  * `firebase/database` imports either remain Firebase or are swapped to this
  * package by the Vite/import-map or Node register boundary.
  */
-export * from './modular.js';
+export { TARGET_SYMBOL } from './routing.js';
+export * from './types.js';
+export * from './instances.js';
+export * from './references.js';
+export * from './operations.js';
+export * from './listeners.js';
+export * from './queries.js';
+export * from './transactions.js';
+export * from './sentinels.js';
+export * from './on-disconnect.js';
+export * from './controls.js';
+export * from './sandbox-namespace.js';

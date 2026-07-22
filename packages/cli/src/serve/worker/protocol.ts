@@ -407,6 +407,12 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'rtdb.remove'; path: string }
   | { t: 'op'; id: string; method: 'rtdb.push'; path: string; key: string; value?: unknown }
   | { t: 'op'; id: string; method: 'rtdb.adminSnapshot' }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; path: string; value: unknown; priority?: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; path: string; values: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.goOffline' }
+  | { t: 'op'; id: string; method: 'rtdb.goOnline' }
   // Collection enumeration (Pyric Studio data browse): the modular SDK has no
   // client `listCollections`, so the host enumerates the sandbox keyspace via
   // `getInternalEnv(sandbox)`. Reply: `{ ids: string[] }`.

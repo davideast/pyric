@@ -321,6 +321,18 @@ export const rulesRegistry = {
         row1({
           rowRef: "188",
           featureKeys: [],
+          behavior: "Strict boolean operands for `&&`, `||`, and ternary control flow, plus create-time `resource` / `request.resource` semantics",
+          status: "conforms",
+          evidence: "`oracle:rules-firestore-strict-boolean-control-flow` captures three direct non-boolean DENYs, three tautological error discriminators that still DENY, a boolean ALLOW control, create-time `resource == null` DENY, and incoming `request.resource.data` ALLOW; replayed verdict-for-verdict by `packages/pyric/test/rules/oracle-conformance.test.ts`.",
+          risk: ["rules-denial","specific-field"],
+          riskScore: 3,
+          riskReasons: ["asserts rules-denial behavior","asserts a specific field/property value"],
+          oracleObservations: ["rules-firestore-strict-boolean-control-flow"],
+          constructs: ["firestore.operator.and","firestore.operator.or","firestore.operator.ternary","firestore.binding.resource","firestore.binding.request.resource","firestore.binding.request.resource.data"],
+        }),
+        row1({
+          rowRef: "189",
+          featureKeys: [],
           behavior: "The exact six shared `auth` and `membership` function bodies preserve signed-in, owner, custom-claim, explicit membership-map, and role semantics under Firestore Rules",
           status: "conforms",
           evidence: "NEW ROW, 2026-07-21: one bounded, read-only Firestore Rules Test API request captured 12 verdicts for the exact bodies shipped from `auth` and `membership`; `oracle:rules-firestore-common-auth-membership-firestore` matches the local Firestore rules simulator verdict-for-verdict (6 ALLOW, 6 DENY). The cross-service source-lock test requires these six Firestore corpus bodies, the previously captured Storage corpus bodies, and the shipped modules to remain normalized-AST-identical.",

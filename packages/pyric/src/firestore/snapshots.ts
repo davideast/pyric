@@ -18,13 +18,218 @@ import {
   sandboxLiveRebuild,
   refToUnderlying,
   finalizeSandboxData,
+  converterOf,
+  underlyingOf,
   type Target,
 } from './state.js';
+import { firestoreValuesEqual } from './sandbox/value-equality.js';
+import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
+import {
+  captureQueryOperand,
+  capturedQueryOperandsEqual,
+  type CapturedQueryOperand,
+} from './sandbox/query-operand-equality.js';
 import type {
   DocumentSnapshot,
   QueryDocumentSnapshot,
   FirestoreDataConverter,
 } from './types.js';
+
+interface DocumentSnapshotEqualityState {
+  readonly target: Target;
+  readonly path: string;
+  readonly kind: 'document' | 'query-child';
+  readonly converter: FirestoreDataConverter<unknown> | null;
+  readonly raw: ChainDocSnap;
+}
+
+const documentSnapshotEquality = new WeakMap<object, DocumentSnapshotEqualityState>();
+
+/** Return the converter-free snapshot state captured at read time. Cursor
+ * constraints must derive bounds from this raw snapshot just as Firebase
+ * does; observing a converted snapshot's public `.data()` would invoke
+ * consumer code and could change the bound on each sandbox-live rebuild. */
+export function rawDocumentSnapshotForCursor(snapshot: object): ChainDocSnap {
+  return documentSnapshotEquality.get(snapshot)?.raw
+    ?? snapshot as unknown as ChainDocSnap;
+}
+
+interface QuerySnapshotDocEqualityState {
+  readonly path: string;
+  readonly data: CapturedQueryOperand;
+}
+
+interface QuerySnapshotChangeEqualityState extends QuerySnapshotDocEqualityState {
+  readonly type: string;
+  readonly oldIndex: number;
+  readonly newIndex: number;
+}
+
+interface QuerySnapshotEqualityState {
+  readonly target: Target;
+  readonly query: object;
+  readonly converter: FirestoreDataConverter<unknown> | null;
+  readonly source: 'read' | 'listener';
+  readonly readPhase?: 'initial' | 'settled';
+  readonly metadata: { readonly fromCache: boolean; readonly hasPendingWrites: boolean };
+  readonly docs: readonly QuerySnapshotDocEqualityState[];
+  readonly changes: readonly QuerySnapshotChangeEqualityState[];
+}
+
+const querySnapshotEquality = new WeakMap<object, QuerySnapshotEqualityState>();
+interface ReadQueryState {
+  readonly query: WeakRef<object>;
+  docs: readonly QuerySnapshotDocEqualityState[];
+  metadata: { readonly fromCache: boolean; readonly hasPendingWrites: boolean };
+}
+const readQueriesByTarget = new WeakMap<object, ReadQueryState[]>();
+
+function recordDocumentSnapshot(
+  snapshot: object,
+  raw: ChainDocSnap,
+  target: Target,
+  converter: FirestoreDataConverter<unknown> | null,
+  kind: 'document' | 'query-child',
+): void {
+  documentSnapshotEquality.set(snapshot, {
+    target,
+    path: raw.ref.path,
+    kind,
+    converter,
+    raw,
+  });
+}
+
+function snapshotExists(snapshot: ChainDocSnap): boolean {
+  return typeof snapshot.exists === 'function'
+    ? (snapshot.exists as () => boolean)()
+    : snapshot.exists === true;
+}
+
+/** Compare tagged snapshots without invoking consumer converters. */
+export function taggedSnapshotsEqual(left: object, right: object): boolean {
+  if (left === right) return true;
+  const a = documentSnapshotEquality.get(left);
+  const b = documentSnapshotEquality.get(right);
+  if (!a || !b) return querySnapshotsEqual(left, right);
+  if (a.target !== b.target
+    || a.path !== b.path
+    || a.kind !== b.kind
+    || a.converter !== b.converter) return false;
+  const aExists = snapshotExists(a.raw);
+  const bExists = snapshotExists(b.raw);
+  if (aExists !== bExists) return false;
+  if (!aExists) return true;
+  return firestoreValuesEqual(a.raw.data(), b.raw.data());
+}
+
+function querySnapshotsEqual(left: object, right: object): boolean {
+  const a = querySnapshotEquality.get(left);
+  const b = querySnapshotEquality.get(right);
+  if (!a || !b || a.target !== b.target || a.converter !== b.converter) return false;
+  if (a.source !== b.source) return false;
+  if (!queryObjectsEqual(a.query, b.query)) return false;
+  if (a.source === 'read' && a.readPhase !== b.readPhase) return false;
+  if (a.metadata.fromCache !== b.metadata.fromCache
+    || a.metadata.hasPendingWrites !== b.metadata.hasPendingWrites) return false;
+  if (!querySnapshotDocsEqual(a.docs, b.docs) || a.changes.length !== b.changes.length) return false;
+  return a.changes.every((change, index) => {
+    const other = b.changes[index]!;
+    return change.type === other.type
+      && change.oldIndex === other.oldIndex
+      && change.newIndex === other.newIndex
+      && change.path === other.path
+      && capturedQueryOperandsEqual(change.data, other.data);
+  });
+}
+
+function queryObjectsEqual(left: object, right: object): boolean {
+  const leftQuery = underlyingOf(left) as { isStructurallyEqual?: (other: unknown) => boolean };
+  const rightQuery = underlyingOf(right);
+  return leftQuery.isStructurallyEqual?.(rightQuery) ?? leftQuery === rightQuery;
+}
+
+function readPhase(
+  target: Target,
+  query: object,
+  docs: readonly QuerySnapshotDocEqualityState[],
+  metadata: { readonly fromCache: boolean; readonly hasPendingWrites: boolean },
+): 'initial' | 'settled' {
+  const targetKey = target as object;
+  const seen = (readQueriesByTarget.get(targetKey) ?? []).filter((candidate) =>
+    candidate.query.deref() !== undefined);
+  const state = seen.find((candidate) => {
+    const candidateQuery = candidate.query.deref();
+    return candidateQuery !== undefined && queryObjectsEqual(candidateQuery, query);
+  });
+  if (state !== undefined) {
+    const sameState = querySnapshotDocsEqual(state.docs, docs)
+      && state.metadata.fromCache === metadata.fromCache
+      && state.metadata.hasPendingWrites === metadata.hasPendingWrites;
+    state.docs = docs;
+    state.metadata = metadata;
+    return sameState ? 'settled' : 'initial';
+  }
+  seen.push({ query: new WeakRef(query), docs, metadata });
+  readQueriesByTarget.set(targetKey, seen);
+  return 'initial';
+}
+
+function querySnapshotDocsEqual(
+  left: readonly QuerySnapshotDocEqualityState[],
+  right: readonly QuerySnapshotDocEqualityState[],
+): boolean {
+  return left.length === right.length && left.every((doc, index) => {
+    const other = right[index]!;
+    return doc.path === other.path && capturedQueryOperandsEqual(doc.data, other.data);
+  });
+}
+
+/** Record the immutable equality state Firebase associates with a query
+ * snapshot. `rawSnapshot` keeps converter callbacks out of equality. */
+export function recordQuerySnapshot(
+  snapshot: object,
+  rawSnapshot: object,
+  target: Target,
+  query: object,
+  source: 'read' | 'listener',
+): void {
+  const raw = rawSnapshot as {
+    docs?: Array<{ ref?: { path?: string }; data?: () => unknown }>;
+    metadata?: { fromCache?: boolean; hasPendingWrites?: boolean };
+    docChanges?: () => Array<{
+      type?: string;
+      oldIndex?: number;
+      newIndex?: number;
+      doc?: { ref?: { path?: string }; data?: () => unknown };
+    }>;
+  };
+  const captureDoc = (doc: { ref?: { path?: string }; data?: () => unknown }) => ({
+    path: doc.ref?.path ?? '',
+    data: captureQueryOperand(doc.data?.(), target),
+  });
+  const docs = Object.freeze((raw.docs ?? []).map(captureDoc));
+  const changes = Object.freeze((raw.docChanges?.() ?? []).map((change) => ({
+    ...captureDoc(change.doc ?? {}),
+    type: change.type ?? '',
+    oldIndex: change.oldIndex ?? -1,
+    newIndex: change.newIndex ?? -1,
+  })));
+  const metadata = Object.freeze({
+    fromCache: raw.metadata?.fromCache === true,
+    hasPendingWrites: raw.metadata?.hasPendingWrites === true,
+  });
+  querySnapshotEquality.set(snapshot, {
+    target,
+    query,
+    converter: converterOf(query) ?? null,
+    source,
+    ...(source === 'read' ? { readPhase: readPhase(target, query, docs, metadata) } : {}),
+    metadata,
+    docs,
+    changes,
+  });
+}
 
 /**
  * Wrap a raw sandbox `DocumentSnapshot` so `.data()` runs the final
@@ -52,9 +257,12 @@ export function wrapSandboxDocSnap<T>(snap: object): DocumentSnapshot<T> {
 export function applyConverterToDocSnap<AppModel>(
   snap: ChainDocSnap,
   conv: FirestoreDataConverter<AppModel>,
+  target: Target,
+  kind: 'document' | 'query-child',
 ): DocumentSnapshot<AppModel> {
-  return {
+  const wrapped = {
     id: snap.id,
+    ref: snap.ref,
     exists: snap.exists,
     data: () => {
       // Sandbox snaps expose `exists` as a property (Admin shape).
@@ -74,6 +282,17 @@ export function applyConverterToDocSnap<AppModel>(
       return conv.fromFirestore(queryDocSnap);
     },
   };
+  tag(wrapped, target);
+  tag(snap.ref as object, target);
+  wireSnapshotRefToUnderlying(snap.ref, target);
+  recordDocumentSnapshot(
+    wrapped,
+    snap,
+    target,
+    conv as FirestoreDataConverter<unknown>,
+    kind,
+  );
+  return wrapped;
 }
 
 /**
@@ -97,6 +316,10 @@ export function applyConverterToDocSnap<AppModel>(
  */
 export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
   if (!snap || typeof snap !== 'object') return snap;
+  // Equality helpers receive the snapshot object itself, not only its refs.
+  // Brand the snapshot with the same owner so `snapshotEqual` can validate
+  // sandbox snapshots without mistaking them for foreign SDK values.
+  tag(snap, target);
   const s = snap as {
     ref?: { id?: string; path?: string };
     docs?: Array<{ ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean) }>;
@@ -109,12 +332,24 @@ export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
   normalizeExists(s);
   if (Array.isArray(s.docs)) {
     for (const doc of s.docs) {
+      if (doc) {
+        tag(doc as object, target);
+        recordDocumentSnapshot(
+          doc as object,
+          doc as unknown as ChainDocSnap,
+          target,
+          null,
+          'query-child',
+        );
+      }
       if (doc?.ref) {
         tag(doc.ref as object, target);
         wireSnapshotRefToUnderlying(doc.ref, target);
       }
       if (doc) normalizeExists(doc);
     }
+  } else if (s.ref) {
+    recordDocumentSnapshot(snap, snap as unknown as ChainDocSnap, target, null, 'document');
   }
   return snap;
 }
@@ -133,7 +368,6 @@ export function wireSnapshotRefToUnderlying(
   target: Target,
 ): void {
   if (typeof snapRef.path !== 'string' || snapRef.path.length === 0) return;
-  if (refToUnderlying.has(snapRef as object)) return;
   const path = snapRef.path;
   try {
     // Build a concrete chainable doc to back the snap-ref via
@@ -141,8 +375,10 @@ export function wireSnapshotRefToUnderlying(
     // closure so subsequent ops on the snap ref re-resolve against
     // the *current* `sandbox.currentUser` (rather than re-using the
     // listener-time auth that was frozen into the chainable).
-    const full = sandboxDb(target).doc(path) as unknown as object;
-    refToUnderlying.set(snapRef as object, full);
+    const existing = refToUnderlying.get(snapRef as object);
+    const full = existing ?? sandboxDb(target).doc(path) as unknown as object;
+    if (existing === undefined) refToUnderlying.set(snapRef as object, full);
+    registerReferenceQueryValue(snapRef as object, path, target, full);
     if (target.kind === 'sandbox-live') {
       sandboxLiveRebuild.set(
         full,

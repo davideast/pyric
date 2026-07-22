@@ -225,8 +225,10 @@ function buildContext(
   // tc.resource for read methods, and null for delete. The legacy fallback
   // keeps every existing test passing while letting new tests opt into
   // proper merge semantics.
-  const payload = tc.data ?? {};
-  const existing = tc.resource ?? null;
+  const payload = reviveFirestoreNumbers(tc.data ?? {}) as Record<string, unknown>;
+  const existing = tc.resource === undefined || tc.resource === null
+    ? null
+    : reviveFirestoreNumbers(tc.resource) as Record<string, unknown>;
   let afterState: Record<string, unknown> | null;
   let existsAfter: boolean;
   if (tc.writeMode) {

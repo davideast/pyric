@@ -11,6 +11,7 @@ import { setRules } from 'pyric/sandbox/firestore';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
+import { clearAllRtdbDisconnects } from './rtdb.js';
 
 /** The Studio control op methods routed to {@link handleStudioOp}. */
 const STUDIO_METHODS = new Set<string>([
@@ -45,6 +46,7 @@ export async function handleStudioOp(
       // payload's `errors` so Studio can surface a half-clear instead of
       // reporting a clean reset.
       try {
+        clearAllRtdbDisconnects(ctx);
         const { errors } = await ctx.sandbox.resetAll();
         // `resetAll` swapped the env, wiping env-owned FIRESTORE rules (RTDB /
         // storage rules live on their service objects and survive). Re-deploy

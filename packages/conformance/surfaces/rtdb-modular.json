@@ -29,17 +29,6 @@
   "registry": "rtdb",
   "dispositions": [
     {
-      "id": "database.connection-lifecycle",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "onDisconnect requires a live connection lifecycle the in-memory sandbox has no equivalent for today — buildable as an honest no-op or inert token like the connection-management APIs, not genuinely un-modelable.",
-      "evidenceRefs": ["registry:rtdb-modular#163"],
-      "symbols": [
-        "onDisconnect",
-        "OnDisconnect"
-      ]
-    },
-    {
       "id": "database.priority-ordering",
       "availability": "deferred",
       "reasonCode": "implementation-deferred",

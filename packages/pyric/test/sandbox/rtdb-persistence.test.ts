@@ -35,7 +35,7 @@ import {
   get,
   remove,
   sandbox as rtdbSandbox,
-} from '../../src/database/modular.js';
+} from '../../src/database/index.js';
 import { RtdbBackend } from '../../src/database/sandbox/backend.js';
 
 function sleep(ms: number): Promise<void> {

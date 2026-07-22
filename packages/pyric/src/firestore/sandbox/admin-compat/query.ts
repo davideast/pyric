@@ -1,11 +1,22 @@
 /** Admin-compatible query builders and snapshot shaping.
  * Candidate gathering, rule enforcement, and execution live behind
  * `LocalEnvironment.runQuery`; this adapter only builds immutable plan
- * structure. Opaque operands retain identity by accepted ADR-0009 policy. */
+ * structure. Query equality uses construction-time operand snapshots. */
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { translateReadData } from './snapshots.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
+import {
+  executionCursor,
+  executionFilter,
+  queryExecutionEqual,
+  queryScopesEqual,
+  snapshotCursor,
+  snapshotFilter,
+  type ComparableCursor,
+  type ComparableExecutionSpec,
+  type ComparableQueryFilter,
+} from './query-comparison.js';
 // RULES-B11 — structured `where`/`limit`/`orderBy` view threaded into the
 // rule-enforced read paths so the query-proof gate ("rules are not
 // filters") can discharge per-doc rule predicates from the query's
@@ -56,12 +67,12 @@ export interface QueryState {
   auth: AuthContext;
   collectionPath: string;
   documentRef: DocumentRefFactory;
-  clauses?: readonly QueryFilter[];
+  clauses?: readonly ComparableQueryFilter[];
   orders?: readonly OrderClause[];
   limitCount?: number;
   limitFromEnd?: boolean;
-  start?: Cursor;
-  end?: Cursor;
+  start?: ComparableCursor;
+  end?: ComparableCursor;
   bypassRules?: boolean;
 }
 
@@ -69,30 +80,6 @@ export type QueryStatePatch = Partial<Pick<
   QueryState,
   'clauses' | 'orders' | 'limitCount' | 'limitFromEnd' | 'start' | 'end'
 >>;
-
-function snapshotQueryValue(value: unknown): unknown {
-  // Query operands are deliberately opaque. Reading arrays/maps here would
-  // execute user getters or Proxy traps and would replace the stable object
-  // identity used by activity diagnostics. Primitive operands (the only
-  // values consumed by rules proof) are immutable; structural filter and
-  // cursor containers are copied separately.
-  return value;
-}
-
-function snapshotFilter(filter: Filter | QueryFilter): QueryFilter {
-  if (filter.kind === 'where') {
-    return Object.freeze({
-      kind: 'where',
-      field: filter.field,
-      op: filter.op,
-      value: snapshotQueryValue(filter.value),
-    });
-  }
-  return Object.freeze({
-    kind: filter.kind,
-    filters: Object.freeze(filter.filters.map(snapshotFilter)),
-  }) as QueryFilter;
-}
 
 // FS-B8 — the document-key sentinel field. Firestore normalizes every
 // query's sort to include an implicit final ordering on the document key
@@ -132,9 +119,7 @@ function cursorValuesFromSnapshot(
   // `__name__` clause), so a `startAt(snapshot)` with no explicit orderBy
   // is legal in prod: it positions on the document key. `__name__` reads
   // the snapshot's ref path; data fields read positionally.
-  return orders.map((o) =>
-    o.field === KEY_FIELD ? { path: snapshot.ref.path } : data[o.field],
-  );
+  return orders.map((o) => o.field === KEY_FIELD ? snapshot.ref : data[o.field]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -152,12 +137,12 @@ export class QueryImpl implements Query {
   protected readonly env: LocalEnvironment;
   protected readonly auth: AuthContext;
   protected readonly collectionPath: string;
-  protected readonly clauses: readonly QueryFilter[];
+  protected readonly clauses: readonly ComparableQueryFilter[];
   protected readonly orders: readonly OrderClause[];
   protected readonly limitCount?: number;
   protected readonly limitFromEnd: boolean;
-  protected readonly start?: Cursor;
-  protected readonly end?: Cursor;
+  protected readonly start?: ComparableCursor;
+  protected readonly end?: ComparableCursor;
   protected readonly bypassRules: boolean;
   private readonly documentRef: DocumentRefFactory;
 
@@ -166,27 +151,37 @@ export class QueryImpl implements Query {
     this.auth = state.auth;
     this.collectionPath = state.collectionPath;
     this.documentRef = state.documentRef;
-    this.clauses = Object.freeze((state.clauses ?? []).map(snapshotFilter));
+    this.clauses = Object.freeze((state.clauses ?? []).map(
+      (filter) => snapshotFilter(filter),
+    ));
     this.orders = Object.freeze((state.orders ?? []).map((order) => Object.freeze({ ...order })));
     this.limitCount = state.limitCount;
     this.limitFromEnd = state.limitFromEnd ?? false;
     this.start = state.start === undefined ? undefined : Object.freeze({
       ...state.start,
-      values: Object.freeze(state.start.values.map(snapshotQueryValue)),
+      values: Object.freeze(state.start.comparisonValues.map(
+        (value) => value.executionValue,
+      )),
+      comparisonValues: state.start.comparisonValues,
     });
     this.end = state.end === undefined ? undefined : Object.freeze({
       ...state.end,
-      values: Object.freeze(state.end.values.map(snapshotQueryValue)),
+      values: Object.freeze(state.end.comparisonValues.map(
+        (value) => value.executionValue,
+      )),
+      comparisonValues: state.end.comparisonValues,
     });
     this.bypassRules = state.bypassRules ?? false;
   }
 
   where(field: string, op: WhereFilterOp, value: unknown): Query {
-    return this.clone({ clauses: [...this.clauses, { kind: 'where', field, op, value }] });
+    return this.clone({
+      clauses: [...this.clauses, snapshotFilter({ kind: 'where', field, op, value })],
+    });
   }
 
   applyFilter(filter: Filter): Query {
-    return this.clone({ clauses: [...this.clauses, filter] });
+    return this.clone({ clauses: [...this.clauses, snapshotFilter(filter)] });
   }
 
   orderBy(field: string, direction: OrderDirection = 'asc'): Query {
@@ -202,31 +197,47 @@ export class QueryImpl implements Query {
   }
 
   startCursor(values: unknown[], inclusive: boolean): Query {
-    return this.clone({ start: { values: [...values], inclusive, fromSnapshot: false } });
+    return this.clone({
+      start: snapshotCursor(this.normalizeExplicitCursorValues(values), inclusive, false),
+    });
   }
 
   endCursor(values: unknown[], inclusive: boolean): Query {
-    return this.clone({ end: { values: [...values], inclusive, fromSnapshot: false } });
+    return this.clone({
+      end: snapshotCursor(this.normalizeExplicitCursorValues(values), inclusive, false),
+    });
   }
 
   startCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
     return this.clone({
-      start: {
-        values: cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
+      start: snapshotCursor(
+        cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
         inclusive,
-        fromSnapshot: true,
-      },
+        true,
+      ),
     });
   }
 
   endCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
     return this.clone({
-      end: {
-        values: cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
+      end: snapshotCursor(
+        cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
         inclusive,
-        fromSnapshot: true,
-      },
+        true,
+      ),
     });
+  }
+
+  /** Package-internal structural equality used by the modular
+   * `queryEqual` helper. Firebase query identity is the owning Firestore
+   * instance plus target and constraints; caller auth is runtime state, not
+   * part of the query value. */
+  isStructurallyEqual(other: unknown): boolean {
+    if (!(other instanceof QueryImpl)) return false;
+    return this.env === other.env
+      && this.bypassRules === other.bypassRules
+      && queryScopesEqual(this.queryScope(), other.queryScope())
+      && queryExecutionEqual(this.comparableExecutionSpec(), other.comparableExecutionSpec());
   }
 
   /**
@@ -333,8 +344,41 @@ export class QueryImpl implements Query {
     return normalizedQueryOrders(this.executionSpec());
   }
 
+  /** Normalize an explicit document-id cursor to the reference value that
+   * Firestore stores in its bound. This makes `startAt(snapshot)` and
+   * `startAt(...fieldValues, snapshot.id)` structurally identical while
+   * retaining Firebase's string-only validation for `documentId()` values. */
+  private normalizeExplicitCursorValues(values: readonly unknown[]): unknown[] {
+    // Only user-declared documentId() positions accept an explicit ID.
+    // The normalized implicit key order is not an extra public cursor slot.
+    const orders = this.orders;
+    return values.map((value, index) => {
+      if (orders[index]?.field !== KEY_FIELD) return value;
+      if (typeof value !== 'string') {
+        throw new FirestoreCompatError({
+          code: 'invalid-argument',
+          message: 'Expected a string for a document ID cursor value.',
+        });
+      }
+      const path = value.includes('/') ? value : `${this.collectionPath}/${value}`;
+      return this.documentRef(path);
+    });
+  }
+
   private executionSpec(): QueryExecutionSpec {
     const execution: QueryExecutionSpec = {
+      filters: Object.freeze(this.clauses.map(executionFilter)),
+      orders: this.orders,
+      limitCount: this.limitCount,
+      limitFromEnd: this.limitFromEnd,
+      start: executionCursor(this.start),
+      end: executionCursor(this.end),
+    };
+    return Object.freeze(execution);
+  }
+
+  private comparableExecutionSpec(): ComparableExecutionSpec {
+    return {
       filters: this.clauses,
       orders: this.orders,
       limitCount: this.limitCount,
@@ -342,7 +386,6 @@ export class QueryImpl implements Query {
       start: this.start,
       end: this.end,
     };
-    return Object.freeze(execution);
   }
 
   /**

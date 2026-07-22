@@ -19,6 +19,11 @@ export function getOrCreateBackend(sandbox: Sandbox): RtdbBackend {
   backendBySandbox.set(sandbox, backend);
 
   const capturedBackend = backend;
+  sandbox.onEvent((event) => {
+    if (event.kind === 'session_boundary' && event.phase === 'reset') {
+      capturedBackend.invalidateConnectionQueues();
+    }
+  });
   sandbox.registerPersistableService('rtdb', {
     snapshot: () => capturedBackend.exportTree(),
     restore: (data: unknown) => {
@@ -28,7 +33,7 @@ export function getOrCreateBackend(sandbox: Sandbox): RtdbBackend {
     // Sandbox.resetAll: clear the whole tree (restoreTree fans listeners out,
     // so live views converge on the emptied state).
     reset: () => {
-      capturedBackend.restoreTree(null);
+      capturedBackend.resetTree();
     },
   });
 

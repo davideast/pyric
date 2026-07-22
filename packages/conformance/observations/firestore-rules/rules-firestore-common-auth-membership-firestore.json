@@ -1,8 +1,8 @@
 {
   "name": "rules-firestore-common-auth-membership-firestore",
-  "matrixRow": "firestore-rules#188",
+  "matrixRow": "firestore-rules#189",
   "rowIds": [
-    "firestore-rules#188"
+    "firestore-rules#189"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"common-auth-membership-firestore\" (FIRESTORE-COMMON-STDLIB). Exact auth/membership stdlib bodies under cloud.firestore: auth null/uid, custom claims, explicit membership maps, and role equality.",
   "observedAt": "2026-07-21T22:03:16.033Z",

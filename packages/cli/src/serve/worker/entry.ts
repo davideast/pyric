@@ -55,7 +55,7 @@ import { createIndexedDBBackend } from 'pyric/sandbox';
 
 import {
   handleMessage,
-  cleanupPort,
+  cleanupPortWithDisconnect,
   type HostCtx,
   type PortLike,
 } from './host.js';
@@ -188,7 +188,7 @@ workerScope.onconnect = (e: MessageEvent) => {
   // best-effort; subscriptions also GC when the worker itself dies.
   port.addEventListener('close', () => {
     retirement.disconnect(port);
-    if (_ctx) cleanupPort(_ctx, port as unknown as PortLike);
+    if (_ctx) void cleanupPortWithDisconnect(_ctx, port as unknown as PortLike).catch(() => undefined);
   });
 };
 

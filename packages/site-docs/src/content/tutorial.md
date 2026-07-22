@@ -527,7 +527,7 @@ Use `rtdb_simulate_access` against the running sandbox for these checks. Pass th
 
 The current chat template still authors `database.rules.json` directly. Moving it to this constraints source is a follow-up; the rule behavior shown here is the target rather than a file the template already contains.
 
-Pyric does not currently mirror RTDB `onDisconnect`. The template writes the offline state explicitly during local development and uses the real `onDisconnect` behavior in production. This is one of the places where the mirror has a visible edge rather than pretending to be complete.
+Pyric mirrors RTDB `onDisconnect` for deterministic lifecycle boundaries: explicit `goOffline`, app deletion, and the playground's `pagehide` cleanup. Queued writes are registered per client, execute once, and notify other clients. An unannounced total renderer or process loss is a documented boundary of the in-memory sandbox: browser `MessagePort` close delivery is not reliable enough to guarantee that case without a durable host-owned lease system.
 
 ## Run Cloud Functions against the browser backend
 

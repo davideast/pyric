@@ -164,14 +164,14 @@ describe('characterization — limit / limitToLast', () => {
     ]);
   });
 
-  it('limitToLast without orderBy throws invalid-argument at get()', async () => {
+  it('firestore#61 limitToLast without orderBy throws unimplemented at get()', async () => {
     const db = seededDb(TICKETS);
     let err: unknown;
     try {
       await db.collection('tickets').limitToLast(2).get();
     } catch (e) { err = e; }
     expect(err).toBeInstanceOf(FirestoreCompatError);
-    expect((err as FirestoreCompatError).code).toBe('invalid-argument');
+    expect((err as FirestoreCompatError).code).toBe('unimplemented');
   });
 });
 

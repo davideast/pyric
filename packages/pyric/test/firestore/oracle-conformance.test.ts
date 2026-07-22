@@ -30,11 +30,13 @@ import { describe, it, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
+import { FirebaseError } from '../../src/app/index.js';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
   collection,
+  collectionGroup,
   getDoc,
   getDocs,
   setDoc,
@@ -44,12 +46,14 @@ import {
   query,
   where,
   orderBy,
+  documentId,
   or,
   and,
   startAt,
   startAfter,
   endAt,
   endBefore,
+  limit,
   limitToLast,
   onSnapshot,
   runTransaction,
@@ -65,6 +69,8 @@ import {
   Timestamp,
   Bytes,
   GeoPoint,
+  withConverter,
+  vector,
   type Firestore,
   type DocumentSnapshot,
   type QuerySnapshot,
@@ -305,20 +311,14 @@ describe('oracle conformance (firestore)', () => {
     expect(excluded).toBe(obs.excludedEqualValuedPredecessor as boolean);
   });
 
-  it('firestore-limittolast-preconditions (KNOWN DIVERGENCE: error code)', async () => {
-    // Prod: limitToLast() with no orderBy throws code `unimplemented`; the
-    // sandbox (src/firestore) throws `invalid-argument` for the same
-    // precondition. Same class of failure (rejected before running), but
-    // the recorded code differs. Pin BOTH sides so neither drifts.
+  it('firestore#61 limitToLast without orderBy uses the production error code', async () => {
     const obs = load('firestore-limittolast-preconditions.json');
     expect(obs.noOrderByThrew).toBe(true);
-    expect(obs.code).toBe('unimplemented'); // prod's code (the target)
 
     const db = freshDb();
     seedDb(db, { 'c/a': { pos: 1 }, 'c/b': { pos: 2 } });
-    // Sandbox today: invalid-argument, not unimplemented.
     const e = await caught(() => getDocs(query(collection(db, 'c'), limitToLast(2))));
-    expect(e.code).toBe('invalid-argument');
+    expect(e.code).toBe(obs.code as string);
 
     // With an orderBy, limitToLast returns the trailing window — matches prod.
     const trailing = (await getDocs(
@@ -537,32 +537,27 @@ describe('oracle conformance (firestore)', () => {
     expect(e instanceof Error).toBe(obs.isErrorInstance as boolean);
   });
 
-  it('firestore-write-denied-error-code (KNOWN DIVERGENCE: error class name)', async () => {
-    // Prod throws a FirebaseError (constructorName/errorName "FirebaseError");
-    // the sandbox throws a SandboxError. Both carry code `permission-denied`
-    // and are `instanceof Error`, which is the portable contract we assert.
-    // The class NAME differs — pinned here as the representative denied case;
-    // the other denied tests (read/write/delete/tx/batch) assert only the
-    // portable `code` + `instanceof Error`.
+  it('firestore#32 rules-denied setDoc preserves the production error shape', async () => {
     const obs = load('firestore-write-denied-error-code.json');
-    expect(obs.constructorName).toBe('FirebaseError'); // prod class (the target)
-    expect(obs.isFirebaseError).toBe(true);
 
     const db = freshDb(RULES);
     const e = await caught(() => setDoc(doc(db, 'blocked/x'), { v: 1 }));
     expect(e.code).toBe(obs.code as string);
     expect(e instanceof Error).toBe(obs.isErrorInstance as boolean);
-    // Sandbox today: the class is SandboxError, not FirebaseError.
-    expect(e.name).toBe('SandboxError');
+    expect(e.name).toBe(obs.errorName as string);
+    expect(e.constructor.name).toBe(obs.constructorName as string);
+    expect(e instanceof FirebaseError).toBe(obs.isFirebaseError as boolean);
   });
 
-  it('firestore-rules-denied-error', async () => {
-    // Companion write-denied capture (#21). Same permission-denied contract.
+  it('firestore#21 rules-denied modular writes throw a Firebase-shaped error', async () => {
     const obs = load('firestore-rules-denied-error.json');
     const db = freshDb(RULES);
     const e = await caught(() => setDoc(doc(db, 'blocked/y'), { v: 1 }));
     expect(e.code).toBe(obs.code as string);
     expect(e instanceof Error).toBe(obs.isErrorInstance as boolean);
+    expect(e.name).toBe(obs.errorName as string);
+    expect(e.constructor.name).toBe(obs.constructorName as string);
+    expect(e instanceof FirebaseError).toBe(obs.isFirebaseError as boolean);
   });
 
   it('firestore-delete-denied-error-code', async () => {
@@ -865,55 +860,609 @@ describe('oracle conformance (firestore)', () => {
 
   // ── query / snapshot equality ────────────────────────────────────────
 
-  it('firestore-queryequal-structural (KNOWN DIVERGENCE: structural vs identity)', async () => {
-    // Prod queryEqual is STRUCTURAL: two queries built the same way compare
-    // equal (sameQueryBuiltTwice:true). The sandbox's queryEqual
-    // (src/firestore/index.ts) falls back to IDENTITY (`a === b`) for
-    // sandbox-target queries, so a query built twice compares UNEQUAL. Same-
-    // object identity and different-value inequality still hold. Pin both.
+  it('firestore#116 follows operator-specific nested-array validation', () => {
+    const obs = load('firestore-query-nested-array-validation.json');
+    const db = freshDb();
+    const base = collection(db, 'c');
+    const constructionError = (
+      op: Parameters<typeof where>[1],
+      value: unknown,
+    ): { rejected: boolean; code: string | null } => {
+      try {
+        query(base, where('value', op, value));
+        return { rejected: false, code: null };
+      } catch (error) {
+        return {
+          rejected: true,
+          code: typeof (error as { code?: unknown })?.code === 'string'
+            ? (error as { code: string }).code
+            : null,
+        };
+      }
+    };
+
+    const nestedArray = constructionError('==', [[1]]);
+    expect(nestedArray.rejected).toBe(obs.nestedArrayRejected as boolean);
+    expect(nestedArray.code).toBe(obs.nestedArrayErrorCode as string);
+    const mapNestedArray = constructionError('==', { nested: [[1]] });
+    expect(mapNestedArray.rejected).toBe(obs.mapNestedArrayRejected as boolean);
+    expect(mapNestedArray.code).toBe(obs.mapNestedArrayErrorCode as string);
+    const inNestedArray = constructionError('in', [[1]]);
+    expect(inNestedArray.rejected).toBe(obs.inNestedArrayRejected as boolean);
+    expect(inNestedArray.code).toBe(obs.inNestedArrayErrorCode as null);
+    expect(constructionError('in', [[[1]]]).rejected)
+      .toBe(obs.inDeepNestedArrayRejected as boolean);
+    const notInNestedArray = constructionError('not-in', [[1]]);
+    expect(notInNestedArray.rejected).toBe(obs.notInNestedArrayRejected as boolean);
+    expect(notInNestedArray.code).toBe(obs.notInNestedArrayErrorCode as null);
+    const arrayContainsNestedArray = constructionError('array-contains', [[1]]);
+    expect(arrayContainsNestedArray.rejected)
+      .toBe(obs.arrayContainsNestedArrayRejected as boolean);
+    expect(arrayContainsNestedArray.code)
+      .toBe(obs.arrayContainsNestedArrayErrorCode as string);
+    const arrayContainsAnyNestedArray = constructionError('array-contains-any', [[1]]);
+    expect(arrayContainsAnyNestedArray.rejected)
+      .toBe(obs.arrayContainsAnyNestedArrayRejected as boolean);
+    expect(arrayContainsAnyNestedArray.code)
+      .toBe(obs.arrayContainsAnyNestedArrayErrorCode as string);
+  });
+
+  it('firestore#116 queryEqual matches captured primitive and object constraints', async () => {
     const obs = load('firestore-queryequal-structural.json');
-    expect(obs.sameQueryBuiltTwice).toBe(true); // prod: structural (the target)
 
     const db = freshDb();
-    seedDb(db, { 'c/x': { v: 1 } });
+    seedDb(db, {
+      'c/x': { v: 1 },
+      'c/a': { value: { score: 1 }, rank: 1 },
+      'c/b': { value: { score: 2 }, rank: 2 },
+    });
+    const localReference = doc(db, 'query-equality/ref');
+    const timestampValue = Timestamp.fromMillis(1_234);
+    const bytesInput = new Uint8Array([1, 2]);
+    const bytesValue = Bytes.fromUint8Array(bytesInput);
+    const geoPointValue = new GeoPoint(10, 20);
+    const vectorInput = [1, 2];
+    const vectorValue = vector(vectorInput);
+    await setDoc(doc(db, 'c/a'), {
+      value: { score: 1 },
+      rank: 1,
+      timestampValue,
+      bytesValue,
+      geoPointValue,
+      referenceValue: localReference,
+      vectorValue,
+    });
     const q1 = query(collection(db, 'c'), where('v', '==', 1));
     const q2 = query(collection(db, 'c'), where('v', '==', 1));
     const q3 = query(collection(db, 'c'), where('v', '==', 2));
-    // Sandbox today: identity-only — built-twice is NOT equal.
-    expect(queryEqual(q1, q2)).toBe(false);
-    // Same-object identity matches prod's `identity:true`.
+    const q4 = query(collection(db, 'c'), where('v', '==', { a: 1 }));
+    const q5 = query(collection(db, 'c'), where('v', '==', { a: 1 }));
+    const q6 = query(collection(db, 'c'), where('v', '==', { a: 2 }));
+    const base = collection(db, 'c');
+    const structuredA = query(collection(db, 'c'), where('v', '==', ['x', { enabled: true }]));
+    const structuredB = query(collection(db, 'c'), where('v', '==', ['x', { enabled: true }]));
+    const timestampA = query(collection(db, 'c'), where('v', '==', Timestamp.fromMillis(1_234)));
+    const timestampB = query(collection(db, 'c'), where('v', '==', Timestamp.fromMillis(1_234)));
+    const bytesA = query(collection(db, 'c'), where('v', '==', Bytes.fromUint8Array(new Uint8Array([1, 2]))));
+    const bytesB = query(collection(db, 'c'), where('v', '==', Bytes.fromUint8Array(new Uint8Array([1, 2]))));
+    const geoA = query(collection(db, 'c'), where('v', '==', new GeoPoint(10, 20)));
+    const geoB = query(collection(db, 'c'), where('v', '==', new GeoPoint(10, 20)));
+    const refA = query(collection(db, 'c'), where('v', '==', doc(db, 'query-equality/ref')));
+    const refB = query(collection(db, 'c'), where('v', '==', doc(db, 'query-equality/ref')));
+    const otherDb = freshDb();
+    const vectorA = query(collection(db, 'c'), where('v', '==', vector([1, 2])));
+    const vectorB = query(collection(db, 'c'), where('v', '==', vector([1, 2])));
+    const dateValue = query(collection(db, 'c'), where('v', '==', new Date(1_234)));
+    const negativeZero = query(collection(db, 'c'), where('v', '==', -0));
+    const positiveZero = query(collection(db, 'c'), where('v', '==', 0));
+    expect(queryEqual(q1, q2)).toBe(obs.sameQueryBuiltTwice as boolean);
     expect(queryEqual(q1, q1)).toBe(obs.identity as boolean);
-    // Different value is unequal on both — matches prod's `differentValue:false`.
     expect(queryEqual(q1, q3)).toBe(obs.differentValue as boolean);
+    expect(obs.objectValueBuiltTwice).toBe(true);
+    expect(queryEqual(q4, q5)).toBe(obs.objectValueBuiltTwice as boolean);
+    expect(queryEqual(q4, q6)).toBe(obs.objectValueChanged as boolean);
+    expect(queryEqual(q1, query(base, where('v', '==', 1))))
+      .toBe(obs.sameCollectionScope as boolean);
+    expect(queryEqual(q1, query(collection(db, 'other'), where('v', '==', 1))))
+      .toBe(obs.differentCollectionScope as boolean);
+    expect(queryEqual(collectionGroup(db, 'group'), collectionGroup(db, 'group')))
+      .toBe(obs.sameCollectionGroupScope as boolean);
+    expect(queryEqual(collectionGroup(db, 'group'), collectionGroup(db, 'other-group')))
+      .toBe(obs.differentCollectionGroupScope as boolean);
+    expect(queryEqual(base, collectionGroup(db, 'group')))
+      .toBe(obs.collectionAndCollectionGroupDiffer as boolean);
+
+    const orderedA = query(base, orderBy('rank'), orderBy(documentId()));
+    const orderedB = query(base, orderBy('rank'), orderBy(documentId()));
+    expect(queryEqual(orderedA, orderedB)).toBe(obs.sameOrderSequence as boolean);
+    expect(queryEqual(
+      orderedA,
+      query(base, orderBy('rank', 'desc'), orderBy(documentId())),
+    )).toBe(obs.differentOrderDirection as boolean);
+    expect(queryEqual(
+      orderedA,
+      query(base, orderBy(documentId()), orderBy('rank')),
+    )).toBe(obs.differentOrderSequence as boolean);
+
+    const limited = query(base, orderBy('rank'), limit(1));
+    expect(queryEqual(limited, query(base, orderBy('rank'), limit(1))))
+      .toBe(obs.sameLimit as boolean);
+    expect(queryEqual(limited, query(base, orderBy('rank'), limit(2))))
+      .toBe(obs.differentLimit as boolean);
+    expect(queryEqual(limited, query(base, orderBy('rank'), limitToLast(1))))
+      .toBe(obs.limitAndLimitToLastDiffer as boolean);
+
+    const composite = query(base, and(where('v', '==', 1), where('rank', '==', 2)));
+    expect(queryEqual(
+      composite,
+      query(base, and(where('v', '==', 1), where('rank', '==', 2))),
+    )).toBe(obs.sameCompositeFilter as boolean);
+    expect(queryEqual(
+      composite,
+      query(base, and(where('v', '==', 1), where('rank', '==', 3))),
+    )).toBe(obs.differentCompositeFilterValue as boolean);
+    expect(queryEqual(
+      composite,
+      query(base, or(where('v', '==', 1), where('rank', '==', 2))),
+    )).toBe(obs.differentCompositeFilterShape as boolean);
+
+    const start = query(orderedA, startAt(1, 'a'));
+    expect(queryEqual(start, query(orderedA, startAt(1, 'a'))))
+      .toBe(obs.sameStartCursor as boolean);
+    expect(queryEqual(start, query(orderedA, startAt(2, 'b'))))
+      .toBe(obs.differentStartCursorValue as boolean);
+    expect(queryEqual(start, query(orderedA, startAfter(1, 'a'))))
+      .toBe(obs.startAtAndStartAfterDiffer as boolean);
+    const end = query(orderedA, endAt(1, 'a'));
+    expect(queryEqual(end, query(orderedA, endAt(1, 'a'))))
+      .toBe(obs.sameEndCursor as boolean);
+    expect(queryEqual(end, query(orderedA, endAt(2, 'b'))))
+      .toBe(obs.differentEndCursorValue as boolean);
+    expect(queryEqual(end, query(orderedA, endBefore(1, 'a'))))
+      .toBe(obs.endAtAndEndBeforeDiffer as boolean);
+    expect(queryEqual(structuredA, structuredB)).toBe(obs.structuredValueBuiltTwice as boolean);
+    expect(queryEqual(timestampA, timestampB)).toBe(obs.timestampValueBuiltTwice as boolean);
+    expect(queryEqual(bytesA, bytesB)).toBe(obs.bytesValueBuiltTwice as boolean);
+    expect(queryEqual(geoA, geoB)).toBe(obs.geoPointValueBuiltTwice as boolean);
+    expect(queryEqual(refA, refB)).toBe(obs.referenceValueBuiltTwice as boolean);
+    expect(queryEqual(vectorA, vectorB)).toBe(obs.vectorValueBuiltTwice as boolean);
+
+    const changedValues = [
+      ['structuredValueChanged', structuredA,
+        query(collection(db, 'c'), where('v', '==', ['x', { enabled: false }]))],
+      ['timestampValueChanged', timestampA,
+        query(collection(db, 'c'), where('v', '==', Timestamp.fromMillis(1_235)))],
+      ['bytesValueChanged', bytesA,
+        query(collection(db, 'c'), where('v', '==', Bytes.fromUint8Array(new Uint8Array([1, 3]))))],
+      ['geoPointValueChanged', geoA,
+        query(collection(db, 'c'), where('v', '==', new GeoPoint(10, 21)))],
+      ['referenceValueChanged', refA,
+        query(collection(db, 'c'), where('v', '==', doc(db, 'query-equality/other')))],
+      ['vectorValueChanged', vectorA,
+        query(collection(db, 'c'), where('v', '==', vector([1, 3])))],
+    ] as const;
+    for (const [observation, left, right] of changedValues) {
+      expect(queryEqual(left, right)).toBe(obs[observation] as boolean);
+    }
+
+    expect(queryEqual(dateValue, timestampA)).toBe(obs.dateEqualsEquivalentTimestamp as boolean);
+    expect(queryEqual(negativeZero, positiveZero)).toBe(obs.negativeZeroEqualsPositiveZero as boolean);
+
+    const converterA = {
+      toFirestore: (value: Record<string, unknown>) => value,
+      fromFirestore: (snapshot: { data(): Record<string, unknown> }) => snapshot.data(),
+    };
+    const converterB = { ...converterA };
+    expect(queryEqual(
+      withConverter(base, converterA),
+      withConverter(base, converterA),
+    )).toBe(obs.sameConverterIdentity as boolean);
+    expect(queryEqual(
+      withConverter(base, converterA),
+      withConverter(base, converterB),
+    )).toBe(obs.differentConverterIdentity as boolean);
+
+    let getterCalls = 0;
+    const getterOperand = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get() { getterCalls += 1; return 1; },
+    });
+    const getterA = query(base, where('v', '==', getterOperand));
+    const getterB = query(base, where('v', '==', getterOperand));
+    expect(getterCalls).toBe(obs.getterCallsAfterConstruction as number);
+    expect(queryEqual(getterA, getterB)).toBe(obs.getterQueriesEqual as boolean);
+    expect(getterCalls).toBe(obs.getterCallsAfterEquality as number);
+
+    const constructionError = (value: unknown): { threw: boolean; code: string | null } => {
+      try {
+        query(base, where('v', '==', value));
+        return { threw: false, code: null };
+      } catch (error) {
+        return {
+          threw: true,
+          code: typeof (error as { code?: unknown })?.code === 'string'
+            ? (error as { code: string }).code
+            : null,
+        };
+      }
+    };
+    const undefinedResult = constructionError(undefined);
+    expect(undefinedResult.threw).toBe(obs.undefinedRejected as boolean);
+    expect(undefinedResult.code).toBe(obs.undefinedErrorCode as string);
+    expect(constructionError(BigInt(1)).threw).toBe(obs.bigintRejected as boolean);
+    const otherDatabaseResult = constructionError(doc(otherDb, 'query-equality/ref'));
+    expect(otherDatabaseResult.threw).toBe(obs.referenceOtherDatabaseRejected as boolean);
+    expect(otherDatabaseResult.code).toBe(obs.referenceOtherDatabaseErrorCode as string);
+    const foreignRef = doc(otherDb, 'query-equality/ref');
+    const nestedForeign = constructionError({ ref: foreignRef });
+    expect(nestedForeign.threw).toBe(obs.nestedReferenceOtherDatabaseRejected as boolean);
+    expect(nestedForeign.code).toBe(obs.nestedReferenceOtherDatabaseErrorCode as string);
+    const arrayForeign = constructionError([foreignRef]);
+    expect(arrayForeign.threw).toBe(obs.arrayReferenceOtherDatabaseRejected as boolean);
+    expect(arrayForeign.code).toBe(obs.arrayReferenceOtherDatabaseErrorCode as string);
+    const convertedForeign = constructionError(withConverter(foreignRef, converterA));
+    expect(convertedForeign.threw).toBe(obs.convertedReferenceOtherDatabaseRejected as boolean);
+    expect(convertedForeign.code).toBe(obs.convertedReferenceOtherDatabaseErrorCode as string);
+
+    const localRef = doc(db, 'query-equality/ref');
+    expect(queryEqual(
+      query(base, where('v', '==', localRef)),
+      query(base, where('v', '==', withConverter(localRef, converterA))),
+    )).toBe(obs.rawAndConvertedReferenceOperandsEqual as boolean);
+
+    const mutableOperand = { score: 1 };
+    const independentOperand = { score: 1 };
+    const frozenExecutionQuery = query(base, where('value', '==', mutableOperand));
+    const independentExecutionQuery = query(base, where('value', '==', independentOperand));
+    mutableOperand.score = 2;
+    expect(queryEqual(frozenExecutionQuery, independentExecutionQuery))
+      .toBe(obs.constructedQueriesRemainEqualAfterOperandMutation as boolean);
+    expect((await getDocs(frozenExecutionQuery)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.frozenExecutionIds as string[]);
+    expect((await getDocs(independentExecutionQuery)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.independentExecutionIds as string[]);
+
+    const execute = async (field: string, value: unknown) => ({
+      ids: (await getDocs(query(base, where(field, '==', value)))).docs.map((snapshot) =>
+        snapshot.id),
+      code: null,
+    });
+    expect(await execute('timestampValue', timestampValue)).toEqual(obs.timestampExecution);
+    expect(await execute('bytesValue', bytesValue)).toEqual(obs.bytesExecution);
+    expect(await execute('geoPointValue', geoPointValue)).toEqual(obs.geoPointExecution);
+    expect(await execute('referenceValue', localReference)).toEqual(obs.referenceExecution);
+    expect(await execute('vectorValue', vectorValue)).toEqual(obs.vectorExecution);
+
+    const frozenBytesQuery = query(base, where('bytesValue', '==', bytesValue));
+    const frozenVectorQuery = query(base, where('vectorValue', '==', vectorValue));
+    bytesInput[0] = 9;
+    vectorInput[0] = 9;
+    expect(await execute('bytesValue', bytesValue)).toEqual(obs.bytesExecutionAfterInputMutation);
+    expect(await execute('vectorValue', vectorValue)).toEqual(obs.vectorExecutionAfterInputMutation);
+    expect({
+      ids: (await getDocs(frozenBytesQuery)).docs.map((snapshot) => snapshot.id),
+      code: null,
+    }).toEqual(obs.frozenBytesExecutionAfterInputMutation);
+    expect({
+      ids: (await getDocs(frozenVectorQuery)).docs.map((snapshot) => snapshot.id),
+      code: null,
+    }).toEqual(obs.frozenVectorExecutionAfterInputMutation);
+
+    const cursorRef = doc(db, 'c/a');
+    const cursorSnapshot = await getDoc(cursorRef);
+    const cursorBase = query(base, orderBy('rank'), orderBy(documentId()));
+    expect(queryEqual(
+      query(cursorBase, startAt(cursorSnapshot)),
+      query(cursorBase, startAt(1, cursorRef.id)),
+    )).toBe(obs.snapshotAndExplicitCursorEqual as boolean);
+
+    let snapshotCursorConverterCalls = 0;
+    const statefulCursorConverter = {
+      toFirestore: (value: Record<string, unknown>) => value,
+      fromFirestore: () => {
+        snapshotCursorConverterCalls += 1;
+        return { rank: 999 };
+      },
+    };
+    const convertedCursorSnapshot = await getDoc(
+      withConverter(cursorRef, statefulCursorConverter),
+    );
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterFetch as number);
+    const statefulSnapshotCursor = query(cursorBase, startAt(convertedCursorSnapshot));
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterConstruction as number);
+    expect(queryEqual(statefulSnapshotCursor, query(cursorBase, startAt(1, cursorRef.id))))
+      .toBe(obs.statefulSnapshotCursorEqualToExplicit as boolean);
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterEquality as number);
+    expect((await getDocs(statefulSnapshotCursor)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.statefulSnapshotCursorFirstExecutionIds as string[]);
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterFirstExecution as number);
+    expect((await getDocs(statefulSnapshotCursor)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.statefulSnapshotCursorSecondExecutionIds as string[]);
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterSecondExecution as number);
+
+    const liveSandbox = initializeSandbox();
+    setRules(liveSandbox, PERMISSIVE);
+    liveSandbox.currentUser = { uid: 'cursor-a' };
+    const liveDb = getFirestore(liveSandbox);
+    const liveARef = doc(liveDb, 'cursor-live/a');
+    await setDoc(liveARef, { rank: 1 });
+    await setDoc(doc(liveDb, 'cursor-live/b'), { rank: 2 });
+    let liveConverterCalls = 0;
+    const liveSnapshot = await getDoc(withConverter(liveARef, {
+      toFirestore: (value: { rank: number }) => value,
+      fromFirestore: () => {
+        liveConverterCalls += 1;
+        return { rank: 999 };
+      },
+    }));
+    const liveBase = query(
+      collection(liveDb, 'cursor-live'),
+      orderBy('rank'),
+      orderBy(documentId()),
+    );
+    const liveCases = {
+      startAt: [startAt(liveSnapshot), startAt(1, liveARef.id)],
+      startAfter: [startAfter(liveSnapshot), startAfter(1, liveARef.id)],
+      endAt: [endAt(liveSnapshot), endAt(1, liveARef.id)],
+      endBefore: [endBefore(liveSnapshot), endBefore(1, liveARef.id)],
+    } as const;
+    const expectedCursorMatrix = obs.statefulSnapshotCursorMatrix as Record<string, {
+      equalToExplicit: boolean;
+      firstExecutionIds: string[];
+      secondExecutionIds: string[];
+    }>;
+    for (const [name, constraints] of Object.entries(liveCases)) {
+      const fromSnapshot = query(liveBase, constraints[0]);
+      const fromValues = query(liveBase, constraints[1]);
+      expect(queryEqual(fromSnapshot, fromValues))
+        .toBe(expectedCursorMatrix[name]!.equalToExplicit);
+      liveSandbox.currentUser = { uid: `${name}-first` };
+      expect((await getDocs(fromSnapshot)).docs.map((snapshot) => snapshot.id))
+        .toEqual(expectedCursorMatrix[name]!.firstExecutionIds);
+      liveSandbox.currentUser = { uid: `${name}-second` };
+      expect((await getDocs(fromSnapshot)).docs.map((snapshot) => snapshot.id))
+        .toEqual(expectedCursorMatrix[name]!.secondExecutionIds);
+    }
+    expect(liveConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterAllOverloads as number);
+
+    const rawAddedRef = await addDoc(collection(db, 'returned-refs'), { kind: 'raw' });
+    const addDocConverter = {
+      toFirestore: (value: { kind: string }) => value,
+      fromFirestore: (snapshot: { data(): { kind: string } }) => snapshot.data(),
+    };
+    const convertedAddedRef = await addDoc(
+      withConverter(collection(db, 'returned-refs'), addDocConverter),
+      { kind: 'converted' },
+    );
+    await setDoc(cursorRef, {
+      rank: 1,
+      rawAddedReference: rawAddedRef,
+      convertedAddedReference: convertedAddedRef,
+    });
+    const rawAddedReferenceQuery = query(
+      base,
+      where('rawAddedReference', '==', rawAddedRef),
+    );
+    const convertedAddedReferenceQuery = query(
+      base,
+      where('convertedAddedReference', '==', convertedAddedRef),
+    );
+    expect(queryEqual(
+      rawAddedReferenceQuery,
+      query(base, where('rawAddedReference', '==', doc(db, rawAddedRef.path))),
+    )).toBe(obs.rawAddDocReferenceEqualToRebuilt as boolean);
+    expect(queryEqual(
+      convertedAddedReferenceQuery,
+      query(base, where('convertedAddedReference', '==', doc(db, convertedAddedRef.path))),
+    )).toBe(obs.convertedAddDocReferenceEqualToRebuilt as boolean);
+    expect((await getDocs(rawAddedReferenceQuery)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.rawAddDocReferenceExecutionIds as string[]);
+    expect((await getDocs(convertedAddedReferenceQuery)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.convertedAddDocReferenceExecutionIds as string[]);
   });
 
-  it('firestore-snapshotequal-structural (KNOWN DIVERGENCE: throws on sandbox snapshots)', async () => {
-    // Prod snapshotEqual returns a boolean: same-object → true (identity),
-    // two separate fetches of the same query → false (twoFetchesSameData).
-    // The sandbox's snapshotEqual routes both args through the ref-tagging
-    // path, which does not recognize sandbox QuerySnapshots, so it THROWS
-    // "unrecognized reference" instead of returning a boolean. Pin both.
+  it('firestore#117 snapshotEqual distinguishes read identity from listener structure', async () => {
     const obs = load('firestore-snapshotequal-structural.json');
-    expect(obs.identity).toBe(true); // prod: same object compares equal
-    expect(obs.twoFetchesSameData).toBe(false); // prod: two fetches are not equal
+    for (const discriminator of [
+      'repeatedFetchVisibleStateSame',
+      'differentReadQueryDocumentsSame',
+      'simultaneousListenerStateSame',
+      'differentListenerQueryDocumentsSame',
+      'differentDocumentsChanged',
+      'restoredDocumentsStateSame',
+      'restoredChangesDiffer',
+      'metadataOnlyDocumentsSame',
+      'metadataOnlyChangesSame',
+      'metadataOnlyMetadataDiffer',
+    ]) {
+      expect(obs[discriminator]).toBe(true);
+    }
 
     const db = freshDb();
     seedDb(db, { 'c/x': { v: 1 } });
     const q = query(collection(db, 'c'), where('v', '==', 1));
     const s1 = (await getDocs(q)) as QuerySnapshot;
     const s2 = (await getDocs(q)) as QuerySnapshot;
+    const s3 = (await getDocs(q)) as QuerySnapshot;
+    const equivalentQueryRead = (await getDocs(
+      query(collection(db, 'c'), where('v', '==', 1)),
+    )) as QuerySnapshot;
+    const differentQueryRead = (await getDocs(
+      query(collection(db, 'c'), orderBy('v')),
+    )) as QuerySnapshot;
     expect(s1.size).toBe(obs.size as number);
-    // Sandbox today: snapshotEqual throws rather than returning a boolean.
-    const e1 = await (async () => {
-      try {
-        snapshotEqual(s1 as unknown as DocumentSnapshot, s2 as unknown as DocumentSnapshot);
-        return null;
-      } catch (err) {
-        return err as Error;
-      }
-    })();
-    expect(e1).not.toBeNull();
-    expect(e1!.message.includes('unrecognized reference')).toBe(true);
+    expect(snapshotEqual(s1, s1)).toBe(obs.identity as boolean);
+    expect(snapshotEqual(s1, s2)).toBe(obs.twoFetchesSameData as boolean);
+    expect([
+      snapshotEqual(s1, s2),
+      snapshotEqual(s2, s3),
+      snapshotEqual(s3, equivalentQueryRead),
+    ])
+      .toEqual(obs.repeatedFetchEquality as boolean[]);
+    expect([s2, s3, equivalentQueryRead].every((snapshot) =>
+      JSON.stringify(snapshot.docs.map((docSnapshot) => docSnapshot.data()))
+      === JSON.stringify(s1.docs.map((docSnapshot) => docSnapshot.data())))).toBe(true);
+    expect(snapshotEqual(s3, differentQueryRead))
+      .toBe(obs.differentReadQuerySameDocumentsEqual as boolean);
+    expect(s3.docs.map((snapshot) => snapshot.data()))
+      .toEqual(differentQueryRead.docs.map((snapshot) => snapshot.data()));
+
+    await setDoc(doc(db, 'c/y'), { v: 1 });
+    const changedRead1 = (await getDocs(q)) as QuerySnapshot;
+    const changedRead2 = (await getDocs(q)) as QuerySnapshot;
+    const changedRead3 = (await getDocs(q)) as QuerySnapshot;
+    expect([
+      snapshotEqual(s3, changedRead1),
+      snapshotEqual(changedRead1, changedRead2),
+      snapshotEqual(changedRead2, changedRead3),
+    ]).toEqual(obs.changedReadEquality as boolean[]);
+    expect(changedRead1.docs.map((snapshot) => snapshot.data()))
+      .toEqual(changedRead2.docs.map((snapshot) => snapshot.data()));
+    const document1 = await getDoc(doc(db, 'c/x'));
+    const document2 = await getDoc(doc(db, 'c/x'));
+    const documentOtherRef = await getDoc(doc(db, 'c/y'));
+    const missing1 = await getDoc(doc(db, 'c/missing'));
+    const missing2 = await getDoc(doc(db, 'c/missing'));
+    const queryChild = s1.docs[0]!;
+    expect(snapshotEqual(document1, document1)).toBe(obs.documentIdentity as boolean);
+    expect(snapshotEqual(document1, document2)).toBe(obs.documentSameRefTwoFetches as boolean);
+    expect(snapshotEqual(document1, documentOtherRef))
+      .toBe(obs.documentDifferentRefSameData as boolean);
+    expect(snapshotEqual(missing1, missing2)).toBe(obs.documentMissingSameRef as boolean);
+    expect(snapshotEqual(document1, missing1))
+      .toBe(obs.documentExistingAndMissingDiffer as boolean);
+    expect(snapshotEqual(queryChild, document1))
+      .toBe(obs.documentQueryChildMatchesGet as boolean);
+
+    const converterA = {
+      toFirestore: (value: Record<string, unknown>) => value,
+      fromFirestore: (snapshot: { data(): Record<string, unknown> }) => snapshot.data(),
+    };
+    const converterB = { ...converterA };
+    const convertedA1 = await getDoc(withConverter(doc(db, 'c/x'), converterA));
+    const convertedA2 = await getDoc(withConverter(doc(db, 'c/x'), converterA));
+    const convertedB = await getDoc(withConverter(doc(db, 'c/x'), converterB));
+    expect(snapshotEqual(convertedA1, convertedA2))
+      .toBe(obs.documentSameConverterIdentity as boolean);
+    expect(snapshotEqual(convertedA1, convertedB))
+      .toBe(obs.documentDifferentConverterIdentity as boolean);
+    await setDoc(doc(db, 'c/x'), { v: 2 });
+    const documentChanged = await getDoc(doc(db, 'c/x'));
+    expect(snapshotEqual(document1, documentChanged)).toBe(obs.documentChangedData as boolean);
+
+    const scalarCollisionRef = doc(db, 'scalar-collision/a');
+    const scalarCollisionCases: Record<string, [unknown, unknown]> = {
+      timestamp: [{ seconds: 1, nanoseconds: 2 }, new Timestamp(1, 2)],
+      reference: [{ path: 'c/x' }, doc(db, 'c/x')],
+      geoPoint: [{ latitude: 10, longitude: 20 }, new GeoPoint(10, 20)],
+      vector: [{ typeName: 'vector', value: [1, 2] }, vector([1, 2])],
+    };
+    const expectedScalarMapEquality = obs.scalarShapedMapEquality as Record<string, boolean>;
+    for (const [name, [plain, scalar]] of Object.entries(scalarCollisionCases)) {
+      await setDoc(scalarCollisionRef, { value: plain });
+      const plainSnapshot = await getDoc(scalarCollisionRef);
+      await setDoc(scalarCollisionRef, { value: scalar });
+      const scalarSnapshot = await getDoc(scalarCollisionRef);
+      expect(snapshotEqual(plainSnapshot, scalarSnapshot))
+        .toBe(expectedScalarMapEquality[name]);
+    }
+
+    const firstListenerSnapshot = (source: typeof q) => new Promise<QuerySnapshot>((resolve) => {
+      let unsubscribe = () => {};
+      unsubscribe = onSnapshot(source, (snapshot) => {
+        unsubscribe();
+        resolve(snapshot as QuerySnapshot);
+      });
+    });
+    const listenerCollection = collection(db, 'listener-state');
+    await setDoc(doc(listenerCollection, 'a'), { v: 1 });
+    const listenerQuery = query(listenerCollection, where('v', '==', 1));
+    const [listenerSnap1, listenerSnap2] = await Promise.all([
+      firstListenerSnapshot(listenerQuery),
+      firstListenerSnapshot(listenerQuery),
+    ]);
+    expect(listenerSnap1 !== listenerSnap2).toBe(obs.listenerSnapshotsDistinct as boolean);
+    expect(snapshotEqual(listenerSnap1, listenerSnap2))
+      .toBe(obs.simultaneousListenerSnapshotsEqual as boolean);
+    expect(listenerSnap1.metadata).toEqual(listenerSnap2.metadata);
+
+    const differentQuerySnapshot = await firstListenerSnapshot(
+      query(listenerCollection, orderBy('v')),
+    );
+    expect(listenerSnap1.docs.map((snapshot) => snapshot.id))
+      .toEqual(differentQuerySnapshot.docs.map((snapshot) => snapshot.id));
+    expect(snapshotEqual(listenerSnap1, differentQuerySnapshot))
+      .toBe(obs.differentQuerySameDocumentsEqual as boolean);
+
+    const documentsCollection = collection(db, 'listener-documents');
+    await setDoc(doc(documentsCollection, 'a'), { v: 1 });
+    const documentSnapshots: QuerySnapshot[] = [];
+    const unsubscribeDocuments = onSnapshot(documentsCollection, (snapshot) => {
+      documentSnapshots.push(snapshot as QuerySnapshot);
+    });
+    await settle();
+    const beforeDocumentChange = documentSnapshots.at(-1)!;
+    await setDoc(doc(documentsCollection, 'b'), { v: 1 });
+    await settle();
+    const afterDocumentChange = documentSnapshots.at(-1)!;
+    unsubscribeDocuments();
+    expect(beforeDocumentChange.docs.map((snapshot) => snapshot.id))
+      .not.toEqual(afterDocumentChange.docs.map((snapshot) => snapshot.id));
+    expect(snapshotEqual(beforeDocumentChange, afterDocumentChange))
+      .toBe(obs.differentDocumentsEqual as boolean);
+
+    const historyCollection = collection(db, 'listener-history');
+    const historyRef = doc(historyCollection, 'a');
+    await setDoc(historyRef, { v: 1 });
+    const historySnapshots: QuerySnapshot[] = [];
+    const unsubscribeHistory = onSnapshot(historyCollection, (snapshot) => {
+      historySnapshots.push(snapshot as QuerySnapshot);
+    });
+    await settle();
+    const historyInitial = historySnapshots.at(-1)!;
+    await setDoc(historyRef, { v: 2 });
+    await settle();
+    await setDoc(historyRef, { v: 1 });
+    await settle();
+    const historyRestored = historySnapshots.at(-1)!;
+    unsubscribeHistory();
+    expect(historyInitial.docs.map((snapshot) => snapshot.data()))
+      .toEqual(historyRestored.docs.map((snapshot) => snapshot.data()));
+    expect(historyInitial.docChanges().map((change) => change.type))
+      .not.toEqual(historyRestored.docChanges().map((change) => change.type));
+    expect(snapshotEqual(historyInitial, historyRestored))
+      .toBe(obs.restoredDocumentsDifferentChangesEqual as boolean);
+
+    const metadataCollection = collection(db, 'listener-metadata');
+    const metadataRef = doc(metadataCollection, 'a');
+    await setDoc(metadataRef, { v: 1 });
+    const metadataSnapshots: QuerySnapshot[] = [];
+    const unsubscribeMetadata = onSnapshot(
+      metadataCollection,
+      { includeMetadataChanges: true },
+      (snapshot) => metadataSnapshots.push(snapshot as QuerySnapshot),
+    );
+    await settle();
+    await setDoc(metadataRef, { v: 1 });
+    await settle();
+    unsubscribeMetadata();
+    const metadataPending = metadataSnapshots.find((snapshot) =>
+      snapshot.metadata.hasPendingWrites)!;
+    const pendingIndex = metadataSnapshots.indexOf(metadataPending);
+    const metadataSettled = metadataSnapshots.slice(pendingIndex + 1).find((snapshot) =>
+      !snapshot.metadata.hasPendingWrites)!;
+    expect(metadataPending.docs.map((snapshot) => snapshot.data()))
+      .toEqual(metadataSettled.docs.map((snapshot) => snapshot.data()));
+    expect(metadataPending.docChanges()).toEqual(metadataSettled.docChanges());
+    expect(metadataPending.metadata).not.toEqual(metadataSettled.metadata);
+    expect(snapshotEqual(metadataPending, metadataSettled))
+      .toBe(obs.metadataOnlySnapshotsEqual as boolean);
   });
 
   // ── completeness: every observation is asserted or explicitly N/A ─────

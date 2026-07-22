@@ -21,4 +21,16 @@ describe('reviveFirestoreNumbers', () => {
     expect(revived.values[0]).toBe(1);
     expect(revived.values[1].nested).toBeInstanceOf(RulesFloat);
   });
+
+  test('preserves an explicitly tagged integral double', () => {
+    const revived = reviveFirestoreNumbers({ __type: 'float', value: 2 });
+
+    expect(revived).toBeInstanceOf(RulesFloat);
+  });
+
+  test('does not traverse class instances', () => {
+    const instance = new Date(0);
+
+    expect(reviveFirestoreNumbers(instance)).toBe(instance);
+  });
 });

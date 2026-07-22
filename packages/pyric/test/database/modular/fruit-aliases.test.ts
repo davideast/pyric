@@ -35,13 +35,14 @@ describe('RTDB low-hanging-fruit exports (issue #149)', () => {
     }
   });
 
-  it('goOffline / goOnline are accepted no-ops that do NOT simulate a disconnect', async () => {
+  it('goOffline / goOnline preserve ordinary local reads and writes when no disconnect work is queued', async () => {
     const { db } = setup();
     const r = ref(db, '/room/msg');
     await set(r, 'hello');
 
     expect(() => goOffline(db)).not.toThrow();
-    // Writes and reads still work while "offline" — no disconnect is simulated.
+    // The local data plane remains usable; connection state only owns the
+    // one-shot onDisconnect queue.
     await set(r, 'while-offline');
     expect((await get(r)).val()).toBe('while-offline');
     expect(() => goOnline(db)).not.toThrow();
