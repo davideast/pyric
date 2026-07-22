@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { deleteApp, initializeApp } from '../../../src/app/index.js';
+import { resetAppRegistryForTests } from '../../../src/app/registry.js';
 import {
   TARGET_SYMBOL,
   api,
@@ -39,6 +40,9 @@ const snapshotObservation = loadObservation('rtdb-modular-get-snapshot-shape');
 const row = (id: string, assertion: () => unknown | Promise<unknown>) => it(`rtdb-modular#${id}`, assertion);
 
 describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
+  beforeEach(() => resetAppRegistryForTests());
+  afterEach(() => resetAppRegistryForTests());
+
   row('M77', () => assertDisconnectRegistration(
     disconnectRegistrationObservation as DisconnectRegistrationObservation,
   ));
