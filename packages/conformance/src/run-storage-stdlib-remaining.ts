@@ -2,33 +2,40 @@ import { deleteApp, initializeApp } from 'firebase/app';
 import { createHash } from 'node:crypto';
 import { getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 import {
-  RequestBudget,
-  STORAGE_MATCH,
-  STORAGE_PROBE_LIMITS,
   accessHeaders,
-  activateStorageSource,
-  canonicalPolicy,
-  deleteStorageObjects,
   firestoreDocumentName,
-  injectIntoMatch,
   jsonRequest,
+  resolveServiceAccount,
+  storageConfig,
+  type AccessHeaders,
+  type ServiceAccount,
+  type WebConfig,
+} from './storage-stdlib-real-api.ts';
+import {
+  RequestBudget,
+  STORAGE_PROBE_LIMITS,
+  runCleanupSteps,
+} from './storage-stdlib-real-budget.ts';
+import { canonicalPolicy, type IamPolicy } from './storage-stdlib-real-iam.ts';
+import {
+  deleteStorageObjects,
+  storageDecision,
+  type StorageDecision,
+} from './storage-stdlib-real-objects.ts';
+import {
+  storageObservation,
+  writeStorageObservations,
+} from './storage-stdlib-real-observations.ts';
+import {
+  STORAGE_MATCH,
+  activateStorageSource,
+  injectIntoMatch,
   preflightStorageSource,
   replaceRulesFile,
-  resolveServiceAccount,
   restoreStorageRelease,
-  runCleanupSteps,
   selectRulesFile,
-  storageConfig,
-  storageDecision,
-  storageObservation,
   storageRulesSnapshot,
-  writeStorageObservations,
-  type AccessHeaders,
-  type IamPolicy,
-  type ServiceAccount,
-  type StorageDecision,
-  type WebConfig,
-} from './storage-stdlib-real-support.ts';
+} from './storage-stdlib-real-rules.ts';
 
 type Mode = 'native-fields' | 'remaining-cross-service';
 

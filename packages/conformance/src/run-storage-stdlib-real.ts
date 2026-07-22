@@ -18,17 +18,21 @@ import { getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { readObservationLinkage } from './observation-linkage.ts';
 import {
   accessHeaders,
-  canonicalPolicy,
   FIREBASE_API,
   jsonRequest as json,
   resolveServiceAccount,
   RULES_API,
-  runCleanupSteps,
+  type WebConfig,
+} from './storage-stdlib-real-api.ts';
+import { runCleanupSteps } from './storage-stdlib-real-budget.ts';
+import {
+  canonicalPolicy,
   type IamPolicy,
+} from './storage-stdlib-real-iam.ts';
+import {
   type Release,
   type Ruleset,
-  type WebConfig,
-} from './storage-stdlib-real-support.ts';
+} from './storage-stdlib-real-rules.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');

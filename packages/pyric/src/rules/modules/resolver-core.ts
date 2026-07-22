@@ -87,43 +87,6 @@ function functionCallSites(
     .map(({ args }) => args);
 }
 
-// ---- Transitive dependency resolution ----
-
-type DependencyScan =
-  | { deps: string[]; cycle: null }
-  | { deps: string[]; cycle: string[] };
-
-function scanTransitiveDeps(
-  fnName: string,
-  allFunctions: Map<string, FunctionDef>,
-  visited: Set<string> = new Set(),
-  path: readonly string[] = [],
-): DependencyScan {
-  const cycleStart = path.indexOf(fnName);
-  if (cycleStart >= 0) {
-    return { deps: [], cycle: [...path.slice(cycleStart), fnName] };
-  }
-  if (visited.has(fnName)) return { deps: [], cycle: null };
-  const fn = allFunctions.get(fnName);
-  if (!fn) return { deps: [], cycle: null };
-  const deps: string[] = [];
-  const nextPath = [...path, fnName];
-  const calls = collectCalls(fn.body);
-  for (const binding of fn.lets) {
-    calls.push(...collectCalls(binding.value));
-  }
-  for (const call of calls) {
-    if (allFunctions.has(call) && !RULES_BUILTIN_FUNCTIONS.has(call)) {
-      deps.push(call);
-      const nested = scanTransitiveDeps(call, allFunctions, visited, nextPath);
-      if (nested.cycle) return nested;
-      deps.push(...nested.deps);
-    }
-  }
-  visited.add(fnName);
-  return { deps, cycle: null };
-}
-
 // ---- Module loading ----
 
 function loadModuleFromContent(content: string, moduleName: string, bundled: boolean): LoadResult {
@@ -388,37 +351,23 @@ export function resolveModulesWith(
     }
   }
 
-  // 4. Collect requested functions + transitive dependencies
-  const needed = new Set<string>();
-  for (const imp of ast.imports) {
-    for (const fnName of imp.functions) {
-      needed.add(fnName);
-      const dependencyScan = scanTransitiveDeps(fnName, allModuleFunctions);
-      if (dependencyScan.cycle) {
-        return {
-          success: false,
-          error: {
-            code: 'CIRCULAR_DEPENDENCY',
-            message: `Recursive module function dependency: ${dependencyScan.cycle.join(' -> ')}`,
-          },
-        };
-      }
-      for (const dep of dependencyScan.deps) {
-        needed.add(dep);
-      }
-    }
-  }
-
-  // 5. Build injection list (deps before dependents)
+  // 4. Validate the reachable call graph while building dependency-first order.
   const injected: FunctionDef[] = [];
   const added = new Set<string>();
+  const visiting: string[] = [];
+  const traversal: { cycle: string[] | null } = { cycle: null };
 
-  function addWithDeps(fnName: string) {
+  function addWithDeps(fnName: string): void {
+    if (traversal.cycle) return;
+    const cycleStart = visiting.indexOf(fnName);
+    if (cycleStart >= 0) {
+      traversal.cycle = [...visiting.slice(cycleStart), fnName];
+      return;
+    }
     if (added.has(fnName)) return;
-    added.add(fnName); // Mark early to prevent circular re-entry
     const fn = allModuleFunctions.get(fnName);
     if (!fn) return;
-    // Add dependencies first (recursive)
+    visiting.push(fnName);
     const calls = collectCalls(fn.body);
     for (const binding of fn.lets) {
       calls.push(...collectCalls(binding.value));
@@ -428,6 +377,9 @@ export function resolveModulesWith(
         addWithDeps(call);
       }
     }
+    visiting.pop();
+    if (traversal.cycle) return;
+    added.add(fnName);
     injected.push({ ...fn, exported: false });
   }
 
@@ -436,7 +388,17 @@ export function resolveModulesWith(
       addWithDeps(fnName);
     }
   }
+  if (traversal.cycle) {
+    return {
+      success: false,
+      error: {
+        code: 'CIRCULAR_DEPENDENCY',
+        message: `Recursive module function dependency: ${traversal.cycle.join(' -> ')}`,
+      },
+    };
+  }
 
+  // 5. Validate source/module scope boundaries and call-site compatibility.
   const injectedNames = new Set(injected.map((fn) => fn.name));
   const globalFunctions = new Map((ast.functions ?? []).map((fn) => [fn.name, fn]));
   const serviceFunctionNames = new Set((ast.service.functions ?? []).map((fn) => fn.name));

@@ -519,6 +519,23 @@ describe('user modules via options', () => {
       expect(result.data.resolved).toContain('function isAdmin');
     }
   });
+  test.each([
+    ['direct', `function loop() { return loop(); }
+      export function broken() { return loop(); }`],
+    ['mutual', `function a() { return b(); }
+      function b() { return a(); }
+      export function broken() { return a(); }`],
+  ])('rejects %s recursive module helpers', (_kind, moduleSource) => {
+    const result = resolveModules(
+      makeSource("import { broken } from './policy';"),
+      { modules: { './policy': moduleSource } },
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('CIRCULAR_DEPENDENCY');
+      expect(result.error.message).toContain('Recursive module function dependency');
+    }
+  });
 
   test('let binding function calls are tracked as transitive deps', () => {
     const mod = `
