@@ -1,14 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { deleteApp, initializeApp } from 'firebase/app';
-import { getDatabase as getFirebaseDatabase } from 'firebase/database';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
-  equalTo,
   get,
   getDatabase,
-  increment,
   limitToFirst,
   onChildAdded,
   onChildChanged,
@@ -17,99 +11,21 @@ import {
   onValue,
   orderByChild,
   orderByKey,
-  orderByPriority,
   query,
   ref,
   remove,
-  runTransaction,
   sandbox as rtdbSandbox,
   set,
-  setPriority,
   setWithPriority,
-  startAt,
-  TARGET_SYMBOL,
   update,
-  type DataSnapshot,
 } from '../../../src/database/index.js';
-
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-modular');
-
-function loadObservation(name: string): Record<string, any> {
-  return (JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
-    behavior: Record<string, any>;
-  }).behavior;
-}
-
-export const CDD_REPLAYED_OBSERVATIONS = new Set([
-  'rtdb-modular-child-previous-name',
-  'rtdb-modular-child-listener-only-once',
-  'rtdb-modular-priority-contract',
-  'rtdb-modular-concurrent-transforms',
-  'rtdb-modular-listener-cancellation',
-  'rtdb-modular-query-construction-validation',
-]);
+import { cancellationShape, loadObservation, setup } from './cdd-replay-helpers.js';
 
 const childPreviousObservation = loadObservation('rtdb-modular-child-previous-name');
 const childOnlyOnceObservation = loadObservation('rtdb-modular-child-listener-only-once');
-const priorityObservation = loadObservation('rtdb-modular-priority-contract');
-const concurrentObservation = loadObservation('rtdb-modular-concurrent-transforms');
 const cancellationObservation = loadObservation('rtdb-modular-listener-cancellation');
 
-function setup() {
-  const sandbox = initializeSandbox();
-  return {
-    sandbox,
-    first: getDatabase(sandbox.withAuth({ uid: 'first' })),
-    second: getDatabase(sandbox.withAuth({ uid: 'second' })),
-  };
-}
-
-function keys(snapshot: DataSnapshot): string[] {
-  const result: string[] = [];
-  snapshot.forEach((child) => { if (child.key) result.push(child.key); });
-  return result;
-}
-
-function cancellationShape(error: Error, path: string): Record<string, unknown> {
-  return {
-    name: error.name,
-    code: (error as Error & { code?: string }).code ?? null,
-    message: error.message.replace(path, '<path>'),
-  };
-}
-
-describe('RTDB CDD climb row cases', () => {
-  it('rtdb-modular#94 returns a tagged frozen-context database', () => {
-    const sandbox = initializeSandbox();
-    const db = getDatabase(sandbox.withAuth({ uid: 'frozen' }));
-    expect(TARGET_SYMBOL in db).toBe(true);
-    expect(db[TARGET_SYMBOL].kind).toBe('sandbox');
-  });
-
-  it('rtdb-modular#95 returns a tagged sandbox-live database', () => {
-    const sandbox = initializeSandbox();
-    const db = getDatabase(sandbox);
-    expect(TARGET_SYMBOL in db).toBe(true);
-    expect(db[TARGET_SYMBOL].kind).toBe('sandbox-live');
-  });
-
-  it('rtdb-modular#98 shares one backend across handles for a sandbox', async () => {
-    const sandbox = initializeSandbox();
-    const first = getDatabase(sandbox.withAuth({ uid: 'first' }));
-    const second = getDatabase(sandbox.withAuth({ uid: 'second' }));
-    await set(ref(first, 'shared'), { ok: true });
-    expect((await get(ref(second, 'shared'))).val()).toEqual({ ok: true });
-  });
-
-  it('rtdb-modular#99 routes each reference to its owning target', async () => {
-    const first = getDatabase(initializeSandbox().withAuth({ uid: 'first' }));
-    const second = getDatabase(initializeSandbox().withAuth({ uid: 'second' }));
-    await set(ref(first, 'owned'), 1);
-    await set(ref(second, 'owned'), 2);
-    expect((await get(ref(first, 'owned'))).val()).toBe(1);
-    expect((await get(ref(second, 'owned'))).val()).toBe(2);
-  });
-
+describe('RTDB CDD listener lifecycle cases', () => {
   it('rtdb-modular#M75a delivers cancellation errors for denied and revoked listeners', async () => {
     const { first } = setup();
     const registrars = [onValue, onChildAdded, onChildChanged, onChildRemoved, onChildMoved] as const;
@@ -289,20 +205,6 @@ describe('RTDB CDD climb row cases', () => {
 
   });
 
-  it('rtdb-modular#96 leaves inactive canonical Firebase databases untagged', async () => {
-    const app = initializeApp({
-      projectId: 'inactive-canonical',
-      databaseURL: 'https://inactive-canonical.firebaseio.com',
-    }, `inactive-${Date.now()}`);
-    try {
-      const production = getFirebaseDatabase(app);
-      expect(TARGET_SYMBOL in production).toBe(false);
-      expect(() => getDatabase(app as never)).toThrow(/package resolution/i);
-    } finally {
-      await deleteApp(app);
-    }
-  });
-
   it('rtdb-modular#132 returns an unsubscribe function that stops delivery', async () => {
     const { first } = setup();
     const target = ref(first, 'unsubscribe');
@@ -426,195 +328,4 @@ describe('RTDB CDD climb row cases', () => {
     expect(delivered).toEqual(['c', 'b', 'a']);
   });
 
-  it('rtdb-modular#M89 round-trips, preserves, replaces, and clears priority', async () => {
-    const { first } = setup();
-    const target = ref(first, 'priority/value');
-    await setWithPriority(target, { value: 1 }, 10);
-    expect((await get(target)).priority).toBe(priorityObservation.before[0].priority);
-    expect((await get(target)).exportVal()).toEqual(priorityObservation.before[0].exportVal);
-    await update(target, { value: 2 });
-    expect((await get(target)).priority).toBe(priorityObservation.before[0].priority);
-    await runTransaction(target, (current) => ({
-      value: ((current as { value: number }).value ?? 0) + 1,
-    }));
-    expect((await get(target)).priority).toBe(priorityObservation.before[0].priority);
-    await set(target, { value: 4 });
-    expect((await get(target)).priority).toBeNull();
-    await setPriority(target, 'later');
-    expect((await get(target)).priority).toBe('later');
-    await setPriority(target, null);
-    expect((await get(target)).exportVal()).toEqual({ value: 4 });
-    await expect(setWithPriority(target, 1, Number.NaN)).rejects.toThrow(/priority/);
-
-    const descendant = ref(first, 'priority/replaced/child/grandchild');
-    await setWithPriority(descendant, 1, 9);
-    await update(ref(first, 'priority/replaced'), { child: { replacement: true } });
-    await set(descendant, 2);
-    expect((await get(descendant)).priority).toBeNull();
-  });
-
-  it('rtdb-modular#M90 orders, bounds, ties, and limits by priority', async () => {
-    const { first } = setup();
-    const target = ref(first, 'priority-order');
-    await setWithPriority(ref(first, 'priority-order/a'), { value: 1 }, 10);
-    await setWithPriority(ref(first, 'priority-order/b'), { value: 2 }, 5);
-    await setWithPriority(ref(first, 'priority-order/c'), { value: 3 }, 5);
-    expect(keys(await get(target))).toEqual(priorityObservation.plainForEachKeys);
-    expect(keys(await get(query(target, limitToFirst(2))))).toEqual(
-      priorityObservation.defaultLimitedKeys,
-    );
-    expect((await get(target)).exportVal()).toEqual(priorityObservation.parentExportVal);
-    expect((await get(target)).toJSON()).toEqual(priorityObservation.parentToJSON);
-    expect(keys(await get(query(target, orderByPriority())))).toEqual(priorityObservation.orderedKeys);
-    expect(keys(await get(query(target, orderByPriority(), startAt(5), limitToFirst(2))))).toEqual(priorityObservation.boundedKeys);
-    expect(keys(await get(query(target, orderByPriority(), equalTo(5))))).toEqual(priorityObservation.equalKeys);
-    for (const invalid of [false, { invalid: true }]) {
-      expect(() => query(
-        target,
-        orderByPriority(),
-        startAt(invalid as never),
-      )).toThrow(priorityObservation.invalidPriorityBounds.boolean.message);
-      expect(() => query(
-        target,
-        startAt(invalid as never),
-      )).toThrow(priorityObservation.invalidPriorityBounds.defaultBoolean.message);
-    }
-  });
-
-  it('rtdb-modular#M91 moves on priority change and preserves metadata through lifecycle writes', async () => {
-    const { first } = setup();
-    const target = ref(first, 'priority-move');
-    await setWithPriority(ref(first, 'priority-move/a'), { value: 1 }, 10);
-    await setWithPriority(ref(first, 'priority-move/b'), { value: 2 }, 5);
-    await setWithPriority(ref(first, 'priority-move/c'), { value: 3 }, 5);
-    const moved: Array<[string | null, string | null]> = [];
-    const plainMoved: Array<[string | null, string | null]> = [];
-    let orderedValueDeliveries = 0;
-    onChildMoved(query(target, orderByPriority()), (snap, previous) => {
-      moved.push([snap.key, previous]);
-    });
-    onChildMoved(target, (snap, previous) => {
-      plainMoved.push([snap.key, previous]);
-    });
-    onValue(query(target, orderByPriority()), () => { orderedValueDeliveries++; });
-    await setPriority(ref(first, 'priority-move/a'), 0);
-    expect(moved).toEqual(priorityObservation.moved);
-    expect(plainMoved).toEqual(priorityObservation.plainMoved);
-    expect(orderedValueDeliveries).toBe(priorityObservation.orderedValueDeliveriesAfterMove);
-    await setPriority(ref(first, 'priority-move/c'), 6);
-    expect(orderedValueDeliveries).toBe(
-      priorityObservation.orderedValueDeliveriesAfterSamePositionChange,
-    );
-    expect(moved.slice(priorityObservation.moved.length)).toEqual(
-      priorityObservation.samePositionMoved,
-    );
-    expect(plainMoved.slice(priorityObservation.plainMoved.length)).toEqual(
-      priorityObservation.samePositionPlainMoved,
-    );
-    const beforeNoopPriority = {
-      moved: moved.length,
-      plainMoved: plainMoved.length,
-      orderedValueDeliveries,
-    };
-    await setPriority(ref(first, 'priority-move/c'), 6);
-    expect({
-      moved: moved.length,
-      plainMoved: plainMoved.length,
-      orderedValueDeliveries,
-    }).toEqual(beforeNoopPriority);
-    expect((await get(ref(first, 'priority-move/a'))).exportVal()).toEqual(
-      priorityObservation.afterMove.exportVal,
-    );
-    await update(target, { 'a/value': 4 });
-    expect((await get(ref(first, 'priority-move/a'))).priority).toBe(priorityObservation.afterUpdate);
-    await runTransaction(ref(first, 'priority-move/a'), (current) => ({
-      value: ((current as { value: number }).value ?? 0) + 1,
-    }));
-    expect((await get(ref(first, 'priority-move/a'))).priority).toBe(priorityObservation.afterTransaction);
-    await set(ref(first, 'priority-move/b'), { value: 20 });
-    await setPriority(ref(first, 'priority-move/c'), null);
-    expect(moved).toEqual(priorityObservation.allMoved);
-    expect(plainMoved).toEqual(priorityObservation.allPlainMoved);
-    expect(orderedValueDeliveries).toBe(priorityObservation.totalOrderedValueDeliveries);
-  });
-
-  it('rtdb-modular#157 accumulates concurrent increment sentinels', async () => {
-    const { first, second } = setup();
-    const target = ref(first, 'contention/increment');
-    await set(target, 0);
-    await Promise.all([
-      set(target, increment(2)),
-      set(ref(second, 'contention/increment'), increment(3)),
-    ]);
-    expect((await get(target)).val()).toBe(concurrentObservation.incrementTerminal);
-  });
-
-  it('rtdb-modular#161 documents ordinary concurrent transaction serialization', async () => {
-    const { first, second } = setup();
-    const target = ref(first, 'contention/transaction');
-    await set(target, 0);
-    const calls = [0, 0];
-    const results = await Promise.all([
-      runTransaction(target, (current) => {
-        calls[0] += 1;
-        return ((current as number | null) ?? 0) + 1;
-      }),
-      runTransaction(ref(second, 'contention/transaction'), (current) => {
-        calls[1] += 1;
-        return ((current as number | null) ?? 0) + 1;
-      }),
-    ]);
-    expect(calls).toEqual([1, 1]);
-    expect(calls).not.toEqual(concurrentObservation.invocationCountsSorted);
-    expect(results.map((result) => result.committed)).toEqual(concurrentObservation.committed);
-    expect(results.map((result) => result.snapshot.val()).sort()).toEqual(
-      concurrentObservation.finalSnapshotsSorted,
-    );
-    expect((await get(target)).val()).toBe(concurrentObservation.transactionTerminal);
-  });
-
-  it('retries a transaction after a synchronous re-entrant conflicting write', async () => {
-    const { first, second } = setup();
-    const target = ref(first, 'contention/reentrant-transaction');
-    await set(target, 0);
-    const seen: unknown[] = [];
-    let injected = false;
-    const result = await runTransaction(target, (current) => {
-      seen.push(current);
-      if (!injected) {
-        injected = true;
-        void set(ref(second, 'contention/reentrant-transaction'), 10);
-      }
-      return ((current as number | null) ?? 0) + 1;
-    });
-    expect(seen).toEqual([0, 10]);
-    expect(seen.length > 1).toBe(concurrentObservation.retryObserved);
-    expect(result.committed).toBe(true);
-    expect(result.snapshot?.val()).toBe(11);
-
-    const unrelated = ref(first, 'contention/unrelated-transaction');
-    await set(unrelated, 0);
-    let unrelatedCalls = 0;
-    const unrelatedResult = await runTransaction(unrelated, (current) => {
-      unrelatedCalls += 1;
-      void set(ref(second, 'contention/other-path'), unrelatedCalls);
-      return ((current as number | null) ?? 0) + 1;
-    });
-    expect(unrelatedCalls).toBe(1);
-    expect(unrelatedResult.committed).toBe(true);
-    expect(unrelatedResult.snapshot?.val()).toBe(1);
-  });
-
-  it('releases path-version history after transaction conflict checks', async () => {
-    const { first } = setup();
-    const backend = first[TARGET_SYMBOL].backend as unknown as {
-      transactionMutationHistory: unknown[];
-    };
-    for (let index = 0; index < 100; index++) {
-      await set(ref(first, `history/${index}`), index);
-    }
-    await runTransaction(ref(first, 'history/transaction'), (current) =>
-      ((current as number | null) ?? 0) + 1);
-    expect(backend.transactionMutationHistory).toHaveLength(0);
-  });
 });
