@@ -115,6 +115,13 @@ describe('evaluateStorageRules — custom metadata access forms', () => {
     expect(evalRead("resource.metadata['owner'] == request.auth.uid", { other: 'alice' }, 'alice')).toBe(false);
   });
 
+  it('does not expose JavaScript prototype properties as metadata keys', () => {
+    for (const key of ['constructor', 'toString', 'hasOwnProperty']) {
+      expect(evalRead(`resource.metadata.${key} != null`, {}, 'alice'), key).toBe(false);
+      expect(evalRead(`resource.metadata['${key}'] != null`, {}, 'alice'), key).toBe(false);
+    }
+  });
+
   it('supports required metadata keys through keys().hasAll()', () => {
     expect(
       evalRead(

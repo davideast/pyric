@@ -132,6 +132,9 @@ function readProperty(obj: unknown, name: string): unknown {
   if (!isRulesMap(obj) && !Array.isArray(obj)) {
     return new RuleError(`Property ${name} is undefined on ${describeType(obj)}.`);
   }
+  if (!Object.hasOwn(obj, name)) {
+    return new RuleError(`Property ${name} is undefined on object.`);
+  }
   const v = obj[name as keyof typeof obj];
   if (v === undefined) return new RuleError(`Property ${name} is undefined on object.`);
   return v;
