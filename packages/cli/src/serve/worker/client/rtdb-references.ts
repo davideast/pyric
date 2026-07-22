@@ -19,7 +19,7 @@ export function rtdbGetDatabase(source?: ClientDb | string | URL, name?: string)
   return { __kind: 'client-rtdb', port: firestore.port };
 }
 
-function normalizeRtdbPath(path?: string): string {
+export function normalizeRtdbPath(path?: string): string {
   const joined = (path ?? '/').split('/').filter(Boolean).join('/');
   return joined ? `/${joined}` : '/';
 }

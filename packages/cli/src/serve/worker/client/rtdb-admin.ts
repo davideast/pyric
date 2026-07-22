@@ -9,11 +9,7 @@ import {
   stampIssuer,
 } from './core.js';
 import type { ClientDb, ClientRtdb, Unsubscribe } from './handles.js';
-
-function normalizeRtdbPath(path?: string): string {
-  const joined = (path ?? '/').split('/').filter(Boolean).join('/');
-  return joined ? `/${joined}` : '/';
-}
+import { normalizeRtdbPath } from './rtdb-references.js';
 
 export async function adminReadRtdbState(db: ClientDb | ClientRtdb): Promise<unknown> {
   return rpc(db.port, { t: 'op', id: nextId(), method: 'rtdb.adminSnapshot' });
