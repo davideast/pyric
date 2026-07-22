@@ -498,6 +498,7 @@ export class RtdbBackend {
 
   private cancelDeniedListeners(): void {
     const mockData = this.tree.snapshot() as Record<string, unknown>;
+    const deniedValues: ValueListener[] = [];
     for (const listener of [...this.valueListeners]) {
       const evaluation = this.rules.evaluate('read', listener.path, {
         auth: listener.auth,
@@ -505,9 +506,9 @@ export class RtdbBackend {
       });
       if (evaluation.check === 'allow') continue;
       this.valueListeners.delete(listener);
-      listener.onCanceled?.();
-      listener.cancelCallback?.(listenerPermissionDenied(listener.path));
+      deniedValues.push(listener);
     }
+    const deniedChildren: ChildListener[] = [];
     for (const listener of [...this.childListeners]) {
       const evaluation = this.rules.evaluate('read', listener.path, {
         auth: listener.auth,
@@ -515,8 +516,19 @@ export class RtdbBackend {
       });
       if (evaluation.check === 'allow') continue;
       this.childListeners.delete(listener);
-      listener.onCanceled?.();
-      listener.cancelCallback?.(listenerPermissionDenied(listener.path));
+      deniedChildren.push(listener);
+    }
+    // Terminalize every denied registration before invoking any user code.
+    // Cancellation callbacks are isolated just like data callbacks: one
+    // throw must not interrupt revocation of the remaining listeners.
+    for (const listener of [...deniedValues, ...deniedChildren]) {
+      try { listener.onCanceled?.(); } catch { /* internal teardown is isolated */ }
+      try {
+        listener.cancelCallback?.(listenerPermissionDenied(listener.path));
+      } catch {
+        // Firebase does not let a user cancellation callback break the
+        // listener-revocation pass.
+      }
     }
   }
 
@@ -1782,18 +1794,15 @@ export class RtdbBackend {
     }
   }
 
-  /** Direct children of `path` as `{ key, val }` pairs. Returns [] if
-   *  the path is absent or its value isn't an object. Key iteration
-   *  follows `Object.keys` order, which matches `firebase/database`'s
-   *  `orderByKey` default (insertion order for non-numeric keys). */
+  /** Direct children of `path` in Firebase's default priority/key order. */
   private directChildren(path: string): Array<{ key: string; val: JsonValue }> {
     const v = this.tree.read(path);
     if (v === null || typeof v !== 'object' || Array.isArray(v)) return [];
-    const out: Array<{ key: string; val: JsonValue }> = [];
-    for (const [k, val] of Object.entries(v as Record<string, JsonValue>)) {
-      out.push({ key: k, val });
-    }
-    return out;
+    return executeQuery(
+      v,
+      { orderBy: { kind: 'priority' }, bounds: [], limit: null },
+      this.priorityForChild(path),
+    ).map(({ key, value }) => ({ key, val: value }));
   }
 
   /** Snapshot the current direct children of every registered child
@@ -1951,22 +1960,26 @@ export class RtdbBackend {
             const priorIndex = prior.findIndex((row) => row.key === changedPriorityKey);
             const nextIndex = next.findIndex((row) => row.key === changedPriorityKey);
             if (priorIndex >= 0 && nextIndex >= 0 && priorIndex !== nextIndex) {
-              // Firebase's setPriority() event sequence names the siblings
-              // crossed by the reprioritized child, in their resulting
-              // relative order. The callback predecessor is computed with
-              // the reprioritized child omitted (captured by
-              // rtdb-modular-priority-contract).
+              // Firebase first emits the reprioritized child, then the
+              // siblings it crossed in their resulting relative order. The
+              // crossed-sibling predecessors are computed with the changed
+              // child omitted (captured by rtdb-modular-priority-contract).
               const crossedKeys = new Set(
                 priorIndex > nextIndex
                   ? prior.slice(nextIndex, priorIndex).map((row) => row.key)
                   : prior.slice(priorIndex + 1, nextIndex + 1).map((row) => row.key),
               );
               const crossed = next.filter((row) => crossedKeys.has(row.key));
-              events = crossed.map((row) => ({
+              const changed = next[nextIndex]!;
+              events = [{
+                key: changed.key,
+                val: changed.value,
+                previousChildName: previousName(next, changed.key),
+              }, ...crossed.map((row) => ({
                 key: row.key,
                 val: row.value,
                 previousChildName: previousName(crossed, row.key),
-              }));
+              }))];
               break;
             }
           }

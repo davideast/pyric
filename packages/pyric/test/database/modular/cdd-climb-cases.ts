@@ -225,21 +225,41 @@ describe('RTDB CDD climb row cases', () => {
       cancellations: 1,
     });
 
-    const callbacklessSandbox = initializeSandbox();
-    callbacklessSandbox.currentUser = { uid: 'initial-user' };
-    const callbacklessDb = getDatabase(callbacklessSandbox);
-    const callbacklessWriter = getDatabase(callbacklessSandbox.withAuth({ uid: 'writer' }));
-    rtdbSandbox.setRules(callbacklessDb, {
-      rules: { '.read': 'auth != null', '.write': 'true' },
+    const throwingSandbox = initializeSandbox();
+    const throwingDb = getDatabase(throwingSandbox.withAuth({ uid: 'reader' }));
+    rtdbSandbox.setRules(throwingDb, { rules: { '.read': 'true', '.write': 'true' } });
+    await set(ref(throwingDb, 'throwing-cancel/child'), 1);
+    const deliveries = { firstValue: 0, secondValue: 0, firstChild: 0, secondChild: 0 };
+    const survivingCancellations = { value: 0, child: 0 };
+    onValue(
+      ref(throwingDb, 'throwing-cancel'),
+      () => { deliveries.firstValue += 1; },
+      () => { throw new Error('value cancellation failure'); },
+    );
+    onValue(
+      ref(throwingDb, 'throwing-cancel'),
+      () => { deliveries.secondValue += 1; },
+      () => { survivingCancellations.value += 1; },
+    );
+    onChildChanged(
+      ref(throwingDb, 'throwing-cancel'),
+      () => { deliveries.firstChild += 1; },
+      () => { throw new Error('child cancellation failure'); },
+    );
+    onChildChanged(
+      ref(throwingDb, 'throwing-cancel'),
+      () => { deliveries.secondChild += 1; },
+      () => { survivingCancellations.child += 1; },
+    );
+    expect(() => rtdbSandbox.setRules(throwingDb, {
+      rules: { '.read': 'false', '.write': 'true' },
+    })).not.toThrow();
+    await set(ref(throwingDb, 'throwing-cancel/child'), 2);
+    expect({ deliveries, survivingCancellations }).toEqual({
+      deliveries: { firstValue: 1, secondValue: 1, firstChild: 0, secondChild: 0 },
+      survivingCancellations: { value: 1, child: 1 },
     });
-    const callbacklessValues: unknown[] = [];
-    onValue(ref(callbacklessDb, 'callbackless-denial'), (snapshot) => {
-      callbacklessValues.push(snapshot.val());
-    });
-    callbacklessSandbox.currentUser = null;
-    callbacklessSandbox.currentUser = { uid: 'later-user' };
-    await set(ref(callbacklessWriter, 'callbackless-denial'), 1);
-    expect(callbacklessValues).toEqual([null]);
+
   });
 
   it('rtdb-modular#96 leaves inactive canonical Firebase databases untagged', async () => {
@@ -302,6 +322,14 @@ describe('RTDB CDD climb row cases', () => {
     expect(changed).toEqual(childPreviousObservation.changed);
     expect(removed).toEqual(childPreviousObservation.removed);
     expect(moved).toEqual(childPreviousObservation.moved);
+    const plainPriorityTarget = ref(first, 'plain-priority-previous');
+    await setWithPriority(ref(first, 'plain-priority-previous/z'), { value: 2 }, 2);
+    await setWithPriority(ref(first, 'plain-priority-previous/a'), { value: 1 }, 1);
+    const plainPriorityAdded: Array<[string | null, string | null]> = [];
+    onChildAdded(plainPriorityTarget, (snap, previous) => {
+      plainPriorityAdded.push([snap.key, previous]);
+    });
+    expect(plainPriorityAdded).toEqual(childPreviousObservation.plainPriorityAdded);
     expect((await get(target)).val()).toEqual(childPreviousObservation.terminal);
   });
 

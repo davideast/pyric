@@ -7,12 +7,16 @@ import {
 } from './types.js';
 
 class SandboxQueryConstraint extends QueryConstraint {}
+class QueryOrderByKeyConstraint extends QueryConstraint {}
 
 export function buildConstraint(
   type: QueryConstraint['type'],
   internal: Constraint,
 ): QueryConstraint {
-  return Object.freeze(new SandboxQueryConstraint(type, internal));
+  const ConstraintConstructor = type === 'orderByKey'
+    ? QueryOrderByKeyConstraint
+    : SandboxQueryConstraint;
+  return Object.freeze(new ConstraintConstructor(type, internal));
 }
 
 export function isQuery(value: object): value is Query {

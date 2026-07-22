@@ -18,6 +18,7 @@ export class Database {
   readonly app: FirebaseApp;
   readonly type = 'database';
   readonly _instanceStarted = false;
+  readonly _repoInternal: undefined = undefined;
 
   constructor(target?: Target, app?: FirebaseApp) {
     if (target) this[TARGET_SYMBOL] = target;
@@ -78,6 +79,8 @@ const dataSnapshotImplementations = new WeakMap<DataSnapshot, DataSnapshotImplem
 
 export class DataSnapshot {
   readonly ref: DatabaseReference;
+  readonly _node: undefined = undefined;
+  readonly _index: undefined = undefined;
 
   constructor(implementation?: DataSnapshotImplementation) {
     if (implementation) dataSnapshotImplementations.set(this, implementation);
@@ -179,11 +182,11 @@ export type QueryConstraintType =
   | 'limitToLast';
 
 export class QueryConstraint {
-  readonly type: QueryConstraintType;
-  readonly [CONSTRAINT_SYMBOL]!: Constraint;
+  declare readonly type: QueryConstraintType;
+  declare readonly [CONSTRAINT_SYMBOL]: Constraint;
 
   constructor(type?: QueryConstraint['type'], internal?: Constraint) {
-    this.type = type as QueryConstraint['type'];
+    if (type !== undefined) this.type = type;
     if (internal) this[CONSTRAINT_SYMBOL] = internal;
   }
 }

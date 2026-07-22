@@ -17,7 +17,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1114);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1118);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);

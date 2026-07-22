@@ -1645,7 +1645,7 @@ export const rtdbRegistry = {
           conformanceChecks: [{
             finding: "RTDB-M75",
             observation: "rtdb-modular-child-previous-name",
-            expect: { repeatCount: 2, initialAdded: [["a",null],["b","a"],["c","b"]], postMutationAdded: [["d","c"]], changed: [["b","a"],["c","b"]], removed: [["a",null]], moved: [["c",null]] },
+            expect: { repeatCount: 2, initialAdded: [["a",null],["b","a"],["c","b"]], postMutationAdded: [["d","c"]], changed: [["b","a"],["c","b"]], removed: [["a",null]], moved: [["c",null]], plainPriorityAdded: [["a",null],["z","a"]] },
             probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
             guards: "Child listeners preserve captured predecessor values for replay, mutation, removal, and movement.",
           }],
@@ -1972,7 +1972,7 @@ export const rtdbRegistry = {
           conformanceChecks: [{
             finding: "RTDB-M91",
             observation: "rtdb-modular-priority-contract",
-            expect: { moved: [["b",null],["c","b"]], afterUpdate: 0, afterTransaction: 0 },
+            expect: { moved: [["a",null],["b",null],["c","b"]], afterUpdate: 0, afterTransaction: 0 },
             probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
             guards: "Priority movement and metadata preservation through update and transaction stay pinned to production.",
           }],

@@ -433,10 +433,12 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
         const path = scenarioPath(ctx, 'child-previous-name', attempt);
         const client = await createClient(ctx, `child-previous-name-${attempt}`);
         const target = ref(client.db, path);
+        const plainPriorityTarget = ref(client.db, `${path}-plain-priority`);
         const added: Array<[string | null, string | null]> = [];
         const changed: Array<[string | null, string | null]> = [];
         const removed: Array<[string | null, string | null]> = [];
         const moved: Array<[string | null, string | null]> = [];
+        const plainPriorityAdded: Array<[string | null, string | null]> = [];
         try {
           await set(target, {
             a: { rank: 1, stable: false },
@@ -453,24 +455,42 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           }) as (snap: DataSnapshot) => void);
           const rankOrdered = query(target, orderByChild('rank'));
           onChildMoved(rankOrdered, (snap, previous) => moved.push([snap.key, previous]));
-          await new Promise((resolve) => setTimeout(resolve, 200));
+          await waitFor('child previous-name initial replay readiness', () => added.length === 3);
           const initialAdded = [...added];
           await set(child(target, 'd'), { rank: 4, stable: false });
+          await waitFor('child previous-name addition readiness', () => added.length === 4);
           await update(child(target, 'b'), { stable: true });
+          await waitFor('child previous-name first change readiness', () => changed.length === 1);
           await remove(child(target, 'a'));
+          await waitFor('child previous-name removal readiness', () => removed.length === 1);
           await update(child(target, 'c'), { rank: 0 });
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          await waitFor('child previous-name movement readiness', () =>
+            changed.length === 2 && moved.length === 1);
+          const terminal = await adminRead(ctx, path);
+          await setWithPriority(child(plainPriorityTarget, 'z'), { value: 2 }, 2);
+          await setWithPriority(child(plainPriorityTarget, 'a'), { value: 1 }, 1);
+          onChildAdded(plainPriorityTarget, (snap, previous) => {
+            plainPriorityAdded.push([snap.key, previous ?? null]);
+          });
+          await waitFor('plain child priority-order readiness', () =>
+            plainPriorityAdded.length === 2);
           return {
             initialAdded,
             postMutationAdded: added.slice(initialAdded.length),
             changed,
             removed,
             moved,
-            terminal: await adminRead(ctx, path),
+            plainPriorityAdded,
+            terminal,
           };
         } finally {
           off(target);
-          await cleanup([() => client.close(), () => adminRemove(ctx, path)]);
+          off(plainPriorityTarget);
+          await cleanup([
+            () => client.close(),
+            () => adminRemove(ctx, path),
+            () => adminRemove(ctx, `${path}-plain-priority`),
+          ]);
         }
       }),
     },
@@ -485,6 +505,7 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
         const client = await createClient(ctx, `priority-contract-${attempt}`);
         const target = ref(client.db, path);
         const moved: Array<[string | null, string | null]> = [];
+        let orderedValueDeliveries = 0;
         try {
           await setWithPriority(child(target, 'a'), { value: 1 }, 10);
           await setWithPriority(child(target, 'b'), { value: 2 }, 5);
@@ -506,8 +527,11 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
             equalKeys.push(snap.key);
           });
           onChildMoved(query(target, orderByPriority()), (snap, previous) => moved.push([snap.key, previous]));
+          onValue(query(target, orderByPriority()), () => { orderedValueDeliveries += 1; });
+          await waitFor('priority listener initial readiness', () => orderedValueDeliveries === 1);
           await setPriority(child(target, 'a'), 0);
-          await new Promise((resolve) => setTimeout(resolve, 200));
+          await waitFor('priority movement readiness', () =>
+            moved.length > 0 && orderedValueDeliveries === 2);
           const afterMove = await get(child(target, 'a'));
           await update(target, { 'a/value': 4 });
           const afterUpdate = (await get(child(target, 'a'))).priority;

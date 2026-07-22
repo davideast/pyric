@@ -37,11 +37,11 @@ function subscribeWithLiveAuth(
       try {
         backendUnsubscribe = subscribe(authFor(target), stop);
       } catch {
-        // A permission-denied reattach is terminal even when the caller did
-        // not supply a cancellation callback. Do not let a later identity
-        // transition resurrect a registration Firebase already canceled.
+        // Without a cancellation callback, an auth transition that loses
+        // permission suspends delivery and can reauthorize on a later Auth
+        // transition. Explicit backend cancellation still calls `stop` and
+        // remains terminal.
         backendUnsubscribe = () => {};
-        stop();
       }
     })
     : undefined;

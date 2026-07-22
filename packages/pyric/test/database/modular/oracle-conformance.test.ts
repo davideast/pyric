@@ -163,6 +163,12 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
         (obs.database as Record<string, unknown>).prototypeKeys,
       );
+      const direct = new (constructor as new () => object)();
+      expect({
+        threw: false,
+        constructorName: direct.constructor.name,
+        ownKeys: Object.keys(direct).sort(),
+      }).toEqual((obs.directConstruction as Record<string, unknown>).Database);
     });
 
     it('rtdb-modular#M86 DataSnapshot runtime identity', async () => {
@@ -185,6 +191,12 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
         (obs.snapshot as Record<string, unknown>).prototypeKeys,
       );
+      const direct = new (constructor as new () => object)();
+      expect({
+        threw: false,
+        constructorName: direct.constructor.name,
+        ownKeys: Object.keys(direct).sort(),
+      }).toEqual((obs.directConstruction as Record<string, unknown>).DataSnapshot);
     });
 
     it('rtdb-modular#M87 QueryConstraint runtime identity', () => {
@@ -193,6 +205,9 @@ describe('oracle conformance (rtdb-modular)', () => {
       const constructor = (databaseModule as Record<string, unknown>).QueryConstraint;
       expect(typeof constructor).toBe(expected);
       const constraint = orderByKey();
+      expect(constraint.constructor.name).toBe(
+        (obs.queryConstraint as Record<string, unknown>).constructorName,
+      );
       expect(constraint instanceof (constructor as new () => object)).toBe(
         (obs.queryConstraint as Record<string, boolean>).instanceOf,
       );
@@ -202,6 +217,12 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
         (obs.queryConstraint as Record<string, unknown>).prototypeKeys,
       );
+      const direct = new (constructor as new () => object)();
+      expect({
+        threw: false,
+        constructorName: direct.constructor.name,
+        ownKeys: Object.keys(direct).sort(),
+      }).toEqual((obs.directConstruction as Record<string, unknown>).QueryConstraint);
     });
 
     it('rtdb-modular#M88 TransactionResult runtime identity and toJSON', async () => {
@@ -229,6 +250,12 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect(typeof result.toJSON).toBe(
         (obs.transactionResult as Record<string, unknown>).toJSONType,
       );
+      const direct = new (constructor as new () => object)();
+      expect({
+        threw: false,
+        constructorName: direct.constructor.name,
+        ownKeys: Object.keys(direct).sort(),
+      }).toEqual((obs.directConstruction as Record<string, unknown>).TransactionResult);
     });
   });
 
@@ -669,13 +696,11 @@ describe('oracle conformance (rtdb-modular)', () => {
     //   3) ordered field, value change (c.score 30→35): child_changed AND
     //      child_moved BOTH fire (sameRankChanged 1, sameRankMoved 1).
     //
-    // The sandbox's onChild* accept a Query and fire window-aware
-    // child_changed, so child_changed CONFORMS on all three (and the last
-    // changed snapshot matches). But ordered-query child_moved is
-    // unimplemented — the sandbox NEVER fires child_moved on reorder. Pin
-    // BOTH sides: prod's co-fire target and the sandbox's no-fire behavior.
+    // The sandbox replays the captured ordered-query co-fire contract for
+    // both child_changed and child_moved, including the same-rank ordered
+    // field update and the non-ordered-field no-move case.
     const obs = load('rtdb-modular-childchanged-cofire-with-childmoved.json');
-    // Prod target (the values we are climbing toward):
+    // Pinned production target:
     expect(obs.childChangedCoFiresWithChildMoved).toBe(true);
     expect(obs.reorderChanged).toBe(1);
     expect(obs.reorderMoved).toBe(1); // prod fires child_moved on the reorder
