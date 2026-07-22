@@ -21,7 +21,7 @@ import {
   initializeSandbox,
   createMemoryBackend,
 } from 'pyric/sandbox';
-import { deleteApp, initializeApp } from 'pyric/app';
+import { deleteApp, getApps, initializeApp } from 'pyric/app';
 import { getFirestore as ipGetFirestore } from 'pyric/firestore';
 import { getAuth as ipGetAuth } from 'pyric/auth';
 import { monitorFirebaseActivity, type ActivityIncident } from 'pyric/firestore/internal';
@@ -486,8 +486,9 @@ describe('client↔host event stream (Studio data plane)', () => {
       }
     };
     const { workerClientForApp } = await import('../../../src/serve/entries/app-client.js');
-    const writerApp = initializeApp({ projectId: 'served-delete' }, 'served-delete-writer');
-    const observerApp = initializeApp({ projectId: 'served-delete' }, 'served-delete-observer');
+    const options = getApps()[0]?.options ?? { projectId: 'served-delete' };
+    const writerApp = initializeApp(options, 'served-delete-writer');
+    const observerApp = initializeApp(options, 'served-delete-observer');
     const writerDb = client.rtdbGetDatabase(workerClientForApp(writerApp));
     const observerDb = client.rtdbGetDatabase(workerClientForApp(observerApp));
     const writerRef = client.rtdbRef(writerDb, 'served/delete');
@@ -530,7 +531,8 @@ describe('client↔host event stream (Studio data plane)', () => {
         }
       };
       const { workerClientForApp } = await import('../../../src/serve/entries/app-client.js');
-      const writerApp = initializeApp({ projectId: 'served-delete' }, 'served-pagehide-writer');
+      const options = getApps()[0]?.options ?? { projectId: 'served-delete' };
+      const writerApp = initializeApp(options, 'served-pagehide-writer');
       const writerDb = client.rtdbGetDatabase(workerClientForApp(writerApp));
       const writerRef = client.rtdbRef(writerDb, 'served/pagehide');
       await client.rtdbSet(writerRef, 'online');
@@ -540,7 +542,7 @@ describe('client↔host event stream (Studio data plane)', () => {
         listener({ persisted: false } as PageTransitionEvent);
       }
       await sleep();
-      const observerApp = initializeApp({ projectId: 'served-delete' }, 'served-pagehide-observer');
+      const observerApp = initializeApp(options, 'served-pagehide-observer');
       const observerDb = client.rtdbGetDatabase(workerClientForApp(observerApp));
       expect((await client.rtdbGet(client.rtdbRef(observerDb, 'served/pagehide'))).val()).toBe('offline');
       await deleteApp(writerApp);
