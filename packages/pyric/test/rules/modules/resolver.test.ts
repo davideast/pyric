@@ -520,25 +520,6 @@ describe('user modules via options', () => {
     }
   });
 
-  test('circular dependency: A calls B, B calls A — both included once, no crash', () => {
-    const modA = `
-      export function fnA() { return fnB() && request.auth != null; }
-      function fnB() { return fnA() || true; }
-    `;
-    const result = resolveModules(
-      makeSource("import { fnA } from './modA';"),
-      { modules: { './modA': modA } },
-    );
-    expect(result.success).toBe(true);
-    if (result.success) {
-      // fnA is exported (keeps name), fnB is private (gets prefixed)
-      const countA = (result.data.resolved.match(/function fnA/g) || []).length;
-      const countB = (result.data.resolved.match(/function modA__fnB/g) || []).length;
-      expect(countA).toBe(1);
-      expect(countB).toBe(1);
-    }
-  });
-
   test('let binding function calls are tracked as transitive deps', () => {
     const mod = `
       function helper() { return true; }

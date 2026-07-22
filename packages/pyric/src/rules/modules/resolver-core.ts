@@ -89,16 +89,25 @@ function functionCallSites(
 
 // ---- Transitive dependency resolution ----
 
-function findTransitiveDeps(
+type DependencyScan =
+  | { deps: string[]; cycle: null }
+  | { deps: string[]; cycle: string[] };
+
+function scanTransitiveDeps(
   fnName: string,
   allFunctions: Map<string, FunctionDef>,
   visited: Set<string> = new Set(),
-): string[] {
-  if (visited.has(fnName)) return [];
-  visited.add(fnName);
+  path: readonly string[] = [],
+): DependencyScan {
+  const cycleStart = path.indexOf(fnName);
+  if (cycleStart >= 0) {
+    return { deps: [], cycle: [...path.slice(cycleStart), fnName] };
+  }
+  if (visited.has(fnName)) return { deps: [], cycle: null };
   const fn = allFunctions.get(fnName);
-  if (!fn) return [];
+  if (!fn) return { deps: [], cycle: null };
   const deps: string[] = [];
+  const nextPath = [...path, fnName];
   const calls = collectCalls(fn.body);
   for (const binding of fn.lets) {
     calls.push(...collectCalls(binding.value));
@@ -106,10 +115,13 @@ function findTransitiveDeps(
   for (const call of calls) {
     if (allFunctions.has(call) && !RULES_BUILTIN_FUNCTIONS.has(call)) {
       deps.push(call);
-      deps.push(...findTransitiveDeps(call, allFunctions, visited));
+      const nested = scanTransitiveDeps(call, allFunctions, visited, nextPath);
+      if (nested.cycle) return nested;
+      deps.push(...nested.deps);
     }
   }
-  return deps;
+  visited.add(fnName);
+  return { deps, cycle: null };
 }
 
 // ---- Module loading ----
@@ -381,7 +393,17 @@ export function resolveModulesWith(
   for (const imp of ast.imports) {
     for (const fnName of imp.functions) {
       needed.add(fnName);
-      for (const dep of findTransitiveDeps(fnName, allModuleFunctions)) {
+      const dependencyScan = scanTransitiveDeps(fnName, allModuleFunctions);
+      if (dependencyScan.cycle) {
+        return {
+          success: false,
+          error: {
+            code: 'CIRCULAR_DEPENDENCY',
+            message: `Recursive module function dependency: ${dependencyScan.cycle.join(' -> ')}`,
+          },
+        };
+      }
+      for (const dep of dependencyScan.deps) {
         needed.add(dep);
       }
     }
