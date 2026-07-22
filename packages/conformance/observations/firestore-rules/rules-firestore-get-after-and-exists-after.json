@@ -4,15 +4,131 @@
   "rowIds": [
     "firestore-rules#164"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"get-after-and-exists-after\" (Item 7). Sim must implement getAfter()/existsAfter(). Pre-fix: both threw UnsupportedError; rules using them silently denied.",
-  "observedAt": "2026-07-10T22:41:19.074Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"get-after-and-exists-after\" (Item 7). Hosted production diagnostics report Function not found for getAfter()/existsAfter(); retain the verdicts as a Test API limitation while local atomic-projection tests pin the documented contract.",
+  "observedAt": "2026-07-21T23:43:05.093Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "fca368a754d1f390c01e191f2469e65b8eb1d4b0b14be980431cb580941b021c"
+  },
   "behavior": {
     "getAfter target == request.resource.data ALLOW": "DENY",
     "existsAfter create true ALLOW": "DENY",
     "existsAfter delete false ALLOW": "DENY",
     "existsAfter unrelated mocked path ALLOW": "DENY",
     "wrong existsAfter on create DENY": "DENY"
+  },
+  "diagnostics": {
+    "getAfter target == request.resource.data ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [7], column [12]. Function not found error: Name: [getAfter]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 7,
+          "column": 12,
+          "currentOffset": 241,
+          "endOffset": 248
+        },
+        "functionCalls": [
+          {
+            "function": "getAfter",
+            "args": [
+              "/databases/%28default%29/documents/getAfterTargetAllow/d1"
+            ]
+          }
+        ]
+      }
+    },
+    "existsAfter create true ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [12], column [12]. Function not found error: Name: [existsAfter]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 12,
+          "column": 12,
+          "currentOffset": 438,
+          "endOffset": 448
+        },
+        "functionCalls": [
+          {
+            "function": "existsAfter",
+            "args": [
+              "/databases/%28default%29/documents/existsAfterCreateAllow/d2"
+            ]
+          }
+        ]
+      }
+    },
+    "existsAfter delete false ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [17], column [12]. Function not found error: Name: [existsAfter]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 17,
+          "column": 12,
+          "currentOffset": 613,
+          "endOffset": 623
+        },
+        "functionCalls": [
+          {
+            "function": "existsAfter",
+            "args": [
+              "/databases/%28default%29/documents/existsAfterDeleteAllow/d3"
+            ]
+          }
+        ]
+      }
+    },
+    "existsAfter unrelated mocked path ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [22], column [12]. Function not found error: Name: [existsAfter]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 22,
+          "column": 12,
+          "currentOffset": 807,
+          "endOffset": 817
+        },
+        "functionCalls": [
+          {
+            "function": "existsAfter",
+            "args": [
+              "/databases/%28default%29/documents/other/x"
+            ]
+          }
+        ]
+      }
+    },
+    "wrong existsAfter on create DENY": {
+      "notes": [
+        "Error: firestore.rules line [27], column [12]. Function not found error: Name: [existsAfter]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 27,
+          "column": 12,
+          "currentOffset": 1010,
+          "endOffset": 1020
+        },
+        "functionCalls": [
+          {
+            "function": "existsAfter",
+            "args": [
+              "/databases/%28default%29/documents/existsAfterWrongDeny/d5"
+            ]
+          }
+        ]
+      }
+    }
   }
 }

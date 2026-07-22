@@ -45,6 +45,12 @@ interface ApiTestResult {
   expressionReports?: unknown[];
 }
 
+function requireExactApiResultCount(expected: number, results: readonly ApiTestResult[]): void {
+  if (results.length !== expected) {
+    throw new Error(`Rules Test API returned ${results.length} result(s) for ${expected} test case(s)`);
+  }
+}
+
 export class TestFirestoreRulesHandler {
   async execute(
     scope: ProjectScope,
@@ -108,6 +114,10 @@ export class TestFirestoreRulesHandler {
       }
 
       const testResults = data.testResults ?? [];
+      // Preserve positional identity: the wire API does not return a case id,
+      // so a missing/extra row makes every subsequent association ambiguous.
+      // Fail before normalization can synthesize or discard rows.
+      requireExactApiResultCount(testCases.length, testResults);
       const results: TestResult[] = testCases.map((tc, i) => {
         const apiResult = testResults[i];
         const state: 'PASSED' | 'FAILED' = apiResult?.state === 'SUCCESS' ? 'PASSED' : 'FAILED';
@@ -223,6 +233,7 @@ export class TestStorageRulesHandler {
       }
 
       const testResults = data.testResults ?? [];
+      requireExactApiResultCount(testCases.length, testResults);
       const results: TestResult[] = testCases.map((tc, i) => {
         const apiResult = testResults[i];
         const state: 'PASSED' | 'FAILED' = apiResult?.state === 'SUCCESS' ? 'PASSED' : 'FAILED';

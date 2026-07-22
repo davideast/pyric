@@ -48,6 +48,7 @@ docs/design/
 .pyric-worktrees/
 packages/cli/src/assurance/.generated/
 packages/cli/src/conformance/.generated/
+packages/cli/src/cli/service-commands.generated.ts
 packages/conformance/rules-language/*-report.json
 
 # Disposable conformance documentation projections. The site build derives

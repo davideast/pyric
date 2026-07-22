@@ -5,8 +5,8 @@
  *
  * Per type table (rules.Bytes):
  *   size() → Integer    byte count
- *   toBase64() → String  base64url, no padding
- *   toHexString() → String  lowercase hex
+ *   toBase64() → String  base64url with RFC 4648 padding
+ *   toHexString() → String  uppercase hex
  *
  * Per 0.B contract:
  *   typeName='bytes', valueOf=byte length, toString=base64url,
@@ -68,16 +68,16 @@ describe('Bytes — serialization (0.B contract)', () => {
   test('toJSON shape', () => {
     const json = JSON.parse(JSON.stringify(Bytes.fromUtf8('hi'))) as { __type: string; base64: string };
     expect(json.__type).toBe('bytes');
-    expect(json.base64).toBe('aGk'); // 'hi' base64url, no padding
+    expect(json.base64).toBe('aGk=');
   });
 
-  test('toString returns base64url (RFC 4648 URL-safe, no padding)', () => {
+  test('toString returns padded base64url (RFC 4648 URL-safe)', () => {
     // 0x3E and 0x3F decode to '+' and '/' in standard base64;
     // base64url uses '-' and '_'. Verify with bytes that exercise both.
     const b = new Bytes(new Uint8Array([0xFB, 0xFF, 0xFE])); // → +//+ in base64
     expect(String(b)).not.toContain('+');
     expect(String(b)).not.toContain('/');
-    expect(String(b)).not.toContain('=');
+    expect(String(Bytes.fromUtf8('hi'))).toBe('aGk=');
   });
 });
 
@@ -96,11 +96,11 @@ describe('Bytes — method dispatch', () => {
   });
 
   test('toBase64 returns base64url', () => {
-    expect(Bytes.fromUtf8('hi').callMethod('toBase64', [])).toBe('aGk');
+    expect(Bytes.fromUtf8('hi').callMethod('toBase64', [])).toBe('aGk=');
   });
 
-  test('toHexString returns lowercase hex', () => {
-    expect(Bytes.fromHex('DEADBEEF').callMethod('toHexString', [])).toBe('deadbeef');
+  test('toHexString returns uppercase hex', () => {
+    expect(Bytes.fromHex('DEADBEEF').callMethod('toHexString', [])).toBe('DEADBEEF');
   });
 
   test('unknown method returns NO_OP', () => {
@@ -192,7 +192,7 @@ describe('String.toUtf8() — through evaluator', () => {
 
   test("toUtf8 round-trips through toBase64", () => {
     const r = sim.simulate(
-      rules("'hi'.toUtf8().toBase64() == 'aGk'"),
+      rules("'hi'.toUtf8().toBase64() == 'aGk='"),
       [tc('base64 round-trip', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
@@ -219,7 +219,7 @@ describe('hashing.* — through evaluator', () => {
   test('hashing.md5 of empty string has known value', () => {
     // md5('') = d41d8cd98f00b204e9800998ecf8427e
     const r = sim.simulate(
-      rules("hashing.md5('').toHexString() == 'd41d8cd98f00b204e9800998ecf8427e'"),
+      rules("hashing.md5('').toHexString() == 'D41D8CD98F00B204E9800998ECF8427E'"),
       [tc('md5 empty', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
@@ -228,7 +228,7 @@ describe('hashing.* — through evaluator', () => {
   test('hashing.md5 of "hello"', () => {
     // md5('hello') = 5d41402abc4b2a76b9719d911017c592
     const r = sim.simulate(
-      rules("hashing.md5('hello').toHexString() == '5d41402abc4b2a76b9719d911017c592'"),
+      rules("hashing.md5('hello').toHexString() == '5D41402ABC4B2A76B9719D911017C592'"),
       [tc('md5 hello', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
@@ -238,7 +238,7 @@ describe('hashing.* — through evaluator', () => {
     // sha256('') = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
     const r = sim.simulate(
       rules(
-        "hashing.sha256('').toHexString() == 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'",
+        "hashing.sha256('').toHexString() == 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'",
       ),
       [tc('sha256 empty', 'ALLOW')],
     );
@@ -249,24 +249,24 @@ describe('hashing.* — through evaluator', () => {
     // sha256('abc') = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
     const r = sim.simulate(
       rules(
-        "hashing.sha256('abc').toHexString() == 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'",
+        "hashing.sha256('abc').toHexString() == 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'",
       ),
       [tc('sha256 abc', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test('hashing.crc32 of "123456789" = 0xCBF43926 (IEEE 802.3 reference)', () => {
+  test('hashing.crc32 serializes the IEEE result little-endian like production', () => {
     const r = sim.simulate(
-      rules("hashing.crc32('123456789').toHexString() == 'cbf43926'"),
+      rules("hashing.crc32('123456789').toHexString() == '2639F4CB'"),
       [tc('crc32 ref', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test('hashing.crc32c of "123456789" = 0xE3069283 (Castagnoli reference)', () => {
+  test('hashing.crc32c serializes the Castagnoli result little-endian like production', () => {
     const r = sim.simulate(
-      rules("hashing.crc32c('123456789').toHexString() == 'e3069283'"),
+      rules("hashing.crc32c('123456789').toHexString() == '839206E3'"),
       [tc('crc32c ref', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);

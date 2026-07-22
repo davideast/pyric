@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#164","conformanceDisposition":"probe-limitation","productionVerdict":"DENY","simulatorVerdict":"ALLOW","diagnosticFunction":"existsAfter","reason":"simulator models documented existence on an unrelated path that this endpoint cannot evaluate","issue":"#135"}

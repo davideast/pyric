@@ -117,8 +117,8 @@ service cloud.firestore {
       data: { a: ['a', 'b', 'c', 'a', 'b'] },
     },
     {
-      description: 'list toSet().difference chain (5.1 wiring) ALLOW',
-      expectation: 'ALLOW',
+      description: 'list toSet().difference chain (5.1 wiring) DENY',
+      expectation: 'DENY',
       method: 'create',
       path: 'toSetChainAllow/d8',
       auth: { uid: 'alice' },

@@ -6,6 +6,7 @@ const model = await deriveConformanceModel();
 const ledger = buildCompatibilityLedger(model);
 const summary = summarizeLedger(ledger, model);
 const highRiskUnverified = highRiskUnverifiedRows(ledger);
+const firestoreRulesScorecard = model.rulesLanguage.firestoreScorecard;
 
 // Climb section (cdd.md Step 7): per climb-marked surface, derived from
 // registry row statuses ALONE. This informs; it never fails the run — the only
@@ -35,7 +36,13 @@ const wantJson = process.argv.includes('--json');
 const strict = process.argv.includes('--strict');
 
 if (wantJson) {
-  console.log(JSON.stringify({ summary, climb: climbSurfaces, highRiskUnverified, orphanObservations: ledger.orphanObservations }, null, 2));
+  console.log(JSON.stringify({
+    summary,
+    firestoreRulesScorecard,
+    climb: climbSurfaces,
+    highRiskUnverified,
+    orphanObservations: ledger.orphanObservations,
+  }, null, 2));
   process.exit(strict && (highRiskUnverified.length > 0 || ledger.orphanObservations.length > 0) ? 1 : 0);
 }
 
@@ -53,6 +60,16 @@ console.log(`High-risk unverified rows: ${summary.highRiskUnverifiedRows}`);
 console.log(`Observations: ${summary.observations}`);
 console.log(`Orphan observations: ${summary.orphanObservations}`);
 console.log(`Registry conformance checks: ${summary.conformanceChecks}`);
+console.log(
+  `Firestore Rules conformance: ${firestoreRulesScorecard.score.numerator}/` +
+  `${firestoreRulesScorecard.score.denominator} (${firestoreRulesScorecard.score.percent}%) — ` +
+  `${firestoreRulesScorecard.counts.diverged} diverged, ` +
+  `${firestoreRulesScorecard.counts.unknown} unknown, ` +
+  `${firestoreRulesScorecard.counts['acceptance-mismatch']} acceptance-mismatch, ` +
+  `${firestoreRulesScorecard.counts['local-unsupported']} local-unsupported, ` +
+  `${firestoreRulesScorecard.counts['local-error']} local-error, ` +
+  `${firestoreRulesScorecard.counts.unprobeable} unprobeable`,
+);
 
 if (climbSurfaces.length > 0) {
   console.log('\n## Climb\n');

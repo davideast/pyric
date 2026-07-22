@@ -95,6 +95,22 @@ function snapshotProblems(engine: RulesEngine, snap: unknown): string[] {
     if (c.probeNote !== undefined && (typeof c.probeNote !== 'string' || c.probeNote.length === 0)) {
       problems.push(`${at} (${c.id}): probeNote present but empty`);
     }
+    if (c.probeDigest !== undefined && (
+      c.probeDigest.algorithm !== 'sha256' ||
+      typeof c.probeDigest.value !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(c.probeDigest.value)
+    )) {
+      problems.push(`${at} (${c.id}): invalid probeDigest`);
+    }
+    if (c.probeEvaluationAgreement !== undefined && typeof c.probeEvaluationAgreement !== 'boolean') {
+      problems.push(`${at} (${c.id}): probeEvaluationAgreement must be boolean`);
+    }
+    if (engine === 'firestore' && (c.status === 'accepted' || c.status === 'rejected') && c.probeDigest === undefined) {
+      problems.push(`${at} (${c.id}): status "${c.status}" requires a probeDigest`);
+    }
+    if (engine === 'firestore' && c.status === 'accepted' && typeof c.probeEvaluationAgreement !== 'boolean') {
+      problems.push(`${at} (${c.id}): accepted status requires probeEvaluationAgreement`);
+    }
     if (c.unattributable !== undefined && (typeof c.unattributable !== 'string' || c.unattributable.length === 0)) {
       problems.push(`${at} (${c.id}): unattributable present but empty`);
     }

@@ -17,10 +17,13 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1083);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1084);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
+    expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
+      numerator: 129, denominator: 140, ratio: 129 / 140, percent: 92.1,
+    });
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);
     expect(model.documentation.rows.length).toBeGreaterThan(600);
@@ -150,19 +153,40 @@ describe('multi-axis conformance model', () => {
     });
   });
 
-  it('does not mistake production syntax acceptance for behavioral conformance', () => {
+  it('requires behavioral evidence beyond production syntax acceptance', () => {
     for (const feature of ['set.difference', 'set.intersection', 'set.union']) {
       expect(one(`firestore-rules/${feature}`)).toMatchObject({
         availability: 'available',
-        fidelity: 'unsupported',
-        assurance: 'ineligible',
+        fidelity: 'conforms',
+        assurance: 'eligible',
       });
     }
     for (const feature of ['duration.seconds', 'duration.nanos']) {
       expect(one(`firestore-rules/${feature}`)).toMatchObject({
         availability: 'available',
-        fidelity: 'unverified',
-        assurance: 'qualified',
+        fidelity: 'conforms',
+        assurance: 'eligible',
+      });
+    }
+  });
+
+  it('uses the canonical Firestore scorecard for every construct projection', () => {
+    const scoreVerdict = {
+      conformant: 'supported',
+      diverged: 'unsupported',
+      unknown: 'qualified',
+      'acceptance-mismatch': 'unsupported',
+      'local-unsupported': 'unsupported',
+      'local-error': 'unsupported',
+      unprobeable: 'qualified',
+    } as const;
+    for (const construct of model.rulesLanguage.firestoreScorecard.constructs) {
+      expect(model.nodeVerdicts[construct.id]).toBe(scoreVerdict[construct.classification]);
+      expect(model.assuranceNodeVerdicts[construct.id]).toBe(scoreVerdict[construct.classification]);
+    }
+    for (const feature of ['resource.id', 'resource.__name__', 'request.resource.id']) {
+      expect(one(`firestore-rules/${feature}`)).toMatchObject({
+        fidelity: 'conforms', assurance: 'eligible',
       });
     }
   });

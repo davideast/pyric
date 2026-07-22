@@ -1061,32 +1061,6 @@ service cloud.firestore {
     if (r.success) expect(r.data.results[0].state).toBe('PASSED');
   });
 
-  // KNOWN LIMITATION (STOP-documented in the PR + COMPAT row 138): a float
-  // stored in TEST DATA arrives as a bare JSON number, indistinguishable from
-  // an int at the host level — so `request.resource.data.price is float` is
-  // FALSE for `price: 1.5`. Prod resolves this via the document's stored
-  // Firestore type tag, which the JSON test-data format doesn't carry. The
-  // literal/computed-value distinction (the RULES-B5 core) IS faithful; a
-  // `__type:'float'` test-data revive marker is the deferred follow-on.
-  test('STORED-DATA LIMITATION: a JSON float reads as int (is float → false)', () => {
-    const STORED = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /s/{id} { allow create: if request.resource.data.price is float; }
-  }
-}`;
-    const r = handler.simulate(STORED, [{
-      description: 'stored float is not detectable as float',
-      expectation: 'DENY', // documents the limitation: prod would ALLOW
-      method: 'create',
-      path: 's/x',
-      auth: { uid: 'u1' },
-      data: { price: 1.5 },
-    }]);
-    expect(r.success).toBe(true);
-    if (r.success) expect(r.data.results[0].state).toBe('PASSED'); // DENY (limitation) matches
-  });
-
   describe('overlapping match blocks — allows OR-combine (firestore.overlapping-match-or)', () => {
     // Production Firestore semantics: when MULTIPLE match blocks match the
     // same document path, the request is allowed if ANY matching block's

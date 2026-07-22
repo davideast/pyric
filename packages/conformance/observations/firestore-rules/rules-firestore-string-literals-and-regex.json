@@ -4,10 +4,14 @@
   "rowIds": [
     "firestore-rules#175"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"string-literals-and-regex\" (Class B). Pre-fix the simulator forwarded raw `\\\\.` to RegExp without unescaping; production-style `.matches('...\\\\.com')` denied silently.",
-  "observedAt": "2026-07-10T22:41:17.909Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"string-literals-and-regex\" (Class B). Pre-fix the simulator forwarded raw `\\\\.` to RegExp without unescaping; production-style `.matches('...\\\\.com')` denied silently.",
+  "observedAt": "2026-07-21T23:43:07.250Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "bd3468490be5e0faddc24542287131ef71e76309c6277ed4afbd96dc0e168e7e"
+  },
   "behavior": {
     "matches('.*@acme\\\\.com') vs alice@acme.com → ALLOW": "ALLOW",
     "matches('.*@acme\\\\.com') vs bob@other.com → DENY": "DENY",

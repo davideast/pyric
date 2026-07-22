@@ -18,7 +18,7 @@ import {
   indexConstructScopes,
 } from './production-verification.ts';
 import { computeCapabilityReport, type CapabilityReport } from './rules-language-capability.ts';
-import { computeCoverageReport, type CoverageReport } from './rules-language-analyzer.ts';
+import { computeCoverageReport, type CoverageReport } from './rules-language-coverage.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const RUNTIME_TS_PATH = join(
