@@ -231,7 +231,7 @@ describe('onDisconnect registration and clean lifecycle', () => {
     expect((await get(target)).val()).toBe('online');
   });
 
-  it('writes the captured setWithPriority value but deliberately does not model priority metadata', async () => {
+  it('rtdb-modular#M83 writes the captured setWithPriority value and priority metadata', async () => {
     const obs = load('rtdb-modular-ondisconnect-operations-cancel');
     const production = (obs.outcomes as Record<string, Record<string, unknown>>).setWithPriority;
     const { db } = setup();
@@ -240,7 +240,8 @@ describe('onDisconnect registration and clean lifecycle', () => {
     goOffline(db);
     const snapshot = await get(target);
     expect(snapshot.val()).toEqual({ after: production.after });
-    expect(snapshot.priority).toBeNull();
+    expect(snapshot.priority).toBe(production['.priority']);
+    expect(snapshot.exportVal()).toEqual(production);
   });
 });
 

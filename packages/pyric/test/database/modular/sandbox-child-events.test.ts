@@ -195,13 +195,8 @@ describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => 
     unsub();
   });
 
-  // PINNED DIVERGENCE (matrix row rtdb-modular#137). Registering
-  // `onChildMoved` on an ORDERED QUERY must no longer throw the misleading
-  // "unrecognized reference" TypeError (item 2 of the deep-divergence
-  // review). But the reorder-fire itself is HELD pending two new oracle
-  // captures (windowed displacement + previousChildName): prod fires 1
-  // here, the sandbox holds at 0. Both sides are asserted so the day the
-  // captures land this pin is the single place that flips.
+  // Registering `onChildMoved` on an ordered Query and its reorder fire are
+  // both oracle-backed; this was formerly the pinned row #137 divergence.
   it('accepts a Query without throwing (TypeError cliff removed)', async () => {
     const { db } = setup();
     await update(ref(db, 'parent'), {
@@ -220,7 +215,7 @@ describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => 
     }).not.toThrow();
   });
 
-  it('DIVERGENCE: reorder under an ordered query fires 0 on sandbox (prod fires 1) — held for captures', async () => {
+  it('rtdb-modular#M75c and #137 fire once when an ordered child moves', async () => {
     const { db } = setup();
     await update(ref(db, 'parent'), {
       k1: { priority: 1 },
@@ -234,10 +229,7 @@ describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => 
     );
     // Bump k1 to the top of the sort — prod emits child_moved here.
     await set(ref(db, 'parent/k1/priority'), 10);
-    // Prod value (observation rtdb-modular-onchildmoved-with-orderby.json):
-    //   firedOnMove: 1
-    // Sandbox value (held — reorder semantics pending oracle captures):
-    expect(fires).toBe(0);
+    expect(fires).toBe(1);
     unsub();
   });
 });

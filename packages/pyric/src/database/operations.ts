@@ -56,6 +56,31 @@ export async function set(r: DatabaseReference, value: unknown): Promise<void> {
   }
 }
 
+export async function setPriority(
+  r: DatabaseReference,
+  priority: string | number | null,
+): Promise<void> {
+  const target = targetOf(r as unknown as object);
+  if (target.admin) {
+    target.backend.adminSetPriority(r._path, priority);
+  } else {
+    target.backend.setPriority(authFor(target), r._path, priority);
+  }
+}
+
+export async function setWithPriority(
+  r: DatabaseReference,
+  value: unknown,
+  priority: string | number | null,
+): Promise<void> {
+  const target = targetOf(r as unknown as object);
+  if (target.admin) {
+    target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
+  } else {
+    target.backend.setWithPriority(authFor(target), r._path, value as JsonValue, priority);
+  }
+}
+
 /**
  * `update(ref, values)` — partial update.
  *

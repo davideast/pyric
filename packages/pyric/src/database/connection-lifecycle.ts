@@ -97,9 +97,17 @@ export class RtdbConnectionLifecycle {
               continue;
             }
             if (this.admin) {
-              this.backend.adminSet(operation.path, value as JsonValue);
+              if (operation.kind === 'set' && operation.priority !== undefined) {
+                this.backend.adminSetWithPriority(operation.path, value as JsonValue, operation.priority);
+              } else {
+                this.backend.adminSet(operation.path, value as JsonValue);
+              }
             } else {
-              this.backend.set(this.auth(), operation.path, value as JsonValue);
+              if (operation.kind === 'set' && operation.priority !== undefined) {
+                this.backend.setWithPriority(this.auth(), operation.path, value as JsonValue, operation.priority);
+              } else {
+                this.backend.set(this.auth(), operation.path, value as JsonValue);
+              }
             }
           }
         } catch (error) {

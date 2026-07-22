@@ -26,18 +26,6 @@
  * `KNOWN DIVERGENCE` comment at its test:
  *   - rtdb-modular-orderbyvalue-numeric: prod threw `Index not defined`;
  *     the sandbox does not enforce `.indexOn` and returns the window.
- *   - rtdb-modular-onchildmoved-with-orderby: prod fired child_moved once
- *     under an ordered query; the sandbox's `onChildMoved` (plain-ref,
- *     no ordered-query overload) never fires on reorder.
- *   - rtdb-modular-childchanged-cofire-with-childmoved: under an ordered
- *     query prod co-fired child_changed AND child_moved on a reorder (and
- *     on an ordered-field value change); the sandbox fires window-aware
- *     child_changed (conforms) but ordered-query child_moved is
- *     unimplemented, so it never fires child_moved on reorder.
- *   - rtdb-modular-onchildmoved-previouschildname-sequencing: prod fired
- *     child_moved three times with previousChildName [k3, k2, null] as a
- *     child was moved end→middle→front; the sandbox never fires
- *     ordered-query child_moved (0 moves).
  *   - rtdb-modular-runtransaction-current-value-arg: prod invoked the
  *     update fn twice (speculative null, then the real value); the
  *     sandbox invokes it exactly once with the actual current value.
@@ -52,6 +40,7 @@ import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox } from 'pyric/sandbox';
+import './cdd-climb.test.js';
 import * as databaseModule from '../../../src/database/index.js';
 import {
   getDatabase,
@@ -622,15 +611,11 @@ describe('oracle conformance (rtdb-modular)', () => {
     unsub();
   });
 
-  it('rtdb-modular-onchildmoved-with-orderby (KNOWN DIVERGENCE: no ordered-query child_moved)', async () => {
+  it('rtdb-modular-onchildmoved-with-orderby', async () => {
     // Prod capture: under `query(ref, orderByChild('priority'))`, updating
     // a child's priority so its sort position changes fires child_moved
     // exactly once (firedOnMove: 1), with NO initial replay.
     //
-    // The sandbox's `onChildMoved(ref, cb)` takes a plain DatabaseReference
-    // (no ordered-query overload) and never fires on reorder — the
-    // registry's `observationExceptions` documents this as the plain-ref
-    // no-fire model. Pin BOTH sides so neither drifts unnoticed.
     const obs = load('rtdb-modular-onchildmoved-with-orderby.json');
     expect(obs.firedOnInitial).toBe(0); // no initial replay — conforms in both
     expect(obs.firedOnMove).toBe(1); // what prod did (the target)
@@ -642,15 +627,17 @@ describe('oracle conformance (rtdb-modular)', () => {
       k3: { priority: 3 },
     });
     let moved = 0;
-    const unsub = onChildMoved(ref(db, 'parent'), () => { moved++; });
+    const unsub = onChildMoved(
+      query(ref(db, 'parent'), orderByChild('priority')),
+      () => { moved++; },
+    );
     expect(moved).toBe(0); // no initial replay (conforms)
     await set(ref(db, 'parent/k1/priority'), 10); // would reorder under an ordered query
-    // Sandbox today: child_moved never fires — 0, NOT prod's 1.
-    expect(moved).toBe(0);
+    expect(moved).toBe(obs.firedOnMove as number);
     unsub();
   });
 
-  it('rtdb-modular-childchanged-cofire-with-childmoved (KNOWN DIVERGENCE: no ordered-query child_moved on reorder)', async () => {
+  it('rtdb-modular-childchanged-cofire-with-childmoved', async () => {
     // Prod capture (row #137): under `query(ref, orderByChild('score'))`
     // with a/b/c (scores 10/20/30), onChildChanged and onChildMoved
     // co-fire across three mutation kinds:
@@ -716,13 +703,11 @@ describe('oracle conformance (rtdb-modular)', () => {
     expect(lastChanged.val).toEqual((obs.lastChanged as { val: unknown }).val); // {label:'c0',score:35}
     // The non-ordered field never moves — conforms on BOTH sides.
     expect(nonOrderMoved).toBe(obs.nonOrderMoved as number); // 0
-    // KNOWN DIVERGENCE: ordered-query child_moved is unimplemented — the sandbox
-    // fires 0 where prod fired 1, both on the reorder and the ordered-field change.
-    expect(reorderMoved).toBe(0); // prod (target): obs.reorderMoved === 1
-    expect(sameRankMoved).toBe(0); // prod (target): obs.sameRankMoved === 1
+    expect(reorderMoved).toBe(obs.reorderMoved as number);
+    expect(sameRankMoved).toBe(obs.sameRankMoved as number);
   });
 
-  it('rtdb-modular-onchildmoved-previouschildname-sequencing (KNOWN DIVERGENCE: no ordered-query child_moved)', async () => {
+  it('rtdb-modular-onchildmoved-previouschildname-sequencing', async () => {
     // Prod capture (row #137): under `query(ref, orderByChild('priority'))`
     // with k1/k2/k3 (priority 1/2/3), moving k1 to END → MIDDLE → FRONT
     // fires child_moved three times, and its 2nd callback arg
@@ -759,9 +744,9 @@ describe('oracle conformance (rtdb-modular)', () => {
 
     // No initial replay — conforms on BOTH sides.
     expect(firedOnInitial).toBe(obs.firedOnInitial as number); // 0
-    // KNOWN DIVERGENCE: ordered-query child_moved is unimplemented — the sandbox
-    // captures 0 moves where prod captured 3 (previousChildName [k3, k2, null]).
-    expect(moves.length).toBe(0); // prod (target): obs.totalMoves === 3
+    expect(moves.length).toBe(obs.totalMoves as number);
+    expect(moves.map((move) => move.key)).toEqual(obs.movedKeySequence);
+    expect(moves.map((move) => move.prev)).toEqual(obs.prevNameSequence);
   });
 
   it('rtdb-modular-off-stops-child-fires', async () => {

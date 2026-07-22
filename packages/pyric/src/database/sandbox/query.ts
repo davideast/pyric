@@ -53,7 +53,10 @@ import type { JsonValue } from './data-tree.js';
 export type OrderBy =
   | { kind: 'child'; path: string }
   | { kind: 'key' }
+  | { kind: 'priority' }
   | { kind: 'value' };
+
+export type Priority = string | number | null;
 
 /** Cursor or filter bound. `startAt`/`endAt` are inclusive; the
  *  `*Exclusive` variants drop the boundary value. `equalTo` collapses
@@ -255,6 +258,7 @@ export function extractOrderValue(
   spec: OrderBy | null,
   key: string,
   value: JsonValue,
+  priority: Priority = null,
 ): JsonValue {
   const o = spec ?? { kind: 'key' as const };
   switch (o.kind) {
@@ -262,6 +266,8 @@ export function extractOrderValue(
       return key;
     case 'value':
       return value;
+    case 'priority':
+      return priority;
     case 'child': {
       if (value === null || typeof value !== 'object' || Array.isArray(value)) {
         return null;
@@ -282,6 +288,7 @@ export function extractOrderValue(
 export interface QueryRow {
   key: string;
   value: JsonValue;
+  priority: Priority;
 }
 
 /**
@@ -294,6 +301,7 @@ export interface QueryRow {
 export function executeQuery(
   pathData: JsonValue,
   spec: QuerySpec,
+  priorityForKey: (key: string) => Priority = () => null,
 ): QueryRow[] {
   // Non-collection input → no rows. RTDB's `query()` on a primitive
   // path returns an empty snapshot.
@@ -302,7 +310,11 @@ export function executeQuery(
   }
   const obj = pathData as Record<string, JsonValue>;
   // Enumerate immediate children only — RTDB's query model is one-level.
-  let rows: QueryRow[] = Object.entries(obj).map(([key, value]) => ({ key, value }));
+  let rows: QueryRow[] = Object.entries(obj).map(([key, value]) => ({
+    key,
+    value,
+    priority: priorityForKey(key),
+  }));
 
   // ─── 1. Order ─────────────────────────────────────────────────────
   const orderingByKey = (spec.orderBy ?? { kind: 'key' }).kind === 'key';
@@ -312,8 +324,8 @@ export function executeQuery(
       // (numeric-keys-first) — there's no separate tie-break.
       return nameCompare(a.key, b.key);
     }
-    const va = extractOrderValue(spec.orderBy, a.key, a.value);
-    const vb = extractOrderValue(spec.orderBy, b.key, b.value);
+    const va = extractOrderValue(spec.orderBy, a.key, a.value, a.priority);
+    const vb = extractOrderValue(spec.orderBy, b.key, b.value, b.priority);
     const cmp = compareValues(va, vb);
     if (cmp !== 0) return cmp;
     // Tie-break by key under nameCompare (RTDB's documented behavior —
@@ -355,7 +367,7 @@ function boundMatches(b: Bound, row: QueryRow, orderBy: OrderBy | null): boolean
   // ties on the key with nameCompare.
   const cmp = orderingByKey
     ? nameCompare(row.key, String(b.value))
-    : compareValues(extractOrderValue(orderBy, row.key, row.value), b.value);
+    : compareValues(extractOrderValue(orderBy, row.key, row.value, row.priority), b.value);
   const keyCmp = (other: string): number => nameCompare(row.key, other);
   switch (b.kind) {
     case 'startAt':

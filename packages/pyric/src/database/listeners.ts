@@ -61,19 +61,26 @@ function subscribeWithLiveAuth(
  * `options.onlyOnce` (DB-B12): when `true`, the listener auto-unsubscribes
  * after its first fire (mirrors `api/Reference_impl.ts:975-980`).
  *
- * Errors path: subscribing under rules that deny the read throws the
- * plain-`Error` `PERMISSION_DENIED` shape synchronously (matching the
- * production behavior where the subscribe path immediately errors).
+ * With a cancellation callback, an initially denied listen returns normally
+ * and reports the Firebase `PERMISSION_DENIED` error asynchronously. Without
+ * one, the sandbox preserves its legacy synchronous throw.
  */
 export function onValue(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
   options?: ListenOptions,
 ): Unsubscribe {
+  const cancelCallback = typeof cancelCallbackOrOptions === 'function'
+    ? cancelCallbackOrOptions
+    : undefined;
+  const listenOptions = typeof cancelCallbackOrOptions === 'function'
+    ? options
+    : cancelCallbackOrOptions;
   // `onlyOnce` (DB-B12): wrap the callback so it unsubscribes itself
   // after the first fire. The unsub is filled in once the real
   // subscription is created below.
-  if (options?.onlyOnce) {
+  if (listenOptions?.onlyOnce) {
     let unsub: Unsubscribe | null = null;
     let fired = false;
     const onceCb = (snap: DataSnapshot): void => {
@@ -85,7 +92,7 @@ export function onValue(
       if (unsub) unsub();
       cb(snap);
     };
-    unsub = onValue(r, onceCb);
+    unsub = onValue(r, onceCb, cancelCallback);
     // Synchronous initial fire: `onceCb` ran before `unsub` was set, so
     // remove the now-stale listener here.
     if (fired) unsub();
@@ -114,7 +121,7 @@ export function onValue(
       ? target.backend.adminOnValue(q.ref._path, deliver, q._spec)
       : subscribeWithLiveAuth(
         target,
-        (auth) => target.backend.onValue(auth, q.ref._path, deliver, q._spec),
+        (auth) => target.backend.onValue(auth, q.ref._path, deliver, q._spec, cancelCallback),
       );
   }
   const ref0 = r as DatabaseReference;
@@ -132,7 +139,7 @@ export function onValue(
     ? target.backend.adminOnValue(ref0._path, wrapper)
     : subscribeWithLiveAuth(
       target,
-      (auth) => target.backend.onValue(auth, ref0._path, wrapper),
+      (auth) => target.backend.onValue(auth, ref0._path, wrapper, undefined, cancelCallback),
     );
   const registration: ListenerRegistration = { unsubscribe: unsub };
   listenerRegistry.add(target, ref0._path, 'value', cb, registration);
@@ -163,9 +170,10 @@ export function onValue(
  */
 export function onChildAdded(
   r: DatabaseReference | Query,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallback?: (error: Error) => void,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_added', cb);
+  return onChildEvent(r, 'child_added', cb, cancelCallback);
 }
 
 /**
@@ -183,9 +191,10 @@ export function onChildAdded(
  */
 export function onChildChanged(
   r: DatabaseReference | Query,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallback?: (error: Error) => void,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_changed', cb);
+  return onChildEvent(r, 'child_changed', cb, cancelCallback);
 }
 
 /**
@@ -205,9 +214,10 @@ export function onChildChanged(
  */
 export function onChildRemoved(
   r: DatabaseReference | Query,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallback?: (error: Error) => void,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_removed', cb);
+  return onChildEvent(r, 'child_removed', cb, cancelCallback);
 }
 
 /**
@@ -220,18 +230,15 @@ export function onChildRemoved(
  *     upstream SDK accepts the subscription but never fires it
  *     (matches RTDB docs).
  *
- * Accepts a {@link Query} WITHOUT throwing, but the sandbox deliberately
- * does NOT fire `child_moved` on reorder yet: prod fires here (matrix row
- * `rtdb-modular#137`) while the sandbox holds — the reorder /
- * `previousChildName` ordering semantics are pending two new oracle
- * captures. This is a documented, pinned divergence (both sides asserted
- * in `test/database/modular/sandbox-child-events.test.ts`).
+ * Accepts a {@link Query} and fires when the active ordered value changes,
+ * including the Firebase `previousChildName` second callback argument.
  */
 export function onChildMoved(
   r: DatabaseReference | Query,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallback?: (error: Error) => void,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_moved', cb);
+  return onChildEvent(r, 'child_moved', cb, cancelCallback);
 }
 
 type ChildEvent = 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
@@ -257,27 +264,31 @@ function cancelSubscriptions(
  * than the raw child
  * key-set — a child entering/leaving the window fires `child_added` /
  * `child_removed`, an in-window value change fires `child_changed`. (Note
- * `child_moved` on a query registers but does not fire on reorder — the
- * reorder semantics are held pending fresh oracle captures.)
+ * `child_moved` fires when the query's active ordered value changes.)
  */
 function onChildEvent(
   r: DatabaseReference | Query,
   event: ChildEvent,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallback?: (error: Error) => void,
 ): Unsubscribe {
   // Unwrap a Query into its base ref + spec; a plain ref has no spec.
   const isQ = isQuery(r as object);
   const baseRef = isQ ? (r as Query).ref : (r as DatabaseReference);
   const spec = isQ ? (r as Query)._spec : undefined;
   const target = targetOf(baseRef as unknown as object);
-  const wrapper = (raw: { key: string; val: JsonValue }): void => {
+  const wrapper = (raw: {
+    key: string;
+    val: JsonValue;
+    previousChildName: string | null;
+  }): void => {
     // Synthesize a snapshot rooted at the child path so `snap.key`
     // and `snap.val()` match the upstream `onChildAdded` snapshot
     // shape (key = the child's key, val = the child's value).
     const childRef = child(baseRef, raw.key);
     const snap = buildSandboxSnapFromRaw(target, childRef, raw.val);
     try {
-      cb(snap);
+      cb(snap, raw.previousChildName);
     } catch {
       // Listener throws are swallowed — match `firebase/database`'s
       // behavior where one observer's exception doesn't block others.
@@ -285,7 +296,7 @@ function onChildEvent(
   };
   const unsub = subscribeWithLiveAuth(
     target,
-    (auth) => target.backend.onChild(auth, event, baseRef._path, wrapper, spec),
+    (auth) => target.backend.onChild(auth, event, baseRef._path, wrapper, spec, cancelCallback),
   );
   const registration: ListenerRegistration = { unsubscribe: unsub };
   listenerRegistry.add(target, baseRef._path, event, cb, registration);

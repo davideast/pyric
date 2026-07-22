@@ -42,7 +42,14 @@ import {
   type RuleCheck,
   type RuleEvaluationDetails,
 } from './rules-eval.js';
-import { executeQuery, type QueryRow, type QuerySpec } from './query.js';
+import {
+  compareValues,
+  executeQuery,
+  extractOrderValue,
+  type Priority,
+  type QueryRow,
+  type QuerySpec,
+} from './query.js';
 
 /**
  * Maps a non-`'allow'` rule check to the event-stream `result` value.
@@ -70,6 +77,7 @@ export interface ValueListener {
   auth: AuthState;
   cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void;
   path: string;
+  cancelCallback?: (error: Error) => void;
   /**
    * If set, the listener is on a `query(ref, ...constraints)` rather
    * than a plain ref. The backend evaluates the spec each time the
@@ -120,16 +128,16 @@ export interface ValueListener {
  * are computed against the ordered, WINDOWED result (`fanOutQueryChild`):
  * a child entering the window fires `child_added`, one leaving fires
  * `child_removed`, an in-window value change fires `child_changed`.
- * `child_moved` on a query registers but does not fire on reorder — the
- * reorder / `previousChildName` semantics are held pending two new oracle
- * captures (matrix row `rtdb-modular#137`).
+ * `child_moved` on a query fires when its active ordered value changes and
+ * carries Firebase's `previousChildName` sequence.
  */
 export interface ChildListener {
   id: string;
   auth: AuthState;
   event: 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
   path: string;
-  cb: (snap: { key: string; val: JsonValue }) => void;
+  cb: (snap: { key: string; val: JsonValue; previousChildName: string | null }) => void;
+  cancelCallback?: (error: Error) => void;
   /**
    * If set, the listener is on a `query(ref, ...constraints)` rather than
    * a plain ref. Child events are then computed against the ordered,
@@ -139,11 +147,8 @@ export interface ChildListener {
    *   - a child LEAVING the window emits `child_removed`;
    *   - an in-window value change emits `child_changed`.
    *
-   * `child_moved` (reorder within the window) is deliberately NOT emitted
-   * — the reorder / `previousChildName` semantics are held pending two new
-   * oracle captures (matrix row `rtdb-modular#137`). Registering
-   * `onChildMoved` on a query must not throw; it simply never fires on
-   * reorder.
+   * `child_moved` is emitted when an ordered value changes, with the new
+   * predecessor captured from the post-write ordered window.
    */
   spec?: QuerySpec;
   /**
@@ -163,6 +168,8 @@ export class RtdbBackend {
   private activeRules: { rules: Record<string, unknown> } | null = null;
   private readonly valueListeners = new Set<ValueListener>();
   private readonly childListeners = new Set<ChildListener>();
+  private readonly priorities = new Map<string, Exclude<Priority, null>>();
+  private mutationVersion = 0;
   private nextId = 0;
   private resetGeneration = 0;
 
@@ -241,6 +248,38 @@ export class RtdbBackend {
   private nextGroupId(prefix: string): string {
     this.nextId += 1;
     return `rtdb-${prefix}-${this.nextId.toString(36)}`;
+  }
+
+  getPriority(path: string): Priority {
+    return this.priorities.get(joinPath(pathSegments(path))) ?? null;
+  }
+
+  private priorityForChild(path: string): (key: string) => Priority {
+    const base = pathSegments(path);
+    return (key) => this.getPriority(joinPath([...base, key]));
+  }
+
+  private clearPrioritiesAtOrBelow(path: string): void {
+    const canonical = joinPath(pathSegments(path));
+    const prefix = canonical === '/' ? '/' : `${canonical}/`;
+    for (const key of this.priorities.keys()) {
+      if (key === canonical || key.startsWith(prefix)) this.priorities.delete(key);
+    }
+  }
+
+  private replacePriority(path: string, priority: Priority): void {
+    this.clearPrioritiesAtOrBelow(path);
+    if (priority !== null) this.priorities.set(joinPath(pathSegments(path)), priority);
+  }
+
+  private removePrioritiesForDeletedWrites(writes: Array<{ path: string; value: JsonValue }>): void {
+    for (const write of writes) {
+      if (write.value === null) this.clearPrioritiesAtOrBelow(write.path);
+    }
+  }
+
+  private markMutation(): void {
+    this.mutationVersion += 1;
   }
 
   private emitOperation(
@@ -390,6 +429,7 @@ export class RtdbBackend {
 
   setData(seed: Record<string, JsonValue>): void {
     this.tree.restore({});
+    this.priorities.clear();
     // Seed each path individually so the tree's prior-trim semantics
     // apply consistently. For a flat seed of nested data we'd just
     // restore(); but per-path seeding lets `setData({'/a/b': 1})` work
@@ -403,12 +443,36 @@ export class RtdbBackend {
       );
       this.tree.write(path, resolved);
     }
+    this.markMutation();
     this.notifyWrite();
   }
 
   setRules(rulesJson: { rules: Record<string, unknown> } | null): void {
     this.rules.setRules(rulesJson);
     this.activeRules = rulesJson === null ? null : structuredClone(rulesJson);
+    this.cancelDeniedListeners();
+  }
+
+  private cancelDeniedListeners(): void {
+    const mockData = this.tree.snapshot() as Record<string, unknown>;
+    for (const listener of [...this.valueListeners]) {
+      const evaluation = this.rules.evaluate('read', listener.path, {
+        auth: listener.auth,
+        mockData,
+      });
+      if (evaluation.check === 'allow') continue;
+      this.valueListeners.delete(listener);
+      listener.cancelCallback?.(listenerPermissionDenied(listener.path));
+    }
+    for (const listener of [...this.childListeners]) {
+      const evaluation = this.rules.evaluate('read', listener.path, {
+        auth: listener.auth,
+        mockData,
+      });
+      if (evaluation.check === 'allow') continue;
+      this.childListeners.delete(listener);
+      listener.cancelCallback?.(listenerPermissionDenied(listener.path));
+    }
   }
 
   getActiveRules(): { rules: Record<string, unknown> } | null {
@@ -429,7 +493,7 @@ export class RtdbBackend {
   }
 
   adminGetQuery(path: string, spec: QuerySpec): QueryRow[] {
-    const rows = executeQuery(this.tree.read(path), spec);
+    const rows = executeQuery(this.tree.read(path), spec, this.priorityForChild(path));
     this.emitOperation(null, 'get', path, 'not-applicable', undefined, {
       origin: 'admin',
       request: { query: spec },
@@ -439,6 +503,11 @@ export class RtdbBackend {
   }
 
   adminSet(path: string, value: JsonValue): void {
+    this.adminSetWithPriority(path, value, null);
+  }
+
+  adminSetWithPriority(path: string, value: JsonValue, priority: Priority): void {
+    validatePriority(priority);
     const now = Date.now();
     const before = this.tree.read(path);
     const resolved = normalizeWrite(
@@ -453,6 +522,8 @@ export class RtdbBackend {
     });
     const priors = this.snapshotChildListenerParents();
     this.tree.write(path, resolved);
+    this.replacePriority(path, resolved === null ? null : priority);
+    this.markMutation();
     this.fanOut([path]);
     this.fanOutChildren(priors);
     const after = this.tree.read(path);
@@ -488,6 +559,8 @@ export class RtdbBackend {
         detail: { admin: true, multiPath: true, paths: Object.keys(expanded) },
       });
       this.tree.multiUpdate(expanded);
+      this.removePrioritiesForDeletedWrites(Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value })));
+      this.markMutation();
       this.fanOut(Object.keys(expanded));
       this.fanOutChildren(priors);
       const after = this.tree.read(path);
@@ -519,6 +592,11 @@ export class RtdbBackend {
       detail: { admin: true, multiPath: false, keys: Object.keys(resolvedPatch) },
     });
     this.tree.shallowUpdate(path, resolvedPatch);
+    this.removePrioritiesForDeletedWrites(Object.entries(resolvedPatch).map(([key, value]) => ({
+      path: joinPath([...pathSegments(path), ...pathSegments(key)]),
+      value,
+    })));
+    this.markMutation();
     this.fanOut(touched);
     this.fanOutChildren(priors);
     const after = this.tree.read(path);
@@ -534,6 +612,17 @@ export class RtdbBackend {
 
   adminRemove(path: string): void {
     this.adminSet(path, null);
+  }
+
+  adminSetPriority(path: string, priority: Priority): void {
+    validatePriority(priority);
+    if (this.tree.read(path) === null) return;
+    const priors = this.snapshotChildListenerParents();
+    if (priority === null) this.priorities.delete(joinPath(pathSegments(path)));
+    else this.priorities.set(joinPath(pathSegments(path)), priority);
+    this.markMutation();
+    this.fanOutChildren(priors);
+    this.notifyWrite();
   }
 
   // ─── User-plane (rule-gated) operations ────────────────────────────
@@ -570,7 +659,12 @@ export class RtdbBackend {
    * `remove(ref) === set(ref, null)`).
    */
   set(auth: AuthState, path: string, value: JsonValue): void {
-    this.setInternal(auth, path, value, 'set');
+    this.setInternal(auth, path, value, 'set', null);
+  }
+
+  setWithPriority(auth: AuthState, path: string, value: JsonValue, priority: Priority): void {
+    validatePriority(priority);
+    this.setInternal(auth, path, value, 'set', priority);
   }
 
   /** Shared `set`/`remove` write path. `op` selects the emitted event
@@ -581,6 +675,7 @@ export class RtdbBackend {
     path: string,
     value: JsonValue,
     op: 'set' | 'remove',
+    priority: Priority,
   ): void {
     const now = Date.now();
     // Pass the current value at the path so `increment()` sentinels
@@ -619,6 +714,8 @@ export class RtdbBackend {
     });
     const priors = this.snapshotChildListenerParents();
     this.tree.write(path, resolved);
+    this.replacePriority(path, resolved === null ? null : priority);
+    this.markMutation();
     this.fanOut([path]);
     this.fanOutChildren(priors);
     // A write that pruned to nothing (`set(ref, null)` / `set(ref, {})`)
@@ -638,7 +735,34 @@ export class RtdbBackend {
   }
 
   remove(auth: AuthState, path: string): void {
-    this.setInternal(auth, path, null, 'remove');
+    this.setInternal(auth, path, null, 'remove', null);
+  }
+
+  setPriority(auth: AuthState, path: string, priority: Priority): void {
+    validatePriority(priority);
+    const current = this.tree.read(path);
+    const at = Date.now();
+    const evaluation = this.rules.evaluate('write', path === '/' ? '/' : path, {
+      auth,
+      mockData: this.tree.snapshot() as Record<string, unknown>,
+      newData: current,
+    });
+    if (evaluation.check !== 'allow') {
+      this.emitOperation(auth, 'setPriority', path, denyResultFor(evaluation.check), evaluation, {
+        at,
+        durationMs: Date.now() - at,
+        request: { data: priority },
+        resourceBefore: { data: current, exists: current !== null },
+      });
+      throw permissionDenied();
+    }
+    if (current === null) return;
+    const priors = this.snapshotChildListenerParents();
+    if (priority === null) this.priorities.delete(joinPath(pathSegments(path)));
+    else this.priorities.set(joinPath(pathSegments(path)), priority);
+    this.markMutation();
+    this.fanOutChildren(priors);
+    this.notifyWrite();
   }
 
   /** Rule-only registration check for an onDisconnect set/remove. */
@@ -748,6 +872,8 @@ export class RtdbBackend {
       const beforeRoot = this.tree.read(path);
       const priors = this.snapshotChildListenerParents();
       this.tree.multiUpdate(expanded);
+      this.removePrioritiesForDeletedWrites(Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value })));
+      this.markMutation();
       this.fanOut(Object.keys(expanded));
       this.fanOutChildren(priors);
       const afterRoot = this.tree.read(path);
@@ -810,6 +936,11 @@ export class RtdbBackend {
     const beforeRoot = this.tree.read(path);
     const priors = this.snapshotChildListenerParents();
     this.tree.shallowUpdate(path, resolvedPatch);
+    this.removePrioritiesForDeletedWrites(Object.entries(resolvedPatch).map(([key, value]) => ({
+      path: joinPath([...pathSegments(path), ...pathSegments(key)]),
+      value,
+    })));
+    this.markMutation();
     this.fanOut(touched);
     this.fanOutChildren(priors);
     const afterRoot = this.tree.read(path);
@@ -850,6 +981,7 @@ export class RtdbBackend {
     path: string,
     cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void,
     query?: QuerySpec,
+    cancelCallback?: (error: Error) => void,
   ): () => void {
     // Rules check at subscribe time. A denied subscribe never gets
     // the initial fire — matches production where the listener errors
@@ -875,6 +1007,10 @@ export class RtdbBackend {
           reasons: evaluation.reasons,
         },
       });
+      if (cancelCallback) {
+        queueMicrotask(() => cancelCallback(listenerPermissionDenied(path)));
+        return () => {};
+      }
       throw permissionDenied();
     }
     return this.attachValueListener(auth, path, cb, query, {
@@ -882,7 +1018,7 @@ export class RtdbBackend {
       result: 'allow',
       evaluation,
       at,
-    });
+    }, cancelCallback);
   }
 
   /**
@@ -930,6 +1066,7 @@ export class RtdbBackend {
       evaluation: RuleEvaluationDetails | undefined;
       at: number;
     },
+    cancelCallback?: (error: Error) => void,
   ): () => void {
     const { at } = provenance;
     const listenerId = this.nextListenerId();
@@ -939,7 +1076,7 @@ export class RtdbBackend {
       request: query ? { query } : undefined,
       origin: provenance.origin,
     });
-    const listener: ValueListener = { id: listenerId, auth, cb, path, query };
+    const listener: ValueListener = { id: listenerId, auth, cb, path, query, cancelCallback };
     this.valueListeners.add(listener);
     this.emitListener('attach', listener, auth, {
       event: 'value',
@@ -950,7 +1087,7 @@ export class RtdbBackend {
     // diff check on the next write knows what "the previous result"
     // was. For plain listeners we just feed the path snapshot.
     if (query) {
-      const initialWindow = executeQuery(this.tree.read(path), query);
+      const initialWindow = executeQuery(this.tree.read(path), query, this.priorityForChild(path));
       listener.lastWindow = initialWindow;
       const snap = {
         val: rowsToVal(initialWindow),
@@ -1022,7 +1159,7 @@ export class RtdbBackend {
       });
       throw permissionDenied();
     }
-    const rows = executeQuery(this.tree.read(path), spec);
+    const rows = executeQuery(this.tree.read(path), spec, this.priorityForChild(path));
     this.emitOperation(auth, 'get', path, 'allow', evaluation, {
       at,
       durationMs: Date.now() - at,
@@ -1082,7 +1219,11 @@ export class RtdbBackend {
         // Locked by oracle observation
         // `rtdb-modular-onvalue-with-query.json` — a write OUTSIDE the
         // window doesn't fire the query listener.
-        const nextWindow = executeQuery(this.tree.read(listener.path), listener.query);
+        const nextWindow = executeQuery(
+          this.tree.read(listener.path),
+          listener.query,
+          this.priorityForChild(listener.path),
+        );
         if (windowsEqual(listener.lastWindow ?? [], nextWindow)) {
           this.emitListener('suppressed', listener, listener.auth, {
             event: 'value',
@@ -1173,9 +1314,9 @@ export class RtdbBackend {
    *     `threw: true, message: 'permission_denied', code: null,
    *     constructorName: 'Error'`).
    *
-   * Single-client harness → no real concurrency to retry against; the
-   * documented "optimistic concurrency with retry" is degenerate here.
-   * The sandbox doesn't speculatively call `updateFn` with `null` first
+   * Re-entrant competing writes from another Database client invalidate the
+   * read and retry the update function, up to 25 attempts. The sandbox
+   * doesn't speculatively call `updateFn` with `null` first
    * for a seeded path (prod does — second invocation with the server
    * value); our contract is the SIMPLEST observable: one invocation
    * with the actual current value.
@@ -1200,14 +1341,26 @@ export class RtdbBackend {
     const applyLocally = options?.applyLocally !== false;
     const segs = pathSegments(path);
     const key = segs.length === 0 ? null : segs[segs.length - 1]!;
-    const current = this.tree.read(path);
-    // Hand the user-fn a deep clone so mutation of the arg doesn't
-    // corrupt our stored tree (consumer code that does
-    // `current.count++; return current` would otherwise mutate-then-
-    // read the same reference). Array-coerce so the fn sees the same
-    // shape `get()` would return (DB-B2).
-    const currentForFn = current === null ? null : coerceArrays(cloneJson(current)) as JsonValue;
-    const proposed = updateFn(currentForFn);
+    let current: JsonValue = null;
+    let proposed: JsonValue | undefined;
+    let attempts = 0;
+    let settled = false;
+    do {
+      attempts += 1;
+      const versionBeforeCallback = this.mutationVersion;
+      current = this.tree.read(path);
+      // Hand the user-fn a deep clone so mutation of the arg doesn't
+      // corrupt our stored tree. A synchronous re-entrant write from
+      // another client invalidates this read and retries the callback,
+      // matching RTDB optimistic contention semantics.
+      const currentForFn = current === null ? null : coerceArrays(cloneJson(current)) as JsonValue;
+      proposed = updateFn(currentForFn);
+      if (versionBeforeCallback === this.mutationVersion || proposed === undefined) {
+        settled = true;
+        break;
+      }
+    } while (attempts < 25);
+    if (!settled) throw new Error('maxretry');
     const groupId = this.nextGroupId('transaction');
     if (proposed === undefined) {
       this.emitOperation(auth, 'transaction', path, 'not-applicable', undefined, {
@@ -1239,7 +1392,10 @@ export class RtdbBackend {
       // tree's write replaces; we hold the snapshot of the pre-write
       // root to restore on rule-deny.
       const priorRoot = this.tree.snapshot();
+      const priorPriorities = new Map(this.priorities);
+      const currentPriority = this.getPriority(path);
       this.tree.write(path, resolved);
+      this.replacePriority(path, currentPriority);
       this.fanOut([path]);
       const at = Date.now();
       const evaluation = this.rules.evaluate('write', path === '/' ? '/' : path, {
@@ -1262,6 +1418,10 @@ export class RtdbBackend {
         // the restored value. Then throw the transaction-specific
         // denial shape.
         this.tree.restore(priorRoot);
+        this.priorities.clear();
+        for (const [priorityPath, priority] of priorPriorities) {
+          this.priorities.set(priorityPath, priority);
+        }
         this.fanOut([path]);
         throw transactionPermissionDenied();
       }
@@ -1289,6 +1449,7 @@ export class RtdbBackend {
         after: resolved,
         detail: { committed: true },
       });
+      this.markMutation();
       this.notifyWrite();
       return { committed: true, val: resolved, key };
     }
@@ -1323,7 +1484,10 @@ export class RtdbBackend {
       groupId,
       groupKind: 'transaction',
     });
+    const currentPriority = this.getPriority(path);
     this.tree.write(path, resolved);
+    this.replacePriority(path, currentPriority);
+    this.markMutation();
     this.fanOut([path]);
     this.emitCommit(auth, 'transaction', path, {
       data: proposed,
@@ -1351,7 +1515,7 @@ export class RtdbBackend {
   //
   // `child_moved` requires an ordered query (see oracle observation
   // `rtdb-modular-onchildmoved-with-orderby.json`) — for plain refs
-  // it never fires. Tier 3 will wire the ordered-query path in.
+  // plain refs never fire it; ordered queries are handled below.
 
   /**
    * Subscribe to a child event at `path`.
@@ -1384,8 +1548,9 @@ export class RtdbBackend {
     auth: AuthState,
     event: ChildListener['event'],
     path: string,
-    cb: (snap: { key: string; val: JsonValue }) => void,
+    cb: (snap: { key: string; val: JsonValue; previousChildName: string | null }) => void,
     spec?: QuerySpec,
+    cancelCallback?: (error: Error) => void,
   ): () => void {
     const listenerId = this.nextListenerId();
     const at = Date.now();
@@ -1409,6 +1574,10 @@ export class RtdbBackend {
           reasons: evaluation.reasons,
         },
       });
+      if (cancelCallback) {
+        queueMicrotask(() => cancelCallback(listenerPermissionDenied(path)));
+        return () => {};
+      }
       throw permissionDenied();
     }
     this.emitOperation(auth, 'listen', path, 'allow', evaluation, {
@@ -1417,7 +1586,7 @@ export class RtdbBackend {
       origin: 'listener',
       detail: { event },
     });
-    const listener: ChildListener = { id: listenerId, auth, event, path, cb, spec };
+    const listener: ChildListener = { id: listenerId, auth, event, path, cb, spec, cancelCallback };
     this.childListeners.add(listener);
     this.emitListener('attach', listener, auth, {
       event,
@@ -1429,7 +1598,7 @@ export class RtdbBackend {
     // `child_added` query listener also replays the window (in window
     // order). A plain-ref listener replays raw direct children.
     if (spec) {
-      const initialWindow = executeQuery(this.tree.read(path), spec);
+      const initialWindow = executeQuery(this.tree.read(path), spec, this.priorityForChild(path));
       listener.lastWindow = initialWindow;
       if (event === 'child_added') {
         for (const { key, value } of initialWindow) {
@@ -1440,7 +1609,11 @@ export class RtdbBackend {
             detail: { initial: true, query: true },
           });
           try {
-            cb({ key, val: value });
+            cb({
+              key,
+              val: value,
+              previousChildName: previousName(initialWindow, key),
+            });
           } catch (e) {
             this.emitListener('errored', listener, auth, {
               event,
@@ -1462,7 +1635,8 @@ export class RtdbBackend {
           detail: { initial: true },
         });
         try {
-          cb({ key, val });
+          const children = this.directChildren(path);
+          cb({ key, val, previousChildName: previousNameFromValues(children, key) });
         } catch (e) {
           this.emitListener('errored', listener, auth, {
             event,
@@ -1596,23 +1770,25 @@ export class RtdbBackend {
         next.set(key, val);
       }
       // Build event lists.
-      const added: Array<{ key: string; val: JsonValue }> = [];
-      const changed: Array<{ key: string; val: JsonValue }> = [];
-      const removed: Array<{ key: string; val: JsonValue }> = [];
+      const added: Array<{ key: string; val: JsonValue; previousChildName: string | null }> = [];
+      const changed: Array<{ key: string; val: JsonValue; previousChildName: string | null }> = [];
+      const removed: Array<{ key: string; val: JsonValue; previousChildName: string | null }> = [];
+      const nextEntries = [...next].map(([key, val]) => ({ key, val }));
+      const priorEntries = [...prior].map(([key, val]) => ({ key, val }));
       for (const [k, v] of next) {
         if (!prior.has(k)) {
-          added.push({ key: k, val: v });
+          added.push({ key: k, val: v, previousChildName: previousNameFromValues(nextEntries, k) });
         } else if (!jsonValuesEqual(prior.get(k)!, v)) {
-          changed.push({ key: k, val: v });
+          changed.push({ key: k, val: v, previousChildName: previousNameFromValues(nextEntries, k) });
         }
       }
       for (const [k, v] of prior) {
         if (!next.has(k)) {
-          removed.push({ key: k, val: v });
+          removed.push({ key: k, val: v, previousChildName: previousNameFromValues(priorEntries, k) });
         }
       }
       for (const listener of listeners) {
-        let events: Array<{ key: string; val: JsonValue }>;
+        let events: Array<{ key: string; val: JsonValue; previousChildName: string | null }>;
         switch (listener.event) {
           case 'child_added': events = added; break;
           case 'child_changed': events = changed; break;
@@ -1649,39 +1825,69 @@ export class RtdbBackend {
    *     prior value);
    *   - a key that stayed in-window but changed value emits `child_changed`.
    *
-   * `child_moved` (reorder within the window) is deliberately NOT emitted
-   * — the reorder / `previousChildName` semantics are held pending fresh
-   * oracle captures (matrix row `rtdb-modular#137`). The window is always
-   * advanced so a later real add/change/remove diffs correctly.
+   * `child_moved` emits when the active ordered value changes. The window is
+   * always advanced so later add/change/remove/move diffs remain coherent.
    */
   private fanOutQueryChild(listener: ChildListener): void {
     const prior = listener.lastWindow ?? [];
-    const next = executeQuery(this.tree.read(listener.path), listener.spec!);
+    const next = executeQuery(
+      this.tree.read(listener.path),
+      listener.spec!,
+      this.priorityForChild(listener.path),
+    );
     listener.lastWindow = next;
     const priorByKey = new Map<string, JsonValue>(prior.map((r) => [r.key, r.value]));
     const nextByKey = new Map<string, JsonValue>(next.map((r) => [r.key, r.value]));
-    let events: Array<{ key: string; val: JsonValue }> = [];
+    let events: Array<{ key: string; val: JsonValue; previousChildName: string | null }> = [];
     switch (listener.event) {
       case 'child_added':
         for (const { key, value } of next) {
-          if (!priorByKey.has(key)) events.push({ key, val: value });
+          if (!priorByKey.has(key)) {
+            events.push({ key, val: value, previousChildName: previousName(next, key) });
+          }
         }
         break;
       case 'child_changed':
         for (const { key, value } of next) {
           if (priorByKey.has(key) && !jsonValuesEqual(priorByKey.get(key)!, value)) {
-            events.push({ key, val: value });
+            events.push({ key, val: value, previousChildName: previousName(next, key) });
           }
         }
         break;
       case 'child_removed':
         for (const { key, value } of prior) {
-          if (!nextByKey.has(key)) events.push({ key, val: value });
+          if (!nextByKey.has(key)) {
+            events.push({ key, val: value, previousChildName: previousName(prior, key) });
+          }
         }
         break;
       case 'child_moved':
-        // Held — reorder semantics pending two new oracle captures.
-        events = [];
+        if (listener.spec?.orderBy && listener.spec.orderBy.kind !== 'key') {
+          const priorRows = new Map(prior.map((row) => [row.key, row]));
+          for (const row of next) {
+            const priorRow = priorRows.get(row.key);
+            if (!priorRow) continue;
+            const before = extractOrderValue(
+              listener.spec.orderBy,
+              priorRow.key,
+              priorRow.value,
+              priorRow.priority,
+            );
+            const after = extractOrderValue(
+              listener.spec.orderBy,
+              row.key,
+              row.value,
+              row.priority,
+            );
+            if (compareValues(before, after) !== 0) {
+              events.push({
+                key: row.key,
+                val: row.value,
+                previousChildName: previousName(next, row.key),
+              });
+            }
+          }
+        }
         break;
     }
     for (const ev of events) {
@@ -1738,6 +1944,8 @@ export class RtdbBackend {
   restoreTree(root: JsonValue): void {
     const priors = this.snapshotChildListenerParents();
     this.tree.restore(root ?? {});
+    this.priorities.clear();
+    this.markMutation();
     this.fanOut(['/']);
     this.fanOutChildren(priors);
   }
@@ -1836,6 +2044,37 @@ function rowsToVal(rows: QueryRow[]): JsonValue {
     out[key] = value;
   }
   return out;
+}
+
+function validatePriority(priority: Priority): void {
+  if (
+    priority !== null
+    && typeof priority !== 'string'
+    && (typeof priority !== 'number' || !Number.isFinite(priority))
+  ) {
+    throw new Error('priority must be a valid Firebase priority (string, finite number, or null)');
+  }
+}
+
+function listenerPermissionDenied(path: string): Error {
+  const error = new Error(
+    `permission_denied at ${joinPath(pathSegments(path))}: Client doesn't have permission to access the desired data.`,
+  ) as Error & { code: string };
+  error.code = 'PERMISSION_DENIED';
+  return error;
+}
+
+function previousName(rows: QueryRow[], key: string): string | null {
+  const index = rows.findIndex((row) => row.key === key);
+  return index > 0 ? rows[index - 1]!.key : null;
+}
+
+function previousNameFromValues(
+  rows: Array<{ key: string; val: JsonValue }>,
+  key: string,
+): string | null {
+  const index = rows.findIndex((row) => row.key === key);
+  return index > 0 ? rows[index - 1]!.key : null;
 }
 
 /** Compare two windowed result lists. Used to decide whether a query

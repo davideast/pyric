@@ -29,18 +29,5 @@
     "oracle-run"
   ],
   "registry": "rtdb",
-  "dispositions": [
-    {
-      "id": "database.priority-ordering",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "Firebase's legacy priority ordering system is absent; the sandbox exposes orderByChild/Key/Value only today. Priority ordering is data-modelable as a sort key, so this is revisitable scope rather than a hard sandbox limitation.",
-      "evidenceRefs": ["upstream:firebase/database"],
-      "symbols": [
-        "setPriority",
-        "setWithPriority",
-        "orderByPriority"
-      ]
-    }
-  ]
+  "dispositions": []
 }

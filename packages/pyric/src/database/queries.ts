@@ -78,6 +78,15 @@ export function orderByKey(): QueryConstraint {
   });
 }
 
+/** `orderByPriority()` — order children by their RTDB priority metadata,
+ * with Firebase's key ordering as the tie-breaker. */
+export function orderByPriority(): QueryConstraint {
+  return buildConstraint('orderByPriority', {
+    kind: 'orderBy',
+    spec: { kind: 'priority' },
+  });
+}
+
 /** `orderByValue()` — order children by primitive value. Prod requires
  *  `.indexOn: ".value"` (oracle: `rtdb-modular-orderbyvalue-numeric.json`
  *  threw `Index not defined` against blockingfun); sandbox does NOT
