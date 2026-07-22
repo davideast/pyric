@@ -166,6 +166,20 @@ service firebase.storage {
     expect(result.success).toBe(true);
   });
 
+  test('resolves global calls to global declarations shadowed at service scope', () => {
+    const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { allowed } from './policy';
+function helper() { return true; }
+function globalGate() { return helper(); }
+service firebase.storage {
+  function helper() { return false; }
+  match /b/{bucket}/o { match /{path=**} {
+    allow read: if globalGate() && allowed();
+  } }
+}`, { modules: { './policy': 'export function allowed() { return true; }' } });
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+  });
+
   test('rejects imported function collisions in every source scope', () => {
     const declarations = {
       global: `function policy() { return true; }

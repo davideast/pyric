@@ -395,9 +395,11 @@ export function resolveModulesWith(
     if (visiting.has(fn.name)) return false;
     const next = new Set([...visiting, fn.name]);
     const calls = [...fn.lets.flatMap(({ value }) => collectCalls(value)), ...collectCalls(fn.body)];
-    return calls.some((call) => injectedNames.has(call) ||
-      serviceFunctionNames.has(call) ||
-      globalFunctions.has(call) && globalCallsServiceScope(globalFunctions.get(call)!, next));
+    return calls.some((call) => {
+      const globalFunction = globalFunctions.get(call);
+      if (globalFunction) return globalCallsServiceScope(globalFunction, next);
+      return injectedNames.has(call) || serviceFunctionNames.has(call);
+    });
   };
   const invalidGlobal = [...globalFunctions.values()]
     .find((fn) => globalCallsServiceScope(fn, new Set()));
