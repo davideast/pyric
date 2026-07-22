@@ -12,6 +12,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const STDLIB = join(HERE, '..', '..', '..', 'pyric', 'src', 'rules', 'modules', 'stdlib');
 const STORAGE_STDLIB = join(STDLIB, 'storage');
 const LOCKS = join(HERE, '..', '..', 'probe-source-locks');
+const OBSERVATIONS = join(HERE, '..', '..', 'observations');
 const MODULES = ['uploads', 'metadata', 'objects', 'time'] as const;
 
 function comparable(functions: ReturnType<typeof parseFunctions>) {
@@ -70,5 +71,32 @@ describe('production-probed Storage stdlib source lock', () => {
     expect(comparable(shipped)).toEqual(comparable(captured));
     expect(comparable(firestoreCaptured)).toEqual(comparable(captured));
     assertCapturedAstLock('rules-storage-common-auth-membership', captured);
+  });
+
+  test('common-module metadata names the exact paired oracle rows', () => {
+    for (const moduleName of ['auth', 'membership']) {
+      const source = readFileSync(join(STDLIB, `${moduleName}.rules`), 'utf8');
+      expect(source).toContain(
+        '// @pyric-evidence storage-rules#125,firestore-rules#189',
+      );
+    }
+
+    const storage = JSON.parse(readFileSync(
+      join(OBSERVATIONS, 'storage-rules', 'rules-storage-common-auth-membership.json'),
+      'utf8',
+    )) as { name: string; rowIds: string[] };
+    const firestore = JSON.parse(readFileSync(
+      join(OBSERVATIONS, 'firestore-rules', 'rules-firestore-common-auth-membership-firestore.json'),
+      'utf8',
+    )) as { name: string; rowIds: string[] };
+
+    expect(storage).toMatchObject({
+      name: 'rules-storage-common-auth-membership',
+      rowIds: ['storage-rules#125'],
+    });
+    expect(firestore).toMatchObject({
+      name: 'rules-firestore-common-auth-membership-firestore',
+      rowIds: ['firestore-rules#189'],
+    });
   });
 });

@@ -24,7 +24,7 @@ service's ambient bindings and functions, with unclassified requirements
 failing closed. Three targeted `projects.test` requests captured 39 production
 verdicts for the exact six shared bodies under both Firestore and Storage plus
 the 13 Storage-only function bodies, and the local rules simulators match all
-39. The observations are registered as `firestore-rules#187`,
+39. The observations are registered as `firestore-rules#189`,
 `storage-rules#125`, and `storage-rules#132`.
 
 The first P2 Storage-native and mocked P3 cross-service matrices are now

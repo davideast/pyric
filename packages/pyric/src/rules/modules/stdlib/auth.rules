@@ -1,5 +1,5 @@
 // @pyric-services cloud.firestore,firebase.storage
-// @pyric-evidence storage-rules#125,firestore-rules#187
+// @pyric-evidence storage-rules#125,firestore-rules#189
 export function isAuthenticated() {
   return request.auth != null;
 }

@@ -64,7 +64,7 @@ export function consumedFlag(before, after, flagField) {
 }
 `,
   "auth": `// @pyric-services cloud.firestore,firebase.storage
-// @pyric-evidence storage-rules#125,firestore-rules#187
+// @pyric-evidence storage-rules#125,firestore-rules#189
 export function isAuthenticated() {
   return request.auth != null;
 }
@@ -364,7 +364,7 @@ export function canCancel() {
 }
 `,
   "membership": `// @pyric-services cloud.firestore,firebase.storage
-// @pyric-evidence storage-rules#125,firestore-rules#187
+// @pyric-evidence storage-rules#125,firestore-rules#189
 // Membership module for role-based and claims-based access control.
 //
 // Two access patterns:

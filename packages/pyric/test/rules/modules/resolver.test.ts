@@ -96,7 +96,7 @@ describe('resolveModules', () => {
     if (result.success) {
       expect(result.data.resolved).toContain('function isAuthenticated()');
       expect(result.data.modules).toEqual(['auth']);
-      expect(result.data.evidenceIds).toEqual(['firestore-rules#187']);
+      expect(result.data.evidenceIds).toEqual(['firestore-rules#189']);
     }
   });
 
@@ -105,7 +105,7 @@ describe('resolveModules', () => {
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
     if (result.success) {
       expect(result.data.bundledModules).toEqual(['./stdlib/auth.rules']);
-      expect(result.data.evidenceIds).toEqual(['firestore-rules#187']);
+      expect(result.data.evidenceIds).toEqual(['firestore-rules#189']);
     }
   });
   test('lets an explicit module override the conventional stdlib path alias', () => {

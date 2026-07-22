@@ -27,14 +27,14 @@ export const STDLIB_SERVICE_CONTRACT_MODULES = Object.freeze(
 );
 export const STDLIB_MODULE_EVIDENCE = {
   "atomic": [],
-  "auth": ["storage-rules#125","firestore-rules#187"],
+  "auth": ["storage-rules#125","firestore-rules#189"],
   "content": [],
   "counters": [],
   "geometry": [],
   "joining": [],
   "lifecycle": [],
   "lobby": [],
-  "membership": ["storage-rules#125","firestore-rules#187"],
+  "membership": ["storage-rules#125","firestore-rules#189"],
   "spaces": [],
   "state": [],
   "storage/metadata": ["storage-rules#132"],
