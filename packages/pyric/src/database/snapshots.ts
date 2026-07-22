@@ -2,7 +2,7 @@ import { coerceArrays } from './sandbox/normalize.js';
 import { pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import type { QueryRow } from './sandbox/query.js';
 import type { SandboxLiveTarget, SandboxTarget } from './routing.js';
-import type { DataSnapshot, DatabaseReference } from './database-types.js';
+import type { DataSnapshot, DatabaseReference } from './types.js';
 import { child } from './references.js';
 
 // ─── Snapshot wrappers ───────────────────────────────────────────────
@@ -132,5 +132,4 @@ export function buildSandboxQuerySnap(
     },
   };
 }
-
 

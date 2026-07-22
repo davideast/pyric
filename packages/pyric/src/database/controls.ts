@@ -1,5 +1,5 @@
 import { targetOf } from './routing.js';
-import type { Database, DatabaseReference } from './database-types.js';
+import type { Database, DatabaseReference } from './types.js';
 import { ref } from './references.js';
 
 // ─── Emulator (no-op on sandbox) ─────────────────────────────────────
@@ -107,5 +107,4 @@ export function refFromURL(db: Database, url: string): DatabaseReference {
   }
   return ref(db, path);
 }
-
 

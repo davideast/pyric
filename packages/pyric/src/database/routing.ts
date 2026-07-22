@@ -35,7 +35,7 @@
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import type { RtdbBackend } from './sandbox/backend.js';
 import type { RtdbConnectionLifecycle } from './connection-lifecycle.js';
-import type { Unsubscribe } from './database-types.js';
+import type { Unsubscribe } from './types.js';
 
 // ─── Brand + routing ─────────────────────────────────────────────────
 

@@ -6,8 +6,7 @@
  * package by the Vite/import-map or Node register boundary.
  */
 export { TARGET_SYMBOL } from './routing.js';
-export * from './database-types.js';
-export { QUERY_SYMBOL, type Query, type QueryConstraint } from './query-types.js';
+export * from './types.js';
 export * from './instances.js';
 export * from './references.js';
 export * from './operations.js';

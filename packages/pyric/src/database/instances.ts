@@ -5,7 +5,7 @@ import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-a
 import { getOrCreateBackend } from './sandbox/backend-for.js';
 import { RtdbConnectionLifecycle } from './connection-lifecycle.js';
 import { TARGET_SYMBOL, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
-import type { AppDatabase, Database } from './database-types.js';
+import type { AppDatabase, Database } from './types.js';
 
 // ─── Constructors ────────────────────────────────────────────────────
 
@@ -141,4 +141,3 @@ function isSandbox(
     && 'admin' in o
   );
 }
-

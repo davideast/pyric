@@ -1,6 +1,6 @@
 import type { JsonValue } from './sandbox/data-tree.js';
 import { targetOf } from './routing.js';
-import type { Database } from './database-types.js';
+import type { Database } from './types.js';
 
 // ─── Sandbox-only ops ───────────────────────────────────────────────
 //
@@ -45,4 +45,3 @@ export const sandbox = {
     return target.backend.snapshotState();
   },
 };
-

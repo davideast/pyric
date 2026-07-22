@@ -2,6 +2,13 @@ import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
 import { TARGET_SYMBOL, type Target } from './routing.js';
 import type { JsonValue } from './sandbox/data-tree.js';
+import type { Constraint, QuerySpec } from './sandbox/query.js';
+
+/** Hidden brand on every Query. */
+export const QUERY_SYMBOL: unique symbol = Symbol('pyric/database/query');
+
+/** Hidden brand on every QueryConstraint. */
+export const CONSTRAINT_SYMBOL: unique symbol = Symbol('pyric/database/query-constraint');
 
 // ─── Public types ────────────────────────────────────────────────────
 
@@ -106,5 +113,29 @@ export interface ThenableReference extends DatabaseReference {
 }
 
 export type Unsubscribe = () => void;
+
+/** RTDB query: a reference plus its immutable sandbox constraint spec. */
+export interface Query {
+  readonly ref: DatabaseReference;
+  toString(): string;
+  readonly _spec: QuerySpec;
+  readonly [QUERY_SYMBOL]: true;
+}
+
+/** Opaque constraint produced by the order/filter/limit query functions. */
+export interface QueryConstraint {
+  readonly type:
+    | 'orderByChild'
+    | 'orderByKey'
+    | 'orderByValue'
+    | 'startAt'
+    | 'startAfter'
+    | 'endAt'
+    | 'endBefore'
+    | 'equalTo'
+    | 'limitToFirst'
+    | 'limitToLast';
+  readonly [CONSTRAINT_SYMBOL]: Constraint;
+}
 
 export type { Sandbox, SandboxContext, AuthState, JsonValue };

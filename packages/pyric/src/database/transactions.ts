@@ -1,6 +1,6 @@
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf } from './routing.js';
-import type { DataSnapshot, DatabaseReference } from './database-types.js';
+import type { DataSnapshot, DatabaseReference } from './types.js';
 import { buildSandboxSnapFromRaw } from './snapshots.js';
 
 // ─── Transactions (Tier 4) ───────────────────────────────────────────
@@ -80,5 +80,4 @@ export async function runTransaction<T>(
   const snap = buildSandboxSnapFromRaw(target, r, result.val);
   return { committed: result.committed, snapshot: snap };
 }
-
 

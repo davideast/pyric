@@ -1,6 +1,6 @@
 import { joinPath, pathSegments } from './sandbox/data-tree.js';
 import { tag, targetOf, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
-import type { Database, DatabaseReference } from './database-types.js';
+import type { Database, DatabaseReference } from './types.js';
 
 // ─── Reference constructors ──────────────────────────────────────────
 
@@ -57,5 +57,4 @@ export function buildSandboxRef(
   tag(self as unknown as object, target);
   return self;
 }
-
 

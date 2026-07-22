@@ -26,6 +26,3 @@ export function serverTimestamp(): ServerTimestampSentinel {
 export function increment(delta: number): IncrementSentinel {
   return incrementSentinel(delta);
 }
-
-/** A client-owned queue of writes applied when its Database disconnects. */
-

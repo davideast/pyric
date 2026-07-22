@@ -1,7 +1,7 @@
 import type { JsonValue } from './sandbox/data-tree.js';
 import { applyConstraint, emptySpec, type QuerySpec } from './sandbox/query.js';
-import { buildConstraint, CONSTRAINT_SYMBOL, isQuery, QUERY_SYMBOL, type Query, type QueryConstraint } from './query-types.js';
-import type { DatabaseReference } from './database-types.js';
+import { buildConstraint, isQuery } from './query-shape.js';
+import { CONSTRAINT_SYMBOL, QUERY_SYMBOL, type DatabaseReference, type Query, type QueryConstraint } from './types.js';
 
 // ─── Queries (Tier 3) ────────────────────────────────────────────────
 
@@ -171,5 +171,4 @@ export function limitToLast(n: number): QueryConstraint {
     n,
   });
 }
-
 

@@ -2,8 +2,8 @@ import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf, type Target } from './routing.js';
-import { isQuery, type Query } from './query-types.js';
-import type { DataSnapshot, DatabaseReference, Unsubscribe } from './database-types.js';
+import { isQuery } from './query-shape.js';
+import type { DataSnapshot, DatabaseReference, Query, Unsubscribe } from './types.js';
 import { child } from './references.js';
 import { buildSandboxSnapFromRaw } from './snapshots.js';
 
@@ -324,5 +324,4 @@ export function off(
   }
   cancelSubscriptions(target, r._path, eventType);
 }
-
 

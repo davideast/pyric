@@ -1,5 +1,5 @@
 import { targetOf, type Target } from './routing.js';
-import type { DatabaseReference } from './database-types.js';
+import type { DatabaseReference } from './types.js';
 
 export class OnDisconnect {
   /** @internal Construct through {@link onDisconnect}. */
@@ -37,5 +37,4 @@ export function onDisconnect(r: DatabaseReference): OnDisconnect {
   const target = targetOf(r as unknown as object);
   return new OnDisconnect(target, r._path);
 }
-
 

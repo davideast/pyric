@@ -1,8 +1,8 @@
 import { generatePushId } from './sandbox/push-id.js';
 import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf } from './routing.js';
-import { isQuery, type Query } from './query-types.js';
-import type { DataSnapshot, DatabaseReference, ThenableReference } from './database-types.js';
+import { isQuery } from './query-shape.js';
+import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from './types.js';
 import { buildSandboxRef } from './references.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
@@ -155,5 +155,4 @@ function makeThenable(
 export function pushKey(): string {
   return generatePushId();
 }
-
 

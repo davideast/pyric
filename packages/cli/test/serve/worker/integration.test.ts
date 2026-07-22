@@ -1,13 +1,4 @@
-/**
- * FULL client↔host round-trip (the gate reproduction).
- *
- * host.test.ts drives `handleMessage` directly with hand-built descriptors.
- * This wires the REAL `client.ts` to the REAL `host.ts` over a fake async
- * MessagePort pair (mimicking a real worker port) and a shimmed `SharedWorker`,
- * so the exact browser sequence runs in bun: getFirestore → getAuth →
- * createUser → onSnapshot(query) → addDoc. This is where the gate bug lives
- * (the host alone works; the integration does not).
- */
+/** Full client↔host round trips over a fake asynchronous MessagePort pair. */
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
