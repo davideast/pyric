@@ -6,8 +6,8 @@ import {
   orderByPriority as rtdbOrderByPriority,
   query as buildRtdbQuery,
 } from 'pyric/database';
-import * as client from '../../../src/serve/worker/index.js';
-import { connectClient, sleep } from './integration-support.js';
+import * as client from '../../../../src/serve/worker/index.js';
+import { connectClient, sleep } from '../integration-support.js';
 
 describe('RTDB worker listeners', () => {
   let restoreSW: () => void;

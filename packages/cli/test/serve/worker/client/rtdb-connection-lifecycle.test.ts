@@ -1,14 +1,9 @@
 /** RTDB worker-client disconnect queues and explicit connection lifecycle. */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import {
-  cleanupPortWithDisconnect,
-  handleMessage,
-  type PortLike,
-} from '../../../src/serve/worker/host.js';
-import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
-import * as client from '../../../src/serve/worker/index.js';
-import { disconnectClient } from '../../../src/serve/worker/client/disconnect.js';
-import { makeHostCtx, portPair, sleep } from './integration-support.js';
+import { cleanupPortWithDisconnect } from '../../../../src/serve/worker/host.js';
+import * as client from '../../../../src/serve/worker/index.js';
+import { disconnectClient } from '../../../../src/serve/worker/client/disconnect.js';
+import { connectClientToHost, makeHostCtx, sleep } from '../integration-support.js';
 
 describe('RTDB worker connection lifecycle', () => {
   let restoreSW: () => void;
@@ -21,23 +16,11 @@ describe('RTDB worker connection lifecycle', () => {
 
   it('goOffline drains a writer port onDisconnect queue once while an independent port observes', async () => {
     const ctx = await makeHostCtx();
-    const connectPort = (url: string) => {
-      const { a: clientPort, b: hostPort } = portPair();
-      const hostPortLike: PortLike = {
-        postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
-      };
-      hostPort.onmessage = (event) => {
-        void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
-      };
-      (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
-        port = clientPort;
-        constructor(_url: unknown, _opts: unknown) {}
-      };
-      return { db: client.getFirestore(url), hostPort: hostPortLike };
-    };
-
-    const { db: writerClient, hostPort: writerHostPort } = connectPort('worker://disconnect-writer');
-    const { db: observerClient } = connectPort('worker://disconnect-observer');
+    const { db: writerClient, hostPort: writerHostPort } = connectClientToHost(
+      ctx,
+      'worker://disconnect-writer',
+    );
+    const { db: observerClient } = connectClientToHost(ctx, 'worker://disconnect-observer');
     const writerDb = client.rtdbGetDatabase(writerClient);
     const observerDb = client.rtdbGetDatabase(observerClient);
     const writerRef = client.rtdbRef(writerDb, 'disconnect');
@@ -116,23 +99,8 @@ describe('RTDB worker connection lifecycle', () => {
 
   it('continues disconnect draining after a rules denial and still tears down the writer', async () => {
     const ctx = await makeHostCtx();
-    const connectPort = (url: string) => {
-      const { a: clientPort, b: hostPort } = portPair();
-      const hostPortLike: PortLike = {
-        postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
-      };
-      hostPort.onmessage = (event) => {
-        void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
-      };
-      (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
-        port = clientPort;
-        constructor(_url: unknown, _opts: unknown) {}
-      };
-      return client.getFirestore(url);
-    };
-
-    const writerClient = connectPort('worker://disconnect-rules-writer');
-    const observerClient = connectPort('worker://disconnect-rules-observer');
+    const { db: writerClient } = connectClientToHost(ctx, 'worker://disconnect-rules-writer');
+    const { db: observerClient } = connectClientToHost(ctx, 'worker://disconnect-rules-observer');
     const writerDb = client.rtdbGetDatabase(writerClient);
     const observerDb = client.rtdbGetDatabase(observerClient);
     const target = client.rtdbRef(writerDb, 'rulesTarget');

@@ -1,7 +1,7 @@
 /** RTDB worker-client database handles, references, and path validation. */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import * as client from '../../../src/serve/worker/index.js';
-import { connectClient } from './integration-support.js';
+import * as client from '../../../../src/serve/worker/index.js';
+import { connectClient } from '../integration-support.js';
 
 describe('RTDB worker references', () => {
   let restoreSW: () => void;

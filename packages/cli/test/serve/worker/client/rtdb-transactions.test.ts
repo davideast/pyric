@@ -1,7 +1,7 @@
 /** RTDB worker-client optimistic transactions. */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import * as client from '../../../src/serve/worker/index.js';
-import { connectClient } from './integration-support.js';
+import * as client from '../../../../src/serve/worker/index.js';
+import { connectClient } from '../integration-support.js';
 
 describe('RTDB worker transactions', () => {
   let restoreSW: () => void;

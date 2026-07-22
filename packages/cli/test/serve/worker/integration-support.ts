@@ -64,6 +64,18 @@ export async function connectClient(): Promise<{
   db: ReturnType<typeof client.getFirestore>;
 }> {
   const ctx = await makeHostCtx();
+  const { db } = connectClientToHost(ctx, 'worker://test');
+  return { ctx, db };
+}
+
+/** Attach one independent client/port to an existing host context. */
+export function connectClientToHost(
+  ctx: HostCtx,
+  url: string,
+): {
+  db: ReturnType<typeof client.getFirestore>;
+  hostPort: PortLike;
+} {
   const { a: clientPort, b: hostPort } = portPair();
   const hostPortLike: PortLike = {
     postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
@@ -75,7 +87,7 @@ export async function connectClient(): Promise<{
     port = clientPort;
     constructor(_url: unknown, _opts: unknown) {}
   };
-  return { ctx, db: client.getFirestore('worker://test') };
+  return { db: client.getFirestore(url), hostPort: hostPortLike };
 }
 
 export const sleep = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
