@@ -43,10 +43,6 @@ const STORAGE_METHODS = new Set<string>(GENERATED_STORAGE_METHODS);
 const STORAGE_NAMESPACES: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
   Object.entries(STORAGE_NAMESPACE_METHODS).map(([namespace, methods]) => [namespace, new Set(methods)]),
 );
-const SERVICE_SCOPE_IDENTIFIERS: Readonly<Record<RulesServiceName, ReadonlySet<string>>> = {
-  'cloud.firestore': new Set(['database']),
-  'firebase.storage': new Set(['bucket']),
-};
 type AmbientProvenance = string[] | 'unknown-ambient' | null;
 type InferredReceiverType = RulesReceiverType | 'mixed';
 
@@ -263,14 +259,15 @@ function expressionReceiverType(
         if (ctx.service === 'firebase.storage' && Array.isArray(objectPath) &&
             (objectPath.join('.') === 'request.resource.metadata' ||
              objectPath.join('.') === 'resource.metadata')) return 'string';
+        const fallback = expression.args[1];
         if (expression.object.type === 'mapLiteral' && expression.args[0]?.type === 'literal') {
           const keyValue = expression.args[0].value;
           const entry = expression.object.entries.find(({ key }) =>
             key.type === 'literal' && key.value === keyValue);
           if (entry) return expressionReceiverType(entry.value, ctx);
+          return fallback ? expressionReceiverType(fallback, ctx) : null;
         }
-        const fallback = expression.args[1];
-        return fallback ? expressionReceiverType(fallback, ctx) : null;
+        return fallback && expressionReceiverType(fallback, ctx) ? 'mixed' : null;
       }
       return methodReturnType(expression);
     }
@@ -475,8 +472,7 @@ function serviceIncompatibility(
         return null;
       case 'literal': return null;
       case 'identifier':
-        if (e.name === 'request' || e.name === 'resource' || ctx.aliases.has(e.name) ||
-            SERVICE_SCOPE_IDENTIFIERS[service].has(e.name)) {
+        if (e.name === 'request' || e.name === 'resource' || ctx.aliases.has(e.name)) {
           return null;
         }
         return `identifier '${e.name}'`;

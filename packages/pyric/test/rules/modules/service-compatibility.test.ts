@@ -378,8 +378,8 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     ['firestore', "mystery.get('x') != null", false, "namespace 'mystery'"],
     ['storage', 'mystery', false, "identifier 'mystery'"],
     ['storage', 'mystery.value', false, "identifier 'mystery'"],
-    ['storage', "bucket != ''", true, ''],
-    ['firestore', "database != ''", true, ''],
+    ['storage', "bucket != ''", false, "identifier 'bucket'"],
+    ['firestore', "database != ''", false, "identifier 'database'"],
   ])('checks caller-module identifiers: %s %s', (service, expression, success, issue) => {
     const imports = "import { probe } from './policy';";
     const source = service === 'storage' ? makeStorageSource(imports, 'probe() != null') : makeSource(imports);
@@ -533,6 +533,20 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
             }
           `,
         },
+      },
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+  });
+  test('rejects Map.get fallbacks that hide incompatible retrieved values', () => {
+    const result = resolveModules(
+      makeStorageSource("import { broken } from './policy';", "broken({'x': 'owner'})"),
+      {
+        modules: { './policy': `
+          export function broken(value) {
+            return value.get('x', {}).keys().hasAll(['owner']);
+          }
+        ` },
       },
     );
     expect(result.success).toBe(false);

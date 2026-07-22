@@ -427,7 +427,7 @@ describe('export filtering', () => {
 
   test('exported function calling non-exported helper includes prefixed helper as transitive dep', () => {
     const userModule = `
-      function checkDoc(uid) { return get(/databases/$(database)/documents/admins/$(uid)).data.active == true; }
+      function checkDoc(uid) { return get(/databases/(default)/documents/admins/$(uid)).data.active == true; }
       export function isAdmin() { return isAuthenticated() && checkDoc(request.auth.uid); }
     `;
     const result = resolveModules(
@@ -500,7 +500,7 @@ describe('user modules via options', () => {
     `;
     const adminMod = `
       function isAuthenticated() { return request.auth != null; }
-      export function isAdmin() { return isAuthenticated() && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true; }
+      export function isAdmin() { return isAuthenticated() && get(/databases/(default)/documents/admins/$(request.auth.uid)).data.active == true; }
     `;
     const result = resolveModules(
       makeSource("import { isOwner } from './auth';\nimport { isAdmin } from './admin';"),
