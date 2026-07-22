@@ -17,7 +17,7 @@ import {
   STORAGE_PROBE_LIMITS,
   runCleanupSteps,
 } from './storage-stdlib-real-budget.ts';
-import { canonicalPolicy, type IamPolicy } from './storage-stdlib-real-iam.ts';
+import { restoreIamPolicy, type IamPolicy } from './storage-stdlib-real-iam.ts';
 import {
   deleteStorageObjects,
   storageDecision,
@@ -134,53 +134,29 @@ async function withTemporaryIam<T>(
       }
       binding.members.push(member);
       budget.take('iam');
+      // Cleanup must run even if the policy commits but the client observes a
+      // transport failure before receiving the response.
+      iamChanged = true;
       await jsonRequest<IamPolicy>(
         `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
         { method: 'POST', headers: headers.json, body: JSON.stringify({ policy: next }) },
         'grant temporary cross-service IAM role',
       );
-      iamChanged = true;
       await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
     }
     value = await work(iamChanged);
   } finally {
     if (iamChanged) {
-      cleanupBudget.take('iam');
-      const current = await jsonRequest<IamPolicy>(
+      iamRestored = await restoreIamPolicy(
         policyUrl,
-        { method: 'POST', headers: headers.json, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
-        'read IAM policy before restore',
+        original,
+        headers,
+        async (url, init, label) => {
+          cleanupBudget.take('iam');
+          return jsonRequest<IamPolicy>(url, init, label);
+        },
+        async () => { await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS)); },
       );
-      if (canonicalPolicy(current) !== canonicalPolicy(original)) {
-        cleanupBudget.take('iam');
-        await jsonRequest<IamPolicy>(
-          `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
-          { method: 'POST', headers: headers.json, body: JSON.stringify({ policy: { ...original, etag: current.etag } }) },
-          'restore original IAM policy',
-        );
-      }
-      await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
-      cleanupBudget.take('iam');
-      let finalPolicy = await jsonRequest<IamPolicy>(
-        policyUrl,
-        { method: 'POST', headers: headers.json, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
-        'verify settled IAM restoration',
-      );
-      if (canonicalPolicy(finalPolicy) !== canonicalPolicy(original)) {
-        cleanupBudget.take('iam', 2);
-        await jsonRequest<IamPolicy>(
-          `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
-          { method: 'POST', headers: headers.json, body: JSON.stringify({ policy: { ...original, etag: finalPolicy.etag } }) },
-          'repeat IAM restoration after propagation drift',
-        );
-        await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
-        finalPolicy = await jsonRequest<IamPolicy>(
-          policyUrl,
-          { method: 'POST', headers: headers.json, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
-          'verify repeated IAM restoration',
-        );
-      }
-      iamRestored = canonicalPolicy(finalPolicy) === canonicalPolicy(original);
     }
   }
   if (!iamRestored) throw new Error('IAM restoration verification failed');

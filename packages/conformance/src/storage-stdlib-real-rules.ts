@@ -109,24 +109,52 @@ export async function restoreStorageRelease(
   headers: AccessHeaders,
   budget: RequestBudget,
   snapshot: Awaited<ReturnType<typeof storageRulesSnapshot>>,
+  request: ReleaseRequest = (url, init, label) => jsonRequest<Release>(url, init, label),
 ): Promise<boolean> {
-  budget.take('rules', 2);
-  await jsonRequest(
+  return restoreRulesRelease(
+    headers,
+    budget,
     snapshot.releaseUrl,
-    {
-      method: 'PATCH',
-      headers: headers.json,
-      body: JSON.stringify({ release: {
-        name: snapshot.releaseName,
-        rulesetName: snapshot.release.rulesetName,
-      } }),
-    },
-    'restore original Storage release',
+    snapshot.releaseName,
+    snapshot.release.rulesetName,
+    request,
   );
-  const restored = await jsonRequest<Release>(
-    snapshot.releaseUrl,
-    { headers: headers.auth },
-    'verify original Storage release',
-  );
-  return restored.rulesetName === snapshot.release.rulesetName;
+}
+
+type ReleaseRequest = (url: string, init: RequestInit, label: string) => Promise<Release>;
+
+export async function restoreRulesRelease(
+  headers: AccessHeaders,
+  budget: RequestBudget,
+  releaseUrl: string,
+  releaseName: string,
+  rulesetName: string,
+  request: ReleaseRequest = (url, init, label) => jsonRequest<Release>(url, init, label),
+  attempts = 2,
+): Promise<boolean> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    budget.take('rules', 2);
+    try {
+      await request(
+        releaseUrl,
+        {
+          method: 'PATCH',
+          headers: headers.json,
+          body: JSON.stringify({ release: { name: releaseName, rulesetName } }),
+        },
+        'restore original Rules release',
+      );
+      const restored = await request(
+        releaseUrl,
+        { headers: headers.auth },
+        'verify original Rules release',
+      );
+      if (restored.rulesetName === rulesetName) return true;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError) throw new Error('Rules restoration failed after bounded retries', { cause: lastError });
+  return false;
 }

@@ -32,7 +32,7 @@ import {
   storageProbeRequestKind,
 } from './storage-stdlib-real-budget.ts';
 import {
-  canonicalPolicy,
+  restoreIamPolicy,
   type IamPolicy,
 } from './storage-stdlib-real-iam.ts';
 import { acquireRunLock } from './storage-stdlib-real-lock.ts';
@@ -40,6 +40,7 @@ import {
   deleteStorageObjects,
 } from './storage-stdlib-real-objects.ts';
 import {
+  restoreRulesRelease,
   type Release,
   type Ruleset,
 } from './storage-stdlib-real-rules.ts';
@@ -434,25 +435,27 @@ async function run(): Promise<void> {
         label: 'restore Firestore release',
         run: async () => {
           if (!originalFirestore) return;
-          await cleanupJson(
+          firestoreReleaseRestored = await restoreRulesRelease(
+            { auth: authHeaders, json: jsonHeaders },
+            cleanupBudget,
             firestoreReleaseUrl,
-            { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: firestoreReleaseName, rulesetName: originalFirestore.rulesetName } }) },
-            'restore original Firestore release',
+            firestoreReleaseName,
+            originalFirestore.rulesetName,
+            (url, init, label) => rawJson<Release>(url, init, label),
           );
-          const restored = await cleanupJson<Release>(firestoreReleaseUrl, { headers: authHeaders }, 'verify restored Firestore release');
-          firestoreReleaseRestored = restored.rulesetName === originalFirestore.rulesetName;
         },
       },
       {
         label: 'restore Storage release',
         run: async () => {
-          await cleanupJson(
+          releaseRestored = await restoreRulesRelease(
+            { auth: authHeaders, json: jsonHeaders },
+            cleanupBudget,
             releaseUrl,
-            { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: releaseName, rulesetName: original.rulesetName } }) },
-            'restore original Storage release',
+            releaseName,
+            original.rulesetName,
+            (url, init, label) => rawJson<Release>(url, init, label),
           );
-          const restored = await cleanupJson<Release>(releaseUrl, { headers: authHeaders }, 'verify restored Storage release');
-          releaseRestored = restored.rulesetName === original.rulesetName;
         },
       },
       {
@@ -522,40 +525,13 @@ async function run(): Promise<void> {
   } finally {
     if (temporaryIam && originalIam && iamGrantAttempted) {
       const policyUrl = `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`;
-      const currentPolicy = await cleanupJson<IamPolicy>(
+      iamRestored = await restoreIamPolicy(
         policyUrl,
-        { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
-        'read IAM policy before restore',
+        originalIam,
+        { auth: authHeaders, json: jsonHeaders },
+        (url, init, label) => cleanupJson<IamPolicy>(url, init, label),
+        async () => { await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS)); },
       );
-      if (canonicalPolicy(currentPolicy) !== canonicalPolicy(originalIam)) {
-        const restore = { ...originalIam, etag: currentPolicy.etag };
-        await cleanupJson<IamPolicy>(
-          `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
-          { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ policy: restore }) },
-          'restore original IAM policy',
-        );
-      }
-      await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
-      let finalPolicy = await cleanupJson<IamPolicy>(
-        `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`,
-        { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
-        'verify settled IAM policy restoration',
-      );
-      if (canonicalPolicy(finalPolicy) !== canonicalPolicy(originalIam)) {
-        const restore = { ...originalIam, etag: finalPolicy.etag };
-        await cleanupJson<IamPolicy>(
-          `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
-          { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ policy: restore }) },
-          'repeat original IAM policy restoration after propagation drift',
-        );
-        await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
-        finalPolicy = await cleanupJson<IamPolicy>(
-          `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`,
-          { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
-          'verify repeated IAM policy restoration',
-        );
-      }
-      iamRestored = canonicalPolicy(finalPolicy) === canonicalPolicy(originalIam);
     } else if (temporaryIam) {
       iamRestored = true;
     }

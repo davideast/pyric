@@ -10,8 +10,8 @@ export const STORAGE_PROBE_LIMITS = {
 export const STORAGE_CLEANUP_LIMITS = {
   storage: 20,
   firestoreWrite: 12,
-  rules: 4,
-  iam: 5,
+  rules: 8,
+  iam: 6,
 } as const;
 
 export type BudgetKind = 'storage' | 'firestoreWrite' | 'rules' | 'iam';

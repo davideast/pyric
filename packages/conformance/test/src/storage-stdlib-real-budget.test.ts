@@ -29,10 +29,10 @@ describe('storage stdlib real request safety', () => {
   test('reserves and classifies every cross-service cleanup request', () => {
     const cleanup = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
     cleanup.take('firestoreWrite', 12);
-    cleanup.take('rules', 4);
-    cleanup.take('iam', 5);
+    cleanup.take('rules', 8);
+    cleanup.take('iam', 6);
     expect(cleanup.snapshot().counts).toEqual({
-      storage: 0, firestoreWrite: 12, rules: 4, iam: 5,
+      storage: 0, firestoreWrite: 12, rules: 8, iam: 6,
     });
     expect(storageProbeRequestKind('https://storage.googleapis.com/storage/v1/b/x')).toBe('storage');
     expect(storageProbeRequestKind('https://firestore.googleapis.com/v1/projects/x')).toBe('firestoreWrite');
