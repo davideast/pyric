@@ -1,7 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { resolveModules } from '../../../src/rules/modules/resolver.js';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
-
 const makeSource = (imports: string, body: string = '') => `${imports}
 rules_version = '2+modules';
 service cloud.firestore {
@@ -10,7 +9,6 @@ service cloud.firestore {
     ${body}
   }
 }`;
-
 const makeStorageSource = (imports: string, condition: string) => `rules_version = '2+modules';
 ${imports}
 service firebase.storage {
@@ -18,7 +16,6 @@ service firebase.storage {
     match /{path=**} { allow read, write: if ${condition}; }
   }
 }`;
-
 describe('service-aware module compatibility', () => {
   test('admits every production-probed common auth and membership export in Storage', () => {
     const result = resolveModules(makeStorageSource(
@@ -26,7 +23,6 @@ describe('service-aware module compatibility', () => {
 import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       "isAuthenticated() && isOwner(request.auth.uid) && hasClaim('plan') && hasClaimRole('role', 'editor') && isMemberOf(request.auth.token.members) && hasRole(request.auth.token.members, 'editor')",
     ));
-
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.modules).toEqual(['auth', 'membership']);
@@ -44,13 +40,11 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       ]);
     }
   });
-
   test('rejects a Firestore-only stdlib export in Storage before emitting source', () => {
     const result = resolveModules(makeStorageSource(
       "import { immutableFields } from 'lifecycle';",
       "immutableFields(['owner'])",
     ));
-
     expect(result).toEqual({
       success: false,
       error: {
@@ -59,7 +53,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       },
     });
   });
-
   test('rejects an incompatible transitive private helper from a caller module', () => {
     const result = resolveModules(
       makeStorageSource("import { allowed } from './policy';", 'allowed()'),
@@ -76,7 +69,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         },
       },
     );
-
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
@@ -85,7 +77,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.error.message).toContain("service 'firebase.storage'");
     }
   });
-
   test('rejects Storage-only ambient object fields from a Firestore caller module', () => {
     const result = resolveModules(
       makeSource("import { uploadIsSmall } from './policy';"),
@@ -99,7 +90,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         },
       },
     );
-
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
@@ -107,7 +97,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.error.message).toContain("service 'cloud.firestore'");
     }
   });
-
   test('does not treat Firestore Resource bindings as maps', () => {
     for (const binding of ['request.resource', 'resource']) {
       const result = resolveModules(
@@ -120,7 +109,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
     }
   });
-
   test('fails closed on an unclassified Storage ambient object field', () => {
     const result = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
@@ -134,7 +122,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         },
       },
     );
-
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
@@ -142,7 +129,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.error.message).toContain("service 'firebase.storage'");
     }
   });
-
   test('rejects Storage bindings that production exposes but the evaluator does not implement', () => {
     for (const expression of [
       'request.resource.name',
@@ -158,12 +144,10 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
           }
         ` } },
       );
-
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error.message).toContain(`binding '${expression}'`);
     }
   });
-
   test('does not let literal bracket notation bypass ambient binding checks', () => {
     const storage = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
@@ -181,13 +165,11 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(storage.success).toBe(false);
     expect(firestore.success).toBe(false);
     if (!storage.success) expect(storage.error.message).toContain("binding 'request.resource.md5Hash'");
     if (!firestore.success) expect(firestore.error.message).toContain("binding 'request.resource.size'");
   });
-
   test('fails closed on dynamic access to a closed ambient object', () => {
     const result = resolveModules(
       makeStorageSource("import { readsResource } from './policy';", "readsResource('size')"),
@@ -197,11 +179,9 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.message).toContain("binding 'request.resource[...]'");
   });
-
   test('does not let collection operations bypass closed Storage object fields', () => {
     for (const expression of [
       "request.resource.get('md5Hash', null) != null",
@@ -216,11 +196,9 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
           }
         ` } },
       );
-
       expect(result.success, expression).toBe(false);
     }
   });
-
   test('does not let aliases or composite receivers launder closed collection access', () => {
     for (const expression of [
       "incoming.get('md5Hash', null) != null",
@@ -236,11 +214,9 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
           }
         ` } },
       );
-
       expect(result.success, expression).toBe(false);
     }
   });
-
   test('admits map collection operations on open Storage metadata', () => {
     const result = resolveModules(
       makeStorageSource("import { readsMetadata } from './policy';", 'readsMetadata()'),
@@ -254,7 +230,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     );
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
-
   test('rejects accepted method names on incompatible ambient receiver types', () => {
     for (const expression of [
       "request.resource.metadata.matches('x')",
@@ -270,7 +245,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       if (!result.success) expect(result.error.message).toContain('receiver');
     }
   });
-
   test('does not let composite receivers launder method receiver types', () => {
     for (const expression of [
       "(request.resource.metadata || {}).matches('x')",
@@ -284,7 +258,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.success, expression).toBe(false);
     }
   });
-
   test('rejects invalid literal and namespace-result method receivers', () => {
     for (const expression of [
       "[1].matches('x')",
@@ -304,7 +277,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.success, expression).toBe(false);
     }
   });
-
   test('rejects invalid projected and source-passed method receivers', () => {
     const cases = [
       { parameter: '', call: 'broken()', expression: '[1][0].keys().hasAll([])' },
@@ -319,7 +291,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.success, expression).toBe(false);
     }
   });
-
   test('preserves valid receiver types through lets and helper returns', () => {
     const result = resolveModules(
       makeStorageSource("import { valid } from './policy';", 'valid()'),
@@ -333,10 +304,8 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
-
   test('admits accepted string methods on known Storage string bindings', () => {
     const result = resolveModules(
       makeStorageSource("import { valid } from './policy';", 'valid()'),
@@ -348,10 +317,8 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
-
   test('does not let a local alias launder an incompatible ambient binding', () => {
     const storage = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
@@ -371,11 +338,9 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(storage.success).toBe(false);
     expect(firestore.success).toBe(false);
   });
-
   test('does not let an identity helper launder an incompatible ambient binding', () => {
     const result = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
@@ -386,10 +351,8 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success).toBe(false);
   });
-
   test('does not let composite expressions launder incompatible ambient bindings', () => {
     const expressions = [
       '(request.resource || {}).md5Hash',
@@ -397,7 +360,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       "{'incoming': request.resource}.incoming.md5Hash",
       '[request.resource][0:1][0].md5Hash',
     ];
-
     for (const expression of expressions) {
       const result = resolveModules(
         makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
@@ -407,12 +369,10 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
           }
         ` } },
       );
-
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error.message).toContain('<derived ambient value>');
     }
   });
-
   test.each([
     ['storage', "mystery.get('x') != null", false, "namespace 'mystery'"],
     ['firestore', "mystery.get('x') != null", false, "namespace 'mystery'"],
@@ -429,7 +389,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     expect(result.success).toBe(success);
     if (!result.success) expect(result.error.message).toContain(issue);
   });
-
   test('propagates ambient provenance into helper parameters', () => {
     const result = resolveModules(
       makeStorageSource("import { hasDigest } from './policy';", 'hasDigest()'),
@@ -440,10 +399,8 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success).toBe(false);
   });
-
   test('finds transitive private calls hidden in slices and rewrites them', () => {
     const result = resolveModules(
       makeStorageSource("import { allowed } from './policy';", 'allowed()'),
@@ -456,14 +413,12 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.message).toContain('policy__firestoreOwners');
       expect(result.error.message).toContain("binding 'resource.data.owner'");
     }
   });
-
   test('finds transitive private calls hidden in interpolated paths', () => {
     const result = resolveModules(
       makeStorageSource("import { allowed } from './policy';", 'allowed()'),
@@ -476,14 +431,12 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.message).toContain('policy__firestoreOwner');
       expect(result.error.message).toContain("binding 'resource.data.owner'");
     }
   });
-
   test('admits production-known Firestore methods and namespaces in caller modules', () => {
     const result = resolveModules(
       makeSource(
@@ -499,10 +452,8 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success).toBe(true);
   });
-
   test('admits production-valid getAfter in a Firestore caller module despite local divergence', () => {
     const result = resolveModules(
       makeSource("import { after } from './policy';", 'function usesAfter() { return after(); }'),
@@ -512,10 +463,8 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
-
   test('does not taint Storage firestore.get results with ambient path interpolation', () => {
     const result = resolveModules(
       makeStorageSource("import { allowed } from './policy';", 'allowed()'),
@@ -531,10 +480,8 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         }
       ` } },
     );
-
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
-
   test('does not allow namespace or path receivers to be laundered through modules', () => {
     const cases = [
       { call: 'broken()', module: `
@@ -558,8 +505,53 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         makeStorageSource("import { broken } from './policy';", candidate.call),
         { modules: { './policy': candidate.module } },
       );
-
       expect(result.success, candidate.module).toBe(false);
     }
+  });
+  test('enforces receiver types on Storage firestore lookup results', () => {
+    for (const expression of [
+      "firestore.get(/databases/(default)/documents/users/a).data.matches('x')",
+      'firestore.exists(/databases/(default)/documents/users/a).keys().hasAll([])',
+      "firestore.get(/databases/(default)/documents/users/a).data.split('x').size() > 0",
+    ]) {
+      const result = resolveModules(
+        makeStorageSource("import { broken } from './policy';", 'broken()'),
+        { modules: { './policy': `export function broken() { return ${expression}; }` } },
+      );
+      expect(result.success, expression).toBe(false);
+    }
+  });
+  test('enforces receiver types on direct Firestore lookup results and propagated values', () => {
+    const modules = [
+      `export function broken() { return get(/databases/$(database)/documents/users/a).data.matches('x'); }`,
+      `export function broken() { return exists(/databases/$(database)/documents/users/a).keys().hasAll([]); }`,
+      `export function broken() { return getAfter(/databases/$(database)/documents/users/a).data.split('x').size() > 0; }`,
+      `function loaded() { return get(/databases/$(database)/documents/users/a); }
+       export function broken() { let document = loaded(); return document.data.matches('x'); }`,
+      `function misuse(value) { return value.keys().hasAll([]); }
+       export function broken() { return misuse(exists(/databases/$(database)/documents/users/a)); }`,
+    ];
+    for (const source of modules) {
+      const result = resolveModules(makeSource("import { broken } from './policy';"), {
+        modules: { './policy': source },
+      });
+      expect(result.success, source).toBe(false);
+    }
+  });
+  test('admits accepted path.bind and rejects production-rejected namespaces', () => {
+    const bind = resolveModules(
+      makeSource("import { bindPath } from './policy';"),
+      { modules: { './policy': 'export function bindPath(path) { return path.bind({}); }' } },
+    );
+    const rejected = resolveModules(
+      makeSource("import { invalidMath } from './policy';"),
+      { modules: { './policy': `
+        export function invalidMath() {
+          return math.isInfinite(1.0) || cast.bool(1);
+        }
+      ` } },
+    );
+    expect(bind.success).toBe(true);
+    expect(rejected.success).toBe(false);
   });
 });

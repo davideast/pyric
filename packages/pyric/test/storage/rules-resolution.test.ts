@@ -3,7 +3,18 @@ import { createStorageRulesResolution } from '../../src/storage/rules-resolution
 import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
 
 function resolutionFor(source: string, modules: readonly string[] = []) {
-  return createStorageRulesResolution(source, modules, modules, parseStorageRules(source));
+  const evidenceIds = modules.flatMap((moduleName) => {
+    if (moduleName.includes('/auth.rules')) return ['storage-rules#125'];
+    if (moduleName.includes('/storage/uploads.rules')) return ['storage-rules#132'];
+    return [];
+  });
+  return createStorageRulesResolution(
+    source,
+    modules,
+    modules,
+    evidenceIds,
+    parseStorageRules(source),
+  );
 }
 
 describe('Storage rules resolution evidence', () => {
@@ -51,6 +62,7 @@ service firebase.storage {
     const resolution = createStorageRulesResolution(
       source,
       ['auth'],
+      [],
       [],
       parseStorageRules(source),
     );

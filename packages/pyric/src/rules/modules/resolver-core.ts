@@ -9,6 +9,7 @@ import { parseToASTOrError, parseFunctions } from '../grammar/FirestoreParser.js
 import { assembleRules } from '../grammar/FirestoreAssembler.js';
 import type { FunctionDef, Expression } from '../grammar/FirestoreAST.js';
 import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
+import { STDLIB_MODULE_EVIDENCE } from './stdlib-services.generated.js';
 import {
   incompatibleFunction,
   incompatibleStdlibExport,
@@ -50,7 +51,12 @@ export interface ModuleFileReader {
 }
 
 export type ResolveResult =
-  | { success: true; data: { resolved: string; modules: string[]; bundledModules: string[] } }
+  | { success: true; data: {
+    resolved: string;
+    modules: string[];
+    bundledModules: string[];
+    evidenceIds: string[];
+  } }
   | { success: false; error: { code: string; message: string } };
 
 export interface ResolveOptions {
@@ -212,7 +218,12 @@ export function resolveModulesWith(
 
   if (ast.imports.length === 0) {
     ast.version = '2';
-    return { success: true, data: { resolved: assembleRules(ast), modules: [], bundledModules: [] } };
+    return { success: true, data: {
+      resolved: assembleRules(ast),
+      modules: [],
+      bundledModules: [],
+      evidenceIds: [],
+    } };
   }
 
   const emptyImport = ast.imports.find((imp) => imp.functions.length === 0);
@@ -500,8 +511,27 @@ export function resolveModulesWith(
   ast.version = '2';
   ast.imports = [];
 
+  const evidenceIds = new Set<string>();
+  const evidencePrefix = ast.service.name === 'firebase.storage'
+    ? 'storage-rules#'
+    : 'firestore-rules#';
+  for (const moduleName of bundledModulesUsed) {
+    const key = conventionalStdlibKey(moduleName) ?? moduleName;
+    const moduleEvidence = STDLIB_MODULE_EVIDENCE[
+      key as keyof typeof STDLIB_MODULE_EVIDENCE
+    ] ?? [];
+    for (const evidenceId of moduleEvidence) {
+      if (evidenceId.startsWith(evidencePrefix)) evidenceIds.add(evidenceId);
+    }
+  }
+
   return {
     success: true,
-    data: { resolved: assembleRules(ast), modules: modulesUsed, bundledModules: bundledModulesUsed },
+    data: {
+      resolved: assembleRules(ast),
+      modules: modulesUsed,
+      bundledModules: bundledModulesUsed,
+      evidenceIds: [...evidenceIds].sort(),
+    },
   };
 }

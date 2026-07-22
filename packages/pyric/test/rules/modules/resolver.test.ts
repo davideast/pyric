@@ -1,9 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { resolveModules, loadModule } from '../../../src/rules/modules/resolver.js';
 import { parseFunctions, parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
-
 // ---- Increment 3: Module loader + parseFunctions ----
-
 describe('parseFunctions', () => {
   test('extracts functions from bare function text', () => {
     const fns = parseFunctions(`
@@ -15,12 +13,10 @@ describe('parseFunctions', () => {
     expect(fns!).toHaveLength(1);
     expect(fns![0].name).toBe('isAuthenticated');
   });
-
   test('returns null on invalid syntax', () => {
     const fns = parseFunctions('this is not valid');
     expect(fns).toBeNull();
   });
-
   test('extracts multiple functions', () => {
     const fns = parseFunctions(`
       function a() { return true; }
@@ -30,7 +26,6 @@ describe('parseFunctions', () => {
     expect(fns![0].name).toBe('a');
     expect(fns![1].name).toBe('b');
   });
-
   test('preserves let bindings', () => {
     const fns = parseFunctions(`
       function check(uid) {
@@ -44,7 +39,6 @@ describe('parseFunctions', () => {
     expect(fns![0].lets[1].name).toBe('role');
   });
 });
-
 describe('loadModule', () => {
   test('loads auth module', () => {
     const result = loadModule('auth');
@@ -80,7 +74,6 @@ describe('loadModule', () => {
     }
   });
 });
-
 // ---- Increment 4: Resolver ----
 
 const makeSource = (imports: string, body: string = '') => `${imports}
@@ -91,7 +84,6 @@ service cloud.firestore {
     ${body}
   }
 }`;
-
 const makeStorageSource = (imports: string, condition: string) => `rules_version = '2+modules';
 ${imports}
 service firebase.storage {
@@ -107,13 +99,17 @@ describe('resolveModules', () => {
     if (result.success) {
       expect(result.data.resolved).toContain('function isAuthenticated()');
       expect(result.data.modules).toEqual(['auth']);
+      expect(result.data.evidenceIds).toEqual(['firestore-rules#187']);
     }
   });
 
   test('resolves the conventional stdlib path alias', () => {
     const result = resolveModules(makeSource("import { isAuthenticated } from './stdlib/auth.rules';"));
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
-    if (result.success) expect(result.data.bundledModules).toEqual(['./stdlib/auth.rules']);
+    if (result.success) {
+      expect(result.data.bundledModules).toEqual(['./stdlib/auth.rules']);
+      expect(result.data.evidenceIds).toEqual(['firestore-rules#187']);
+    }
   });
   test('lets an explicit module override the conventional stdlib path alias', () => {
     const result = resolveModules(
@@ -121,7 +117,10 @@ describe('resolveModules', () => {
       { modules: { './stdlib/auth.rules': 'export function callerPolicy() { return true; }' } },
     );
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
-    if (result.success) expect(result.data.bundledModules).toEqual([]);
+    if (result.success) {
+      expect(result.data.bundledModules).toEqual([]);
+      expect(result.data.evidenceIds).toEqual([]);
+    }
   });
   test('resolves multiple modules', () => {
     const result = resolveModules(makeSource(

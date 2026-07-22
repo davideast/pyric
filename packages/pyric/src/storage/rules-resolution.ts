@@ -1,5 +1,4 @@
 import type { Expr, MatchBlock, StorageRules } from './sandbox/rules.js';
-import { STDLIB_MODULE_EVIDENCE } from '../rules/modules/stdlib-services.generated.js';
 
 export interface StorageRulesResolution {
   readonly targetService: 'firebase.storage';
@@ -76,25 +75,16 @@ function matchUsesFirestoreLookup(
   return match.children.some((child) => matchUsesFirestoreLookup(child, matchScope));
 }
 
-function canonicalModuleName(name: string): string {
-  return /^\.\/stdlib\/(.+)\.rules$/.exec(name)?.[1] ?? name;
-}
-
 export function createStorageRulesResolution(
   source: string,
   modules: readonly string[],
   bundledModules: readonly string[],
+  moduleEvidenceIds: readonly string[],
   rules: StorageRules,
 ): StorageRulesResolution {
   const evidenceIds = new Set<string>();
-  const canonicalModules = bundledModules.map(canonicalModuleName);
-  for (const moduleName of canonicalModules) {
-    const moduleEvidence = STDLIB_MODULE_EVIDENCE[
-      moduleName as keyof typeof STDLIB_MODULE_EVIDENCE
-    ] ?? [];
-    for (const evidenceId of moduleEvidence) {
-      if (evidenceId.startsWith('storage-rules#')) evidenceIds.add(evidenceId);
-    }
+  for (const evidenceId of moduleEvidenceIds) {
+    if (evidenceId.startsWith('storage-rules#')) evidenceIds.add(evidenceId);
   }
   if (matchUsesFirestoreLookup(rules._root)) evidenceIds.add('storage-rules#131');
   return Object.freeze({
