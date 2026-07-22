@@ -62,6 +62,7 @@ import {
   query,
   orderByChild,
   orderByKey,
+  orderByPriority,
   orderByValue,
   startAt,
   startAfter,
@@ -217,6 +218,32 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
         (obs.queryConstraint as Record<string, unknown>).prototypeKeys,
       );
+      const factories = {
+        orderByChild: orderByChild('value'),
+        orderByKey: orderByKey(),
+        orderByPriority: orderByPriority(),
+        orderByValue: orderByValue(),
+        startAt: startAt(1),
+        startAfter: startAfter(1),
+        endAt: endAt(1),
+        endBefore: endBefore(1),
+        equalTo: equalTo(1),
+        limitToFirst: limitToFirst(1),
+        limitToLast: limitToLast(1),
+      };
+      const observedFactories = obs.constraintFactories as Record<string, Record<string, unknown>>;
+      for (const [name, factoryConstraint] of Object.entries(factories)) {
+        const observed = observedFactories[name]!;
+        expect({
+          constructorName: factoryConstraint.constructor.name,
+          instanceOf: factoryConstraint instanceof (constructor as new () => object),
+          prototypeIsExportPrototype:
+            Object.getPrototypeOf(factoryConstraint) === (constructor as Function).prototype,
+          prototypeKeys: Object.getOwnPropertyNames(
+            Object.getPrototypeOf(factoryConstraint) as object,
+          ).sort(),
+        }).toEqual(observed);
+      }
       const direct = new (constructor as new () => object)();
       expect({
         threw: false,

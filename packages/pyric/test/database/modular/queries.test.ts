@@ -315,7 +315,7 @@ describe('query — degenerate inputs', () => {
     expect(snap.size).toBe(0);
   });
 
-  it('query with no constraints behaves like a plain get (ordered by key)', async () => {
+  it('query with no constraints behaves like a plain get (default priority index)', async () => {
     const { db } = setup();
     await update(ref(db, 'list'), { c: 3, a: 1, b: 2 });
     const snap = await get(query(ref(db, 'list')));

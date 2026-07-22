@@ -35,7 +35,7 @@ function setup() {
 
 describe('onChildAdded — initial replay (oracle: rtdb-modular-onchildadded-initial-replay)', () => {
   // Observation: seeded {k1, k2, k3} BEFORE subscribe, observed 3 initial
-  // fires with `firedKeys: ['k1', 'k2', 'k3']` in insertion order.
+  // fires with `firedKeys: ['k1', 'k2', 'k3']` in default priority/key order.
   it('replays existing direct children on subscribe — one fire per key', async () => {
     const { db } = setup();
     await update(ref(db, 'parent'), { k1: { v: 1 }, k2: { v: 2 }, k3: { v: 3 } });
@@ -174,14 +174,12 @@ describe('onChildRemoved (oracle: rtdb-modular-onchildremoved-fires-on-delete)',
 });
 
 describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => {
-  // Observation: under ordered query, firedOnMove=1. Under a plain ref
-  // (no ordering), the upstream contract says it never fires.
-  it('does NOT fire on a plain ref (no ordering) — never fires per RTDB docs', async () => {
+  it('does not fire on a plain ref when a value-only write preserves priority', async () => {
     const { db } = setup();
     await update(ref(db, 'parent'), { k1: { priority: 1 }, k2: { priority: 2 } });
     let fires = 0;
     const unsub = onChildMoved(ref(db, 'parent'), () => { fires++; });
-    // Updates that would re-order under an ordered query do nothing here.
+    // This changes an ordinary child field, not RTDB priority metadata.
     await set(ref(db, 'parent/k1/priority'), 99);
     expect(fires).toBe(0);
     unsub();
@@ -355,6 +353,33 @@ describe('off() variants (oracle: rtdb-modular-off-stops-child-fires)', () => {
     off(ref(db, 'parent'));
     await set(ref(db, 'parent/k1'), { v: 1 });
     expect(valueFires).toBe(1); // no post-off fire
+  });
+
+  it('off(query) removes only listeners on the equivalent query view', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    const ordered = query(parent, orderByChild('v'));
+    let queryFires = 0;
+    let refFires = 0;
+    onValue(ordered, () => { queryFires++; });
+    onValue(parent, () => { refFires++; });
+    expect({ queryFires, refFires }).toEqual({ queryFires: 1, refFires: 1 });
+    off(query(parent, orderByChild('v')));
+    await set(ref(db, 'parent/a'), { v: 1 });
+    expect({ queryFires, refFires }).toEqual({ queryFires: 1, refFires: 2 });
+  });
+
+  it('off(ref) removes listeners across every query view at that path', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    const ordered = query(parent, orderByChild('v'));
+    let queryFires = 0;
+    onValue(ordered, () => { queryFires++; });
+    off(parent);
+    let freshControlFires = 0;
+    onValue(parent, () => { freshControlFires++; });
+    await set(ref(db, 'parent/a'), { v: 1 });
+    expect({ queryFires, freshControlFires }).toEqual({ queryFires: 1, freshControlFires: 2 });
   });
 
   it('off(ref, "child_added") removes only that event variety', async () => {

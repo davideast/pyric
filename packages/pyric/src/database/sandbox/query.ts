@@ -10,7 +10,7 @@
  *      primitive values at the path are NOT eligible — `query()` only
  *      makes sense on a collection-shaped node).
  *   2. Order them by the active `orderBy*` constraint (default
- *      `orderByKey` if none supplied).
+ *      priority index with key tie-breaking if none supplied).
  *   3. Apply `startAt` / `startAfter` / `endAt` / `endBefore` / `equalTo`
  *      bounds against the active ordering's comparison value.
  *   4. Apply `limitToFirst(n)` or `limitToLast(n)` — they truncate the
@@ -80,7 +80,7 @@ export type LimitKind = 'limitToFirst' | 'limitToLast';
  * constraints into {order, bounds, limit} during apply.
  */
 export interface QuerySpec {
-  /** Active ordering. `null` means default (`orderByKey`). */
+  /** Active ordering. `null` means Firebase's default priority index. */
   orderBy: OrderBy | null;
   /** Range/equality filters. Multiple bounds compose. */
   bounds: Bound[];
@@ -260,7 +260,7 @@ export function extractOrderValue(
   value: JsonValue,
   priority: Priority = null,
 ): JsonValue {
-  const o = spec ?? { kind: 'key' as const };
+  const o = spec ?? { kind: 'priority' as const };
   switch (o.kind) {
     case 'key':
       return key;
@@ -317,7 +317,7 @@ export function executeQuery(
   }));
 
   // ─── 1. Order ─────────────────────────────────────────────────────
-  const orderingByKey = (spec.orderBy ?? { kind: 'key' }).kind === 'key';
+  const orderingByKey = spec.orderBy?.kind === 'key';
   rows.sort((a, b) => {
     if (orderingByKey) {
       // `orderByKey` compares keys under RTDB's nameCompare directly
@@ -360,7 +360,7 @@ export function executeQuery(
  * only if its key is also at-or-past the supplied key.
  */
 function boundMatches(b: Bound, row: QueryRow, orderBy: OrderBy | null): boolean {
-  const orderingByKey = (orderBy ?? { kind: 'key' as const }).kind === 'key';
+  const orderingByKey = orderBy?.kind === 'key';
   // Under `orderByKey`, the bound's `value` IS the comparison key and is
   // compared with nameCompare (numeric-first), NOT the value type-order.
   // Under value/child ordering, compare the ordered value, then break

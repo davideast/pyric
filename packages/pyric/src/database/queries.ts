@@ -48,6 +48,17 @@ export function query(
   for (const c of constraints) {
     spec = applyConstraint(spec, c[CONSTRAINT_SYMBOL]);
   }
+  if (spec.orderBy?.kind === 'priority') {
+    for (const bound of spec.bounds) {
+      const value = bound.value;
+      if (value !== null && typeof value !== 'string'
+        && !(typeof value === 'number' && Number.isFinite(value))) {
+        throw new Error(
+          'Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string).',
+        );
+      }
+    }
+  }
   const q: Query = {
     ref: baseRef,
     _spec: spec,

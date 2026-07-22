@@ -1,16 +1,19 @@
 import { deleteApp, initializeApp, type FirebaseOptions } from 'firebase/app';
-import { deleteUser, getAuth, signInAnonymously } from 'firebase/auth';
+import { deleteUser, getAuth, signInAnonymously, signOut, type Auth } from 'firebase/auth';
 import {
   DataSnapshot,
   Database,
   QueryConstraint,
   TransactionResult,
   child,
+  endAt,
+  endBefore,
   equalTo,
   get,
   getDatabase,
   increment,
   limitToFirst,
+  limitToLast,
   off,
   onChildAdded,
   onChildChanged,
@@ -20,6 +23,7 @@ import {
   orderByChild,
   orderByKey,
   orderByPriority,
+  orderByValue,
   query,
   ref,
   refFromURL,
@@ -28,6 +32,7 @@ import {
   set,
   setPriority,
   setWithPriority,
+  startAfter,
   startAt,
   update,
   type Database as DatabaseHandle,
@@ -49,6 +54,7 @@ export interface RtdbClimbContext {
 
 interface Client {
   db: DatabaseHandle;
+  auth: Auth;
   authToken: string;
   close(): Promise<void>;
 }
@@ -86,6 +92,7 @@ async function createClient(ctx: RtdbClimbContext, suffix: string): Promise<Clie
   }
   return {
     db: getDatabase(app),
+    auth,
     authToken: await auth.currentUser!.getIdToken(),
     async close() {
       if (auth.currentUser) await deleteUser(auth.currentUser).catch(() => undefined);
@@ -257,6 +264,7 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
                       control: { '.read': 'auth != null' },
                       denied: { '.read': deniedRead ? false : 'auth != null' },
                       revoked: { '.read': revokedRead ? false : 'auth != null' },
+                      callbackless: { '.read': 'auth != null' },
                     },
                   },
                 },
@@ -285,6 +293,7 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           await set(ref(client.db, `${path}/control`), { ok: true });
           await set(ref(client.db, `${path}/denied`), { child: 1 });
           await set(ref(client.db, `${path}/revoked`), { child: 1 });
+          await set(ref(client.db, `${path}/callbackless`), { value: 0 });
           const allowedControl = (await get(ref(client.db, `${path}/control`))).val();
 
           await writeRules(rulesFor(true, false));
@@ -332,11 +341,39 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           await waitFor('revoked listener cancellations', () =>
             Object.values(revokedCancellations).every((events) => events.length === 1));
           const controlAfterRevocation = (await get(ref(client.db, `${path}/control`))).val();
+          const callbacklessDeliveries: unknown[] = [];
+          unsubs.push(onValue(ref(client.db, `${path}/callbackless`), (snapshot) => {
+            callbacklessDeliveries.push(snapshot.val());
+          }));
+          await waitFor('callbackless listener initial readiness', () =>
+            callbacklessDeliveries.length === 1);
+          await signOut(client.auth);
+          const signedOutCancellations: Record<string, unknown>[] = [];
+          unsubs.push(onValue(
+            ref(client.db, `${path}/callbackless`),
+            () => undefined,
+            (error) => { signedOutCancellations.push(errorShape(error)); },
+          ));
+          await waitFor('callbackless listener signed-out denial readiness', () =>
+            signedOutCancellations.length === 1);
+          await signInAnonymously(client.auth);
+          const freshControlDeliveries: unknown[] = [];
+          unsubs.push(onValue(ref(client.db, `${path}/callbackless`), (snapshot) => {
+            freshControlDeliveries.push(snapshot.val());
+          }));
+          await set(ref(client.db, `${path}/callbackless`), { value: 1 });
+          await waitFor('callbackless fresh-listener control delivery', () =>
+            (freshControlDeliveries.at(-1) as { value?: number } | undefined)?.value === 1);
           return {
             allowedControl,
             denied,
             revoked: { deliveryCounts, cancellations: revokedCancellations },
             controlAfterRevocation,
+            callbacklessAuth: {
+              deliveries: callbacklessDeliveries,
+              signedOutCancellations,
+              freshControlDeliveries,
+            },
           };
         } finally {
           for (const unsubscribe of unsubs) unsubscribe();
@@ -496,8 +533,8 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
     },
     {
       name: 'rtdb-modular-priority-contract',
-      matrixRow: 'rtdb-modular#M89, rtdb-modular#M90, rtdb-modular#M91',
-      rowIds: ['rtdb-modular#M89', 'rtdb-modular#M90', 'rtdb-modular#M91'],
+      matrixRow: 'rtdb-modular#M46, rtdb-modular#M89, rtdb-modular#M90, rtdb-modular#M91',
+      rowIds: ['rtdb-modular#M46', 'rtdb-modular#M89', 'rtdb-modular#M90', 'rtdb-modular#M91'],
       description:
         'Priority round trips, replacement/preservation/clearing, priority ordering with bounds and limits, movement, and transaction lifecycle.',
       observe: () => repeatStable(2, async (attempt) => {
@@ -505,6 +542,7 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
         const client = await createClient(ctx, `priority-contract-${attempt}`);
         const target = ref(client.db, path);
         const moved: Array<[string | null, string | null]> = [];
+        const plainMoved: Array<[string | null, string | null]> = [];
         let orderedValueDeliveries = 0;
         try {
           await setWithPriority(child(target, 'a'), { value: 1 }, 10);
@@ -526,12 +564,28 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           (await get(query(target, orderByPriority(), equalTo(5)))).forEach((snap) => {
             equalKeys.push(snap.key);
           });
+          const plainForEachKeys: Array<string | null> = [];
+          const parentSnapshot = await get(target);
+          parentSnapshot.forEach((snap) => { plainForEachKeys.push(snap.key); });
+          const defaultLimitedKeys: Array<string | null> = [];
+          (await get(query(target, limitToFirst(2)))).forEach((snap) => {
+            defaultLimitedKeys.push(snap.key);
+          });
+          const parentExportVal = parentSnapshot.exportVal();
+          const parentToJSON = parentSnapshot.toJSON();
+          const invalidPriorityBounds = {
+            boolean: await captureInvocation(() =>
+              query(target, orderByPriority(), startAt(false))),
+            object: await captureInvocation(() =>
+              query(target, orderByPriority(), startAt({ invalid: true } as unknown as null))),
+          };
           onChildMoved(query(target, orderByPriority()), (snap, previous) => moved.push([snap.key, previous]));
+          onChildMoved(target, (snap, previous) => plainMoved.push([snap.key, previous]));
           onValue(query(target, orderByPriority()), () => { orderedValueDeliveries += 1; });
           await waitFor('priority listener initial readiness', () => orderedValueDeliveries === 1);
           await setPriority(child(target, 'a'), 0);
           await waitFor('priority movement readiness', () =>
-            moved.length > 0 && orderedValueDeliveries === 2);
+            moved.length > 0 && plainMoved.length > 0 && orderedValueDeliveries === 2);
           const afterMove = await get(child(target, 'a'));
           await update(target, { 'a/value': 4 });
           const afterUpdate = (await get(child(target, 'a'))).priority;
@@ -548,7 +602,13 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
             orderedKeys,
             boundedKeys,
             equalKeys,
+            plainForEachKeys,
+            defaultLimitedKeys,
+            parentExportVal,
+            parentToJSON,
+            invalidPriorityBounds,
             moved,
+            plainMoved,
             afterMove: { priority: afterMove.priority, exportVal: afterMove.exportVal() },
             afterUpdate,
             afterTransaction,
@@ -619,7 +679,20 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
         try {
           await set(ref(client.db, path), { value: 1 });
           const snapshot = await get(ref(client.db, path));
-          const constraint = orderByKey();
+          const constraintFactories = {
+            orderByChild: orderByChild('value'),
+            orderByKey: orderByKey(),
+            orderByPriority: orderByPriority(),
+            orderByValue: orderByValue(),
+            startAt: startAt(1),
+            startAfter: startAfter(1),
+            endAt: endAt(1),
+            endBefore: endBefore(1),
+            equalTo: equalTo(1),
+            limitToFirst: limitToFirst(1),
+            limitToLast: limitToLast(1),
+          };
+          const constraint = constraintFactories.orderByKey;
           const result = await runTransaction(ref(client.db, `${path}/counter`), (value) =>
             ((value as number | null) ?? 0) + 1);
           return {
@@ -632,6 +705,12 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
             database: prototypeShape(client.db, Database),
             snapshot: prototypeShape(snapshot, DataSnapshot),
             queryConstraint: prototypeShape(constraint, QueryConstraint),
+            constraintFactories: Object.fromEntries(
+              Object.entries(constraintFactories).map(([name, value]) => [
+                name,
+                prototypeShape(value, QueryConstraint),
+              ]),
+            ),
             transactionResult: {
               ...prototypeShape(result, TransactionResult),
               toJSONType: typeof result.toJSON,
@@ -730,10 +809,10 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
     },
     {
       name: 'rtdb-modular-off-duplicate-registration',
-      matrixRow: 'rtdb-modular#183',
-      rowIds: ['rtdb-modular#183'],
+      matrixRow: 'rtdb-modular#183, rtdb-modular#M92',
+      rowIds: ['rtdb-modular#183', 'rtdb-modular#M92'],
       description:
-        'Duplicate callback registration and exact off() removal scope, with terminal state independently confirmed.',
+        'Duplicate callback registration plus exact ref/query-view off() removal scope, with terminal state independently confirmed.',
       observe: () => repeatStable(2, async (attempt) => {
         const path = scenarioPath(ctx, 'off-duplicate-registration', attempt);
         const client = await createClient(ctx, `off-duplicate-registration-${attempt}`);
@@ -762,11 +841,44 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           await set(target, 3);
           await waitFor('duplicate off second removal readiness', () =>
             controlValues.at(-1) === 3);
+          const queryTarget = ref(client.db, `${path}/query-scope`);
+          await set(queryTarget, { a: { rank: 1 } });
+          const defaultValues: unknown[] = [];
+          const orderedValues: unknown[] = [];
+          onValue(queryTarget, (snapshot) => defaultValues.push(snapshot.val()));
+          onValue(query(queryTarget, orderByChild('rank')), (snapshot) => {
+            orderedValues.push(snapshot.val());
+          });
+          await waitFor('query off initial readiness', () =>
+            defaultValues.length === 1 && orderedValues.length === 1);
+          off(query(queryTarget, orderByChild('rank')));
+          await set(child(queryTarget, 'b'), { rank: 2 });
+          await waitFor('query off exact-view readiness', () => defaultValues.length === 2);
+          const afterQueryOff = {
+            defaultCount: defaultValues.length,
+            orderedCount: orderedValues.length,
+          };
+          const survivingQueryValues: unknown[] = [];
+          onValue(query(queryTarget, orderByChild('rank')), (snapshot) => {
+            survivingQueryValues.push(snapshot.val());
+          });
+          await waitFor('ref off query-survivor initial readiness', () =>
+            survivingQueryValues.length === 1);
+          off(queryTarget);
+          const postRefOffControl: unknown[] = [];
+          onValue(queryTarget, (snapshot) => postRefOffControl.push(snapshot.val()));
+          await set(child(queryTarget, 'c'), { rank: 3 });
+          await waitFor('ref off fresh-listener control readiness', () =>
+            postRefOffControl.length === 2);
           return {
             afterInitial,
             afterFirstWrite,
             afterFirstOff,
             afterSecondOff: values,
+            queryScope: {
+              afterQueryOff,
+              constrainedStoppedByRefOff: survivingQueryValues.length === 1,
+            },
             terminal: await adminRead(ctx, path),
           };
         } finally {

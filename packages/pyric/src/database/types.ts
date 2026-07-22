@@ -122,9 +122,8 @@ export class DataSnapshot {
    *
    * For a snapshot built from a {@link Query}, children are visited in
    * the order the query's `orderBy*` constraint computed — the windowed
-   * + filtered + limited sequence. For a plain ref snapshot, children
-   * are visited in key-insertion order (V8 object iteration order; the
-   * RTDB SDK does NOT guarantee an order on plain refs either).
+   * + filtered + limited sequence. A plain-ref snapshot uses Firebase's
+   * default priority index with key ordering as the tie-breaker.
    */
   forEach(cb: (child: DataSnapshot) => boolean | void): boolean {
     return dataSnapshotImplementations.get(this)?.forEach(cb) ?? false;

@@ -267,7 +267,7 @@ describe('named Firebase apps isolate listener authorization', () => {
     unsubscribe();
   });
 
-  it('reauthorizes an RTDB listener only when its own app session changes', async () => {
+  it('does not resurrect an RTDB listener after its app session loses access', async () => {
     const defaultApp = initializeApp({ projectId: 'multi-app-rtdb-listener' });
     const namedApp = initializeApp({ projectId: 'multi-app-rtdb-listener' }, 'named');
     const defaultAuth = getAuth(defaultApp);
@@ -303,8 +303,16 @@ describe('named Firebase apps isolate listener authorization', () => {
     expect(values).toHaveLength(1);
 
     await signInWithEmailAndPassword(namedAuth, 'b@example.com', 'password-123');
-    expect(values).toHaveLength(2);
-    expect(values[1]).toEqual({ owner: 'b', text: 'changed while signed out' });
+    expect(values).toHaveLength(1);
+    const freshValues: unknown[] = [];
+    const unsubscribeFresh = onValue(ref(namedDb, 'notes/b'), (snapshot) => {
+      freshValues.push(snapshot.val());
+    });
+    expect(freshValues).toEqual([{ owner: 'b', text: 'changed while signed out' }]);
+    await set(ref(adminDb, 'notes/b/text'), 'fresh listener only');
+    expect(values).toHaveLength(1);
+    expect(freshValues.at(-1)).toEqual({ owner: 'b', text: 'fresh listener only' });
+    unsubscribeFresh();
     unsubscribe();
   });
 });

@@ -173,6 +173,32 @@ describe('RTDB CDD climb row cases', () => {
     );
     expect(cancellationObservation.repeatCount).toBe(2);
 
+    const callbacklessSandbox = initializeSandbox();
+    callbacklessSandbox.currentUser = { uid: 'initial-user' };
+    const callbacklessDb = getDatabase(callbacklessSandbox);
+    const callbacklessWriter = getDatabase(callbacklessSandbox.withAuth({ uid: 'writer' }));
+    rtdbSandbox.setRules(callbacklessDb, {
+      rules: { '.read': 'auth != null', '.write': 'true' },
+    });
+    await set(ref(callbacklessWriter, 'callbackless-auth'), { value: 0 });
+    const callbacklessDeliveries: unknown[] = [];
+    onValue(ref(callbacklessDb, 'callbackless-auth'), (snapshot) => {
+      callbacklessDeliveries.push(snapshot.val());
+    });
+    callbacklessSandbox.currentUser = null;
+    callbacklessSandbox.currentUser = { uid: 'later-user' };
+    const freshControlDeliveries: unknown[] = [];
+    onValue(ref(callbacklessDb, 'callbackless-auth'), (snapshot) => {
+      freshControlDeliveries.push(snapshot.val());
+    });
+    await set(ref(callbacklessWriter, 'callbackless-auth'), { value: 1 });
+    expect(callbacklessDeliveries).toEqual(
+      cancellationObservation.callbacklessAuth.deliveries,
+    );
+    expect(freshControlDeliveries.at(-1)).toEqual(
+      cancellationObservation.callbacklessAuth.freshControlDeliveries.at(-1),
+    );
+
     // A cancellation is terminal for the registration. Later Auth changes
     // must not silently recreate a listener that Firebase has canceled.
     const initiallyDeniedSandbox = initializeSandbox();
@@ -429,12 +455,25 @@ describe('RTDB CDD climb row cases', () => {
   it('rtdb-modular#M90 orders, bounds, ties, and limits by priority', async () => {
     const { first } = setup();
     const target = ref(first, 'priority-order');
-    await setWithPriority(ref(first, 'priority-order/a'), 1, 10);
-    await setWithPriority(ref(first, 'priority-order/b'), 2, 5);
-    await setWithPriority(ref(first, 'priority-order/c'), 3, 5);
+    await setWithPriority(ref(first, 'priority-order/a'), { value: 1 }, 10);
+    await setWithPriority(ref(first, 'priority-order/b'), { value: 2 }, 5);
+    await setWithPriority(ref(first, 'priority-order/c'), { value: 3 }, 5);
+    expect(keys(await get(target))).toEqual(priorityObservation.plainForEachKeys);
+    expect(keys(await get(query(target, limitToFirst(2))))).toEqual(
+      priorityObservation.defaultLimitedKeys,
+    );
+    expect((await get(target)).exportVal()).toEqual(priorityObservation.parentExportVal);
+    expect((await get(target)).toJSON()).toEqual(priorityObservation.parentToJSON);
     expect(keys(await get(query(target, orderByPriority())))).toEqual(priorityObservation.orderedKeys);
     expect(keys(await get(query(target, orderByPriority(), startAt(5), limitToFirst(2))))).toEqual(priorityObservation.boundedKeys);
     expect(keys(await get(query(target, orderByPriority(), equalTo(5))))).toEqual(priorityObservation.equalKeys);
+    for (const invalid of [false, { invalid: true }]) {
+      expect(() => query(
+        target,
+        orderByPriority(),
+        startAt(invalid as never),
+      )).toThrow(priorityObservation.invalidPriorityBounds.boolean.message);
+    }
   });
 
   it('rtdb-modular#M91 moves on priority change and preserves metadata through lifecycle writes', async () => {
@@ -444,11 +483,16 @@ describe('RTDB CDD climb row cases', () => {
     await setWithPriority(ref(first, 'priority-move/b'), { value: 2 }, 5);
     await setWithPriority(ref(first, 'priority-move/c'), { value: 3 }, 5);
     const moved: Array<[string | null, string | null]> = [];
+    const plainMoved: Array<[string | null, string | null]> = [];
     onChildMoved(query(target, orderByPriority()), (snap, previous) => {
       moved.push([snap.key, previous]);
     });
+    onChildMoved(target, (snap, previous) => {
+      plainMoved.push([snap.key, previous]);
+    });
     await setPriority(ref(first, 'priority-move/a'), 0);
     expect(moved).toEqual(priorityObservation.moved);
+    expect(plainMoved).toEqual(priorityObservation.plainMoved);
     expect((await get(ref(first, 'priority-move/a'))).exportVal()).toEqual(
       priorityObservation.afterMove.exportVal,
     );

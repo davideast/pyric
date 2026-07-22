@@ -5,7 +5,7 @@ import { authFor, targetOf, type Target } from './routing.js';
 import { isQuery } from './query-shape.js';
 import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
 import { child } from './references.js';
-import { buildSandboxSnapFromRaw } from './snapshots.js';
+import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
 
 // ─── Listeners (Tier 2) ──────────────────────────────────────────────
 
@@ -18,15 +18,19 @@ import { buildSandboxSnapFromRaw } from './snapshots.js';
 function subscribeWithLiveAuth(
   target: Target,
   subscribe: (auth: AuthState, onCanceled: () => void) => Unsubscribe,
+  onTerminal?: () => void,
 ): Unsubscribe {
   let stopped = false;
   let backendUnsubscribe: Unsubscribe = () => {};
   let sessionUnsubscribe: Unsubscribe | undefined;
+  let release: Unsubscribe | undefined;
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
     sessionUnsubscribe?.();
     backendUnsubscribe();
+    release?.();
+    onTerminal?.();
   };
 
   backendUnsubscribe = subscribe(authFor(target), stop);
@@ -37,19 +41,17 @@ function subscribeWithLiveAuth(
       try {
         backendUnsubscribe = subscribe(authFor(target), stop);
       } catch {
-        // Without a cancellation callback, an auth transition that loses
-        // permission suspends delivery and can reauthorize on a later Auth
-        // transition. Explicit backend cancellation still calls `stop` and
-        // remains terminal.
         backendUnsubscribe = () => {};
+        stop();
       }
     })
     : undefined;
-  const release = target.kind === 'sandbox-live' ? target.own?.(stop) : undefined;
-  return () => {
-    release?.();
-    stop();
-  };
+  release = target.kind === 'sandbox-live' ? target.own?.(stop) : undefined;
+  return stop;
+}
+
+function queryScope(r: DatabaseReference | Query): string {
+  return isQuery(r as object) ? JSON.stringify((r as Query)._spec) : 'default';
 }
 
 /**
@@ -109,8 +111,16 @@ export function onValue(
   if (isQuery(r as object)) {
     const q = r as Query;
     const target = targetOf(q.ref as unknown as object);
+    const scope = queryScope(q);
     const deliver = (raw: { val: JsonValue; key: string | null }): void => {
-      const snap = buildSandboxSnapFromRaw(target, q.ref, raw.val);
+      const rows = raw.val !== null && typeof raw.val === 'object' && !Array.isArray(raw.val)
+        ? Object.entries(raw.val as Record<string, JsonValue>).map(([key, value]) => ({
+          key,
+          value,
+          priority: target.backend.getPriority(child(q.ref, key)._path),
+        }))
+        : [];
+      const snap = buildSandboxQuerySnap(target, q.ref, rows);
       try {
         cb(snap);
       } catch {
@@ -121,7 +131,13 @@ export function onValue(
     // listen-plane sibling of `adminGet`/`adminSet` (#401). `admin` is set
     // only on server-minted `getAdminDatabase` handles, never anything a page
     // controls, so a page's `onValue` stays on the rule-gated path below.
-    return target.admin
+    let registration: ListenerRegistration | undefined;
+    const unregister = (): void => {
+      if (registration) {
+        listenerRegistry.removeExact(target, q.ref._path, 'value', cb, registration, scope);
+      }
+    };
+    const subscribed = target.admin
       ? target.backend.adminOnValue(q.ref._path, deliver, q._spec)
       : subscribeWithLiveAuth(
         target,
@@ -133,7 +149,14 @@ export function onValue(
           cancelCallback,
           onCanceled,
         ),
+        unregister,
       );
+    const unsub = target.admin
+      ? () => { unregister(); subscribed(); }
+      : subscribed;
+    registration = { unsubscribe: unsub };
+    listenerRegistry.add(target, q.ref._path, 'value', cb, registration, scope);
+    return unsub;
   }
   const ref0 = r as DatabaseReference;
   const target = targetOf(ref0 as unknown as object);
@@ -146,7 +169,11 @@ export function onValue(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  const unsub = target.admin
+  let registration: ListenerRegistration | undefined;
+  const unregister = (): void => {
+    if (registration) listenerRegistry.removeExact(target, ref0._path, 'value', cb, registration);
+  };
+  const subscribed = target.admin
     ? target.backend.adminOnValue(ref0._path, wrapper)
     : subscribeWithLiveAuth(
       target,
@@ -158,13 +185,14 @@ export function onValue(
         cancelCallback,
         onCanceled,
       ),
+      unregister,
     );
-  const registration: ListenerRegistration = { unsubscribe: unsub };
+  const unsub = target.admin
+    ? () => { unregister(); subscribed(); }
+    : subscribed;
+  registration = { unsubscribe: unsub };
   listenerRegistry.add(target, ref0._path, 'value', cb, registration);
-  return () => {
-    listenerRegistry.removeExact(target, ref0._path, 'value', cb, registration);
-    unsub();
-  };
+  return unsub;
 }
 
 /**
@@ -175,7 +203,7 @@ export function onValue(
  * `packages/conformance/observations/rtdb-modular/rtdb-modular-onchildadded-*.json`):
  *
  *   - On subscribe, replays every existing direct child of `ref`'s path
- *     (one fire per existing key, in `orderByKey`-default order).
+ *     (one fire per existing key, in default priority/key order).
  *   - After subscribe, fires exactly once per new direct child write.
  *
  * Also accepts a {@link Query} (a `query(ref, ...)` with `orderBy*` /
@@ -335,8 +363,9 @@ function cancelSubscriptions(
   target: Target,
   path: string,
   event?: 'value' | ChildEvent,
+  scope?: string,
 ): void {
-  for (const registration of listenerRegistry.takeMatching(target, path, event)) {
+  for (const registration of listenerRegistry.takeMatching(target, path, event, scope)) {
     registration.unsubscribe();
   }
 }
@@ -363,6 +392,7 @@ function onChildEvent(
   const baseRef = isQ ? (r as Query).ref : (r as DatabaseReference);
   const spec = isQ ? (r as Query)._spec : undefined;
   const target = targetOf(baseRef as unknown as object);
+  const scope = isQuery(r as object) ? queryScope(r) : undefined;
   const wrapper = (raw: {
     key: string;
     val: JsonValue;
@@ -380,6 +410,12 @@ function onChildEvent(
       // behavior where one observer's exception doesn't block others.
     }
   };
+  let registration: ListenerRegistration | undefined;
+  const unregister = (): void => {
+    if (registration) {
+      listenerRegistry.removeExact(target, baseRef._path, event, cb, registration, scope);
+    }
+  };
   const unsub = subscribeWithLiveAuth(
     target,
     (auth, onCanceled) => target.backend.onChild(
@@ -391,13 +427,11 @@ function onChildEvent(
       cancelCallback,
       onCanceled,
     ),
+    unregister,
   );
-  const registration: ListenerRegistration = { unsubscribe: unsub };
-  listenerRegistry.add(target, baseRef._path, event, cb, registration);
-  return () => {
-    listenerRegistry.removeExact(target, baseRef._path, event, cb, registration);
-    unsub();
-  };
+  registration = { unsubscribe: unsub };
+  listenerRegistry.add(target, baseRef._path, event, cb, registration, scope);
+  return unsub;
 }
 
 /**
@@ -418,14 +452,16 @@ function onChildEvent(
  * registration — both are supported.
  */
 export function off(
-  r: DatabaseReference,
+  r: DatabaseReference | Query,
   eventType?: 'value' | ChildEvent,
   callback?: (snap: DataSnapshot) => void,
 ): void {
-  const target = targetOf(r as unknown as object);
+  const baseRef = isQuery(r as object) ? (r as Query).ref : r as DatabaseReference;
+  const scope = isQuery(r as object) ? queryScope(r) : undefined;
+  const target = targetOf(baseRef as unknown as object);
   if (callback !== undefined && eventType !== undefined) {
-    listenerRegistry.takeFirst(target, r._path, eventType, callback)?.unsubscribe();
+    listenerRegistry.takeFirst(target, baseRef._path, eventType, callback, scope)?.unsubscribe();
     return;
   }
-  cancelSubscriptions(target, r._path, eventType);
+  cancelSubscriptions(target, baseRef._path, eventType, scope);
 }

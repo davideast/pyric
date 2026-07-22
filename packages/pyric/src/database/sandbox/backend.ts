@@ -114,16 +114,15 @@ export interface ValueListener {
  * `packages/conformance/observations/rtdb-modular/rtdb-modular-onchild*.json`:
  *
  *   - `child_added`: replays existing children on subscribe (one fire
- *     per existing key, in insertion / orderByKey order), then fires
+ *     per existing key, in default priority/key order), then fires
  *     once per NEW child after subscribe.
  *   - `child_changed`: NO initial replay; fires once when an existing
  *     child's value changes. Snapshot carries the NEW value.
  *   - `child_removed`: NO initial replay; fires once when a child is
  *     deleted (via `remove` or `set(null)`). Snapshot carries the
  *     PRIOR value (the now-removed child's last value).
- *   - `child_moved`: ordered-query only; under a plain ref it never
- *     fires (matches the upstream contract — see the matrix M31 +
- *     observation `rtdb-modular-onchildmoved-with-orderby.json`).
+ *   - `child_moved`: fires when the active index changes position;
+ *     plain refs use Firebase's default priority index.
  *
  * When a listener carries a {@link ChildListener.spec} (i.e. it was
  * registered on a `query(ref, ...)`), the add / change / remove events
@@ -1590,9 +1589,8 @@ export class RtdbBackend {
   // children and dispatch `child_added` / `child_changed` /
   // `child_removed` accordingly.
   //
-  // `child_moved` requires an ordered query (see oracle observation
-  // `rtdb-modular-onchildmoved-with-orderby.json`) — for plain refs
-  // plain refs never fire it; ordered queries are handled below.
+  // `child_moved` uses the active index: an explicit query order when
+  // present, otherwise Firebase's default priority/key order.
 
   /**
    * Subscribe to a child event at `path`.
@@ -1601,8 +1599,8 @@ export class RtdbBackend {
    * `packages/conformance/observations/rtdb-modular/rtdb-modular-onchild*.json`):
    *
    *   - `child_added`: replays every existing direct child of `path` on
-   *     subscribe (one fire per existing key, in current key-iteration
-   *     order — matches the upstream `orderByKey` default observed in
+   *     subscribe (one fire per existing key, in default priority/key
+   *     order — matches the upstream default index captured in
    *     `rtdb-modular-onchildadded-initial-replay`). Subsequent
    *     additions fire once each.
    *   - `child_changed`: no initial replay. Fires when an existing
@@ -1611,9 +1609,8 @@ export class RtdbBackend {
    *   - `child_removed`: no initial replay. Fires when a child is
    *     deleted (its value transitions to absent). Snapshot carries
    *     the PRIOR (now-removed) value.
-   *   - `child_moved`: ordered-query only — never fires on a plain
-   *     ref (matches the upstream contract; Tier 3 will wire ordered
-   *     queries in).
+   *   - `child_moved`: fires on a position-changing priority update for
+   *     plain refs, or when an explicit query's active order changes.
    *
    * Rules check happens at subscribe time, identical to `onValue`. A
    * denied subscribe throws the plain-`Error` `PERMISSION_DENIED`
@@ -1863,6 +1860,7 @@ export class RtdbBackend {
       const added: Array<{ key: string; val: JsonValue; previousChildName: string | null }> = [];
       const changed: Array<{ key: string; val: JsonValue; previousChildName: string | null }> = [];
       const removed: Array<{ key: string; val: JsonValue; previousChildName: string | null }> = [];
+      let moved: Array<{ key: string; val: JsonValue; previousChildName: string | null }> = [];
       const nextEntries = [...next].map(([key, val]) => ({ key, val }));
       const priorEntries = [...prior].map(([key, val]) => ({ key, val }));
       for (const [k, v] of next) {
@@ -1877,13 +1875,36 @@ export class RtdbBackend {
           removed.push({ key: k, val: v, previousChildName: previousNameFromValues(priorEntries, k) });
         }
       }
+      const changedPriorityKey = directChildKey(parentPath, priorityChangedPath);
+      if (changedPriorityKey !== null) {
+        const priorIndex = priorEntries.findIndex((row) => row.key === changedPriorityKey);
+        const nextIndex = nextEntries.findIndex((row) => row.key === changedPriorityKey);
+        if (priorIndex >= 0 && nextIndex >= 0 && priorIndex !== nextIndex) {
+          const crossedKeys = new Set(
+            priorIndex > nextIndex
+              ? priorEntries.slice(nextIndex, priorIndex).map((row) => row.key)
+              : priorEntries.slice(priorIndex + 1, nextIndex + 1).map((row) => row.key),
+          );
+          const crossed = nextEntries.filter((row) => crossedKeys.has(row.key));
+          const reprioritized = nextEntries[nextIndex]!;
+          moved = [{
+            key: reprioritized.key,
+            val: reprioritized.val,
+            previousChildName: previousNameFromValues(nextEntries, reprioritized.key),
+          }, ...crossed.map((row) => ({
+            key: row.key,
+            val: row.val,
+            previousChildName: previousNameFromValues(crossed, row.key),
+          }))];
+        }
+      }
       for (const listener of listeners) {
         let events: Array<{ key: string; val: JsonValue; previousChildName: string | null }>;
         switch (listener.event) {
           case 'child_added': events = added; break;
           case 'child_changed': events = changed; break;
           case 'child_removed': events = removed; break;
-          case 'child_moved': events = []; break; // ordered-query only
+          case 'child_moved': events = moved; break;
         }
         for (const ev of events) {
           this.emitListener('delivery', listener, listener.auth, {
