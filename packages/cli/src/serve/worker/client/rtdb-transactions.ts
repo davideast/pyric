@@ -1,7 +1,7 @@
 /** Optimistic RTDB transaction loop over the worker RPC boundary. */
 import { dataRpc, nextId } from './core.js';
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
-import { rtdbGet } from './rtdb-operations.js';
+import { rtdbGet } from './rtdb-reads.js';
 import { hydrateRtdbSnapshot, type RtdbWireSnapshot } from './rtdb-snapshots.js';
 
 export interface RtdbTransactionOptions {

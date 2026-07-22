@@ -194,15 +194,15 @@ export {
 // RTDB bridge families are exported directly from their owning modules. This
 // public package index is the sole aggregation point for the worker surface.
 export { rtdbGetDatabase, rtdbRef, rtdbChild } from './client/rtdb-references.js';
+export { rtdbGet } from './client/rtdb-reads.js';
 export {
-  rtdbGet,
   rtdbSet,
   rtdbSetPriority,
   rtdbSetWithPriority,
   rtdbUpdate,
   rtdbRemove,
   rtdbPush,
-} from './client/rtdb-operations.js';
+} from './client/rtdb-writes.js';
 export {
   rtdbOnValue,
   rtdbOnChildAdded,

@@ -9,15 +9,15 @@ import * as ip from 'pyric/database';
 import { getDatabase as pyricGetDatabase } from 'pyric/database';
 import { queryIdentifier } from 'pyric/database/internal';
 import { rtdbChild, rtdbGetDatabase, rtdbRef } from '../worker/client/rtdb-references.js';
+import { rtdbGet } from '../worker/client/rtdb-reads.js';
 import {
-  rtdbGet,
   rtdbPush,
   rtdbRemove,
   rtdbSet,
   rtdbSetPriority,
   rtdbSetWithPriority,
   rtdbUpdate,
-} from '../worker/client/rtdb-operations.js';
+} from '../worker/client/rtdb-writes.js';
 import {
   rtdbOff,
   rtdbOnChildAdded,

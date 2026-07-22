@@ -1,8 +1,7 @@
-/** RTDB reads, writes, priorities, and push operations over the worker port. */
+/** RTDB writes, priorities, and push-ID generation over the worker port. */
 import { dataRpc, nextId } from './core.js';
-import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
-import { makeRtdbRef, targetParts, type RtdbTarget } from './rtdb-references.js';
-import { hydrateRtdbSnapshot } from './rtdb-snapshots.js';
+import type { RtdbRefHandle } from './handles.js';
+import { makeRtdbRef } from './rtdb-references.js';
 
 const RTDB_PUSH_CHARS = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz';
 let lastRtdbPushTime = 0;
@@ -30,13 +29,6 @@ function generateRtdbPushId(now: number = Date.now()): string {
     }
   }
   return timestampChars.join('') + lastRtdbRandChars.map((n) => RTDB_PUSH_CHARS.charAt(n)).join('');
-}
-
-export async function rtdbGet(target: RtdbTarget): Promise<RtdbDataSnapshot> {
-  const { ref, query } = targetParts(target);
-  return hydrateRtdbSnapshot(ref, await dataRpc(ref.port, {
-    t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, ...(query ? { query } : {}),
-  }));
 }
 
 export async function rtdbSet(ref: RtdbRefHandle, value: unknown): Promise<void> {
