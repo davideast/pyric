@@ -70,7 +70,7 @@ const RULES = `service firebase.storage {
     match /sessions/{id} {
       allow read: if request.auth != null;
       allow write: if request.auth != null
-                   && (request.resource == null
+                   && (request.method == 'delete'
                        || (request.resource.size < 10 * 1024 * 1024
                            && request.resource.contentType == 'application/json'));
     }
@@ -81,7 +81,7 @@ const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { rules: R
 ```
 An anonymous upload now throws `FirebaseError` with `storage/unauthenticated`. An 11 MiB payload throws `storage/unauthorized`, the signed-in-but-not-allowed code.
 
-Notice the `request.resource == null` carve-out. `deleteObject` carries no payload, so without it every delete would fail the size check. The pattern is standard in production Storage rules, and it is enforced identically here.
+Notice the `request.method == 'delete'` carve-out. `deleteObject` carries no incoming payload, and production treats reading or null-checking the absent `request.resource` as an error. Testing the method lets deletes through while keeping payload checks on creates and updates.
 
 One rule-shape gotcha carried over faithfully from production: `listAll` requires `read` on the listed folder itself. A rule scoped to `match /sessions/{id}` grants nothing on `/sessions`, so give the folder its own read rule.
 

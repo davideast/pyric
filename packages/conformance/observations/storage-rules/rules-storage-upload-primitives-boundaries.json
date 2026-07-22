@@ -1,0 +1,426 @@
+{
+  "name": "rules-storage-upload-primitives-boundaries",
+  "matrixRow": "Storage rules engine #126-#128",
+  "rowIds": ["storage-rules#126", "storage-rules#127", "storage-rules#128"],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"upload-primitives-boundaries\" (STORAGE-P2-PRIMITIVES). Boundary-first evidence for possible Storage size, MIME, metadata, path, identity, and time helpers; metadata methods remain unimplemented locally until production establishes their contract.",
+  "observedAt": "2026-07-21T06:03:34.478Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "size: zero bytes is within inclusive maximum": "ALLOW",
+    "size: exact maximum is allowed": "ALLOW",
+    "size: maximum plus one is denied": "DENY",
+    "MIME exact: image/png is allowed": "ALLOW",
+    "MIME exact: case difference is denied": "DENY",
+    "MIME exact: parameterized value is denied": "DENY",
+    "MIME regex: image/jpeg whole value is allowed": "ALLOW",
+    "MIME regex: suffix defeats whole-string match": "DENY",
+    "metadata keys: required keys with an extra key are allowed": "ALLOW",
+    "metadata keys: missing required key is denied": "DENY",
+    "metadata keys: absent metadata map is denied": "DENY",
+    "metadata get: missing key returns supplied default": "ALLOW",
+    "metadata get: present non-default value is denied": "DENY",
+    "metadata update: unchanged bytes and owner are allowed": "ALLOW",
+    "metadata update: changed byte size is denied": "DENY",
+    "metadata update: changed owner is denied": "DENY",
+    "path wildcard: string png filename is allowed": "ALLOW",
+    "path wildcard: non-png filename is denied": "DENY",
+    "identity: exact name bucket generation and metageneration are allowed": "ALLOW",
+    "identity: generation mismatch is denied": "DENY",
+    "identity: absent generation is denied": "DENY",
+    "time: one millisecond before strict 60 second boundary is allowed": "ALLOW",
+    "time: exact strict 60 second boundary is denied": "DENY",
+    "time: after strict 60 second boundary is denied": "DENY",
+    "time: future timeCreated value makes the strict comparison true": "ALLOW",
+    "delete: missing request.resource does not become a usable null guard": "DENY"
+  },
+  "diagnostics": {
+    "size: zero bytes is within inclusive maximum": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 21,
+              "column": 24,
+              "currentOffset": 646,
+              "endOffset": 655
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "size: exact maximum is allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 21,
+              "column": 24,
+              "currentOffset": 646,
+              "endOffset": 655
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "size: maximum plus one is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 21,
+              "column": 24,
+              "currentOffset": 646,
+              "endOffset": 655
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "MIME exact: image/png is allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 24,
+              "column": 24,
+              "currentOffset": 726,
+              "endOffset": 731
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "MIME exact: case difference is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 24,
+              "column": 24,
+              "currentOffset": 726,
+              "endOffset": 731
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "MIME exact: parameterized value is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 24,
+              "column": 24,
+              "currentOffset": 726,
+              "endOffset": 731
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "MIME regex: image/jpeg whole value is allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 27,
+              "column": 24,
+              "currentOffset": 811,
+              "endOffset": 817
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "MIME regex: suffix defeats whole-string match": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 27,
+              "column": 24,
+              "currentOffset": 811,
+              "endOffset": 817
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "metadata keys: required keys with an extra key are allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 30,
+              "column": 24,
+              "currentOffset": 940,
+              "endOffset": 950
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "metadata keys: missing required key is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 30,
+              "column": 24,
+              "currentOffset": 940,
+              "endOffset": 950
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "metadata keys: absent metadata map is denied": {
+      "notes": [
+        "Error: storage.rules line [11], column [14]. Property metadata is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 11,
+          "column": 14,
+          "currentOffset": 305,
+          "endOffset": 311
+        }
+      }
+    },
+    "metadata get: missing key returns supplied default": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 33,
+              "column": 24,
+              "currentOffset": 1045,
+              "endOffset": 1054
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "metadata get: present non-default value is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 33,
+              "column": 24,
+              "currentOffset": 1045,
+              "endOffset": 1054
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "metadata update: unchanged bytes and owner are allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 24,
+              "currentOffset": 1164,
+              "endOffset": 1170
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "metadata update: changed byte size is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 24,
+              "currentOffset": 1164,
+              "endOffset": 1170
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "metadata update: changed owner is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 24,
+              "currentOffset": 1164,
+              "endOffset": 1170
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "path wildcard: string png filename is allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 40,
+              "column": 24,
+              "currentOffset": 1332,
+              "endOffset": 1339
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "path wildcard: non-png filename is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 40,
+              "column": 24,
+              "currentOffset": 1332,
+              "endOffset": 1339
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "identity: exact name bucket generation and metageneration are allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 43,
+              "column": 21,
+              "currentOffset": 1443,
+              "endOffset": 1450
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "identity: generation mismatch is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 43,
+              "column": 21,
+              "currentOffset": 1443,
+              "endOffset": 1450
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "identity: absent generation is denied": {
+      "notes": [
+        "Error: storage.rules line [45], column [12]. Property generation is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 45,
+          "column": 12,
+          "currentOffset": 1530,
+          "endOffset": 1537
+        }
+      }
+    },
+    "time: one millisecond before strict 60 second boundary is allowed": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 49,
+              "column": 24,
+              "currentOffset": 1655,
+              "endOffset": 1667
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "time: exact strict 60 second boundary is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 49,
+              "column": 24,
+              "currentOffset": 1655,
+              "endOffset": 1667
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "time: after strict 60 second boundary is denied": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 49,
+              "column": 24,
+              "currentOffset": 1655,
+              "endOffset": 1667
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "time: future timeCreated value makes the strict comparison true": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 49,
+              "column": 24,
+              "currentOffset": 1655,
+              "endOffset": 1667
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "delete: missing request.resource does not become a usable null guard": {
+      "notes": [
+        "Error: storage.rules line [52], column [24]. Property resource is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 52,
+          "column": 24,
+          "currentOffset": 1751,
+          "endOffset": 1757
+        }
+      }
+    }
+  }
+}

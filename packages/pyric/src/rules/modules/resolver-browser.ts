@@ -2,10 +2,10 @@
  * Browser-safe `resolveModules` wrapper.
  *
  * The on-disk resolver in `./resolver.ts` falls back to `readFileSync`
- * when a `2+modules` import names a stdlib module (priority 4). That
+ * when a `2+modules` import names a stdlib module (priority 5). That
  * path can't run in the browser. This wrapper pre-supplies every
  * stdlib module via the resolver's existing `modules: Record<string,
- * string>` option, so the disk-reading priority-4 path never fires —
+ * string>` option, so the disk-reading priority-5 path never fires —
  * the inline content satisfies the import first.
  *
  * Stdlib modules are addressable by their KEY (`'auth'`, `'membership'`,
@@ -53,18 +53,25 @@ function buildStdlibModuleMap(): Record<string, string> {
 }
 
 const STDLIB_WITH_PATH_ALIASES = buildStdlibModuleMap();
+const BUNDLED_STDLIB_NAMES = new Set(Object.keys(STDLIB_WITH_PATH_ALIASES));
 
 export function resolveModulesBrowser(
   source: string,
   options?: ResolveOptions,
 ): ResolveResult {
+  const callerEntries = Object.entries(options?.modules ?? {});
+  const callerModules = Object.fromEntries(callerEntries);
+  const callerModuleNames = new Set(callerEntries.map(([name]) => name));
+  const bundledModules = new Set(
+    [...BUNDLED_STDLIB_NAMES].filter((name) => !callerModuleNames.has(name)),
+  );
   return resolveModulesWith(null, source, {
     ...options,
     modules: {
       ...STDLIB_WITH_PATH_ALIASES,
-      ...(options?.modules ?? {}),
+      ...callerModules,
     },
-  });
+  }, bundledModules);
 }
 
 export { STDLIB_INLINE };

@@ -1,0 +1,6 @@
+{
+  "observation": "stdlib-realstorage-p3-advanced-iam-enabled",
+  "scope": "normalized-probe-rules-with-canonical-wrapper",
+  "sha256": "f49e5f53e3fa64400983481cb84e039564e4a56cc695537a8f81f38d3faf1f99",
+  "basis": "reviewed-reconstruction-from-historical-capture-code"
+}

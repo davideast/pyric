@@ -1,0 +1,213 @@
+{
+  "name": "stdlib-storage-p2-native-advanced",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API discovery for metadata MapDiff boundaries, resource.updated timestamp access, Unicode metadata, and hash-shaped fields explicitly supplied by synthetic fixtures. Hash results prove rule-addressability only, not real-upload population.",
+  "observedAt": "2026-07-21T12:32:35.240Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "diff affected: label-only change": "ALLOW",
+    "diff affected: owner change is outside allowlist": "DENY",
+    "diff affected: no-op has empty affected set": "ALLOW",
+    "diff added: exactly label": "ALLOW",
+    "diff added: label plus extra": "DENY",
+    "diff removed: exactly label": "ALLOW",
+    "updated: exact timestamp and accessor": "ALLOW",
+    "updated: missing field": "DENY",
+    "existing hash fields supplied by test resource": "ALLOW",
+    "existing hash field absent": "DENY",
+    "incoming hash fields supplied by test resource": "ALLOW",
+    "unicode custom metadata equality": "ALLOW"
+  },
+  "diagnostics": {
+    "diff affected: label-only change": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 50,
+              "currentOffset": 121,
+              "endOffset": 127
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "diff affected: owner change is outside allowlist": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 50,
+              "currentOffset": 121,
+              "endOffset": 127
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "diff affected: no-op has empty affected set": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 50,
+              "currentOffset": 121,
+              "endOffset": 127
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "diff added: exactly label": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 47,
+              "currentOffset": 254,
+              "endOffset": 260
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "diff added: label plus extra": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 47,
+              "currentOffset": 254,
+              "endOffset": 260
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "diff removed: exactly label": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 49,
+              "currentOffset": 469,
+              "endOffset": 475
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "updated: exact timestamp and accessor": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 41,
+              "currentOffset": 680,
+              "endOffset": 687
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "updated: missing field": {
+      "notes": [
+        "Error: storage.rules line [7], column [41]. Property updated is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 7,
+          "column": 41,
+          "currentOffset": 680,
+          "endOffset": 687
+        }
+      }
+    },
+    "existing hash fields supplied by test resource": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 49,
+              "currentOffset": 813,
+              "endOffset": 820
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "existing hash field absent": {
+      "notes": [
+        "Error: storage.rules line [8], column [49]. Property md5Hash is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 8,
+          "column": 49,
+          "currentOffset": 813,
+          "endOffset": 820
+        }
+      }
+    },
+    "incoming hash fields supplied by test resource": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 52,
+              "currentOffset": 966,
+              "endOffset": 972
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "unicode custom metadata equality": {
+      "notes": [],
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 10,
+              "column": 53,
+              "currentOffset": 1144,
+              "endOffset": 1150
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

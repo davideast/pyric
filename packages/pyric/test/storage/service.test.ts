@@ -13,6 +13,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import { getStorage } from '../../src/storage/index.js';
 import { getStorageSandbox, getStorageService, targetOf } from '../../src/storage/service.js';
+import { getStorageRulesResolution } from '../../src/storage/internal.js';
 
 function uniqueDbName(label: string): string {
   return `pyric-storage-test-${label}-${Math.random().toString(36).slice(2, 10)}`;
@@ -169,4 +170,69 @@ describe('getStorageSandbox', () => {
     } as unknown as ReturnType<typeof getStorageSandbox>);
     expect(() => getStorageService(fake)).toThrow(/not a FirebaseStorage handle/);
   });
+
+  it('retains an immutable module-resolution descriptor for assurance', () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox, {
+      dbName: uniqueDbName('rules-resolution'),
+      rules: `rules_version = '2+modules';
+import { isAuthenticated } from './stdlib/auth.rules';
+import { hasRole } from './stdlib/membership.rules';
+import { sizeAtMost } from './stdlib/storage/uploads.rules';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{file} {
+      allow create: if isAuthenticated() && sizeAtMost(10)
+        && hasRole(firestore
+          .get(/databases/(default)/documents/members/$(request.auth.uid)).data, 'editor');
+    }
+  }
+}`,
+    });
+    const resolution = getStorageRulesResolution(storage);
+    expect(resolution).toMatchObject({
+      targetService: 'firebase.storage',
+      modules: [
+        './stdlib/auth.rules',
+        './stdlib/membership.rules',
+        './stdlib/storage/uploads.rules',
+      ],
+      evidenceIds: ['storage-rules#125', 'storage-rules#131', 'storage-rules#132'],
+    });
+    expect(resolution?.source).toContain("rules_version = '2';");
+    expect(resolution?.source).not.toContain('import ');
+    expect(Object.isFrozen(resolution)).toBe(true);
+    expect(Object.isFrozen(resolution?.modules)).toBe(true);
+  });
+
+  it('ignores module-version text inside comments on ordinary v2 rules', () => {
+    const rules = `rules_version = '2';
+// Documentation example only: rules_version = '2+modules';
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if true; } }
+}`;
+    const storage = getStorageSandbox(initializeSandbox({}), {
+      dbName: uniqueDbName('commented-module-version'),
+      rules,
+    });
+
+    expect(getStorageRulesResolution(storage)).toMatchObject({ source: rules, modules: [] });
+  });
+
+  it('resolves a parser-valid commented module-version declaration', () => {
+    const storage = getStorageSandbox(initializeSandbox({}), {
+      dbName: uniqueDbName('commented-version-declaration'),
+      rules: `rules_version /* syntax comment */ = '2+modules';
+import { isAuthenticated } from 'auth';
+service firebase.storage {
+  match /b/{bucket}/o { match /{file} { allow read: if isAuthenticated(); } }
+}`,
+    });
+    const resolution = getStorageRulesResolution(storage);
+
+    expect(resolution?.modules).toEqual(['auth']);
+    expect(resolution?.source).toContain("rules_version = '2';");
+    expect(resolution?.source).not.toContain('import ');
+  });
+
 });

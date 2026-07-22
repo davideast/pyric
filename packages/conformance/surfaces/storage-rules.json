@@ -4,13 +4,17 @@
   "developerSurface": "storage-rules",
   "symbolSource": "pyric/storage",
   "observationPrefixes": [
-    "rules-storage-"
+    "rules-storage-",
+    "stdlib-storage-",
+    "stdlib-realstorage-"
   ],
   "coverage": true,
   "scopeNote": "native (no upstream): the Storage rules engine (parseStorageRules / evaluateStorageRules), measured against the production Rules Test API engine.",
   "conformanceSuite": "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
   "captureRigs": [
-    "rules-storage"
+    "rules-storage",
+    "storage-stdlib-discovery",
+    "storage-stdlib-real"
   ],
   "registry": "rules"
 }

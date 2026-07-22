@@ -9,7 +9,7 @@ description: "Import a tested rule function, resolve it to ordinary Firebase Rul
 
 # Use tested modules in Firestore Security Rules
 
-Pyric's standard library is a set of tested Firestore Rules functions. The `2+modules` source format adds imports for local development; the resolver replaces those imports with ordinary `rules_version = '2'` functions before deployment.
+This guide uses the Firestore-compatible part of Pyric's tested Rules standard library. The catalog is service-aware: `auth` and `membership` work in Firestore and Storage, `storage/*` modules are Storage-only, and the remaining modules are Firestore-only. See the [service-aware module reference](../trust/rules-standard-library.md) for the complete catalog. The `2+modules` source format adds imports for local development; the resolver replaces those imports with ordinary `rules_version = '2'` functions before deployment.
 
 This example lets an author update a post, prevents changes to `authorId` and `createdAt`, and requires a two-second cooldown between edits.
 
@@ -85,7 +85,7 @@ Pin `requestTime` whenever a rule reads `request.time`, otherwise the test depen
 
 ## Choose a module
 
-These are the importable modules shipped with Pyric:
+These are the Firestore-compatible modules used by this guide. The [complete reference](../trust/rules-standard-library.md) also covers common and Storage-only modules.
 
 | Module | Use it for | Main functions |
 |---|---|---|

@@ -1,0 +1,110 @@
+{
+  "name": "stdlib-realstorage-p3-consistency",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Immediate Storage authorization decisions after three true/false Firestore membership transitions, with one bounded delayed confirmation only on an unexpected immediate result.",
+  "observedAt": "2026-07-21T15:32:24.335Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "bucket": "digame-mas.appspot.com",
+  "behavior": {
+    "consistency-true:cycle-1": {
+      "expected": "ALLOW",
+      "immediate": "ALLOW",
+      "firestoreUpdateTime": "2026-07-21T15:30:08.069050Z",
+      "writeToRequestMs": 457,
+      "requestMs": 486
+    },
+    "consistency-false:cycle-1": {
+      "expected": "ALLOW",
+      "immediate": "ALLOW",
+      "firestoreUpdateTime": "2026-07-21T15:30:08.636054Z",
+      "writeToRequestMs": 117,
+      "requestMs": 425
+    },
+    "consistency-true:cycle-2": {
+      "expected": "ALLOW",
+      "immediate": "ALLOW",
+      "firestoreUpdateTime": "2026-07-21T15:30:09.175099Z",
+      "writeToRequestMs": 143,
+      "requestMs": 387
+    },
+    "consistency-false:cycle-2": {
+      "expected": "ALLOW",
+      "immediate": "ALLOW",
+      "firestoreUpdateTime": "2026-07-21T15:30:09.641369Z",
+      "writeToRequestMs": 106,
+      "requestMs": 347
+    },
+    "consistency-true:cycle-3": {
+      "expected": "ALLOW",
+      "immediate": "ALLOW",
+      "firestoreUpdateTime": "2026-07-21T15:30:10.094470Z",
+      "writeToRequestMs": 135,
+      "requestMs": 365
+    },
+    "consistency-false:cycle-3": {
+      "expected": "ALLOW",
+      "immediate": "ALLOW",
+      "firestoreUpdateTime": "2026-07-21T15:30:10.542829Z",
+      "writeToRequestMs": 110,
+      "requestMs": 379
+    }
+  },
+  "diagnostics": {
+    "consistency-true:cycle-1": {
+      "immediate": {
+        "allowed": true
+      }
+    },
+    "consistency-false:cycle-1": {
+      "immediate": {
+        "allowed": true
+      }
+    },
+    "consistency-true:cycle-2": {
+      "immediate": {
+        "allowed": true
+      }
+    },
+    "consistency-false:cycle-2": {
+      "immediate": {
+        "allowed": true
+      }
+    },
+    "consistency-true:cycle-3": {
+      "immediate": {
+        "allowed": true
+      }
+    },
+    "consistency-false:cycle-3": {
+      "immediate": {
+        "allowed": true
+      }
+    }
+  },
+  "cleanup": {
+    "releaseRestored": true,
+    "objectsRemoved": true,
+    "documentsRemoved": true,
+    "iamRestored": true
+  },
+  "requestBudget": {
+    "counts": {
+      "storage": 23,
+      "firestoreWrite": 22,
+      "rules": 7,
+      "iam": 6
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 25,
+      "rules": 20,
+      "iam": 12
+    }
+  },
+  "iam": {
+    "temporaryIam": true,
+    "iamChanged": true
+  }
+}

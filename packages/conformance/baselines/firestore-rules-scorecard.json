@@ -203,6 +203,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
@@ -245,6 +246,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "functions-verbs-and-recursive",
@@ -264,7 +266,9 @@
         "time-math-and-casts",
         "unsupported-feature-witness"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#189"
+      ],
       "divergedByRows": []
     },
     "firestore.binding.request.auth.uid": {
@@ -279,11 +283,14 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "common-auth-membership-firestore",
         "global-and-service-scope-functions",
         "optional-rules-version",
         "required-fields-and-mapdiff"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#189"
+      ],
       "divergedByRows": []
     },
     "firestore.binding.request.auth.token": {
@@ -298,11 +305,14 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "common-auth-membership-firestore",
         "matches-full-string-regex",
         "string-literals-and-regex",
         "unsupported-feature-witness"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#189"
+      ],
       "divergedByRows": []
     },
     "firestore.binding.request.resource": {
@@ -570,6 +580,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
@@ -2107,6 +2118,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "get-after-and-exists-after",
@@ -2146,6 +2158,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "functions-verbs-and-recursive",
@@ -2345,6 +2358,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
@@ -2453,10 +2467,13 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "common-auth-membership-firestore",
         "prototype-chain-keys",
         "undefined-field-access"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#189"
+      ],
       "divergedByRows": []
     },
     "firestore.operator.is": {
@@ -2514,6 +2531,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
@@ -2556,6 +2574,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "common-auth-membership-firestore",
         "list-methods-concat-removeall-toset",
         "path-constructor-and-bind",
         "range-slice-list-and-string"
@@ -2672,6 +2691,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
@@ -2749,6 +2769,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
@@ -2792,11 +2813,13 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "common-auth-membership-firestore",
         "functions-verbs-and-recursive",
         "global-and-service-scope-functions"
       ],
       "verifiedByRows": [
-        "firestore-rules#186"
+        "firestore-rules#186",
+        "firestore-rules#189"
       ],
       "divergedByRows": []
     },
@@ -2831,6 +2854,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",
@@ -2889,6 +2913,7 @@
       "verifiedBy": [
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
+        "common-auth-membership-firestore",
         "cross-type-operator-overloads",
         "duration-and-latlng",
         "error-absorption-and-or",

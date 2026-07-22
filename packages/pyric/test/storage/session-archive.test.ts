@@ -34,11 +34,10 @@ import {
   deleteObject,
 } from '../../src/storage/index.js';
 
-// Production Firebase pattern: a single `allow write` rule
-// covers create, update, and delete. Deletes don't carry a
-// `request.resource`, so we OR with `request.resource == null` to
-// let them through; the size + content-type constraints only fire
-// when there IS a payload (creates / updates).
+// One `allow write` rule covers create, update, and delete. Production treats
+// the absent delete `request.resource` as an error even in a null comparison,
+// so operation identity must use `request.method`; payload constraints run
+// only for create/update.
 const SESSION_ARCHIVE_RULES = `
 service firebase.storage {
   match /b/{bucket}/o {
@@ -51,7 +50,7 @@ service firebase.storage {
     }
     match /sessions/{sessionId} {
       allow write: if request.auth != null
-                   && (request.resource == null
+                   && (request.method == 'delete'
                        || (request.resource.size < 10 * 1024 * 1024
                            && request.resource.contentType == 'application/json'));
       allow read: if request.auth != null;

@@ -18,4 +18,6 @@
 export {
   bindStorageOperationContext,
   getAdminStorageSandbox,
+  getStorageRulesResolution,
 } from './service.js';
+export type { StorageRulesResolution } from './rules-resolution.js';

@@ -31,7 +31,7 @@
  * vocabulary we hand agents for the local verification loop, so every
  * stdlib function must stay inside the simulator's supported surface.
  * If a future module genuinely needs the live Rules Test API, give it
- * a v1 validation script and record it in STDLIB.md — don't relax this.
+ * a v1 validation script and record it in the canonical stdlib reference — don't relax this.
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';

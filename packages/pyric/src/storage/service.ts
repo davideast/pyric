@@ -27,7 +27,12 @@ import {
   resolveOperationContext,
 } from 'pyric/sandbox/internal';
 import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
-import { parseStorageRules, type StorageRules } from './rules.js';
+import { parseStorageRules, type StorageRules } from './sandbox/rules.js';
+import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
+import {
+  createStorageRulesResolution,
+  type StorageRulesResolution,
+} from './rules-resolution.js';
 
 /**
  * Default sandbox bucket identifier. v1 has a single implicit
@@ -158,6 +163,7 @@ const BARE_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
  * fine (idempotent multi-handle construction, e.g. per-user contexts).
  */
 const SERVICE_RULES_SOURCE = new WeakMap<Sandbox, string | null>();
+const SERVICE_RULES_RESOLUTION = new WeakMap<Sandbox, StorageRulesResolution | null>();
 
 /**
  * Get (or open) the ONE per-sandbox `StorageService`. Loud on the
@@ -184,7 +190,35 @@ function ensureService(
     }
     return existing;
   }
-  const rules = options.rules ? parseStorageRules(options.rules) : null;
+  let rules: StorageRules | null = null;
+  let resolution: StorageRulesResolution | null = null;
+  if (options.rules) {
+    let source = options.rules;
+    let modules: readonly string[] = [];
+    let bundledModules: readonly string[] = [];
+    let moduleEvidenceIds: readonly string[] = [];
+    rules = parseStorageRules(source);
+    if (rules._version === '2+modules') {
+      const resolved = resolveModulesBrowser(source);
+      if (!resolved.success) {
+        throw new SyntaxError(
+          `Storage rules module resolution failed (${resolved.error.code}): ${resolved.error.message}`,
+        );
+      }
+      source = resolved.data.resolved;
+      modules = resolved.data.modules;
+      bundledModules = resolved.data.bundledModules;
+      moduleEvidenceIds = resolved.data.evidenceIds;
+      rules = parseStorageRules(source);
+    }
+    resolution = createStorageRulesResolution(
+      source,
+      modules,
+      bundledModules,
+      moduleEvidenceIds,
+      rules,
+    );
+  }
   // Explicit dbName wins; otherwise scope the default by project identity so
   // two projects on one origin never share a storage database (issue #359).
   const servicePromise = openStorageBackend(
@@ -194,6 +228,7 @@ function ensureService(
   );
   SERVICES.set(sandbox, servicePromise);
   SERVICE_RULES_SOURCE.set(sandbox, options.rules ?? null);
+  SERVICE_RULES_RESOLUTION.set(sandbox, resolution);
   // Join the sandbox's persistable-service REGISTRY so `sandbox.resetAll()`
   // reaches storage (issue #359: Studio's reset cleared Firestore + auth but
   // never storage — storage was invisible to the sandbox). Storage does NOT
@@ -386,4 +421,11 @@ export function targetOf(storage: FirebaseStorage): Target {
  */
 export function getStorageService(storage: FirebaseStorage): Promise<StorageService> {
   return targetOf(storage).servicePromise;
+}
+
+/** Internal assurance seam for the exact rules source retained by Storage setup. */
+export function getStorageRulesResolution(
+  storage: FirebaseStorage,
+): StorageRulesResolution | null {
+  return SERVICE_RULES_RESOLUTION.get(targetOf(storage).sandbox) ?? null;
 }

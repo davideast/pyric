@@ -4,7 +4,7 @@
   "sources": [
     "Firebase Storage Security Rules language reference (firebase.google.com/docs/reference/security/storage)",
     "Storage security rules conditions guide",
-    "Repo ground truth: src/storage/rules.ts (parseStorageRules + evaluateStorageRules, the standalone subset)"
+    "Repo ground truth: packages/pyric/src/storage/sandbox/rules.ts (parser) and rules-evaluator.ts (evaluator)"
   ],
   "constructs": [
     {
@@ -152,6 +152,22 @@
       "note": "resource.bucket is the bucket the object resides in, sourced from the persisted record. Production returns it as a literal on the resource map; an absent bucket denies."
     },
     {
+      "id": "storage.binding.resource.generation",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#generation",
+      "status": "accepted",
+      "note": "Production types resource.generation as an int; exact comparison succeeds and an absent field errors and denies."
+    },
+    {
+      "id": "storage.binding.resource.metageneration",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#metageneration",
+      "status": "accepted",
+      "note": "Production types resource.metageneration as an int; captured together with generation on the existing-object binding."
+    },
+    {
       "id": "storage.function.timestamp.date",
       "kind": "function",
       "engine": "storage",
@@ -212,6 +228,33 @@
       "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "receiverType": "string"
+    },
+    {
+      "id": "storage.method.map.keys",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_keys_",
+      "status": "accepted",
+      "receiverType": "map",
+      "note": "Production and the local Storage evaluator accept request.resource.metadata.keys(); replayed by the Storage upload-boundary corpus."
+    },
+    {
+      "id": "storage.method.map.get",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_get_",
+      "status": "accepted",
+      "receiverType": "map",
+      "note": "Production and the local Storage evaluator accept request.resource.metadata.get(key, default); replayed by the Storage upload-boundary corpus."
+    },
+    {
+      "id": "storage.method.set.hasAll",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAll_",
+      "status": "accepted",
+      "receiverType": "set",
+      "note": "Production and the local Storage evaluator accept hasAll() on the set returned by custom-metadata keys(); replayed by the Storage upload-boundary corpus."
     },
     {
       "id": "storage.operator.eq",

@@ -1,3 +1,4 @@
+// @pyric-services cloud.firestore
 // Validation module for document field shape and value checks.
 //
 // Usage:

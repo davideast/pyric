@@ -136,6 +136,13 @@ describe('rules-language snapshots + loader', () => {
     expect(validateSnapshotValue('firestore', snap).some((p) => p.includes('probeNote present but empty'))).toBe(true);
   });
 
+  it('accepts only true for an explicit module-callable disposition', () => {
+    const snap = base();
+    (snap.constructs[0] as Record<string, unknown>).moduleCallable = false;
+    expect(validateSnapshotValue('firestore', snap).some((p) => p.includes('moduleCallable must be true')))
+      .toBe(true);
+  });
+
   it('requires unattributable meta-semantics to explain their exclusion', () => {
     for (const [engine, id] of [
       ['storage', 'storage.semantic.deny-by-default'],

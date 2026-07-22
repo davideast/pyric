@@ -218,7 +218,7 @@ service firebase.storage {
     expect(bad.current.verdictFor('users/bob/x.txt').write).toBe(true);
   });
 
-  it('writeResource binds request.resource for the write verdict; omitted = delete semantics', async () => {
+  it('evaluates upload and delete with their distinct request.method and resource bindings', async () => {
     const sandbox = initializeSandbox({});
     const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
       dbName: uniqueDbName('payload'),
@@ -227,7 +227,8 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /uploads/{allPaths=**} {
       allow read: if true;
-      allow write: if request.resource == null || request.resource.size < 100;
+      allow create: if request.resource.size < 100;
+      allow delete: if request.method == 'delete';
     }
   }
 }`,
@@ -247,9 +248,8 @@ service firebase.storage {
     await waitFor(() => expect(big.result.current.status).toBe('ready'));
     expect(big.result.current.verdictFor('uploads/big.txt').upload).toBe(false);
 
-    // Omitted writeResource leaves request.resource unset — exactly
-    // what a DELETE carries, so the `request.resource == null` arm
-    // allows (and a bare `size < N` rule would conservatively deny).
+    // Omitted writeResource selects delete preflight. The hook must send the
+    // granular delete method; the absent request.resource is an error if read.
     const del = renderHook(runHook, { storage });
     await waitFor(() => expect(del.result.current.status).toBe('ready'));
     expect(del.result.current.verdictFor('uploads/ok.txt').delete).toBe(true);

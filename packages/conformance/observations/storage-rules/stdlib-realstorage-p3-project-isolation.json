@@ -1,0 +1,49 @@
+{
+  "name": "stdlib-realstorage-p3-project-isolation",
+  "matrixRow": "",
+  "rowIds": ["storage-rules#131"],
+  "description": "Storage hosted by digame-mas reading an identical Firestore path whose values are opposite in digame-mas and genkit-idx.",
+  "observedAt": "2026-07-21T15:32:24.336Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "bucket": "digame-mas.appspot.com",
+  "behavior": {
+    "primary-false-secondary-true": "DENY",
+    "primary-true-secondary-false": "ALLOW"
+  },
+  "diagnostics": {
+    "primary-false-secondary-true": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut5igq/isolation/primary-false-secondary-true.bin'. (storage/unauthorized)"
+    },
+    "primary-true-secondary-false": {
+      "allowed": true
+    }
+  },
+  "cleanup": {
+    "releaseRestored": true,
+    "objectsRemoved": true,
+    "documentsRemoved": true,
+    "iamRestored": true
+  },
+  "requestBudget": {
+    "counts": {
+      "storage": 23,
+      "firestoreWrite": 22,
+      "rules": 7,
+      "iam": 6
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 25,
+      "rules": 20,
+      "iam": 12
+    }
+  },
+  "iam": {
+    "temporaryIam": true,
+    "iamChanged": true
+  },
+  "secondaryProjectId": "genkit-idx"
+}

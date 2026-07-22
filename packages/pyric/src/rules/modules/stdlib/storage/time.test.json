@@ -1,0 +1,32 @@
+[
+  {
+    "description": "object is within strict creation window just before boundary",
+    "expectation": "ALLOW",
+    "method": "delete",
+    "path": "test/file.bin",
+    "existingResource": { "size": 1, "timeCreated": "2026-07-21T00:00:00.000Z" },
+    "requestTime": "2026-07-21T00:00:59.999Z",
+    "wrapFunction": "createdWithin",
+    "wrapCallExpr": "createdWithin(60)"
+  },
+  {
+    "description": "creation window denies at exact boundary",
+    "expectation": "DENY",
+    "method": "delete",
+    "path": "test/file.bin",
+    "existingResource": { "size": 1, "timeCreated": "2026-07-21T00:00:00.000Z" },
+    "requestTime": "2026-07-21T00:01:00.000Z",
+    "wrapFunction": "createdWithin",
+    "wrapCallExpr": "createdWithin(60)"
+  },
+  {
+    "description": "object is within strict updated window",
+    "expectation": "ALLOW",
+    "method": "delete",
+    "path": "test/file.bin",
+    "existingResource": { "size": 1, "updated": "2026-07-21T00:00:30.000Z" },
+    "requestTime": "2026-07-21T00:00:59.999Z",
+    "wrapFunction": "updatedWithin",
+    "wrapCallExpr": "updatedWithin(30)"
+  }
+]

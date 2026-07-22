@@ -1,0 +1,74 @@
+{
+  "name": "stdlib-realstorage-p3-advanced-iam-enabled",
+  "matrixRow": "",
+  "rowIds": ["storage-rules#131"],
+  "description": "Real-resource Storage-to-Firestore advanced behavior for return types, evaluation order, path boundaries, helper composition, and independence from the Firestore ruleset.",
+  "observedAt": "2026-07-21T13:49:37.407Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "bucket": "digame-mas.appspot.com",
+  "behavior": {
+    "existing-get": "ALLOW",
+    "absent-field": "DENY",
+    "wrong-type": "DENY",
+    "nested-map": "ALLOW",
+    "list-membership": "ALLOW",
+    "auth-interpolation": "DENY",
+    "named-database": "DENY",
+    "false-or": "ALLOW",
+    "true-ternary": "ALLOW",
+    "helper": "ALLOW",
+    "let-binding": "ALLOW",
+    "error-or-true": "ALLOW",
+    "false-and-error": "DENY",
+    "firestore-client-deny-control": "DENY",
+    "firestore-deny-rules": "ALLOW",
+    "firestore-client-allow-control": "ALLOW",
+    "firestore-allow-rules": "ALLOW"
+  },
+  "diagnostics": {
+    "existing-get": {},
+    "absent-field": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrupmnap/absent-field/payload.bin'. (storage/unauthorized)"
+    },
+    "wrong-type": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrupmnap/wrong-type/payload.bin'. (storage/unauthorized)"
+    },
+    "nested-map": {},
+    "list-membership": {},
+    "auth-interpolation": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrupmnap/auth-interpolation/payload.bin'. (storage/unauthorized)"
+    },
+    "named-database": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrupmnap/named-database/payload.bin'. (storage/unauthorized)"
+    },
+    "false-or": {},
+    "true-ternary": {},
+    "helper": {},
+    "let-binding": {},
+    "error-or-true": {},
+    "false-and-error": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrupmnap/false-and-error/payload.bin'. (storage/unauthorized)"
+    },
+    "firestore-deny-rules": {},
+    "firestore-allow-rules": {}
+  },
+  "cleanup": {
+    "releaseRestored": true,
+    "firestoreReleaseRestored": true,
+    "objectsRemoved": true,
+    "documentsRemoved": true,
+    "iamRestored": true
+  },
+  "iam": {
+    "temporaryIam": true,
+    "externallyEnabledIam": false,
+    "iamChanged": true
+  },
+  "probeRulesetCreated": true
+}

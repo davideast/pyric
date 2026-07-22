@@ -1,0 +1,135 @@
+{
+  "name": "stdlib-realstorage-p2-native-object-fields",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Real-resource Storage Rules visibility and relationships for server-populated generation, metageneration, hashes, etag, creation/update time, metadata-only updates, and byte overwrites.",
+  "observedAt": "2026-07-21T15:27:18.766Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "bucket": "digame-mas.appspot.com",
+  "behavior": {
+    "stored-exact": "ALLOW",
+    "identity-mismatch": "DENY",
+    "hash-mismatch": "DENY",
+    "time-mismatch": "DENY",
+    "incoming-exact": "ALLOW",
+    "incoming-md5-mismatch": "DENY",
+    "incoming-crc-mismatch": "DENY",
+    "incoming-excluded-version": "DENY",
+    "incoming-excluded-etag": "DENY",
+    "incoming-excluded-time": "DENY",
+    "metadata-update": "ALLOW",
+    "metadata-update-relations": {
+      "generationPreserved": true,
+      "hashesPreserved": true,
+      "timeCreatedPreserved": true,
+      "metagenerationAdvanced": true,
+      "updatedAdvanced": true
+    },
+    "byte-overwrite-control": "ALLOW",
+    "byte-overwrite-control-relations": {
+      "generationAdvanced": true,
+      "md5Changed": true,
+      "crc32cChanged": true,
+      "timeCreatedAdvanced": true
+    },
+    "byte-overwrite-md5": "ALLOW",
+    "byte-overwrite-md5-relations": {
+      "generationAdvanced": true,
+      "md5Changed": true,
+      "crc32cChanged": true,
+      "timeCreatedAdvanced": true
+    },
+    "byte-overwrite-crc": "ALLOW",
+    "byte-overwrite-crc-relations": {
+      "generationAdvanced": true,
+      "md5Changed": true,
+      "crc32cChanged": true,
+      "timeCreatedAdvanced": true
+    }
+  },
+  "diagnostics": {
+    "stored-exact": {
+      "allowed": true
+    },
+    "identity-mismatch": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/identity-mismatch.bin'. (storage/unauthorized)"
+    },
+    "hash-mismatch": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/hash-mismatch.bin'. (storage/unauthorized)"
+    },
+    "time-mismatch": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/time-mismatch.bin'. (storage/unauthorized)"
+    },
+    "incoming-exact": {
+      "allowed": true
+    },
+    "incoming-md5-mismatch": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-md5-mismatch.bin'. (storage/unauthorized)"
+    },
+    "incoming-crc-mismatch": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-crc-mismatch.bin'. (storage/unauthorized)"
+    },
+    "incoming-excluded-version": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-excluded-version.bin'. (storage/unauthorized)"
+    },
+    "incoming-excluded-etag": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-excluded-etag.bin'. (storage/unauthorized)"
+    },
+    "incoming-excluded-time": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut4c2v/native/incoming-excluded-time.bin'. (storage/unauthorized)"
+    },
+    "byte-overwrite-control": {
+      "allowed": true
+    },
+    "byte-overwrite-md5": {
+      "allowed": true
+    },
+    "byte-overwrite-crc": {
+      "allowed": true
+    }
+  },
+  "cleanup": {
+    "releaseRestored": true,
+    "objectsRemoved": true
+  },
+  "requestBudget": {
+    "counts": {
+      "storage": 38,
+      "firestoreWrite": 0,
+      "rules": 8,
+      "iam": 0
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 25,
+      "rules": 20,
+      "iam": 12
+    }
+  },
+  "serverFields": {
+    "generation": "1784647629568292",
+    "metageneration": "1",
+    "hasMd5Hash": true,
+    "hasCrc32c": true,
+    "hasEtag": true,
+    "timeCreated": "2026-07-21T15:27:09.639Z",
+    "updated": "2026-07-21T15:27:09.639Z"
+  }
+}

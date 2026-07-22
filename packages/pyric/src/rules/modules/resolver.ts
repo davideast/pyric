@@ -28,7 +28,8 @@ const STDLIB_DIR = join(__dirname, 'stdlib');
 const diskReader: ModuleFileReader = {
   readRelative(basePath, moduleName) {
     try {
-      return readFileSync(join(basePath, `${moduleName}.rules`), 'utf-8');
+      const fileName = moduleName.endsWith('.rules') ? moduleName : `${moduleName}.rules`;
+      return readFileSync(join(basePath, fileName), 'utf-8');
     } catch {
       return null;
     }

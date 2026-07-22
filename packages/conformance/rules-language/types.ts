@@ -99,6 +99,11 @@ export interface LanguageConstruct {
    *  section for the RTDB expression language). */
   reference: string;
   status: ConstructStatus;
+  /** Explicit service-legality disposition for module resolution when an
+   * isolated acceptance micro-probe rejected but stronger production evidence
+   * establishes that the construct is valid syntax. This does not change the
+   * construct's conformance status or earn coverage credit. */
+  moduleCallable?: true;
   /** Present only when the official reference and the repo's own
    *  parser/evaluator disagree about the construct: describes the divergence.
    *  A populated `note` is a documented doc-vs-parser finding. */

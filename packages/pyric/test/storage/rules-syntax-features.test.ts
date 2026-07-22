@@ -2,17 +2,19 @@
  * Storage rules syntax acceptance corpus.
  *
  * Firebase Security Rules is one language across Firestore and Storage.
- * Each case here is a syntactically valid ruleset production Firebase
- * accepts; `parseStorageRules` must accept every one. The corpus pins
- * the syntax features that historically parsed for Firestore but not
- * for Storage while the two services used independent parsers.
+ * Each case here is syntax Pyric's shared parser intentionally accepts;
+ * `parseStorageRules` must accept every one. Most cases mirror production
+ * Firebase syntax. The import case is different: it models Pyric's module
+ * authoring/preview grammar, and does NOT claim an ordinary Firebase project
+ * accepts or links that source. Production acceptance belongs to the
+ * credentialed rules-language probes, not this local parser suite.
  *
  * Acceptance only: cases assert the source parses, not how it evaluates.
  * Evaluation semantics live in rules.test.ts and the oracle conformance
  * suites.
  */
 import { describe, it, expect } from 'bun:test';
-import { parseStorageRules } from '../../src/storage/rules.js';
+import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
 
 function ruleset(condition: string, extra = ''): string {
   return `rules_version = '2';
@@ -92,7 +94,7 @@ service firebase.storage {
 }`,
   },
   {
-    name: 'import declaration',
+    name: 'module-authoring import declaration (parser-only)',
     source: `rules_version = '2';
 import { isOwner } from 'shared';
 service firebase.storage {

@@ -1,0 +1,23 @@
+{
+  "name": "rules-storage-common-auth-membership",
+  "matrixRow": "Storage rules engine #125",
+  "rowIds": ["storage-rules#125"],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"common-auth-membership\" (STORAGE-COMMON-STDLIB). Exact auth/membership stdlib bodies under firebase.storage: auth null/uid, custom claims, explicit membership maps, and role equality.",
+  "observedAt": "2026-07-21T05:45:37.586Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "isAuthenticated: signed-in caller allowed": "ALLOW",
+    "isAuthenticated: anonymous caller denied": "DENY",
+    "isOwner: uid matches path owner": "ALLOW",
+    "isOwner: uid differs from path owner": "DENY",
+    "hasClaim: non-null custom claim allowed": "ALLOW",
+    "hasClaim: missing custom claim denied": "DENY",
+    "hasClaimRole: exact role allowed": "ALLOW",
+    "hasClaimRole: different role denied": "DENY",
+    "isMemberOf: uid key present in explicit map": "ALLOW",
+    "isMemberOf: uid key absent from explicit map": "DENY",
+    "hasRole: uid has exact map role": "ALLOW",
+    "hasRole: uid has different map role": "DENY"
+  }
+}

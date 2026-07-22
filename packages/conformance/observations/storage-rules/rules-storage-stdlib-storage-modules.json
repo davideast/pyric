@@ -1,0 +1,253 @@
+{
+  "name": "rules-storage-stdlib-storage-modules",
+  "matrixRow": "",
+  "rowIds": ["storage-rules#132"],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-storage-modules\" (STORAGE-NATIVE-STDLIB). Exact four-module Storage stdlib bodies: upload bounds, MIME policy, custom metadata, operation identity, and strict object timestamp windows.",
+  "observedAt": "2026-07-21T17:12:03.292Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "uploads: inclusive bounds and exact MIME allow": "ALLOW",
+    "uploads: zero bytes deny lower bound": "DENY",
+    "uploads: one byte over denies upper bound": "DENY",
+    "uploads: parameterized MIME denies exact allowlist": "DENY",
+    "metadata: required string metadata and owner allow": "ALLOW",
+    "metadata: missing required key denies": "DENY",
+    "metadata: non-owner create denies": "DENY",
+    "metadata: existing owner update allows": "ALLOW",
+    "objects: create identity allows create": "ALLOW",
+    "objects: update identity allows update": "ALLOW",
+    "objects: delete identity allows delete": "ALLOW",
+    "created time: just before strict deadline allows": "ALLOW",
+    "created time: exact deadline denies": "DENY",
+    "updated time: just before strict deadline allows": "ALLOW",
+    "updated time: exact deadline denies": "DENY"
+  },
+  "diagnostics": {
+    "uploads: inclusive bounds and exact MIME allow": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 24,
+              "currentOffset": 1642,
+              "endOffset": 1651
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "uploads: zero bytes deny lower bound": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 24,
+              "currentOffset": 1642,
+              "endOffset": 1651
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "uploads: one byte over denies upper bound": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 24,
+              "currentOffset": 1642,
+              "endOffset": 1651
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "uploads: parameterized MIME denies exact allowlist": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 24,
+              "currentOffset": 1642,
+              "endOffset": 1651
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "metadata: required string metadata and owner allow": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 56,
+              "column": 24,
+              "currentOffset": 1857,
+              "endOffset": 1875
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "metadata: missing required key denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 56,
+              "column": 24,
+              "currentOffset": 1857,
+              "endOffset": 1875
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "metadata: non-owner create denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 56,
+              "column": 24,
+              "currentOffset": 1857,
+              "endOffset": 1875
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "metadata: existing owner update allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 59,
+              "column": 24,
+              "currentOffset": 2009,
+              "endOffset": 2029
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "objects: create identity allows create": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 62,
+              "column": 24,
+              "currentOffset": 2100,
+              "endOffset": 2107
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "objects: update identity allows update": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 63,
+              "column": 24,
+              "currentOffset": 2135,
+              "endOffset": 2142
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "objects: delete identity allows delete": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 64,
+              "column": 24,
+              "currentOffset": 2170,
+              "endOffset": 2177
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "created time: just before strict deadline allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 67,
+              "column": 24,
+              "currentOffset": 2241,
+              "endOffset": 2253
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "created time: exact deadline denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 67,
+              "column": 24,
+              "currentOffset": 2241,
+              "endOffset": 2253
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "updated time: just before strict deadline allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 70,
+              "column": 24,
+              "currentOffset": 2319,
+              "endOffset": 2331
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "updated time: exact deadline denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 70,
+              "column": 24,
+              "currentOffset": 2319,
+              "endOffset": 2331
+            },
+            "value": false
+          }
+        ]
+      }
+    }
+  }
+}

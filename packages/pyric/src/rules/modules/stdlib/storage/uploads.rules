@@ -1,0 +1,21 @@
+// @pyric-services firebase.storage
+// @pyric-evidence storage-rules#132
+// Storage upload request primitives. These inspect declared object metadata;
+// MIME helpers do not inspect or authenticate the uploaded bytes.
+
+export function sizeAtMost(maxBytes) {
+  return request.resource.size <= maxBytes;
+}
+
+export function sizeBetween(minBytes, maxBytes) {
+  return request.resource.size >= minBytes
+    && request.resource.size <= maxBytes;
+}
+
+export function contentTypeMatches(pattern) {
+  return request.resource.contentType.matches(pattern);
+}
+
+export function contentTypeIsOneOf(types) {
+  return request.resource.contentType in types;
+}

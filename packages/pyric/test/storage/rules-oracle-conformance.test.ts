@@ -15,17 +15,10 @@
  * this completeness check is live even before any data exists.
  *
  * KNOWN-GAP CASES: the storage evaluator has no `UNSUPPORTED` verdict channel
- * (it returns allow/deny), so a case exercising a field the evaluator does not
- * model (e.g. resource.timeCreated) is marked `knownGap` in the corpus. Those
- * cases are RECORDED but NOT ASSERTED here — the exact analogue of the
- * Firestore replay skipping its simulator's UNSUPPORTED abstentions.
- *
- * STAGING STATE: no `rules-storage-*` observation has been captured yet (no
- * credentials were available to the staging branch, and no observation files
- * were fabricated). While the observation set is empty this suite SKIPS the
- * replay with a clear message and passes. The moment a capture lands, the
- * assertions go live verdict-for-verdict with no further edits — run
- * `packages/conformance/src/run-rules-storage.ts` with PARITY_SA_BASE64 to produce them.
+ * (it returns allow/deny), so any explicitly retained `knownGap` case is
+ * recorded but not asserted. Current captured Storage observations replay
+ * without known-gap skips; documented divergences remain registry rows rather
+ * than hidden expectations in this harness.
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -42,10 +35,10 @@ import {
 } from '../../src/rules/test/spec.ts';
 import {
   parseStorageRules,
-  evaluateStorageRules,
   type EvaluationInput,
   type FirestoreLookup,
-} from '../../src/storage/rules.ts';
+} from '../../src/storage/sandbox/rules.ts';
+import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
 
 // rules-storage-* observations live under the native 'storage-rules'
 // conformance surface (issue #184) — distinct from the SDK-surface 'storage'
@@ -69,41 +62,18 @@ interface RulesObservation {
  * Each entry pins BOTH sides so the suite stays green today but fails loudly
  * the moment either side's actual behavior changes, forcing a revisit.
  *
- * `rules-storage-verbs-umbrella-granular :: create allowed when object does
- * not exist (resource == null)`: CRITICAL, the highest severity a divergence
- * can carry. The evaluator ALLOWs where production DENIEs, which is the
- * over-permissive direction (see docs/storage/reference/conformance-gaps.md
- * for the direction rule: pyric-allows/production-denies is always the top
- * tier, pyric-denies/production-allows is always the lower one). It is not an
- * edge case: `allow create: if resource == null` is the canonical
- * create-if-absent guard, and in production no such rule ever allows.
- * Registry row `storage-rules#118`. Live-probed against the production Rules
- * Test API with BOTH an omitted `resource` field and an explicit
- * `resource: null` for a create where the object does not yet exist — both
- * shapes are the harness's correct wire encoding of "no existing object"
- * (`buildStorageApiTestCase` only sets the envelope `resource` when
- * `existingResource` is truthy, so `null`/omitted already send no `resource`
- * key). Production responds to BOTH shapes identically: a "Null value error"
- * at the `resource == null` comparison, and denies — i.e. referencing
- * `resource` when no object exists throws in production's engine rather than
- * evaluating the documented `resource == null` idiom. This rules out a
- * capture-harness bug: the wire shape sent was already correct. The pyric
- * evaluator instead models `resource` as an actual `null` value on create, so
- * `resource == null` evaluates true and allows — the documented, intuitive
- * semantics, but not what production does today.
- *
  * Keyed by `${observationName} :: ${caseKey}`.
  */
 const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; evalVerdict: 'ALLOW' | 'DENY'; reason: string; issue: string }
 > = {
-  'rules-storage-verbs-umbrella-granular :: create allowed when object does not exist (resource == null)': {
-    prodVerdict: 'DENY',
-    evalVerdict: 'ALLOW',
+  'rules-storage-firestore-lookup-budget :: budget: three distinct documents deny': {
+    prodVerdict: 'ALLOW',
+    evalVerdict: 'DENY',
     reason:
-      'production throws a "Null value error" referencing `resource` on a create where no object exists yet (live-probed with both an omitted resource field and an explicit null — both denied identically), instead of evaluating `resource == null` as documented; the evaluator models resource as null on create and allows, per the documented semantics',
-    issue: '#134',
+      'projects.test function mocks do not enforce the real-resource two-document Storage lookup budget; the evaluator follows the separately captured real-resource contract.',
+    issue: 'storage-rules#131',
   },
 };
 

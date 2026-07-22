@@ -1,3 +1,4 @@
+// @pyric-services cloud.firestore
 // Spaces module — cross-document membership gating for shared spaces
 // (teams, rooms, groups, projects, parties). The second-most-common
 // app shape after author-owned content: a PARENT document defines who

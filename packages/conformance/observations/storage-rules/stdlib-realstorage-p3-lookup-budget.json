@@ -1,0 +1,57 @@
+{
+  "name": "stdlib-realstorage-p3-lookup-budget",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents. The rig restores the exact prior Storage release and verifies all run-scoped data is absent before writing this file.",
+  "observedAt": "2026-07-21T12:38:05.502Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "bucket": "genkit-idx.firebasestorage.app",
+  "behavior": {
+    "one": "DENY",
+    "two": "DENY",
+    "three": "DENY",
+    "repeat": "DENY",
+    "get-exists": "DENY",
+    "short": "ALLOW",
+    "missing-exists": "DENY",
+    "missing-get": "DENY"
+  },
+  "diagnostics": {
+    "one": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/one/payload.bin'. (storage/unauthorized)"
+    },
+    "two": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/two/payload.bin'. (storage/unauthorized)"
+    },
+    "three": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/three/payload.bin'. (storage/unauthorized)"
+    },
+    "repeat": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/repeat/payload.bin'. (storage/unauthorized)"
+    },
+    "get-exists": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/get-exists/payload.bin'. (storage/unauthorized)"
+    },
+    "short": {},
+    "missing-exists": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/missing-exists/payload.bin'. (storage/unauthorized)"
+    },
+    "missing-get": {
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrun2s4i/missing-get/payload.bin'. (storage/unauthorized)"
+    }
+  },
+  "cleanup": {
+    "releaseRestored": true,
+    "objectsRemoved": true,
+    "documentsRemoved": true
+  },
+  "probeRulesetCreated": true
+}

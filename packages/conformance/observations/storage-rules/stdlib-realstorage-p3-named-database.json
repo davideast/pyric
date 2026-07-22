@@ -1,0 +1,61 @@
+{
+  "name": "stdlib-realstorage-p3-named-database",
+  "matrixRow": "",
+  "rowIds": ["storage-rules#131"],
+  "description": "Default versus existing named `probes` Firestore database lookups with opposite document values and verified fixtures.",
+  "observedAt": "2026-07-21T15:32:24.336Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "bucket": "digame-mas.appspot.com",
+  "behavior": {
+    "named-default:default-true-probes-false": "ALLOW",
+    "named-probes:default-true-probes-false": "DENY",
+    "named-default:default-false-probes-true": "DENY",
+    "named-probes:default-false-probes-true": "DENY"
+  },
+  "diagnostics": {
+    "named-default:default-true-probes-false": {
+      "allowed": true
+    },
+    "named-probes:default-true-probes-false": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut5igq/named-probes/phase-a.bin'. (storage/unauthorized)"
+    },
+    "named-default:default-false-probes-true": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut5igq/named-default/phase-b.bin'. (storage/unauthorized)"
+    },
+    "named-probes:default-false-probes-true": {
+      "allowed": false,
+      "code": "storage/unauthorized",
+      "message": "Firebase Storage: User does not have permission to access '__pyric_storage_stdlib/rmrut5igq/named-probes/phase-b.bin'. (storage/unauthorized)"
+    }
+  },
+  "cleanup": {
+    "releaseRestored": true,
+    "objectsRemoved": true,
+    "documentsRemoved": true,
+    "iamRestored": true
+  },
+  "requestBudget": {
+    "counts": {
+      "storage": 23,
+      "firestoreWrite": 22,
+      "rules": 7,
+      "iam": 6
+    },
+    "limits": {
+      "storage": 40,
+      "firestoreWrite": 25,
+      "rules": 20,
+      "iam": 12
+    }
+  },
+  "iam": {
+    "temporaryIam": true,
+    "iamChanged": true
+  },
+  "namedDatabase": "probes"
+}

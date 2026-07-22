@@ -163,14 +163,15 @@ this section removes.
 | firestore | `firestore/index.ts` barrel + per-family modules | `sandbox/firestore/` (engine) + `sandbox/admin-firestore/` (Admin chainable face) + `sandbox/admin-compat.ts` | central, one concept per file | central. the outlier |
 | auth | `auth/index.ts` | `auth/sandbox-backend.ts` | surface-local, one 2173-line file | surface-local |
 | database | `database/index.ts` | `database/sandbox/` (backend, data-tree, normalize, query, rules-eval, sentinels, push-id) | surface-local dir, one concept per file | surface-local. conforms |
-| storage | `storage/index.ts` (+ `storage/internal`) | inlined across `storage/service.ts`, `enforce.ts`, `rules.ts`, `persistence.ts`, `internal.ts` | surface-local, no `sandbox/` subdir | surface-local |
+| storage | `storage/index.ts` (+ `storage/internal`) | rules engine in `storage/sandbox/rules*.ts`; remaining backend across `storage/service.ts`, `enforce.ts`, `persistence.ts`, `internal.ts` | surface-local, partially migrated into `sandbox/` | surface-local |
 | messaging | `messaging/index.ts` (+ `sw`, `internal`) | `messaging/broker/` | surface-local dir | surface-local. conforms |
 | ai | `ai/index.ts` (+ `scripting`) | `ai/broker/` + `ai/backend.ts` + `ai/sandbox-plane.ts` | surface-local dir | surface-local. conforms |
 
 Read the last column top to bottom. The newest surfaces (ai, messaging) and the
 database surface already keep the backend inside the surface directory. Auth
-keeps it surface-local but in one oversized file. Storage keeps it surface-local
-but smeared across the surface root with no isolating subdirectory. Firestore,
+keeps it surface-local but in one oversized file. Storage is midway through its
+surface-local split: rules evaluation is isolated under `storage/sandbox/`,
+while service and persistence pieces remain at the surface root. Firestore,
 the oldest, is the only surface that puts its backend in central `sandbox/`.
 
 The convention ratifies what the newest code already does, not what the
@@ -302,21 +303,25 @@ Today's sideways edges, enumerated:
    priority, no climb blocks on it): host the wrapper classes as a shared
    `values/` leaf and have
    `rules/simulator` import them from there. That dissolves the sideways edge.
-   Until then it is a whitelisted exception (8.7 check 2). `storage/rules.ts`
-   became the wrapper leaf's SECOND sideways consumer when it adopted the
+   Until then it is a whitelisted exception (8.7 check 2). The
+   `storage/sandbox/rules*.ts` engine became the wrapper leaf's SECOND sideways
+   consumer when it adopted the
    RULES-B5 float model (`wrappers/float.js`, PR #333) — same ruling, and a
    second vote for the shared-leaf move: when the leaf lands, both edges
    dissolve together.
 
-3. **storage -> rules/grammar, shared syntax layer only.** Firebase Security
-   Rules is one language (#150); `storage/rules.ts` parses via the shared Ohm
+3. **storage -> rules grammar and module compiler, no foreign evaluator.** Firebase Security
+   Rules is one language (#150); `storage/sandbox/rules.ts` parses via the shared Ohm
    grammar (`rules/grammar/FirestoreParser.js`, `rules/grammar/FirestoreAST.js`)
-   and converts the shared AST into its own evaluator shapes. Ruling: permitted,
-   because the syntax layer is engine-neutral by design (its `serviceName` and
-   `Operation` productions are generic) and the alternative is the hand-rolled
-   parser drift #150 exists to kill. The dependency is parse-only: storage
-   imports no simulator, linter, or evaluation code from `rules/` (the float
-   wrapper edge above is tracked separately). Encode narrowly (8.7 check 2).
+   and converts the shared AST into its own evaluator shapes. Storage service
+   setup also calls the browser-safe module compiler
+   (`rules/modules/resolver-browser.js`) to lower `2+modules` source after its
+   service contracts have rejected incompatible exports and bindings. Ruling:
+   permitted, because grammar and module lowering are engine-neutral compiler
+   capabilities and the alternative is service-specific parser/compiler drift.
+   Storage imports no Firestore simulator, linter, or evaluation code from
+   `rules/` (the float wrapper edge above is tracked separately). Encode
+   narrowly (8.7 check 2).
 
 4. **app/dispatch.test.ts -> firestore/auth/database barrels.** An app-registry
    integration test importing surface barrels to exercise their public service
@@ -392,7 +397,7 @@ its own commit, export path unchanged).
 | shared sandbox runtime | cross-surface `sandbox/internal/sandbox-impl.ts` facade remains above the class/file triggers | `SandboxImpl` lifecycle facade with persistence/service-registry and event-history collaborators | dedicated mechanical follow-up before the next shared-runtime behavior climb ([ADR 0007](decisions/0007-firestore-runtime-splits-follow-up.md)) | extract collaborators without changing the `Sandbox` contract, service-registration ordering, or persistence lifecycle |
 | auth | one file `auth/sandbox-backend.ts`, 2173 lines (over the 600 trigger) | `auth/sandbox/backend.ts` facade + one concept per file | the next auth climb (blocking-function / before-state work) | `auth/sandbox-backend.ts` splits into `auth/sandbox/*`. Location is already correct (surface-local); the split only deepens it. The `auth-backend-split` branch target conforms (8.8) |
 | database | `database/sandbox/*`, one concept per file | unchanged. this is the reference example | no move | RTDB rule evaluation delegates through `database/sandbox/rules-eval.ts` to the native engine; no parser/compiler lives under the mirror |
-| storage | backend inlined across `storage/{service,enforce,rules,persistence,internal}.ts`, no `sandbox/` subdir | extract the backend into `storage/sandbox/` (StorageService, IDB store, rules-eval), keep `storage/internal` as the host seam | the next storage climb (metadata / list / rules slices) | the non-public backend logic in those files moves to `storage/sandbox/*`; the family and `internal` files stay; `pyric/storage/internal` subpath unchanged |
+| storage | rules engine split under `storage/sandbox/rules*.ts`; service, enforcement, persistence, and host seam remain at the surface root | finish extracting the backend into `storage/sandbox/` (StorageService and IDB store), keep `storage/internal` as the host seam | the next Storage service/persistence climb | remaining non-public backend logic moves to `storage/sandbox/*`; family and `internal` files stay; `pyric/storage/internal` subpath unchanged |
 | messaging | `messaging/broker/*` | unchanged. reference example | no move | nothing |
 | ai | `ai/broker/*` + `ai/backend.ts` + `ai/sandbox-plane.ts` | conforms. optional tidy: fold `backend.ts` and `sandbox-plane.ts` under `ai/sandbox/` for symmetry | opportunistic, next time ai backend is touched | low priority; not blocking |
 | rules | Firestore engine under `rules/*`; RTDB engine historically under `database/{grammar,constraints,simulation}` | both native engines under `rules/`, with RTDB isolated in `rules/rtdb/` | RTDB pure-engine relocation | move the RTDB grammar, constraints compiler, compiled tree, simulator, and their tests under `rules/rtdb/`; keep `pyric/rules` and `pyric/rules/internal/rtdb` import paths stable |
@@ -414,16 +419,19 @@ every rule in this section mechanically.
    that grows inline implementation.
 
 2. **No sideways surface imports.** For any file under `src/<A>/`, a relative
-   import that crosses into another surface `src/<B>/` fails, with four
+   import that crosses into another surface `src/<B>/` fails, with five
    whitelisted exceptions: (a) `database/sandbox/rules-eval.ts` importing the
    private `rules/rtdb` engine described in 8.3; (b) the
    `firestore/internal/value-codec -> rules/simulator/wrappers/*` leaf edge,
    listed explicitly
-   so it is visible and removable; (c) `storage/rules.ts` importing the shared
+   so it is visible and removable; (c) `storage/sandbox/rules.ts` importing the shared
    syntax layer `rules/grammar/{FirestoreParser,FirestoreAST}.js` (8.3 case 3,
-   parse-only); (d) `storage/rules.ts` importing
+   parse-only); (d) `storage/sandbox/rules.ts` and
+   `storage/sandbox/rules-{evaluator,methods,values}.ts` importing
    `rules/simulator/wrappers/float.js` (8.3 case 2's misfiled shared primitive,
-   second consumer — dissolves with the shared-leaf move). Any other
+   second consumer — dissolves with the shared-leaf move); (e)
+   `storage/service.ts` importing the browser-safe module compiler
+   `rules/modules/resolver-browser.js` (8.3 case 3, compile-only). Any other
    cross-surface deep import fails.
 
 3. **Central-sandbox whitelist.** The top-level entries of `src/sandbox/` must

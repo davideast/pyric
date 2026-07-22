@@ -1,0 +1,6 @@
+{
+  "observation": "rules-storage-stdlib-storage-modules",
+  "scope": "normalized-function-ast",
+  "sha256": "3c83476e7eb8147158a2f4c1ada740c10d7d1b68f643b7e8720d4aec4561b318",
+  "basis": "reviewed-reconstruction-from-historical-capture-code"
+}

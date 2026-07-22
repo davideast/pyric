@@ -249,7 +249,7 @@ service firebase.storage {
     const root = container.querySelector('[data-pyric-ui="upload-dropzone"]') as HTMLElement;
     // The gate fails open while loading, then the denial lands.
     await waitFor(() => expect(root.hasAttribute('data-disabled')).toBe(true));
-    expect(root.getAttribute('data-disabled-reason')).toContain('condition false');
+    expect(root.getAttribute('data-disabled-reason')).toContain('Property auth is undefined');
 
     // The owner's context stays enabled — verdicts flip with identity.
     const { container: ownerC } = render(<GatedDropzone storage={owner} />);

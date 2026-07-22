@@ -1,0 +1,97 @@
+{
+  "name": "stdlib-storage-p1-universal-families",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Identical pure Rules function bodies under Firestore and Storage for string, list, Map/MapDiff/Set, math, hashing, duration/timestamp, and LatLng candidates; includes the invalid math.isInfinite control.",
+  "observedAt": "2026-07-21T12:32:35.105Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "firestore: string": "ALLOW",
+    "firestore: list": "ALLOW",
+    "firestore: mapSet": "ALLOW",
+    "firestore: math": "ALLOW",
+    "firestore: hashing": "ALLOW",
+    "firestore: valueTypes": "ALLOW",
+    "firestore: invalidMathIsInfinite": "DENY",
+    "storage: string": "ALLOW",
+    "storage: list": "ALLOW",
+    "storage: mapSet": "ALLOW",
+    "storage: math": "ALLOW",
+    "storage: hashing": "ALLOW",
+    "storage: valueTypes": "ALLOW",
+    "storage: invalidMathIsInfinite": "DENY"
+  },
+  "diagnostics": {
+    "firestore: invalidMathIsInfinite": {
+      "notes": [
+        "Error: firestore.rules line [1], column [118]. Function not found error: Name: [math.isInfinite]."
+      ],
+      "issues": [
+        {
+          "sourcePosition": {
+            "fileName": "firestore.rules",
+            "line": 1,
+            "column": 123,
+            "currentOffset": 122,
+            "endOffset": 131
+          },
+          "description": "Invalid function name: math.isInfinite.",
+          "severity": "WARNING"
+        }
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 1,
+          "column": 118,
+          "currentOffset": 117,
+          "endOffset": 120
+        },
+        "functionCalls": [
+          {
+            "function": "math.isInfinite",
+            "args": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "storage: invalidMathIsInfinite": {
+      "notes": [
+        "Error: storage.rules line [1], column [101]. Function not found error: Name: [math.isInfinite]."
+      ],
+      "issues": [
+        {
+          "sourcePosition": {
+            "fileName": "storage.rules",
+            "line": 1,
+            "column": 106,
+            "currentOffset": 105,
+            "endOffset": 114
+          },
+          "description": "Invalid function name: math.isInfinite.",
+          "severity": "WARNING"
+        }
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 1,
+          "column": 101,
+          "currentOffset": 100,
+          "endOffset": 103
+        },
+        "functionCalls": [
+          {
+            "function": "math.isInfinite",
+            "args": [
+              1
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
