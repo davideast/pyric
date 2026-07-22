@@ -1,0 +1,161 @@
+{
+  "name": "rtdb-modular-reference-shape-url",
+  "matrixRow": "rtdb-modular#100-105, rtdb-modular#174, rtdb-modular#M93",
+  "rowIds": [
+    "rtdb-modular#100",
+    "rtdb-modular#101",
+    "rtdb-modular#102",
+    "rtdb-modular#103",
+    "rtdb-modular#104",
+    "rtdb-modular#105",
+    "rtdb-modular#174",
+    "rtdb-modular#M93"
+  ],
+  "description": "Reference navigation/string shape, ref/child/refFromURL validation, forged-reference failure timing, and a successful normal read control.",
+  "observedAt": "2026-07-22T10:51:38.184Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "root": {
+      "key": null,
+      "parent": null,
+      "rootKey": null,
+      "toString": {
+        "protocol": "https:",
+        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "pathMatches": true
+      }
+    },
+    "nested": {
+      "key": "child",
+      "parentKey": "parent",
+      "rootKey": null,
+      "toString": {
+        "protocol": "https:",
+        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "pathMatches": true
+      },
+      "childToStringMatches": true
+    },
+    "queryIdentity": {
+      "referenceToJSON": {
+        "protocol": "https:",
+        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "pathMatches": true
+      },
+      "queryToJSON": {
+        "protocol": "https:",
+        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "pathMatches": true
+      },
+      "sameReference": true,
+      "defaultQueryEqualsReference": true,
+      "referenceEqualsDefaultQuery": true,
+      "equivalentConstraintOrder": true,
+      "differentSpec": false,
+      "differentPath": false,
+      "differentApp": false,
+      "nullValue": false,
+      "nonQuery": false
+    },
+    "referenceValidation": {
+      "invalidRefPaths": [
+        {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "child failed: path argument was an invalid path = \"bad.path\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "child failed: path argument was an invalid path = \"bad#path\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "child failed: path argument was an invalid path = \"bad$path\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "child failed: path argument was an invalid path = \"bad[path\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "child failed: path argument was an invalid path = \"bad]path\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        }
+      ],
+      "invalidChildPath": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "child failed: path argument was an invalid path = \"bad#path\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+      },
+      "emptyChildPath": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "child failed: path argument was an invalid path = \"\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+      },
+      "fragmentUrl": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "refFromURL failed: url argument must be a valid firebase URL and the path can't contain \".\", \"#\", \"$\", \"[\", or \"]\"."
+      },
+      "ftpUrl": {
+        "protocol": "https:",
+        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "pathMatches": true
+      },
+      "queryUrl": {
+        "protocol": "https:",
+        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "pathMatches": true
+      }
+    },
+    "matchingUrl": {
+      "key": "child",
+      "value": {
+        "ok": true
+      },
+      "toString": {
+        "protocol": "https:",
+        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "pathMatches": true
+      }
+    },
+    "mismatchedHost": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found other-digame-mas-default-rtdb.firebaseio.com but expected digame-mas-default-rtdb.firebaseio.com) "
+    },
+    "malformedUrl": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "FIREBASE FATAL ERROR: Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com "
+    },
+    "forgedReference": {
+      "timing": "synchronous-throw",
+      "name": "TypeError",
+      "code": null,
+      "message": "undefined is not an object (evaluating 'repo.serverSyncTree_')"
+    },
+    "terminal": {
+      "parent": {
+        "child": {
+          "ok": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "rtdb-modular-concurrent-transforms",
+  "matrixRow": "rtdb-modular#M37h, rtdb-modular#157, rtdb-modular#161",
+  "rowIds": [
+    "rtdb-modular#M37h",
+    "rtdb-modular#157",
+    "rtdb-modular#161"
+  ],
+  "description": "Two-client concurrent increments and transactions preserve both updates, with transaction retry evidence and independent terminal reads.",
+  "observedAt": "2026-07-22T06:23:59.500Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "incrementTerminal": 5,
+    "transactionTerminal": 2,
+    "committed": [
+      true,
+      true
+    ],
+    "retryObserved": true,
+    "invocationCountsSorted": [
+      2,
+      3
+    ],
+    "finalSnapshotsSorted": [
+      1,
+      2
+    ]
+  }
+}

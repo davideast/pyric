@@ -1,0 +1,137 @@
+{
+  "name": "rtdb-modular-listener-cancellation",
+  "matrixRow": "rtdb-modular#M75a",
+  "rowIds": [
+    "rtdb-modular#M75a"
+  ],
+  "description": "Cancellation callback timing and Firebase error shape for initially denied and subsequently revoked value/child listeners, with successful read controls and exact rules restoration.",
+  "observedAt": "2026-07-22T08:41:30.266Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "allowedControl": {
+      "ok": true
+    },
+    "denied": {
+      "value": {
+        "synchronous": null,
+        "cancellations": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ]
+      },
+      "child_added": {
+        "synchronous": null,
+        "cancellations": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ]
+      },
+      "child_changed": {
+        "synchronous": null,
+        "cancellations": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ]
+      },
+      "child_removed": {
+        "synchronous": null,
+        "cancellations": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ]
+      },
+      "child_moved": {
+        "synchronous": null,
+        "cancellations": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ]
+      }
+    },
+    "revoked": {
+      "deliveryCounts": {
+        "value": 1,
+        "child_added": 1,
+        "child_changed": 0,
+        "child_removed": 0,
+        "child_moved": 0
+      },
+      "cancellations": {
+        "value": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ],
+        "child_added": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ],
+        "child_changed": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ],
+        "child_removed": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ],
+        "child_moved": [
+          {
+            "name": "Error",
+            "code": "PERMISSION_DENIED",
+            "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+          }
+        ]
+      }
+    },
+    "controlAfterRevocation": {
+      "ok": true
+    },
+    "callbacklessAuth": {
+      "deliveries": [
+        {
+          "value": 0
+        }
+      ],
+      "signedOutCancellations": [
+        {
+          "name": "Error",
+          "code": "PERMISSION_DENIED",
+          "message": "permission_denied at <path>: Client doesn't have permission to access the desired data."
+        }
+      ],
+      "freshControlDeliveries": [
+        {
+          "value": 1
+        }
+      ]
+    }
+  }
+}

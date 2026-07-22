@@ -178,6 +178,7 @@ import {
   type SimulationInput,
 } from 'pyric/rules/internal/rtdb';
 import { createRtdbDisconnectProbes } from './capture/rtdb-disconnect/probes.ts';
+import { loadRtdbClimbProbes } from './capture/rtdb-climb/load-probes.ts';
 
 // ─── Setup ────────────────────────────────────────────────────────────
 
@@ -943,7 +944,16 @@ async function attemptCode(step: () => Promise<unknown>): Promise<string | null>
 
 // ─── Probes ───────────────────────────────────────────────────────────
 
+const rtdbClimbProbes = config.databaseURL && rtdbAdminToken
+  ? await loadRtdbClimbProbes({
+      config: { ...config, databaseURL: config.databaseURL },
+      rtdbAdminToken,
+      runId: RUN_ID,
+    })
+  : [];
+
 const probes: Probe[] = [
+  ...rtdbClimbProbes,
   ...(config.databaseURL && serviceAccount && rtdbAdminToken
     ? createRtdbDisconnectProbes({
         config: { ...config, databaseURL: config.databaseURL },

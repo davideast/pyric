@@ -1,0 +1,212 @@
+{
+  "name": "rtdb-modular-runtime-class-identity",
+  "matrixRow": "rtdb-modular#M85, rtdb-modular#M86, rtdb-modular#M87, rtdb-modular#M88",
+  "rowIds": [
+    "rtdb-modular#M85",
+    "rtdb-modular#M86",
+    "rtdb-modular#M87",
+    "rtdb-modular#M88"
+  ],
+  "description": "Runtime constructor exports, actual-instance prototype identity, direct construction, and TransactionResult.toJSON behavior.",
+  "observedAt": "2026-07-22T09:22:40.835Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "exportTypes": {
+      "Database": "function",
+      "DataSnapshot": "function",
+      "QueryConstraint": "function",
+      "TransactionResult": "function"
+    },
+    "database": {
+      "constructorName": "Database",
+      "instanceOf": true,
+      "prototypeIsExportPrototype": true,
+      "prototypeKeys": [
+        "_checkNotDeleted",
+        "_delete",
+        "_repo",
+        "_root",
+        "constructor"
+      ]
+    },
+    "snapshot": {
+      "constructorName": "DataSnapshot",
+      "instanceOf": true,
+      "prototypeIsExportPrototype": true,
+      "prototypeKeys": [
+        "child",
+        "constructor",
+        "exists",
+        "exportVal",
+        "forEach",
+        "hasChild",
+        "hasChildren",
+        "key",
+        "priority",
+        "size",
+        "toJSON",
+        "val"
+      ]
+    },
+    "queryConstraint": {
+      "constructorName": "QueryOrderByKeyConstraint",
+      "instanceOf": true,
+      "prototypeIsExportPrototype": false,
+      "prototypeKeys": [
+        "_apply",
+        "constructor"
+      ]
+    },
+    "constraintFactories": {
+      "orderByChild": {
+        "constructorName": "QueryOrderByChildConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "orderByKey": {
+        "constructorName": "QueryOrderByKeyConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "orderByPriority": {
+        "constructorName": "QueryOrderByPriorityConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "orderByValue": {
+        "constructorName": "QueryOrderByValueConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "startAt": {
+        "constructorName": "QueryStartAtConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "startAfter": {
+        "constructorName": "QueryStartAfterConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "endAt": {
+        "constructorName": "QueryEndAtConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "endBefore": {
+        "constructorName": "QueryEndBeforeConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "equalTo": {
+        "constructorName": "QueryEqualToValueConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "limitToFirst": {
+        "constructorName": "QueryLimitToFirstConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      },
+      "limitToLast": {
+        "constructorName": "QueryLimitToLastConstraint",
+        "instanceOf": true,
+        "prototypeIsExportPrototype": false,
+        "prototypeKeys": [
+          "_apply",
+          "constructor"
+        ]
+      }
+    },
+    "transactionResult": {
+      "constructorName": "TransactionResult",
+      "instanceOf": true,
+      "prototypeIsExportPrototype": true,
+      "prototypeKeys": [
+        "constructor",
+        "toJSON"
+      ],
+      "toJSONType": "function",
+      "toJSON": {
+        "committed": true,
+        "snapshot": 1
+      }
+    },
+    "directConstruction": {
+      "Database": {
+        "threw": false,
+        "constructorName": "Database",
+        "ownKeys": [
+          "_instanceStarted",
+          "_repoInternal",
+          "app",
+          "type"
+        ]
+      },
+      "DataSnapshot": {
+        "threw": false,
+        "constructorName": "DataSnapshot",
+        "ownKeys": [
+          "_index",
+          "_node",
+          "ref"
+        ]
+      },
+      "QueryConstraint": {
+        "threw": false,
+        "constructorName": "QueryConstraint",
+        "ownKeys": []
+      },
+      "TransactionResult": {
+        "threw": false,
+        "constructorName": "TransactionResult",
+        "ownKeys": [
+          "committed",
+          "snapshot"
+        ]
+      }
+    }
+  }
+}

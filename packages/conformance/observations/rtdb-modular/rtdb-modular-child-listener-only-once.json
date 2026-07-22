@@ -1,0 +1,47 @@
+{
+  "name": "rtdb-modular-child-listener-only-once",
+  "matrixRow": "rtdb-modular#M75d",
+  "rowIds": [
+    "rtdb-modular#M75d"
+  ],
+  "description": "Child-listener options and cancellation-plus-options overloads stop after the first added, changed, removed, or moved delivery.",
+  "observedAt": "2026-07-22T08:02:47.888Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "added": [
+      [
+        "c",
+        "b"
+      ],
+      [
+        "b",
+        "a"
+      ],
+      [
+        "a",
+        null
+      ]
+    ],
+    "changed": [
+      [
+        "a",
+        null
+      ]
+    ],
+    "removed": [
+      [
+        "b",
+        null
+      ]
+    ],
+    "moved": [
+      [
+        "a",
+        "c"
+      ]
+    ],
+    "cancellations": []
+  }
+}

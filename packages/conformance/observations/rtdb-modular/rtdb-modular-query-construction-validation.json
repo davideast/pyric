@@ -1,0 +1,686 @@
+{
+  "name": "rtdb-modular-query-construction-validation",
+  "matrixRow": "rtdb-modular#M94",
+  "rowIds": [
+    "rtdb-modular#M94"
+  ],
+  "description": "Synchronous query-constraint validation for limits, child paths, cursor keys and index-specific endpoint values, with accepted-construction and successful online-write controls.",
+  "observedAt": "2026-07-22T10:02:29.471Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "limits": {
+      "limitToFirst": {
+        "one": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "positiveInfinity": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "zero": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToFirst: First argument must be a positive integer."
+        },
+        "negative": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToFirst: First argument must be a positive integer."
+        },
+        "fractional": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToFirst: First argument must be a positive integer."
+        },
+        "nan": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToFirst: First argument must be a positive integer."
+        },
+        "negativeInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToFirst: First argument must be a positive integer."
+        },
+        "nonNumber": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToFirst: First argument must be a positive integer."
+        }
+      },
+      "limitToLast": {
+        "one": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "positiveInfinity": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "zero": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToLast: First argument must be a positive integer."
+        },
+        "negative": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToLast: First argument must be a positive integer."
+        },
+        "fractional": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToLast: First argument must be a positive integer."
+        },
+        "nan": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToLast: First argument must be a positive integer."
+        },
+        "negativeInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToLast: First argument must be a positive integer."
+        },
+        "nonNumber": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "limitToLast: First argument must be a positive integer."
+        }
+      }
+    },
+    "orderByChild": {
+      "reserved": {
+        "key": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild: \"$key\" is invalid.  Use orderByKey() instead."
+        },
+        "priority": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild: \"$priority\" is invalid.  Use orderByPriority() instead."
+        },
+        "value": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild: \"$value\" is invalid.  Use orderByValue() instead."
+        }
+      },
+      "invalid": {
+        "empty": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild failed: path argument was an invalid path = \"\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        "nonString": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild failed: path argument was an invalid path = \"1\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        "dot": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild failed: path argument was an invalid path = \"a.b\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        "hash": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild failed: path argument was an invalid path = \"a#b\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        "dollar": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild failed: path argument was an invalid path = \"a$b\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        "openBracket": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild failed: path argument was an invalid path = \"a[b\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        "closeBracket": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild failed: path argument was an invalid path = \"a]b\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        "control": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild failed: path argument was an invalid path = \"a\u0000b\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+        },
+        "rootSlash": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "orderByChild: cannot pass in empty path. Use orderByValue() instead."
+        }
+      },
+      "accepted": {
+        "nested": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "ordinary": {
+          "timing": "resolved",
+          "value": "accepted"
+        }
+      }
+    },
+    "cursorKeys": {
+      "eachEndpoint": {
+        "startAt": {
+          "invalidKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "startAt failed: key argument was an invalid key = \"bad/key\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+          },
+          "acceptedOmitted": {
+            "timing": "resolved",
+            "value": "accepted"
+          },
+          "acceptedValid": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        },
+        "startAfter": {
+          "invalidKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "startAfter failed: key argument was an invalid key = \"bad/key\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+          },
+          "acceptedOmitted": {
+            "timing": "resolved",
+            "value": "accepted"
+          },
+          "acceptedValid": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        },
+        "endAt": {
+          "invalidKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "endAt failed: key argument was an invalid key = \"bad/key\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+          },
+          "acceptedOmitted": {
+            "timing": "resolved",
+            "value": "accepted"
+          },
+          "acceptedValid": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        },
+        "endBefore": {
+          "invalidKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "endBefore failed: key argument was an invalid key = \"bad/key\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+          },
+          "acceptedOmitted": {
+            "timing": "resolved",
+            "value": "accepted"
+          },
+          "acceptedValid": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        },
+        "equalTo": {
+          "invalidKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "equalTo failed: key argument was an invalid key = \"bad/key\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+          },
+          "acceptedOmitted": {
+            "timing": "resolved",
+            "value": "accepted"
+          },
+          "acceptedValid": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        }
+      },
+      "invalidStartAtKeys": {
+        "empty": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: key argument was an invalid key = \"\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+        },
+        "nonString": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: key argument was an invalid key = \"2\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+        },
+        "dot": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: key argument was an invalid key = \".\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+        },
+        "hash": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: key argument was an invalid key = \"#\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+        },
+        "dollar": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: key argument was an invalid key = \"$\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+        },
+        "slash": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: key argument was an invalid key = \"/\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+        },
+        "openBracket": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: key argument was an invalid key = \"[\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+        },
+        "closeBracket": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: key argument was an invalid key = \"]\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+        },
+        "control": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: key argument was an invalid key = \"\u0000\".  Firebase keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\")."
+        }
+      }
+    },
+    "orderByKeyEndpoints": {
+      "eachEndpoint": {
+        "startAt": {
+          "nonString": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, the argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() must be a string."
+          },
+          "secondKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, you may only pass one argument to startAt(), endAt(), or equalTo()."
+          },
+          "accepted": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        },
+        "startAfter": {
+          "nonString": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, the argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() must be a string."
+          },
+          "secondKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, you may only pass one argument to startAt(), endAt(), or equalTo()."
+          },
+          "accepted": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        },
+        "endAt": {
+          "nonString": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, the argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() must be a string."
+          },
+          "secondKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, you may only pass one argument to startAt(), endAt(), or equalTo()."
+          },
+          "accepted": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        },
+        "endBefore": {
+          "nonString": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, the argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() must be a string."
+          },
+          "secondKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, you may only pass one argument to startAt(), endAt(), or equalTo()."
+          },
+          "accepted": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        },
+        "equalTo": {
+          "nonString": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, the argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() must be a string."
+          },
+          "secondKey": {
+            "timing": "synchronous-throw",
+            "name": "Error",
+            "code": null,
+            "message": "Query: When ordering by key, you may only pass one argument to startAt(), endAt(), or equalTo()."
+          },
+          "accepted": {
+            "timing": "resolved",
+            "value": "accepted"
+          }
+        }
+      },
+      "nullValue": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: When ordering by key, the argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() must be a string."
+      },
+      "boolean": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: When ordering by key, the argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() must be a string."
+      },
+      "object": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: When ordering by key, the argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() must be a string."
+      },
+      "reversedOrder": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: When ordering by key, the argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() must be a string."
+      }
+    },
+    "undefinedEndpoints": {
+      "startAt": {
+        "timing": "resolved",
+        "value": "accepted"
+      },
+      "endAt": {
+        "timing": "resolved",
+        "value": "accepted"
+      },
+      "startAfter": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "startAfter failed: value argument contains undefined "
+      },
+      "endBefore": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "endBefore failed: value argument contains undefined "
+      },
+      "equalTo": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "equalTo failed: value argument contains undefined "
+      }
+    },
+    "valueValidation": {
+      "startAt": {
+        "nan": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: value argument contains NaN "
+        },
+        "positiveInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: value argument contains Infinity "
+        },
+        "negativeInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: value argument contains -Infinity "
+        },
+        "invalidNestedKey": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAt failed: value argument  contains an invalid key (bad.key) .  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+        }
+      },
+      "startAfter": {
+        "nan": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAfter failed: value argument contains NaN "
+        },
+        "positiveInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAfter failed: value argument contains Infinity "
+        },
+        "negativeInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAfter failed: value argument contains -Infinity "
+        },
+        "invalidNestedKey": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "startAfter failed: value argument  contains an invalid key (bad.key) .  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+        }
+      },
+      "endAt": {
+        "nan": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "endAt failed: value argument contains NaN "
+        },
+        "positiveInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "endAt failed: value argument contains Infinity "
+        },
+        "negativeInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "endAt failed: value argument contains -Infinity "
+        },
+        "invalidNestedKey": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "endAt failed: value argument  contains an invalid key (bad.key) .  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+        }
+      },
+      "endBefore": {
+        "nan": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "endBefore failed: value argument contains NaN "
+        },
+        "positiveInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "endBefore failed: value argument contains Infinity "
+        },
+        "negativeInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "endBefore failed: value argument contains -Infinity "
+        },
+        "invalidNestedKey": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "endBefore failed: value argument  contains an invalid key (bad.key) .  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+        }
+      },
+      "equalTo": {
+        "nan": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "equalTo failed: value argument contains NaN "
+        },
+        "positiveInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "equalTo failed: value argument contains Infinity "
+        },
+        "negativeInfinity": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "equalTo failed: value argument contains -Infinity "
+        },
+        "invalidNestedKey": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "equalTo failed: value argument  contains an invalid key (bad.key) .  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+        }
+      }
+    },
+    "byIndex": {
+      "defaultPriority": {
+        "serverTimestamp": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "boolean": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string)."
+        },
+        "object": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string)."
+        }
+      },
+      "explicitPriority": {
+        "serverTimestamp": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "boolean": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string)."
+        },
+        "object": {
+          "timing": "synchronous-throw",
+          "name": "Error",
+          "code": null,
+          "message": "Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string)."
+        }
+      },
+      "orderByChildObject": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: First argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() cannot be an object."
+      },
+      "orderByValueObject": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: First argument passed to startAt(), startAfter(), endAt(), endBefore(), or equalTo() cannot be an object."
+      },
+      "orderByValueAccepted": {
+        "boolean": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "nullValue": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "string": {
+          "timing": "resolved",
+          "value": "accepted"
+        },
+        "number": {
+          "timing": "resolved",
+          "value": "accepted"
+        }
+      }
+    },
+    "contractDigest": "d8e121139846b37dec3df876f9f26256af5b32459377dc4ecfac7a01c2a1f362",
+    "normalWriteControl": {
+      "control": true
+    }
+  }
+}
