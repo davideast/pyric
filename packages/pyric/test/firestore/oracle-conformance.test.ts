@@ -860,6 +860,32 @@ describe('oracle conformance (firestore)', () => {
 
   // ── query / snapshot equality ────────────────────────────────────────
 
+  it('firestore#116 rejects nested query arrays during construction', () => {
+    const obs = load('firestore-query-nested-array-validation.json');
+    const db = freshDb();
+    const base = collection(db, 'c');
+    const constructionError = (value: unknown): { rejected: boolean; code: string | null } => {
+      try {
+        query(base, where('value', '==', value));
+        return { rejected: false, code: null };
+      } catch (error) {
+        return {
+          rejected: true,
+          code: typeof (error as { code?: unknown })?.code === 'string'
+            ? (error as { code: string }).code
+            : null,
+        };
+      }
+    };
+
+    const nestedArray = constructionError([[1]]);
+    expect(nestedArray.rejected).toBe(obs.nestedArrayRejected as boolean);
+    expect(nestedArray.code).toBe(obs.nestedArrayErrorCode as string);
+    const mapNestedArray = constructionError({ nested: [[1]] });
+    expect(mapNestedArray.rejected).toBe(obs.mapNestedArrayRejected as boolean);
+    expect(mapNestedArray.code).toBe(obs.mapNestedArrayErrorCode as string);
+  });
+
   it('firestore#116 queryEqual matches captured primitive and object constraints', async () => {
     const obs = load('firestore-queryequal-structural.json');
 

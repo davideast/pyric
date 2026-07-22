@@ -1333,6 +1333,36 @@ const probes: Probe[] = [
     },
   },
   {
+    name: 'firestore-query-nested-array-validation',
+    matrixRow: 'firestore #116',
+    rowIds: ['firestore#116'],
+    description: 'Client-side query construction rejects nested arrays at every map depth.',
+    async observe() {
+      const c = collection(db, RUN_DOC('query-nested-array-validation'));
+      const constructionError = (value: unknown): { rejected: boolean; code: string | null } => {
+        try {
+          query(c, where('value', '==', value));
+          return { rejected: false, code: null };
+        } catch (error) {
+          return {
+            rejected: true,
+            code: typeof (error as { code?: unknown })?.code === 'string'
+              ? (error as { code: string }).code
+              : null,
+          };
+        }
+      };
+      const nestedArray = constructionError([[1]]);
+      const mapNestedArray = constructionError({ nested: [[1]] });
+      return {
+        nestedArrayRejected: nestedArray.rejected,
+        nestedArrayErrorCode: nestedArray.code,
+        mapNestedArrayRejected: mapNestedArray.rejected,
+        mapNestedArrayErrorCode: mapNestedArray.code,
+      };
+    },
+  },
+  {
     name: 'firestore-snapshotequal-structural',
     matrixRow: 'firestore #117',
     rowIds: ['firestore#117'],

@@ -28,6 +28,13 @@ describe('captured query operand equality', () => {
     }
   });
 
+  test('rejects direct nested arrays while allowing arrays below a map boundary', () => {
+    expect(() => captureQueryOperand([[1]])).toThrow();
+    expect(() => captureQueryOperand({ nested: [[1]] })).toThrow();
+    expect(() => captureQueryOperand([{ nested: [1] }])).not.toThrow();
+    expect(() => captureQueryOperand({ nested: [{ values: [1] }] })).not.toThrow();
+  });
+
   test('preserves numeric signs and normalizes Date to Timestamp', () => {
     expect(capturedQueryOperandsEqual(captureQueryOperand(-0), captureQueryOperand(0))).toBe(false);
     expect(capturedQueryOperandsEqual(

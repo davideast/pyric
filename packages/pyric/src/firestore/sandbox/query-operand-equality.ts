@@ -28,6 +28,7 @@ function canonicalize(
   value: unknown,
   ancestors: Set<object>,
   owner?: object,
+  parentIsArray = false,
 ): CanonicalQueryValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return { comparison: value, execution: value };
@@ -89,7 +90,8 @@ function canonicalize(
   ancestors.add(value);
   try {
     if (Array.isArray(value)) {
-      const entries = value.map((entry) => canonicalize(entry, ancestors, owner));
+      if (parentIsArray) throw invalidOperand('Nested arrays are not supported.');
+      const entries = value.map((entry) => canonicalize(entry, ancestors, owner, true));
       const execution = entries.map((entry) => entry.execution);
       registerActivityValue(execution, activityValue(value));
       return {
@@ -109,6 +111,7 @@ function canonicalize(
           (value as Record<string, unknown>)[key],
           ancestors,
           owner,
+          false,
         ),
       }));
     const execution = Object.fromEntries(

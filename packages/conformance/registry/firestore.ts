@@ -1594,14 +1594,14 @@ export const firestoreRegistry = {
         row18({
           rowRef: "116",
           featureKeys: ["queryEqual"],
-          behavior: "`queryEqual(a, b)` structurally compares collection and collection-group scope, filter/order/limit/cursor constraint structure, converter identity, and construction-time Firestore value snapshots for both equality and execution without re-observing caller objects. Snapshots cover maps/arrays, scalar objects, references (including raw and converted `addDoc()` results), and vectors; normalize Date to Timestamp; preserve the distinction between -0 and 0; compare snapshot and explicit bounds for all four cursor overloads by value without invoking snapshot converters, including across live-target rebuilds; and reject undefined, bigint, and recursively nested cross-database reference operands during query construction.",
+          behavior: "`queryEqual(a, b)` structurally compares collection and collection-group scope, filter/order/limit/cursor constraint structure, converter identity, and construction-time Firestore value snapshots for both equality and execution without re-observing caller objects. Snapshots cover maps/arrays, scalar objects, references (including raw and converted `addDoc()` results), and vectors; normalize Date to Timestamp; preserve the distinction between -0 and 0; compare snapshot and explicit bounds for all four cursor overloads by value without invoking snapshot converters, including across live-target rebuilds; and reject undefined, bigint, nested arrays, and recursively nested cross-database reference operands during query construction.",
           status: "conforms",
-          evidence: "Oracle-locked by `packages/conformance/observations/firestore/firestore-queryequal-structural.json`: collection and collection-group scope, order sequence/direction, limits, composite filters, cursor values/inclusivity, converters, and Firestore operands all distinguish equal from changed queries as production does. The capture executes mutable maps, Timestamp, Bytes, GeoPoint, DocumentReference (including raw and converted `addDoc()` results), and Vector queries; proves Bytes/Vector source-array mutation cannot change existing or new queries; proves all four snapshot cursor overloads compare with explicit bounds and execute twice without invoking a consumer converter; and locks recursive foreign-reference rejection, Date/Timestamp normalization, and -0 handling. The replay forces live-target identity rebuilds for every snapshot cursor overload. `oracle:firestore#116` replays every claimed fact.",
+          evidence: "Oracle-locked by `packages/conformance/observations/firestore/firestore-queryequal-structural.json`: collection and collection-group scope, order sequence/direction, limits, composite filters, cursor values/inclusivity, converters, and Firestore operands all distinguish equal from changed queries as production does. The capture executes mutable maps, Timestamp, Bytes, GeoPoint, DocumentReference (including raw and converted `addDoc()` results), and Vector queries; proves Bytes/Vector source-array mutation cannot change existing or new queries; proves all four snapshot cursor overloads compare with explicit bounds and execute twice without invoking a consumer converter; and locks recursive foreign-reference rejection, Date/Timestamp normalization, and -0 handling. `firestore-query-nested-array-validation.json` separately pins the production SDK's client-side rejection of nested arrays without implying a cloud round trip. The replay forces live-target identity rebuilds for every snapshot cursor overload. `oracle:firestore#116` replays every claimed fact.",
           risk: ["specific-field"],
           riskScore: 1,
           riskReasons: ["asserts a specific field/property value"],
           automation: "oracle-backed",
-          oracleObservations: ["firestore-queryequal-structural"],
+          oracleObservations: ["firestore-queryequal-structural","firestore-query-nested-array-validation"],
           conformanceTests: ["packages/pyric/test/firestore/oracle-conformance.test.ts","packages/pyric/test/firestore/equality.test.ts"],
           conformanceChecks: [{
             "finding":"FS-116",
@@ -1698,6 +1698,17 @@ export const firestoreRegistry = {
             },
             "probe":"packages/pyric/test/firestore/oracle-conformance.test.ts",
             "guards":"queryEqual matches production scope, filter/order/limit/cursor structure, value normalization, validation, converter identity, getter and snapshot-converter lifecycle across live rebuilds, addDoc reference operands, and immutable execution operands.",
+          },{
+            "finding":"FS-116-NESTED-ARRAY",
+            "observation":"firestore-query-nested-array-validation",
+            "expect":{
+              "nestedArrayRejected":true,
+              "nestedArrayErrorCode":"invalid-argument",
+              "mapNestedArrayRejected":true,
+              "mapNestedArrayErrorCode":"invalid-argument"
+            },
+            "probe":"packages/pyric/test/firestore/oracle-conformance.test.ts",
+            "guards":"query construction rejects nested arrays at the top level and recursively inside maps, matching the production SDK's client-side validation."
           }],
         }),
         row18({
