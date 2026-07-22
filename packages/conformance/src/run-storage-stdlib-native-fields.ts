@@ -8,6 +8,7 @@ import {
 } from './storage-stdlib-real-api.ts';
 import {
   RequestBudget,
+  STORAGE_CLEANUP_LIMITS,
   STORAGE_PROBE_LIMITS,
   runCleanupSteps,
 } from './storage-stdlib-real-budget.ts';
@@ -80,6 +81,7 @@ export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebC
   const config = await storageConfig(sa, headers);
   if (config.projectId !== web.projectId) throw new Error('Web config and Storage probe service account target different projects');
   const budget = new RequestBudget({ ...STORAGE_PROBE_LIMITS });
+  const cleanupBudget = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
   const snapshot = await storageRulesSnapshot(sa, config.storageBucket, headers, budget);
   const rulesFile = selectRulesFile(snapshot.ruleset);
   const runId = `r${Date.now().toString(36)}`;
@@ -188,8 +190,8 @@ export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebC
     }
   } finally {
     await runCleanupSteps([
-      { label: 'restore Storage release', run: async () => { releaseRestored = await restoreStorageRelease(headers, budget, snapshot); } },
-      { label: 'delete Storage objects', run: async () => { objectsRemoved = await deleteStorageObjects(config.storageBucket, prefix, createdObjects, headers, budget); } },
+      { label: 'restore Storage release', run: async () => { releaseRestored = await restoreStorageRelease(headers, cleanupBudget, snapshot); } },
+      { label: 'delete Storage objects', run: async () => { objectsRemoved = await deleteStorageObjects(config.storageBucket, prefix, createdObjects, headers, cleanupBudget); } },
       { label: 'delete Firebase app', run: async () => { if (app) await deleteApp(app); } },
     ]);
   }
@@ -205,6 +207,7 @@ export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebC
     { releaseRestored, objectsRemoved },
     budget,
     {
+      cleanupRequestBudget: cleanupBudget.snapshot(),
       serverFields: {
         generation: serverMetadata['stored-exact']?.generation,
         metageneration: serverMetadata['stored-exact']?.metageneration,

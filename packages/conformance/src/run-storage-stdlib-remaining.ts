@@ -13,6 +13,7 @@ import {
 } from './storage-stdlib-real-api.ts';
 import {
   RequestBudget,
+  STORAGE_CLEANUP_LIMITS,
   STORAGE_PROBE_LIMITS,
   runCleanupSteps,
 } from './storage-stdlib-real-budget.ts';
@@ -185,6 +186,7 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
   if (config.projectId !== web.projectId) throw new Error('Web config and primary probe service account target different projects');
   if (secondarySa.project_id === sa.project_id) throw new Error('secondary probe project must differ from primary project');
   const budget = new RequestBudget({ ...STORAGE_PROBE_LIMITS });
+  const cleanupBudget = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
   const snapshot = await storageRulesSnapshot(sa, config.storageBucket, headers, budget);
   const rulesFile = selectRulesFile(snapshot.ruleset);
   const runId = `r${Date.now().toString(36)}`;
@@ -306,9 +308,9 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       isolationDiagnostics['primary-true-secondary-false'] = isolationB;
     } finally {
       await runCleanupSteps([
-        { label: 'restore Storage release', run: async () => { releaseRestored = await restoreStorageRelease(headers, budget, snapshot); } },
-        { label: 'delete Storage objects', run: async () => { objectsRemoved = await deleteStorageObjects(config.storageBucket, prefix, createdObjects, headers, budget); } },
-        { label: 'delete Firestore documents', run: async () => { documentsRemoved = await deleteDocuments(allTargets, budget); } },
+        { label: 'restore Storage release', run: async () => { releaseRestored = await restoreStorageRelease(headers, cleanupBudget, snapshot); } },
+        { label: 'delete Storage objects', run: async () => { objectsRemoved = await deleteStorageObjects(config.storageBucket, prefix, createdObjects, headers, cleanupBudget); } },
+        { label: 'delete Firestore documents', run: async () => { documentsRemoved = await deleteDocuments(allTargets, cleanupBudget); } },
         { label: 'delete Firebase app', run: async () => { if (app) await deleteApp(app); } },
       ]);
     }
@@ -328,7 +330,7 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       consistencyDiagnostics,
       cleanup,
       budget,
-      { iam },
+      { iam, cleanupRequestBudget: cleanupBudget.snapshot() },
     ),
     storageObservation(
       'stdlib-realstorage-p3-named-database',
@@ -341,6 +343,7 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       budget,
       {
         iam,
+        cleanupRequestBudget: cleanupBudget.snapshot(),
         namedDatabase: 'probes',
         probeBlockSha256: storageStdlibRemainingProbeBlockDigest(),
         deployedRulesFileSha256: createHash('sha256').update(source).digest('hex'),
@@ -357,6 +360,7 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       budget,
       {
         iam,
+        cleanupRequestBudget: cleanupBudget.snapshot(),
         secondaryProjectId: secondarySa.project_id,
         probeBlockSha256: storageStdlibRemainingProbeBlockDigest(),
         deployedRulesFileSha256: createHash('sha256').update(source).digest('hex'),

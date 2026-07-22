@@ -402,6 +402,45 @@ export function resolveModulesWith(
   const injectedNames = new Set(injected.map((fn) => fn.name));
   const globalFunctions = new Map((ast.functions ?? []).map((fn) => [fn.name, fn]));
   const serviceFunctionNames = new Set((ast.service.functions ?? []).map((fn) => fn.name));
+  const unimportedModuleCall = (
+    expressions: readonly Expression[],
+    sourceFunctions: ReadonlySet<string>,
+  ): string | null => expressions.flatMap(collectCalls).find((name) =>
+    exportedFunctions.has(name) && !injectedNames.has(name) && !sourceFunctions.has(name)) ?? null;
+  const functionExpressions = (functions: readonly FunctionDef[]): Expression[] =>
+    functions.flatMap((fn) => [...fn.lets.map(({ value }) => value), fn.body]);
+  const globalNames = new Set(globalFunctions.keys());
+  let invalidSourceCall = unimportedModuleCall(
+    functionExpressions(ast.functions ?? []),
+    globalNames,
+  );
+  const serviceNames = new Set([...globalNames, ...serviceFunctionNames]);
+  invalidSourceCall ??= unimportedModuleCall(
+    functionExpressions(ast.service.functions ?? []),
+    serviceNames,
+  );
+  const checkMatchCalls = (
+    match: typeof ast.service.match,
+    inheritedNames: ReadonlySet<string>,
+  ): string | null => {
+    const names = new Set([...inheritedNames, ...match.functions.map((fn) => fn.name)]);
+    const ownExpressions = [
+      ...functionExpressions(match.functions),
+      ...match.allows.map(({ condition }) => condition),
+    ];
+    return unimportedModuleCall(ownExpressions, names) ??
+      match.children.map((child) => checkMatchCalls(child, names)).find(Boolean) ?? null;
+  };
+  invalidSourceCall ??= checkMatchCalls(ast.service.match, serviceNames);
+  if (invalidSourceCall) {
+    return {
+      success: false,
+      error: {
+        code: 'UNKNOWN_FUNCTION',
+        message: `Source calls function '${invalidSourceCall}' from module '${moduleOrigin.get(invalidSourceCall)}' without importing it`,
+      },
+    };
+  }
   const globalCallsServiceScope = (fn: FunctionDef, visiting: ReadonlySet<string>): boolean => {
     if (visiting.has(fn.name)) return false;
     const next = new Set([...visiting, fn.name]);

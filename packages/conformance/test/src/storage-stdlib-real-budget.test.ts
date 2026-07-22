@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   RequestBudget,
+  STORAGE_CLEANUP_LIMITS,
   runCleanupSteps,
 } from '../../src/storage-stdlib-real-budget.ts';
 
@@ -10,6 +11,18 @@ describe('storage stdlib real request safety', () => {
     budget.take('storage', 2);
     expect(() => budget.take('storage')).toThrow('storage request budget exceeded: 3 > 2');
     expect(budget.snapshot().counts.storage).toBe(2);
+  });
+
+  test('reserves enough requests for worst-case native object cleanup', () => {
+    const cleanup = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
+    cleanup.take('storage', 16);
+    cleanup.take('rules', 2);
+    expect(cleanup.snapshot().counts).toEqual({
+      storage: 16,
+      firestoreWrite: 0,
+      rules: 2,
+      iam: 0,
+    });
   });
 
   test('cleanup continues after a restoration step fails', async () => {

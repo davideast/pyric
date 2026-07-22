@@ -49,7 +49,6 @@ describe('loadModule', () => {
       expect(names).toContain('isOwner');
     }
   });
-
   test('loads validation module', () => {
     const result = loadModule('validation');
     expect(result.success).toBe(true);
@@ -59,13 +58,11 @@ describe('loadModule', () => {
       expect(names).toContain('hasOnly');
     }
   });
-
   test('unknown module returns UNKNOWN_MODULE', () => {
     const result = loadModule('nonexistent');
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('UNKNOWN_MODULE');
   });
-
   test('auth module isOwner takes userId parameter', () => {
     const result = loadModule('auth');
     if (result.success) {
@@ -134,7 +131,6 @@ describe('resolveModules', () => {
       expect(result.data.modules).toContain('validation');
     }
   });
-
   test('output version is 2', () => {
     const result = resolveModules(makeSource("import { isAuthenticated } from 'auth';"));
     if (result.success) {
@@ -142,7 +138,6 @@ describe('resolveModules', () => {
       expect(result.data.resolved).not.toContain('2+modules');
     }
   });
-
   test('output is parseable by parseToAST', () => {
     const result = resolveModules(makeSource("import { isOwner } from 'auth';"));
     if (result.success) {
@@ -151,13 +146,21 @@ describe('resolveModules', () => {
       expect(ast!.version).toBe('2');
     }
   });
-
   test('selective import: only requested functions + deps', () => {
     const result = resolveModules(makeSource("import { isAuthenticated } from 'auth';"));
     if (result.success) {
       expect(result.data.resolved).toContain('function isAuthenticated');
       expect(result.data.resolved).not.toContain('function isOwner');
     }
+    const unimported = resolveModules(
+      makeStorageSource("import { foo } from './policy';", 'bar()'),
+      { modules: { './policy': `
+        export function foo() { return true; }
+        export function bar() { return true; }
+      ` } },
+    );
+    expect(unimported.success).toBe(false);
+    if (!unimported.success) expect(unimported.error.code).toBe('UNKNOWN_FUNCTION');
   });
 
   test('UNKNOWN_FUNCTION error', () => {

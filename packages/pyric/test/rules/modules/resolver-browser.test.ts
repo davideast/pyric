@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { resolveModulesBrowser } from '../../../src/rules/modules/resolver-browser.js';
 
-function storageSource(moduleName: string, functionName: string): string {
+function storageSource(moduleName: string, functionName: string, condition = `${functionName}()`): string {
   return `rules_version = '2+modules';
 import { ${functionName} } from '${moduleName}';
 service firebase.storage {
   match /b/{bucket}/o { match /{path=**} {
-    allow read: if ${functionName}();
+    allow read: if ${condition};
   } }
 }`;
 }
@@ -38,5 +38,21 @@ describe('browser module resolver', () => {
       expect(result.data.bundledModules).toEqual(bundledModules);
       expect(result.data.evidenceIds).toEqual(evidenceIds);
     }
+  });
+  test('rejects source calls to known but unimported exports', () => {
+    const options = {
+      modules: { './policy': `
+        export function foo() { return true; }
+        export function bar() { return true; }
+      ` },
+    };
+    const result = resolveModulesBrowser(storageSource('./policy', 'foo', 'bar()'), options);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('UNKNOWN_FUNCTION');
+    const shadowed = storageSource('./policy', 'foo', 'bar()').replace(
+      'service firebase.storage {',
+      'service firebase.storage { function bar() { return true; }',
+    );
+    expect(resolveModulesBrowser(shadowed, options).success).toBe(true);
   });
 });
