@@ -6,7 +6,7 @@ import {
   createRtdbDisconnectProbes,
   runProbeCleanup,
   type RtdbDisconnectContext,
-} from '../../src/capture/rtdb-disconnect/index.ts';
+} from '../../src/capture/rtdb-disconnect/probes.ts';
 
 const context = {
   config: {

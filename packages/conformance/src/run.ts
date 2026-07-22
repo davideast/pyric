@@ -169,7 +169,7 @@ import {
   type CompiledRtdbRules,
   type SimulationInput,
 } from 'pyric/rules/internal/rtdb';
-import { createRtdbDisconnectProbes } from './capture/rtdb-disconnect/index.ts';
+import { createRtdbDisconnectProbes } from './capture/rtdb-disconnect/probes.ts';
 
 // ─── Setup ────────────────────────────────────────────────────────────
 
