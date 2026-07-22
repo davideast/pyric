@@ -26,7 +26,6 @@
  * language-coverage number is implemented / (implemented + unsupported),
  * i.e. probeable constructs the simulator evaluates over those it could.
  */
-import { SimulateFirestoreRulesHandler } from '../../../packages/pyric/src/rules/simulator/handler.ts';
 import type { TestCase } from '../../../packages/pyric/src/rules/test/spec.ts';
 import {
   parseStorageRules,
@@ -40,7 +39,7 @@ import {
 } from '../../../packages/pyric/src/rules/rtdb/compiled-rules.ts';
 import type { SimulationInput } from '../../../packages/pyric/src/rules/rtdb/simulation/spec.ts';
 import { loadSnapshot, type LanguageConstruct, type RulesEngine } from '../rules-language/load.ts';
-import { firestoreRulesTestInputDigest } from './firestore-rules-input-digest.ts';
+import { evaluateFirestoreCapability } from './firestore-rules-capability-evaluation.ts';
 
 export type Classification = 'implemented' | 'unsupported' | 'error' | 'unprobeable';
 
@@ -60,8 +59,6 @@ export interface ConstructCapability {
 // ════════════════════════════════════════════════════════════════════
 // FIRESTORE
 // ════════════════════════════════════════════════════════════════════
-
-const fsSim = new SimulateFirestoreRulesHandler();
 
 export const FS_RULESET = (expr: string, verb = 'read') => `rules_version = '2';
 service cloud.firestore {
@@ -111,31 +108,6 @@ export function resolveFsProbe(probe: FsProbe): { rules: string; cases: TestCase
     functionMocks: probe.withMocks, query: probe.query,
   }];
   return { rules, cases };
-}
-
-function fsRunResolved(resolved: ReturnType<typeof resolveFsProbe>): { classification: Classification; detail: string; evaluationAgreement?: boolean } {
-  if ('unprobeable' in resolved) return { classification: 'unprobeable', detail: resolved.unprobeable };
-  const { rules, cases } = resolved;
-  let res;
-  try {
-    res = fsSim.simulate(rules, cases);
-  } catch (e) {
-    return { classification: 'error', detail: `threw: ${(e as Error).message}` };
-  }
-  if (!res.success) return { classification: 'error', detail: `${res.error.code}: ${res.error.message}` };
-  const r = res.data.results[0];
-  if (!r) return { classification: 'error', detail: 'no result row' };
-  if (r.decision === 'UNSUPPORTED') return { classification: 'unsupported', detail: fsUnsupportedReason(r) };
-  const errEntry = r.trace.find((t) => t.verdict === 'ERROR');
-  if (errEntry && r.decision !== 'ALLOW') return { classification: 'error', detail: `eval error: ${errEntry.message ?? ''}` };
-  const evaluationAgreement = res.data.results.length === cases.length &&
-    res.data.results.every((result, index) => result.decision === cases[index]?.expectation);
-  return { classification: 'implemented', detail: `decision ${r.decision}`, evaluationAgreement };
-}
-
-function fsUnsupportedReason(r: { trace: Array<{ verdict: string; message?: string }> }): string {
-  const u = r.trace.find((t) => t.verdict === 'UNSUPPORTED');
-  return u?.message ?? 'evaluator abstained (UNSUPPORTED)';
 }
 
 /** Expression probes keyed by construct id, for the expression-level kinds. */
@@ -712,20 +684,16 @@ export function probeEngine(engine: RulesEngine): ConstructCapability[] {
   const snapshot = loadSnapshot(engine);
   const out: ConstructCapability[] = [];
   for (const c of snapshot.constructs) {
-    let r: { classification: Classification; detail: string; evaluationAgreement?: boolean };
-    let probeDigest: ConstructCapability['probeDigest'];
+    let r: Pick<ConstructCapability, 'classification' | 'detail' | 'probeDigest' | 'evaluationAgreement'>;
     if (engine === 'firestore') {
       const resolved = resolveFirestoreConstructProbe(c);
-      r = fsRunResolved(resolved);
-      if (!('unprobeable' in resolved)) {
-        probeDigest = firestoreRulesTestInputDigest(resolved.rules, resolved.cases);
-      }
+      r = evaluateFirestoreCapability(resolved);
     }
     else if (engine === 'storage') r = stRun(stProbeFor(c));
     else r = rtRun(rtProbeFor(c));
     out.push({
       id: c.id, kind: c.kind, classification: r.classification, detail: r.detail,
-      ...(probeDigest ? { probeDigest } : {}),
+      ...(r.probeDigest ? { probeDigest: r.probeDigest } : {}),
       ...(r.evaluationAgreement !== undefined ? { evaluationAgreement: r.evaluationAgreement } : {}),
     });
   }
