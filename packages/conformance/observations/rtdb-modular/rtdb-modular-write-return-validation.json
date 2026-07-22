@@ -1,0 +1,35 @@
+{
+  "name": "rtdb-modular-write-return-validation",
+  "matrixRow": "rtdb-modular#111, rtdb-modular#120",
+  "rowIds": [
+    "rtdb-modular#111",
+    "rtdb-modular#120"
+  ],
+  "description": "set resolution value, overlapping update validation timing and atomic no-mutation proof, plus a successful non-overlapping control.",
+  "observedAt": "2026-07-22T06:03:09.852Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "setResolution": null,
+    "overlapping": {
+      "timing": "synchronous-throw",
+      "name": "Error",
+      "code": null,
+      "message": "update failed: values argument contains a path /a that is ancestor of another path /a/b"
+    },
+    "afterRejected": {
+      "seed": true
+    },
+    "controlResolution": null,
+    "terminal": {
+      "left": {
+        "value": 1
+      },
+      "right": {
+        "value": 2
+      },
+      "seed": true
+    }
+  }
+}
