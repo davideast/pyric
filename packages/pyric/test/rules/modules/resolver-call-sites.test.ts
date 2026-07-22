@@ -13,7 +13,8 @@ service cloud.firestore {
   }
 }`);
     if (!ast) throw new Error('fixture failed to parse');
-    expect(moduleCallSites(ast, 'policy').map(({ receiverTypes }) => receiverTypes)).toEqual([
+    expect(moduleCallSites(ast, 'policy').map(({ arguments: args }) =>
+      args.map(({ receiverType }) => receiverType))).toEqual([
       ['string', 'path'],
     ]);
   });
@@ -202,5 +203,21 @@ service firebase.storage {
 }`);
       expect(result.success, result.success ? undefined : result.error.message).toBe(true);
     }
+  });
+
+  test('preserves Firestore document data as a map through source helpers', () => {
+    const result = resolveModules(`rules_version = '2+modules';
+import { required } from './policy';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function membership() {
+      return firestore.get(/databases/(default)/documents/members/alice).data;
+    }
+    match /{file} { allow read: if required(membership()); }
+  }
+}`, { modules: {
+      './policy': "export function required(value) { return value.keys().hasAll(['owner']); }",
+    } });
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
 });

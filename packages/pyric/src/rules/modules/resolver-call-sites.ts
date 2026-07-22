@@ -1,16 +1,24 @@
 import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from '../grammar/FirestoreAST.js';
-import { methodReturnType, type RulesReceiverType } from './receiver-types.js';
+import type { RulesReceiverType } from './receiver-types.js';
+import {
+  expressionFacts,
+  type SourceExpressionContext,
+  type SourceExpressionFacts,
+  type SourceFunctionDeclaration,
+  type SourceProvenance,
+} from './source-expression-analysis.js';
 
 type FunctionCallExpression = Extract<Expression, { type: 'functionCall' }>;
-type SourceReceiverType = RulesReceiverType;
 
-export interface ModuleCallSite {
-  args: readonly Expression[];
-  provenances: readonly SourceProvenance[];
-  receiverTypes: readonly (SourceReceiverType | null)[];
+export interface ModuleCallArgument {
+  expression: Expression;
+  provenance: SourceProvenance;
+  receiverType: RulesReceiverType;
 }
 
-type SourceProvenance = string[] | 'unknown-ambient' | null;
+export interface ModuleCallSite {
+  arguments: readonly ModuleCallArgument[];
+}
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled Rules expression: ${JSON.stringify(value)}`);
@@ -44,247 +52,68 @@ export function collectFunctionCalls(expr: Expression): FunctionCallExpression[]
   return calls;
 }
 
+function moduleArgument(facts: SourceExpressionFacts): ModuleCallArgument {
+  return {
+    expression: facts.expression,
+    provenance: facts.provenance,
+    receiverType: !facts.receiverType || facts.receiverType === 'mixed'
+      ? 'unknown'
+      : facts.receiverType,
+  };
+}
+
 export function moduleCallSites(ast: FirestoreRules, functionName: string): readonly ModuleCallSite[] {
   const sites: ModuleCallSite[] = [];
-  type Environment = ReadonlyMap<string, SourceReceiverType | null>;
-  type ProvenanceEnvironment = ReadonlyMap<string, SourceProvenance>;
-  type Functions = ReadonlyMap<string, FunctionDef>;
-  const declarationTypes = new Map<FunctionDef, Environment>();
-  const declarationProvenances = new Map<FunctionDef, ProvenanceEnvironment>();
-  const declarationFunctions = new Map<FunctionDef, Functions>();
+  const declarations = new Map<FunctionDef, SourceFunctionDeclaration>();
+  const service = ast.service.name === 'firebase.storage' ? 'firebase.storage' : 'cloud.firestore';
 
-  const inferFunctionReturn = (
-    fn: FunctionDef,
-    argumentTypes: readonly (SourceReceiverType | null)[],
-    functions: Functions,
-    stack: ReadonlySet<string>,
-  ): SourceReceiverType | null => {
-    if (stack.has(fn.name)) return null;
-    const lexicalFunctions = declarationFunctions.get(fn) ?? functions;
-    const environment = new Map<string, SourceReceiverType | null>(declarationTypes.get(fn));
-    fn.parameters.forEach((parameter, index) => environment.set(parameter, argumentTypes[index] ?? null));
-    const nestedStack = new Set([...stack, fn.name]);
-    for (const binding of fn.lets) {
-      environment.set(binding.name, inferType(binding.value, environment, lexicalFunctions, nestedStack));
-    }
-    return inferType(fn.body, environment, lexicalFunctions, nestedStack);
-  };
-
-  const inferType = (
-    expression: Expression,
-    environment: Environment,
-    functions: Functions,
-    stack: ReadonlySet<string>,
-  ): SourceReceiverType | null => {
-    switch (expression.type) {
-      case 'identifier': return environment.get(expression.name) ?? null;
-      case 'literal':
-        if (typeof expression.value === 'string') return 'string';
-        if (typeof expression.value === 'number') return 'number';
-        if (typeof expression.value === 'boolean') return 'boolean';
-        return null;
-      case 'listLiteral': return 'list';
-      case 'mapLiteral': return 'map';
-      case 'pathLiteral': return 'path';
-      case 'memberAccess': {
-        if (expression.object.type !== 'mapLiteral') return null;
-        const entry = expression.object.entries.find(({ key }) =>
-          key.type === 'literal' && key.value === expression.property);
-        return entry ? inferType(entry.value, environment, functions, stack) : null;
-      }
-      case 'bracketAccess': {
-        if (expression.object.type === 'listLiteral' && expression.index.type === 'literal' &&
-            typeof expression.index.value === 'number' && Number.isInteger(expression.index.value)) {
-          const element = expression.object.elements[expression.index.value];
-          return element ? inferType(element, environment, functions, stack) : null;
-        }
-        if (expression.object.type === 'mapLiteral' && expression.index.type === 'literal') {
-          const indexValue = expression.index.value;
-          const entry = expression.object.entries.find(({ key }) =>
-            key.type === 'literal' && key.value === indexValue);
-          return entry ? inferType(entry.value, environment, functions, stack) : null;
-        }
-        return inferType(expression.object, environment, functions, stack) === 'string'
-          ? 'string'
-          : null;
-      }
-      case 'functionCall': {
-        const fn = functions.get(expression.name);
-        return fn ? inferFunctionReturn(
-          fn,
-          expression.args.map((arg) => inferType(arg, environment, functions, stack)),
-          functions,
-          stack,
-        ) : null;
-      }
-      case 'methodCall':
-        if (expression.method === 'get') {
-          if (expression.object.type === 'identifier' && expression.object.name === 'firestore') {
-            return methodReturnType(expression);
-          }
-          const fallback = expression.args[1];
-          if (expression.object.type === 'mapLiteral' && expression.args[0]?.type === 'literal') {
-            const key = expression.args[0].value;
-            const entry = expression.object.entries.find(({ key: entryKey }) =>
-              entryKey.type === 'literal' && entryKey.value === key);
-            return entry
-              ? inferType(entry.value, environment, functions, stack)
-              : fallback ? inferType(fallback, environment, functions, stack) : null;
-          }
-          return fallback ? 'unknown' : null;
-        }
-        return methodReturnType(expression);
-      case 'sliceAccess': return inferType(expression.object, environment, functions, stack);
-      case 'binaryOp': {
-        const left = inferType(expression.left, environment, functions, stack);
-        const right = inferType(expression.right, environment, functions, stack);
-        if (expression.op === '+' && (left === 'string' || right === 'string')) return 'string';
-        return ['+', '-', '*', '/', '%'].includes(expression.op) && left === 'number' && right === 'number'
-          ? 'number' : null;
-      }
-      case 'ternary': {
-        const consequent = inferType(expression.consequent, environment, functions, stack);
-        const alternate = inferType(expression.alternate, environment, functions, stack);
-        return consequent && consequent === alternate ? consequent : null;
-      }
-      default: return null;
-    }
-  };
-
-  function inferFunctionProvenance(
-    fn: FunctionDef,
-    argumentProvenances: readonly SourceProvenance[],
-    functions: Functions,
-    stack: ReadonlySet<string>,
-  ): SourceProvenance {
-    if (stack.has(fn.name)) return 'unknown-ambient';
-    const lexicalFunctions = declarationFunctions.get(fn) ?? functions;
-    const environment = new Map<string, SourceProvenance>(declarationProvenances.get(fn));
-    fn.parameters.forEach((parameter, index) =>
-      environment.set(parameter, argumentProvenances[index] ?? null));
-    const nestedStack = new Set([...stack, fn.name]);
-    for (const binding of fn.lets) {
-      environment.set(binding.name, inferProvenance(
-        binding.value, environment, lexicalFunctions, nestedStack));
-    }
-    return inferProvenance(fn.body, environment, lexicalFunctions, nestedStack);
-  }
-
-  function inferProvenance(
-    expression: Expression,
-    environment: ProvenanceEnvironment,
-    functions: Functions,
-    stack: ReadonlySet<string>,
-  ): SourceProvenance {
-    if (expression.type === 'identifier') {
-      if (expression.name === 'request' || expression.name === 'resource') return [expression.name];
-      return environment.get(expression.name) ?? null;
-    }
-    if (expression.type === 'memberAccess') {
-      const parent = inferProvenance(expression.object, environment, functions, stack);
-      if (parent === 'unknown-ambient') return parent;
-      return parent ? [...parent, expression.property] : null;
-    }
-    if (expression.type === 'bracketAccess') {
-      const parent = inferProvenance(expression.object, environment, functions, stack);
-      if (!parent || parent === 'unknown-ambient') return parent;
-      return expression.index.type === 'literal' && typeof expression.index.value === 'string'
-        ? [...parent, expression.index.value]
-        : 'unknown-ambient';
-    }
-    if (expression.type === 'functionCall') {
-      const fn = functions.get(expression.name);
-      return fn ? inferFunctionProvenance(
-        fn,
-        expression.args.map((arg) => inferProvenance(arg, environment, functions, stack)),
-        functions,
-        stack,
-      ) : null;
-    }
-    if (expression.type === 'methodCall' && expression.object.type === 'identifier' &&
-        expression.object.name === 'firestore' &&
-        (expression.method === 'get' || expression.method === 'exists')) {
-      return null;
-    }
-    if (expression.type === 'ternary') {
-      const consequent = inferProvenance(expression.consequent, environment, functions, stack);
-      const alternate = inferProvenance(expression.alternate, environment, functions, stack);
-      if (!consequent && !alternate) return null;
-      if (Array.isArray(consequent) && Array.isArray(alternate) &&
-          consequent.join('.') === alternate.join('.')) return consequent;
-      return 'unknown-ambient';
-    }
-    let nested: readonly Expression[];
-    switch (expression.type) {
-      case 'methodCall': nested = [expression.object, ...expression.args]; break;
-      case 'sliceAccess': nested = [expression.object, expression.start, expression.end]; break;
-      case 'binaryOp': nested = [expression.left, expression.right]; break;
-      case 'unaryOp': nested = [expression.operand]; break;
-      case 'inExpr': nested = [expression.element, expression.collection]; break;
-      case 'isExpr': nested = [expression.value]; break;
-      case 'listLiteral': nested = expression.elements; break;
-      case 'mapLiteral': nested = expression.entries.flatMap(({ key, value }) => [key, value]); break;
-      case 'pathLiteral':
-        nested = expression.segments.filter((segment): segment is Expression =>
-          typeof segment !== 'string');
-        break;
-      case 'literal': return null;
-      default: return null;
-    }
-    return nested.some((value) =>
-      inferProvenance(value, environment, functions, stack) !== null)
-      ? 'unknown-ambient'
-      : null;
-  }
+  const makeContext = (
+    declaration: SourceFunctionDeclaration,
+    stack: ReadonlySet<string> = new Set(),
+  ): SourceExpressionContext => ({
+    aliases: new Map(declaration.aliases),
+    receiverTypes: new Map(declaration.receiverTypes),
+    functions: declaration.functions,
+    service,
+    stack,
+    declarations,
+  });
 
   const analyzeFunction = (
     fn: FunctionDef,
-    argumentTypes: readonly (SourceReceiverType | null)[],
-    argumentProvenances: readonly SourceProvenance[],
-    functions: Functions,
+    arguments_: readonly SourceExpressionFacts[],
     stack: ReadonlySet<string>,
   ) => {
     if (stack.has(fn.name)) return;
-    const lexicalFunctions = declarationFunctions.get(fn) ?? functions;
-    const environment = new Map<string, SourceReceiverType | null>(declarationTypes.get(fn));
-    const provenanceEnvironment = new Map<string, SourceProvenance>(
-      declarationProvenances.get(fn),
+    const declaration = declarations.get(fn);
+    if (!declaration) return;
+    const aliases = new Map(declaration.aliases);
+    const receiverTypes = new Map(declaration.receiverTypes);
+    fn.parameters.forEach((parameter, index) => {
+      aliases.set(parameter, arguments_[index]?.provenance ?? null);
+      receiverTypes.set(parameter, arguments_[index]?.receiverType ?? null);
+    });
+    const ctx = makeContext(
+      { aliases, receiverTypes, functions: declaration.functions },
+      new Set([...stack, fn.name]),
     );
-    fn.parameters.forEach((parameter, index) => environment.set(parameter, argumentTypes[index] ?? null));
-    fn.parameters.forEach((parameter, index) =>
-      provenanceEnvironment.set(parameter, argumentProvenances[index] ?? null));
-    const nestedStack = new Set([...stack, fn.name]);
     for (const binding of fn.lets) {
-      analyzeExpression(binding.value, environment, provenanceEnvironment, lexicalFunctions, nestedStack);
-      environment.set(binding.name, inferType(
-        binding.value, environment, lexicalFunctions, nestedStack));
-      provenanceEnvironment.set(
-        binding.name,
-        inferProvenance(binding.value, provenanceEnvironment, lexicalFunctions, nestedStack),
-      );
+      analyzeExpression(binding.value, ctx);
+      const facts = expressionFacts(binding.value, ctx);
+      ctx.aliases.set(binding.name, facts.provenance);
+      ctx.receiverTypes.set(binding.name, facts.receiverType);
     }
-    analyzeExpression(fn.body, environment, provenanceEnvironment, lexicalFunctions, nestedStack);
+    analyzeExpression(fn.body, ctx);
   };
 
-  const analyzeExpression = (
-    expression: Expression,
-    environment: Environment,
-    provenanceEnvironment: ProvenanceEnvironment,
-    functions: Functions,
-    stack: ReadonlySet<string>,
-  ) => {
+  const analyzeExpression = (expression: Expression, ctx: SourceExpressionContext) => {
     for (const call of collectFunctionCalls(expression)) {
-      const argumentTypes = call.args.map((arg) =>
-        inferType(arg, environment, functions, stack) ?? 'unknown');
-      const argumentProvenances = call.args.map((arg) =>
-        inferProvenance(arg, provenanceEnvironment, functions, stack));
+      const argumentFacts = call.args.map((argument) => expressionFacts(argument, ctx));
       if (call.name === functionName) {
-        sites.push({ args: call.args, provenances: argumentProvenances, receiverTypes: argumentTypes });
+        sites.push({ arguments: argumentFacts.map(moduleArgument) });
       }
-      const sourceFunction = functions.get(call.name);
-      if (sourceFunction) {
-        analyzeFunction(sourceFunction, argumentTypes, argumentProvenances, functions, stack);
-      }
+      const sourceFunction = ctx.functions.get(call.name);
+      if (sourceFunction) analyzeFunction(sourceFunction, argumentFacts, ctx.stack);
     }
   };
 
@@ -292,39 +121,35 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
   const serviceFunctions = new Map(globalFunctions);
   for (const fn of ast.service.functions ?? []) serviceFunctions.set(fn.name, fn);
   for (const fn of ast.functions ?? []) {
-    declarationTypes.set(fn, new Map());
-    declarationProvenances.set(fn, new Map());
-    declarationFunctions.set(fn, globalFunctions);
+    declarations.set(fn, { aliases: new Map(), receiverTypes: new Map(), functions: globalFunctions });
   }
   for (const fn of ast.service.functions ?? []) {
-    declarationTypes.set(fn, new Map());
-    declarationProvenances.set(fn, new Map());
-    declarationFunctions.set(fn, serviceFunctions);
+    declarations.set(fn, { aliases: new Map(), receiverTypes: new Map(), functions: serviceFunctions });
   }
+
   const addMatch = (
     match: MatchBlock,
-    inheritedEnvironment: Environment,
-    inheritedProvenances: ProvenanceEnvironment,
-    inheritedFunctions: Functions,
+    inherited: SourceFunctionDeclaration,
   ) => {
-    const captures = new Map(inheritedEnvironment);
+    const receiverTypes = new Map(inherited.receiverTypes);
     for (const segment of match.path.segments) {
-      if (segment.type === 'wildcard') captures.set(segment.name, 'string');
-      if (segment.type === 'recursive') captures.set(segment.name, 'path');
+      if (segment.type === 'wildcard') receiverTypes.set(segment.name, 'string');
+      if (segment.type === 'recursive') receiverTypes.set(segment.name, 'path');
     }
-    const functions = new Map(inheritedFunctions);
+    const functions = new Map(inherited.functions);
+    const declaration = { aliases: inherited.aliases, receiverTypes, functions };
     for (const fn of match.functions) {
       functions.set(fn.name, fn);
-      declarationTypes.set(fn, captures);
-      declarationProvenances.set(fn, inheritedProvenances);
-      declarationFunctions.set(fn, functions);
+      declarations.set(fn, declaration);
     }
-    for (const { condition } of match.allows) {
-      analyzeExpression(condition, captures, inheritedProvenances, functions, new Set());
-    }
-    match.children.forEach((child) =>
-      addMatch(child, captures, inheritedProvenances, functions));
+    const ctx = makeContext(declaration);
+    for (const { condition } of match.allows) analyzeExpression(condition, ctx);
+    match.children.forEach((child) => addMatch(child, declaration));
   };
-  addMatch(ast.service.match, new Map(), new Map(), serviceFunctions);
+  addMatch(ast.service.match, {
+    aliases: new Map(),
+    receiverTypes: new Map(),
+    functions: serviceFunctions,
+  });
   return sites;
 }

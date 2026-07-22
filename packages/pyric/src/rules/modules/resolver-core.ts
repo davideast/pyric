@@ -468,19 +468,23 @@ export function resolveModulesWith(
       const callSites: ModuleCallSite[] = [
         ...moduleCallSites(ast, fn.name),
         ...functionCallSites(reachableFunctions, fn.name)
-          .map((args) => ({ args, provenances: [], receiverTypes: [] })),
+          .map((args) => ({
+            arguments: args.map((expression) => ({
+              expression,
+              provenance: null,
+              receiverType: 'unknown' as const,
+            })),
+          })),
       ];
       const argumentSets = callSites.length > 0
         ? callSites
-        : [{ args: [], provenances: [], receiverTypes: [] }];
-      for (const { args, provenances, receiverTypes } of argumentSets) {
+        : [{ arguments: [] }];
+      for (const { arguments: arguments_ } of argumentSets) {
         const requirement = incompatibleFunction(
           fn,
           ast.service.name,
           allModuleFunctions,
-          args,
-          receiverTypes,
-          provenances,
+          arguments_,
         );
         if (requirement) {
           return {
