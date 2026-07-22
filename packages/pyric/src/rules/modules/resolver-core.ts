@@ -42,7 +42,7 @@ function assertNever(value: never): never {
  * (they used to leak into browser bundles through the static import chain).
  */
 export interface ModuleFileReader {
-  /** Read `<basePath>/<moduleName>.rules`. Null when unreadable. */
+  /** Read `<basePath>/<moduleName>.rules` (or an explicit `.rules` path). Null when unreadable. */
   readRelative(basePath: string, moduleName: string): string | null;
   /** Read `<stdlib>/<moduleName>.rules` from the package's on-disk stdlib.
    *  Null when unreadable. */
@@ -120,6 +120,11 @@ function isRelativeImport(moduleName: string): boolean {
   return moduleName.startsWith('./') || moduleName.startsWith('../');
 }
 
+function conventionalStdlibKey(moduleName: string): string | null {
+  return /^\.\/stdlib\/([A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)\.rules$/
+    .exec(moduleName)?.[1] ?? null;
+}
+
 export function loadModuleWith(
   reader: ModuleFileReader | null,
   moduleName: string,
@@ -135,20 +140,31 @@ export function loadModuleWith(
 
   // Priority 2: relative path from basePath
   if (isRelativeImport(moduleName) && options?.basePath) {
-    const filePath = `${options.basePath}/${moduleName}.rules`;
+    const filePath = `${options.basePath}/${moduleName}${moduleName.endsWith('.rules') ? '' : '.rules'}`;
     const content = reader?.readRelative(options.basePath, moduleName) ?? null;
-    if (content === null) {
+    if (content !== null) return loadModuleFromContent(content, moduleName, false);
+    if (!conventionalStdlibKey(moduleName)) {
       return { success: false, error: { code: 'UNKNOWN_MODULE', message: `Module '${moduleName}' not found at ${filePath}` } };
     }
-    return loadModuleFromContent(content, moduleName, false);
   }
 
-  // Priority 3: relative path without basePath
+  // Priority 3: conventional stdlib path alias. An explicit modules entry or
+  // a real basePath file still wins; only an unresolved alias reaches here.
+  const stdlibKey = conventionalStdlibKey(moduleName);
+  if (stdlibKey) {
+    const content = reader?.readStdlib(stdlibKey) ?? null;
+    if (content === null) {
+      return { success: false, error: { code: 'UNKNOWN_MODULE', message: `Module '${moduleName}' not found` } };
+    }
+    return loadModuleFromContent(content, moduleName, true);
+  }
+
+  // Priority 4: relative path without basePath
   if (isRelativeImport(moduleName)) {
     return { success: false, error: { code: 'UNKNOWN_MODULE', message: `Module '${moduleName}' requires basePath for relative imports` } };
   }
 
-  // Priority 4: stdlib (on disk — node only; browser callers pre-supply
+  // Priority 5: stdlib (on disk — node only; browser callers pre-supply
   // stdlib via options.modules and never reach here for known modules)
   const content = reader?.readStdlib(moduleName) ?? null;
   if (content === null) {
