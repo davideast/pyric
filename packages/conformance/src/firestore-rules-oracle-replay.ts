@@ -24,21 +24,32 @@ type Verdict = 'ALLOW' | 'DENY' | 'UNSUPPORTED';
 
 const KNOWN_DIVERGENCES: Readonly<Record<
   string,
-  { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string; issue: string }
+  {
+    rowId: string;
+    conformanceDisposition: string;
+    prodVerdict: 'ALLOW' | 'DENY';
+    simVerdict: 'ALLOW' | 'DENY';
+    reason: string;
+    issue: string;
+  }
 >> = {
   'rules-firestore-get-after-and-exists-after :: getAfter target == request.resource.data ALLOW': {
+    rowId: 'firestore-rules#164', conformanceDisposition: 'probe-limitation',
     prodVerdict: 'DENY', simVerdict: 'ALLOW',
     reason: 'simulator getAfter() does not model the post-write document identity production compares against', issue: '#135',
   },
   'rules-firestore-get-after-and-exists-after :: existsAfter create true ALLOW': {
+    rowId: 'firestore-rules#164', conformanceDisposition: 'probe-limitation',
     prodVerdict: 'DENY', simVerdict: 'ALLOW',
     reason: 'simulator existsAfter() on a create does not match production post-write existence semantics', issue: '#135',
   },
   'rules-firestore-get-after-and-exists-after :: existsAfter delete false ALLOW': {
+    rowId: 'firestore-rules#164', conformanceDisposition: 'probe-limitation',
     prodVerdict: 'DENY', simVerdict: 'ALLOW',
     reason: 'simulator existsAfter() on a delete does not match production post-write existence semantics', issue: '#135',
   },
   'rules-firestore-get-after-and-exists-after :: existsAfter unrelated mocked path ALLOW': {
+    rowId: 'firestore-rules#164', conformanceDisposition: 'probe-limitation',
     prodVerdict: 'DENY', simVerdict: 'ALLOW',
     reason: 'simulator existsAfter() over an unrelated mocked path does not match production', issue: '#135',
   },
@@ -48,7 +59,8 @@ export function firestoreOracleReplayProblems(
   scenario: Scenario,
   observation: FirestoreRulesObservation,
   simulatorVerdicts: Readonly<Record<string, Verdict>>,
-  rowStatus: string | undefined,
+  row: { id: string; status?: string; conformanceDisposition?: string },
+  matchedDivergences?: Set<string>,
 ): string[] {
   const problems: string[] = [];
   if (observation.rowIds.length !== 1) {
@@ -60,6 +72,10 @@ export function firestoreOracleReplayProblems(
   if (JSON.stringify(observedKeys) !== JSON.stringify(expectedKeys)) {
     problems.push(`${observation.name}: observation case set is stale`);
   }
+  const simulatorKeys = Object.keys(simulatorVerdicts).sort();
+  if (JSON.stringify(simulatorKeys) !== JSON.stringify(expectedKeys)) {
+    problems.push(`${observation.name}: simulator case set is not exact`);
+  }
   if (JSON.stringify(observation.inputDigest) !== JSON.stringify(firestoreScenarioInputDigest(scenario))) {
     problems.push(`${observation.name}: observation input digest is stale`);
   }
@@ -67,11 +83,19 @@ export function firestoreOracleReplayProblems(
     const simVerdict = simulatorVerdicts[caseKey];
     const key = `${observation.name} :: ${caseKey}`;
     if (simVerdict === 'UNSUPPORTED') {
-      if (rowStatus !== 'unsupported') problems.push(`${key}: simulator abstained but row is ${rowStatus ?? 'missing'}`);
+      problems.push(`${key}: simulator abstained; an abstention cannot underwrite canonical score evidence`);
       continue;
     }
     const known = KNOWN_DIVERGENCES[key];
     if (known) {
+      matchedDivergences?.add(key);
+      if (row.id !== known.rowId) problems.push(`${key}: divergence belongs to ${known.rowId}, not ${row.id}`);
+      if (row.status !== 'diverged-documented') {
+        problems.push(`${key}: ${known.rowId} must remain diverged-documented while verdicts differ`);
+      }
+      if (row.conformanceDisposition !== known.conformanceDisposition) {
+        problems.push(`${key}: ${known.rowId} must retain ${known.conformanceDisposition} disposition`);
+      }
       if (prodVerdict !== known.prodVerdict) problems.push(`${key}: pinned production verdict changed`);
       if (simVerdict !== known.simVerdict) {
         problems.push(`${key}: pinned simulator verdict changed (${known.issue}: ${known.reason})`);
@@ -97,7 +121,7 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
     ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => [observationName(scenario), scenario]),
   );
   const rowStatus = new Map(
-    allCompatibilityRows.filter(({ surface }) => surface === 'firestore-rules').map(({ id, status }) => [id, status]),
+    allCompatibilityRows.filter(({ surface }) => surface === 'firestore-rules').map((row) => [row.id, row]),
   );
   const files = readdirSync(OBS_DIR)
     .filter((file) => file.startsWith(RULES_FIRESTORE_OBSERVATION_PREFIX) && file.endsWith('.json'))
@@ -110,6 +134,7 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
   const { SimulateFirestoreRulesHandler } = await import('../../pyric/src/rules/simulator/handler.ts');
   const simulator = new SimulateFirestoreRulesHandler();
   const replays: FirestoreOracleReplayResult[] = [];
+  const matchedDivergences = new Set<string>();
   const observedNames = new Set<string>();
   for (const file of files) {
     const observation = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as FirestoreRulesObservation;
@@ -131,20 +156,38 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
       });
       continue;
     }
-    const verdicts = Object.fromEntries(result.data.results.map((entry, index) => [
-      scenario.cases[index]!.description,
-      entry.decision,
-    ]));
+    if (result.data.results.length !== scenario.cases.length) {
+      replays.push({
+        name: observation.name, rowId: observation.rowIds[0] ?? '',
+        problems: [
+          `${observation.name}: simulator returned ${result.data.results.length} results for ${scenario.cases.length} cases`,
+        ],
+      });
+      continue;
+    }
+    const verdicts = Object.fromEntries(result.data.results.map((entry) => [entry.description, entry.decision]));
     const rowId = observation.rowIds[0] ?? '';
+    const registryRow = rowStatus.get(rowId);
     replays.push({
       name: observation.name,
       rowId,
-      problems: firestoreOracleReplayProblems(scenario, observation, verdicts, rowStatus.get(rowId)),
+      problems: firestoreOracleReplayProblems(
+        scenario,
+        observation,
+        verdicts,
+        { id: rowId, status: registryRow?.status, conformanceDisposition: registryRow?.conformanceDisposition },
+        matchedDivergences,
+      ),
     });
   }
   for (const name of scenarioByObservation.keys()) {
     if (!observedNames.has(name)) replays.push({
       name, rowId: '', problems: [`${name}: corpus scenario has no committed observation`],
+    });
+  }
+  for (const [key, known] of Object.entries(KNOWN_DIVERGENCES)) {
+    if (!matchedDivergences.has(key)) replays.push({
+      name: key, rowId: known.rowId, problems: [`${key}: stale or unused divergence pin`],
     });
   }
   return replays;

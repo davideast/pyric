@@ -10,7 +10,7 @@ const replays = await replayFirestoreRulesObservations();
 
 describe('oracle conformance (rules-firestore)', () => {
   for (const replay of replays) {
-    it(`${replay.rowId}: ${replay.name}: simulator matches captured production verdicts`, () => {
+    it(`${replay.rowId}: ${replay.name}: replays the captured production verdict contract`, () => {
       expect(replay.problems).toEqual([]);
     });
   }
