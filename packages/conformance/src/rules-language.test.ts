@@ -32,7 +32,7 @@ describe('rules-language production verdicts', () => {
 
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.id')?.verdict).toBe('diverged');
     expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.__name__')?.verdict).toBe('diverged');
-    expect(firestore?.verifiedConstructs).toBe(107);
+    expect(firestore?.verifiedConstructs).toBe(111);
   });
 
   it('restores RTDB validate scope only after the ancestor case conforms', async () => {
