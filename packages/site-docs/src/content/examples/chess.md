@@ -12,7 +12,7 @@ example: chess
 
 Choose a piece and its destination. `e2 → e4` is allowed; `e2 → e5` is denied and leaves the board unchanged. Switch the identity to see turn ownership enforced.
 
-Use **Play Fool's Mate** to run four allowed moves. After the final write commits, the browser tests every legal reply and reports checkmate.
+Choose a scenario to run a complete sequence through the Rules. Fool's Mate and Scholar's Mate end in checkmate; the opening remains in progress; the illegal pawn leap is denied without changing the board.
 
 ## A move is a Firestore write
 

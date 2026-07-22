@@ -35,7 +35,7 @@ const { title } = Astro.props;
   .rank-label { top: .25rem; left: .25rem; }
   .file-label { right: .25rem; bottom: .22rem; }
   .chess-console { display: grid; gap: 1rem; }
-  .turn-row, .identity-picker, .verdict { border: 1px solid #413e4d; border-radius: .5rem; background: #1e1d27; padding: 1rem; }
+  .turn-row, .identity-picker, .scenario-picker, .verdict { border: 1px solid #413e4d; border-radius: .5rem; background: #1e1d27; padding: 1rem; }
   .turn-row { display: flex; gap: 1rem; align-items: center; justify-content: space-between; }
   .turn-row strong { display: block; margin-top: .25rem; font-size: 1rem; }
   .verdict strong { display: flex; align-items: center; gap: .45rem; margin-top: .25rem; font-size: 1rem; }
@@ -45,11 +45,14 @@ const { title } = Astro.props;
   .chess-showcase button:hover { border-color: #8d84ae; background: #322f40; }
   .chess-showcase button:disabled { opacity: .45; cursor: not-allowed; }
   .identity-picker { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
-  .identity-picker legend { grid-column: 1 / -1; padding: 0 .2rem; color: #aaa6b7; font-size: .78rem; }
+  .identity-picker legend, .scenario-picker legend { grid-column: 1 / -1; padding: 0 .2rem; color: #aaa6b7; font-size: .78rem; }
   .identity-picker button[aria-pressed='true'], .source-tabs button[aria-selected='true'] { border-color: #9d8dff; background: #443c70; }
   .identity-picker code { display: block; margin-top: .2rem; color: #c5bfd6; font-size: .65rem; }
   .try-row { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
-  .checkmate-button { grid-column: 1 / -1; }
+  .scenario-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; }
+  .scenario-action select { min-width: 0; border: 1px solid #504c5d; border-radius: .5rem; padding: .55rem .7rem; background: #292733; color: inherit; font: inherit; }
+  .scenario-picker p { margin: .7rem 0 .35rem; }
+  .scenario-picker > code { color: #c5bfd6; font-size: .7rem; line-height: 1.5; }
   .verdict { min-height: 10rem; }
   .verdict.is-allowed { border-color: #4d735c; }
   .verdict.is-denied { border-color: #754956; }
@@ -66,6 +69,6 @@ const { title } = Astro.props;
   @media (max-width: 430px) {
     .chess-showcase { padding: .75rem; }
     .chess-square { font-size: 1.8rem; }
-    .try-row { grid-template-columns: 1fr; }
+    .try-row, .scenario-action { grid-template-columns: 1fr; }
   }
 </style>

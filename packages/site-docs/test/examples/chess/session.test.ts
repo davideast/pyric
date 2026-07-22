@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { CHESS_SCENARIOS } from '../../../src/examples/chess/scenarios';
 import { createChessSession } from '../../../src/examples/chess/session';
 
 describe('chess showcase session', () => {
@@ -34,4 +35,22 @@ describe('chess showcase session', () => {
     expect(reset.game().e4).toBe('');
     expect(reset.game().moveCount).toBe(0);
   });
+
+  for (const scenario of CHESS_SCENARIOS) {
+    test(`runs the ${scenario.label} scenario through Security Rules`, async () => {
+      const session = createChessSession();
+      let allowed = true;
+      let winner: 'white' | 'black' | null = null;
+
+      for (const { player, from, to } of scenario.moves) {
+        const verdict = await session.move(player, from, to);
+        allowed = verdict.allowed;
+        winner = verdict.checkmate;
+        if (!allowed) break;
+      }
+
+      expect(allowed).toBe(scenario.expected.allowed);
+      expect(winner).toBe(scenario.expected.winner);
+    });
+  }
 });

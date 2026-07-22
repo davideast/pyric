@@ -4,6 +4,7 @@ import {
   type ChessSession,
   type ChessVerdict,
 } from '../examples/chess/session';
+import { chessScenario, type ChessScenarioId } from '../examples/chess/scenarios';
 import { ChessBoard } from './chess-board';
 import { ChessControls } from './chess-controls';
 import { RulesVerdict } from './rules-verdict';
@@ -16,6 +17,7 @@ export function ChessShowcase() {
   const [verdict, setVerdict] = useState<ChessVerdict | null>(null);
   const [moving, setMoving] = useState(false);
   const [winner, setWinner] = useState<'white' | 'black' | null>(null);
+  const [scenarioId, setScenarioId] = useState<ChessScenarioId>('fools-mate');
 
   const move = async (from: string, to: string) => {
     setMoving(true);
@@ -38,22 +40,24 @@ export function ChessShowcase() {
     }
   };
 
-  const playFoolsMate = async () => {
+  const playScenario = async () => {
     setMoving(true);
     setSelected(null);
+    setWinner(null);
+    setVerdict(null);
     try {
-      const moves = [
-        ['white', 'f2', 'f3'],
-        ['black', 'e7', 'e5'],
-        ['white', 'g2', 'g4'],
-        ['black', 'd8', 'h4'],
-      ] as const;
-      for (const [player, from, to] of moves) {
-        const nextVerdict = await session.current.move(player, from, to);
+      const nextSession = createChessSession();
+      const scenario = chessScenario(scenarioId);
+      session.current = nextSession;
+      setGame(nextSession.game());
+
+      for (const { player, from, to } of scenario.moves) {
+        setUid(player);
+        const nextVerdict = await nextSession.move(player, from, to);
         setVerdict(nextVerdict);
-        setGame(session.current.game());
-        if (!nextVerdict.allowed) break;
+        setGame(nextSession.game());
         setWinner(nextVerdict.checkmate);
+        if (!nextVerdict.allowed) break;
       }
     } finally {
       setMoving(false);
@@ -93,9 +97,11 @@ export function ChessShowcase() {
             uid={uid}
             moving={moving}
             winner={winner}
+            scenarioId={scenarioId}
             onIdentity={setUid}
             onMove={(from, to) => void move(from, to)}
-            onCheckmate={() => void playFoolsMate()}
+            onScenario={setScenarioId}
+            onRunScenario={() => void playScenario()}
             onReset={reset}
           />
           <RulesVerdict verdict={verdict} />
