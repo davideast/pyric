@@ -284,6 +284,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const guard = opts.upgradeGuard;
       const pointer = join(projectDir, '.pyric', 'serve.json');
       const upgradedSockets = new Set<Duplex>();
+      const collisionAbort = new AbortController();
+      let collisionProbe: Promise<void> | null = null;
       let attachmentClosed = false;
       let attachmentClosePromise: Promise<void> | null = null;
 
@@ -333,10 +335,12 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         for (const probe of [`http://127.0.0.1:${currentOrigin.port}`, `http://[::1]:${currentOrigin.port}`]) {
           try {
             const response = await (collision.fetchImpl ?? fetch)(`${probe}${HEALTH_PATH}`, {
-              signal: AbortSignal.timeout(1000),
+              signal: AbortSignal.any([collisionAbort.signal, AbortSignal.timeout(1000)]),
             });
+            if (attachmentClosed) return;
             if (response.status !== 200) continue;
             const body = (await response.json()) as { mode?: string; instanceId?: string };
+            if (attachmentClosed) return;
             if (body.mode === 'sandbox' && body.instanceId && body.instanceId !== bridge.instanceId) {
               collision.warn(
                 `\n⚠  pyric: another sandbox already serves port ${currentOrigin.port} on a different loopback ` +
@@ -350,6 +354,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
               return;
             }
           } catch {
+            if (attachmentClosed) return;
             // The other loopback family is silent.
           }
         }
@@ -357,16 +362,24 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
 
       const announce = (): void => {
         publish();
-        void probeCollision();
+        if (!collisionProbe) {
+          const current = probeCollision();
+          collisionProbe = current;
+          void current.finally(() => {
+            if (collisionProbe === current) collisionProbe = null;
+          });
+        }
       };
       const attachment: BridgeHostAttachment = {
         close(): Promise<void> {
           if (attachmentClosePromise) return attachmentClosePromise;
           attachmentClosePromise = (async () => {
             attachmentClosed = true;
+            collisionAbort.abort();
             for (const server of servers) server.removeListener('upgrade', onUpgrade as never);
             lifecycleServer?.removeListener('listening', announce);
             lifecycleServer?.removeListener('close', onClose);
+            await collisionProbe;
             removeOwnedPointer(pointer);
             for (const client of wss.clients) client.terminate();
             for (const socket of upgradedSockets) socket.destroy();

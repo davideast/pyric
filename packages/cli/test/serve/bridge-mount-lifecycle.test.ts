@@ -103,4 +103,45 @@ describe('hosted bridge lifecycle', () => {
     await mount.close();
     rmSync(projectDir, { recursive: true, force: true });
   });
+
+  it('aborts and settles an in-flight collision probe before attachment close completes', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-bridge-collision-close-'));
+    const server = new FakeServer();
+    server.listening = true;
+    const warnings: string[] = [];
+    let probeSignal: AbortSignal | undefined;
+    let releaseProbe!: () => void;
+    let probeCalls = 0;
+    const mount = createBridgeMount({ disableAuditLog: true });
+    const attachment = mount.attachHost({
+      servers: [server as unknown as Server],
+      projectDir,
+      origin: () => ({ host: 'localhost', port: 4321 }),
+      collision: {
+        warn: (message) => warnings.push(message),
+        fetchImpl: async (_input, init) => {
+          probeCalls += 1;
+          probeSignal = init?.signal ?? undefined;
+          await new Promise<void>((resolve) => { releaseProbe = resolve; });
+          return new Response(JSON.stringify({
+            mode: 'sandbox',
+            instanceId: 'replacement-instance',
+          }), { status: 200 });
+        },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(probeCalls).toBe(1);
+
+    const closing = attachment.close();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(probeSignal?.aborted).toBe(true);
+    releaseProbe();
+    await closing;
+
+    expect(probeCalls).toBe(1);
+    expect(warnings).toHaveLength(0);
+    await mount.close();
+    rmSync(projectDir, { recursive: true, force: true });
+  });
 });
