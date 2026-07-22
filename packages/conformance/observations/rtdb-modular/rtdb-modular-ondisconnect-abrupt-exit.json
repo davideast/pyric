@@ -1,0 +1,27 @@
+{
+  "name": "rtdb-modular-ondisconnect-abrupt-exit",
+  "matrixRow": "rtdb-modular#M84",
+  "rowIds": ["rtdb-modular#M84"],
+  "description": "Acknowledged onDisconnect registration followed by forced writer-process termination, observed independently.",
+  "observedAt": "2026-07-21T21:38:12.474Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 3,
+    "acknowledgement": {
+      "registered": true
+    },
+    "events": [
+      {
+        "state": "online"
+      },
+      {
+        "state": "offline"
+      }
+    ],
+    "terminal": {
+      "state": "offline"
+    },
+    "exitWasForced": true
+  }
+}

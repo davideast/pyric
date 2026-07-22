@@ -130,7 +130,7 @@ const ALIASES: Record<PreviewModuleId, AliasSpec> = {
   // test driver namespace — that's runner-side only, not app code.
   // The exported list mirrors `pyric/database`'s modular surface;
   // higher-tier additions (child-event listeners, query constraints)
-  // can be added here as they ship in `packages/pyric/src/database/modular.ts`.
+  // can be added here as they ship in the `packages/pyric/src/database/` API families.
   'firebase/database': {
     kind: 'reexport',
     exports: [
@@ -143,6 +143,12 @@ const ALIASES: Record<PreviewModuleId, AliasSpec> = {
       'remove',
       'push',
       'onValue',
+      'onChildAdded',
+      'onChildChanged',
+      'onDisconnect',
+      'OnDisconnect',
+      'goOffline',
+      'goOnline',
       'off',
       'serverTimestamp',
       'connectDatabaseEmulator',
@@ -179,7 +185,7 @@ function synthesizeStub(message: string): string {
   ].join('\n');
 }
 
-function synthesizeModule(specifier: PreviewModuleId): string {
+export function synthesizeVirtualModule(specifier: PreviewModuleId): string {
   const spec = ALIASES[specifier];
   switch (spec.kind) {
     case 'reexport':
@@ -205,7 +211,7 @@ export function virtualImportsPlugin(): esbuild.Plugin {
         namespace: VIRTUAL_NAMESPACE,
       }));
       build.onLoad({ filter: /.*/, namespace: VIRTUAL_NAMESPACE }, (args) => ({
-        contents: synthesizeModule(args.path as PreviewModuleId),
+        contents: synthesizeVirtualModule(args.path as PreviewModuleId),
         loader: 'js',
       }));
     },

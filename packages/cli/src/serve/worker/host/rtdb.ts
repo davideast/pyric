@@ -16,10 +16,15 @@ import {
   set as rtdbSet,
   update as rtdbUpdate,
   remove as rtdbRemove,
+  onDisconnect as rtdbOnDisconnect,
   serverTimestamp as rtdbServerTimestamp,
   sandbox as rtdbSandbox,
   type DataSnapshot,
 } from 'pyric/database';
+import {
+  DisconnectOperationQueue,
+  type DisconnectOperation,
+} from 'pyric/database/internal';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
@@ -54,7 +59,88 @@ const RTDB_METHODS = new Set<string>([
   'rtdb.remove',
   'rtdb.push',
   'rtdb.adminSnapshot',
+  'rtdb.onDisconnectSet',
+  'rtdb.onDisconnectUpdate',
+  'rtdb.onDisconnectRemove',
+  'rtdb.onDisconnectCancel',
+  'rtdb.goOffline',
+  'rtdb.goOnline',
 ]);
+
+interface PortDisconnectMetadata {
+  actAs?: OpMessage['actAs'];
+}
+
+type PortDisconnectOperation = DisconnectOperation<PortDisconnectMetadata>;
+
+const disconnectQueues = new WeakMap<HostCtx, Map<PortLike, DisconnectOperationQueue<PortDisconnectMetadata>>>();
+const offlinePorts = new WeakMap<HostCtx, Set<PortLike>>();
+
+function offlinePortSet(ctx: HostCtx): Set<PortLike> {
+  let ports = offlinePorts.get(ctx);
+  if (!ports) offlinePorts.set(ctx, ports = new Set());
+  return ports;
+}
+
+function portQueue(ctx: HostCtx, port: PortLike): DisconnectOperationQueue<PortDisconnectMetadata> {
+  let ports = disconnectQueues.get(ctx);
+  if (!ports) disconnectQueues.set(ctx, ports = new Map());
+  let queue = ports.get(port);
+  if (!queue) ports.set(port, queue = new DisconnectOperationQueue());
+  return queue;
+}
+
+async function validateDisconnectOperation(ctx: HostCtx, port: PortLike, operation: PortDisconnectOperation): Promise<void> {
+  const db = lensRtdb(ctx, operation.actAs, port);
+  const handle = rtdbOnDisconnect(rtdbRef(db, operation.path));
+  if (operation.kind === 'update') await handle.update(operation.values);
+  else if (operation.kind === 'remove') await handle.remove();
+  else if (operation.priority !== undefined) await handle.setWithPriority(operation.value, operation.priority);
+  else await handle.set(operation.value as never);
+  await handle.cancel();
+}
+
+async function queueDisconnectOperation(ctx: HostCtx, port: PortLike, operation: PortDisconnectOperation): Promise<void> {
+  await validateDisconnectOperation(ctx, port, operation);
+  const queue = portQueue(ctx, port);
+  queue.set(operation);
+}
+
+export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike): Promise<void> {
+  const ports = disconnectQueues.get(ctx);
+  const queue = ports?.get(port);
+  if (!queue) return;
+  ports!.delete(port);
+  const failures: unknown[] = [];
+  for (const operation of queue.takeAll()) {
+    try {
+      const db = lensRtdb(ctx, operation.actAs, port);
+      const target = rtdbRef(db, operation.path);
+      if (operation.kind === 'update') await rtdbUpdate(target, resolveRtdbSentinels(operation.values) as Record<string, unknown>);
+      else if (operation.kind === 'remove') await rtdbRemove(target);
+      else if (
+        operation.mergeAfterChildRegistration && operation.value !== null &&
+        typeof operation.value === 'object' && !Array.isArray(operation.value)
+      ) await rtdbUpdate(target, resolveRtdbSentinels(operation.value) as Record<string, unknown>);
+      else await rtdbSet(target, resolveRtdbSentinels(operation.value) as never);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  await bestEffortFlush(ctx);
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, 'Multiple SharedWorker onDisconnect operations failed');
+}
+
+export function clearAllRtdbDisconnects(ctx: HostCtx): void {
+  disconnectQueues.get(ctx)?.clear();
+  offlinePorts.get(ctx)?.clear();
+}
+
+export function forgetPortRtdbConnection(ctx: HostCtx, port: PortLike): void {
+  disconnectQueues.get(ctx)?.delete(port);
+  offlinePorts.get(ctx)?.delete(port);
+}
 
 export function isRtdbOp(method: OpMessage['method']): boolean {
   return RTDB_METHODS.has(method);
@@ -126,6 +212,59 @@ export async function handleRtdbOp(
       try {
         ok(port, msg.id, rtdbSandbox.snapshotState(lensRtdb(ctx, { mode: 'admin' }, port)));
       } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.onDisconnectSet': {
+      try {
+        await queueDisconnectOperation(ctx, port, {
+          kind: 'set', path: msg.path, value: resolveRtdbSentinels(msg.value), priority: msg.priority, actAs: msg.actAs,
+        });
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.onDisconnectUpdate': {
+      try {
+        await queueDisconnectOperation(ctx, port, {
+          kind: 'update', path: msg.path, values: resolveRtdbSentinels(msg.values) as Record<string, unknown>, actAs: msg.actAs,
+        });
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.onDisconnectRemove': {
+      try {
+        await queueDisconnectOperation(ctx, port, { kind: 'remove', path: msg.path, actAs: msg.actAs });
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.onDisconnectCancel': {
+      const queue = portQueue(ctx, port);
+      queue.cancel(msg.path);
+      ok(port, msg.id, null);
+      break;
+    }
+
+    case 'rtdb.goOffline': {
+      try {
+        const offline = offlinePortSet(ctx);
+        if (!offline.has(port)) {
+          offline.add(port);
+          await drainPortRtdbDisconnects(ctx, port);
+        }
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.goOnline': {
+      offlinePortSet(ctx).delete(port);
+      ok(port, msg.id, null);
       break;
     }
 

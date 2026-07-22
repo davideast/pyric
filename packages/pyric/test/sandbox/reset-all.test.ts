@@ -18,7 +18,7 @@ import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from '../../src/sandbox/index.js';
 import { getInternalEnv } from '../../src/sandbox/internal/sandbox-impl.js';
 import { getAuth, sandbox as authSandbox } from '../../src/auth/index.js';
-import { getDatabase, ref as rtdbRef, set as rtdbSet, get as rtdbGet } from '../../src/database/modular.js';
+import { getDatabase, ref as rtdbRef, set as rtdbSet, get as rtdbGet } from '../../src/database/index.js';
 import { getStorageSandbox, getStorageService } from '../../src/storage/service.js';
 
 function uniqueDbName(label: string): string {

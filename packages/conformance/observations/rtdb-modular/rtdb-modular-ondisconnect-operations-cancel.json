@@ -1,0 +1,39 @@
+{
+  "name": "rtdb-modular-ondisconnect-operations-cancel",
+  "matrixRow": "rtdb-modular#M80, rtdb-modular#M83",
+  "rowIds": ["rtdb-modular#M80", "rtdb-modular#M83"],
+  "description": "Queued set, update, remove, setWithPriority, cancellation scope, and overlapping parent/child registrations.",
+  "observedAt": "2026-07-21T21:37:31.397Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "outcomes": {
+      "set": {
+        "after": true
+      },
+      "update": {
+        "added": true,
+        "keep": true,
+        "value": 2
+      },
+      "remove": null,
+      "setWithPriority": {
+        ".priority": 7,
+        "after": true
+      },
+      "overlapAfterChildCancel": {
+        "child": "original-child",
+        "original": true,
+        "parent": true
+      },
+      "parentCancelDescendantsTerminal": {
+        "child": "original"
+      },
+      "cancelledTerminal": {
+        "original": true
+      }
+    },
+    "observerSawDisconnectEvents": true
+  }
+}

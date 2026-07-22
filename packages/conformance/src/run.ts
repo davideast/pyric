@@ -177,6 +177,7 @@ import {
   type CompiledRtdbRules,
   type SimulationInput,
 } from 'pyric/rules/internal/rtdb';
+import { createRtdbDisconnectProbes } from './capture/rtdb-disconnect/probes.ts';
 
 // ─── Setup ────────────────────────────────────────────────────────────
 
@@ -727,7 +728,6 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   }
   const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
   serviceAccount = sa;
-  console.log(`[oracle] service account: ${sa.client_email}`);
   console.log(`[oracle] project: ${sa.project_id}`);
   const token = await mintToken(sa, 'https://www.googleapis.com/auth/firebase');
   const cfg = await fetchWebConfig(token, sa.project_id);
@@ -944,6 +944,14 @@ async function attemptCode(step: () => Promise<unknown>): Promise<string | null>
 // ─── Probes ───────────────────────────────────────────────────────────
 
 const probes: Probe[] = [
+  ...(config.databaseURL && serviceAccount && rtdbAdminToken
+    ? createRtdbDisconnectProbes({
+        config: { ...config, databaseURL: config.databaseURL },
+        serviceAccount,
+        rtdbAdminToken,
+        runId: RUN_ID,
+      })
+    : []),
   {
     name: 'firestore-deletedoc-missing',
     matrixRow: 'firestore #39',

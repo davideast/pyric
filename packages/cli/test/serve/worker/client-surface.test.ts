@@ -13,9 +13,9 @@
 import { describe, expect, test } from 'bun:test';
 import * as client from '../../../src/serve/worker/client.js';
 
-/** The 125 value (runtime) exports of the worker client, sorted. Frozen. */
+/** The 131 value (runtime) exports of the worker client, sorted. Frozen. */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
-  'PRESENCE_HEARTBEAT_INTERVAL_MS', 'PRESENCE_STALE_MS',
+  'PRESENCE_HEARTBEAT_INTERVAL_MS', 'PRESENCE_STALE_MS', 'RtdbOnDisconnect',
   'acceptProviderCredential', 'addDoc', 'adminClearUsers', 'adminCreateUser',
   'adminDeleteDocument', 'adminDeleteRtdbValue', 'adminDeleteUser', 'adminGetDocument',
   'adminListDocuments', 'adminReadRtdbState', 'adminReadState', 'adminSetDocument',
@@ -37,7 +37,8 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'mintPresenceClientId',
   'onAuthStateChanged', 'onIdTokenChanged', 'onSnapshot', 'or', 'orderBy', 'query',
   'ref', 'relayWorkerOp', 'relayWorkerSub', 'resetAll', 'restorePortSession', 'rtdbChild',
-  'rtdbConnectDatabaseEmulator', 'rtdbGet', 'rtdbGetDatabase', 'rtdbOff', 'rtdbOnValue',
+  'rtdbConnectDatabaseEmulator', 'rtdbGet', 'rtdbGetDatabase', 'rtdbGoOffline',
+  'rtdbGoOnline', 'rtdbOff', 'rtdbOnChildAdded', 'rtdbOnChildChanged', 'rtdbOnDisconnect', 'rtdbOnValue',
   'rtdbPush', 'rtdbRef', 'rtdbRemove', 'rtdbServerTimestamp', 'rtdbSet', 'rtdbUpdate',
   'runTransaction', 'saveWorkerBranch', 'serverTimestamp', 'setDatabaseRules', 'setDoc',
   'setFirestoreRules', 'setLens', 'setOpIssuer', 'setPersistence',

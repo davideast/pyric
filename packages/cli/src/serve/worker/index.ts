@@ -43,6 +43,7 @@ export {
   disconnectClient,
   type DisconnectClientOptions,
 } from './client/disconnect.js';
+export { ownClientUntilPagehide } from './client/pagehide.js';
 
 export {
   // Bridge-peer relay seams (leaf-safe: ids are re-minted in-page, frames go
@@ -199,6 +200,12 @@ export {
   rtdbRemove,
   rtdbPush,
   rtdbOnValue,
+  rtdbOnChildAdded,
+  rtdbOnChildChanged,
+  rtdbOnDisconnect,
+  rtdbGoOffline,
+  rtdbGoOnline,
+  RtdbOnDisconnect,
   rtdbOff,
   rtdbServerTimestamp,
   rtdbConnectDatabaseEmulator,
