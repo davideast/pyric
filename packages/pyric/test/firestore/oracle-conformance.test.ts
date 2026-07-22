@@ -1137,6 +1137,52 @@ describe('oracle conformance (firestore)', () => {
     expect(snapshotCursorConverterCalls)
       .toBe(obs.snapshotCursorConverterCallsAfterSecondExecution as number);
 
+    const liveSandbox = initializeSandbox();
+    setRules(liveSandbox, PERMISSIVE);
+    liveSandbox.currentUser = { uid: 'cursor-a' };
+    const liveDb = getFirestore(liveSandbox);
+    const liveARef = doc(liveDb, 'cursor-live/a');
+    await setDoc(liveARef, { rank: 1 });
+    await setDoc(doc(liveDb, 'cursor-live/b'), { rank: 2 });
+    let liveConverterCalls = 0;
+    const liveSnapshot = await getDoc(withConverter(liveARef, {
+      toFirestore: (value: { rank: number }) => value,
+      fromFirestore: () => {
+        liveConverterCalls += 1;
+        return { rank: 999 };
+      },
+    }));
+    const liveBase = query(
+      collection(liveDb, 'cursor-live'),
+      orderBy('rank'),
+      orderBy(documentId()),
+    );
+    const liveCases = {
+      startAt: [startAt(liveSnapshot), startAt(1, liveARef.id)],
+      startAfter: [startAfter(liveSnapshot), startAfter(1, liveARef.id)],
+      endAt: [endAt(liveSnapshot), endAt(1, liveARef.id)],
+      endBefore: [endBefore(liveSnapshot), endBefore(1, liveARef.id)],
+    } as const;
+    const expectedCursorMatrix = obs.statefulSnapshotCursorMatrix as Record<string, {
+      equalToExplicit: boolean;
+      firstExecutionIds: string[];
+      secondExecutionIds: string[];
+    }>;
+    for (const [name, constraints] of Object.entries(liveCases)) {
+      const fromSnapshot = query(liveBase, constraints[0]);
+      const fromValues = query(liveBase, constraints[1]);
+      expect(queryEqual(fromSnapshot, fromValues))
+        .toBe(expectedCursorMatrix[name]!.equalToExplicit);
+      liveSandbox.currentUser = { uid: `${name}-first` };
+      expect((await getDocs(fromSnapshot)).docs.map((snapshot) => snapshot.id))
+        .toEqual(expectedCursorMatrix[name]!.firstExecutionIds);
+      liveSandbox.currentUser = { uid: `${name}-second` };
+      expect((await getDocs(fromSnapshot)).docs.map((snapshot) => snapshot.id))
+        .toEqual(expectedCursorMatrix[name]!.secondExecutionIds);
+    }
+    expect(liveConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterAllOverloads as number);
+
     const rawAddedRef = await addDoc(collection(db, 'returned-refs'), { kind: 'raw' });
     const addDocConverter = {
       toFirestore: (value: { kind: string }) => value,
@@ -1261,6 +1307,23 @@ describe('oracle conformance (firestore)', () => {
     await setDoc(doc(db, 'c/x'), { v: 2 });
     const documentChanged = await getDoc(doc(db, 'c/x'));
     expect(snapshotEqual(document1, documentChanged)).toBe(obs.documentChangedData as boolean);
+
+    const scalarCollisionRef = doc(db, 'scalar-collision/a');
+    const scalarCollisionCases: Record<string, [unknown, unknown]> = {
+      timestamp: [{ seconds: 1, nanoseconds: 2 }, new Timestamp(1, 2)],
+      reference: [{ path: 'c/x' }, doc(db, 'c/x')],
+      geoPoint: [{ latitude: 10, longitude: 20 }, new GeoPoint(10, 20)],
+      vector: [{ typeName: 'vector', value: [1, 2] }, vector([1, 2])],
+    };
+    const expectedScalarMapEquality = obs.scalarShapedMapEquality as Record<string, boolean>;
+    for (const [name, [plain, scalar]] of Object.entries(scalarCollisionCases)) {
+      await setDoc(scalarCollisionRef, { value: plain });
+      const plainSnapshot = await getDoc(scalarCollisionRef);
+      await setDoc(scalarCollisionRef, { value: scalar });
+      const scalarSnapshot = await getDoc(scalarCollisionRef);
+      expect(snapshotEqual(plainSnapshot, scalarSnapshot))
+        .toBe(expectedScalarMapEquality[name]);
+    }
 
     const firstListenerSnapshot = (source: typeof q) => new Promise<QuerySnapshot>((resolve) => {
       let unsubscribe = () => {};

@@ -1161,6 +1161,35 @@ const probes: Probe[] = [
       const statefulSnapshotCursorSecondExecutionIds = (await getDocs(statefulSnapshotCursor))
         .docs.map((snap) => snap.id);
       const snapshotCursorConverterCallsAfterSecondExecution = snapshotCursorConverterCalls;
+      const statefulSnapshotCursorCases = {
+        startAt: {
+          snapshot: query(cursorBase, startAt(convertedCursorSnapshot)),
+          explicit: query(cursorBase, startAt(1, aRef.id)),
+        },
+        startAfter: {
+          snapshot: query(cursorBase, startAfter(convertedCursorSnapshot)),
+          explicit: query(cursorBase, startAfter(1, aRef.id)),
+        },
+        endAt: {
+          snapshot: query(cursorBase, endAt(convertedCursorSnapshot)),
+          explicit: query(cursorBase, endAt(1, aRef.id)),
+        },
+        endBefore: {
+          snapshot: query(cursorBase, endBefore(convertedCursorSnapshot)),
+          explicit: query(cursorBase, endBefore(1, aRef.id)),
+        },
+      };
+      const statefulSnapshotCursorMatrix = Object.fromEntries(
+        await Promise.all(Object.entries(statefulSnapshotCursorCases).map(async ([name, value]) => [
+          name,
+          {
+            equalToExplicit: queryEqual(value.snapshot, value.explicit),
+            firstExecutionIds: (await getDocs(value.snapshot)).docs.map((snap) => snap.id),
+            secondExecutionIds: (await getDocs(value.snapshot)).docs.map((snap) => snap.id),
+          },
+        ])),
+      );
+      const snapshotCursorConverterCallsAfterAllOverloads = snapshotCursorConverterCalls;
       const rawAddedRef = await addDoc(c, { kind: 'raw-added-reference' });
       const convertedAddedRef = await addDoc(
         c.withConverter(converterA),
@@ -1263,6 +1292,8 @@ const probes: Probe[] = [
         snapshotCursorConverterCallsAfterFirstExecution,
         statefulSnapshotCursorSecondExecutionIds,
         snapshotCursorConverterCallsAfterSecondExecution,
+        statefulSnapshotCursorMatrix,
+        snapshotCursorConverterCallsAfterAllOverloads,
         rawAddDocReferenceEqualToRebuilt: queryEqual(
           rawAddedReferenceQuery,
           rebuiltRawAddedReferenceQuery,
@@ -1440,6 +1471,32 @@ const probes: Probe[] = [
       const convertedB = await getDoc(aRef.withConverter(converterB));
       await setDoc(aRef, { v: 2 });
       const documentChanged = await getDoc(aRef);
+      const scalarCollisionRef = doc(c, 'scalar-collision');
+      const scalarCollision = async (plain: unknown, scalar: unknown) => {
+        await setDoc(scalarCollisionRef, { value: plain });
+        const plainSnapshot = await getDoc(scalarCollisionRef);
+        await setDoc(scalarCollisionRef, { value: scalar });
+        const scalarSnapshot = await getDoc(scalarCollisionRef);
+        return snapshotEqual(plainSnapshot, scalarSnapshot);
+      };
+      const scalarShapedMapEquality = {
+        timestamp: await scalarCollision(
+          { seconds: 1, nanoseconds: 2 },
+          new Timestamp(1, 2),
+        ),
+        reference: await scalarCollision(
+          { path: aRef.path },
+          aRef,
+        ),
+        geoPoint: await scalarCollision(
+          { latitude: 10, longitude: 20 },
+          new GeoPoint(10, 20),
+        ),
+        vector: await scalarCollision(
+          { typeName: 'vector', value: [1, 2] },
+          vector([1, 2]),
+        ),
+      };
       const json = snap1.toJSON();
       const fromJson1 = querySnapshotFromJSON(db, json);
       const fromJson2 = querySnapshotFromJSON(db, json);
@@ -1536,6 +1593,7 @@ const probes: Probe[] = [
         documentQueryChildMatchesGet: snapshotEqual(queryChild, document1),
         documentSameConverterIdentity: snapshotEqual(convertedA1, convertedA2),
         documentDifferentConverterIdentity: snapshotEqual(convertedA1, convertedB),
+        scalarShapedMapEquality,
         listenerMetadata: [listenerSnap1, listenerSnap2].map((snapshot) => ({
           fromCache: snapshot.metadata.fromCache,
           hasPendingWrites: snapshot.metadata.hasPendingWrites,
@@ -1547,6 +1605,7 @@ const probes: Probe[] = [
         deleteDoc(bRef),
         deleteDoc(historyRef),
         deleteDoc(metadataRef),
+        deleteDoc(scalarCollisionRef),
       ]);
       await dropCurrentUser();
       return result;

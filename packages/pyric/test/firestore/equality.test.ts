@@ -16,6 +16,9 @@ import {
   snapshotEqual,
   where,
   startAt,
+  startAfter,
+  endAt,
+  endBefore,
   withConverter,
   Bytes,
   GeoPoint,
@@ -138,7 +141,7 @@ describe('Firestore equality helpers', () => {
   });
 
   it('captures snapshot cursor bounds without invoking a consumer converter', async () => {
-    const { db } = setup();
+    const { sandbox, db } = setup();
     const ref = doc(db, 'items/a');
     await setDoc(ref, { rank: 1 });
     await setDoc(doc(db, 'items/b'), { rank: 2 });
@@ -156,14 +159,24 @@ describe('Firestore equality helpers', () => {
       orderBy('rank'),
       orderBy(documentId()),
     );
-    const fromSnapshot = query(base, startAt(snapshot));
+    const cases = [
+      [startAt(snapshot), startAt(1, ref.id), ['a', 'b']],
+      [startAfter(snapshot), startAfter(1, ref.id), ['b']],
+      [endAt(snapshot), endAt(1, ref.id), ['a']],
+      [endBefore(snapshot), endBefore(1, ref.id), []],
+    ] as const;
 
     expect(converterCalls).toBe(0);
-    expect(queryEqual(fromSnapshot, query(base, startAt(1, ref.id)))).toBe(true);
-    expect((await getDocs(fromSnapshot)).docs.map((docSnapshot) => docSnapshot.id))
-      .toEqual(['a', 'b']);
-    expect((await getDocs(fromSnapshot)).docs.map((docSnapshot) => docSnapshot.id))
-      .toEqual(['a', 'b']);
+    for (const [snapshotConstraint, explicitConstraint, expectedIds] of cases) {
+      const fromSnapshot = query(base, snapshotConstraint);
+      expect(queryEqual(fromSnapshot, query(base, explicitConstraint))).toBe(true);
+      sandbox.currentUser = { uid: `first-${expectedIds.length}` };
+      expect((await getDocs(fromSnapshot)).docs.map((docSnapshot) => docSnapshot.id))
+        .toEqual(expectedIds);
+      sandbox.currentUser = { uid: `second-${expectedIds.length}` };
+      expect((await getDocs(fromSnapshot)).docs.map((docSnapshot) => docSnapshot.id))
+        .toEqual(expectedIds);
+    }
     expect(converterCalls).toBe(0);
   });
 
@@ -190,6 +203,42 @@ describe('Firestore equality helpers', () => {
     )).toBe(true);
     expect((await getDocs(rawQuery)).docs.map((snapshot) => snapshot.id)).toEqual(['a']);
     expect((await getDocs(convertedQuery)).docs.map((snapshot) => snapshot.id)).toEqual(['a']);
+  });
+
+  it('rejects raw and converted addDoc results owned by another sandbox', async () => {
+    const { db } = setup();
+    const { db: otherDb } = setup();
+    const rawForeign = await addDoc(collection(otherDb, 'returned'), { kind: 'raw' });
+    const convertedForeign = await addDoc(withConverter(collection(otherDb, 'returned'), {
+      toFirestore: (value: { kind: string }) => value,
+      fromFirestore: (snapshot: { data(): { kind: string } }) => snapshot.data(),
+    }), { kind: 'converted' });
+    const items = collection(db, 'items');
+
+    expect(() => query(items, where('ref', '==', rawForeign)))
+      .toThrow(/different Firestore database/);
+    expect(() => query(items, where('ref', '==', convertedForeign)))
+      .toThrow(/different Firestore database/);
+  });
+
+  it('keeps scalar-shaped maps distinct from Firestore scalar values', async () => {
+    const { db } = setup();
+    const ref = doc(db, 'items/a');
+    const cases: Array<[unknown, unknown]> = [
+      [{ seconds: 1, nanoseconds: 2 }, new Timestamp(1, 2)],
+      [{ path: 'items/target' }, doc(db, 'items/target')],
+      [{ latitude: 10, longitude: 20 }, new GeoPoint(10, 20)],
+      [{ typeName: 'vector', value: [1, 2] }, vector([1, 2])],
+    ];
+    const results: boolean[] = [];
+    for (const [plain, scalar] of cases) {
+      await setDoc(ref, { value: plain });
+      const plainSnapshot = await getDoc(ref);
+      await setDoc(ref, { value: scalar });
+      const scalarSnapshot = await getDoc(ref);
+      results.push(snapshotEqual(plainSnapshot, scalarSnapshot));
+    }
+    expect(results).toEqual([false, false, false, false]);
   });
 
   it('queryEqual does not observe valid getter operands after query construction', () => {

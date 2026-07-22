@@ -267,23 +267,11 @@ export function asChainDoc(r: object): ChainDocRef { return r as ChainDocRef; }
 export function asChainColl(r: object): ChainCollRef { return r as ChainCollRef; }
 export function asChainQuery(r: object): ChainQuery { return r as ChainQuery; }
 
-export function isNumberArray(a: unknown): a is number[] {
-  return Array.isArray(a) && a.every((n) => typeof n === 'number');
-}
-
-/**
- * A vector read from the sandbox may arrive as a live `Vector` wrapper, a
- * prototype-stripped plain object (`{typeName:'vector', value}`), or the wire
- * sentinel (`{__type__:'__vector__', value}`). Duck-type all three; `instanceof`
- * alone misses the stripped form the read path hands back. Returns the
- * components, or null if `value` isn't a vector.
- */
+/** Return components only from the trusted internal Vector wrapper. Plain
+ * maps may legitimately use `typeName`/`value` or `__type__`/`value`; treating
+ * those shapes as vectors erases Firestore's map-versus-vector distinction. */
 export function vectorValuesOf(value: unknown): number[] | null {
   if (value instanceof RulesVector) return Array.from(value.value);
-  if (value === null || typeof value !== 'object') return null;
-  const o = value as Record<string, unknown>;
-  if (o.typeName === 'vector' && isNumberArray(o.value)) return o.value;
-  if (o.__type__ === '__vector__' && isNumberArray(o.value)) return o.value;
   return null;
 }
 

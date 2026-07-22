@@ -19,6 +19,7 @@ import {
   Timestamp as InternalTimestamp,
   Bytes as InternalBytes,
   LatLng as InternalLatLng,
+  Vector as InternalVector,
 } from 'pyric/rules/internal';
 import { Timestamp as CompatTimestamp, type DocumentData } from './types.js';
 
@@ -36,6 +37,7 @@ function translateValue(value: unknown): unknown {
   // class instance into a plain `{...}` and erase the type.
   if (value instanceof InternalBytes) return value;
   if (value instanceof InternalLatLng) return value;
+  if (value instanceof InternalVector) return value;
   if (Array.isArray(value)) {
     return value.map(translateValue);
   }

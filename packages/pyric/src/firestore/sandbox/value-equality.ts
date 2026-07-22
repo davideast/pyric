@@ -29,6 +29,10 @@ type FirestoreScalar =
  * on either side's `instanceof`-based `isEqual` loses value equality. */
 function firestoreScalar(value: unknown): FirestoreScalar | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
+  // Firestore maps may legitimately contain keys such as `seconds`, `path`,
+  // or `latitude`. Only class/registered wrapper values are scalars; treating
+  // a plain map as one collapses distinct Firestore types during equality.
+  if (isFirestoreMapValue(value)) return undefined;
   const candidate = value as Record<string, unknown> & {
     toUint8Array?: () => Uint8Array;
     toArray?: () => number[];

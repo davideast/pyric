@@ -5,7 +5,7 @@
     "firestore#117"
   ],
   "description": "snapshotEqual semantics — does prod compare structurally or by identity across two fetches of the same query?",
-  "observedAt": "2026-07-22T03:10:36.949Z",
+  "observedAt": "2026-07-22T03:35:12.121Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -455,6 +455,12 @@
     "documentQueryChildMatchesGet": false,
     "documentSameConverterIdentity": true,
     "documentDifferentConverterIdentity": false,
+    "scalarShapedMapEquality": {
+      "timestamp": false,
+      "reference": false,
+      "geoPoint": false,
+      "vector": false
+    },
     "listenerMetadata": [
       {
         "fromCache": true,
