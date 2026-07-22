@@ -39,8 +39,8 @@ export interface SimRequest {
 //
 // `id`/`__name__` are therefore OPTIONAL. The request-target `resource` omits
 // them (absent → the evaluator's absent-key error → DENY, matching prod). The
-// value returned by `get()`/`getAfter()` still carries them; that synthesis is
-// a separate, already-documented divergence (firestore-rules#165).
+// Serializable function mocks used by `get()`/`getAfter()` also omit identity,
+// while real DocStore lookups retain the identity-bearing document path.
 export interface SimResource {
   data: Record<string, unknown>;
   id?: string;

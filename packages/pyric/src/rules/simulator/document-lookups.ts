@@ -1,4 +1,4 @@
-import type { SimulationContext, SimResource } from './evaluator.js';
+import type { SimulationContext, SimResource } from './evaluation-context.js';
 import { EvalError } from './evaluation-errors.js';
 import { Path } from './wrappers/path.js';
 
