@@ -38,7 +38,7 @@
  * the same `/__pyric/*` routes. If the worker bundle fails, the plugin falls back
  * to the in-page sandbox (single-tab, ephemeral).
  */
-import { existsSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
 import type { Plugin, UserConfig, ConfigEnv } from 'vite';
@@ -53,7 +53,11 @@ import {
 } from './bundler.js';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
 import { formatActivityWarning } from './activity-warning.js';
-import { createBridgeMount } from './bridge-mount.js';
+import {
+  createBridgeMount,
+  type BridgeHostAttachment,
+  type BridgeMount,
+} from './bridge-mount.js';
 import { isAllowedHost } from './server.js';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
@@ -61,15 +65,11 @@ import {
   discoverFunctionsRtdbProject,
   type FunctionsRtdbProject,
 } from '../functions-rtdb/project.js';
+import { registerModuleUrl } from '../cli/dev-runner.js';
 import {
-  spawnFunctionsRtdbChild,
-  type FunctionsRtdbChildHandle,
-} from '../functions-rtdb/child.js';
-import {
-  buildChildEnv,
-  createLinePrefixer,
-  registerModuleUrl,
-} from '../cli/dev-runner.js';
+  attachViteFunctionsDevelopment,
+  type ViteFunctionsDevelopmentAttachment,
+} from './vite-functions-development.js';
 import {
   loadViteAiEnv,
   resolveViteAiConfig,
@@ -304,6 +304,9 @@ export function pyric(options: PyricOptions = {}): Plugin {
   // so multi-tab is disabled under bridge to keep agent + app on one backend.
   const bridgeOpts = options.bridge === true ? {} : options.bridge || null;
   let configuredSession: SandboxSession | null = null;
+  let configuredBridge: BridgeMount | null = null;
+  let configuredBridgeAttachment: BridgeHostAttachment | null = null;
+  let configuredFunctions: ViteFunctionsDevelopmentAttachment | null = null;
   const configuredListenerDisposers: Array<() => void> = [];
 
   // Plugin-level AI engine, normalized to the JSON-safe wire shape. Travels
@@ -394,8 +397,17 @@ export function pyric(options: PyricOptions = {}): Plugin {
 
     async configureServer(server) {
       const priorSession = configuredSession;
+      const priorBridge = configuredBridge;
+      const priorBridgeAttachment = configuredBridgeAttachment;
+      const priorFunctions = configuredFunctions;
       configuredSession = null;
+      configuredBridge = null;
+      configuredBridgeAttachment = null;
+      configuredFunctions = null;
       for (const dispose of configuredListenerDisposers.splice(0).reverse()) dispose();
+      await priorFunctions?.close();
+      await priorBridgeAttachment?.close();
+      await priorBridge?.close();
       await priorSession?.close();
       const cwd = options.root ?? server.config.root;
 
@@ -522,6 +534,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
           },
         });
       } catch (error) {
+        await mount?.close();
         if (error instanceof SandboxSeedError) {
           if (error.kind === 'read') {
             throw new Error(`@pyric/cli/vite: failed to read seed ${error.path}: ${error.detail}`);
@@ -530,7 +543,11 @@ export function pyric(options: PyricOptions = {}): Plugin {
         }
         throw error;
       }
+      let bridgeAttachment: BridgeHostAttachment | null = null;
+      let functionsAttachment: ViteFunctionsDevelopmentAttachment | null = null;
       configuredSession = session;
+      configuredBridge = mount;
+      try {
       if (options.persist && options.fresh) {
         server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
       }
@@ -577,283 +594,46 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // Cast: Vite types `httpServer` as http.Server | http2.Http2SecureServer;
       // attachUpgrade only needs `.on('upgrade')`, present on both. (serve passes
       // a plain http.Server, so this widening is plugin-specific.)
-      if (mount && server.httpServer) mount.attachUpgrade(server.httpServer as unknown as HttpServer);
-
-      // A2 discovery pointer: the stdio `mcp-proxy` (the sanctioned Claude Code
-      // entrypoint) reads `.pyric/serve.json` to find the bridge without a fixed
-      // URL -- it takes the PORT and probes BOTH loopback families, defeating the
-      // IPv6/IPv4 trap that broke the hand-written `.mcp.json`. serve writes this
-      // pointer; the Vite plugin must too. Written after listen (port known),
-      // removed on close.
       if (mount && server.httpServer) {
-        const httpServer = server.httpServer;
-        const pointer = path.join(cwd, '.pyric', 'serve.json');
+        const httpServer = server.httpServer as unknown as HttpServer;
         const host =
           (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
-        const writePointer = (): void => {
-          const addr = httpServer.address();
-          const port = addr && typeof addr === 'object' ? addr.port : 0;
-          if (!port) return;
-          try {
-            mkdirSync(path.dirname(pointer), { recursive: true });
-            writeFileSync(
-              pointer,
-              JSON.stringify(
-                {
-                  url: `http://${host}:${port}`,
-                  mcpUrl: mount.mcpUrl({ host, port }),
-                  port,
-                  pid: process.pid,
-                  instanceId: mount.instanceId,
-                  project: bridgeOpts?.project ?? 'sandbox',
-                },
-                null,
-                2,
-              ) + '\n',
-            );
-          } catch {
-            /* best-effort: the proxy falls back to a port scan */
-          }
-        };
-        // Cross-family collision guard: once listening, probe BOTH loopback
-        // families on our port. If a DIFFERENT sandbox answers on the other
-        // family, two dev servers are colliding (IPv4 `*:P` + IPv6 `[::1]:P`)
-        // and the agent/browser can split across them (writes seem to vanish).
-        // #697's dual-bind can't apply here — Vite owns the single listen — so
-        // we can only warn, loudly. (Our own family answers with our instanceId
-        // and is skipped; a dual-stack bind owns both and never trips this.)
-        const warnOnCollision = async (): Promise<void> => {
-          const a = httpServer.address();
-          const p = a && typeof a === 'object' ? a.port : 0;
-          if (!p) return;
-          for (const probe of [`http://127.0.0.1:${p}`, `http://[::1]:${p}`]) {
-            try {
-              const res = await fetch(`${probe}/__pyric/health`, { signal: AbortSignal.timeout(1000) });
-              if (res.status !== 200) continue;
-              const body = (await res.json()) as { mode?: string; instanceId?: string };
-              if (body.mode === 'sandbox' && body.instanceId && body.instanceId !== mount.instanceId) {
-                server.config.logger.warn(
-                  `\n⚠  pyric: another sandbox already serves port ${p} on a different loopback ` +
-                    `family (${probe}). Two dev servers are colliding across IPv4/IPv6 — your MCP ` +
-                    `agent and browser can land on DIFFERENT sandboxes (writes seem to vanish). ` +
-                    `Stop the other server, or give this app a unique \`server.port\` so the two ` +
-                    `don't share one (pinning server.host to a family the squatter holds would ` +
-                    `just EADDRINUSE).\n`,
-                  { timestamp: true },
-                );
-                return; // one warning is enough
-              }
-            } catch {
-              /* other family silent — no collision */
-            }
-          }
-        };
-        const announce = (): void => {
-          writePointer();
-          void warnOnCollision();
-        };
-        if ((httpServer as unknown as { listening?: boolean }).listening) announce();
-        else httpServer.once('listening', announce);
-        httpServer.once('close', () => {
-          try {
-            rmSync(pointer);
-          } catch {
-            /* gone already */
-          }
+        bridgeAttachment = mount.attachHost({
+          servers: [httpServer],
+          projectDir: cwd,
+          origin: () => {
+            const address = httpServer.address();
+            const port = address && typeof address === 'object' ? address.port : 0;
+            return port > 0 ? { host, port } : null;
+          },
+          collision: server.config.logger,
+          closeOnServerClose: false,
         });
+        configuredBridgeAttachment = bridgeAttachment;
       }
 
-      // ── Functions child lifecycle (mirrors serve's runServe) ─────────────
-      // The Functions runtime executes in an isolated node child (child.ts),
-      // exactly as `pyric dev` runs it: the child loads the user's unchanged
-      // functions module, and `--import @pyric/cli/register` + `PYRIC_SANDBOX=
-      // remote:<serveUrl>` route its `firebase-admin/app` to a RemoteSandbox that
-      // dials the bridge WS (`/__pyric/sandbox`). onValueCreated triggers observe
-      // RTDB writes and write their effects back through that one shared sandbox.
-      // Started once a sandbox peer (a browser tab / SharedWorker relay) has
-      // connected — the trigger's baseline needs a live backend — and stopped on
-      // server close. Vite restarts re-run configureServer, so the child respawns
-      // with the new server. Unlike `pyric dev` (which does not watch functions
-      // source), the plugin hot-reloads it via Vite's own watcher — see the
-      // watch block below; `functions: { watch: false }` restores dev's
-      // restart-to-reload behavior.
       if (functionsProject && functionsProjectId && mount && server.httpServer) {
-        const httpServer = server.httpServer;
-        const project = functionsProject;
-        const projectId = functionsProjectId;
-        const bridgeMount = mount;
         const host =
           (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
-        // Prefer the compiled child (node cannot execute the .ts source when the
-        // plugin runs from source in tests); fall back to spawnFunctionsRtdbChild's
-        // own default (correct when the plugin runs from dist in production).
         const builtChild = path.join(cliRoot, 'dist/functions-rtdb/child.js');
         const childModuleUrl = existsSync(builtChild) ? builtChild : undefined;
-        let functionsChild: FunctionsRtdbChildHandle | null = null;
-        let disposed = false;
-
-        const start = async (mode: 'initial' | 'reload' = 'initial'): Promise<void> => {
-          const addr = httpServer.address();
-          const port = addr && typeof addr === 'object' ? addr.port : 0;
-          if (!port || disposed) return;
-          const serveUrl = `http://${host}:${port}`;
-
-          // Wait (bounded) for a sandbox peer — the SharedWorker relay / browser
-          // tab that holds the backend. Poll the mount directly (no self-fetch).
-          // On a hot reload the peer is usually still connected (the loop exits
-          // immediately); when it dropped mid-session, wait briefly rather than
-          // the full initial 30s.
-          const deadline = Date.now() + (mode === 'reload' ? 5_000 : 30_000);
-          while (!disposed && !bridgeMount.sandboxConnected()) {
-            if (Date.now() >= deadline) break;
-            await new Promise((r) => setTimeout(r, 250));
-          }
-          if (disposed) return;
-          if (!bridgeMount.sandboxConnected()) {
-            server.config.logger.warn(
-              mode === 'reload'
-                ? `  ✖ [pyric] functions not restarted — no sandbox peer connected. ` +
-                    `Functions stay down until the next save with ${serveUrl} open.`
-                : `  ⚠ [pyric] functions not started — no browser tab connected after 30s. ` +
-                    `Open ${serveUrl} and restart the dev server.`,
-            );
-            return;
-          }
-
-          functionsChild = spawnFunctionsRtdbChild({
-            cwd: project.sourceDir,
-            entry: project.entry,
-            env: buildChildEnv(process.env, { serveUrl, registerUrl: registerModuleUrl() }),
-            // Precedence (per field): plugin option > env var > firebase files
-            // > default. projectId already folds PYRIC_PROJECT > .firebaserc >
-            // demo-project.
-            instance: functionsOpts.instance ?? `${projectId}-default-rtdb`,
-            location: functionsOpts.region ?? process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
+        functionsAttachment = attachViteFunctionsDevelopment({
+            cwd,
+            project: functionsProject,
+            projectId: functionsProjectId,
+            instance: functionsOpts.instance,
+            region: functionsOpts.region,
+            watch: functionsOpts.watch,
+            host,
+            httpServer: server.httpServer as unknown as HttpServer,
+            watcher: server.watcher,
+            logger: server.config.logger,
+            bridge: mount,
+            baseEnv: process.env,
+            registerUrl: registerModuleUrl(),
             ...(childModuleUrl ? { childModuleUrl } : {}),
-            onEvent(event) {
-              if (event.type === 'execution') {
-                const params = Object.entries(event.params)
-                  .map(([name, value]) => `${name}=${value}`)
-                  .join(', ');
-                const suffix = params ? ` (${params})` : '';
-                if (event.status === 'fulfilled') {
-                  server.config.logger.info(`  ✔ [pyric] function ${event.exportName} ← /${event.ref}${suffix}`);
-                } else {
-                  server.config.logger.error(
-                    `  ✖ [pyric] function ${event.exportName} ← /${event.ref}${suffix}: ${event.error.message}`,
-                  );
-                }
-              } else {
-                server.config.logger.error(
-                  `  ✖ [pyric] functions delivery for ${event.exportName}: ${event.error.message}`,
-                );
-              }
-            },
-          });
-
-          const out = createLinePrefixer('[functions] ', (line) => server.config.logger.info(line.replace(/\n$/, '')));
-          const err = createLinePrefixer('[functions] ', (line) => server.config.logger.warn(line.replace(/\n$/, '')));
-          functionsChild.child.stdout?.setEncoding('utf8');
-          functionsChild.child.stderr?.setEncoding('utf8');
-          functionsChild.child.stdout?.on('data', (chunk: string) => out.push(chunk));
-          functionsChild.child.stderr?.on('data', (chunk: string) => err.push(chunk));
-          functionsChild.child.stdout?.once('end', () => out.flush());
-          functionsChild.child.stderr?.once('end', () => err.flush());
-
-          try {
-            const ready = await functionsChild.ready;
-            server.config.logger.info(
-              mode === 'reload'
-                ? `  ↻ [pyric] functions reloaded (${ready.triggerCount} trigger${ready.triggerCount === 1 ? '' : 's'})`
-                : `  ✔ [pyric] functions ${ready.triggerCount} onValueCreated ` +
-                    `trigger${ready.triggerCount === 1 ? '' : 's'} from ${path.relative(cwd, project.entry)}`,
-            );
-            for (const unsupported of ready.unsupportedTriggers) {
-              server.config.logger.warn(
-                `  ⚠ [pyric] functions export ${unsupported.exportName} uses unsupported trigger ` +
-                  `${unsupported.eventType}; it will not run.`,
-              );
-            }
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            server.config.logger.error(
-              mode === 'reload'
-                ? // Unlike rules, last-good cannot stay live — the old child is
-                  // already stopped — so a broken save takes functions down.
-                  `  ✖ [pyric] functions failed to reload: ${message}\n` +
-                    `  ✖ [pyric] functions are down until the next good save.`
-                : `  ✖ [pyric] functions failed to start: ${message}`,
-            );
-            await functionsChild.stop().catch(() => undefined);
-            functionsChild = null;
-          }
-        };
-
-        let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
-        httpServer.once('close', () => {
-          disposed = true;
-          if (reloadDebounce) clearTimeout(reloadDebounce);
-          void functionsChild?.stop().catch(() => undefined);
         });
-        if ((httpServer as unknown as { listening?: boolean }).listening) void start();
-        else httpServer.once('listening', () => void start());
-
-        // Functions hot-reload from Vite's OWN watcher (mirrors the rules block
-        // below). Restart = redeploy: stop the old child, respawn via the same
-        // start path — there is no in-place swap, so in-flight executions in the
-        // old child may drop and writes landing in the swap gap become the new
-        // child's baseline (execution.ts consumes each trigger's first observed
-        // value as baseline; they do not fire). Debounced 300ms — a save fans
-        // out several fs events and a child respawn is far heavier than a rules
-        // re-parse. Restarts are serialized: a save landing mid-restart queues
-        // exactly one follow-up run.
-        if (functionsOpts.watch !== false) {
-          const sourceDir = project.sourceDir;
-          // Usually redundant (Vite watches its root, which contains the
-          // functions dir in the common layout) but load-bearing when the
-          // functions source lives outside Vite's root. node_modules stays
-          // ignored: Vite's watcher ignores `**/node_modules/**` globally, and
-          // the handler below filters it again for explicitly-added trees.
-          server.watcher.add(sourceDir);
-          let restarting = false;
-          let queued = false;
-          const restart = async (): Promise<void> => {
-            if (restarting) {
-              queued = true;
-              return;
-            }
-            restarting = true;
-            try {
-              do {
-                queued = false;
-                if (disposed) return;
-                const old = functionsChild;
-                functionsChild = null;
-                if (old) await old.stop().catch(() => undefined);
-                await start('reload');
-              } while (queued && !disposed);
-            } finally {
-              restarting = false;
-            }
-          };
-          const onFunctionsFsEvent = (file: string): void => {
-            const resolved = path.resolve(file);
-            const rel = path.relative(sourceDir, resolved);
-            if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return;
-            if (rel.split(path.sep).includes('node_modules')) return;
-            if (reloadDebounce) clearTimeout(reloadDebounce);
-            reloadDebounce = setTimeout(() => void restart(), 300);
-          };
-          server.watcher.on('change', onFunctionsFsEvent);
-          server.watcher.on('add', onFunctionsFsEvent);
-          server.watcher.on('unlink', onFunctionsFsEvent);
-          configuredListenerDisposers.push(() => {
-            if (reloadDebounce) clearTimeout(reloadDebounce);
-            server.watcher.off('change', onFunctionsFsEvent);
-            server.watcher.off('add', onFunctionsFsEvent);
-            server.watcher.off('unlink', onFunctionsFsEvent);
-          });
-        }
+        configuredFunctions = functionsAttachment;
       }
 
       // Vite owns filesystem observation; the session owns read/prepare/hash,
@@ -883,12 +663,46 @@ export function pyric(options: PyricOptions = {}): Plugin {
           server.watcher.off('change', onRulesChange);
         });
       }
+      if (server.httpServer) {
+        const httpServer = server.httpServer;
+        const onServerClose = (): void => {
+          void (async () => {
+            await functionsAttachment?.close();
+            await bridgeAttachment?.close();
+            await mount?.close();
+            await session.close();
+          })();
+        };
+        httpServer.once('close', onServerClose);
+        configuredListenerDisposers.push(() => httpServer.removeListener('close', onServerClose));
+      }
+      } catch (error) {
+        for (const dispose of configuredListenerDisposers.splice(0).reverse()) dispose();
+        if (configuredFunctions === functionsAttachment) configuredFunctions = null;
+        if (configuredBridgeAttachment === bridgeAttachment) configuredBridgeAttachment = null;
+        if (configuredBridge === mount) configuredBridge = null;
+        if (configuredSession === session) configuredSession = null;
+        await (functionsAttachment as ViteFunctionsDevelopmentAttachment | null)?.close();
+        await bridgeAttachment?.close();
+        await mount?.close();
+        await session.close();
+        throw error;
+      }
     },
 
     async closeBundle() {
       const session = configuredSession;
+      const bridge = configuredBridge;
+      const bridgeAttachment = configuredBridgeAttachment;
+      const functionsAttachment = configuredFunctions;
       configuredSession = null;
+      configuredBridge = null;
+      configuredBridgeAttachment = null;
+      configuredFunctions = null;
       for (const dispose of configuredListenerDisposers.splice(0).reverse()) dispose();
+      await functionsAttachment?.close();
+      await bridgeAttachment?.close();
+      await bridge?.close();
       await session?.close();
     },
 

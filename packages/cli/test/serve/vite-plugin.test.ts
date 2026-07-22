@@ -443,6 +443,48 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     await (p.closeBundle as () => Promise<void>)();
     expect(response.writableEnded).toBe(true);
   });
+
+  it('reconfiguration and closeBundle remove all Functions watcher listeners', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-reconfigure-'));
+    mkdirSync(path.join(tmp, 'functions'));
+    writeFileSync(path.join(tmp, 'firebase.json'), JSON.stringify({ functions: { source: 'functions' } }));
+    writeFileSync(path.join(tmp, 'functions/package.json'), JSON.stringify({ main: 'index.js' }));
+    writeFileSync(path.join(tmp, 'functions/index.js'), 'module.exports = {};');
+    const p = pyric({ ui: false });
+
+    const configure = async () => {
+      const watcher = new EventEmitter() as EventEmitter & { add(path: string): void };
+      watcher.add = () => {};
+      const httpServer = Object.assign(new EventEmitter(), {
+        listening: false,
+        address: () => ({ port: 5173 }),
+      });
+      await (p.configureServer as (server: unknown) => Promise<void>)({
+        config: { root: tmp, logger: { info() {}, warn() {}, error() {} }, server: { allowedHosts: [], host: 'localhost' } },
+        middlewares: { use() {} },
+        watcher,
+        httpServer,
+      });
+      return { watcher, httpServer };
+    };
+
+    const first = await configure();
+    expect(first.watcher.listenerCount('change')).toBe(1);
+    expect(first.watcher.listenerCount('add')).toBe(1);
+    expect(first.watcher.listenerCount('unlink')).toBe(1);
+
+    const second = await configure();
+    expect(first.watcher.listenerCount('change')).toBe(0);
+    expect(first.watcher.listenerCount('add')).toBe(0);
+    expect(first.watcher.listenerCount('unlink')).toBe(0);
+    expect(first.httpServer.listenerCount('upgrade')).toBe(0);
+
+    await (p.closeBundle as () => Promise<void>)();
+    expect(second.watcher.listenerCount('change')).toBe(0);
+    expect(second.watcher.listenerCount('add')).toBe(0);
+    expect(second.watcher.listenerCount('unlink')).toBe(0);
+    expect(second.httpServer.listenerCount('upgrade')).toBe(0);
+  });
 });
 
 // NOTE (unit): asserts the workerReady===false → in-page output in ISOLATION

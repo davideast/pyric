@@ -10,8 +10,8 @@
  * rules load (fail fast on broken rules) → SDK bundle (cached per pyric
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
-import { dirname, join, relative, resolve } from 'node:path';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, watch as watchFile, writeFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync, watch as watchFile } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
@@ -30,7 +30,6 @@ import { createBridgeMount } from '../serve/bridge-mount.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import {
   buildChildEnv,
-  createLinePrefixer,
   detectPackageManager,
   readDevScript,
   registerModuleUrl,
@@ -40,9 +39,11 @@ import {
   type DevChildHandle,
 } from './dev-runner.js';
 import {
-  spawnFunctionsRtdbChild,
-  type FunctionsRtdbChildHandle,
-} from '../functions-rtdb/child.js';
+  createFunctionsDevelopmentRuntime,
+  createHttpFunctionsPeerReadiness,
+  type FunctionsDevelopmentEvent,
+  type FunctionsDevelopmentRuntime,
+} from '../functions-rtdb/development-runtime.js';
 import {
   discoverFunctionsRtdbProject,
   type FunctionsRtdbProject,
@@ -323,37 +324,59 @@ export async function startServe(opts: {
       logger,
     });
   } catch (error) {
+    await mount?.close();
     await session.close();
     bundle.dispose?.();
     throw error;
   }
-  if (bundle.dispose) handle.server.once('close', bundle.dispose);
-  handle.server.once('close', () => void session.close());
   origin.port = handle.port;
-  // Attach the WS upgrade to EVERY bound server so the sandbox peer connects on
-  // whichever loopback family the page resolved (localhost binds both now).
-  if (mount) for (const s of handle.servers) mount.attachUpgrade(s);
+  // The bridge attachment owns upgrades on every bound family plus discovery.
+  // Its explicit close handle is also folded into stop() below, before the
+  // sandbox session is released.
+  let bridgeAttachment;
+  try {
+    bridgeAttachment = mount?.attachHost({
+      servers: handle.servers,
+      lifecycleServer: handle.server,
+      projectDir: opts.cwd,
+      origin: () => origin.port > 0 ? origin : null,
+    });
+  } catch (error) {
+    await mount?.close();
+    await session.close();
+    await handle.stop().catch(() => undefined);
+    bundle.dispose?.();
+    throw error;
+  }
+  const stopServer = handle.stop.bind(handle);
+  let closeResources: Promise<void> | null = null;
+  const closeOwnedResources = (): Promise<void> => {
+    closeResources ??= (async () => {
+      await bridgeAttachment?.close();
+      await mount?.close();
+      await session.close();
+    })();
+    return closeResources;
+  };
+  handle = {
+    ...handle,
+    async stop() {
+      // Initiate listener shutdown before terminating upgraded sockets. Bun's
+      // node:http compatibility layer can strand close callbacks when an
+      // upgraded socket is destroyed first. Resource teardown remains ordered
+      // bridge → sandbox, and the server close is awaited last.
+      const serverStop = stopServer();
+      try {
+        await closeOwnedResources();
+      } finally {
+        await serverStop;
+      }
+    },
+  };
+  if (bundle.dispose) handle.server.once('close', bundle.dispose);
+  handle.server.once('close', () => void closeOwnedResources());
   const uiUrl = siteUiDir ? `${handle.url}/__pyric/ui/` : null;
   const docsUrl = siteUiDir ? `${handle.url}/__pyric/ui/docs/` : null;
-
-  // Discovery pointer (the Claude Code plugin's stdio proxy reads this so it
-  // never has to guess the dynamic port). Written next to the project state
-  // when --bridge is on; removed on clean shutdown. plans/pyric-plugin.
-  if (mount) {
-    const pointer = join(opts.cwd, '.pyric', 'serve.json');
-    try {
-      mkdirSync(dirname(pointer), { recursive: true });
-      writeFileSync(
-        pointer,
-        JSON.stringify(
-          { url: handle.url, mcpUrl: mount.mcpUrl(origin), port: handle.port, pid: process.pid, instanceId: mount.instanceId, project: opts.project ?? 'sandbox' },
-          null,
-          2,
-        ) + '\n',
-      );
-      handle.server.once('close', () => { try { rmSync(pointer); } catch { /* gone already */ } });
-    } catch { /* best-effort: discovery falls back to a port scan */ }
-  }
 
   // Hot-reload: the static adapter observes the filesystem; the session owns
   // read/prepare/last-good replacement and event broadcast.
@@ -643,7 +666,9 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   }
 
   let devChild: DevChildHandle | null = null;
-  let functionsChild: FunctionsRtdbChildHandle | null = null;
+  let functionsRuntime: FunctionsDevelopmentRuntime | null = null;
+  let resolveFunctionsExit!: (code: number) => void;
+  const functionsExited = new Promise<number>((resolve) => { resolveFunctionsExit = resolve; });
   let resolveSignal!: (signal: NodeJS.Signals) => void;
   const signal = new Promise<NodeJS.Signals>((resolve) => {
     resolveSignal = resolve;
@@ -664,7 +689,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   const stopAfterSignal = async (): Promise<number> => {
     (json ? process.stderr : process.stdout).write('\nShutting down...\n');
     if (devChild && devChild.child.exitCode === null) devChild.signal(await signal);
-    await functionsChild?.stop().catch(() => undefined);
+    await functionsRuntime?.close().catch(() => undefined);
     await runtime.handle.stop().catch(() => undefined);
     removeSignalHandlers();
     return 0;
@@ -673,75 +698,70 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   if (functionsProject && functionsProjectId) {
     const info = json ? process.stderr : process.stdout;
     info.write('• functions waiting for the browser tab to connect the sandbox…\n');
-    const connectedOutcome = await waitOrSignal(waitForSandboxPeer(runtime.handle.url));
-    if ('signal' in connectedOutcome) return stopAfterSignal();
-    const connected = connectedOutcome.value;
-    if (!connected) {
+    const reportFunctionsEvent = (event: FunctionsDevelopmentEvent): void => {
+      if (event.type === 'output') {
+        (event.stream === 'stdout' ? info : process.stderr).write(event.line);
+        return;
+      }
+      if (event.type === 'unexpected-exit') {
+        resolveFunctionsExit(event.code);
+        return;
+      }
+      const childEvent = event.event;
+      if (childEvent.type === 'execution') {
+        const params = Object.entries(childEvent.params)
+          .map(([name, value]) => `${name}=${value}`)
+          .join(', ');
+        const paramsSuffix = params ? ` (${params})` : '';
+        if (childEvent.status === 'fulfilled') {
+          info.write(`✔ function  ${childEvent.exportName} ← /${childEvent.ref}${paramsSuffix}\n`);
+        } else {
+          process.stderr.write(
+            `✖ function  ${childEvent.exportName} ← /${childEvent.ref}${paramsSuffix}: ${childEvent.error.message}\n`,
+          );
+        }
+      } else {
+        process.stderr.write(
+          `✖ functions delivery for ${childEvent.exportName}: ${childEvent.error.message}\n`,
+        );
+      }
+    };
+    functionsRuntime = createFunctionsDevelopmentRuntime({
+      sourceDir: functionsProject.sourceDir,
+      entry: functionsProject.entry,
+      baseEnv: process.env,
+      serveUrl: runtime.handle.url,
+      registerUrl: registerModuleUrl(),
+      instance: `${functionsProjectId}-default-rtdb`,
+      location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
+      readiness: createHttpFunctionsPeerReadiness(runtime.handle.url),
+      onEvent: reportFunctionsEvent,
+    });
+    const startOutcome = await waitOrSignal(functionsRuntime.start());
+    if ('signal' in startOutcome) return stopAfterSignal();
+    const result = startOutcome.value;
+    if (result.kind === 'no-peer') {
       process.stderr.write(
         `  ⚠ functions not started — no browser tab connected after 30s. ` +
           `Open ${runtime.handle.url} and restart pyric dev.\n`,
       );
+    } else if (result.kind === 'failed') {
+      process.stderr.write(`${result.error.message}\n`);
+      await functionsRuntime.close();
+      await runtime.handle.stop();
+      removeSignalHandlers();
+      return 2;
     } else {
-      functionsChild = spawnFunctionsRtdbChild({
-        cwd: functionsProject.sourceDir,
-        entry: functionsProject.entry,
-        env: buildChildEnv(process.env, {
-          serveUrl: runtime.handle.url,
-          registerUrl: registerModuleUrl(),
-        }),
-        instance: `${functionsProjectId}-default-rtdb`,
-        location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
-        onEvent(event) {
-          if (event.type === 'execution') {
-            const params = Object.entries(event.params)
-              .map(([name, value]) => `${name}=${value}`)
-              .join(', ');
-            const paramsSuffix = params ? ` (${params})` : '';
-            if (event.status === 'fulfilled') {
-              info.write(`✔ function  ${event.exportName} ← /${event.ref}${paramsSuffix}\n`);
-            } else {
-              process.stderr.write(
-                `✖ function  ${event.exportName} ← /${event.ref}${paramsSuffix}: ${event.error.message}\n`,
-              );
-            }
-          } else {
-            process.stderr.write(
-              `✖ functions delivery for ${event.exportName}: ${event.error.message}\n`,
-            );
-          }
-        },
-      });
-
-      const stdout = createLinePrefixer('[functions] ', (line) =>
-        (json ? process.stderr : process.stdout).write(line));
-      const stderr = createLinePrefixer('[functions] ', (line) => process.stderr.write(line));
-      functionsChild.child.stdout?.setEncoding('utf8');
-      functionsChild.child.stderr?.setEncoding('utf8');
-      functionsChild.child.stdout?.on('data', (chunk: string) => stdout.push(chunk));
-      functionsChild.child.stderr?.on('data', (chunk: string) => stderr.push(chunk));
-      functionsChild.child.stdout?.once('end', () => stdout.flush());
-      functionsChild.child.stderr?.once('end', () => stderr.flush());
-
-      try {
-        const readyOutcome = await waitOrSignal(functionsChild.ready);
-        if ('signal' in readyOutcome) return stopAfterSignal();
-        const ready = readyOutcome.value;
-        info.write(
-          `✔ functions ${ready.triggerCount} onValueCreated trigger${ready.triggerCount === 1 ? '' : 's'} ` +
-            `from ${relative(cwd, functionsProject.entry)}\n`,
+      const ready = result.ready;
+      info.write(
+        `✔ functions ${ready.triggerCount} onValueCreated trigger${ready.triggerCount === 1 ? '' : 's'} ` +
+          `from ${relative(cwd, functionsProject.entry)}\n`,
+      );
+      for (const unsupported of ready.unsupportedTriggers) {
+        process.stderr.write(
+          `  ⚠ functions export ${unsupported.exportName} uses unsupported trigger ` +
+            `${unsupported.eventType}; it will not run in pyric dev.\n`,
         );
-        for (const unsupported of ready.unsupportedTriggers) {
-          process.stderr.write(
-            `  ⚠ functions export ${unsupported.exportName} uses unsupported trigger ` +
-              `${unsupported.eventType}; it will not run in pyric dev.\n`,
-          );
-        }
-      } catch (error) {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-        await functionsChild.stop();
-        await runtime.handle.stop();
-        removeSignalHandlers();
-        return 2;
       }
     }
   }
@@ -789,7 +809,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       if (settled) return;
       settled = true;
       void (async () => {
-        await functionsChild?.stop().catch(() => undefined);
+        await functionsRuntime?.close().catch(() => undefined);
         if (devChild && devChild.child.exitCode === null) {
           devChild.signal('SIGTERM');
           await devChild.exited.catch(() => undefined);
@@ -803,7 +823,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       if (shuttingDown) return;
       shuttingDown = true;
       (json ? process.stderr : process.stdout).write('\nShutting down...\n');
-      void functionsChild?.stop();
+      void functionsRuntime?.close();
       if (devChild && devChild.child.exitCode === null) {
         // Forward the signal; the child's exit (below) closes the host.
         // (The terminal delivers Ctrl-C to the whole group too — the
@@ -815,8 +835,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     };
     // Child exits → close the host and propagate its code (Ctrl-C → 0).
     if (devChild) void devChild.exited.then((code) => finish(code));
-    if (functionsChild) {
-      void functionsChild.exited.then((code) => {
+    if (functionsRuntime) {
+      void functionsExited.then((code) => {
         if (!settled && !shuttingDown) {
           process.stderr.write(`pyric dev: Functions child exited unexpectedly (code ${code}).\n`);
           finish(code === 0 ? 1 : code);
