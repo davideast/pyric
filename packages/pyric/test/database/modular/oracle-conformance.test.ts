@@ -52,9 +52,12 @@ import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox } from 'pyric/sandbox';
+import * as databaseModule from '../../../src/database/index.js';
 import {
   getDatabase,
   ref,
+  child,
+  refFromURL,
   get,
   set,
   update,
@@ -115,6 +118,21 @@ function setup() {
   return { sandbox, db };
 }
 
+async function invocationShape(task: () => unknown): Promise<Record<string, unknown>> {
+  let value: unknown;
+  try {
+    value = task();
+  } catch (error) {
+    return { timing: 'synchronous-throw', name: error instanceof Error ? error.name : typeof error };
+  }
+  try {
+    await value;
+    return { timing: 'resolved', name: null };
+  } catch (error) {
+    return { timing: 'asynchronous-reject', name: error instanceof Error ? error.name : typeof error };
+  }
+}
+
 /** Matched keys in snapshot iteration order. */
 function snapKeys(snap: DataSnapshot): string[] {
   const out: string[] = [];
@@ -138,6 +156,169 @@ function snapValues<T = unknown>(snap: DataSnapshot): T[] {
 const DENY_ALL = { rules: { '.read': 'false', '.write': 'false' } };
 
 describe('oracle conformance (rtdb-modular)', () => {
+  describe('runtime class values', () => {
+    it('rtdb-modular#M85 Database runtime identity', () => {
+      const obs = load('rtdb-modular-runtime-class-identity.json');
+      const expected = (obs.exportTypes as Record<string, string>).Database;
+      const constructor = (databaseModule as Record<string, unknown>).Database;
+      expect(typeof constructor).toBe(expected);
+      const { db } = setup();
+      expect(db instanceof (constructor as new () => object)).toBe(
+        (obs.database as Record<string, boolean>).instanceOf,
+      );
+      expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
+        (obs.database as Record<string, unknown>).prototypeKeys,
+      );
+    });
+
+    it('rtdb-modular#M86 DataSnapshot runtime identity', async () => {
+      const obs = load('rtdb-modular-runtime-class-identity.json');
+      const expected = (obs.exportTypes as Record<string, string>).DataSnapshot;
+      const constructor = (databaseModule as Record<string, unknown>).DataSnapshot;
+      expect(typeof constructor).toBe(expected);
+      const { db } = setup();
+      await set(ref(db, 'runtime-snapshot'), { value: 1 });
+      const snapshot = await get(ref(db, 'runtime-snapshot'));
+      expect(snapshot instanceof (constructor as new () => object)).toBe(
+        (obs.snapshot as Record<string, boolean>).instanceOf,
+      );
+      expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
+        (obs.snapshot as Record<string, unknown>).prototypeKeys,
+      );
+    });
+
+    it('rtdb-modular#M87 QueryConstraint runtime identity', () => {
+      const obs = load('rtdb-modular-runtime-class-identity.json');
+      const expected = (obs.exportTypes as Record<string, string>).QueryConstraint;
+      const constructor = (databaseModule as Record<string, unknown>).QueryConstraint;
+      expect(typeof constructor).toBe(expected);
+      const constraint = orderByKey();
+      expect(constraint instanceof (constructor as new () => object)).toBe(
+        (obs.queryConstraint as Record<string, boolean>).instanceOf,
+      );
+      expect(Object.getPrototypeOf(constraint) === (constructor as Function).prototype).toBe(
+        (obs.queryConstraint as Record<string, boolean>).prototypeIsExportPrototype,
+      );
+      expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
+        (obs.queryConstraint as Record<string, unknown>).prototypeKeys,
+      );
+    });
+
+    it('rtdb-modular#M88 TransactionResult runtime identity and toJSON', async () => {
+      const obs = load('rtdb-modular-runtime-class-identity.json');
+      const expected = (obs.exportTypes as Record<string, string>).TransactionResult;
+      const constructor = (databaseModule as Record<string, unknown>).TransactionResult;
+      expect(typeof constructor).toBe(expected);
+      const { db } = setup();
+      const result = await runTransaction(ref(db, 'runtime-transaction'), () => 1);
+      expect(result instanceof (constructor as new () => object)).toBe(
+        (obs.transactionResult as Record<string, boolean>).instanceOf,
+      );
+      expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
+        (obs.transactionResult as Record<string, unknown>).prototypeKeys,
+      );
+      expect(result.toJSON()).toEqual(
+        (obs.transactionResult as Record<string, unknown>).toJSON,
+      );
+    });
+  });
+
+  describe('reference and write contracts', () => {
+    it('rtdb-modular#100 exposes reference navigation and string shape', () => {
+      const obs = load('rtdb-modular-reference-shape-url.json');
+      const { db } = setup();
+      const target = ref(db, 'parent/child');
+      expect(target.key).toBe((obs.nested as Record<string, unknown>).key);
+      expect(typeof target.toString()).toBe('string');
+      expect(target.parent).not.toBeNull();
+      expect(target.root).not.toBeNull();
+    });
+
+    it('rtdb-modular#101 creates the root reference', () => {
+      const obs = load('rtdb-modular-reference-shape-url.json');
+      const { db } = setup();
+      const root = ref(db);
+      expect(root.key).toBe((obs.root as Record<string, unknown>).key);
+      expect(root.parent).toBe((obs.root as Record<string, unknown>).parent);
+    });
+
+    it('rtdb-modular#102 joins embedded child paths', () => {
+      const { db } = setup();
+      const direct = ref(db, 'parent/a/b');
+      expect(child(ref(db, 'parent'), 'a/b').toString()).toBe(direct.toString());
+    });
+
+    it('rtdb-modular#103 navigates parent references', () => {
+      const obs = load('rtdb-modular-reference-shape-url.json');
+      const { db } = setup();
+      expect(ref(db).parent).toBeNull();
+      expect(ref(db, 'parent/child').parent?.key).toBe(
+        (obs.nested as Record<string, unknown>).parentKey,
+      );
+    });
+
+    it('rtdb-modular#104 exposes the final segment as key', () => {
+      const obs = load('rtdb-modular-reference-shape-url.json');
+      const { db } = setup();
+      expect(ref(db).key).toBeNull();
+      expect(ref(db, 'parent/child').key).toBe(
+        (obs.nested as Record<string, unknown>).key,
+      );
+    });
+
+    it('rtdb-modular#105 rejects forged references synchronously', async () => {
+      const obs = load('rtdb-modular-reference-shape-url.json');
+      const expected = obs.forgedReference as Record<string, unknown>;
+      const actual = await invocationShape(() => get({} as never));
+      expect(actual).toEqual({ timing: expected.timing, name: expected.name });
+    });
+
+    it('rtdb-modular#111 set resolves undefined', async () => {
+      const obs = load('rtdb-modular-write-return-validation.json');
+      const { db } = setup();
+      const result = await set(ref(db, 'write-return'), { value: 1 });
+      expect(result ?? null).toBe(obs.setResolution);
+    });
+
+    it('rtdb-modular#120 rejects overlapping updates synchronously and atomically', async () => {
+      const obs = load('rtdb-modular-write-return-validation.json');
+      const { db } = setup();
+      const target = ref(db, 'overlapping-update');
+      await set(target, { seed: true });
+      const actual = await invocationShape(() => update(target, { a: 1, 'a/b': 2 }));
+      const expected = obs.overlapping as Record<string, unknown>;
+      expect(actual.timing).toBe(expected.timing);
+      expect(actual.name).toBe(expected.name);
+      expect((await get(target)).val()).toEqual(obs.afterRejected);
+    });
+
+    it('rtdb-modular#174 pins refFromURL host validation divergence', async () => {
+      const obs = load('rtdb-modular-reference-shape-url.json');
+      const { db } = setup();
+      await set(ref(db, 'from-url/value'), { ok: true });
+      expect((obs.mismatchedHost as Record<string, unknown>).timing).toBe('synchronous-throw');
+      const sandboxRef = refFromURL(db, 'https://different.invalid/from-url/value');
+      expect((await get(sandboxRef)).val()).toEqual({ ok: true });
+    });
+  });
+
+  it('rtdb-modular#183 removes duplicate callback registrations one at a time', async () => {
+    const obs = load('rtdb-modular-off-duplicate-registration.json');
+    const { db } = setup();
+    const target = ref(db, 'duplicate-listener');
+    await set(target, 0);
+    const values: unknown[] = [];
+    const callback = (snapshot: DataSnapshot) => values.push(snapshot.val());
+    onValue(target, callback);
+    onValue(target, callback);
+    await set(target, 1);
+    off(target, 'value', callback);
+    await set(target, 2);
+    off(target, 'value', callback);
+    await set(target, 3);
+    expect(values).toEqual((obs.afterSecondOff as unknown[]));
+  });
+
   // ── reads ────────────────────────────────────────────────────────────
 
   it('rtdb-modular-get-missing-path', async () => {

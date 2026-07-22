@@ -20,9 +20,19 @@ import { buildSandboxSnapFromRaw } from './snapshots.js';
  * `message === 'permission_denied'` (lowercase, no `.code`); see
  * `rtdb-modular-runtransaction-on-rules-denied-path.json`.
  */
-export interface TransactionResult {
-  readonly committed: boolean;
-  readonly snapshot: DataSnapshot;
+export class TransactionResult {
+  constructor(
+    readonly committed?: boolean,
+    readonly snapshot?: DataSnapshot,
+  ) {}
+
+  toJSON(): { committed: boolean | undefined; snapshot: JsonValue | undefined } {
+    return { committed: this.committed, snapshot: this.snapshot?.toJSON() };
+  }
+}
+
+export interface TransactionOptions {
+  readonly applyLocally?: boolean;
 }
 
 /**
@@ -68,7 +78,7 @@ export interface TransactionResult {
 export async function runTransaction<T>(
   r: DatabaseReference,
   transactionUpdate: (current: T | null) => T | undefined,
-  options?: { applyLocally?: boolean },
+  options?: TransactionOptions,
 ): Promise<TransactionResult> {
   const target = targetOf(r as unknown as object);
   const result = target.backend.runTransaction(
@@ -78,5 +88,8 @@ export async function runTransaction<T>(
     options,
   );
   const snap = buildSandboxSnapFromRaw(target, r, result.val);
-  return { committed: result.committed, snapshot: snap };
+  return new TransactionResult(result.committed, snap) as TransactionResult & {
+    committed: boolean;
+    snapshot: DataSnapshot;
+  };
 }

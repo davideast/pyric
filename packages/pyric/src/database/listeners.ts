@@ -3,7 +3,7 @@ import { ListenerRegistry, type ListenerRegistration } from './listener-registry
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf, type Target } from './routing.js';
 import { isQuery } from './query-shape.js';
-import type { DataSnapshot, DatabaseReference, Query, Unsubscribe } from './types.js';
+import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
 import { child } from './references.js';
 import { buildSandboxSnapFromRaw } from './snapshots.js';
 
@@ -68,7 +68,7 @@ function subscribeWithLiveAuth(
 export function onValue(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
-  options?: { onlyOnce?: boolean },
+  options?: ListenOptions,
 ): Unsubscribe {
   // `onlyOnce` (DB-B12): wrap the callback so it unsubscribes itself
   // after the first fire. The unsub is filled in once the real

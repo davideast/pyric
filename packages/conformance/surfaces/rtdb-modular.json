@@ -41,19 +41,6 @@
         "setWithPriority",
         "orderByPriority"
       ]
-    },
-    {
-      "id": "database.runtime-class-values",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "These Firebase classes are mirrored structurally in Pyric's type surface but are not exported as runtime constructor values; runtime identity remains unbuilt.",
-      "evidenceRefs": ["upstream:firebase/database"],
-      "symbols": [
-        "DataSnapshot",
-        "Database",
-        "QueryConstraint",
-        "TransactionResult"
-      ]
     }
   ]
 }

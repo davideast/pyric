@@ -2,7 +2,7 @@ import { coerceArrays } from './sandbox/normalize.js';
 import { pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import type { QueryRow } from './sandbox/query.js';
 import type { SandboxLiveTarget, SandboxTarget } from './routing.js';
-import type { DataSnapshot, DatabaseReference } from './types.js';
+import { DataSnapshot, type DatabaseReference, type DataSnapshotImplementation } from './types.js';
 import { child } from './references.js';
 
 // ─── Snapshot wrappers ───────────────────────────────────────────────
@@ -29,7 +29,7 @@ export function buildSandboxSnapFromRaw(
   const childCount = (val !== null && typeof val === 'object' && !Array.isArray(val))
     ? Object.keys(val as Record<string, JsonValue>).length
     : 0;
-  return {
+  const implementation: DataSnapshotImplementation = {
     key: refForSnap.key,
     ref: refForSnap,
     size: childCount,
@@ -68,6 +68,7 @@ export function buildSandboxSnapFromRaw(
       return false;
     },
   };
+  return new DataSnapshot(implementation);
 }
 
 /**
@@ -96,7 +97,7 @@ export function buildSandboxQuerySnap(
   }
   const exists = rows.length > 0;
   const coerced = coerceArrays(val);
-  return {
+  const implementation: DataSnapshotImplementation = {
     key: refForSnap.key,
     ref: refForSnap,
     size: rows.length,
@@ -131,4 +132,5 @@ export function buildSandboxQuerySnap(
       return false;
     },
   };
+  return new DataSnapshot(implementation);
 }

@@ -1,5 +1,5 @@
 import { targetOf } from './routing.js';
-import type { Database } from './types.js';
+import type { Database, EmulatorMockTokenOptions } from './types.js';
 
 // ─── Emulator (no-op on sandbox) ─────────────────────────────────────
 
@@ -11,7 +11,7 @@ export function connectDatabaseEmulator(
   _db: Database,
   _host: string,
   _port: number,
-  _options?: { mockUserToken?: string | Record<string, unknown> },
+  _options?: { mockUserToken?: string | EmulatorMockTokenOptions },
 ): void {
   // Accepted no-op.
 }
