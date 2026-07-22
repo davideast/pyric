@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T14:36:22.165Z",
+  "generatedAt": "2026-07-22T14:48:56.970Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -51,9 +51,9 @@
           "pct": 63.5
         },
         "types": {
-          "mapped": 30,
+          "mapped": 32,
           "denominator": 78,
-          "pct": 38.5
+          "pct": 41
         }
       }
     },
@@ -123,9 +123,9 @@
         "pct": 76.3
       },
       "types": {
-        "mapped": 200,
+        "mapped": 202,
         "denominator": 352,
-        "pct": 56.8
+        "pct": 57.4
       }
     }
   },
@@ -403,7 +403,7 @@
     "firestore#42": "conforms",
     "firestore#43": "conforms",
     "firestore#44": "conforms",
-    "firestore#45": "diverged-documented",
+    "firestore#45": "conforms",
     "firestore#46": "conforms",
     "firestore#47": "conforms",
     "firestore#48": "conforms",
@@ -457,7 +457,7 @@
     "firestore#90": "conforms",
     "firestore#91": "conforms",
     "firestore#92": "conforms",
-    "firestore#93": "diverged-documented",
+    "firestore#93": "conforms",
     "firestore#94": "conforms",
     "firestore#95": "conforms",
     "firestore#96": "conforms",
@@ -489,18 +489,18 @@
     "firestore#119": "conforms",
     "firestore#120": "conforms",
     "firestore#121": "conforms",
-    "firestore#140": "diverged-documented",
-    "firestore#141": "diverged-documented",
+    "firestore#140": "conforms",
+    "firestore#141": "conforms",
     "firestore#142": "conforms",
-    "firestore#143": "diverged-documented",
-    "firestore#144": "diverged-documented",
-    "firestore#152": "diverged-documented",
+    "firestore#143": "conforms",
+    "firestore#144": "conforms",
+    "firestore#152": "conforms",
     "firestore#145": "diverged-documented",
     "firestore#146": "diverged-documented",
     "firestore#147": "conforms",
-    "firestore#148": "diverged-documented",
+    "firestore#148": "conforms",
     "firestore#149": "diverged-documented",
-    "firestore#150": "diverged-documented",
+    "firestore#150": "conforms",
     "firestore#127": "conforms",
     "firestore#128": "conforms",
     "firestore#129": "conforms",
@@ -920,7 +920,7 @@
     "firestore-rules#161": "conforms",
     "firestore-rules#162": "conforms",
     "firestore-rules#163": "conforms",
-    "firestore-rules#164": "diverged-documented",
+    "firestore-rules#164": "conforms",
     "firestore-rules#165": "conforms",
     "firestore-rules#166": "conforms",
     "firestore-rules#167": "conforms",
@@ -996,10 +996,7 @@
   },
   "highRiskUnverified": [
     "storage#67",
-    "storage#61",
-    "firestore#92",
-    "firestore#97",
-    "firestore#98"
+    "storage#61"
   ],
   "orphanObservations": [],
   "entryPathVerdicts": {
