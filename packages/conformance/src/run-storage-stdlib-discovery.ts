@@ -35,7 +35,7 @@ function resolvedFirebaseVersion(): string {
   return (JSON.parse(readFileSync(path, 'utf8')) as { version: string }).version;
 }
 
-function selectedProbes(args: string[]): ProbeId[] {
+export function selectedProbes(args: string[]): ProbeId[] {
   const values = args.flatMap((arg, index) => {
     if (arg === '--probe') return args[index + 1] ? [args[index + 1]] : [];
     return arg.startsWith('--probe=') ? [arg.slice('--probe='.length)] : [];
@@ -46,8 +46,12 @@ function selectedProbes(args: string[]): ProbeId[] {
   return [...new Set(values)] as ProbeId[];
 }
 
+export function plannedRequestCount(probes: readonly ProbeId[]): number {
+  return probes.reduce((sum, probe) => sum + REQUEST_COUNTS[probe], 0);
+}
+
 function printPlan(probes: ProbeId[]): void {
-  const total = probes.reduce((sum, probe) => sum + REQUEST_COUNTS[probe], 0);
+  const total = plannedRequestCount(probes);
   console.log('[storage-stdlib:discovery] PARITY_SA_BASE64 not set — INERT preview; no network calls.');
   console.log(`Would run ${total} serial, read-only projects.test request(s):`);
   for (const probe of probes) console.log(`  ${probe}: ${REQUEST_COUNTS[probe]} request(s)`);

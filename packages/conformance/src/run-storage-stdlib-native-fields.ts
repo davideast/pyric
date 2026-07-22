@@ -36,7 +36,7 @@ import {
   storageRulesSnapshot,
 } from './storage-stdlib-real-rules.ts';
 
-function nativeRules(runId: string, metadata: Record<string, GcsObject>): string {
+export function nativeRules(runId: string, metadata: Record<string, GcsObject>): string {
   const prefix = `__pyric_storage_stdlib/${runId}/native`;
   const exact = metadata['stored-exact'];
   const identity = metadata['identity-mismatch'];
