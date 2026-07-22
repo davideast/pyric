@@ -26,6 +26,8 @@ export interface ViteFunctionsDevelopmentOptions {
   baseEnv: NodeJS.ProcessEnv;
   registerUrl: string;
   childModuleUrl?: string | URL;
+  /** Internal test seam for the host adapter; production uses the shared runtime. */
+  runtimeFactory?: typeof createFunctionsDevelopmentRuntime;
 }
 
 export interface ViteFunctionsDevelopmentAttachment {
@@ -118,6 +120,7 @@ export function attachViteFunctionsDevelopment(
     bridge,
     host,
   } = options;
+  const runtimeFactory = options.runtimeFactory ?? createFunctionsDevelopmentRuntime;
   let runtime: FunctionsDevelopmentRuntime | null = null;
   let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
   let reportedReload: Promise<FunctionsDevelopmentResult> | null = null;
@@ -133,7 +136,7 @@ export function attachViteFunctionsDevelopment(
   const onListening = (): void => {
     const url = serveUrl();
     if (!url || closed || runtime) return;
-    runtime = createFunctionsDevelopmentRuntime({
+    runtime = runtimeFactory({
       sourceDir: project.sourceDir,
       entry: project.entry,
       baseEnv: options.baseEnv,

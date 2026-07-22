@@ -62,6 +62,22 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+function settleBeforeAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      cleanup();
+      reject(signal.reason);
+    };
+    const cleanup = (): void => signal.removeEventListener('abort', onAbort);
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => { cleanup(); resolve(value); },
+      (error) => { cleanup(); reject(error); },
+    );
+  });
+}
+
 export function createInProcessFunctionsPeerReadiness(
   connected: () => boolean,
   options: { intervalMs?: number; now?: () => number; sleep?: typeof abortableDelay } = {},
@@ -99,20 +115,34 @@ export function createHttpFunctionsPeerReadiness(
   return {
     async wait({ timeoutMs, signal }) {
       const deadline = now() + timeoutMs;
-      while (!signal.aborted) {
-        try {
-          const response = await fetchImpl(`${baseUrl}/__pyric/health`, { signal });
-          if (response.ok) {
-            const health = (await response.json()) as { sandboxConnected?: boolean };
-            if (health.sandboxConnected === true) return true;
+      const deadlineAbort = new AbortController();
+      const deadlineTimer = setTimeout(() => deadlineAbort.abort(), timeoutMs);
+      deadlineTimer.unref();
+      const waitSignal = AbortSignal.any([signal, deadlineAbort.signal]);
+      try {
+        while (!waitSignal.aborted) {
+          try {
+            const response = await settleBeforeAbort(
+              fetchImpl(`${baseUrl}/__pyric/health`, { signal: waitSignal }),
+              waitSignal,
+            );
+            if (response.ok) {
+              const health = await settleBeforeAbort(
+                response.json() as Promise<{ sandboxConnected?: boolean }>,
+                waitSignal,
+              );
+              if (health.sandboxConnected === true) return true;
+            }
+          } catch {
+            if (waitSignal.aborted) return false;
           }
-        } catch {
-          if (signal.aborted) return false;
+          if (now() >= deadline) return false;
+          await sleep(intervalMs, waitSignal);
         }
-        if (now() >= deadline) return false;
-        await sleep(intervalMs, signal);
+        return false;
+      } finally {
+        clearTimeout(deadlineTimer);
       }
-      return false;
     },
   };
 }

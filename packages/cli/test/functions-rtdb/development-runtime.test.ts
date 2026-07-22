@@ -7,6 +7,7 @@ import type {
   FunctionsRtdbChildReady,
 } from '../../src/functions-rtdb/child.js';
 import {
+  createHttpFunctionsPeerReadiness,
   createFunctionsDevelopmentRuntime,
   type FunctionsDevelopmentEvent,
   type FunctionsPeerReadiness,
@@ -59,6 +60,26 @@ function runtimeOptions(
 }
 
 describe('Functions development runtime', () => {
+  it('bounds HTTP peer readiness when fetch or response parsing stalls', async () => {
+    const never = new Promise<never>(() => {});
+    const stalledFetch = createHttpFunctionsPeerReadiness('http://localhost:4321', {
+      fetchImpl: async () => never,
+    });
+    const fetchStarted = Date.now();
+    expect(await stalledFetch.wait({ timeoutMs: 20, signal: new AbortController().signal })).toBe(false);
+    expect(Date.now() - fetchStarted).toBeLessThan(500);
+
+    const stalledBody = createHttpFunctionsPeerReadiness('http://localhost:4321', {
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => never,
+      }) as unknown as Response,
+    });
+    const bodyStarted = Date.now();
+    expect(await stalledBody.wait({ timeoutMs: 20, signal: new AbortController().signal })).toBe(false);
+    expect(Date.now() - bodyStarted).toBeLessThan(500);
+  });
+
   it('reports no-peer without spawning and aborts an active wait on close', async () => {
     let aborted = false;
     const readiness: FunctionsPeerReadiness = {
