@@ -104,6 +104,71 @@ function row(seed: RowSeed): CompatibilityRow {
   return buildRow({ ...rest, rowRef: String(ref), oracleObservations: observations, ...climb });
 }
 
+/**
+ * BEHAVIOR-CLASS ROWS. The census (`surface-inventory.md`) enumerates the
+ * shape universe — exports, methods, and option shapes. It does not enumerate
+ * the runtime behavior classes that span those shapes: send quota / throttling,
+ * send retry / backoff, offline store-and-forward delivery, multi-device and
+ * multi-tab delivery interactions, and token lifecycle over time. Those classes
+ * are authored here so the map covers the territory ("zero unknown gaps" at
+ * graduation means every hard class is a classified row, not an unasked
+ * question; see the ticket enumeration in `surface-inventory.md`).
+ *
+ * Every behavior-class row is born at its honest evidence tier and NEVER at
+ * `conforms`:
+ *   - `unverified` (the default) where a rig could feasibly observe production
+ *     but no capture has been committed yet. Its `behavior` is written from
+ *     upstream documentation and marked as such in `evidence` (CDD Step 2);
+ *     the `evidence`/`notes` name a candidate capture probe that feeds the
+ *     scheduled re-capture lane's backlog (#444).
+ *   - `unsupported` (via `unsupportedReason`) where the sandbox will never model
+ *     the behavior — the written reason becomes the row's `exceptionReason`.
+ *
+ * Neither tier is a conforms claim, so neither enters the audit's high-risk or
+ * evidence-tier worklists (both are `isConforming`-only); no baseline change is
+ * required. Each row still carries non-empty `riskReasons` naming what is
+ * unevidenced.
+ */
+interface BehaviorRowSeed {
+  surface: SurfacePlane;
+  ref: number;
+  section: string;
+  api: string;
+  behavior: string;
+  featureKeys: string[];
+  evidence: string;
+  /** Names what is unevidenced; required non-empty on every behavior-class row. */
+  riskReasons: string[];
+  notes?: string;
+  /**
+   * Set for a class the sandbox will never model. Becomes the row's
+   * `exceptionReason` and flips it from born-unverified to `unsupported`.
+   */
+  unsupportedReason?: string;
+}
+
+function behaviorRow(seed: BehaviorRowSeed): CompatibilityRow {
+  const { ref, surface, riskReasons, unsupportedReason, ...rest } = seed;
+  const base = { ...rest, surface, rowRef: String(ref), riskReasons };
+  if (unsupportedReason) {
+    return buildRow({
+      ...base,
+      status: 'unsupported',
+      automation: 'unsupported',
+      exceptionReason: unsupportedReason,
+      risk: ['unsupported'],
+      riskScore: 0,
+    });
+  }
+  return buildRow({
+    ...base,
+    status: 'unverified',
+    automation: 'unverified',
+    risk: ['unobserved'],
+    riskScore: 2,
+  });
+}
+
 // ─── firebase/messaging (client) — surface 'messaging' ───────────────────────
 const CLIENT = '`firebase/messaging` (client)';
 const clientRows: CompatibilityRow[] = [
@@ -321,6 +386,75 @@ const swRows: CompatibilityRow[] = [
     evidence:
       'Upstream typings (`@firebase/messaging` 0.12.26 `index.d.ts` / `index.sw.d.ts`) plus Window and real module-ServiceWorker boundary replay `messaging-app-boundary.pw.ts`.',
     tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts'],
+  }),
+];
+
+// ─── Behavior classes over time & across clients — surface 'messaging' ────────
+const CLIENT_BEHAVIOR = 'Behavior classes over time & across clients (client receive plane)';
+const clientBehaviorRows: CompatibilityRow[] = [
+  behaviorRow({
+    surface: 'messaging',
+    ref: 18,
+    featureKeys: ["onMessage", "onBackgroundMessage"],
+    section: CLIENT_BEHAVIOR,
+    api: 'Multi-tab delivery routing (several window clients, one shared service worker)',
+    behavior:
+      'When several window clients (browser tabs) of one origin share a single service-worker registration, a foreground delivery reaches every visible tab through `onMessage`, and when no tab is visible the one shared service worker receives the message once through `onBackgroundMessage` (the worker is shared across tabs, not instantiated per tab). A notification click focuses a single existing client rather than opening a duplicate. Stated from the FCM web SDK and the Service Worker client model; no committed observation replays the multi-tab fan-out yet.',
+    evidence:
+      'Upstream documentation (`@firebase/messaging` 0.12.26 + W3C Service Worker `Clients` model); no observation yet. Candidate probe: open two tabs on one registration and deliver with one tab visible, then with both hidden — assert `onMessage` fires once per visible tab and `onBackgroundMessage` fires exactly once on the shared worker.',
+    riskReasons: [
+      'Multi-tab fan-out and shared-service-worker routing stated from FCM web SDK and Service Worker documentation only; no committed observation replays it — a probe candidate before implementation.',
+    ],
+    notes:
+      'Candidate capture for the scheduled re-capture lane (#444): a two-tab browser rig sharing one service-worker registration, asserting per-visible-tab `onMessage` and a single shared-worker `onBackgroundMessage`.',
+  }),
+  behaviorRow({
+    surface: 'messaging',
+    ref: 19,
+    featureKeys: ["getToken", "onMessage"],
+    section: CLIENT_BEHAVIOR,
+    api: 'Multi-device delivery (one app instance holding several tokens; per-token fan-out)',
+    behavior:
+      'A single user or app can hold several registration tokens at once — one per browser, profile, or device. A token-targeted send reaches exactly one token; a topic, condition, or multicast send fans out independently to every subscribed token, with no server-side de-duplication across a user’s devices, so each device receives its own copy. Stated from the FCM targeting model; no committed observation replays cross-device fan-out yet.',
+    evidence:
+      'Upstream documentation (FCM targeting model); no observation yet. Candidate probe: mint two distinct tokens, subscribe both to one topic, send once, and assert each token receives the message independently.',
+    riskReasons: [
+      'Per-token multi-device fan-out and the absence of cross-device de-duplication stated from FCM documentation only; no committed observation — a probe candidate before implementation.',
+    ],
+    notes:
+      'Candidate capture for the re-capture lane (#444): two tokens subscribed to one topic, a single send, asserting independent per-token delivery.',
+  }),
+  behaviorRow({
+    surface: 'messaging',
+    ref: 20,
+    featureKeys: ["getToken", "deleteToken"],
+    section: CLIENT_BEHAVIOR,
+    api: 'Registration-token rotation and refresh over the app lifecycle',
+    behavior:
+      'A registration token is stable within a session (row messaging#2 pins that repeated `getToken` calls on one service-worker registration return the same token) but is not permanent across the app lifecycle: the SDK rotates it on events such as app reinstall, SDK upgrade, a restored backup, or a notification-permission change, and Google may retire a token server-side. The modular web SDK has no token-refresh callback, so an app observes a new token only by calling `getToken` again; a rotated-away old token eventually stops delivering and the send plane reports the dead token (the UNREGISTERED path pinned by messaging#3). This lifecycle rotation is deliberately outside the within-session stability observation. Stated from FCM token-management documentation; no committed observation replays rotation across lifecycle events yet.',
+    evidence:
+      'Upstream documentation (FCM token-management guidance); the committed `messaging-web-token-stability` observation covers only within-session stability, not lifecycle rotation. Candidate probe (long-horizon): force a service-worker unregister/re-register or an app-instance reset, re-mint via `getToken`, and record whether the token changed and whether the prior token then reports UNREGISTERED on send.',
+    riskReasons: [
+      'Token rotation/refresh across lifecycle events stated from FCM documentation only; the committed stability observation covers within-session stability, not rotation over time — a probe candidate for the scheduled re-capture lane (#444).',
+    ],
+    notes:
+      'Candidate capture for the re-capture lane (#444), long-horizon: re-mint after a forced service-worker re-register / app reset and diff the token; assert the old token reports UNREGISTERED on the send plane.',
+  }),
+  behaviorRow({
+    surface: 'messaging',
+    ref: 21,
+    featureKeys: ["getToken"],
+    section: CLIENT_BEHAVIOR,
+    api: 'Registration-token inactivity expiry (server-side staleness window)',
+    behavior:
+      'FCM treats a registration token that has gone unused for an extended period (Google documents roughly 270 days of app-instance inactivity) as stale and drops it from delivery targeting, independent of any explicit `deleteToken`. The expiry clock is Google server-side inactivity accounting, and the recommended mitigation is periodic token refresh. Stated from FCM best-practices documentation; the sandbox has no server-side inactivity clock to model.',
+    evidence:
+      'Upstream documentation (FCM registration-token best practices); no observation. This time-based server-side behavior is out of sandbox scope (see the row disposition); the explicit-deletion path to a dead token is already tracked by messaging#3.',
+    riskReasons: [
+      'Server-side inactivity-based token expiry (the ~270-day staleness window) is unevidenced and cannot be modelled by the sandbox; no observation and no feasible long-horizon probe.',
+    ],
+    unsupportedReason:
+      'Time-based server-side inactivity expiry (the ~270-day staleness window Google enforces) is accounted on Google infrastructure over wall-clock months; the sandbox broker has no inactivity clock and will never model it, and aging a real token for months to capture the transition is neither a feasible nor a repeatable probe. The explicit-deletion path to a dead token is tracked by messaging#3.',
   }),
 ];
 
@@ -779,6 +913,58 @@ const adminErrorRows: CompatibilityRow[] = [
   }),
 ];
 
+const ADMIN_BEHAVIOR = 'Behavior classes — quota, retry, offline delivery (send plane)';
+const adminBehaviorRows: CompatibilityRow[] = [
+  behaviorRow({
+    surface: 'messaging-admin',
+    ref: 40,
+    featureKeys: ["send", "sendEach"],
+    section: ADMIN_BEHAVIOR,
+    api: 'FCM send quota and rate-limit throttling',
+    behavior:
+      'FCM enforces project-level send quotas and per-target rate limits (per-device and per-topic message rates) accounted on Google servers over rolling windows; exceeding them yields quota / rate-limit rejections. The admin error taxonomy names these as `MessagingClientErrorCode.MESSAGE_RATE_EXCEEDED`, `DEVICE_MESSAGE_RATE_EXCEEDED`, and `TOPICS_MESSAGE_RATE_EXCEEDED` (wire `QUOTA_EXCEEDED` / `RESOURCE_EXHAUSTED`, HTTP 429). Stated from FCM quota documentation; the sandbox has no global quota ledger to model.',
+    evidence:
+      'Upstream documentation (FCM quotas and `MessagingClientErrorCode` rate-limit members, firebase-admin 13.10.0); no observation. This behavior is out of sandbox scope (see the row disposition).',
+    riskReasons: [
+      'FCM quota / rate-limit throttling and its `MESSAGE_RATE_EXCEEDED` / `DEVICE_MESSAGE_RATE_EXCEEDED` / `TOPICS_MESSAGE_RATE_EXCEEDED` envelopes are unevidenced and unmodellable in the sandbox; no observation and no safe probe.',
+    ],
+    unsupportedReason:
+      'Send quota and rate-limit accounting is enforced on Google infrastructure over rolling per-project and per-target windows; the sandbox broker keeps no global quota ledger and will never model it, and deliberately exhausting production quota to capture the rate-limit envelope is neither a safe nor a repeatable probe.',
+  }),
+  behaviorRow({
+    surface: 'messaging-admin',
+    ref: 41,
+    featureKeys: ["send", "enableLegacyHttpTransport"],
+    section: ADMIN_BEHAVIOR,
+    api: 'Send retry and backoff on transient transport failures',
+    behavior:
+      'The admin SDK retries transient send-transport failures — connection errors and HTTP 5xx / `SERVER_UNAVAILABLE` / `INTERNAL` responses — with backoff before surfacing the error to the caller, so a caller sees a resolved send or a terminal error rather than every intermediate failure. `enableLegacyHttpTransport` switches `sendEach` / `sendEachForMulticast` from HTTP/2 to HTTP/1.1, changing multiplexing and the retry/transport path. Stated from the admin SDK and google-auth transport documentation; no committed observation replays the retry count or backoff schedule yet.',
+    evidence:
+      'Upstream documentation (firebase-admin 13.10.0 send transport + google-auth retry defaults); no observation yet. Candidate probe: point the send transport at a fault-injecting stub that returns 503 then 200 and record the retry count and backoff intervals before the resolved send.',
+    riskReasons: [
+      'Send retry/backoff on transient 5xx and connection failures stated from admin SDK / transport documentation only; no committed observation records the retry count or backoff schedule — a probe candidate before implementation.',
+    ],
+    notes:
+      'Candidate capture for the re-capture lane (#444): a fault-injecting stub endpoint returning 503 then 200, asserting the SDK retries with backoff and the caller observes a single resolved send.',
+  }),
+  behaviorRow({
+    surface: 'messaging-admin',
+    ref: 42,
+    featureKeys: ["send", "AndroidConfig"],
+    section: ADMIN_BEHAVIOR,
+    api: 'Offline store-and-forward delivery — TTL and collapse-key semantics',
+    behavior:
+      'When a target device is offline FCM stores the message and delivers it on reconnect, up to its time-to-live (`android.ttl`, APNs expiration, webpush `headers.TTL`; the legacy default is 2419200 seconds / four weeks). A collapse key (`android.collapseKey`, `collapseKey`) marks a message as collapsible so a newer collapsible message replaces an older still-undelivered one, and only the last is delivered on reconnect; a message whose TTL elapses before reconnect is dropped rather than delivered. Stated from FCM message-lifecycle documentation; no committed observation replays store-and-forward, collapse, or TTL expiry yet.',
+    evidence:
+      'Upstream documentation (FCM message lifecycle: TTL, collapse keys, store-and-forward); no observation yet. Candidate probe: send several collapsible messages to a token whose web client is offline, bring it online within TTL, and assert only the last collapsible message is delivered; separately, let a short-TTL message expire before reconnect and assert it is dropped.',
+    riskReasons: [
+      'Store-and-forward queuing, collapse-key replacement, and TTL expiry-drop stated from FCM lifecycle documentation only; no committed observation replays offline delivery — a probe candidate before implementation.',
+    ],
+    notes:
+      'Candidate capture for the re-capture lane (#444): an offline-then-reconnect web client asserting collapse-key last-write-wins delivery and TTL expiry drop.',
+  }),
+];
+
 const INTRO = [
   '# `pyric` messaging compatibility matrix',
   '',
@@ -796,12 +982,14 @@ const INTRO = [
 const rows: CompatibilityRow[] = [
   ...clientRows,
   ...swRows,
+  ...clientBehaviorRows,
   ...adminEntryRows,
   ...adminTargetRows,
   ...adminConfigRows,
   ...adminLegacyRows,
   ...adminResponseRows,
   ...adminErrorRows,
+  ...adminBehaviorRows,
 ];
 
 export const messagingRegistry: CompatibilitySurfaceRegistry = {
@@ -812,12 +1000,14 @@ export const messagingRegistry: CompatibilitySurfaceRegistry = {
     { kind: 'markdown', markdown: INTRO + '\n' },
     { kind: 'table', prefix: `## ${CLIENT}\n`, rows: clientRows },
     { kind: 'table', prefix: `## ${SW}\n`, rows: swRows },
+    { kind: 'table', prefix: `## ${CLIENT_BEHAVIOR}\n`, rows: clientBehaviorRows },
     { kind: 'table', prefix: `## ${ADMIN_ENTRY}\n`, rows: adminEntryRows },
     { kind: 'table', prefix: `## ${ADMIN_TARGETS}\n`, rows: adminTargetRows },
     { kind: 'table', prefix: `## ${ADMIN_CONFIG}\n`, rows: adminConfigRows },
     { kind: 'table', prefix: `## ${ADMIN_LEGACY}\n`, rows: adminLegacyRows },
     { kind: 'table', prefix: `## ${ADMIN_RESPONSES}\n`, rows: adminResponseRows },
     { kind: 'table', prefix: `## ${ADMIN_ERRORS}\n`, rows: adminErrorRows },
+    { kind: 'table', prefix: `## ${ADMIN_BEHAVIOR}\n`, rows: adminBehaviorRows },
   ],
 };
 

@@ -289,14 +289,51 @@ const assertions: Record<string, () => Promise<void> | void> = {
       expect(client[name]).toBeUndefined();
     }
   },
+
+  // ── behavior classes over time & across clients (born non-conforms) ────────
+  // These rows enumerate hard behavior classes the census omits (multi-tab /
+  // multi-device delivery, token lifecycle over time). They are RED AT BIRTH:
+  // no observation exists yet, so the assertion set has nothing to replay. Each
+  // body drives the intended capture and throws until a rig commits the
+  // observation (or, for the unsupported class, permanently). They are
+  // registered with `it.skip` in the loop below (see NON_CONFORMS handling) so
+  // the blocking suite stays green while the row honestly reads `?` / `—`.
+  'messaging#18': () => {
+    // Multi-tab routing: onMessage per visible tab, one shared-worker onBackgroundMessage.
+    throw new Error('messaging#18 multi-tab delivery: capture not yet performed (two-tab rig, shared SW registration).');
+  },
+  'messaging#19': () => {
+    // Multi-device fan-out: two tokens on one topic each receive independently.
+    throw new Error('messaging#19 multi-device delivery: capture not yet performed (two tokens, one topic, single send).');
+  },
+  'messaging#20': () => {
+    // Token rotation over lifecycle events; old token then reports UNREGISTERED.
+    throw new Error('messaging#20 token rotation/refresh: capture not yet performed (long-horizon re-mint after SW re-register).');
+  },
+  'messaging#21': () => {
+    // Server-side inactivity expiry (~270 days) — unsupported: sandbox has no inactivity clock.
+    throw new Error('messaging#21 token inactivity expiry: unsupported — server-side staleness window is not modellable in the sandbox.');
+  },
 };
+
+/**
+ * A row is exercised in the blocking run only when it is expected-green
+ * (`conforms` / `diverged-documented`). Behavior-class rows born `unverified` or
+ * `unsupported` are red at birth (CDD Step 3) — their assertion sets exist and
+ * are authored, but replaying them has nothing to prove until a capture lands,
+ * so they are skipped here rather than failing the blocking suite. The row still
+ * publishes its honest `?` / `—` status; the completeness gate still requires a
+ * handler for it.
+ */
+const isExpectedGreen = (status: string): boolean => status === 'conforms' || status === 'diverged-documented';
 
 describe('oracle conformance (messaging client + sw)', () => {
   const covered: string[] = [];
   for (const rowMeta of clientRows) {
     const handler = assertions[rowMeta.id];
     covered.push(rowMeta.id);
-    it(`${rowMeta.id} — ${rowMeta.api}`, async () => {
+    const register = isExpectedGreen(rowMeta.status) ? it : it.skip;
+    register(`${rowMeta.id} — ${rowMeta.api}`, async () => {
       if (!handler) throw new Error(`no assertion set authored for row ${rowMeta.id}`);
       await handler();
     });
