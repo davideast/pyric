@@ -22,7 +22,7 @@ describe('multi-axis conformance model', () => {
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
-      numerator: 129, denominator: 140, ratio: 129 / 140, percent: 92.1,
+      numerator: 131, denominator: 140, ratio: 131 / 140, percent: 93.6,
     });
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);
@@ -125,10 +125,10 @@ describe('multi-axis conformance model', () => {
     expect(source).not.toContain('execFileSync');
   });
 
-  it('reports getAfter as available, diverged, and assurance-ineligible', () => {
+  it('reports getAfter as available, conformant, and assurance-eligible', () => {
     const result = one('getAfter');
     expect(result).toMatchObject({
-      surface: 'firestore-rules', availability: 'available', fidelity: 'diverged', assurance: 'ineligible',
+      surface: 'firestore-rules', availability: 'available', fidelity: 'conforms', assurance: 'eligible',
     });
     expect(result.claims.map(({ id }) => id)).toEqual(['firestore-rules#164', 'firestore.function.getAfter']);
   });
