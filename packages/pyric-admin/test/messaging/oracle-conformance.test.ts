@@ -91,13 +91,28 @@ async function messaging(): Promise<any> {
   return m.getMessaging();
 }
 
-/** Assert a message is accepted: real send + dryRun both return the resource name shape. */
-async function expectAccepted(message: Record<string, any>): Promise<void> {
+/**
+ * Drive a real send + a dryRun of the same message and return both resource
+ * names. Both must match the FCM resource-name shape; the shared shape is what
+ * `dryRunSameShapeAsReal` records.
+ */
+async function drivenAccept(message: Record<string, any>): Promise<{ real: string; dry: string }> {
   const svc = await messaging();
-  const name: string = await svc.send(message);
-  expect(RESOURCE_NAME.test(name)).toBe(true);
+  const real: string = await svc.send(message);
+  expect(RESOURCE_NAME.test(real)).toBe(true);
   const dry: string = await svc.send(message, true);
   expect(RESOURCE_NAME.test(dry)).toBe(true); // dryRun returns the SAME shape (fake id)
+  return { real, dry };
+}
+
+/** Assert a message is accepted: real send + dryRun both return the resource name shape. */
+async function expectAccepted(message: Record<string, any>): Promise<void> {
+  await drivenAccept(message);
+}
+
+/** Whether a driven real name and dryRun name share the FCM resource-name shape. */
+function sameResourceShape(names: { real: string; dry: string }): boolean {
+  return RESOURCE_NAME.test(names.real) && RESOURCE_NAME.test(names.dry);
 }
 
 /** Assert a malformed message is rejected with the admin-wrapped INVALID_ARGUMENT code. */
@@ -150,23 +165,27 @@ const assertions: Record<string, () => Promise<void> | void> = {
   'messaging-admin#4': async () => {
     // send(message, dryRun?) — the send-plane contract, cited by 10 observations.
     // Accept paths: topic / condition / notification-only / data-only / webpush.
-    await expectAccepted({ topic: 'oracle-topic', notification: { title: 't', body: 'b' } });
-    await expectAccepted({ condition: "'a' in topics && 'b' in topics", data: { k: 'v' } });
-    await expectAccepted({ topic: 'oracle-topic', notification: { title: 't' } }); // notification-only
-    await expectAccepted({ topic: 'oracle-topic', data: { k: 'v' } }); // data-only
-    await expectAccepted({
+    // Every accept is DRIVEN (real send + dryRun), and `dryRunSameShapeAsReal` /
+    // `bothAccepted` are compared against the shapes the mirror actually
+    // produced — never read straight off the observation object.
+    const topicAccept = await drivenAccept({ topic: 'oracle-topic', notification: { title: 't', body: 'b' } });
+    const conditionAccept = await drivenAccept({ condition: "'a' in topics && 'b' in topics", data: { k: 'v' } });
+    const notificationOnly = await drivenAccept({ topic: 'oracle-topic', notification: { title: 't' } });
+    const dataOnly = await drivenAccept({ topic: 'oracle-topic', data: { k: 'v' } });
+    const webpushAccept = await drivenAccept({
       topic: 'oracle-topic',
       webpush: { headers: { TTL: '3600' }, fcmOptions: { link: 'https://example.com/oracle' } },
     });
-    // dryRun shape parity is pinned by every accept observation.
-    for (const name of [
-      'messaging-send-topic-accepted',
-      'messaging-send-condition-accepted',
-      'messaging-send-webpush-config-accepted',
-    ]) {
-      expect(obs(name).dryRunSameShapeAsReal).toBe(true);
-    }
-    expect(obs('messaging-send-notification-only-vs-data-only-accepted').bothAccepted).toBe(true);
+    // dryRun shape parity: the DRIVEN real vs dryRun names share the resource
+    // shape, matching each accept observation's `dryRunSameShapeAsReal`.
+    expect(sameResourceShape(topicAccept)).toBe(obs('messaging-send-topic-accepted').dryRunSameShapeAsReal);
+    expect(sameResourceShape(conditionAccept)).toBe(obs('messaging-send-condition-accepted').dryRunSameShapeAsReal);
+    expect(sameResourceShape(webpushAccept)).toBe(obs('messaging-send-webpush-config-accepted').dryRunSameShapeAsReal);
+    // Notification-only AND data-only both accepted (driven), matching
+    // `bothAccepted`.
+    expect(sameResourceShape(notificationOnly) && sameResourceShape(dataOnly)).toBe(
+      obs('messaging-send-notification-only-vs-data-only-accepted').bothAccepted,
+    );
 
     // Error envelopes: assert each pinned production envelope's invariants, then
     // drive the mirror to reject with the wrapped admin code.
@@ -218,10 +237,13 @@ const assertions: Record<string, () => Promise<void> | void> = {
   },
   'messaging-admin#11': async () => {
     // BaseMessage: neither data nor notification is individually required.
+    // Driven: a notification-only send and a data-only send are BOTH accepted
+    // by the mirror; `bothAccepted` is the observation's recorded truth for
+    // that pair, compared against what the two driven sends actually produced.
     const o = obs('messaging-send-notification-only-vs-data-only-accepted');
-    expect(o.bothAccepted).toBe(true);
-    await expectAccepted({ topic: 'oracle-topic', notification: { title: 't' } });
-    await expectAccepted({ topic: 'oracle-topic', data: { k: 'v' } });
+    const notificationOnly = await drivenAccept({ topic: 'oracle-topic', notification: { title: 't' } });
+    const dataOnly = await drivenAccept({ topic: 'oracle-topic', data: { k: 'v' } });
+    expect(sameResourceShape(notificationOnly) && sameResourceShape(dataOnly)).toBe(o.bothAccepted);
   },
   'messaging-admin#12': async () => {
     // TokenMessage: an invalid token is rejected; fieldViolations names message.token.

@@ -34,6 +34,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { messagingRows } from '../../../../packages/conformance/registry/messaging.ts';
 import { initializeApp } from 'pyric/app';
+import { createAppForSandbox } from 'pyric/app/internal';
+import { initializeSandbox } from 'pyric/sandbox';
+import { BrokerSendError, DEFAULT_SENDER_ID, getMessagingBroker } from 'pyric/messaging/internal';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
 
 beforeAll(async () => {
@@ -73,6 +76,14 @@ const loadSw = (): Promise<any> => (swMirror ??= import('pyric/messaging/sw'));
 const clientRows = messagingRows.filter((r) => r.surface === 'messaging');
 
 /**
+ * Map a DRIVEN `DeliveryResult.route` onto the handler names the routing
+ * observation records, so the pinned `deliveredTo` values can be compared
+ * against what the broker actually did rather than re-asserted off the JSON.
+ */
+const deliveredTo = (result: { route: string }): string =>
+  result.route === 'foreground' ? 'onMessage' : 'onBackgroundMessage';
+
+/**
  * One assertion set per row, keyed by row id. Each handler drives the mirror so
  * it is red until the mirror exists AND meaningful the moment it does. Rows that
  * cite observations replay the pinned values; the rest are shape/export
@@ -107,36 +118,89 @@ const assertions: Record<string, () => Promise<void> | void> = {
   },
 
   'messaging#3': async () => {
-    // deleteToken resolves truthy; the now-dead token stops delivery and the
-    // send plane eventually surfaces UNREGISTERED (admin re-wraps the code).
+    // deleteToken resolves truthy; afterwards a send to the now-dead token is
+    // answered by the SAME broker with the captured UNREGISTERED envelope and
+    // routes NO delivery to either client handler. The full loop is DRIVEN
+    // in-process (mint → delete → dead-token send → rejection + silence); the
+    // observation's recorded values are the expected side. The admin re-wrap
+    // the capture also records (`adminThrowCode`,
+    // `messaging/registration-token-not-registered`) is driven by the blocking
+    // pyric-admin suite (test/messaging/send.test.ts, minted-then-deleted
+    // token), not restated here off the JSON. The capture's TIMING nuance
+    // ("eventually") is pinned as environment-dependent and NOT contractual;
+    // the broker is deterministic — dead is dead immediately.
     const o = obs('messaging-web-deletetoken-unregistered');
     const m = await loadClient();
-    const ok = await m.deleteToken(m.getMessaging());
+    const sw = await loadSw();
+    // Dedicated sandbox app: deleting the shared default app's token would
+    // bleed into sibling rows that drive the same broker.
+    const sandbox = initializeSandbox();
+    const app = createAppForSandbox(sandbox, { projectId: 'messaging-oracle-row3' }, 'msg-oracle-row3');
+    const messaging = m.getMessaging(app);
+    const token: string = await m.getToken(messaging, { vapidKey: 'test-vapid-key' });
+    const ok = await m.deleteToken(messaging);
     expect(Boolean(ok)).toBe(o.deleteTokenResolvedTruthy);
-    expect(o.fcmErrorCode).toBe('UNREGISTERED'); // pinned wire code the broker must emit
-    expect(o.adminThrowCode).toBe('messaging/registration-token-not-registered');
-    expect(o.noDeliveryToClient).toBe(true);
+    // Handlers on BOTH routes, registered before the dead-token send.
+    const fg: any[] = [];
+    const bg: any[] = [];
+    m.onMessage(messaging, (p: any) => fg.push(p));
+    sw.onBackgroundMessage(sw.getMessaging(app), (p: any) => bg.push(p));
+    // Drive the send plane at the dead token on the same broker.
+    const broker = getMessagingBroker(sandbox);
+    let err: any;
+    try {
+      broker.send({ token, notification: { title: 't', body: 'b' } });
+    } catch (e) {
+      err = e;
+    }
+    expect(err instanceof BrokerSendError).toBe(o.sendPlaneEventuallyUnregistered);
+    expect(err.envelope.status).toBe(o.unregisteredHttpStatus);
+    expect(err.envelope.error.code).toBe(o.unregisteredErrorCodeTop);
+    expect(err.envelope.error.status).toBe(o.unregisteredErrorStatus);
+    expect(typeof err.envelope.error.message === 'string' && err.envelope.error.message.length > 0)
+      .toBe(o.unregisteredMessagePresent);
+    expect((err.envelope.error.details ?? []).map((d: any) => d['@type'])).toEqual([...o.unregisteredDetailTypes]);
+    expect(err.errorCode).toBe(o.fcmErrorCode); // the DRIVEN wire code vs the pinned 'UNREGISTERED'
+    expect(fg.length === 0 && bg.length === 0).toBe(o.noDeliveryToClient);
   },
 
   'messaging#4': async () => {
     // onMessage fires on a VISIBLE window client; routing keys on visibility.
+    // BOTH routing arms are driven — the same message is delivered once with a
+    // visible client and once with none — and the pinned `deliveredTo` values
+    // are compared against the routes the broker actually took.
     const fg = obs('messaging-web-onmessage-foreground');
     const routing = obs('messaging-web-visibility-routing');
     const m = await loadClient();
+    const sw = await loadSw();
     const received: any[] = [];
+    const bgReceived: any[] = [];
     const unsub = m.onMessage(m.getMessaging(), (p: any) => received.push(p));
+    const unsubBg = sw.onBackgroundMessage(sw.getMessaging(), (p: any) => bgReceived.push(p));
     expect(typeof unsub).toBe('function');
-    // Deliver a notification+data message to a visible client via the broker.
-    await m.sandbox.deliver(m.getMessaging(), {
-      visibilityState: 'visible',
+    const spec = {
       notification: { title: 't', body: 'b' },
       data: { demo: '1', source: 's', tag: 'g' },
-    });
+    };
+    // Arm 1: a visible window client → the foreground handler.
+    const visible = await m.sandbox.deliver(m.getMessaging(), { visibilityState: 'visible', ...spec });
     expect(received.length).toBe(1);
+    expect(bgReceived.length).toBe(0);
     expect(Object.keys(received[0]).sort()).toEqual([...fg.topLevelKeys].sort());
-    expect(routing.visibleClient.deliveredTo).toBe('onMessage');
-    expect(routing.noVisibleClient.deliveredTo).toBe('onBackgroundMessage');
-    expect(routing.routesOnVisibilityNotFocus).toBe(true);
+    expect(deliveredTo(visible)).toBe(routing.visibleClient.deliveredTo);
+    // Arm 2: the SAME message with no visible client → the background handler,
+    // and the foreground handler does NOT fire again.
+    const hidden = await m.sandbox.deliver(m.getMessaging(), { visibilityState: 'hidden', ...spec });
+    expect(deliveredTo(hidden)).toBe(routing.noVisibleClient.deliveredTo);
+    expect(bgReceived.length).toBe(1);
+    expect(received.length).toBe(1);
+    // Focus is not an input to the broker at all (the captured rule): with
+    // everything else held equal, flipping ONLY visibility flipped the route.
+    expect(visible.route === 'foreground' && hidden.route === 'background').toBe(
+      routing.routesOnVisibilityNotFocus,
+    );
+    unsub();
+    unsubBg();
   },
 
   'messaging#5': async () => {
@@ -154,35 +218,64 @@ const assertions: Record<string, () => Promise<void> | void> = {
   },
 
   'messaging#7': async () => {
-    // interface GetTokenOptions { vapidKey?; serviceWorkerRegistration? } — a
-    // type-only shape; getToken must accept the option bag without complaint.
+    // interface GetTokenOptions { vapidKey?; serviceWorkerRegistration? } —
+    // driven: getToken accepts the full option bag, and both fields are
+    // optional (a bare call also resolves). Deep type shape is closed by the
+    // assignability census (resolved decision #5).
     const m = await loadClient();
-    expect(typeof m.getToken).toBe('function');
+    const messaging = m.getMessaging();
+    const withOptions = await m.getToken(messaging, {
+      vapidKey: 'test-vapid-key',
+      serviceWorkerRegistration: m.sandbox.registration(),
+    });
+    expect(typeof withOptions).toBe('string');
+    const bare = await m.getToken(messaging);
+    expect(typeof bare).toBe('string');
   },
 
   'messaging#8': async () => {
     // MessagePayload envelope: top-level keys data/from/messageId/notification;
-    // from = sender id; messageId present (foreground + background captures).
+    // from = sender id; messageId present. Every fact is read off the payload
+    // the broker actually DELIVERED (foreground and background routes both
+    // driven), never off the observation JSON. The `from`/`messageId` facts —
+    // formerly asserted straight from `fg.fromEqualsSenderId` /
+    // `fg.messageIdPresent` — are now the delivered payload's own `from` and
+    // `messageId`, compared against the pinned sender-id shape.
     const fg = obs('messaging-web-onmessage-foreground');
     const bg = obs('messaging-web-onbackgroundmessage');
     const m = await loadClient();
+    const sw = await loadSw();
     const received: any[] = [];
+    const bgReceived: any[] = [];
     m.onMessage(m.getMessaging(), (p: any) => received.push(p));
-    await m.sandbox.deliver(m.getMessaging(), {
-      visibilityState: 'visible',
+    sw.onBackgroundMessage(sw.getMessaging(), (p: any) => bgReceived.push(p));
+    const spec = {
       notification: { title: 't', body: 'b' },
       data: { demo: '1', source: 's', tag: 'g' },
-    });
+    };
+    await m.sandbox.deliver(m.getMessaging(), { visibilityState: 'visible', ...spec });
+    await m.sandbox.deliver(m.getMessaging(), { visibilityState: 'hidden', ...spec });
     const payload = received[0];
+    const bgPayload = bgReceived[0];
+    // Foreground delivery: top-level key set matches the foreground capture.
     expect(Object.keys(payload).sort()).toEqual([...fg.topLevelKeys].sort());
-    expect(fg.fromEqualsSenderId).toBe(true);
-    expect(fg.messageIdPresent).toBe(true);
-    // The background capture pins the identical top-level key set.
-    expect([...bg.topLevelKeys].sort()).toEqual([...fg.topLevelKeys].sort());
+    // from = the project sender id (driven payload.from vs the broker's pinned
+    // DEFAULT_SENDER_ID); messageId present. `fromEqualsSenderId` /
+    // `messageIdPresent` are the capture's recorded truth for these.
+    expect(payload.from === DEFAULT_SENDER_ID).toBe(fg.fromEqualsSenderId);
+    expect(typeof payload.messageId === 'string' && payload.messageId.length > 0).toBe(fg.messageIdPresent);
+    // Background delivery: the delivered payload's own key set matches the
+    // background capture, and the two routes carry the identical top-level set.
+    expect(Object.keys(bgPayload).sort()).toEqual([...bg.topLevelKeys].sort());
+    expect(Object.keys(bgPayload).sort()).toEqual(Object.keys(payload).sort());
+    expect(bgPayload.from === DEFAULT_SENDER_ID).toBe(bg.fromEqualsSenderId);
+    expect(typeof bgPayload.messageId === 'string' && bgPayload.messageId.length > 0).toBe(bg.messageIdPresent);
   },
 
   'messaging#9': async () => {
     // NotificationPayload inside a foreground delivery carries title + body.
+    // Both the key set and the title-delivered fact are read off the payload
+    // the broker delivered (was: `fg.notificationTitleDelivered` off the JSON).
     const fg = obs('messaging-web-onmessage-foreground');
     const m = await loadClient();
     const received: any[] = [];
@@ -192,21 +285,63 @@ const assertions: Record<string, () => Promise<void> | void> = {
       notification: { title: 't', body: 'b' },
       data: { demo: '1' },
     });
-    expect(Object.keys(received[0].notification).sort()).toEqual([...fg.notificationKeys].sort());
-    expect(fg.notificationTitleDelivered).toBe(true);
+    const notification = received[0].notification;
+    expect(Object.keys(notification).sort()).toEqual([...fg.notificationKeys].sort());
+    expect(typeof notification.title === 'string' && notification.title.length > 0).toBe(fg.notificationTitleDelivered);
   },
 
   'messaging#10': async () => {
-    // interface FcmOptions { link?; analyticsLabel? } — type-only shape. Touch
-    // the mirror so this is red at birth; deep type conformance is closed by the
-    // assignability census (resolved decision #5), not this runtime replay.
-    expect(await loadClient()).toBeDefined();
+    // interface FcmOptions { link?; analyticsLabel? } — a type-only shape with
+    // NO runtime carrier in the sandbox: the broker delivers only
+    // data/from/messageId(+notification) and, by capture-faithful design, never
+    // carries `fcmOptions` on a delivered payload (the same reason
+    // `collapseKey` is omitted). There is nothing for the broker to exhibit, so
+    // the row is honestly DOWNGRADED to the shape tier (type-backed) in the
+    // registry — deep type conformance for FcmOptions is closed by the tier-2
+    // assignability census (resolved decision #5), not a runtime replay. This
+    // witness only pins that the row's shape-tier boundary holds: `fcmOptions`
+    // does not appear on a delivered payload.
+    const m = await loadClient();
+    const received: any[] = [];
+    m.onMessage(m.getMessaging(), (p: any) => received.push(p));
+    await m.sandbox.deliver(m.getMessaging(), {
+      visibilityState: 'visible',
+      notification: { title: 't', body: 'b' },
+      data: { demo: '1' },
+    });
+    expect('fcmOptions' in received[0]).toBe(false);
   },
 
   'messaging#11': async () => {
-    // NextFn / Observer / Unsubscribe are re-exported from @firebase/util —
-    // type-only re-exports; closed by the assignability census.
-    expect(await loadClient()).toBeDefined();
+    // NextFn / Observer / Unsubscribe: the callback / observer / teardown types
+    // onMessage consumes. Driven, not asserted off `toBeDefined()`: onMessage
+    // accepts BOTH the bare-NextFn form and the full-Observer form, delivers to
+    // each via the broker, and returns a callable Unsubscribe that stops
+    // delivery. Deep type parity with the @firebase/util re-exports is closed
+    // by the assignability census (resolved decision #5).
+    const m = await loadClient();
+    const messaging = m.getMessaging();
+    const nextForm: any[] = [];
+    const observerForm: any[] = [];
+    // NextFn form.
+    const unsubNext: () => void = m.onMessage(messaging, (p: any) => nextForm.push(p));
+    // Observer form { next, error, complete }.
+    const unsubObserver: () => void = m.onMessage(messaging, {
+      next: (p: any) => observerForm.push(p),
+      error: () => {},
+      complete: () => {},
+    });
+    expect(typeof unsubNext).toBe('function');
+    expect(typeof unsubObserver).toBe('function');
+    await m.sandbox.deliver(messaging, { visibilityState: 'visible', data: { demo: '1' } });
+    expect(nextForm.length).toBe(1);
+    expect(observerForm.length).toBe(1); // Observer.next received the same delivery
+    // Unsubscribe stops further delivery to that handler only.
+    unsubNext();
+    await m.sandbox.deliver(messaging, { visibilityState: 'visible', data: { demo: '2' } });
+    expect(nextForm.length).toBe(1); // no further delivery after unsubscribe
+    expect(observerForm.length).toBe(2); // the still-subscribed observer keeps receiving
+    unsubObserver();
   },
 
   'messaging#12': async () => {
