@@ -946,10 +946,10 @@ async function attemptCode(step: () => Promise<unknown>): Promise<string | null>
 
 const rtdbClimbProbes = config.databaseURL && rtdbAdminToken
   ? await loadRtdbClimbProbes({
-      config: { ...config, databaseURL: config.databaseURL },
-      rtdbAdminToken,
-      runId: RUN_ID,
-    })
+        config: { ...config, databaseURL: config.databaseURL },
+        rtdbAdminToken,
+        runId: RUN_ID,
+      })
   : [];
 
 const probes: Probe[] = [
