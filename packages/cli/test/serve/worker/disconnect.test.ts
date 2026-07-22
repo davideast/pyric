@@ -15,7 +15,8 @@ import { getWorkerVersion } from '../../../src/serve/worker/client/connection.js
 import { doc } from '../../../src/serve/worker/client/firestore-refs.js';
 import { onSnapshot } from '../../../src/serve/worker/client/firestore-reads.js';
 import { getAuth, onAuthStateChanged } from '../../../src/serve/worker/client/auth.js';
-import { rtdbGetDatabase, rtdbOnValue, rtdbRef } from '../../../src/serve/worker/client/rtdb.js';
+import { rtdbGetDatabase, rtdbRef } from '../../../src/serve/worker/client/rtdb-references.js';
+import { rtdbOnValue } from '../../../src/serve/worker/client/rtdb-listeners.js';
 import type { ClientDb } from '../../../src/serve/worker/client/handles.js';
 
 describe('explicit SharedWorker app-port disconnect', () => {
