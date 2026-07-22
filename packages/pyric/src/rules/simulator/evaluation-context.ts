@@ -7,7 +7,6 @@ export interface SimAuth {
   uid: string;
   token: Record<string, unknown>;
 }
-
 export interface SimRequest {
   auth: SimAuth | null;
   resource: { data: Record<string, unknown> };
@@ -252,4 +251,3 @@ export class TraceRecorder {
     this.entries[index].letBinding = { name };
   }
 }
-

@@ -50,7 +50,6 @@ export function resolveFsProbe(probe: FsProbe): { rules: string; cases: TestCase
   }];
   return { rules, cases };
 }
-
 /** Expression probes keyed by construct id, for the expression-level kinds. */
 const FS_EXPR: Record<string, FsProbe> = {
   // Functions — builtins
@@ -269,4 +268,3 @@ export function resolveFirestoreConstructProbe(
       testCase.requestTime ? testCase : { ...testCase, requestTime: FIRESTORE_PROBE_TIME }),
   };
 }
-
