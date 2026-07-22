@@ -108,5 +108,33 @@ Errors, admin:
 ## Evidence coverage summary
 Committed observations tonight touch 4 of the public entries: client `getToken` + `MessagePayload`/`NotificationPayload` (token-shape, onmessage-foreground), sw `onBackgroundMessage` (onbackgroundmessage), admin `Messaging.send` across `TopicMessage`/`TokenMessage` plus the `INVALID_ARGUMENT` error envelope (topic-accepted, invalid-token-envelope, no-target-envelope). Everything else in this inventory (client `deleteToken`/`onMessage`... wait onMessage is covered; `deleteToken`, `isSupported`, `getMessaging`; sw metrics toggle, `getMessaging`, `isSupported`; admin `sendEach`, `sendEachForMulticast`, `subscribeToTopic`, `unsubscribeFromTopic`, `enableLegacyHttpTransport`, and all option-field shapes and error codes beyond INVALID_ARGUMENT) is enumerated from typings only and is not yet evidenced by a committed observation.
 
+## Behavior-class enumeration (ticket #442)
+
+The census above enumerates the SHAPE universe — exports, methods, and option
+shapes. It does not enumerate the runtime BEHAVIOR CLASSES that span those
+shapes over time and across clients. Ticket #442 enumerates those classes so the
+map covers the territory: at graduation "zero unknown gaps" means every hard
+class is a classified row, not an unasked question. Each class is now a
+registry row born at its honest evidence tier — `unverified` where a rig could
+feasibly capture production but has not yet, `unsupported` with a written reason
+where the sandbox will never model it. None is born `conforms`, and each carries
+`riskReasons` naming what is unevidenced. Because both audit worklists are
+`conforming`-only, these rows add nothing to the audit gate and require no
+baseline change.
+
+| Behavior class | Row(s) | Disposition | Why |
+|---|---|---|---|
+| FCM send quota / throttling | `messaging-admin#40` | unsupported (`—`) | Quota and per-target rate limits are accounted on Google infrastructure over rolling windows; the sandbox keeps no global quota ledger, and deliberately exhausting production quota to capture the `MESSAGE_RATE_EXCEEDED` / `DEVICE_MESSAGE_RATE_EXCEEDED` / `TOPICS_MESSAGE_RATE_EXCEEDED` envelope is neither safe nor repeatable. |
+| Send retry / backoff | `messaging-admin#41` | unverified (`?`) | The admin SDK retries transient 5xx / connection failures with backoff before surfacing the error; feasible to capture against a fault-injecting stub (503 then 200), not yet done. |
+| Offline / queued delivery | `messaging-admin#42` | unverified (`?`) | Store-and-forward for offline devices, collapse-key last-write-wins, and TTL expiry-drop; feasible to capture with an offline-then-reconnect web client, not yet done. |
+| Multi-tab delivery interactions | `messaging#18` | unverified (`?`) | Foreground `onMessage` per visible tab and a single shared-service-worker `onBackgroundMessage` across tabs; feasible to capture with a two-tab rig sharing one registration, not yet done. |
+| Multi-device delivery interactions | `messaging#19` | unverified (`?`) | Independent per-token fan-out with no cross-device de-duplication; feasible to capture with two tokens on one topic, not yet done. |
+| Token lifecycle — rotation / refresh | `messaging#20` | unverified (`?`) | Token rotation across lifecycle events (reinstall, SDK upgrade, permission change) — distinct from the within-session stability already evidenced by `messaging-web-token-stability`; feasible as a long-horizon re-mint capture, not yet done. |
+| Token lifecycle — inactivity expiry | `messaging#21` | unsupported (`—`) | The ~270-day server-side inactivity staleness window is accounted on Google infrastructure over wall-clock months; the sandbox has no inactivity clock, and aging a real token for months is not a feasible probe. The explicit-deletion dead-token path is already tracked by `messaging#3`. |
+
+The five `unverified` rows each note a candidate capture probe in their evidence
+and notes text, feeding the scheduled re-capture lane's backlog (#444). The two
+`unsupported` rows carry the written reason above as their `exceptionReason`.
+
 ## Gist for Decisions-so-far
 Public messaging surface enumerated from installed firebase@12.13.0 (@firebase/messaging 0.12.26: client 5 fns + sw 4 fns over shared Messaging/GetTokenOptions/MessagePayload/NotificationPayload/FcmOptions and an 18-value client ErrorCode enum) and firebase-admin@13.10.0 (Messaging class with send/sendEach/sendEachForMulticast/subscribe/unsubscribe/enableLegacyHttpTransport plus ~25 config/payload interfaces and 19-member MessagingClientErrorCode); tonight's committed observations evidence only client getToken/onMessage, sw onBackgroundMessage, and admin send (topic + INVALID_ARGUMENT envelope).

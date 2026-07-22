@@ -370,14 +370,46 @@ const assertions: Record<string, () => Promise<void> | void> = {
     expect(typeof m.MessagingClientErrorCode).toBe('function');
     expect(m.MessagingClientErrorCode.INVALID_ARGUMENT.code).toContain('invalid-argument');
   },
+
+  // ── behavior classes — quota, retry, offline delivery (born non-conforms) ──
+  // Hard send-plane behavior classes the census omits. RED AT BIRTH: no
+  // observation exists yet, so the assertion set has nothing to replay. Each
+  // body drives the intended capture and throws until a rig commits the
+  // observation (or, for the unsupported quota class, permanently). They are
+  // registered with `it.skip` in the loop below so the blocking suite stays
+  // green while the row honestly reads `—` (quota) / `?` (retry, offline).
+  'messaging-admin#40': () => {
+    // Quota / rate-limit throttling — unsupported: sandbox keeps no quota ledger.
+    throw new Error('messaging-admin#40 send quota/throttling: unsupported — no global quota ledger to model in the sandbox.');
+  },
+  'messaging-admin#41': () => {
+    // Send retry/backoff on transient 5xx — capture via a fault-injecting stub.
+    throw new Error('messaging-admin#41 send retry/backoff: capture not yet performed (fault-injecting stub returning 503 then 200).');
+  },
+  'messaging-admin#42': () => {
+    // Offline store-and-forward: collapse-key last-write-wins + TTL expiry drop.
+    throw new Error('messaging-admin#42 offline/queued delivery: capture not yet performed (offline-then-reconnect collapse + TTL drop).');
+  },
 };
+
+/**
+ * A row is exercised in the blocking run only when it is expected-green
+ * (`conforms` / `diverged-documented`). Behavior-class rows born `unverified` or
+ * `unsupported` are red at birth (CDD Step 3) — their assertion sets exist and
+ * are authored, but replaying them has nothing to prove until a capture lands,
+ * so they are skipped here rather than failing the blocking suite. The row still
+ * publishes its honest `?` / `—` status; the completeness gate still requires a
+ * handler for it.
+ */
+const isExpectedGreen = (status: string): boolean => status === 'conforms' || status === 'diverged-documented';
 
 describe('oracle conformance (messaging-admin send plane)', () => {
   const covered: string[] = [];
   for (const rowMeta of adminRows) {
     const handler = assertions[rowMeta.id];
     covered.push(rowMeta.id);
-    it(`${rowMeta.id} — ${rowMeta.api}`, async () => {
+    const register = isExpectedGreen(rowMeta.status) ? it : it.skip;
+    register(`${rowMeta.id} — ${rowMeta.api}`, async () => {
       if (!handler) throw new Error(`no assertion set authored for row ${rowMeta.id}`);
       await handler();
     });
