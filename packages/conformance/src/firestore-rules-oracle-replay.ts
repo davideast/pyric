@@ -57,7 +57,7 @@ export function firestoreOracleReplayProblems(
   observation: FirestoreRulesObservation,
   simulatorVerdicts: Readonly<Record<string, Verdict>>,
   row: { id: string; status?: string; conformanceDisposition?: string },
-  matchedDivergences?: Set<string>,
+  matchedExceptions?: Set<string>,
 ): string[] {
   const problems: string[] = [];
   if (observation.rowIds.length !== 1) {
@@ -85,7 +85,7 @@ export function firestoreOracleReplayProblems(
     }
     const known = KNOWN_EXCEPTIONS.get(key);
     if (known) {
-      matchedDivergences?.add(key);
+      matchedExceptions?.add(key);
       problems.push(...diagnosticProblems(observation, caseKey, known.diagnosticFunction));
       if (row.id !== known.rowId) problems.push(`${key}: divergence belongs to ${known.rowId}, not ${row.id}`);
       if (row.status !== 'diverged-documented') {
@@ -198,7 +198,7 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
   const replays: FirestoreOracleReplayResult[] = registryProblems.length === 0 ? [] : [{
     name: 'firestore-rules-registry-linkage', rowId: '', problems: registryProblems,
   }];
-  const matchedDivergences = new Set<string>();
+  const matchedExceptions = new Set<string>();
   const observedNames = new Set<string>();
   for (const observation of observations) {
     observedNames.add(observation.name);
@@ -238,7 +238,7 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
         observation,
         verdicts,
         { id: rowId, status: registryRow?.status, conformanceDisposition: registryRow?.conformanceDisposition },
-        matchedDivergences,
+        matchedExceptions,
       ),
     });
   }
@@ -248,8 +248,8 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
     });
   }
   for (const [key, known] of KNOWN_EXCEPTIONS) {
-    if (!matchedDivergences.has(key)) replays.push({
-      name: key, rowId: known.rowId, problems: [`${key}: stale or unused divergence pin`],
+    if (!matchedExceptions.has(key)) replays.push({
+      name: key, rowId: known.rowId, problems: [`${key}: stale or unused exception pin`],
     });
   }
   return replays;
