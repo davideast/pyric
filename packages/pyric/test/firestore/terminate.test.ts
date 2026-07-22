@@ -11,7 +11,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
-import { getFirestore, doc, setDoc } from '../../src/firestore/index.js';
+import { getFirestore, doc, getDoc, setDoc } from '../../src/firestore/index.js';
 import { terminate } from '../../src/firestore/index.js';
 
 const RULES = `rules_version = '2';
@@ -36,14 +36,22 @@ describe('terminate', () => {
     await expect(terminate(db)).resolves.toBeUndefined();
   });
 
-  it('genuinely tears the sandbox down by calling Sandbox.dispose()', async () => {
+  it('terminates only this Firestore handle and leaves its sibling usable', async () => {
     const { sandbox, db } = setup();
+    const sibling = getFirestore(sandbox.withAuth({ uid: 'alice' }));
     const disposeSpy = mock(sandbox.dispose.bind(sandbox));
     sandbox.dispose = disposeSpy;
+    const terminatedRef = doc(db, 'notes/n1');
+    await setDoc(terminatedRef, { text: 'before' });
 
     await terminate(db);
 
-    expect(disposeSpy).toHaveBeenCalledTimes(1);
+    expect(disposeSpy).not.toHaveBeenCalled();
+    await expect(getDoc(terminatedRef)).rejects.toMatchObject({
+      code: 'failed-precondition',
+    });
+    await setDoc(doc(sibling, 'notes/n1'), { text: 'after' });
+    expect((await getDoc(doc(sibling, 'notes/n1'))).data()).toEqual({ text: 'after' });
   });
 
   it('is idempotent — calling it twice does not throw', async () => {

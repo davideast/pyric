@@ -112,6 +112,8 @@ export interface TransactionOptions {
   bypassRules?: boolean;
   /** Immutable adapter context captured before an async callback yields. */
   provenance?: EventProvenance;
+  /** Maximum callback attempts after optimistic read conflicts. Defaults to 5. */
+  maxAttempts?: number;
 }
 
 /**

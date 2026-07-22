@@ -72,9 +72,9 @@ export function buildFirestoreHandle(
     },
     runTransaction<R>(
       fn: (tx: Transaction) => Promise<R> | R,
-      _opts?: OperationOptions,
+      opts?: OperationOptions,
     ): Promise<R> {
-      return delegate().runTransaction(fn);
+      return delegate().runTransaction(fn, opts);
     },
 
     // ── Sandbox-only surface ─────────────────────────────────────────

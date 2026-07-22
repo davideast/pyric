@@ -93,4 +93,17 @@ describe('Firestore acceptance evidence', () => {
       [rejected], captured, () => ({ expectedDecision: 'ALLOW' }),
     )).toThrow('decisions are invalid');
   });
+
+  it('requires the live-database source on an accepted hosted-evaluator exception', () => {
+    const getAfter = { ...construct, id: 'firestore.function.getAfter' };
+    const captured = evidence();
+    captured.constructs[0]!.id = getAfter.id;
+    expect(() => validateFirestoreAcceptanceEvidence(
+      [getAfter], captured, () => ({ expectedDecision: 'ALLOW' }),
+    )).toThrow('missing the live-database source');
+    captured.constructs[0]!.evidenceSource = 'live-database';
+    expect(() => validateFirestoreAcceptanceEvidence(
+      [getAfter], captured, () => ({ expectedDecision: 'ALLOW' }),
+    )).not.toThrow();
+  });
 });

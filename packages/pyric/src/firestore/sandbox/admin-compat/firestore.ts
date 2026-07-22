@@ -33,7 +33,10 @@
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import type { EventProvenance } from '../../../sandbox/types/events.js';
 import { makeError } from 'pyric/sandbox/internal';
-import { ReadAfterWriteError } from 'pyric/sandbox/internal';
+import {
+  ReadAfterWriteError,
+  TransactionAttemptsExhaustedError,
+} from 'pyric/sandbox/internal';
 import { isCollectionPath, isDocumentPath } from './paths.js';
 import { CollectionGroupQueryImpl } from './collection-group-query.js';
 import { CollectionRefImpl, createDocumentRef } from './collection-ref.js';
@@ -126,6 +129,7 @@ export class FirestoreImpl implements Firestore {
           auth: opts?.auth !== undefined ? opts.auth : this.auth,
           bypassRules: this.bypassRules,
           provenance: this.provenance,
+          maxAttempts: opts?.maxAttempts,
         },
       );
     } catch (e) {
@@ -134,6 +138,9 @@ export class FirestoreImpl implements Firestore {
       // resolution errors that escape to here) propagate untouched —
       // they aren't wrapper-translatable.
       if (e instanceof ReadAfterWriteError) {
+        throw new FirestoreCompatError(e.simError);
+      }
+      if (e instanceof TransactionAttemptsExhaustedError) {
         throw new FirestoreCompatError(e.simError);
       }
       throw e;

@@ -131,14 +131,18 @@ describe('getDocFromServer / getDocsFromServer', () => {
 });
 
 describe('getDocFromCache / getDocsFromCache', () => {
-  it('getDocFromCache returns the doc and does NOT throw unavailable on what would be a cache miss in prod', async () => {
+  it('getDocFromCache throws unavailable on a cold cache miss', async () => {
     const { db } = setup();
     const ref = doc(db, 'notes/never-written');
-    // Real Firebase throws 'unavailable' here on a genuine cache miss;
-    // pyric's local store always has the answer (or a non-existent
-    // snapshot), so it never throws for that reason.
-    const snap = await getDocFromCache(ref);
-    expect(snap.exists()).toBe(false);
+    await expect(getDocFromCache(ref)).rejects.toMatchObject({ code: 'unavailable' });
+  });
+
+  it('getDocFromCache returns a document after a server/default read warms it', async () => {
+    const { db } = setup();
+    const ref = doc(db, 'notes/warm');
+    await setDoc(ref, { text: 'warm' });
+    await getDoc(ref);
+    expect((await getDocFromCache(ref)).data()).toEqual({ text: 'warm' });
   });
 
   it('getDocsFromCache returns current query results without throwing', async () => {

@@ -36,8 +36,9 @@ const TXN_MAX_ATTEMPTS = 5;
 export async function runRemoteTransaction<R>(
   arm: RemoteArm,
   fn: (tx: Transaction) => Promise<R> | R,
+  maxAttempts = TXN_MAX_ATTEMPTS,
 ): Promise<R> {
-  for (let attempt = 0; attempt < TXN_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     // Fresh read-set + write buffer per attempt.
     const reads: WireTxnRead[] = [];
     const writes: WireWrite[] = [];
@@ -122,7 +123,7 @@ export async function runRemoteTransaction<R>(
 
   throw new SandboxError(
     'aborted',
-    `Transaction failed after ${TXN_MAX_ATTEMPTS} attempts due to repeated conflicts. ` +
+    `Transaction failed after ${maxAttempts} attempts due to repeated conflicts. ` +
       'Another writer is concurrently updating the same documents.',
   );
 }

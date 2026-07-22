@@ -1,1 +1,0 @@
-{"rowId":"firestore-rules#164","conformanceDisposition":"probe-limitation","productionVerdict":"DENY","simulatorVerdict":"DENY","diagnosticFunction":"existsAfter","reason":"matching DENY still terminates at the endpoint's function-not-found boundary","issue":"#135"}

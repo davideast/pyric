@@ -12,8 +12,7 @@ export const FIRESTORE_ACCEPTANCE_EVIDENCE_PATH = join(
   'firestore-acceptance-evidence.json',
 );
 export const FIRESTORE_ACCEPTANCE_EVIDENCE_NOTE =
-  'Committed read-only Rules Test API evidence. The score validator binds every construct to this record, ' +
-  'its current probe digest and status, plus exact expected/actual decisions whenever evaluation returned a verdict.';
+  'Committed production acceptance evidence. Rules Test API results are the default; per-row evidenceSource marks live-database overrides where that endpoint cannot evaluate an official construct. The score validator binds every construct to this record, its current probe digest and status, plus exact expected/actual decisions whenever evaluation returned a verdict.';
 
 export interface FirestoreAcceptanceEvidenceConstruct {
   id: string;
@@ -25,6 +24,7 @@ export interface FirestoreAcceptanceEvidenceConstruct {
   evaluationDetail?: string;
   expectedDecision?: 'ALLOW' | 'DENY';
   actualDecision?: 'ALLOW' | 'DENY';
+  evidenceSource?: 'rules-test-api' | 'live-database';
 }
 
 export interface FirestoreAcceptanceEvidence {
@@ -93,6 +93,14 @@ export function validateFirestoreAcceptanceEvidence(
     }
     if (row.probeNote !== construct.probeNote) {
       throw new Error(`Firestore acceptance evidence probe note mismatch for ${construct.id}`);
+    }
+    if (row.evidenceSource === 'live-database' &&
+        row.id !== 'firestore.function.getAfter' && row.id !== 'firestore.function.existsAfter') {
+      throw new Error(`Firestore acceptance evidence has an unauthorized live-database override for ${row.id}`);
+    }
+    if ((row.id === 'firestore.function.getAfter' || row.id === 'firestore.function.existsAfter') &&
+        row.status === 'accepted' && row.evidenceSource !== 'live-database') {
+      throw new Error(`Firestore acceptance evidence is missing the live-database source for ${row.id}`);
     }
     if ((row.status === 'rejected' || row.status === 'unprobeable') && !row.probeNote) {
       throw new Error(`Firestore acceptance evidence note is missing for ${construct.id}`);

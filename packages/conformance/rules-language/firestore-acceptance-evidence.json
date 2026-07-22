@@ -1,15 +1,15 @@
 {
   "schema": "pyric.conformance.firestore-rules-acceptance-evidence.v1",
-  "generatedNote": "Committed read-only Rules Test API evidence. The score validator binds every construct to this record, its current probe digest and status, plus exact expected/actual decisions whenever evaluation returned a verdict.",
+  "generatedNote": "Committed production acceptance evidence. Rules Test API results are the default; per-row evidenceSource marks live-database overrides where that endpoint cannot evaluate an official construct. The score validator binds every construct to this record, its current probe digest and status, plus exact expected/actual decisions whenever evaluation returned a verdict.",
   "capturedAt": "2026-07-22T01:10:01.900Z",
   "projectId": "digame-mas",
   "engine": "firestore",
   "total": 140,
-  "accepted": 126,
-  "rejected": 11,
+  "accepted": 128,
+  "rejected": 9,
   "unprobeable": 3,
-  "evaluationAgree": 126,
-  "evaluationDisagree": 11,
+  "evaluationAgree": 128,
+  "evaluationDisagree": 9,
   "constructs": [
     {
       "id": "firestore.binding.request",
@@ -251,30 +251,30 @@
     {
       "id": "firestore.function.getAfter",
       "kind": "function",
-      "status": "rejected",
-      "probeNote": "Error: firestore.rules line [5], column [23]. Function not found error: Name: [getAfter].",
+      "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "f32451dbd8fecc39b54fa32e9f07880cdb3074ef1d401a30c29b29d18b4e2445"
       },
-      "evaluationAgreement": false,
-      "evaluationDetail": "expected ALLOW, got DENY",
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
       "expectedDecision": "ALLOW",
-      "actualDecision": "DENY"
+      "actualDecision": "ALLOW",
+      "evidenceSource": "live-database"
     },
     {
       "id": "firestore.function.existsAfter",
       "kind": "function",
-      "status": "rejected",
-      "probeNote": "Error: firestore.rules line [5], column [23]. Function not found error: Name: [existsAfter].",
+      "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "2b406346426d2b443ef0bb1e71ed1cc4fb48d5fab1460a061203a7196b9ecd3a"
       },
-      "evaluationAgreement": false,
-      "evaluationDetail": "expected ALLOW, got DENY",
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
       "expectedDecision": "ALLOW",
-      "actualDecision": "DENY"
+      "actualDecision": "ALLOW",
+      "evidenceSource": "live-database"
     },
     {
       "id": "firestore.function.debug",

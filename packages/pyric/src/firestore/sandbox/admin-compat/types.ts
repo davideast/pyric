@@ -25,6 +25,7 @@ import type {
   QueryOrderDirection,
   QueryWhereFilterOp,
 } from '../query-execution.js';
+import type { SnapshotFieldPath } from './field-path.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — what agent code calls.
@@ -48,6 +49,8 @@ export type AuthContext = { uid: string; token?: Record<string, unknown> } | nul
  */
 export interface OperationOptions {
   auth?: AuthContext;
+  /** Firestore transaction retry bound; ignored by non-transaction operations. */
+  maxAttempts?: number;
 }
 
 /**
@@ -79,6 +82,7 @@ export interface DocumentSnapshot {
   readonly ref: DocumentReference;
   readonly exists: boolean;
   data(): DocumentData | undefined;
+  get(fieldPath: SnapshotFieldPath): unknown;
 }
 
 export interface QueryDocumentSnapshot extends DocumentSnapshot {

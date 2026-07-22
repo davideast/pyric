@@ -72,6 +72,7 @@ import {
   getFirestore,
   getAdminFirestore,
   onSnapshot,
+  FieldPath,
   FieldValue,
   Timestamp,
   type SandboxFirestore,
@@ -234,6 +235,30 @@ function makeStack(opts: { rules?: string } = {}) {
 }
 
 type WireError = Error & { code?: string; denialContext?: unknown };
+
+function snapshotGetView(snapshot: { get(fieldPath: string | FieldPath): unknown }): Record<string, unknown> {
+  return {
+    getType: typeof snapshot.get,
+    topLevel: snapshot.get('topLevel'),
+    dottedString: snapshot.get('nested.value'),
+    dottedFieldPath: snapshot.get(new FieldPath('nested', 'value')),
+    literalDotFieldPath: snapshot.get(new FieldPath('literal.with.dot')),
+    literalDotAsStringTraverses: snapshot.get('literal.with.dot'),
+    missingFieldIsUndefined: snapshot.get('nested.missing') === undefined,
+    scalarIntermediateIsUndefined: snapshot.get('topLevel.child') === undefined,
+  };
+}
+
+const SNAPSHOT_GET_EXPECTED = {
+  getType: 'function',
+  topLevel: 'top-level',
+  dottedString: 'nested-value',
+  dottedFieldPath: 'nested-value',
+  literalDotFieldPath: 'literal-dot-value',
+  literalDotAsStringTraverses: 'nested-dot-value',
+  missingFieldIsUndefined: true,
+  scalarIntermediateIsUndefined: true,
+};
 
 // ─── Dispatch selection ─────────────────────────────────────────────────────
 
@@ -777,6 +802,52 @@ describe('pyric-admin remote Firestore — batch + transactions', () => {
 // ─── onSnapshot ────────────────────────────────────────────────────────────
 
 describe('pyric-admin remote Firestore — onSnapshot', () => {
+  it('DocumentSnapshot.get(fieldPath) is consistent across every remote snapshot producer', async () => {
+    const { remote } = makeStack();
+    const db = getAdminFirestore(remote);
+    const doc = db.doc('snapshot-get/present');
+    await doc.set({
+      topLevel: 'top-level',
+      nested: { value: 'nested-value' },
+      literal: { with: { dot: 'nested-dot-value' } },
+      'literal.with.dot': 'literal-dot-value',
+      probeKind: 'document-snapshot-get',
+    });
+
+    const oneShotDocument = await doc.get();
+    const oneShotQuery = await db
+      .collection('snapshot-get')
+      .where('probeKind', '==', 'document-snapshot-get')
+      .get();
+    expect(snapshotGetView(oneShotDocument)).toEqual(SNAPSHOT_GET_EXPECTED);
+    expect(snapshotGetView(oneShotQuery.docs[0]!)).toEqual(SNAPSHOT_GET_EXPECTED);
+
+    await db.runTransaction(async (tx) => {
+      const transactionDocument = await tx.get(doc);
+      const transactionQuery = await tx.get(
+        db.collection('snapshot-get').where('probeKind', '==', 'document-snapshot-get'),
+      );
+      expect(snapshotGetView(transactionDocument)).toEqual(SNAPSHOT_GET_EXPECTED);
+      expect(snapshotGetView(transactionQuery.docs[0]!)).toEqual(SNAPSHOT_GET_EXPECTED);
+    });
+
+    const documentFires: Array<{ get(fieldPath: string | FieldPath): unknown }> = [];
+    const queryFires: Array<{ get(fieldPath: string | FieldPath): unknown }> = [];
+    const unsubscribeDocument = onSnapshot(doc, (snapshot) => documentFires.push(snapshot));
+    const unsubscribeQuery = onSnapshot(
+      db.collection('snapshot-get').where('probeKind', '==', 'document-snapshot-get'),
+      (snapshot) => queryFires.push(snapshot.docs[0]!),
+    );
+    await tick();
+    unsubscribeDocument();
+    unsubscribeQuery();
+    expect(snapshotGetView(documentFires[0]!)).toEqual(SNAPSHOT_GET_EXPECTED);
+    expect(snapshotGetView(queryFires[0]!)).toEqual(SNAPSHOT_GET_EXPECTED);
+
+    const missing = await db.doc('snapshot-get/missing').get();
+    expect(missing.get('anything')).toBeUndefined();
+  });
+
   it('doc listener: initial + updates (incl. browser-side writes) + unsubscribe', async () => {
     const { ctx, remote } = makeStack();
     const db = getAdminFirestore(remote);

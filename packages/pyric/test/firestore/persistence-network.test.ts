@@ -64,6 +64,7 @@ describe('real-app init sequence — offline/persistence/network family', () => 
     await enableNetwork(db);
     await disableNetwork(db);
     await waitForPendingWrites(db);
+    await enableNetwork(db);
 
     const ref = doc(db, 'notes/n1');
     await setDoc(ref, { text: 'hello' });
@@ -78,11 +79,13 @@ describe('enableIndexedDbPersistence', () => {
     await expect(enableIndexedDbPersistence(db)).resolves.toBeUndefined();
   });
 
-  it('does not reject even when called after other Firestore ops', async () => {
+  it('rejects with failed-precondition when called after Firestore has started', async () => {
     const { db } = setup();
     const ref = doc(db, 'notes/n1');
     await setDoc(ref, { text: 'first' });
-    await expect(enableIndexedDbPersistence(db)).resolves.toBeUndefined();
+    await expect(enableIndexedDbPersistence(db)).rejects.toMatchObject({
+      code: 'failed-precondition',
+    });
   });
 });
 
@@ -90,6 +93,14 @@ describe('enableMultiTabIndexedDbPersistence', () => {
   it('resolves (the sandbox has no separate multi-tab mode to opt into)', async () => {
     const { db } = setup();
     await expect(enableMultiTabIndexedDbPersistence(db)).resolves.toBeUndefined();
+  });
+
+  it('rejects with failed-precondition after the service has started', async () => {
+    const { db } = setup();
+    await getDoc(doc(db, 'notes/started'));
+    await expect(enableMultiTabIndexedDbPersistence(db)).rejects.toMatchObject({
+      code: 'failed-precondition',
+    });
   });
 });
 
@@ -120,18 +131,34 @@ describe('enableNetwork / disableNetwork', () => {
     await expect(enableNetwork(db)).resolves.toBeUndefined();
   });
 
-  it('writes still commit immediately while "disabled" — no offline queue is simulated', async () => {
+  it('keeps write acknowledgements pending while exposing the local mutation', async () => {
     const { db } = setup();
     await disableNetwork(db);
     const ref = doc(db, 'notes/n1');
-    await setDoc(ref, { text: 'wrote anyway' });
+    let writeSettled = false;
+    const write = setDoc(ref, { text: 'offline' }).then(() => {
+      writeSettled = true;
+    });
+    let pendingSettled = false;
+    const pending = waitForPendingWrites(db).then(() => {
+      pendingSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(writeSettled).toBe(false);
+    expect(pendingSettled).toBe(false);
     const snap = await getDoc(ref);
-    expect(snap.data()).toEqual({ text: 'wrote anyway' });
+    expect(snap.data()).toEqual({ text: 'offline' });
+
+    await enableNetwork(db);
+    await Promise.all([write, pending]);
+    expect(writeSettled).toBe(true);
+    expect(pendingSettled).toBe(true);
   });
 });
 
 describe('waitForPendingWrites', () => {
-  it('resolves immediately — sandbox writes have no server round-trip to wait on', async () => {
+  it('resolves immediately when there are no pending writes', async () => {
     const { db } = setup();
     await expect(waitForPendingWrites(db)).resolves.toBeUndefined();
   });

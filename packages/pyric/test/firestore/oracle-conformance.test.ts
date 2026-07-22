@@ -56,6 +56,7 @@ import {
   limit,
   limitToLast,
   onSnapshot,
+  onSnapshotsInSync,
   runTransaction,
   writeBatch,
   serverTimestamp,
@@ -66,6 +67,15 @@ import {
   getCountFromServer,
   queryEqual,
   snapshotEqual,
+  terminate,
+  disableNetwork,
+  enableIndexedDbPersistence,
+  enableMultiTabIndexedDbPersistence,
+  enableNetwork,
+  getDocFromCache,
+  getDocsFromCache,
+  getDocsFromServer,
+  waitForPendingWrites,
   Timestamp,
   Bytes,
   GeoPoint,
@@ -588,6 +598,173 @@ describe('oracle conformance (firestore)', () => {
     );
     expect(e.code).toBe(obs.code as string);
     expect(innerRan).toBe(obs.innerRan as number);
+  });
+
+  it('firestore-transaction-contention-retries', async () => {
+    const obs = load('firestore-transaction-contention-retries.json') as {
+      retryAttempts: number;
+      retryObservedCounts: number[];
+      retryFinalCount: number;
+      exhaustedMaxAttempts: number;
+      exhaustedAttempts: number;
+      exhaustedThrew: boolean;
+      exhaustedCode: string;
+      exhaustedFinalCount: number;
+    };
+    const db = freshDb();
+    seedDb(db, {
+      'contention/retry': { count: 0 },
+      'contention/exhausted': { count: 0 },
+    });
+
+    const retryRef = doc(db, 'contention/retry');
+    const observedCounts: number[] = [];
+    let retryAttempts = 0;
+    await runTransaction(db, async (tx) => {
+      retryAttempts += 1;
+      const snapshot = await tx.get(retryRef);
+      const count = snapshot.data()?.count as number;
+      observedCounts.push(count);
+      if (retryAttempts === 1) await updateDoc(retryRef, { count: 40 });
+      tx.update(retryRef, { count: count + 2 });
+    });
+
+    expect(retryAttempts).toBe(obs.retryAttempts);
+    expect(observedCounts).toEqual(obs.retryObservedCounts);
+    expect((await getDoc(retryRef)).data()?.count).toBe(obs.retryFinalCount);
+
+    const exhaustedRef = doc(db, 'contention/exhausted');
+    let exhaustedAttempts = 0;
+    const error = await caught(() => runTransaction(db, async (tx) => {
+      exhaustedAttempts += 1;
+      const snapshot = await tx.get(exhaustedRef);
+      await updateDoc(exhaustedRef, { count: exhaustedAttempts });
+      tx.update(exhaustedRef, {
+        count: ((snapshot.data()?.count as number) ?? 0) + 1,
+      });
+    }, { maxAttempts: obs.exhaustedMaxAttempts }));
+
+    expect(obs.exhaustedThrew).toBe(true);
+    expect(exhaustedAttempts).toBe(obs.exhaustedAttempts);
+    expect(error.code).toBe(obs.exhaustedCode);
+    expect((await getDoc(exhaustedRef)).data()?.count).toBe(obs.exhaustedFinalCount);
+  });
+
+  it('firestore-browser-lifecycle termination isolation', async () => {
+    const obs = load('firestore-browser-lifecycle.json');
+    const db = freshDb();
+    const sandbox = sandboxByDb.get(db)!;
+    const sibling = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    const heldRef = doc(db, 'lifecycle/terminated');
+    await setDoc(heldRef, { value: 'before' });
+
+    await terminate(db);
+    const terminatedError = await caught(() => getDoc(heldRef));
+    expect(terminatedError.code).toBe(obs.readAfterTerminateCode as string);
+    expect(obs.readAfterTerminateThrew).toBe(true);
+
+    const siblingRef = doc(sibling, 'lifecycle/terminated');
+    await setDoc(siblingRef, { value: 'sibling' });
+    expect((await getDoc(siblingRef)).data()?.value).toBe(
+      obs.siblingAfterTerminateValue as string,
+    );
+    expect(obs.siblingAfterTerminateThrew).toBe(false);
+  });
+
+  it('firestore-browser-lifecycle persistence, network, pending writes, and cache', async () => {
+    const obs = load('firestore-browser-lifecycle.json');
+
+    const persistenceDb = freshDb();
+    await getDoc(doc(persistenceDb, 'lifecycle/precondition'));
+    const persistenceError = await caught(() =>
+      enableIndexedDbPersistence(persistenceDb)
+    );
+    expect(obs.persistenceAfterUseThrew).toBe(true);
+    expect(persistenceError.code).toBe(obs.persistenceAfterUseCode as string);
+
+    const multiAfterUseDb = freshDb();
+    await getDoc(doc(multiAfterUseDb, 'lifecycle/multi-precondition'));
+    const multiAfterUseError = await caught(() =>
+      enableMultiTabIndexedDbPersistence(multiAfterUseDb)
+    );
+    expect(obs.multiTabAfterUseThrew).toBe(true);
+    expect(multiAfterUseError.code).toBe(obs.multiTabAfterUseCode as string);
+
+    const sharedSandbox = initializeSandbox();
+    const firstMultiDb = getFirestore(sharedSandbox.withAuth({ uid: 'alice' }));
+    const secondMultiDb = getFirestore(sharedSandbox.withAuth({ uid: 'alice' }));
+    await enableMultiTabIndexedDbPersistence(firstMultiDb);
+    await enableMultiTabIndexedDbPersistence(secondMultiDb);
+    expect(obs.multiTabTwoClientsThrew).toBe(false);
+
+    const networkDb = freshDb();
+    const networkRef = doc(networkDb, 'lifecycle/network');
+    await disableNetwork(networkDb);
+    let writeSettled = false;
+    const write = setDoc(networkRef, { value: 'offline' }).then(() => {
+      writeSettled = true;
+    });
+    let pendingSettled = false;
+    const pending = waitForPendingWrites(networkDb).then(() => {
+      pendingSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const local = await getDoc(networkRef);
+    expect(!writeSettled).toBe(obs.offlineWritePending as boolean);
+    expect(!pendingSettled).toBe(obs.offlineWaitForPendingWritesPending as boolean);
+    expect(local.data()?.value).toBe(obs.offlineLocalValue as string);
+    expect(local.metadata.fromCache).toBe(obs.offlineSnapshotFromCache as boolean);
+    expect(local.metadata.hasPendingWrites).toBe(
+      obs.offlineSnapshotHasPendingWrites as boolean,
+    );
+    await enableNetwork(networkDb);
+    await Promise.all([write, pending]);
+    expect((await getDoc(networkRef)).data()?.value).toBe(
+      obs.reconnectedServerValue as string,
+    );
+
+    const cacheDb = freshDb();
+    const cacheRef = doc(cacheDb, 'lifecycle/cache');
+    const cacheError = await caught(() => getDocFromCache(cacheRef));
+    expect(obs.coldCacheThrew).toBe(true);
+    expect(cacheError.code).toBe(obs.coldCacheCode as string);
+    await setDoc(cacheRef, { value: 'warm' });
+    await getDoc(cacheRef);
+    expect((await getDocFromCache(cacheRef)).data()?.value).toBe(
+      obs.warmCacheValue as string,
+    );
+
+    const querySeeder = freshDb();
+    const querySandbox = sandboxByDb.get(querySeeder)!;
+    const queryCacheDb = getFirestore(querySandbox.withAuth({ uid: 'alice' }));
+    await setDoc(doc(querySeeder, 'query-cache/server-only'), { value: 1 });
+    const cacheQuery = collection(queryCacheDb, 'query-cache');
+    expect((await getDocsFromCache(cacheQuery)).size).toBe(
+      obs.coldQueryCacheSize as number,
+    );
+    expect((await getDocsFromServer(cacheQuery)).size).toBe(
+      obs.serverQuerySize as number,
+    );
+    expect((await getDocsFromCache(cacheQuery)).size).toBe(
+      obs.warmQueryCacheSize as number,
+    );
+  });
+
+  it('firestore-browser-lifecycle snapshot synchronization ordering', async () => {
+    const obs = load('firestore-browser-lifecycle.json');
+    const db = freshDb();
+    const ref = doc(db, 'lifecycle/sync');
+    const ordering: string[] = [];
+    const stopSnapshot = onSnapshot(ref, (snapshot) => {
+      const value = (snapshot as DocumentSnapshot).data()?.value;
+      if (value !== undefined) ordering.push(`snapshot:${value}`);
+    });
+    const stopSync = onSnapshotsInSync(db, () => ordering.push('sync'));
+    await setDoc(ref, { value: 'written' });
+    await settle();
+    stopSnapshot();
+    stopSync();
+    expect(ordering).toEqual(obs.snapshotSyncOrdering as string[]);
   });
 
   // ── batch atomicity ──────────────────────────────────────────────────

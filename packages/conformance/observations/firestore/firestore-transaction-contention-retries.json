@@ -1,0 +1,33 @@
+{
+  "name": "firestore-transaction-contention-retries",
+  "matrixRow": "firestore #93",
+  "rowIds": [
+    "firestore#93"
+  ],
+  "description": "Two authenticated Web SDK clients contend on transaction read documents; captures callback retries, fresh reads, maxAttempts exhaustion, and the terminal error shape.",
+  "observedAt": "2026-07-22T07:08:25.944Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": "d51d4d6323a8117e3674d68b59dc35682dc7c34f21a406282120e46c4421dca3",
+  "lifecycle": {
+    "originalRulesetName": "projects/digame-mas/rulesets/e6d4348c-24df-4dbd-9bb0-9b5a78a712cc",
+    "probeRulesetName": "projects/digame-mas/rulesets/fd92ab49-05f3-42f9-aa33-ab2091c3d388",
+    "restoredOriginalRelease": true
+  },
+  "behavior": {
+    "retryAttempts": 2,
+    "retryObservedCounts": [
+      0,
+      40
+    ],
+    "retryFinalCount": 42,
+    "exhaustedMaxAttempts": 2,
+    "exhaustedAttempts": 2,
+    "exhaustedThrew": true,
+    "exhaustedCode": "failed-precondition",
+    "exhaustedMessage": "9 FAILED_PRECONDITION: the stored version (1784704099493315) does not match the required base version (1784704098224986)",
+    "exhaustedErrorName": "FirebaseError",
+    "exhaustedConstructorName": "FirebaseError",
+    "exhaustedFinalCount": 2
+  }
+}

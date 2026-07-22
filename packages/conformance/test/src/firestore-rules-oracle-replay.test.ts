@@ -68,7 +68,7 @@ describe('Firestore Rules oracle replay gate', () => {
     ]);
   });
 
-  it('rejects a known divergence if its row is relabeled conformant', () => {
+  it('accepts matching live-database evidence after a hosted evaluator limitation is retired', () => {
     const divergentScenario: Scenario = {
       ...scenario,
       id: 'get-after-and-exists-after',
@@ -77,21 +77,15 @@ describe('Firestore Rules oracle replay gate', () => {
     const problems = firestoreOracleReplayProblems(divergentScenario, {
       name: 'rules-firestore-get-after-and-exists-after',
       rowIds: ['firestore-rules#164'],
-      behavior: { 'getAfter target == request.resource.data ALLOW': 'DENY' },
-      diagnostics: {
-        'getAfter target == request.resource.data ALLOW': {
-          notes: ['Function not found error: Name: [getAfter]'],
-          api: { functionCalls: [{ function: 'getAfter' }] },
-        },
-      },
+      behavior: { 'getAfter target == request.resource.data ALLOW': 'ALLOW' },
       inputDigest: firestoreScenarioInputDigest(divergentScenario),
     }, { 'getAfter target == request.resource.data ALLOW': 'ALLOW' }, {
-      id: 'firestore-rules#164', status: 'conforms', conformanceDisposition: 'probe-limitation',
+      id: 'firestore-rules#164', status: 'conforms',
     });
-    expect(problems).toEqual([expect.stringContaining('must remain diverged-documented')]);
+    expect(problems).toEqual([]);
   });
 
-  it('rejects a probe limitation whose production diagnostic disappears', () => {
+  it('rejects a getAfter verdict mismatch without a current exception record', () => {
     const divergentScenario: Scenario = {
       ...scenario,
       id: 'get-after-and-exists-after',
@@ -101,15 +95,13 @@ describe('Firestore Rules oracle replay gate', () => {
       name: 'rules-firestore-get-after-and-exists-after',
       rowIds: ['firestore-rules#164'],
       behavior: { 'getAfter target == request.resource.data ALLOW': 'DENY' },
-      diagnostics: {},
       inputDigest: firestoreScenarioInputDigest(divergentScenario),
     }, { 'getAfter target == request.resource.data ALLOW': 'ALLOW' }, {
-      id: 'firestore-rules#164', status: 'diverged-documented', conformanceDisposition: 'probe-limitation',
+      id: 'firestore-rules#164', status: 'diverged-documented',
     });
-    expect(problems).toEqual(expect.arrayContaining([
-      expect.stringContaining('missing getAfter function-not-found diagnostic'),
-      expect.stringContaining('missing getAfter diagnostic function call'),
-    ]));
+    expect(problems).toEqual([
+      expect.stringContaining('production "DENY", simulator "ALLOW"'),
+    ]);
   });
 
   it('never lets a simulator abstention underwrite score evidence', () => {

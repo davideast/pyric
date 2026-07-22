@@ -1,6 +1,11 @@
 import type { BatchOperation, DocumentData } from './local-state.js';
 import { makeError, type FirestoreSimError } from './errors.js';
-import { TransactionContext, type TransactionReader } from './transaction.js';
+import {
+  RetryableTransactionConflictError,
+  TransactionAttemptsExhaustedError,
+  TransactionContext,
+  type TransactionReader,
+} from './transaction.js';
 import { mergeQueuedWrites } from './transaction-merge.js';
 import type {
   Transaction,
@@ -30,9 +35,26 @@ export class TransactionWriteExecutor {
     fn: (tx: Transaction) => R | Promise<R>,
     options: TransactionOptions,
   ): TransactionResult<R> | Promise<TransactionResult<R>> {
+    return this.runAttempt(fn, options, 1);
+  }
+
+  private runAttempt<R>(
+    fn: (tx: Transaction) => R | Promise<R>,
+    options: TransactionOptions,
+    attempt: number,
+  ): TransactionResult<R> | Promise<TransactionResult<R>> {
     const snapshot = this.runtime.state.snapshot();
-    const reader: TransactionReader = (path) => this.runtime.state.get(path);
-    const context = new TransactionContext(reader);
+    const attemptVersion = this.runtime.state.currentVersion();
+    const versionsAtStart = new Map(
+      Object.keys(snapshot).map((path) => [path, this.runtime.state.version(path)]),
+    );
+    const reader: TransactionReader = (path) => snapshot[path] ?? null;
+    const context = new TransactionContext(reader, (path) => {
+      const captured = versionsAtStart.get(path);
+      if (captured !== undefined) return captured;
+      const current = this.runtime.state.version(path);
+      return current <= attemptVersion ? current : -1;
+    });
 
     let callbackResult: R | Promise<R>;
     try {
@@ -47,14 +69,36 @@ export class TransactionWriteExecutor {
       typeof (callbackResult as PromiseLike<R>)?.then === 'function'
     ) {
       return (callbackResult as Promise<R>).then(
-        (value) => this.commitTransaction(context, snapshot, options, value),
+        (value) => {
+          try {
+            return this.commitTransaction(context, snapshot, options, value);
+          } catch (error) {
+            return this.retryOrThrow(error, fn, options, attempt);
+          }
+        },
         (error) => {
           this.logAbortedTransaction(context, options.auth, error as Error);
           throw error;
         },
       );
     }
-    return this.commitTransaction(context, snapshot, options, callbackResult as R);
+    try {
+      return this.commitTransaction(context, snapshot, options, callbackResult as R);
+    } catch (error) {
+      return this.retryOrThrow(error, fn, options, attempt);
+    }
+  }
+
+  private retryOrThrow<R>(
+    error: unknown,
+    fn: (tx: Transaction) => R | Promise<R>,
+    options: TransactionOptions,
+    attempt: number,
+  ): TransactionResult<R> | Promise<TransactionResult<R>> {
+    if (!(error instanceof RetryableTransactionConflictError)) throw error;
+    const maxAttempts = options.maxAttempts ?? 5;
+    if (attempt >= maxAttempts) throw new TransactionAttemptsExhaustedError();
+    return this.runAttempt(fn, options, attempt + 1);
   }
 
   private commitTransaction<R>(
@@ -63,7 +107,12 @@ export class TransactionWriteExecutor {
     options: TransactionOptions,
     returnValue: R,
   ): TransactionResult<R> {
-    const { reads, writes } = context.consume();
+    const { reads, writes, readVersions } = context.consume();
+    for (const [path, version] of readVersions) {
+      if (this.runtime.state.version(path) !== version) {
+        throw new RetryableTransactionConflictError();
+      }
+    }
     const auth = options.auth;
     if (writes.length === 0) {
       const event = this.runtime.eventLog.append({

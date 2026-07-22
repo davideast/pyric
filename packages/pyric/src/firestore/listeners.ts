@@ -8,6 +8,7 @@
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 import { AUTH_SESSION_SCOPE, FOLLOWS_CURRENT_USER } from 'pyric/firestore/internal';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
+import { clientStateFor } from './client-state.js';
 
 import {
   targetOf,
@@ -55,6 +56,7 @@ export function onSnapshot(
   arg4?: (error: unknown) => void,
 ): Unsubscribe {
   const target = targetOf(ref);
+  clientStateFor(target).markStarted();
   const r = resolveSandboxListenable(target, ref);
   const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target, ref as object);
   const finalArgs = markSandboxLiveSnapshotArgs(wrappedArgs, target);
@@ -63,7 +65,7 @@ export function onSnapshot(
     : finalArgs.length === 2
       ? r.onSnapshot(finalArgs[0], finalArgs[1])
       : r.onSnapshot(finalArgs[0]);
-  if (target.kind !== 'sandbox-live' || !target.own) return unsubscribe;
+  if (!target.own) return unsubscribe;
   let stopped = false;
   const stop = (): void => {
     if (stopped) return;
@@ -237,10 +239,10 @@ function finalizeSandboxSnapshot(snap: unknown, target: Target, source: object):
     docs?: Array<object>;
   };
   if (typeof s.data === 'function') {
-    wrapSandboxDocSnap(snap as object);
+    wrapSandboxDocSnap(snap as object, target);
   }
   if (Array.isArray(s.docs)) {
-    for (const d of s.docs) wrapSandboxDocSnap(d as object);
+    for (const d of s.docs) wrapSandboxDocSnap(d as object, target);
     recordQuerySnapshot(snap as object, snap as object, target, source, 'listener');
   }
   return snap;
@@ -265,7 +267,10 @@ function wrapNext(
   target: Target,
   source: object,
 ): (snap: unknown) => void {
-  return (snap) => next(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source));
+  return (snap) => {
+    next(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source));
+    clientStateFor(target).notifySnapshotDelivered();
+  };
 }
 
 function wrapObserver(
@@ -276,7 +281,10 @@ function wrapObserver(
   return {
     ...obs,
     next: obs.next
-      ? (snap) => obs.next!(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source))
+      ? (snap) => {
+          obs.next!(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source));
+          clientStateFor(target).notifySnapshotDelivered();
+        }
       : undefined,
     // Surface an unobserved listener error instead of swallowing it.
     error: obs.error ?? defaultSnapshotErrorHandler,

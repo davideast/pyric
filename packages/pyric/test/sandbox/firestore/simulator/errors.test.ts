@@ -33,6 +33,8 @@ describe('errors module', () => {
       'not-found',
       'already-exists',
       'failed-precondition',
+      // Transaction contention retries exhaust with the canonical gRPC code.
+      'aborted',
       'invalid-argument',
       'unauthenticated',
       // Added for the admin-compat wrapper's slice-1 stub + slice-4

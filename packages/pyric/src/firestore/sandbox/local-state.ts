@@ -57,6 +57,10 @@ export interface ScanOptions {
 export interface DocStore {
   // Reads
   get(path: string): DocumentData | null;
+  /** Monotonic local write version used for optimistic transaction checks. */
+  version(path: string): number;
+  /** Latest version allocated anywhere in this store. */
+  currentVersion(): number;
   exists(path: string): boolean;
   scan(prefix: string, opts?: ScanOptions): DocEntry[];
   list(collection: string): DocEntry[];
@@ -104,6 +108,8 @@ function projectFields(data: DocumentData, fields: readonly string[]): DocumentD
 
 export class LocalState implements DocStore {
   private documents: DocBacking;
+  private readonly versions = new Map<string, number>();
+  private nextVersion = 1;
 
   constructor(seed: Record<string, DocumentData> = {}, backing?: DocBacking) {
     this.documents = backing ?? new Map();
@@ -119,6 +125,7 @@ export class LocalState implements DocStore {
       // delete from on a seed; we just strip the markers.
       const { writes } = partitionDeletes(resolved);
       this.documents.set(path, writes);
+      this.bumpVersion(path);
     }
   }
 
@@ -127,6 +134,14 @@ export class LocalState implements DocStore {
   /** Get a single document. Returns null if not found. */
   get(path: string): DocumentData | null {
     return this.documents.get(path) ?? null;
+  }
+
+  version(path: string): number {
+    return this.versions.get(path) ?? 0;
+  }
+
+  currentVersion(): number {
+    return this.nextVersion - 1;
   }
 
   /** Check if a document exists. */
@@ -282,6 +297,7 @@ export class LocalState implements DocStore {
       return { success: false, error: (e as Error).message };
     }
     this.documents.set(path, writes);
+    this.bumpVersion(path);
     return { success: true };
   }
 
@@ -311,6 +327,7 @@ export class LocalState implements DocStore {
       return { success: false, error: (e as Error).message };
     }
     this.documents.set(path, merged);
+    this.bumpVersion(path);
     return { success: true, priorData: { ...existing } };
   }
 
@@ -336,6 +353,7 @@ export class LocalState implements DocStore {
     });
     const merged = applyMerge(priorData ?? {}, resolved, mergeFields);
     this.documents.set(path, merged);
+    this.bumpVersion(path);
     return { success: true, priorData, created: priorData === null };
   }
 
@@ -359,6 +377,7 @@ export class LocalState implements DocStore {
     // mode isn't yet plumbed into the simulator's set path.
     const { writes } = partitionDeletes(resolved);
     this.documents.set(path, writes);
+    this.bumpVersion(path);
     return { success: true, priorData, created: priorData === null };
   }
 
@@ -372,6 +391,7 @@ export class LocalState implements DocStore {
       return { success: false, error: `Document '${path}' does not exist` };
     }
     this.documents.delete(path);
+    this.bumpVersion(path);
     return { success: true, priorData: { ...existing } };
   }
 
@@ -469,6 +489,7 @@ export class LocalState implements DocStore {
           this.documents.delete(op.path);
           break;
       }
+      this.bumpVersion(op.path);
     }
 
     return { success: true, priorStates };
@@ -479,10 +500,12 @@ export class LocalState implements DocStore {
    * undo). Replaces the entire keyspace.
    */
   restore(snapshot: Record<string, DocumentData>): void {
+    const touched = new Set([...this.documents.keys(), ...Object.keys(snapshot)]);
     this.documents.clear();
     for (const [path, data] of Object.entries(snapshot)) {
       this.documents.set(path, { ...data });
     }
+    for (const path of touched) this.bumpVersion(path);
   }
 
   /**
@@ -495,7 +518,12 @@ export class LocalState implements DocStore {
     for (const [path, data] of Object.entries(priorDocs)) {
       if (data === null) this.documents.delete(path);
       else this.documents.set(path, { ...data });
+      this.bumpVersion(path);
     }
+  }
+
+  private bumpVersion(path: string): void {
+    this.versions.set(path, this.nextVersion++);
   }
 
 }

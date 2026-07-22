@@ -27,6 +27,8 @@ export {
   FieldValue,
   Timestamp,
 } from './types.js';
+export { FieldPath } from './field-path.js';
+export type { SnapshotFieldPath } from './field-path.js';
 
 export type {
   AggregateField,

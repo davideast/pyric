@@ -11,18 +11,22 @@ import {
   sandboxDb,
   tag,
 } from './state.js';
-import type { Firestore, Transaction, WriteBatch } from './types.js';
+import type { Firestore, Transaction, TransactionOptions, WriteBatch } from './types.js';
 
 // ─── Transactions + batches ───────────────────────────────────────────
 
 export async function runTransaction<R>(
   db: Firestore,
   fn: (tx: Transaction) => Promise<R> | R,
+  options?: TransactionOptions,
 ): Promise<R> {
   const target = targetOf(db);
   // For sandbox-live, the transaction runs under the auth captured at
   // `runTransaction` start and stays identity-stable until completion.
-  return sandboxDb(target).runTransaction(fn as (tx: ChainTransaction) => Promise<R> | R);
+  return sandboxDb(target).runTransaction(
+    fn as (tx: ChainTransaction) => Promise<R> | R,
+    options,
+  );
 }
 
 export function writeBatch(db: Firestore): WriteBatch {

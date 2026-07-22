@@ -1,0 +1,66 @@
+{
+  "name": "firestore-browser-lifecycle",
+  "matrixRow": "firestore #140, #141, #143, #144, #145, #146, #148, #150, #152",
+  "rowIds": [
+    "firestore#140",
+    "firestore#141",
+    "firestore#143",
+    "firestore#144",
+    "firestore#145",
+    "firestore#146",
+    "firestore#148",
+    "firestore#150",
+    "firestore#152"
+  ],
+  "description": "Real-Chromium production capture for persistence preconditions, offline pending writes, explicit cache behavior, snapshot synchronization, and Firestore-only termination.",
+  "observedAt": "2026-07-22T07:51:38.990Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": "1e7f3648ad6477ccf6939fa225dd16e7c94662130c7eb3d8cfdfc1e7f0cf68fe",
+  "lifecycle": {
+    "originalRulesetName": "projects/digame-mas/rulesets/e6d4348c-24df-4dbd-9bb0-9b5a78a712cc",
+    "probeRulesetName": "projects/digame-mas/rulesets/7e6bf98c-c1d0-4ab1-8a2f-2fb42c94c665",
+    "restoredOriginalRelease": true
+  },
+  "behavior": {
+    "persistenceAfterUseThrew": true,
+    "persistenceAfterUseCode": "failed-precondition",
+    "multiTabEnableThrew": false,
+    "multiTabEnableCode": null,
+    "multiTabAfterUseThrew": true,
+    "multiTabAfterUseCode": "failed-precondition",
+    "multiTabTwoClientsThrew": false,
+    "multiTabTwoClientsCode": null,
+    "offlineWritePending": true,
+    "offlineWaitForPendingWritesPending": true,
+    "offlineLocalValue": "offline",
+    "offlineSnapshotFromCache": true,
+    "offlineSnapshotHasPendingWrites": true,
+    "reconnectedServerValue": "offline",
+    "coldCacheThrew": true,
+    "coldCacheCode": "unavailable",
+    "warmCacheValue": "warm",
+    "coldQueryCacheSize": 0,
+    "serverQuerySize": 1,
+    "warmQueryCacheSize": 1,
+    "snapshotSyncOrdering": [
+      "sync",
+      "snapshot:written",
+      "sync"
+    ],
+    "rulesGetAfterBehavior": {
+      "getAfter target == request.resource.data ALLOW": "ALLOW",
+      "existsAfter create true ALLOW": "ALLOW",
+      "existsAfter delete false ALLOW": "ALLOW",
+      "existsAfter unrelated mocked path ALLOW": "ALLOW",
+      "wrong existsAfter on create DENY": "DENY"
+    },
+    "rulesGetAfterCrossDocumentBatch": "ALLOW",
+    "rulesGetAfterSoloPrimary": "DENY",
+    "readAfterTerminateThrew": true,
+    "readAfterTerminateCode": "failed-precondition",
+    "authAfterTerminateThrew": false,
+    "siblingAfterTerminateThrew": false,
+    "siblingAfterTerminateValue": "sibling"
+  }
+}

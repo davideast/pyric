@@ -23,7 +23,7 @@
  */
 
 import type { Transaction as SimTransaction } from 'pyric/sandbox/internal';
-import { translateReadData } from './snapshots.js';
+import { makeDocSnapshot } from './snapshots.js';
 import {
   type DocumentData,
   type DocumentReference,
@@ -68,21 +68,7 @@ export class TransactionImpl implements Transaction {
     }
     const txSnap = this.simTx.get(refOrQuery.path);
     const data = txSnap.data();
-    if (data === undefined) {
-      return {
-        id: refOrQuery.id,
-        ref: refOrQuery,
-        exists: false,
-        data: () => undefined,
-      };
-    }
-    const translated = translateReadData(data);
-    return {
-      id: refOrQuery.id,
-      ref: refOrQuery,
-      exists: true,
-      data: () => translated,
-    };
+    return makeDocSnapshot(refOrQuery, data);
   }
 
   set(ref: DocumentReference, data: DocumentData): Transaction {

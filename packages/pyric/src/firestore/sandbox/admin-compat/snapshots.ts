@@ -42,6 +42,7 @@ import {
 // pass-through) lives in its own module so the `onSnapshot` listener path
 // can share it without pulling the snapshot builders in (FS-B10).
 import { translateReadData } from './read-translation.js';
+import { getSnapshotField } from './field-path.js';
 
 export { translateReadData };
 
@@ -56,5 +57,6 @@ export function makeDocSnapshot(
     ref,
     exists,
     data: () => (exists ? translated : undefined),
+    get: (fieldPath) => getSnapshotField(translated, fieldPath),
   };
 }

@@ -77,11 +77,11 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
   if (appRuntime) {
     return appRuntime.service('firestore/default', () => {
       const { sandbox, session } = appRuntime;
-      let terminated = false;
-      appRuntime.onDelete(() => { terminated = true; });
+      const lifecycle = createFirestoreTargetLifecycle();
+      appRuntime.onDelete(lifecycle.terminate);
       const authScope = appRuntime.authScope;
       if (authScope) {
-        appRuntime.onDelete(session.onCurrentUserChanged((user) => {
+        lifecycle.own(session.onCurrentUserChanged((user) => {
           getInternalEnv(sandbox).reevaluateLiveListeners(user, authScope);
         }));
       }
@@ -90,19 +90,19 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
         sandbox,
         getDb: makeGetDb(sandbox, () => session.currentUser),
         authScope,
-        own: (cleanup) => appRuntime.onDelete(cleanup),
-        assertUsable: () => {
-          if (terminated) {
-            throw new FirebaseError('failed-precondition', 'The client has already been terminated.');
-          }
-        },
+        ...lifecycle,
       };
       return { [TARGET_SYMBOL]: t, app: target as FirebaseApp };
     });
   }
   if (isSandboxContext(target)) {
     const chainable = getChainableFirestore(target);
-    const t: SandboxTarget = { kind: 'sandbox', db: chainable, sandbox: target.sandbox };
+    const t: SandboxTarget = {
+      kind: 'sandbox',
+      db: chainable,
+      sandbox: target.sandbox,
+      ...createFirestoreTargetLifecycle(),
+    };
     return { [TARGET_SYMBOL]: t };
   }
   if (isSandbox(target)) {
@@ -110,12 +110,41 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
       kind: 'sandbox-live',
       sandbox: target,
       getDb: makeGetDb(target),
+      ...createFirestoreTargetLifecycle(),
     };
     return { [TARGET_SYMBOL]: t };
   }
   throw new TypeError(
     'pyric/firestore is a sandbox-only mirror. Package resolution must leave firebase/firestore unchanged for production; activate pyric dev or @pyric/cli/register before importing to select the sandbox.',
   );
+}
+
+function createFirestoreTargetLifecycle(): Required<
+  Pick<SandboxLiveTarget, 'own' | 'assertUsable' | 'terminate'>
+> {
+  let terminated = false;
+  const cleanups = new Set<() => void>();
+  return {
+    own(cleanup) {
+      if (terminated) {
+        cleanup();
+        return () => {};
+      }
+      cleanups.add(cleanup);
+      return () => cleanups.delete(cleanup);
+    },
+    assertUsable() {
+      if (terminated) {
+        throw new FirebaseError('failed-precondition', 'The client has already been terminated.');
+      }
+    },
+    terminate() {
+      if (terminated) return;
+      terminated = true;
+      for (const cleanup of cleanups) cleanup();
+      cleanups.clear();
+    },
+  };
 }
 
 /**

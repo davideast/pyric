@@ -381,6 +381,47 @@ describe('transactions + batches', () => {
     expect(snap.data()?.count).toBe(5);
   });
 
+  it('runTransaction retries after a concurrently written read document', async () => {
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'system' }));
+    setRules(sandbox, RULES);
+    seedDocuments(sandbox, { 'counters/retried': { count: 0 } });
+    const counter = doc(db, 'counters/retried');
+    let attempts = 0;
+
+    await runTransaction(db, async (tx) => {
+      attempts += 1;
+      const snap = await tx.get(counter);
+      if (attempts === 1) {
+        await updateDoc(counter, { count: 40 });
+      }
+      tx.update(counter, { count: (snap.data()!.count as number) + 2 });
+    });
+
+    expect(attempts).toBe(2);
+    expect((await getDoc(counter)).data()?.count).toBe(42);
+  });
+
+  it('runTransaction stops retrying at maxAttempts', async () => {
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'system' }));
+    setRules(sandbox, RULES);
+    seedDocuments(sandbox, { 'counters/exhausted': { count: 0 } });
+    const counter = doc(db, 'counters/exhausted');
+    let attempts = 0;
+
+    const result = runTransaction(db, async (tx) => {
+      attempts += 1;
+      const snap = await tx.get(counter);
+      await updateDoc(counter, { count: attempts });
+      tx.update(counter, { count: (snap.data()!.count as number) + 1 });
+    }, { maxAttempts: 2 });
+
+    await expect(result).rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(attempts).toBe(2);
+    expect((await getDoc(counter)).data()?.count).toBe(2);
+  });
+
   it('writeBatch commits multiple writes atomically', async () => {
     // T-1 has assigneeId=bob, T-2 has assigneeId=alice; alice can
     // only update T-2 under the ticket-tracker rules. Sign in as bob

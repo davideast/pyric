@@ -13,6 +13,7 @@ import type { RemoteArm } from './channel.js';
 import { decodeDocData } from './value-codec.js';
 import { makeDocRef } from './doc-ref.js';
 import type { WireDocSnap, WireQuerySnap } from './wire-types.js';
+import { getSnapshotField } from '../../../firestore/sandbox/admin-compat/field-path.js';
 
 export function makeDocumentSnapshot(ref: DocumentReference, wire: WireDocSnap): DocumentSnapshot {
   const data = wire.exists && wire.data ? decodeDocData(wire.data) : undefined;
@@ -21,6 +22,7 @@ export function makeDocumentSnapshot(ref: DocumentReference, wire: WireDocSnap):
     ref,
     exists: wire.exists,
     data: () => data,
+    get: (fieldPath) => getSnapshotField(data, fieldPath),
   };
 }
 
@@ -37,6 +39,7 @@ export function makeQuerySnapshot(
       ref,
       exists: true,
       data: () => data,
+      get: (fieldPath) => getSnapshotField(data, fieldPath),
     };
   });
   return {

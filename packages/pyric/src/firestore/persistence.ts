@@ -11,7 +11,7 @@ import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 
-import { targetOf } from './state.js';
+import { tag, targetForTermination, targetOf } from './state.js';
 import type {
   Firestore,
   DocumentReference,
@@ -22,6 +22,7 @@ import type {
 } from './types.js';
 import { getFirestore } from './instances.js';
 import { getDoc, getDocs } from './reads.js';
+import { clientStateFor } from './client-state.js';
 
 // ─── Tier: offline / persistence / network family (issue #144) ────────
 //
@@ -32,20 +33,18 @@ import { getDoc, getDocs } from './reads.js';
 // IndexedDB cache, and a server. These functions negotiate which tiers
 // are active and whether the client is reachable.
 //
-// The sandbox has none of that structure. It IS the backend — writes
-// land directly in the sandbox's store, with no server round-trip to
-// wait on and no network link to drop. When the host (`@pyric/cli
+// The sandbox store remains the local source of truth, while a per-client
+// lifecycle layer models observable SDK state: network availability,
+// pending acknowledgements, warmed cache entries, and snapshot metadata.
+// When the host (`@pyric/cli
 // serve`, or a bare `initializeSandbox()` call with persistence
 // enabled) turns on IndexedDB persistence, EVERY sandbox write already
 // flushes to IndexedDB by default — an app never has to ask for it.
 //
-// So each function below does the one HONEST thing available in that
-// model: either resolve immediately because the thing it promises is
-// already true, or resolve as a documented no-op because there is
-// nothing local for it to mean. None of these SIMULATE a capability
-// the sandbox doesn't have (there is no fake "offline mode" here) —
-// they just stop a real app's init sequence from crashing on an
-// import that used to not exist.
+// The layer deliberately models externally visible behavior rather than a
+// second backend: offline writes mutate local state immediately but their
+// promises remain pending until reconnect, matching application-facing SDK
+// semantics without pretending the sandbox store is a remote server.
 //
 // Production never enters this module; package resolution leaves
 // `firebase/firestore` unchanged when the sandbox is inactive.
@@ -55,26 +54,23 @@ export interface PersistenceSettings {
 }
 
 /**
- * Sandbox: no-op success. The sandbox's default persistence (IndexedDB
- * on the SharedWorker/serve path, or whatever backend `enablePersistence`
- * was configured with) already caches every write — this call has
- * nothing left to enable. Resolves immediately.
- *
- * Unlike the real SDK, this does NOT reject with `'failed-precondition'`
- * when called after other Firestore ops have already run. The guard
- * exists in the real SDK to protect an actual cache-initialization
- * race; the sandbox has no such race (there's no cache to initialize),
- * so enforcing the same restriction would only make app code that
- * calls this defensively at startup fail for no local reason.
+ * Enables the persistence lifecycle before first use. As in the browser SDK,
+ * initialization after another Firestore operation rejects with
+ * `failed-precondition`.
  *
  */
 export function enableIndexedDbPersistence(
   db: Firestore,
   persistenceSettings?: PersistenceSettings,
 ): Promise<void> {
-  targetOf(db);
+  const target = targetOf(db);
   void persistenceSettings;
-  return Promise.resolve();
+  try {
+    clientStateFor(target).enablePersistence('single');
+    return Promise.resolve();
+  } catch (error) {
+    return Promise.reject(error);
+  }
 }
 
 /**
@@ -85,8 +81,13 @@ export function enableIndexedDbPersistence(
  *
  */
 export function enableMultiTabIndexedDbPersistence(db: Firestore): Promise<void> {
-  targetOf(db);
-  return Promise.resolve();
+  const target = targetOf(db);
+  try {
+    clientStateFor(target).enablePersistence('multiple');
+    return Promise.resolve();
+  } catch (error) {
+    return Promise.reject(error);
+  }
 }
 
 /**
@@ -123,7 +124,7 @@ export function clearIndexedDbPersistence(db: Firestore): Promise<void> {
  *
  */
 export function disableNetwork(db: Firestore): Promise<void> {
-  targetOf(db);
+  clientStateFor(targetOf(db)).disableNetwork();
   return Promise.resolve();
 }
 
@@ -133,44 +134,27 @@ export function disableNetwork(db: Firestore): Promise<void> {
  *
  */
 export function enableNetwork(db: Firestore): Promise<void> {
-  targetOf(db);
-  return Promise.resolve();
+  return clientStateFor(targetOf(db)).enableNetwork();
 }
 
 /**
- * Sandbox: resolves immediately. The real SDK's version waits for
- * queued writes to reach the server; the sandbox has no server to wait
- * on — every write it accepts is already committed to the local store
- * by the time the write's own promise resolves, so by the time this is
- * called there are, honestly, never any writes still pending a round
- * trip.
+ * Resolves after writes that were issued while offline receive their modeled
+ * acknowledgement on reconnect.
  *
  */
 export function waitForPendingWrites(db: Firestore): Promise<void> {
-  targetOf(db);
-  return Promise.resolve();
+  return clientStateFor(targetOf(db)).waitForPendingWrites();
 }
 
 /**
- * Sandbox: genuinely tears the target down by calling
- * `Sandbox.dispose()` — NOT a pure no-op like the rest of this family.
- * `dispose()` tears down listener registries on the sandbox's
- * environment without replacing it (idempotent, doesn't touch data).
- * This is the honest mapping of "terminate this Firestore instance":
- * a real app that calls `terminate(db)` expects listeners to stop and
- * the instance to be unusable for further meaningful work, and
- * `dispose()` delivers exactly that for the sandbox.
- *
- * Caveat: `dispose()` operates on the whole `Sandbox`, not a
- * Firestore-only slice of it — if `pyric/database` or `pyric/storage`
- * share the same `Sandbox`, their listener registries are torn down
- * too. This differs from the real SDK, where `terminate()` only
- * affects the one `Firestore` instance. Documented divergence.
+ * Terminates this Firestore service target only. Held references become
+ * unusable and owned listeners stop, while sibling Firestore handles and
+ * other services on the same Sandbox remain alive.
  *
  */
 export function terminate(db: Firestore): Promise<void> {
-  const target = targetOf(db);
-  target.sandbox.dispose();
+  const target = targetForTermination(db);
+  target.terminate?.();
   return Promise.resolve();
 }
 
@@ -332,14 +316,49 @@ export function getDocsFromServer<T = DocumentData>(
 export function getDocFromCache<T = DocumentData>(
   ref: DocumentReference<T>,
 ): Promise<DocumentSnapshot<T>> {
-  return getDoc(ref);
+  const target = targetOf(ref);
+  const client = clientStateFor(target);
+  try {
+    client.assertPathCached(ref.path);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return getDoc(ref).then((snapshot) => {
+    Object.defineProperty(snapshot, 'metadata', {
+      value: Object.freeze({
+        fromCache: true,
+        hasPendingWrites: client.snapshotMetadata(ref.path).hasPendingWrites,
+      }),
+      configurable: true,
+    });
+    return snapshot;
+  });
 }
 
 /** Query-plural form of {@link getDocFromCache} — same cache-miss divergence. */
 export function getDocsFromCache<T = DocumentData>(
   query: Query<T>,
 ): Promise<QuerySnapshot<T>> {
-  return getDocs(query);
+  const target = targetOf(query);
+  const client = clientStateFor(target);
+  if (!client.hasCachedQuery(query as object)) {
+    return Promise.resolve(tag({
+      size: 0,
+      empty: true,
+      docs: [],
+      metadata: Object.freeze({ fromCache: true, hasPendingWrites: false }),
+    }, target));
+  }
+  return getDocs(query).then((snapshot) => {
+    Object.defineProperty(snapshot, 'metadata', {
+      value: Object.freeze({
+        fromCache: true,
+        hasPendingWrites: client.querySnapshotMetadata().hasPendingWrites,
+      }),
+      configurable: true,
+    });
+    return snapshot;
+  });
 }
 
 /** Mirrors `firebase/firestore`'s `LogLevel` union. */
@@ -357,25 +376,25 @@ export function setLogLevel(logLevel: LogLevel): void {
 }
 
 /**
- * Sandbox: fires the callback once the current snapshot-delivery
- * microtask queue settles — the closest honest approximation of "every
- * active listener has delivered its latest state" available without a
- * true cross-listener sync signal (the sandbox doesn't track one).
- * This is NOT the real SDK's guarantee (which is scoped to actual
- * server round-trips); it is scoped to local delivery only.
+ * Registers a service-scoped synchronization observer. It receives an
+ * initial signal and a batched signal after snapshot listeners deliver their
+ * latest local state, matching the production-observed callback ordering.
  *
  */
 export function onSnapshotsInSync(
   db: Firestore,
   observerOrCallback: (() => void) | { next?: () => void; complete?: () => void; error?: (error: unknown) => void },
 ): Unsubscribe {
-  targetOf(db);
+  const target = targetOf(db);
+  const state = clientStateFor(target);
+  state.markStarted();
   const cb = typeof observerOrCallback === 'function' ? observerOrCallback : observerOrCallback.next;
-  let cancelled = false;
-  queueMicrotask(() => {
-    if (!cancelled && cb) cb();
-  });
+  if (!cb) return () => undefined;
+  const unsubscribe = state.addSnapshotsInSyncObserver(cb);
+  if (!target.own) return unsubscribe;
+  const release = target.own(unsubscribe);
   return () => {
-    cancelled = true;
+    release();
+    unsubscribe();
   };
 }

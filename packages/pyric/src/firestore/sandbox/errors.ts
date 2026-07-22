@@ -29,6 +29,7 @@ export const FIRESTORE_ERROR_CODES = [
   'not-found',
   'already-exists',
   'failed-precondition',
+  'aborted',
   'invalid-argument',
   'unauthenticated',
   // 'unimplemented' is the gRPC status the real Admin SDK throws for
