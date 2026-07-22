@@ -41,6 +41,19 @@ describe('FirestoreSet', () => {
     expect(new FirestoreSet(['a', 'b', 'c']).size()).toBe(3);
     expect(new FirestoreSet([]).size()).toBe(0);
   });
+
+  test('preserves numeric values for membership', () => {
+    const set = new FirestoreSet([1, 2]);
+    expect(set.hasAll([1])).toBe(true);
+    expect(set.hasAny([2])).toBe(true);
+    expect(set.hasOnly([1, 2, 3])).toBe(true);
+  });
+
+  test('keeps numeric and string values distinct', () => {
+    const set = new FirestoreSet([1, '1', 1]);
+    expect(set.size()).toBe(2);
+    expect(set.hasOnly([1])).toBe(false);
+  });
 });
 
 describe('MapDiff', () => {

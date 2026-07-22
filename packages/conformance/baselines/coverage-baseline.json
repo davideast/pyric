@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T06:59:09.363Z",
+  "generatedAt": "2026-07-21T23:46:39.932Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -57,6 +57,26 @@
         }
       }
     },
+    "firestore-rules": {
+      "native": true
+    },
+    "functions-rtdb": {
+      "integration": true
+    },
+    "messaging": {
+      "publicSurface": {
+        "runtime": {
+          "mapped": 5,
+          "denominator": 5,
+          "pct": 100
+        },
+        "types": {
+          "mapped": 8,
+          "denominator": 8,
+          "pct": 100
+        }
+      }
+    },
     "rtdb": {
       "native": true
     },
@@ -74,6 +94,9 @@
         }
       }
     },
+    "rtdb-rules": {
+      "native": true
+    },
     "storage": {
       "publicSurface": {
         "runtime": {
@@ -88,30 +111,7 @@
         }
       }
     },
-    "messaging": {
-      "publicSurface": {
-        "runtime": {
-          "mapped": 5,
-          "denominator": 5,
-          "pct": 100
-        },
-        "types": {
-          "mapped": 8,
-          "denominator": 8,
-          "pct": 100
-        }
-      }
-    },
-    "functions-rtdb": {
-      "integration": true
-    },
-    "firestore-rules": {
-      "native": true
-    },
     "storage-rules": {
-      "native": true
-    },
-    "rtdb-rules": {
       "native": true
     }
   },
@@ -888,19 +888,19 @@
     "functions-rtdb#12": "unverified",
     "functions-rtdb#13": "conforms",
     "firestore-rules#160": "conforms",
-    "firestore-rules#161": "diverged-documented",
+    "firestore-rules#161": "conforms",
     "firestore-rules#162": "conforms",
     "firestore-rules#163": "conforms",
     "firestore-rules#164": "diverged-documented",
-    "firestore-rules#165": "diverged-documented",
-    "firestore-rules#166": "diverged-documented",
-    "firestore-rules#167": "diverged-documented",
+    "firestore-rules#165": "conforms",
+    "firestore-rules#166": "conforms",
+    "firestore-rules#167": "conforms",
     "firestore-rules#168": "conforms",
     "firestore-rules#169": "conforms",
     "firestore-rules#170": "conforms",
-    "firestore-rules#171": "diverged-documented",
+    "firestore-rules#171": "conforms",
     "firestore-rules#172": "conforms",
-    "firestore-rules#173": "diverged-documented",
+    "firestore-rules#173": "conforms",
     "firestore-rules#174": "conforms",
     "firestore-rules#175": "conforms",
     "firestore-rules#176": "conforms",
@@ -912,6 +912,9 @@
     "firestore-rules#182": "conforms",
     "firestore-rules#183": "conforms",
     "firestore-rules#184": "conforms",
+    "firestore-rules#185": "conforms",
+    "firestore-rules#186": "conforms",
+    "firestore-rules#187": "conforms",
     "storage-rules#94": "conforms",
     "storage-rules#95": "conforms",
     "storage-rules#96": "conforms",
@@ -930,6 +933,12 @@
     "storage-rules#116": "conforms",
     "storage-rules#117": "conforms",
     "storage-rules#118": "diverged-documented",
+    "storage-rules#119": "conforms",
+    "storage-rules#120": "conforms",
+    "storage-rules#121": "conforms",
+    "storage-rules#122": "conforms",
+    "storage-rules#123": "conforms",
+    "storage-rules#124": "conforms",
     "rtdb-rules#1": "conforms",
     "rtdb-rules#2": "conforms",
     "rtdb-rules#3": "conforms",

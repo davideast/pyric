@@ -154,6 +154,10 @@ exports.makeUppercase = onValueCreated(
     const port = portOf(server);
     expect(port).toBeGreaterThan(0);
     const base = `http://127.0.0.1:${port}`;
+    const pointer = JSON.parse(readFileSync(join(cwd, '.pyric', 'serve.json'), 'utf8')) as {
+      project: string;
+    };
+    expect(pointer.project).toBe('demo-project');
 
     // The worker-relay peer is the sandbox source of truth (the SharedWorker in
     // a real browser). Connecting it flips sandboxConnected → the plugin spawns

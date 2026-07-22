@@ -4,11 +4,9 @@
  * the regression rule (cdd.md Step 5.5 / Step 6) and the row-id boundary
  * matching that keeps `messaging#1` from being mistaken for `messaging#12`.
  *
- * Not part of the blocking `npm test` run (which globs the package suites, not
- * packages/conformance/). Run explicitly: `bun test packages/conformance/src/climb.test.ts`.
  */
 import { describe, expect, test } from 'bun:test';
-import { classifyRows, mentionsRow, parseJUnit, type RowInput, type TestCase } from './climb.ts';
+import { classifyRows, mentionsRow, parseJUnit, type RowInput, type TestCase } from '../../src/climb.ts';
 
 describe('mentionsRow — row-id boundary matching', () => {
   test('a row id matches its own name', () => {
@@ -56,6 +54,7 @@ describe('classifyRows — the regression rule', () => {
     { id: 'messaging#9', status: 'diverged-documented' }, // fails -> REGRESSION (Step 6)
     { id: 'messaging#10', status: 'conforms' }, // no assertion set -> unguarded
     { id: 'messaging#11', status: 'unverified' }, // passes -> flip candidate
+    { id: 'messaging#12', status: 'unsupported', conformanceDisposition: 'held' }, // passes -> reviewed hold
   ];
   const testcases: TestCase[] = [
     { classname: 'messaging#2', name: 'ok', passed: true },
@@ -63,6 +62,7 @@ describe('classifyRows — the regression rule', () => {
     { classname: 'messaging#8', name: 'boom', passed: false },
     { classname: 'messaging#9', name: 'pin broke', passed: false },
     { classname: 'messaging#11', name: 'passes early', passed: true },
+    { classname: 'messaging#12', name: 'held behavior is pinned', passed: true },
     { classname: 'completeness gate', name: 'covers rows', passed: false }, // unkeyed
   ];
   const c = classifyRows(rows, testcases);
@@ -84,6 +84,10 @@ describe('classifyRows — the regression rule', () => {
     expect(c.flipCandidates.map((r) => r.id)).toEqual(['messaging#11']);
   });
 
+  test('a passing reviewed hold is not proposed for promotion', () => {
+    expect(c.flipCandidates.some((r) => r.id === 'messaging#12')).toBe(false);
+  });
+
   test('an unkeyed failing test (completeness gate) never gates', () => {
     expect(c.unkeyedTests).toBe(1);
     expect(c.unkeyedFailures).toBe(1);
@@ -91,7 +95,7 @@ describe('classifyRows — the regression rule', () => {
   });
 
   test('verdict tallies', () => {
-    expect(c.greenRows).toBe(2); // #2, #11
+    expect(c.greenRows).toBe(3); // #2, #11, #12
     expect(c.redRows).toBe(3); // #4, #8, #9
     expect(c.unmappedRows).toBe(1); // #10
   });

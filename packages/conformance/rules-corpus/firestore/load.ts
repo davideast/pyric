@@ -37,7 +37,7 @@ const EXPECTATIONS = new Set(['ALLOW', 'DENY']);
 
 /** Structural validation for one authored record. Returns problems found
  *  (empty = valid). */
-function recordProblems(file: string, id: string, value: unknown): string[] {
+export function firestoreScenarioRecordProblems(file: string, id: string, value: unknown): string[] {
   const problems: string[] = [];
   const fail = (message: string) => problems.push(`rules-corpus/firestore/${file}: ${message}`);
 
@@ -78,6 +78,12 @@ function recordProblems(file: string, id: string, value: unknown): string[] {
     }
     if (typeof c.expectation !== 'string' || !EXPECTATIONS.has(c.expectation)) {
       fail(`cases[${i}] ('${c.description ?? i}'): invalid 'expectation' (${JSON.stringify(c.expectation)}) — must be 'ALLOW' or 'DENY'`);
+    } else if (typeof c.description === 'string') {
+      const verdictWords = c.description.match(/\b(?:ALLOW|DENY)\b/g) ?? [];
+      const contradictions = verdictWords.filter((word) => word !== c.expectation);
+      if (contradictions.length > 0) {
+        fail(`cases[${i}] ('${c.description}'): description contradicts expectation '${c.expectation}'`);
+      }
     }
   }
 
@@ -99,7 +105,7 @@ export function loadFirestoreScenarioRecords(): (Scenario & { group: ScenarioGro
     const id = file.slice(0, -'.ts'.length);
     const mod = require(join(HERE, file)) as { scenario?: ScenarioRecord; default?: ScenarioRecord };
     const record = mod.scenario ?? mod.default;
-    const recordFailures = recordProblems(file, id, record);
+    const recordFailures = firestoreScenarioRecordProblems(file, id, record);
     if (recordFailures.length > 0) {
       problems.push(...recordFailures);
       continue;

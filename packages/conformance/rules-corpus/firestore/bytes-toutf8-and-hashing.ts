@@ -65,6 +65,45 @@ service cloud.firestore {
       allow create: if request.auth != null
         && hashing.md5('hello'.toUtf8()) == hashing.md5('hello');
     }
+    // Production Bytes encodings preserve base64url padding and use uppercase
+    // hexadecimal output. These positive witnesses distinguish representation
+    // fidelity from merely denying the historical lowercase/unpadded cases.
+    match /base64PaddedAllow/{id} {
+      allow create: if request.auth != null
+        && 'hi'.toUtf8().toBase64() == 'aGk=';
+    }
+    match /base64UrlAlphabetAllow/{id} {
+      allow create: if request.auth != null
+        && '~~~'.toUtf8().toBase64() == 'fn5-';
+    }
+    match /base64StandardAlphabetDeny/{id} {
+      allow create: if request.auth != null
+        && '~~~'.toUtf8().toBase64() == 'fn5+';
+    }
+    match /md5UpperAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.md5('').toHexString() == 'D41D8CD98F00B204E9800998ECF8427E';
+    }
+    match /sha256UpperAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.sha256('abc').toHexString() == 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD';
+    }
+    match /crc32UpperAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.crc32('123456789').toHexString() == 'CBF43926';
+    }
+    match /crc32cUpperAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.crc32c('123456789').toHexString() == 'E3069283';
+    }
+    match /crc32LittleEndianAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.crc32('123456789').toHexString() == '2639F4CB';
+    }
+    match /crc32cLittleEndianAllow/{id} {
+      allow create: if request.auth != null
+        && hashing.crc32c('123456789').toHexString() == '839206E3';
+    }
     // DENY witness — wrong digest
     match /md5WrongDeny/{id} {
       allow create: if request.auth != null
@@ -90,8 +129,8 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'toBase64 round-trip ALLOW',
-      expectation: 'ALLOW',
+      description: 'toBase64 round-trip DENY',
+      expectation: 'DENY',
       method: 'create',
       path: 'base64Allow/d3',
       auth: { uid: 'alice' },
@@ -114,32 +153,32 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'md5 empty string ALLOW',
-      expectation: 'ALLOW',
+      description: 'md5 empty string DENY',
+      expectation: 'DENY',
       method: 'create',
       path: 'md5EmptyAllow/d6',
       auth: { uid: 'alice' },
       data: {},
     },
     {
-      description: 'sha256 abc ALLOW',
-      expectation: 'ALLOW',
+      description: 'sha256 abc DENY',
+      expectation: 'DENY',
       method: 'create',
       path: 'sha256AbcAllow/d7',
       auth: { uid: 'alice' },
       data: {},
     },
     {
-      description: 'crc32 IEEE 802.3 ref ALLOW',
-      expectation: 'ALLOW',
+      description: 'crc32 IEEE 802.3 ref DENY',
+      expectation: 'DENY',
       method: 'create',
       path: 'crc32RefAllow/d8',
       auth: { uid: 'alice' },
       data: {},
     },
     {
-      description: 'crc32c Castagnoli ref ALLOW',
-      expectation: 'ALLOW',
+      description: 'crc32c Castagnoli ref DENY',
+      expectation: 'DENY',
       method: 'create',
       path: 'crc32cRefAllow/d9',
       auth: { uid: 'alice' },
@@ -150,6 +189,78 @@ service cloud.firestore {
       expectation: 'ALLOW',
       method: 'create',
       path: 'hashAcceptsBytesAllow/d10',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'toBase64 padded production representation ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'base64PaddedAllow/d12',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'toBase64 URL-safe alphabet production representation ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'base64UrlAlphabetAllow/d12u',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'toBase64 standard alphabet representation DENY',
+      expectation: 'DENY',
+      method: 'create',
+      path: 'base64StandardAlphabetDeny/d12s',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'md5 uppercase production representation ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'md5UpperAllow/d13',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'sha256 uppercase production representation ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'sha256UpperAllow/d14',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'crc32 uppercase production representation DENY',
+      expectation: 'DENY',
+      method: 'create',
+      path: 'crc32UpperAllow/d15',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'crc32c uppercase production representation DENY',
+      expectation: 'DENY',
+      method: 'create',
+      path: 'crc32cUpperAllow/d16',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'crc32 little-endian production representation ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'crc32LittleEndianAllow/d17',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'crc32c little-endian production representation ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'crc32cLittleEndianAllow/d18',
       auth: { uid: 'alice' },
       data: {},
     },

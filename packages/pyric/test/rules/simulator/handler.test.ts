@@ -1062,13 +1062,13 @@ service cloud.firestore {
   });
 
   test('firestore#138a revives a tagged float in nested test data', () => {
-    const STORED = `rules_version = '2';
+    const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /s/{id} { allow create: if request.resource.data.nested.price is float; }
   }
 }`;
-    const r = handler.simulate(STORED, [{
+    const r = handler.simulate(rules, [{
       description: 'tagged stored float remains a float',
       expectation: 'ALLOW',
       method: 'create',

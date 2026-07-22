@@ -4,10 +4,14 @@
   "rowIds": [
     "firestore-rules#176"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"undefined-field-access\" (RULES-B2). Missing-field access is a runtime error in prod (deny), not null; `typo == null` must DENY and `!(key in map)` is the real absence check.",
-  "observedAt": "2026-07-10T22:41:19.372Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"undefined-field-access\" (RULES-B2). Missing-field access is a runtime error in prod (deny), not null; `typo == null` must DENY and `!(key in map)` is the real absence check.",
+  "observedAt": "2026-07-21T23:43:07.432Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "3a66a2829bc43216658e4e74a866310b55b766f6427ba5111e35b7696f79be70"
+  },
   "behavior": {
     "missing field == null → DENY (error, not null)": "DENY",
     "present field == value → ALLOW (control)": "ALLOW",
@@ -15,5 +19,49 @@
     "nested missing field under existing map → DENY": "DENY",
     "!(missing == value) → DENY (error propagates through !)": "DENY",
     "missing-field error || true → ALLOW (absorption)": "ALLOW"
+  },
+  "diagnostics": {
+    "missing field == null → DENY (error, not null)": {
+      "notes": [
+        "Error: firestore.rules line [6], column [24]. Property typo is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 6,
+          "column": 24,
+          "currentOffset": 226,
+          "endOffset": 232
+        }
+      }
+    },
+    "nested missing field under existing map → DENY": {
+      "notes": [
+        "Error: firestore.rules line [18], column [24]. Property typo is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 18,
+          "column": 24,
+          "currentOffset": 680,
+          "endOffset": 686
+        }
+      }
+    },
+    "!(missing == value) → DENY (error propagates through !)": {
+      "notes": [
+        "Error: firestore.rules line [22], column [26]. Property typo is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 22,
+          "column": 26,
+          "currentOffset": 852,
+          "endOffset": 858
+        }
+      }
+    }
   }
 }

@@ -4,7 +4,7 @@
  * String. Pre-fix the simulator threw a parse error on slice syntax (the
  * grammar's `bracketAccess` only matched a single Expr). This scenario
  * exercises the documented surface: j-exclusive sub-list / substring,
- * OOB clamping behavior, empty slice (i==j), and DENY witnesses.
+ * OOB rejection behavior, empty slice (i==j), and DENY witnesses.
  */
 import type { ScenarioRecord } from './types.ts';
 
@@ -34,7 +34,7 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.resource.data.arr[2:2].size() == 0;
     }
-    // List slice — end OOB clamps
+    // List slice — end OOB is an evaluation error
     match /listClampAllow/{id} {
       allow create: if request.auth != null
         && request.resource.data.arr[1:99].size() == 3;
@@ -54,7 +54,7 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.resource.data.s[3:3] == '';
     }
-    // String slice — end OOB clamps
+    // String slice — end OOB is an evaluation error
     match /strClampAllow/{id} {
       allow create: if request.auth != null
         && request.resource.data.s[6:99] == 'world';
@@ -100,8 +100,10 @@ service cloud.firestore {
       data: { arr: ['a', 'b', 'c', 'd'] },
     },
     {
-      description: 'list slice end OOB clamps to length ALLOW',
-      expectation: 'ALLOW',
+      // Immutable production-observation join key; the captured verdict is
+      // DENY because production rejects the out-of-bounds end.
+      description: 'list slice end OOB clamps to length DENY',
+      expectation: 'DENY',
       method: 'create',
       path: 'listClampAllow/d5',
       auth: { uid: 'alice' },
@@ -132,8 +134,10 @@ service cloud.firestore {
       data: { s: 'hello' },
     },
     {
-      description: 'string slice end OOB clamps to length ALLOW',
-      expectation: 'ALLOW',
+      // Immutable production-observation join key; the captured verdict is
+      // DENY because production rejects the out-of-bounds end.
+      description: 'string slice end OOB clamps to length DENY',
+      expectation: 'DENY',
       method: 'create',
       path: 'strClampAllow/d9',
       auth: { uid: 'alice' },

@@ -4,7 +4,7 @@
  * Two consumers ask that question and must not answer it differently:
  *
  *   - `rules-language-analyzer.ts` — the coverage report's `verifiedConstructs`
- *     numerator (the trust number published in the language-coverage docs);
+ *     numerator (the production-backed evidence-coverage measure);
  *   - `conformance-verdicts.ts` — the `supported` verdict a graph node needs
  *     before an assurance probe may report a
  *     security conclusion instead of abstaining.
@@ -66,7 +66,7 @@
  * It is the constructs the row's CAPTURED VERDICTS ADJUDICATE. Under-annotation
  * is safe: a construct nobody's scope lists simply stays unverified, which can
  * only hold a number or a capability DOWN. Over-annotation is a lie in the
- * trust number.
+ * evidence-coverage numerator.
  */
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from '../registry/types.ts';
 

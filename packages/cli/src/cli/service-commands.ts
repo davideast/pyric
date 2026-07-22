@@ -1,25 +1,14 @@
 import type { ParsedArgs } from './parse-args.js';
-import {
-  runDatabaseRulesGenerate,
-  runDatabaseRulesLint,
-  runDatabaseRulesSimulate,
-  runDatabaseRulesValidate,
-} from './database-rules.js';
-import { runFirestoreIndexesGenerate } from './firestore-indexes.js';
-import {
-  runRulesLint,
-  runRulesResolve,
-  runRulesSimulate,
-  runRulesValidate,
-} from './rules.js';
-import { runStorageRulesLint, runStorageRulesSimulate } from './storage-rules.js';
+import { SERVICE_COMMANDS } from './service-commands.generated.js';
 
-type ServiceCommandPath = readonly [service: string, artifact: string, operation: string];
+export type ServiceCommandPath = readonly [service: string, artifact: string, operation: string];
 
-interface ServiceCommand {
+export interface ServiceCommand {
   path: ServiceCommandPath;
-  run: (parsed: ParsedArgs) => Promise<number>;
+  run: ServiceCommandHandler;
 }
+
+export type ServiceCommandHandler = (parsed: ParsedArgs) => Promise<number>;
 
 function routeKey(path: readonly string[]): string {
   return JSON.stringify(path);
@@ -38,20 +27,6 @@ export function createServiceCommandRegistry(
   }
   return registry;
 }
-
-const SERVICE_COMMANDS = [
-  { path: ['firestore', 'rules', 'lint'], run: runRulesLint },
-  { path: ['firestore', 'rules', 'validate'], run: runRulesValidate },
-  { path: ['firestore', 'rules', 'simulate'], run: runRulesSimulate },
-  { path: ['firestore', 'rules', 'resolve'], run: runRulesResolve },
-  { path: ['firestore', 'indexes', 'generate'], run: runFirestoreIndexesGenerate },
-  { path: ['storage', 'rules', 'lint'], run: runStorageRulesLint },
-  { path: ['storage', 'rules', 'simulate'], run: runStorageRulesSimulate },
-  { path: ['database', 'rules', 'lint'], run: runDatabaseRulesLint },
-  { path: ['database', 'rules', 'validate'], run: runDatabaseRulesValidate },
-  { path: ['database', 'rules', 'simulate'], run: runDatabaseRulesSimulate },
-  { path: ['database', 'rules', 'generate'], run: runDatabaseRulesGenerate },
-] as const satisfies readonly ServiceCommand[];
 
 const SERVICE_COMMAND_REGISTRY = createServiceCommandRegistry(SERVICE_COMMANDS);
 const SERVICES: ReadonlySet<string> = new Set(SERVICE_COMMANDS.map(({ path }) => path[0]));

@@ -19,7 +19,7 @@ import {
 } from '../../src/production-verification.ts';
 import { surfaceRegistries } from '../../registry/index.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from '../../registry/types.ts';
-import { computeCoverageReport, type CoverageReport } from '../../src/rules-language-analyzer.ts';
+import { computeCoverageReport, type CoverageReport } from '../../src/rules-language-coverage.ts';
 
 let coverageReport: CoverageReport;
 beforeAll(async () => { coverageReport = await computeCoverageReport(); }, 60_000);
