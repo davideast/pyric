@@ -15,10 +15,15 @@ import {
   boundedActivityIdentity,
   registerActivityValue,
 } from './sandbox/activity-value-registry.js';
+import { registerQueryValue } from './sandbox/query-value-registry.js';
 
 export class Bytes {
   private constructor(private readonly bytes: Uint8Array) {
     registerActivityValue(this, boundedActivityBytes(bytes));
+    registerQueryValue(this, Object.freeze({
+      type: 'bytes',
+      values: Object.freeze(Array.from(bytes)),
+    }));
   }
 
   static fromBase64String(base64: string): Bytes {
@@ -80,6 +85,11 @@ export class GeoPoint {
       this,
       boundedActivityIdentity('geo-point', String(lat), '\0', String(lng)),
     );
+    registerQueryValue(this, Object.freeze({
+      type: 'geo-point',
+      latitude: lat,
+      longitude: lng,
+    }));
   }
 
   get latitude(): number { return this.lat; }

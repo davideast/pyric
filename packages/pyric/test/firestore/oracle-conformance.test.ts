@@ -854,7 +854,7 @@ describe('oracle conformance (firestore)', () => {
 
   // ── query / snapshot equality ────────────────────────────────────────
 
-  it('firestore#116 queryEqual matches the captured primitive-constraint envelope', async () => {
+  it('firestore#116 queryEqual matches captured primitive and object constraints', async () => {
     const obs = load('firestore-queryequal-structural.json');
 
     const db = freshDb();
@@ -862,9 +862,46 @@ describe('oracle conformance (firestore)', () => {
     const q1 = query(collection(db, 'c'), where('v', '==', 1));
     const q2 = query(collection(db, 'c'), where('v', '==', 1));
     const q3 = query(collection(db, 'c'), where('v', '==', 2));
+    const q4 = query(collection(db, 'c'), where('v', '==', { a: 1 }));
+    const q5 = query(collection(db, 'c'), where('v', '==', { a: 1 }));
+    const q6 = query(collection(db, 'c'), where('v', '==', { a: 2 }));
+    const structuredA = query(collection(db, 'c'), where('v', '==', ['x', { enabled: true }]));
+    const structuredB = query(collection(db, 'c'), where('v', '==', ['x', { enabled: true }]));
+    const timestampA = query(collection(db, 'c'), where('v', '==', Timestamp.fromMillis(1_234)));
+    const timestampB = query(collection(db, 'c'), where('v', '==', Timestamp.fromMillis(1_234)));
+    const bytesA = query(collection(db, 'c'), where('v', '==', Bytes.fromUint8Array(new Uint8Array([1, 2]))));
+    const bytesB = query(collection(db, 'c'), where('v', '==', Bytes.fromUint8Array(new Uint8Array([1, 2]))));
+    const geoA = query(collection(db, 'c'), where('v', '==', new GeoPoint(10, 20)));
+    const geoB = query(collection(db, 'c'), where('v', '==', new GeoPoint(10, 20)));
+    const refA = query(collection(db, 'c'), where('v', '==', doc(db, 'query-equality/ref')));
+    const refB = query(collection(db, 'c'), where('v', '==', doc(db, 'query-equality/ref')));
     expect(queryEqual(q1, q2)).toBe(obs.sameQueryBuiltTwice as boolean);
     expect(queryEqual(q1, q1)).toBe(obs.identity as boolean);
     expect(queryEqual(q1, q3)).toBe(obs.differentValue as boolean);
+    expect(obs.objectValueBuiltTwice).toBe(true);
+    expect(queryEqual(q4, q5)).toBe(obs.objectValueBuiltTwice as boolean);
+    expect(queryEqual(q4, q6)).toBe(obs.objectValueChanged as boolean);
+    expect(queryEqual(structuredA, structuredB)).toBe(obs.structuredValueBuiltTwice as boolean);
+    expect(queryEqual(timestampA, timestampB)).toBe(obs.timestampValueBuiltTwice as boolean);
+    expect(queryEqual(bytesA, bytesB)).toBe(obs.bytesValueBuiltTwice as boolean);
+    expect(queryEqual(geoA, geoB)).toBe(obs.geoPointValueBuiltTwice as boolean);
+    expect(queryEqual(refA, refB)).toBe(obs.referenceValueBuiltTwice as boolean);
+
+    const changedValues = [
+      ['structuredValueChanged', structuredA,
+        query(collection(db, 'c'), where('v', '==', ['x', { enabled: false }]))],
+      ['timestampValueChanged', timestampA,
+        query(collection(db, 'c'), where('v', '==', Timestamp.fromMillis(1_235)))],
+      ['bytesValueChanged', bytesA,
+        query(collection(db, 'c'), where('v', '==', Bytes.fromUint8Array(new Uint8Array([1, 3]))))],
+      ['geoPointValueChanged', geoA,
+        query(collection(db, 'c'), where('v', '==', new GeoPoint(10, 21)))],
+      ['referenceValueChanged', refA,
+        query(collection(db, 'c'), where('v', '==', doc(db, 'query-equality/other')))],
+    ] as const;
+    for (const [observation, left, right] of changedValues) {
+      expect(queryEqual(left, right)).toBe(obs[observation] as boolean);
+    }
   });
 
   it('firestore#117 snapshotEqual returns production identity booleans', async () => {

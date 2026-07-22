@@ -34,13 +34,32 @@ describe('Firestore equality helpers', () => {
     expect(queryEqual(withConverter(base, converterA), withConverter(base, converterB))).toBe(false);
   });
 
-  it('queryEqual does not observe opaque query operands', () => {
+  it('queryEqual structurally compares independently-built object operands', () => {
+    const { db } = setup();
+    const q1 = query(collection(db, 'items'), where('value', '==', {
+      a: 1,
+      nested: ['x', { enabled: true }],
+    }));
+    const q2 = query(collection(db, 'items'), where('value', '==', {
+      a: 1,
+      nested: ['x', { enabled: true }],
+    }));
+    const q3 = query(collection(db, 'items'), where('value', '==', {
+      a: 1,
+      nested: ['x', { enabled: false }],
+    }));
+
+    expect(queryEqual(q1, q2)).toBe(true);
+    expect(queryEqual(q1, q3)).toBe(false);
+  });
+
+  it('queryEqual does not observe operands after query construction', () => {
     const { db } = setup();
     let traps = 0;
     const operand = new Proxy({}, {
       get() { traps += 1; return undefined; },
       has() { traps += 1; return false; },
-      ownKeys() { traps += 1; return []; },
+      ownKeys() { traps += 1; throw new Error('opaque'); },
       getPrototypeOf() { traps += 1; return Object.prototype; },
     });
     const q1 = query(collection(db, 'items'), where('value', '==', operand));
@@ -48,14 +67,15 @@ describe('Firestore equality helpers', () => {
     const otherOperand = new Proxy({}, {
       get() { traps += 1; return undefined; },
       has() { traps += 1; return false; },
-      ownKeys() { traps += 1; return []; },
+      ownKeys() { traps += 1; throw new Error('opaque'); },
       getPrototypeOf() { traps += 1; return Object.prototype; },
     });
     const q3 = query(collection(db, 'items'), where('value', '==', otherOperand));
-    expect(traps).toBe(0);
+    const constructionTraps = traps;
+    expect(constructionTraps).toBeGreaterThan(0);
     expect(queryEqual(q1, q2)).toBe(true);
     expect(queryEqual(q1, q3)).toBe(false);
-    expect(traps).toBe(0);
+    expect(traps).toBe(constructionTraps);
   });
 
   it('recognizes query child snapshots and compares document snapshots structurally', async () => {

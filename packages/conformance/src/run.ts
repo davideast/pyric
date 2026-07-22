@@ -968,9 +968,39 @@ const probes: Probe[] = [
       const q1 = query(c, where('x', '==', 1));
       const q2 = query(c, where('x', '==', 1));
       const q3 = query(c, where('x', '==', 2));
+      const q4 = query(c, where('x', '==', { a: 1 }));
+      const q5 = query(c, where('x', '==', { a: 1 }));
+      const q6 = query(c, where('x', '==', { a: 2 }));
+      const structuredA = query(c, where('x', '==', ['x', { enabled: true }]));
+      const structuredB = query(c, where('x', '==', ['x', { enabled: true }]));
+      const structuredChanged = query(c, where('x', '==', ['x', { enabled: false }]));
+      const timestampA = query(c, where('x', '==', Timestamp.fromMillis(1_234)));
+      const timestampB = query(c, where('x', '==', Timestamp.fromMillis(1_234)));
+      const timestampChanged = query(c, where('x', '==', Timestamp.fromMillis(1_235)));
+      const bytesA = query(c, where('x', '==', Bytes.fromUint8Array(new Uint8Array([1, 2]))));
+      const bytesB = query(c, where('x', '==', Bytes.fromUint8Array(new Uint8Array([1, 2]))));
+      const bytesChanged = query(c, where('x', '==', Bytes.fromUint8Array(new Uint8Array([1, 3]))));
+      const geoA = query(c, where('x', '==', new GeoPoint(10, 20)));
+      const geoB = query(c, where('x', '==', new GeoPoint(10, 20)));
+      const geoChanged = query(c, where('x', '==', new GeoPoint(10, 21)));
+      const refA = query(c, where('x', '==', doc(db, 'query-equality/ref')));
+      const refB = query(c, where('x', '==', doc(db, 'query-equality/ref')));
+      const refChanged = query(c, where('x', '==', doc(db, 'query-equality/other')));
       return {
         sameQueryBuiltTwice: queryEqual(q1, q2),
         differentValue: queryEqual(q1, q3),
+        objectValueBuiltTwice: queryEqual(q4, q5),
+        objectValueChanged: queryEqual(q4, q6),
+        structuredValueBuiltTwice: queryEqual(structuredA, structuredB),
+        structuredValueChanged: queryEqual(structuredA, structuredChanged),
+        timestampValueBuiltTwice: queryEqual(timestampA, timestampB),
+        timestampValueChanged: queryEqual(timestampA, timestampChanged),
+        bytesValueBuiltTwice: queryEqual(bytesA, bytesB),
+        bytesValueChanged: queryEqual(bytesA, bytesChanged),
+        geoPointValueBuiltTwice: queryEqual(geoA, geoB),
+        geoPointValueChanged: queryEqual(geoA, geoChanged),
+        referenceValueBuiltTwice: queryEqual(refA, refB),
+        referenceValueChanged: queryEqual(refA, refChanged),
         identity: queryEqual(q1, q1),
       };
     },

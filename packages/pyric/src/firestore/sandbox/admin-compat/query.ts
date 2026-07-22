@@ -1,11 +1,16 @@
 /** Admin-compatible query builders and snapshot shaping.
  * Candidate gathering, rule enforcement, and execution live behind
  * `LocalEnvironment.runQuery`; this adapter only builds immutable plan
- * structure. Opaque operands retain identity by accepted ADR-0009 policy. */
+ * structure. Query equality uses construction-time operand snapshots. */
 
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { translateReadData } from './snapshots.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
+import {
+  captureQueryOperand,
+  capturedQueryOperandsEqual,
+  type CapturedQueryOperand,
+} from '../query-operand-equality.js';
 // RULES-B11 — structured `where`/`limit`/`orderBy` view threaded into the
 // rule-enforced read paths so the query-proof gate ("rules are not
 // filters") can discharge per-doc rule predicates from the query's
@@ -50,18 +55,27 @@ import {
 
 type OrderClause = QueryOrderClause;
 type DocumentRefFactory = (path: string) => DocumentReference;
+type ComparableQueryFilter =
+  | (Extract<QueryFilter, { kind: 'where' }> & { readonly comparisonValue: CapturedQueryOperand })
+  | { readonly kind: 'and' | 'or'; readonly filters: readonly ComparableQueryFilter[] };
+type ComparableCursor = QueryCursor & { readonly comparisonValues: readonly CapturedQueryOperand[] };
+type ComparableExecutionSpec = Omit<QueryExecutionSpec, 'filters' | 'start' | 'end'> & {
+  readonly filters: readonly ComparableQueryFilter[];
+  readonly start?: ComparableCursor;
+  readonly end?: ComparableCursor;
+};
 
 export interface QueryState {
   env: LocalEnvironment;
   auth: AuthContext;
   collectionPath: string;
   documentRef: DocumentRefFactory;
-  clauses?: readonly QueryFilter[];
+  clauses?: readonly ComparableQueryFilter[];
   orders?: readonly OrderClause[];
   limitCount?: number;
   limitFromEnd?: boolean;
-  start?: Cursor;
-  end?: Cursor;
+  start?: ComparableCursor;
+  end?: ComparableCursor;
   bypassRules?: boolean;
 }
 
@@ -70,46 +84,42 @@ export type QueryStatePatch = Partial<Pick<
   'clauses' | 'orders' | 'limitCount' | 'limitFromEnd' | 'start' | 'end'
 >>;
 
-function snapshotQueryValue(value: unknown): unknown {
-  // Query operands are deliberately opaque. Reading arrays/maps here would
-  // execute user getters or Proxy traps and would replace the stable object
-  // identity used by activity diagnostics. Primitive operands (the only
-  // values consumed by rules proof) are immutable; structural filter and
-  // cursor containers are copied separately.
-  return value;
-}
+function snapshotQueryValue(value: unknown): unknown { return value; }
 
-function snapshotFilter(filter: Filter | QueryFilter): QueryFilter {
+function snapshotFilter(filter: Filter | QueryFilter | ComparableQueryFilter): ComparableQueryFilter {
   if (filter.kind === 'where') {
     return Object.freeze({
       kind: 'where',
       field: filter.field,
       op: filter.op,
       value: snapshotQueryValue(filter.value),
+      comparisonValue: 'comparisonValue' in filter
+        ? filter.comparisonValue
+        : captureQueryOperand(filter.value),
     });
   }
   return Object.freeze({
     kind: filter.kind,
     filters: Object.freeze(filter.filters.map(snapshotFilter)),
-  }) as QueryFilter;
+  }) as ComparableQueryFilter;
 }
 
-function queryOperandEqual(left: unknown, right: unknown): boolean {
-  if (
-    (typeof left === 'object' && left !== null) || typeof left === 'function'
-    || (typeof right === 'object' && right !== null) || typeof right === 'function'
-  ) {
-    return left === right;
-  }
-  // Firestore numeric equality treats both zero signs alike and NaN as equal.
-  return left === right
-    || (typeof left === 'number' && typeof right === 'number'
-      && Number.isNaN(left) && Number.isNaN(right));
+function snapshotCursor(
+  values: readonly unknown[],
+  inclusive: boolean,
+  fromSnapshot: boolean,
+): ComparableCursor {
+  return Object.freeze({
+    values: Object.freeze(values.map(snapshotQueryValue)),
+    comparisonValues: Object.freeze(values.map(captureQueryOperand)),
+    inclusive,
+    fromSnapshot,
+  });
 }
 
 function queryFiltersEqual(
-  left: readonly QueryFilter[],
-  right: readonly QueryFilter[],
+  left: readonly ComparableQueryFilter[],
+  right: readonly ComparableQueryFilter[],
 ): boolean {
   if (left.length !== right.length) return false;
   return left.every((filter, index) => {
@@ -118,9 +128,7 @@ function queryFiltersEqual(
     if (filter.kind === 'where' && other.kind === 'where') {
       return filter.field === other.field
         && filter.op === other.op
-        // Opaque operands retain identity. Inspecting their properties here
-        // would invoke user getters/Proxy traps during a diagnostic helper.
-        && queryOperandEqual(filter.value, other.value);
+        && capturedQueryOperandsEqual(filter.comparisonValue, other.comparisonValue);
     }
     return filter.kind !== 'where'
       && other.kind !== 'where'
@@ -128,12 +136,13 @@ function queryFiltersEqual(
   });
 }
 
-function queryCursorsEqual(left?: QueryCursor, right?: QueryCursor): boolean {
+function queryCursorsEqual(left?: ComparableCursor, right?: ComparableCursor): boolean {
   if (left === undefined || right === undefined) return left === right;
   return left.inclusive === right.inclusive
     && left.fromSnapshot === right.fromSnapshot
-    && left.values.length === right.values.length
-    && left.values.every((value, index) => queryOperandEqual(value, right.values[index]));
+    && left.comparisonValues.length === right.comparisonValues.length
+    && left.comparisonValues.every((value, index) =>
+      capturedQueryOperandsEqual(value, right.comparisonValues[index]!));
 }
 
 function queryScopesEqual(left: QueryScope, right: QueryScope): boolean {
@@ -144,7 +153,31 @@ function queryScopesEqual(left: QueryScope, right: QueryScope): boolean {
       && left.collectionId === right.collectionId;
 }
 
-function queryExecutionEqual(left: QueryExecutionSpec, right: QueryExecutionSpec): boolean {
+function executionFilter(filter: ComparableQueryFilter): QueryFilter {
+  if (filter.kind === 'where') {
+    return Object.freeze({
+      kind: filter.kind,
+      field: filter.field,
+      op: filter.op,
+      value: filter.value,
+    });
+  }
+  return Object.freeze({
+    kind: filter.kind,
+    filters: Object.freeze(filter.filters.map(executionFilter)),
+  });
+}
+
+function executionCursor(cursor: ComparableCursor | undefined): QueryCursor | undefined {
+  if (cursor === undefined) return undefined;
+  return Object.freeze({
+    values: cursor.values,
+    inclusive: cursor.inclusive,
+    fromSnapshot: cursor.fromSnapshot,
+  });
+}
+
+function queryExecutionEqual(left: ComparableExecutionSpec, right: ComparableExecutionSpec): boolean {
   return queryFiltersEqual(left.filters, right.filters)
     && left.orders.length === right.orders.length
     && left.orders.every((order, index) => {
@@ -215,12 +248,12 @@ export class QueryImpl implements Query {
   protected readonly env: LocalEnvironment;
   protected readonly auth: AuthContext;
   protected readonly collectionPath: string;
-  protected readonly clauses: readonly QueryFilter[];
+  protected readonly clauses: readonly ComparableQueryFilter[];
   protected readonly orders: readonly OrderClause[];
   protected readonly limitCount?: number;
   protected readonly limitFromEnd: boolean;
-  protected readonly start?: Cursor;
-  protected readonly end?: Cursor;
+  protected readonly start?: ComparableCursor;
+  protected readonly end?: ComparableCursor;
   protected readonly bypassRules: boolean;
   private readonly documentRef: DocumentRefFactory;
 
@@ -236,20 +269,24 @@ export class QueryImpl implements Query {
     this.start = state.start === undefined ? undefined : Object.freeze({
       ...state.start,
       values: Object.freeze(state.start.values.map(snapshotQueryValue)),
+      comparisonValues: state.start.comparisonValues,
     });
     this.end = state.end === undefined ? undefined : Object.freeze({
       ...state.end,
       values: Object.freeze(state.end.values.map(snapshotQueryValue)),
+      comparisonValues: state.end.comparisonValues,
     });
     this.bypassRules = state.bypassRules ?? false;
   }
 
   where(field: string, op: WhereFilterOp, value: unknown): Query {
-    return this.clone({ clauses: [...this.clauses, { kind: 'where', field, op, value }] });
+    return this.clone({
+      clauses: [...this.clauses, snapshotFilter({ kind: 'where', field, op, value })],
+    });
   }
 
   applyFilter(filter: Filter): Query {
-    return this.clone({ clauses: [...this.clauses, filter] });
+    return this.clone({ clauses: [...this.clauses, snapshotFilter(filter)] });
   }
 
   orderBy(field: string, direction: OrderDirection = 'asc'): Query {
@@ -265,30 +302,30 @@ export class QueryImpl implements Query {
   }
 
   startCursor(values: unknown[], inclusive: boolean): Query {
-    return this.clone({ start: { values: [...values], inclusive, fromSnapshot: false } });
+    return this.clone({ start: snapshotCursor(values, inclusive, false) });
   }
 
   endCursor(values: unknown[], inclusive: boolean): Query {
-    return this.clone({ end: { values: [...values], inclusive, fromSnapshot: false } });
+    return this.clone({ end: snapshotCursor(values, inclusive, false) });
   }
 
   startCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
     return this.clone({
-      start: {
-        values: cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
+      start: snapshotCursor(
+        cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
         inclusive,
-        fromSnapshot: true,
-      },
+        true,
+      ),
     });
   }
 
   endCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
     return this.clone({
-      end: {
-        values: cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
+      end: snapshotCursor(
+        cursorValuesFromSnapshot(snapshot, this.normalizedOrders()),
         inclusive,
-        fromSnapshot: true,
-      },
+        true,
+      ),
     });
   }
 
@@ -301,7 +338,7 @@ export class QueryImpl implements Query {
     return this.env === other.env
       && this.bypassRules === other.bypassRules
       && queryScopesEqual(this.queryScope(), other.queryScope())
-      && queryExecutionEqual(this.executionSpec(), other.executionSpec());
+      && queryExecutionEqual(this.comparableExecutionSpec(), other.comparableExecutionSpec());
   }
 
   /**
@@ -410,6 +447,18 @@ export class QueryImpl implements Query {
 
   private executionSpec(): QueryExecutionSpec {
     const execution: QueryExecutionSpec = {
+      filters: Object.freeze(this.clauses.map(executionFilter)),
+      orders: this.orders,
+      limitCount: this.limitCount,
+      limitFromEnd: this.limitFromEnd,
+      start: executionCursor(this.start),
+      end: executionCursor(this.end),
+    };
+    return Object.freeze(execution);
+  }
+
+  private comparableExecutionSpec(): ComparableExecutionSpec {
+    return {
       filters: this.clauses,
       orders: this.orders,
       limitCount: this.limitCount,
@@ -417,7 +466,6 @@ export class QueryImpl implements Query {
       start: this.start,
       end: this.end,
     };
-    return Object.freeze(execution);
   }
 
   /**

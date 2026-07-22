@@ -5,12 +5,24 @@
     "firestore#116"
   ],
   "description": "queryEqual semantics — does prod compare structurally or by identity?",
-  "observedAt": "2026-05-17T23:36:46.155Z",
+  "observedAt": "2026-07-22T00:27:24.909Z",
   "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "projectId": "digame-mas",
   "behavior": {
     "sameQueryBuiltTwice": true,
     "differentValue": false,
+    "objectValueBuiltTwice": true,
+    "objectValueChanged": false,
+    "structuredValueBuiltTwice": true,
+    "structuredValueChanged": false,
+    "timestampValueBuiltTwice": true,
+    "timestampValueChanged": false,
+    "bytesValueBuiltTwice": true,
+    "bytesValueChanged": false,
+    "geoPointValueBuiltTwice": true,
+    "geoPointValueChanged": false,
+    "referenceValueBuiltTwice": true,
+    "referenceValueChanged": false,
     "identity": true
   }
 }

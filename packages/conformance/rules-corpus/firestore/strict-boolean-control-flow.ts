@@ -4,7 +4,7 @@ import type { ScenarioRecord } from './types.ts';
 export const scenario: ScenarioRecord = {
   fm: 'RULES-B6',
   rationale:
-    'Firestore Rules requires boolean operands for &&, ||, and ternary conditions; non-booleans error and deny. On create, comparing resource to null errors and denies while request.resource carries the incoming document.',
+    'Firestore Rules requires boolean operands for &&, ||, and ternary conditions; non-booleans error and deny. On create, resource == null denies while request.resource carries the incoming document.',
   rules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -62,7 +62,7 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'resource == null on create errors → DENY',
+      description: 'resource == null on create → DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'resourceNullComparison/d5',
