@@ -57,6 +57,7 @@ console.log(`Explicit exception rows: ${summary.explicitExceptionRows}`);
 console.log(`Unsupported rows: ${summary.unsupportedRows}`);
 console.log(`Unverified rows: ${summary.unverifiedRows}`);
 console.log(`High-risk unverified rows: ${summary.highRiskUnverifiedRows}`);
+console.log(`Unit-backed evidence-tier gap rows: ${summary.evidenceTierGapRows}`);
 console.log(`Observations: ${summary.observations}`);
 console.log(`Orphan observations: ${summary.orphanObservations}`);
 console.log(`Registry conformance checks: ${summary.conformanceChecks}`);
