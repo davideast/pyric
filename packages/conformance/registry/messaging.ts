@@ -53,8 +53,17 @@ interface RowSeed {
    * conformance suite passes unweakened. The builder then emits
    * status 'conforms' with this automation tier and wires the surface's
    * suite into conformanceTests. Absent = still climbing (born unverified).
+   *
+   * `type-backed` is the SHAPE tier: a `conforms` row whose claim is a pure
+   * type-only shape with no runtime carrier the sandbox can exhibit, so its
+   * conformance is closed structurally by the tier-2 assignability census
+   * (resolved decision #5) rather than by a runtime replay. It keeps its climb
+   * risk (the behavior is still unobserved) but does NOT wire the surface
+   * suite as a conformanceTests witness, and it requires an `exceptionReason`.
    */
-  flipped?: 'oracle-backed' | 'unit-backed';
+  flipped?: 'oracle-backed' | 'unit-backed' | 'type-backed';
+  /** Required for a `type-backed` downgrade: why the row has no runtime witness. */
+  exceptionReason?: string;
 }
 
 const SUITE: Record<SurfacePlane, string> = {
@@ -70,7 +79,7 @@ const CITED_NOT_REPLAYED_REASON =
 const buildRow = defineRows({ surface: 'messaging' });
 
 function row(seed: RowSeed): CompatibilityRow {
-  const { ref, observations = [], tests = [], flipped, ...rest } = seed;
+  const { ref, observations = [], tests = [], flipped, exceptionReason, ...rest } = seed;
   const observed = observations.length > 0;
   // Climb risk names the gap between what the row claims and what backs it:
   // 'cited-not-replayed' (score 1) when a committed observation vouches for
@@ -81,27 +90,49 @@ function row(seed: RowSeed): CompatibilityRow {
     riskScore: observed ? 1 : 2,
     riskReasons: [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
   };
-  // A flip to 'oracle-backed' discharges the climb risk: the cited
-  // observations are replayed offline by the blocking conformance suite, so
-  // neither reason describes the row any more and the builder's zero-risk
-  // defaults are accurate. A flip to 'unit-backed' does NOT discharge it —
-  // the assertion set passes, but the behavior itself is still unobserved
-  // (or cited without replay), so the row keeps its climb risk. That
-  // residual risk is what the audit's evidence-tier worklist ratchets
-  // (see packages/conformance/src/ledger.ts, evidenceTierGapRows).
-  const climb = flipped
-    ? {
-        status: 'conforms' as const,
-        automation: flipped,
-        conformanceTests: [SUITE[seed.surface], ...tests],
-        ...(flipped === 'unit-backed' ? climbRisk : {}),
-      }
-    : {
-        status: 'unverified' as const,
-        automation: 'unverified' as const,
-        ...climbRisk,
-      };
+  // Resolve the row's status/automation/risk from its flip tier. Each tier is
+  // one branch; see `climbFor` for what each does with the climb risk.
+  const climb = climbFor(flipped, seed.surface, tests, exceptionReason, climbRisk);
   return buildRow({ ...rest, rowRef: String(ref), oracleObservations: observations, ...climb });
+}
+
+type ClimbRisk = { risk: string[]; riskScore: number; riskReasons: string[] };
+
+/**
+ * The status/automation/risk block a row carries, by flip tier:
+ *
+ *   - not flipped → still climbing: `unverified`, keeps its climb risk.
+ *   - `oracle-backed` → the cited observations are replayed offline by the
+ *     blocking conformance suite, which DISCHARGES the climb risk; the
+ *     builder's zero-risk defaults are then accurate.
+ *   - `unit-backed` → the assertion set passes, but the behavior itself is
+ *     still unobserved (or cited without replay), so the row KEEPS its climb
+ *     risk. That residual is what the audit's evidence-tier worklist ratchets
+ *     (see packages/conformance/src/ledger.ts, evidenceTierGapRows).
+ *   - `type-backed` → the SHAPE tier: a `conforms` row with no runtime carrier
+ *     the sandbox can exhibit. It keeps its climb risk but does NOT wire the
+ *     surface suite (there is nothing to replay) and carries an exceptionReason
+ *     documenting why. The worklist keys on `unit-backed` only, so structural
+ *     closure is left to the tier-2 assignability census, not gated here.
+ */
+function climbFor(
+  flipped: RowSeed['flipped'],
+  surface: SurfacePlane,
+  tests: string[],
+  exceptionReason: string | undefined,
+  climbRisk: ClimbRisk,
+): Partial<CompatibilityRow> {
+  if (flipped === undefined) {
+    return { status: 'unverified', automation: 'unverified', ...climbRisk };
+  }
+  if (flipped === 'oracle-backed') {
+    return { status: 'conforms', automation: 'oracle-backed', conformanceTests: [SUITE[surface], ...tests] };
+  }
+  if (flipped === 'unit-backed') {
+    return { status: 'conforms', automation: 'unit-backed', conformanceTests: [SUITE[surface], ...tests], ...climbRisk };
+  }
+  // 'type-backed' — the shape tier.
+  return { status: 'conforms', automation: 'type-backed', exceptionReason, ...climbRisk };
 }
 
 // ─── firebase/messaging (client) — surface 'messaging' ───────────────────────
@@ -221,11 +252,13 @@ const clientRows: CompatibilityRow[] = [
     surface: 'messaging',
     ref: 10,
     featureKeys: ["MessagePayload"],
-    flipped: 'unit-backed',
+    flipped: 'type-backed',
+    exceptionReason:
+      'Type-only shape with no runtime carrier: the sandbox broker delivers only data/from/messageId(+notification) and never carries `fcmOptions` on a delivered payload (capture-faithful, the same reason `collapseKey` is omitted). The receive-plane conformance suite has nothing to drive, so the FcmOptions shape is closed structurally by the tier-2 assignability census (resolved decision #5), not a runtime replay. Downgraded from unit-backed under #440 rather than keep a vacuous `toBeDefined()` witness; the residual unobserved risk is retained.',
     section: CLIENT,
     api: 'interface FcmOptions { link?; analyticsLabel? }',
     behavior: 'WebpushFcmOptions-style options carried on a client `MessagePayload` (`link`, `analyticsLabel`).',
-    evidence: 'Upstream typings (`@firebase/messaging` 0.12.26 `public-types`); no observation yet.',
+    evidence: 'Upstream typings (`@firebase/messaging` 0.12.26 `public-types`); no observation yet — type-only shape closed by the assignability census (resolved decision #5).',
   }),
   row({
     surface: 'messaging',
