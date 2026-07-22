@@ -250,26 +250,191 @@ export async function assertPriority(): Promise<void> {
   expect((await get(target)).priority).toBeNull();
 }
 
-export async function assertDisconnect(kind: 'shape' | 'deferred' | 'once' | 'cancel' | 'priority') {
+export type DisconnectRegistrationObservation = {
+  ownKeys: string[];
+  prototypeKeys: string[];
+  methodTypes: Record<string, string>;
+  returnThenables: Record<string, boolean>;
+  unchangedAfterRegistration: unknown;
+};
+
+export async function assertDisconnectRegistration(observation: DisconnectRegistrationObservation): Promise<void> {
   const { db } = setup();
   const target = ref(db, 'presence');
   await set(target, { state: 'online' });
   const handle = onDisconnect(target);
-  if (kind === 'shape') {
-    expect(['cancel', 'remove', 'set', 'setWithPriority', 'update'].every(k => typeof handle[k as keyof typeof handle] === 'function')).toBe(true);
-    expect(handle.cancel()).toBeInstanceOf(Promise);
-    return;
+
+  expect(Object.keys(handle).sort()).toEqual(observation.ownKeys);
+  expect(Object.getOwnPropertyNames(Object.getPrototypeOf(handle))
+    .filter(key => key !== 'constructor').sort()).toEqual(observation.prototypeKeys);
+
+  const methodTypes: Record<string, string> = {};
+  const returnThenables: Record<string, boolean> = {};
+  for (const [name, operation] of [
+    ['set', () => handle.set({ state: 'offline' })],
+    ['update', () => handle.update({ state: 'away' })],
+    ['setWithPriority', () => handle.setWithPriority({ state: 'priority' }, 7)],
+    ['remove', () => handle.remove()],
+    ['cancel', () => handle.cancel()],
+  ] as const) {
+    methodTypes[name] = typeof handle[name];
+    const result = operation();
+    returnThenables[name] = typeof result.then === 'function';
+    await result;
   }
-  if (kind === 'priority') await handle.setWithPriority('offline', 7);
-  else await handle.set({ state: 'offline' });
-  if (kind === 'cancel') await handle.cancel();
-  expect((await get(target)).val()).toEqual({ state: 'online' });
-  const { goOffline, goOnline } = await import('../../../src/database/index.js');
+
+  expect(methodTypes).toEqual(observation.methodTypes);
+  expect(returnThenables).toEqual(observation.returnThenables);
+  expect((await get(target)).val()).toEqual(observation.unchangedAfterRegistration);
+}
+
+export async function assertDisconnectDeferred(unchangedAfterRegistration: unknown): Promise<void> {
+  const { db } = setup();
+  const target = ref(db, 'presence');
+  await set(target, unchangedAfterRegistration);
+  await onDisconnect(target).set({ state: 'offline' });
+  expect((await get(target)).val()).toEqual(unchangedAfterRegistration);
+}
+
+export type DisconnectCleanSetObservation = {
+  events: unknown[];
+  beforeDisconnect: unknown;
+  afterDisconnect: unknown;
+  terminalAfterReconnect: unknown;
+  secondDisconnectControlFired: boolean;
+};
+
+export async function assertDisconnectCleanSet(observation: DisconnectCleanSetObservation): Promise<void> {
+  const { db } = setup();
+  const target = ref(db, 'presence');
+  const events: unknown[] = [];
+  const unsubscribe = onValue(target, snapshot => events.push(snapshot.val()));
+  await set(target, { state: 'online' });
+  await onDisconnect(target).set({ state: 'offline' });
+  expect((await get(target)).val()).toEqual(observation.beforeDisconnect);
   goOffline(db);
-  if (kind === 'cancel') expect((await get(target)).val()).toEqual({ state: 'online' });
-  else if (kind === 'priority') expect([(await get(target)).val(), (await get(target)).priority]).toEqual(['offline', 7]);
-  else expect((await get(target)).val()).toEqual({ state: 'offline' });
-  if (kind === 'once') { goOnline(db); await set(target, 'again'); goOffline(db); expect((await get(target)).val()).toBe('again'); }
+  expect((await get(target)).val()).toEqual(observation.afterDisconnect);
+  goOnline(db);
+  await set(target, { state: 'reconnected' });
+  const control = child(target, 'secondDisconnectControl');
+  await onDisconnect(control).set({ drained: true });
+  goOffline(db);
+  expect((await get(control)).exists()).toBe(observation.secondDisconnectControlFired);
+  goOnline(db);
+  await set(control, null);
+  expect((await get(target)).val()).toEqual(observation.terminalAfterReconnect);
+  expect(events).toEqual(observation.events);
+  unsubscribe();
+}
+
+export type DisconnectOperationOutcomes = {
+  set: unknown;
+  update: unknown;
+  remove: unknown;
+  overlapAfterChildCancel: unknown;
+  parentCancelDescendantsTerminal: unknown;
+  cancelledTerminal: unknown;
+};
+
+export async function assertDisconnectOperations(
+  outcomes: DisconnectOperationOutcomes,
+  observerSawDisconnectEvents: boolean,
+): Promise<void> {
+  const { db } = setup();
+  const root = ref(db, 'disconnect-operations');
+  const events: unknown[] = [];
+  const unsubscribe = onValue(root, snapshot => events.push(snapshot.val()));
+  await set(root, {
+    set: 'before',
+    update: { keep: true, value: 1 },
+    remove: true,
+    cancelled: { original: true },
+    overlap: { original: true, child: 'original-child' },
+    cancelScope: { child: 'original' },
+  });
+
+  await onDisconnect(child(root, 'set')).set(outcomes.set);
+  await onDisconnect(child(root, 'update')).update({ value: 2, added: true });
+  await onDisconnect(child(root, 'remove')).remove();
+  const exactCancellation = onDisconnect(child(root, 'cancelled'));
+  await exactCancellation.set({ shouldNotApply: true });
+  await exactCancellation.cancel();
+  await onDisconnect(child(root, 'overlap')).set({ parent: true, child: 'parent-child' });
+  await onDisconnect(child(root, 'overlap/child')).set('child-write');
+  await onDisconnect(child(root, 'overlap/child')).cancel();
+  await onDisconnect(child(root, 'cancelScope/child')).set('queued-child');
+  await onDisconnect(child(root, 'cancelScope/child/grandchild')).set('queued-grandchild');
+  await onDisconnect(child(root, 'cancelScope')).cancel();
+
+  goOffline(db);
+  const terminal = (await get(root)).val() as Record<string, unknown>;
+  expect(terminal.set).toEqual(outcomes.set);
+  expect(terminal.update).toEqual(outcomes.update);
+  expect(terminal.remove ?? null).toEqual(outcomes.remove);
+  expect(terminal.cancelled).toEqual(outcomes.cancelledTerminal);
+  expect(terminal.overlap).toEqual(outcomes.overlapAfterChildCancel);
+  expect(terminal.cancelScope).toEqual(outcomes.parentCancelDescendantsTerminal);
+  expect(events.length > 1).toBe(observerSawDisconnectEvents);
+  unsubscribe();
+}
+
+export type DisconnectRulesObservation = {
+  normalDeniedControl: { resolved: boolean; error: { code: string; name: string } };
+  registrationDenied: { resolved: boolean; error: { code: string; name: string } };
+  normalAllowedControl: { resolved: boolean; value: unknown };
+  registeredWhileAllowed: { resolved: boolean; value: unknown };
+  drainControlExecuted: boolean;
+  observerSawDrainControl: boolean;
+  terminalAfterExecutionDenial: unknown;
+};
+
+export async function assertDisconnectRules(observation: DisconnectRulesObservation): Promise<void> {
+  const { db } = setup();
+  const target = ref(db, 'guarded/target');
+  const drainControl = ref(db, 'guarded/drainControl');
+  const drainEvents: unknown[] = [];
+  const unsubscribe = onValue(drainControl, snapshot => drainEvents.push(snapshot.val()));
+  databaseSandbox.setRules(db, { rules: { guarded: { '.write': true, '.read': true } } });
+
+  const allowed = await set(target, 'seed');
+  expect(observation.normalAllowedControl.resolved).toBe(true);
+  expect(allowed ?? null).toBe(observation.normalAllowedControl.value);
+  const registered = await onDisconnect(target).set('queued');
+  expect(observation.registeredWhileAllowed.resolved).toBe(true);
+  expect(registered ?? null).toBe(observation.registeredWhileAllowed.value);
+  await onDisconnect(drainControl).set('drained');
+
+  databaseSandbox.setRules(db, { rules: { guarded: {
+    '.read': true,
+    target: { '.write': false },
+    drainControl: { '.write': true },
+  } } });
+  let normalDenied: unknown;
+  try { await set(ref(db, 'guarded/normalDeniedControl'), 'denied'); } catch (error) { normalDenied = error; }
+  expect(normalDenied !== undefined).toBe(!observation.normalDeniedControl.resolved);
+  expect(normalDenied).toMatchObject(observation.normalDeniedControl.error);
+
+  goOffline(db);
+  expect((await get(drainControl)).exists()).toBe(observation.drainControlExecuted);
+  expect(drainEvents.length > 1).toBe(observation.observerSawDrainControl);
+  expect((await get(target)).val()).toBe(observation.terminalAfterExecutionDenial);
+
+  let registrationDenied: unknown;
+  try { await onDisconnect(target).set('denied'); } catch (error) { registrationDenied = error; }
+  expect(registrationDenied !== undefined).toBe(!observation.registrationDenied.resolved);
+  expect(registrationDenied).toMatchObject(observation.registrationDenied.error);
+  unsubscribe();
+}
+
+export async function assertDisconnectPriority(productionExport: Record<string, unknown>): Promise<void> {
+  const { db } = setup();
+  const target = ref(db, 'priority');
+  await onDisconnect(target).setWithPriority({ after: true }, 7);
+  goOffline(db);
+  const snapshot = await get(target);
+  expect(snapshot.val()).toEqual({ after: productionExport.after });
+  expect(snapshot.priority).toBe(productionExport['.priority']);
+  expect(snapshot.exportVal()).toEqual(productionExport);
 }
 
 export function assertNoopControls(): void {

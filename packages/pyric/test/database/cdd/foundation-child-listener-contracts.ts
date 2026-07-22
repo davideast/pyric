@@ -1,8 +1,6 @@
 import { expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import * as databaseApi from '../../../src/database/index.js';
-
-const {
+import {
   child,
   getDatabase,
   off,
@@ -16,7 +14,7 @@ const {
   set,
   setPriority,
   setWithPriority,
-} = databaseApi as typeof databaseApi & Record<'setPriority' | 'setWithPriority', any>;
+} from '../../../src/database/index.js';
 
 export async function assertChangedChildContract(): Promise<void> {
   const sandbox = initializeSandbox();
