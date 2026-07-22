@@ -2,6 +2,7 @@
 import type { InboundMessage } from '../protocol.js';
 import { disconnectPort, nextId, rawRpc } from './core.js';
 import type { ClientDb } from './handles.js';
+import { dropRtdbListenersForPort } from './rtdb-listeners.js';
 
 export interface DisconnectClientOptions {
   /** Bound version-skew and worker-crash cases where no disconnect reply arrives. */
@@ -39,6 +40,7 @@ export async function disconnectClient(
     await Promise.race([acknowledged, timedOut]);
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
+    dropRtdbListenersForPort(db.port);
     disconnectPort(db.port);
     db.port.close();
   }

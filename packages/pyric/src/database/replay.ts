@@ -11,6 +11,8 @@ import {
   remove,
   runTransaction,
   set,
+  setPriority,
+  setWithPriority,
   update,
   sandbox as rtdbSandbox,
   type Database,
@@ -133,7 +135,15 @@ async function rewindRtdbCommits(
 ): Promise<void> {
   for (const commit of [...commits].reverse()) {
     if (!commit.path) continue;
-    await set(ref(adminDb, commit.path), commit.priorState ?? null);
+    const dbRef = ref(adminDb, commit.path);
+    if (commit.method === 'setPriority') {
+      await setPriority(dbRef, priorityDetail(commit, 'priorPriority'));
+      continue;
+    }
+    await set(dbRef, commit.priorState ?? null);
+    if (hasPriorityDetail(commit)) {
+      await setPriority(dbRef, priorityDetail(commit, 'priorPriority'));
+    }
   }
 }
 
@@ -146,7 +156,14 @@ async function replayRtdbCommitWithDatabase(
   const dbRef = ref(db, path);
   switch (commit.method) {
     case 'set':
-      await set(dbRef, commit.data);
+      if (hasPriorityDetail(commit)) {
+        await setWithPriority(dbRef, commit.data as never, priorityDetail(commit, 'priority'));
+      } else {
+        await set(dbRef, commit.data);
+      }
+      break;
+    case 'setPriority':
+      await setPriority(dbRef, priorityDetail(commit, 'priority'));
       break;
     case 'remove':
       await remove(dbRef);
@@ -178,6 +195,23 @@ async function replayRtdbCommitWithDatabase(
         reason: `RTDB replay does not support '${commit.method}' commits.`,
       });
   }
+}
+
+function hasPriorityDetail(commit: SandboxCommitEvent): boolean {
+  return commit.detail !== undefined
+    && Object.prototype.hasOwnProperty.call(commit.detail, 'priority');
+}
+
+function priorityDetail(
+  commit: SandboxCommitEvent,
+  field: 'priority' | 'priorPriority',
+): string | number | null {
+  const value = commit.detail?.[field];
+  if (value === null || typeof value === 'string'
+    || (typeof value === 'number' && Number.isFinite(value))) {
+    return value;
+  }
+  throw new Error(`RTDB replay commit has invalid ${field} metadata.`);
 }
 
 function isRtdbCommit(event: SandboxEvent): event is SandboxCommitEvent {

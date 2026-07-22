@@ -15,9 +15,10 @@ export class ListenerRegistry {
     event: string,
     callback: object,
     registration: ListenerRegistration,
+    scope = 'default',
   ): void {
     const map = this.mapFor(target);
-    const key = this.key(path, event, callback);
+    const key = this.key(path, scope, event, callback);
     const registrations = map.get(key) ?? [];
     registrations.push(registration);
     map.set(key, registrations);
@@ -29,9 +30,10 @@ export class ListenerRegistry {
     event: string,
     callback: object,
     registration: ListenerRegistration,
+    scope = 'default',
   ): void {
     const map = this.byTarget.get(target);
-    const key = this.key(path, event, callback);
+    const key = this.key(path, scope, event, callback);
     const registrations = map?.get(key);
     if (!map || !registrations) return;
     const index = registrations.indexOf(registration);
@@ -44,25 +46,38 @@ export class ListenerRegistry {
     path: string,
     event: string,
     callback: object,
+    scope?: string,
   ): ListenerRegistration | undefined {
     const map = this.byTarget.get(target);
-    const key = this.key(path, event, callback);
-    const registrations = map?.get(key);
-    const registration = registrations?.shift();
-    if (registrations?.length === 0) map?.delete(key);
-    return registration;
+    if (!map) return undefined;
+    const callbackId = this.callbackId(callback);
+    const separator = String.fromCharCode(0);
+    for (const [key, registrations] of map) {
+      const [storedPath, storedScope, storedEvent, storedCallbackId] = key.split(separator);
+      if (storedPath !== path || storedEvent !== event
+        || storedCallbackId !== String(callbackId)
+        || (scope !== undefined && storedScope !== scope)) continue;
+      const registration = registrations.shift();
+      if (registrations.length === 0) map.delete(key);
+      return registration;
+    }
+    return undefined;
   }
 
-  takeMatching(target: object, path: string, event?: string): ListenerRegistration[] {
+  takeMatching(
+    target: object,
+    path: string,
+    event?: string,
+    scope?: string,
+  ): ListenerRegistration[] {
     const map = this.byTarget.get(target);
     if (!map) return [];
     const separator = String.fromCharCode(0);
-    const prefix = event === undefined
-      ? `${path}${separator}`
-      : `${path}${separator}${event}${separator}`;
     const matches: ListenerRegistration[] = [];
     for (const [key, registrations] of [...map]) {
-      if (!key.startsWith(prefix)) continue;
+      const [storedPath, storedScope, storedEvent] = key.split(separator);
+      if (storedPath !== path || (scope !== undefined && storedScope !== scope)
+        || (event !== undefined && storedEvent !== event)) continue;
       map.delete(key);
       matches.push(...registrations);
     }
@@ -78,12 +93,17 @@ export class ListenerRegistry {
     return map;
   }
 
-  private key(path: string, event: string, callback: object): string {
+  private key(path: string, scope: string, event: string, callback: object): string {
+    const id = this.callbackId(callback);
+    return `${path}${String.fromCharCode(0)}${scope}${String.fromCharCode(0)}${event}${String.fromCharCode(0)}${id}`;
+  }
+
+  private callbackId(callback: object): number {
     let id = this.callbackIds.get(callback);
     if (id === undefined) {
       id = this.nextCallbackId++;
       this.callbackIds.set(callback, id);
     }
-    return `${path}${String.fromCharCode(0)}${event}${String.fromCharCode(0)}${id}`;
+    return id;
   }
 }

@@ -4,9 +4,12 @@ import {
   getAdminDatabase,
   getDatabase,
   ref,
+  get,
   remove,
   runTransaction,
   set,
+  setPriority,
+  setWithPriority,
   update,
   sandbox as rtdbSandbox,
 } from '../../src/database/index.js';
@@ -121,5 +124,25 @@ describe('database replay()', () => {
 
     expect(result.ok).toBe(true);
     expect(result.divergences).toHaveLength(0);
+  });
+
+  it('records and replays priority metadata', async () => {
+    const sandbox = initializeSandbox();
+    const db = getDatabase(sandbox);
+    rtdbSandbox.setRules(db, ALLOW_ALL);
+    const target = ref(db, '/ranked/item');
+
+    await setWithPriority(target, { label: 'item' }, 7);
+    await setPriority(target, 3);
+
+    const commits = sandbox.history().filter((event) => event.kind === 'commit');
+    expect(commits.map(({ method, detail }) => ({ method, detail }))).toEqual([
+      { method: 'set', detail: { priority: 7, priorPriority: null } },
+      { method: 'setPriority', detail: { priority: 3, priorPriority: 7 } },
+    ]);
+
+    const result = await replay(sandbox.history(), { rules: ALLOW_ALL });
+    expect(result.ok).toBe(true);
+    expect((await get(ref(getDatabase(result.sandbox), '/ranked/item'))).priority).toBe(3);
   });
 });

@@ -427,12 +427,14 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const database = exportedNames(result.files.find((f) => f.endsWith('/database.js'))!);
     for (const name of [
       'getDatabase', 'ref', 'child', 'get', 'set', 'update', 'remove', 'push',
-      'onValue', 'onChildAdded', 'onChildChanged', 'onDisconnect', 'OnDisconnect',
-      'goOffline', 'goOnline', 'off', 'serverTimestamp',
+      'onValue', 'onChildAdded', 'onChildChanged', 'onChildRemoved', 'onChildMoved',
+      'onDisconnect', 'OnDisconnect',
+      'goOffline', 'goOnline', 'off', 'serverTimestamp', 'increment',
       'connectDatabaseEmulator',
-      'runTransaction', 'query', 'orderByChild', 'orderByKey', 'orderByValue',
+      'runTransaction', 'TransactionResult', 'query', 'QueryConstraint',
+      'orderByChild', 'orderByKey', 'orderByPriority', 'orderByValue',
       'startAt', 'startAfter', 'endAt', 'endBefore', 'equalTo',
-      'limitToFirst', 'limitToLast',
+      'limitToFirst', 'limitToLast', 'setPriority', 'setWithPriority',
     ]) {
       expect(database.has(name)).toBe(true);
     }

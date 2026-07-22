@@ -7,31 +7,61 @@
  */
 import * as ip from 'pyric/database';
 import { getDatabase as pyricGetDatabase } from 'pyric/database';
+import { queryIdentifier } from 'pyric/database/internal';
+import { rtdbChild, rtdbGetDatabase, rtdbRef } from '../worker/client/rtdb-references.js';
+import { rtdbGet } from '../worker/client/rtdb-reads.js';
 import {
-  rtdbChild,
-  rtdbConnectDatabaseEmulator,
-  rtdbGet,
-  rtdbGetDatabase,
+  rtdbPush,
+  rtdbRemove,
+  rtdbSet,
+  rtdbSetPriority,
+  rtdbSetWithPriority,
+  rtdbUpdate,
+} from '../worker/client/rtdb-writes.js';
+import {
   rtdbOff,
-  rtdbOnValue,
   rtdbOnChildAdded,
   rtdbOnChildChanged,
-  rtdbOnDisconnect,
+  rtdbOnChildMoved,
+  rtdbOnChildRemoved,
+  rtdbOnValue,
+} from '../worker/client/rtdb-listeners.js';
+import { rtdbRunTransaction } from '../worker/client/rtdb-transactions.js';
+import {
+  RtdbOnDisconnect,
   rtdbGoOffline,
   rtdbGoOnline,
-  RtdbOnDisconnect,
-  rtdbPush,
-  rtdbRef,
-  rtdbRemove,
+  rtdbOnDisconnect,
+} from '../worker/client/rtdb-connection-lifecycle.js';
+import {
+  rtdbConnectDatabaseEmulator,
   rtdbServerTimestamp,
-  rtdbSet,
-  rtdbUpdate,
-} from '../worker/client.js';
+} from '../worker/client/rtdb-controls.js';
 import { useWorker } from './worker-runtime.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
 
 const workerDatabaseByApp = new WeakMap<FirebaseApp, ReturnType<typeof pyricGetDatabase>>();
+
+type WorkerSnapshot = Awaited<ReturnType<typeof rtdbGet>>;
+
+function wrapWorkerSnapshot(snapshot: WorkerSnapshot): ip.DataSnapshot {
+  return new ip.DataSnapshot({
+    key: snapshot.key,
+    size: snapshot.size,
+    priority: snapshot.priority,
+    ref: snapshot.ref as unknown as ip.DatabaseReference,
+    exists: () => snapshot.exists(),
+    val: () => snapshot.val() as ip.JsonValue,
+    child: (path) => wrapWorkerSnapshot(snapshot.child(path)),
+    hasChild: (path) => snapshot.hasChild(path),
+    hasChildren: () => snapshot.hasChildren(),
+    exportVal: () => snapshot.exportVal() as ip.JsonValue,
+    toJSON: () => snapshot.toJSON() as ip.JsonValue,
+    forEach: (callback) => snapshot.forEach((childSnapshot) =>
+      callback(wrapWorkerSnapshot(childSnapshot))),
+  });
+}
 
 export const getDatabase = ((app?: FirebaseApp) => {
   const resolved = app ?? getApp();
@@ -39,25 +69,67 @@ export const getDatabase = ((app?: FirebaseApp) => {
   const existing = workerDatabaseByApp.get(resolved);
   if (existing) return existing;
   const client = workerClientForApp(resolved);
-  const handle = Object.assign(rtdbGetDatabase(client), { app: resolved }) as unknown as ReturnType<typeof pyricGetDatabase>;
+  const handle = Object.assign(
+    new ip.Database(undefined, resolved),
+    rtdbGetDatabase(client),
+    { app: resolved },
+  ) as ReturnType<typeof pyricGetDatabase>;
   workerDatabaseByApp.set(resolved, handle);
   return handle;
 }) as typeof pyricGetDatabase;
 
 export const ref = (useWorker ? rtdbRef : ip.ref) as typeof ip.ref;
 export const child = (useWorker ? rtdbChild : ip.child) as typeof ip.child;
-export const get = (useWorker ? rtdbGet : ip.get) as typeof ip.get;
+export const get = (
+  useWorker
+    ? (async (target: Parameters<typeof ip.get>[0]) =>
+        wrapWorkerSnapshot(await rtdbGet(target as never)))
+    : ip.get
+) as typeof ip.get;
 export const set = (useWorker ? rtdbSet : ip.set) as typeof ip.set;
 export const update = (useWorker ? rtdbUpdate : ip.update) as typeof ip.update;
 export const remove = (useWorker ? rtdbRemove : ip.remove) as typeof ip.remove;
 export const push = (useWorker ? rtdbPush : ip.push) as typeof ip.push;
-export const onValue = (useWorker ? rtdbOnValue : ip.onValue) as typeof ip.onValue;
+export const onValue = (
+  useWorker
+    ? ((
+        target: Parameters<typeof ip.onValue>[0],
+        callback: Parameters<typeof ip.onValue>[1],
+        cancelOrOptions?: Parameters<typeof ip.onValue>[2],
+        options?: Parameters<typeof ip.onValue>[3],
+      ) => rtdbOnValue(
+        target as never,
+        (snapshot) => callback(wrapWorkerSnapshot(snapshot)),
+        cancelOrOptions as never,
+        options,
+        callback,
+      ))
+    : ip.onValue
+) as typeof ip.onValue;
 export const onChildAdded = (
-  useWorker ? rtdbOnChildAdded : ip.onChildAdded
+  useWorker
+    ? ((target: Parameters<typeof ip.onChildAdded>[0], callback: Parameters<typeof ip.onChildAdded>[1], cancelOrOptions?: Parameters<typeof ip.onChildAdded>[2], options?: Parameters<typeof ip.onChildAdded>[3]) =>
+        rtdbOnChildAdded(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), cancelOrOptions as never, options, callback))
+    : ip.onChildAdded
 ) as typeof ip.onChildAdded;
 export const onChildChanged = (
-  useWorker ? rtdbOnChildChanged : ip.onChildChanged
+  useWorker
+    ? ((target: Parameters<typeof ip.onChildChanged>[0], callback: Parameters<typeof ip.onChildChanged>[1], cancelOrOptions?: Parameters<typeof ip.onChildChanged>[2], options?: Parameters<typeof ip.onChildChanged>[3]) =>
+        rtdbOnChildChanged(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), cancelOrOptions as never, options, callback))
+    : ip.onChildChanged
 ) as typeof ip.onChildChanged;
+export const onChildRemoved = (
+  useWorker
+    ? ((target: Parameters<typeof ip.onChildRemoved>[0], callback: Parameters<typeof ip.onChildRemoved>[1], cancelOrOptions?: Parameters<typeof ip.onChildRemoved>[2], options?: Parameters<typeof ip.onChildRemoved>[3]) =>
+        rtdbOnChildRemoved(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), cancelOrOptions as never, options, callback))
+    : ip.onChildRemoved
+) as typeof ip.onChildRemoved;
+export const onChildMoved = (
+  useWorker
+    ? ((target: Parameters<typeof ip.onChildMoved>[0], callback: Parameters<typeof ip.onChildMoved>[1], cancelOrOptions?: Parameters<typeof ip.onChildMoved>[2], options?: Parameters<typeof ip.onChildMoved>[3]) =>
+        rtdbOnChildMoved(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), cancelOrOptions as never, options, callback))
+    : ip.onChildMoved
+) as typeof ip.onChildMoved;
 export const onDisconnect = (
   useWorker ? rtdbOnDisconnect : ip.onDisconnect
 ) as typeof ip.onDisconnect;
@@ -65,6 +137,7 @@ export const OnDisconnect = (
   useWorker ? RtdbOnDisconnect : ip.OnDisconnect
 ) as typeof ip.OnDisconnect;
 export const off = (useWorker ? rtdbOff : ip.off) as typeof ip.off;
+export const increment = ip.increment;
 export const serverTimestamp = (
   useWorker ? rtdbServerTimestamp : ip.serverTimestamp
 ) as typeof ip.serverTimestamp;
@@ -101,47 +174,79 @@ export const refFromURL = ((db: unknown, url: string) => {
   return (ref as (db: unknown, path?: string) => unknown)(db, path);
 }) as typeof ip.refFromURL;
 
-function unsupportedWorkerApi(name: string): never {
-  throw new Error(
-    `firebase/database ${name}() is not supported over the pyric SharedWorker yet. ` +
-      'Use the in-page fallback for this operation.',
-  );
-}
-
 export const runTransaction = (
-  useWorker ? (() => unsupportedWorkerApi('runTransaction')) : ip.runTransaction
+  useWorker
+    ? (async (
+        target: Parameters<typeof ip.runTransaction>[0],
+        update: Parameters<typeof ip.runTransaction>[1],
+        options?: Parameters<typeof ip.runTransaction>[2],
+      ) => {
+        const result = await rtdbRunTransaction(
+          target as never,
+          update as (current: unknown) => unknown,
+          options,
+        );
+        return new ip.TransactionResult(result.committed, wrapWorkerSnapshot(result.snapshot));
+      })
+    : ip.runTransaction
 ) as typeof ip.runTransaction;
 
 export const query = (
-  useWorker ? (() => unsupportedWorkerApi('query')) : ip.query
+  useWorker
+    ? ((target: Parameters<typeof ip.query>[0], ...constraints: Parameters<typeof ip.query>[1][]) => {
+        const built = ip.query(target, ...constraints);
+        return {
+          ...built,
+          isEqual(other: ip.Query | null) {
+            return other !== null
+              && 'port' in built.ref
+              && 'port' in other.ref
+              && built.ref.port === other.ref.port
+              && built.ref._path === other.ref._path
+              && queryIdentifier(built._spec) === queryIdentifier(other._spec);
+          },
+        };
+      })
+    : ip.query
 ) as typeof ip.query;
-export const orderByChild = (
-  useWorker ? (() => unsupportedWorkerApi('orderByChild')) : ip.orderByChild
-) as typeof ip.orderByChild;
-export const orderByKey = (
-  useWorker ? (() => unsupportedWorkerApi('orderByKey')) : ip.orderByKey
-) as typeof ip.orderByKey;
-export const orderByValue = (
-  useWorker ? (() => unsupportedWorkerApi('orderByValue')) : ip.orderByValue
-) as typeof ip.orderByValue;
-export const startAt = (
-  useWorker ? (() => unsupportedWorkerApi('startAt')) : ip.startAt
-) as typeof ip.startAt;
-export const startAfter = (
-  useWorker ? (() => unsupportedWorkerApi('startAfter')) : ip.startAfter
-) as typeof ip.startAfter;
-export const endAt = (
-  useWorker ? (() => unsupportedWorkerApi('endAt')) : ip.endAt
-) as typeof ip.endAt;
-export const endBefore = (
-  useWorker ? (() => unsupportedWorkerApi('endBefore')) : ip.endBefore
-) as typeof ip.endBefore;
-export const equalTo = (
-  useWorker ? (() => unsupportedWorkerApi('equalTo')) : ip.equalTo
-) as typeof ip.equalTo;
-export const limitToFirst = (
-  useWorker ? (() => unsupportedWorkerApi('limitToFirst')) : ip.limitToFirst
-) as typeof ip.limitToFirst;
-export const limitToLast = (
-  useWorker ? (() => unsupportedWorkerApi('limitToLast')) : ip.limitToLast
-) as typeof ip.limitToLast;
+export const orderByChild = ip.orderByChild;
+export const orderByKey = ip.orderByKey;
+export const orderByPriority = ip.orderByPriority;
+export const orderByValue = ip.orderByValue;
+export const startAt = ip.startAt;
+export const startAfter = ip.startAfter;
+export const endAt = ip.endAt;
+export const endBefore = ip.endBefore;
+export const equalTo = ip.equalTo;
+export const limitToFirst = ip.limitToFirst;
+export const limitToLast = ip.limitToLast;
+
+export const setPriority = (
+  useWorker ? rtdbSetPriority : ip.setPriority
+) as typeof ip.setPriority;
+export const setWithPriority = (
+  useWorker ? rtdbSetWithPriority : ip.setWithPriority
+) as typeof ip.setWithPriority;
+
+// Runtime constructors and type-only declarations expected by common
+// `firebase/database` imports. Served worker results are wrapped above so the
+// public handles, snapshots, constraints, and transaction results keep these
+// observable constructor identities.
+export const Database = ip.Database;
+export const DataSnapshot = ip.DataSnapshot;
+export const QueryConstraint = ip.QueryConstraint;
+export const TransactionResult = ip.TransactionResult;
+export type Database = ip.Database;
+export type DataSnapshot = ip.DataSnapshot;
+export type QueryConstraint = ip.QueryConstraint;
+export type TransactionResult = ip.TransactionResult;
+export type OnDisconnect = ip.OnDisconnect;
+export type DatabaseReference = ip.DatabaseReference;
+export type EmulatorMockTokenOptions = ip.EmulatorMockTokenOptions;
+export type EventType = ip.EventType;
+export type ListenOptions = ip.ListenOptions;
+export type Query = ip.Query;
+export type QueryConstraintType = ip.QueryConstraintType;
+export type ThenableReference = ip.ThenableReference;
+export type TransactionOptions = ip.TransactionOptions;
+export type Unsubscribe = ip.Unsubscribe;

@@ -10,7 +10,7 @@
  *      primitive values at the path are NOT eligible — `query()` only
  *      makes sense on a collection-shaped node).
  *   2. Order them by the active `orderBy*` constraint (default
- *      `orderByKey` if none supplied).
+ *      priority index with key tie-breaking if none supplied).
  *   3. Apply `startAt` / `startAfter` / `endAt` / `endBefore` / `equalTo`
  *      bounds against the active ordering's comparison value.
  *   4. Apply `limitToFirst(n)` or `limitToLast(n)` — they truncate the
@@ -53,7 +53,10 @@ import type { JsonValue } from './data-tree.js';
 export type OrderBy =
   | { kind: 'child'; path: string }
   | { kind: 'key' }
+  | { kind: 'priority' }
   | { kind: 'value' };
+
+export type Priority = string | number | null;
 
 /** Cursor or filter bound. `startAt`/`endAt` are inclusive; the
  *  `*Exclusive` variants drop the boundary value. `equalTo` collapses
@@ -77,7 +80,7 @@ export type LimitKind = 'limitToFirst' | 'limitToLast';
  * constraints into {order, bounds, limit} during apply.
  */
 export interface QuerySpec {
-  /** Active ordering. `null` means default (`orderByKey`). */
+  /** Active ordering. `null` means Firebase's default priority index. */
   orderBy: OrderBy | null;
   /** Range/equality filters. Multiple bounds compose. */
   bounds: Bound[];
@@ -255,13 +258,16 @@ export function extractOrderValue(
   spec: OrderBy | null,
   key: string,
   value: JsonValue,
+  priority: Priority = null,
 ): JsonValue {
-  const o = spec ?? { kind: 'key' as const };
+  const o = spec ?? { kind: 'priority' as const };
   switch (o.kind) {
     case 'key':
       return key;
     case 'value':
       return value;
+    case 'priority':
+      return priority;
     case 'child': {
       if (value === null || typeof value !== 'object' || Array.isArray(value)) {
         return null;
@@ -282,6 +288,7 @@ export function extractOrderValue(
 export interface QueryRow {
   key: string;
   value: JsonValue;
+  priority: Priority;
 }
 
 /**
@@ -294,6 +301,7 @@ export interface QueryRow {
 export function executeQuery(
   pathData: JsonValue,
   spec: QuerySpec,
+  priorityForKey: (key: string) => Priority = () => null,
 ): QueryRow[] {
   // Non-collection input → no rows. RTDB's `query()` on a primitive
   // path returns an empty snapshot.
@@ -302,18 +310,22 @@ export function executeQuery(
   }
   const obj = pathData as Record<string, JsonValue>;
   // Enumerate immediate children only — RTDB's query model is one-level.
-  let rows: QueryRow[] = Object.entries(obj).map(([key, value]) => ({ key, value }));
+  let rows: QueryRow[] = Object.entries(obj).map(([key, value]) => ({
+    key,
+    value,
+    priority: priorityForKey(key),
+  }));
 
   // ─── 1. Order ─────────────────────────────────────────────────────
-  const orderingByKey = (spec.orderBy ?? { kind: 'key' }).kind === 'key';
+  const orderingByKey = spec.orderBy?.kind === 'key';
   rows.sort((a, b) => {
     if (orderingByKey) {
       // `orderByKey` compares keys under RTDB's nameCompare directly
       // (numeric-keys-first) — there's no separate tie-break.
       return nameCompare(a.key, b.key);
     }
-    const va = extractOrderValue(spec.orderBy, a.key, a.value);
-    const vb = extractOrderValue(spec.orderBy, b.key, b.value);
+    const va = extractOrderValue(spec.orderBy, a.key, a.value, a.priority);
+    const vb = extractOrderValue(spec.orderBy, b.key, b.value, b.priority);
     const cmp = compareValues(va, vb);
     if (cmp !== 0) return cmp;
     // Tie-break by key under nameCompare (RTDB's documented behavior —
@@ -348,14 +360,14 @@ export function executeQuery(
  * only if its key is also at-or-past the supplied key.
  */
 function boundMatches(b: Bound, row: QueryRow, orderBy: OrderBy | null): boolean {
-  const orderingByKey = (orderBy ?? { kind: 'key' as const }).kind === 'key';
+  const orderingByKey = orderBy?.kind === 'key';
   // Under `orderByKey`, the bound's `value` IS the comparison key and is
   // compared with nameCompare (numeric-first), NOT the value type-order.
   // Under value/child ordering, compare the ordered value, then break
   // ties on the key with nameCompare.
   const cmp = orderingByKey
     ? nameCompare(row.key, String(b.value))
-    : compareValues(extractOrderValue(orderBy, row.key, row.value), b.value);
+    : compareValues(extractOrderValue(orderBy, row.key, row.value, row.priority), b.value);
   const keyCmp = (other: string): number => nameCompare(row.key, other);
   switch (b.kind) {
     case 'startAt':

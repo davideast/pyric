@@ -53,6 +53,7 @@ import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
 // The auth-lens contract and the cross-service event envelope are shared with
 // the sandbox's event provenance — Studio's Action Center folds these verbatim.
 import type { AuthLens, SandboxEvent, DenialContext } from 'pyric/sandbox';
+import type { Query as RtdbQuery } from 'pyric/database';
 // TYPE-ONLY (same rationale): the broker's own wire shapes for the
 // `messaging.*` ops — all plain JSON, structured-clone-safe by construction.
 import type {
@@ -401,8 +402,10 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'admin.setDocument'; path: string; data: unknown }
   | { t: 'op'; id: string; method: 'admin.deleteDocument'; path: string }
   | { t: 'op'; id: string; method: 'admin.readState'; path?: string; maxDepth?: number }
-  | { t: 'op'; id: string; method: 'rtdb.get'; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.get'; path: string; query?: RtdbQuerySpec }
   | { t: 'op'; id: string; method: 'rtdb.set'; path: string; value: unknown }
+  | { t: 'op'; id: string; method: 'rtdb.setPriority'; path: string; priority: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.setWithPriority'; path: string; value: unknown; priority: string | number | null }
   | { t: 'op'; id: string; method: 'rtdb.update'; path: string; values: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'rtdb.remove'; path: string }
   | { t: 'op'; id: string; method: 'rtdb.push'; path: string; key: string; value?: unknown }
@@ -413,6 +416,15 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; path: string }
   | { t: 'op'; id: string; method: 'rtdb.goOffline' }
   | { t: 'op'; id: string; method: 'rtdb.goOnline' }
+  | {
+      t: 'op';
+      id: string;
+      method: 'rtdb.transactionCommit';
+      path: string;
+      expected: unknown;
+      value: unknown;
+      applyLocally?: boolean;
+    }
   // Collection enumeration (Pyric Studio data browse): the modular SDK has no
   // client `listCollections`, so the host enumerates the sandbox keyspace via
   // `getInternalEnv(sandbox)`. Reply: `{ ids: string[] }`.
@@ -687,7 +699,7 @@ export interface EventSubMessage {
 export interface RtdbValueSubMessage {
   t: 'sub';
   subId: string;
-  target: { service: 'rtdb'; path: string };
+  target: { service: 'rtdb'; path: string; query?: RtdbQuerySpec };
   /** Mirrors Firestore subscriptions: absent/app-session uses this port's session. */
   actAs?: AuthLens;
   /** Mechanical op provenance — see the field's doc on {@link OpMessage}. */
@@ -695,6 +707,9 @@ export interface RtdbValueSubMessage {
   /** Marks traffic relayed from a remote Node/agent consumer. */
   relaySource?: 'remote';
 }
+
+/** Structured-clone-safe query plan carried by `pyric/database` Query values. */
+export type RtdbQuerySpec = RtdbQuery['_spec'];
 
 /**
  * Stream a `generateContent` call as a SUBSCRIPTION (cdd-deltas #98.3:

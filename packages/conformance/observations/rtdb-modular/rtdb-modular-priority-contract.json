@@ -1,0 +1,225 @@
+{
+  "name": "rtdb-modular-priority-contract",
+  "matrixRow": "rtdb-modular#M46, rtdb-modular#M89, rtdb-modular#M90, rtdb-modular#M91",
+  "rowIds": [
+    "rtdb-modular#M46",
+    "rtdb-modular#M89",
+    "rtdb-modular#M90",
+    "rtdb-modular#M91"
+  ],
+  "description": "Priority round trips, replacement/preservation/clearing, priority ordering with bounds and limits, movement, and transaction lifecycle.",
+  "observedAt": "2026-07-22T10:06:31.180Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "before": [
+      {
+        "key": "a",
+        "priority": 10,
+        "exportVal": {
+          "value": 1,
+          ".priority": 10
+        }
+      },
+      {
+        "key": "b",
+        "priority": 5,
+        "exportVal": {
+          "value": 2,
+          ".priority": 5
+        }
+      },
+      {
+        "key": "c",
+        "priority": 5,
+        "exportVal": {
+          "value": 3,
+          ".priority": 5
+        }
+      }
+    ],
+    "orderedKeys": [
+      "b",
+      "c",
+      "a"
+    ],
+    "boundedKeys": [
+      "b",
+      "c"
+    ],
+    "equalKeys": [
+      "b",
+      "c"
+    ],
+    "plainForEachKeys": [
+      "b",
+      "c",
+      "a"
+    ],
+    "defaultLimitedKeys": [
+      "b",
+      "c"
+    ],
+    "parentExportVal": {
+      "b": {
+        "value": 2,
+        ".priority": 5
+      },
+      "c": {
+        "value": 3,
+        ".priority": 5
+      },
+      "a": {
+        "value": 1,
+        ".priority": 10
+      }
+    },
+    "parentToJSON": {
+      "b": {
+        "value": 2,
+        ".priority": 5
+      },
+      "c": {
+        "value": 3,
+        ".priority": 5
+      },
+      "a": {
+        "value": 1,
+        ".priority": 10
+      }
+    },
+    "invalidPriorityBounds": {
+      "boolean": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string)."
+      },
+      "object": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string)."
+      },
+      "defaultBoolean": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string)."
+      },
+      "defaultObject": {
+        "timing": "synchronous-throw",
+        "name": "Error",
+        "code": null,
+        "message": "Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string)."
+      }
+    },
+    "moved": [
+      [
+        "a",
+        null
+      ]
+    ],
+    "plainMoved": [
+      [
+        "a",
+        null
+      ]
+    ],
+    "samePositionMoved": [
+      [
+        "c",
+        "b"
+      ]
+    ],
+    "samePositionPlainMoved": [
+      [
+        "c",
+        "b"
+      ]
+    ],
+    "allMoved": [
+      [
+        "a",
+        null
+      ],
+      [
+        "c",
+        "b"
+      ],
+      [
+        "b",
+        null
+      ],
+      [
+        "c",
+        "b"
+      ]
+    ],
+    "allPlainMoved": [
+      [
+        "a",
+        null
+      ],
+      [
+        "c",
+        "b"
+      ],
+      [
+        "b",
+        null
+      ],
+      [
+        "c",
+        "b"
+      ]
+    ],
+    "orderedValueDeliveriesAfterMove": 2,
+    "orderedValueDeliveriesAfterSamePositionChange": 3,
+    "totalOrderedValueDeliveries": 7,
+    "afterMove": {
+      "priority": 0,
+      "exportVal": {
+        "value": 1,
+        ".priority": 0
+      }
+    },
+    "afterUpdate": 0,
+    "afterTransaction": 0,
+    "afterSet": null,
+    "afterClear": {
+      "priority": null,
+      "exportVal": {
+        "value": 3
+      }
+    },
+    "descendantPriorityDeliveries": [
+      {
+        "value": 1,
+        "priority": 9
+      },
+      {
+        "value": 1,
+        "priority": null
+      },
+      {
+        "value": 2,
+        "priority": null
+      }
+    ],
+    "afterAncestorReplacementCount": 2,
+    "afterAncestorPriorityOnlyCount": 2,
+    "terminal": {
+      "a": {
+        "value": 5
+      },
+      "b": {
+        "value": 20
+      },
+      "c": {
+        "value": 3
+      }
+    }
+  }
+}

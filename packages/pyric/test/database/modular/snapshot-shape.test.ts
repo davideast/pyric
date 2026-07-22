@@ -34,9 +34,9 @@ describe('DB-B10 — DataSnapshot shape matches the modular oracle', () => {
     expect(snap.size).toBe(3);
     // legacy numChildren() is gone (oracle hasNumChildren: false).
     expect('numChildren' in snap).toBe(false);
-    // priority present (null — sandbox does not model priority).
+    // priority present (null because this node has no priority metadata).
     expect(snap.priority).toBeNull();
-    // exportVal present, equals val() with no priority modeled.
+    // exportVal present, equals val() when no priority is set.
     expect(typeof snap.exportVal).toBe('function');
     expect(snap.exportVal()).toEqual({ a: 1, b: 2, c: 3 });
     // forEach still present and ordered.

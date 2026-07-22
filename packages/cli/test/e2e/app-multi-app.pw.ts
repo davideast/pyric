@@ -221,3 +221,78 @@ test('served canonical imports keep equal-config apps isolated over one SharedWo
     deletedSiblingListenerError: 'aborted',
   });
 });
+
+test('unchanged firebase/database imports preserve the graduated worker behaviors', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => document.querySelector('#status')?.textContent !== 'loading');
+
+  const actual = await page.evaluate(async () => {
+    const appModule = await import('firebase/app');
+    const authModule = await import('firebase/auth');
+    const databaseModule = await import('firebase/database');
+    const app = appModule.initializeApp({ ...appModule.getApp().options }, 'rtdb-public-smoke');
+    await authModule.signInAnonymously(authModule.getAuth(app));
+    const database = databaseModule.getDatabase(app);
+    const rows = databaseModule.ref(database, 'public-rtdb/rows');
+    await databaseModule.setWithPriority(databaseModule.child(rows, 'a'), { rank: 1 }, 10);
+    await databaseModule.setWithPriority(databaseModule.child(rows, 'b'), { rank: 2 }, 20);
+
+    const onlyOnce: string[] = [];
+    databaseModule.onChildAdded(rows, (snapshot) => onlyOnce.push(snapshot.key!), { onlyOnce: true });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await databaseModule.set(databaseModule.child(rows, 'c'), { rank: 3 });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const counter = databaseModule.ref(database, 'public-rtdb/counter');
+    await databaseModule.set(counter, 1);
+    await databaseModule.set(counter, databaseModule.increment(2));
+
+    const offTarget = databaseModule.ref(database, 'public-rtdb/off');
+    const calls: string[] = [];
+    const kept = () => calls.push('kept');
+    const removed = () => calls.push('removed');
+    databaseModule.onValue(offTarget, kept);
+    databaseModule.onValue(offTarget, removed);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    calls.length = 0;
+    databaseModule.off(offTarget, 'value', removed);
+    await databaseModule.set(offTarget, true);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    databaseModule.off(offTarget);
+
+    let invalidPathThrew = false;
+    try {
+      databaseModule.child(rows, 'invalid#path');
+    } catch {
+      invalidPathThrew = true;
+    }
+    const snapshot = await databaseModule.get(rows);
+    const incrementValue = (await databaseModule.get(counter)).val();
+    await appModule.deleteApp(app);
+    return {
+      increment: incrementValue,
+      onlyOnce,
+      offCalls: calls,
+      invalidPathThrew,
+      exportValue: snapshot.exportVal(),
+      toJSON: snapshot.toJSON(),
+    };
+  });
+
+  expect(actual).toEqual({
+    increment: 3,
+    onlyOnce: ['b', 'a'],
+    offCalls: ['kept'],
+    invalidPathThrew: true,
+    exportValue: {
+      a: { rank: 1, '.priority': 10 },
+      b: { rank: 2, '.priority': 20 },
+      c: { rank: 3 },
+    },
+    toJSON: {
+      a: { rank: 1, '.priority': 10 },
+      b: { rank: 2, '.priority': 20 },
+      c: { rank: 3 },
+    },
+  });
+});

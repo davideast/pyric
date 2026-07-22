@@ -22,6 +22,9 @@ import {
   orderByChild,
   orderByKey,
   orderByValue,
+  orderByPriority,
+  setPriority,
+  setWithPriority,
   startAt,
   startAfter,
   endAt,
@@ -273,6 +276,32 @@ describe('onValue(query) — windowed listener (oracle: rtdb-modular-onvalue-wit
     expect(fires).toEqual([0]);
     off();
   });
+
+  it('preserves query order for integer-looking keys in listener snapshots', async () => {
+    const { db } = setup();
+    const target = ref(db, 'numeric-keys');
+    await set(target, { '1': { rank: 2 }, '2': { rank: 1 } });
+    const deliveries: string[][] = [];
+    const unsubscribe = onValue(query(target, orderByChild('rank')), (snap) => {
+      deliveries.push(snapKeys(snap));
+    });
+    expect(deliveries).toEqual([['2', '1']]);
+    unsubscribe();
+  });
+
+  it('re-fires a priority query when setPriority changes its ordered window', async () => {
+    const { db } = setup();
+    const target = ref(db, 'priority-listener');
+    await setWithPriority(ref(db, 'priority-listener/a'), 1, 10);
+    await setWithPriority(ref(db, 'priority-listener/b'), 2, 5);
+    const deliveries: string[][] = [];
+    const unsubscribe = onValue(query(target, orderByPriority()), (snap) => {
+      deliveries.push(snapKeys(snap));
+    });
+    await setPriority(ref(db, 'priority-listener/a'), 0);
+    expect(deliveries).toEqual([['b', 'a'], ['a', 'b']]);
+    unsubscribe();
+  });
 });
 
 describe('query chaining + introspection', () => {
@@ -315,7 +344,7 @@ describe('query — degenerate inputs', () => {
     expect(snap.size).toBe(0);
   });
 
-  it('query with no constraints behaves like a plain get (ordered by key)', async () => {
+  it('query with no constraints behaves like a plain get (default priority index)', async () => {
     const { db } = setup();
     await update(ref(db, 'list'), { c: 3, a: 1, b: 2 });
     const snap = await get(query(ref(db, 'list')));

@@ -18,22 +18,26 @@ import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
  * Absent path → `snap.val() === null && snap.exists() === false`.
  * Matches the SDK's `DataSnapshot.val()` contract.
  */
-export async function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
+export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
   // Query branch — windowed read.
   if (isQuery(r as object)) {
     const q = r as Query;
     const target = targetOf(q.ref as unknown as object);
-    const rows = target.admin
-      ? target.backend.adminGetQuery(q.ref._path, q._spec)
-      : target.backend.getQuery(authFor(target), q.ref._path, q._spec);
-    return buildSandboxQuerySnap(target, q.ref, rows);
+    return Promise.resolve().then(() => {
+      const rows = target.admin
+        ? target.backend.adminGetQuery(q.ref._path, q._spec)
+        : target.backend.getQuery(authFor(target), q.ref._path, q._spec);
+      return buildSandboxQuerySnap(target, q.ref, rows);
+    });
   }
   const ref0 = r as DatabaseReference;
   const target = targetOf(ref0 as unknown as object);
-  const val = target.admin
-    ? target.backend.adminGet(ref0._path)
-    : target.backend.get(authFor(target), ref0._path);
-  return buildSandboxSnap(target, ref0, val);
+  return Promise.resolve().then(() => {
+    const val = target.admin
+      ? target.backend.adminGet(ref0._path)
+      : target.backend.get(authFor(target), ref0._path);
+    return buildSandboxSnap(target, ref0, val);
+  });
 }
 
 /**
@@ -52,6 +56,31 @@ export async function set(r: DatabaseReference, value: unknown): Promise<void> {
   }
 }
 
+export async function setPriority(
+  r: DatabaseReference,
+  priority: string | number | null,
+): Promise<void> {
+  const target = targetOf(r as unknown as object);
+  if (target.admin) {
+    target.backend.adminSetPriority(r._path, priority);
+  } else {
+    target.backend.setPriority(authFor(target), r._path, priority);
+  }
+}
+
+export async function setWithPriority(
+  r: DatabaseReference,
+  value: unknown,
+  priority: string | number | null,
+): Promise<void> {
+  const target = targetOf(r as unknown as object);
+  if (target.admin) {
+    target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
+  } else {
+    target.backend.setWithPriority(authFor(target), r._path, value as JsonValue, priority);
+  }
+}
+
 /**
  * `update(ref, values)` — partial update.
  *
@@ -65,19 +94,40 @@ export async function set(r: DatabaseReference, value: unknown): Promise<void> {
  * Both behaviors are sandbox-implemented per the RtdbBackend's
  * `update` method (`rtdb-modular`-spec atomic claim, matrix row #23).
  */
-export async function update(
+export function update(
   r: DatabaseReference,
   values: Record<string, unknown>,
 ): Promise<void> {
   const target = targetOf(r as unknown as object);
-  if (target.admin) {
-    target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
-  } else {
-    target.backend.update(
-      authFor(target),
-      r._path,
-      values as Record<string, JsonValue>,
-    );
+  validateUpdatePaths(values);
+  return Promise.resolve().then(() => {
+    if (target.admin) {
+      target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
+    } else {
+      target.backend.update(
+        authFor(target),
+        r._path,
+        values as Record<string, JsonValue>,
+      );
+    }
+  });
+}
+
+function validateUpdatePaths(values: Record<string, unknown>): void {
+  const paths = Object.keys(values).map((path) => `/${pathSegments(path).join('/')}`);
+  for (let leftIndex = 0; leftIndex < paths.length; leftIndex++) {
+    for (let rightIndex = leftIndex + 1; rightIndex < paths.length; rightIndex++) {
+      const left = paths[leftIndex]!;
+      const right = paths[rightIndex]!;
+      const [ancestor, descendant] = left.length <= right.length
+        ? [left, right]
+        : [right, left];
+      if (ancestor === descendant || descendant.startsWith(`${ancestor}/`)) {
+        throw new Error(
+          `update failed: values argument contains a path ${ancestor} that is ancestor of another path ${descendant}`,
+        );
+      }
+    }
   }
 }
 

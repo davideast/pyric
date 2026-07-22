@@ -18,9 +18,9 @@ import {
   type Query,
 } from 'pyric/firestore';
 import {
-  ref as rtdbRef,
   onValue as rtdbOnValue,
   type DatabaseReference,
+  type Query as RtdbQuery,
 } from 'pyric/database';
 
 import type { FirestoreSubMessage, RtdbValueSubMessage, UnsubMessage } from '../protocol.js';
@@ -34,7 +34,7 @@ import {
   resolveTarget,
   serializeDocSnap,
 } from './core.js';
-import { rtdbSnapToWire } from './rtdb.js';
+import { rtdbSnapToWire, rtdbTarget } from './rtdb.js';
 
 /**
  * Session-bound sub registry (#754): the original sub message for every
@@ -155,9 +155,13 @@ export function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMes
   }
 
   try {
-    const ref = rtdbRef(lensRtdb(ctx, msg.actAs, port), msg.target.path);
+    const ref = rtdbTarget(
+      lensRtdb(ctx, msg.actAs, port),
+      msg.target.path,
+      msg.target.query,
+    );
     const unsub = rtdbOnValue(
-      ref as DatabaseReference,
+      ref as DatabaseReference | RtdbQuery,
       (snap) => post(port, { t: 'snap', subId: msg.subId, value: rtdbSnapToWire(snap) }),
     );
     portSubs.set(msg.subId, unsub);

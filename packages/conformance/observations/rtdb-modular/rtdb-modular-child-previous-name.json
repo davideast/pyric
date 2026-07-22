@@ -1,0 +1,81 @@
+{
+  "name": "rtdb-modular-child-previous-name",
+  "matrixRow": "rtdb-modular#M75, rtdb-modular#M75c",
+  "rowIds": [
+    "rtdb-modular#M75",
+    "rtdb-modular#M75c"
+  ],
+  "description": "previousChildName values for initial replay, add/change/remove, and ordered movement, with terminal state independently confirmed.",
+  "observedAt": "2026-07-22T08:19:30.498Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "initialAdded": [
+      [
+        "a",
+        null
+      ],
+      [
+        "b",
+        "a"
+      ],
+      [
+        "c",
+        "b"
+      ]
+    ],
+    "postMutationAdded": [
+      [
+        "d",
+        "c"
+      ]
+    ],
+    "changed": [
+      [
+        "b",
+        "a"
+      ],
+      [
+        "c",
+        "b"
+      ]
+    ],
+    "removed": [
+      [
+        "a",
+        null
+      ]
+    ],
+    "moved": [
+      [
+        "c",
+        null
+      ]
+    ],
+    "plainPriorityAdded": [
+      [
+        "a",
+        null
+      ],
+      [
+        "z",
+        "a"
+      ]
+    ],
+    "terminal": {
+      "b": {
+        "rank": 2,
+        "stable": true
+      },
+      "c": {
+        "rank": 0,
+        "stable": false
+      },
+      "d": {
+        "rank": 4,
+        "stable": false
+      }
+    }
+  }
+}

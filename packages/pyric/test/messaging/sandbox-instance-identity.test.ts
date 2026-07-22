@@ -8,7 +8,7 @@
  * (production's one-service-worker-per-origin model). Routing correctness for
  * that shared broker lives in `sandbox-routing.test.ts`.
  */
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import { initializeApp } from '../../src/app/index.js';
 import { resetAppRegistryForTests } from '../../src/app/registry.js';
@@ -26,6 +26,7 @@ function sandboxApp() {
 
 describe('Messaging instance identity (sandbox)', () => {
   beforeEach(() => resetAppRegistryForTests());
+  afterEach(() => resetAppRegistryForTests());
 
   it('returns the same client instance for repeated getMessaging on one app', () => {
     const app = sandboxApp();

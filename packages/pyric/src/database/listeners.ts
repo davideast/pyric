@@ -2,10 +2,11 @@ import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf, type Target } from './routing.js';
-import { isQuery } from './query-shape.js';
-import type { DataSnapshot, DatabaseReference, Query, Unsubscribe } from './types.js';
+import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
+import type { QueryRow } from './sandbox/query.js';
+import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
 import { child } from './references.js';
-import { buildSandboxSnapFromRaw } from './snapshots.js';
+import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
 
 // ─── Listeners (Tier 2) ──────────────────────────────────────────────
 
@@ -17,35 +18,41 @@ import { buildSandboxSnapFromRaw } from './snapshots.js';
  */
 function subscribeWithLiveAuth(
   target: Target,
-  subscribe: (auth: AuthState) => Unsubscribe,
+  subscribe: (auth: AuthState, onCanceled: () => void) => Unsubscribe,
+  onTerminal?: () => void,
 ): Unsubscribe {
   let stopped = false;
-  let backendUnsubscribe = subscribe(authFor(target));
-  const sessionUnsubscribe = target.kind === 'sandbox-live'
-    ? target.onCurrentUserChanged?.(() => {
-      backendUnsubscribe();
-      try {
-        backendUnsubscribe = subscribe(authFor(target));
-      } catch {
-        // The public subset currently has no cancel callback overload. A
-        // denied identity therefore suspends delivery until this app's next
-        // Auth transition instead of leaking events under the old identity.
-        backendUnsubscribe = () => {};
-      }
-    })
-    : undefined;
-
+  let backendUnsubscribe: Unsubscribe = () => {};
+  let sessionUnsubscribe: Unsubscribe | undefined;
+  let release: Unsubscribe | undefined;
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
     sessionUnsubscribe?.();
     backendUnsubscribe();
-  };
-  const release = target.kind === 'sandbox-live' ? target.own?.(stop) : undefined;
-  return () => {
     release?.();
-    stop();
+    onTerminal?.();
   };
+
+  backendUnsubscribe = subscribe(authFor(target), stop);
+  sessionUnsubscribe = target.kind === 'sandbox-live'
+    ? target.onCurrentUserChanged?.(() => {
+      if (stopped) return;
+      backendUnsubscribe();
+      try {
+        backendUnsubscribe = subscribe(authFor(target), stop);
+      } catch {
+        backendUnsubscribe = () => {};
+        stop();
+      }
+    })
+    : undefined;
+  release = target.kind === 'sandbox-live' ? target.own?.(stop) : undefined;
+  return stop;
+}
+
+function queryScope(r: DatabaseReference | Query): string {
+  return queryIdentifier(r._spec);
 }
 
 /**
@@ -61,19 +68,36 @@ function subscribeWithLiveAuth(
  * `options.onlyOnce` (DB-B12): when `true`, the listener auto-unsubscribes
  * after its first fire (mirrors `api/Reference_impl.ts:975-980`).
  *
- * Errors path: subscribing under rules that deny the read throws the
- * plain-`Error` `PERMISSION_DENIED` shape synchronously (matching the
- * production behavior where the subscribe path immediately errors).
+ * With a cancellation callback, an initially denied listen returns normally
+ * and reports the Firebase `PERMISSION_DENIED` error asynchronously. Without
+ * one, the sandbox preserves its legacy synchronous throw.
  */
 export function onValue(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
-  options?: { onlyOnce?: boolean },
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
 ): Unsubscribe {
+  return onValueInternal(r, cb, cancelCallbackOrOptions, options, cb);
+}
+
+function onValueInternal(
+  r: DatabaseReference | Query,
+  cb: (snap: DataSnapshot) => void,
+  cancelCallbackOrOptions: ((error: Error) => void) | ListenOptions | undefined,
+  options: ListenOptions | undefined,
+  registryCallback: (snap: DataSnapshot) => void,
+): Unsubscribe {
+  const cancelCallback = typeof cancelCallbackOrOptions === 'function'
+    ? cancelCallbackOrOptions
+    : undefined;
+  const listenOptions = typeof cancelCallbackOrOptions === 'function'
+    ? options
+    : cancelCallbackOrOptions;
   // `onlyOnce` (DB-B12): wrap the callback so it unsubscribes itself
   // after the first fire. The unsub is filled in once the real
   // subscription is created below.
-  if (options?.onlyOnce) {
+  if (listenOptions?.onlyOnce) {
     let unsub: Unsubscribe | null = null;
     let fired = false;
     const onceCb = (snap: DataSnapshot): void => {
@@ -85,7 +109,7 @@ export function onValue(
       if (unsub) unsub();
       cb(snap);
     };
-    unsub = onValue(r, onceCb);
+    unsub = onValueInternal(r, onceCb, cancelCallback, undefined, registryCallback);
     // Synchronous initial fire: `onceCb` ran before `unsub` was set, so
     // remove the now-stale listener here.
     if (fired) unsub();
@@ -98,8 +122,10 @@ export function onValue(
   if (isQuery(r as object)) {
     const q = r as Query;
     const target = targetOf(q.ref as unknown as object);
-    const deliver = (raw: { val: JsonValue; key: string | null }): void => {
-      const snap = buildSandboxSnapFromRaw(target, q.ref, raw.val);
+    const scope = queryScope(q);
+    const deliver = (raw: { val: JsonValue; key: string | null; rows?: QueryRow[] }): void => {
+      const rows = raw.rows ?? [];
+      const snap = buildSandboxQuerySnap(target, q.ref, rows);
       try {
         cb(snap);
       } catch {
@@ -110,12 +136,32 @@ export function onValue(
     // listen-plane sibling of `adminGet`/`adminSet` (#401). `admin` is set
     // only on server-minted `getAdminDatabase` handles, never anything a page
     // controls, so a page's `onValue` stays on the rule-gated path below.
-    return target.admin
+    let registration: ListenerRegistration | undefined;
+    const unregister = (): void => {
+      if (registration) {
+        listenerRegistry.removeExact(target, q.ref._path, 'value', registryCallback, registration, scope);
+      }
+    };
+    const subscribed = target.admin
       ? target.backend.adminOnValue(q.ref._path, deliver, q._spec)
       : subscribeWithLiveAuth(
         target,
-        (auth) => target.backend.onValue(auth, q.ref._path, deliver, q._spec),
+        (auth, onCanceled) => target.backend.onValue(
+          auth,
+          q.ref._path,
+          deliver,
+          q._spec,
+          cancelCallback,
+          onCanceled,
+        ),
+        unregister,
       );
+    const unsub = target.admin
+      ? () => { unregister(); subscribed(); }
+      : subscribed;
+    registration = { unsubscribe: unsub };
+    listenerRegistry.add(target, q.ref._path, 'value', registryCallback, registration, scope);
+    return unsub;
   }
   const ref0 = r as DatabaseReference;
   const target = targetOf(ref0 as unknown as object);
@@ -128,18 +174,30 @@ export function onValue(
       // behavior where one observer's exception doesn't block others.
     }
   };
-  const unsub = target.admin
+  let registration: ListenerRegistration | undefined;
+  const unregister = (): void => {
+    if (registration) listenerRegistry.removeExact(target, ref0._path, 'value', registryCallback, registration);
+  };
+  const subscribed = target.admin
     ? target.backend.adminOnValue(ref0._path, wrapper)
     : subscribeWithLiveAuth(
       target,
-      (auth) => target.backend.onValue(auth, ref0._path, wrapper),
+      (auth, onCanceled) => target.backend.onValue(
+        auth,
+        ref0._path,
+        wrapper,
+        undefined,
+        cancelCallback,
+        onCanceled,
+      ),
+      unregister,
     );
-  const registration: ListenerRegistration = { unsubscribe: unsub };
-  listenerRegistry.add(target, ref0._path, 'value', cb, registration);
-  return () => {
-    listenerRegistry.removeExact(target, ref0._path, 'value', cb, registration);
-    unsub();
-  };
+  const unsub = target.admin
+    ? () => { unregister(); subscribed(); }
+    : subscribed;
+  registration = { unsubscribe: unsub };
+  listenerRegistry.add(target, ref0._path, 'value', registryCallback, registration);
+  return unsub;
 }
 
 /**
@@ -150,7 +208,7 @@ export function onValue(
  * `packages/conformance/observations/rtdb-modular/rtdb-modular-onchildadded-*.json`):
  *
  *   - On subscribe, replays every existing direct child of `ref`'s path
- *     (one fire per existing key, in `orderByKey`-default order).
+ *     (one fire per existing key, in default priority/key order).
  *   - After subscribe, fires exactly once per new direct child write.
  *
  * Also accepts a {@link Query} (a `query(ref, ...)` with `orderBy*` /
@@ -163,9 +221,11 @@ export function onValue(
  */
 export function onChildAdded(
   r: DatabaseReference | Query,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_added', cb);
+  return subscribeChild(r, 'child_added', cb, cancelCallbackOrOptions, options);
 }
 
 /**
@@ -183,9 +243,11 @@ export function onChildAdded(
  */
 export function onChildChanged(
   r: DatabaseReference | Query,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_changed', cb);
+  return subscribeChild(r, 'child_changed', cb, cancelCallbackOrOptions, options);
 }
 
 /**
@@ -205,9 +267,11 @@ export function onChildChanged(
  */
 export function onChildRemoved(
   r: DatabaseReference | Query,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_removed', cb);
+  return subscribeChild(r, 'child_removed', cb, cancelCallbackOrOptions, options);
 }
 
 /**
@@ -215,26 +279,87 @@ export function onChildRemoved(
  *
  * Semantics (oracle: `rtdb-modular-onchildmoved-with-orderby`):
  *
- *   - Only fires under an ordered query (`query(ref, orderByChild(...))`).
- *   - Under a plain ref, this listener is effectively a no-op — the
- *     upstream SDK accepts the subscription but never fires it
- *     (matches RTDB docs).
+ *   - Explicit queries use their active `orderBy*` index.
+ *   - Plain refs use Firebase's default priority index, so changing a
+ *     child's priority can move it while an ordinary value-only write does not.
  *
- * Accepts a {@link Query} WITHOUT throwing, but the sandbox deliberately
- * does NOT fire `child_moved` on reorder yet: prod fires here (matrix row
- * `rtdb-modular#137`) while the sandbox holds — the reorder /
- * `previousChildName` ordering semantics are pending two new oracle
- * captures. This is a documented, pinned divergence (both sides asserted
- * in `test/database/modular/sandbox-child-events.test.ts`).
+ * Accepts a {@link Query} and fires when the active ordered value changes,
+ * including the Firebase `previousChildName` second callback argument.
  */
 export function onChildMoved(
   r: DatabaseReference | Query,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_moved', cb);
+  return subscribeChild(r, 'child_moved', cb, cancelCallbackOrOptions, options);
 }
 
 type ChildEvent = 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
+
+function subscribeChild(
+  r: DatabaseReference | Query,
+  event: ChildEvent,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
+): Unsubscribe {
+  const cancelCallback = typeof cancelCallbackOrOptions === 'function'
+    ? cancelCallbackOrOptions
+    : undefined;
+  const listenOptions = typeof cancelCallbackOrOptions === 'function'
+    ? options
+    : cancelCallbackOrOptions;
+  if (!listenOptions?.onlyOnce) return onChildEvent(r, event, cb, cancelCallback);
+
+  if (event === 'child_added') {
+    let attaching = true;
+    const initial: Array<[DataSnapshot, string | null]> = [];
+    let stopped = false;
+    let unsubscribe: Unsubscribe = () => {};
+    const wrapped = (snap: DataSnapshot, previousChildName: string | null): void => {
+      if (stopped) return;
+      if (attaching) {
+        initial.push([snap, previousChildName]);
+        return;
+      }
+      stopped = true;
+      unsubscribe();
+      cb(snap, previousChildName);
+    };
+    unsubscribe = onChildEvent(r, event, wrapped, cancelCallback, cb);
+    attaching = false;
+    if (initial.length > 0) {
+      stopped = true;
+      unsubscribe();
+      // Firebase queues an existing child_added batch before its only-once
+      // detach takes effect and delivers that batch in reverse key order.
+      for (const [snap, previousChildName] of initial.reverse()) {
+        try {
+          cb(snap, previousChildName);
+        } catch {
+          // Listener exceptions are isolated; one child in the captured
+          // initial batch must not abort the remaining deliveries.
+        }
+      }
+    }
+    return unsubscribe;
+  }
+
+  let unsubscribe: Unsubscribe | null = null;
+  let fired = false;
+  const once = (snap: DataSnapshot, previousChildName: string | null): void => {
+    if (fired) return;
+    fired = true;
+    unsubscribe?.();
+    cb(snap, event === 'child_removed' ? null : previousChildName);
+  };
+  unsubscribe = onChildEvent(r, event, once, cancelCallback, cb);
+  // Initial child_added delivery is synchronous, before `unsubscribe` is
+  // assigned. Remove the registration after attachment in that case.
+  if (fired) unsubscribe();
+  return unsubscribe;
+}
 
 const listenerRegistry = new ListenerRegistry();
 
@@ -242,8 +367,9 @@ function cancelSubscriptions(
   target: Target,
   path: string,
   event?: 'value' | ChildEvent,
+  scope?: string,
 ): void {
-  for (const registration of listenerRegistry.takeMatching(target, path, event)) {
+  for (const registration of listenerRegistry.takeMatching(target, path, event, scope)) {
     registration.unsubscribe();
   }
 }
@@ -257,42 +383,60 @@ function cancelSubscriptions(
  * than the raw child
  * key-set — a child entering/leaving the window fires `child_added` /
  * `child_removed`, an in-window value change fires `child_changed`. (Note
- * `child_moved` on a query registers but does not fire on reorder — the
- * reorder semantics are held pending fresh oracle captures.)
+ * `child_moved` fires when the query's active ordered value changes.)
  */
 function onChildEvent(
   r: DatabaseReference | Query,
   event: ChildEvent,
-  cb: (snap: DataSnapshot) => void,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallback?: (error: Error) => void,
+  registryCallback = cb,
 ): Unsubscribe {
   // Unwrap a Query into its base ref + spec; a plain ref has no spec.
   const isQ = isQuery(r as object);
   const baseRef = isQ ? (r as Query).ref : (r as DatabaseReference);
   const spec = isQ ? (r as Query)._spec : undefined;
   const target = targetOf(baseRef as unknown as object);
-  const wrapper = (raw: { key: string; val: JsonValue }): void => {
+  const scope = isQuery(r as object) ? queryScope(r) : undefined;
+  const wrapper = (raw: {
+    key: string;
+    val: JsonValue;
+    previousChildName: string | null;
+  }): void => {
     // Synthesize a snapshot rooted at the child path so `snap.key`
     // and `snap.val()` match the upstream `onChildAdded` snapshot
     // shape (key = the child's key, val = the child's value).
     const childRef = child(baseRef, raw.key);
     const snap = buildSandboxSnapFromRaw(target, childRef, raw.val);
     try {
-      cb(snap);
+      cb(snap, event === 'child_removed' ? null : raw.previousChildName);
     } catch {
       // Listener throws are swallowed — match `firebase/database`'s
       // behavior where one observer's exception doesn't block others.
     }
   };
+  let registration: ListenerRegistration | undefined;
+  const unregister = (): void => {
+    if (registration) {
+      listenerRegistry.removeExact(target, baseRef._path, event, registryCallback, registration, scope);
+    }
+  };
   const unsub = subscribeWithLiveAuth(
     target,
-    (auth) => target.backend.onChild(auth, event, baseRef._path, wrapper, spec),
+    (auth, onCanceled) => target.backend.onChild(
+      auth,
+      event,
+      baseRef._path,
+      wrapper,
+      spec,
+      cancelCallback,
+      onCanceled,
+    ),
+    unregister,
   );
-  const registration: ListenerRegistration = { unsubscribe: unsub };
-  listenerRegistry.add(target, baseRef._path, event, cb, registration);
-  return () => {
-    listenerRegistry.removeExact(target, baseRef._path, event, cb, registration);
-    unsub();
-  };
+  registration = { unsubscribe: unsub };
+  listenerRegistry.add(target, baseRef._path, event, registryCallback, registration, scope);
+  return unsub;
 }
 
 /**
@@ -313,14 +457,16 @@ function onChildEvent(
  * registration — both are supported.
  */
 export function off(
-  r: DatabaseReference,
+  r: DatabaseReference | Query,
   eventType?: 'value' | ChildEvent,
   callback?: (snap: DataSnapshot) => void,
 ): void {
-  const target = targetOf(r as unknown as object);
+  const baseRef = isQuery(r as object) ? (r as Query).ref : r as DatabaseReference;
+  const scope = isQuery(r as object) && !isDefaultQuerySpec(r._spec) ? queryScope(r) : undefined;
+  const target = targetOf(baseRef as unknown as object);
   if (callback !== undefined && eventType !== undefined) {
-    listenerRegistry.takeFirst(target, r._path, eventType, callback)?.unsubscribe();
+    listenerRegistry.takeFirst(target, baseRef._path, eventType, callback, scope)?.unsubscribe();
     return;
   }
-  cancelSubscriptions(target, r._path, eventType);
+  cancelSubscriptions(target, baseRef._path, eventType, scope);
 }

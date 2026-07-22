@@ -1,0 +1,65 @@
+{
+  "name": "rtdb-modular-off-duplicate-registration",
+  "matrixRow": "rtdb-modular#183, rtdb-modular#M92",
+  "rowIds": [
+    "rtdb-modular#183",
+    "rtdb-modular#M92"
+  ],
+  "description": "Duplicate callback registration plus exact ref/query-view off() removal scope, with terminal state independently confirmed.",
+  "observedAt": "2026-07-22T09:22:58.289Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "repeatCount": 2,
+    "afterInitial": [
+      0,
+      0
+    ],
+    "afterFirstWrite": [
+      0,
+      0,
+      1,
+      1
+    ],
+    "afterFirstOff": [
+      0,
+      0,
+      1,
+      1,
+      2
+    ],
+    "afterSecondOff": [
+      0,
+      0,
+      1,
+      1,
+      2
+    ],
+    "queryScope": {
+      "afterQueryOff": {
+        "defaultCount": 2,
+        "orderedCount": 1
+      },
+      "reorderedEquivalentStopped": true,
+      "defaultQueryStoppedReference": true,
+      "constrainedStoppedByRefOff": true
+    },
+    "terminal": {
+      "default-equivalence": 1,
+      "query-scope": {
+        "a": {
+          "rank": 1
+        },
+        "b": {
+          "rank": 2
+        },
+        "c": {
+          "rank": 3
+        },
+        "reordered": {
+          "rank": 2
+        }
+      }
+    }
+  }
+}

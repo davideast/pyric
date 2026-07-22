@@ -16,7 +16,6 @@
  *   - `firestore-writes` writes + `writeBatch` + `runTransaction`
  *   - `rules`           Firestore/RTDB rules deploy + status
  *   - `admin-firestore` admin-lens document ops
- *   - `rtdb`            RTDB modular subset
  *   - `studio`          event stream, confirm-policy, sandbox snapshot
  *   - `auth`            per-port auth surface
  *   - `storage`         worker-backed storage mirror
@@ -49,7 +48,6 @@ export * from './client/firestore-reads.js';
 export * from './client/firestore-writes.js';
 export * from './client/rules.js';
 export * from './client/admin-firestore.js';
-export * from './client/rtdb.js';
 export * from './client/studio.js';
 export * from './client/presence.js';
 export * from './client/auth.js';

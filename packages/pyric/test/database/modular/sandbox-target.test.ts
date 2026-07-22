@@ -236,7 +236,9 @@ describe('update — multi-path atomic (matrix row #23)', () => {
         '/users/alice': { name: 'A' },
         '/users/alice/name': 'B',
       }),
-    ).toThrow(/descendant/);
+    ).toThrow(
+      "update failed: values argument contains a path /users/alice that is ancestor of another path /users/alice/name",
+    );
   });
 
   it('rejects the entire update if rules deny any one path', async () => {

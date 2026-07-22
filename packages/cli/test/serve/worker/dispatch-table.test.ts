@@ -93,7 +93,23 @@ const ROUTABLE_METHODS = {
     'admin.deleteDocument',
     'admin.readState',
   ],
-  rtdb: ['rtdb.get', 'rtdb.set', 'rtdb.update', 'rtdb.remove', 'rtdb.push', 'rtdb.adminSnapshot'],
+  rtdb: [
+    'rtdb.get',
+    'rtdb.set',
+    'rtdb.setPriority',
+    'rtdb.setWithPriority',
+    'rtdb.update',
+    'rtdb.remove',
+    'rtdb.push',
+    'rtdb.adminSnapshot',
+    'rtdb.onDisconnectSet',
+    'rtdb.onDisconnectUpdate',
+    'rtdb.onDisconnectRemove',
+    'rtdb.onDisconnectCancel',
+    'rtdb.goOffline',
+    'rtdb.goOnline',
+    'rtdb.transactionCommit',
+  ],
   connection: ['getVersion', 'exportState', 'importState', 'saveBranch', 'listBranches', 'switchBranch', 'deleteBranch'],
   studio: ['getSnapshot', 'resetAll'],
   presence: [
@@ -150,10 +166,10 @@ describe('host dispatch table (frozen)', () => {
     ctx = await makeCtx();
   });
 
-  it('routes exactly 74 op methods across all families', () => {
-    expect(ALL_METHODS.length).toBe(74);
+  it('routes exactly 83 op methods across all families', () => {
+    expect(ALL_METHODS.length).toBe(83);
     // No duplicates in the frozen list.
-    expect(new Set(ALL_METHODS).size).toBe(74);
+    expect(new Set(ALL_METHODS).size).toBe(83);
   });
 
   for (const [family, methods] of Object.entries(ROUTABLE_METHODS)) {

@@ -10,7 +10,8 @@
  *   - Basic round-trip: write, flush, fresh sandbox restore → tree present.
  *   - Late registration: `enablePersistence` BEFORE `getDatabase`.
  *   - Early registration: `getDatabase` BEFORE `enablePersistence`.
- *   - Snapshot shape: `sandbox.snapshot().services.rtdb` holds the tree.
+ *   - Snapshot shape: `sandbox.snapshot().services.rtdb` holds the versioned
+ *     value/priority envelope while owner snapshots remain raw RTDB data.
  *   - RTDB writes trigger a debounced flush without a Firestore write
  *     (RTDB writes emit `service_mutation` events, which the controller's
  *     `isPersistableEvent` does NOT cover — the service `subscribe` hook is
@@ -32,6 +33,7 @@ import {
   getDatabase,
   ref,
   set,
+  setWithPriority,
   get,
   remove,
   sandbox as rtdbSandbox,
@@ -52,7 +54,11 @@ describe('SandboxSnapshot.services — rtdb', () => {
 
     const snap = sandbox.snapshot();
     expect(snap.services).toHaveProperty('rtdb');
-    expect(snap.services.rtdb).toEqual({ rooms: { general: { name: 'General' } } });
+    expect(snap.services.rtdb).toEqual({
+      '.pyricRtdbPersistence': 1,
+      data: { rooms: { general: { name: 'General' } } },
+      priorities: {},
+    });
   });
 
   it('registers rtdb even before any write (empty tree snapshot)', () => {
@@ -60,7 +66,11 @@ describe('SandboxSnapshot.services — rtdb', () => {
     getDatabase(sandbox);
     const snap = sandbox.snapshot();
     expect(snap.services).toHaveProperty('rtdb');
-    expect(snap.services.rtdb).toEqual({});
+    expect(snap.services.rtdb).toEqual({
+      '.pyricRtdbPersistence': 1,
+      data: {},
+      priorities: {},
+    });
   });
 });
 
@@ -104,6 +114,21 @@ describe('rtdb persistence — basic round-trip', () => {
 
     const snap = await get(ref(db2, '/rooms/doomed'));
     expect(snap.exists()).toBe(false);
+  });
+
+  it('restores priority metadata after flush into a fresh sandbox', async () => {
+    const backend = createMemoryBackend();
+    const sandbox1 = initializeSandbox();
+    await sandbox1.enablePersistence({ key: 'rtdb:priority', injectedBackend: backend });
+    const db1 = getDatabase(sandbox1);
+    await setWithPriority(ref(db1, '/items/a'), { label: 'A' }, 7);
+    await sandbox1.flush();
+
+    const sandbox2 = initializeSandbox();
+    await sandbox2.enablePersistence({ key: 'rtdb:priority', injectedBackend: backend });
+    const restored = await get(ref(getDatabase(sandbox2), '/items/a'));
+    expect(restored.priority).toBe(7);
+    expect(restored.exportVal()).toEqual({ label: 'A', '.priority': 7 });
   });
 });
 
@@ -207,13 +232,28 @@ describe('rtdb persistence — auto-flush on write', () => {
       records.push([id, await backend.getRecord('rtdb:autof', id)]);
     }
     const { services } = deserializeFromBuckets(records);
-    expect((services as { rtdb?: unknown }).rtdb).toEqual({ rooms: { general: { name: 'General' } } });
+    expect((services as { rtdb?: unknown }).rtdb).toEqual({
+      '.pyricRtdbPersistence': 1,
+      data: { rooms: { general: { name: 'General' } } },
+      priorities: {},
+    });
   });
 });
 
 // ─── Restore fires listeners (notification design) ─────────────────────
 
 describe('rtdb persistence — restore notifies live listeners', () => {
+  it('does not mistake valid legacy user keys for the persistence envelope', () => {
+    const backend = new RtdbBackend();
+    const legacy = {
+      __pyricRtdbPersistence: 1,
+      data: { belongs: 'to the user' },
+      priorities: { also: 'user data' },
+    };
+    backend.restoreTree(legacy);
+    expect(backend.exportTree()).toEqual(legacy);
+  });
+
   it('restoreTree fires an attached onValue listener with the restored value', () => {
     const backend = new RtdbBackend();
     const fires: Array<{ val: unknown; exists: boolean }> = [];

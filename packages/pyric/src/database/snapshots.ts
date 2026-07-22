@@ -1,8 +1,8 @@
 import { coerceArrays } from './sandbox/normalize.js';
 import { pathSegments, type JsonValue } from './sandbox/data-tree.js';
-import type { QueryRow } from './sandbox/query.js';
+import { executeQuery, type QueryRow } from './sandbox/query.js';
 import type { SandboxLiveTarget, SandboxTarget } from './routing.js';
-import type { DataSnapshot, DatabaseReference } from './types.js';
+import { DataSnapshot, type DatabaseReference, type DataSnapshotImplementation } from './types.js';
 import { child } from './references.js';
 
 // ─── Snapshot wrappers ───────────────────────────────────────────────
@@ -16,7 +16,7 @@ export function buildSandboxSnap(
 }
 
 export function buildSandboxSnapFromRaw(
-  _target: SandboxTarget | SandboxLiveTarget,
+  target: SandboxTarget | SandboxLiveTarget,
   refForSnap: DatabaseReference,
   val: JsonValue,
 ): DataSnapshot {
@@ -29,11 +29,12 @@ export function buildSandboxSnapFromRaw(
   const childCount = (val !== null && typeof val === 'object' && !Array.isArray(val))
     ? Object.keys(val as Record<string, JsonValue>).length
     : 0;
-  return {
+  const priority = target.backend.getPriority(refForSnap._path);
+  const implementation: DataSnapshotImplementation = {
     key: refForSnap.key,
     ref: refForSnap,
     size: childCount,
-    priority: null,
+    priority,
     exists(): boolean { return exists; },
     val(): JsonValue { return coerced; },
     child(p: string): DataSnapshot {
@@ -47,7 +48,7 @@ export function buildSandboxSnapFromRaw(
         cur = (cur as Record<string, JsonValue>)[s] ?? null;
       }
       const childRef = child(refForSnap, p);
-      return buildSandboxSnapFromRaw(_target, childRef, cur);
+      return buildSandboxSnapFromRaw(target, childRef, cur);
     },
     hasChild(p: string): boolean {
       return this.child(p).exists();
@@ -56,18 +57,24 @@ export function buildSandboxSnapFromRaw(
       return val !== null && typeof val === 'object' && !Array.isArray(val)
         && Object.keys(val as Record<string, JsonValue>).length > 0;
     },
-    exportVal(): JsonValue { return coerced; },
-    toJSON(): JsonValue { return coerced; },
+    exportVal(): JsonValue { return exportValueAt(target, refForSnap, val).value; },
+    toJSON(): JsonValue { return exportValueAt(target, refForSnap, val).value; },
     forEach(cb): boolean {
       if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
-      for (const [k, v] of Object.entries(val as Record<string, JsonValue>)) {
-        const childRef = child(refForSnap, k);
-        const childSnap = buildSandboxSnapFromRaw(_target, childRef, v);
+      const rows = executeQuery(
+        val,
+        { orderBy: null, bounds: [], limit: null },
+        (key) => target.backend.getPriority(child(refForSnap, key)._path),
+      );
+      for (const { key, value } of rows) {
+        const childRef = child(refForSnap, key);
+        const childSnap = buildSandboxSnapFromRaw(target, childRef, value);
         if (cb(childSnap) === true) return true;
       }
       return false;
     },
   };
+  return new DataSnapshot(implementation);
 }
 
 /**
@@ -96,11 +103,11 @@ export function buildSandboxQuerySnap(
   }
   const exists = rows.length > 0;
   const coerced = coerceArrays(val);
-  return {
+  const implementation: DataSnapshotImplementation = {
     key: refForSnap.key,
     ref: refForSnap,
     size: rows.length,
-    priority: null,
+    priority: target.backend.getPriority(refForSnap._path),
     exists(): boolean { return exists; },
     val(): JsonValue { return coerced; },
     child(p: string): DataSnapshot {
@@ -120,8 +127,8 @@ export function buildSandboxQuerySnap(
       return this.child(p).exists();
     },
     hasChildren(): boolean { return rows.length > 0; },
-    exportVal(): JsonValue { return coerced; },
-    toJSON(): JsonValue { return coerced; },
+    exportVal(): JsonValue { return exportValueAt(target, refForSnap, val).value; },
+    toJSON(): JsonValue { return exportValueAt(target, refForSnap, val).value; },
     forEach(cb): boolean {
       for (const { key, value } of rows) {
         const childRef = child(refForSnap, key);
@@ -130,5 +137,37 @@ export function buildSandboxQuerySnap(
       }
       return false;
     },
+  };
+  return new DataSnapshot(implementation);
+}
+
+function exportValueAt(
+  target: SandboxTarget | SandboxLiveTarget,
+  refForSnap: DatabaseReference,
+  value: JsonValue,
+): { value: JsonValue; containsPriority: boolean } {
+  if (value === null) return { value: null, containsPriority: false };
+  const priority = target.backend.getPriority(refForSnap._path);
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return priority === null
+      ? { value, containsPriority: false }
+      : { value: { '.value': value, '.priority': priority }, containsPriority: true };
+  }
+  const exported: Record<string, JsonValue> = {};
+  let containsPriority = priority !== null;
+  const rows = executeQuery(
+    value,
+    { orderBy: null, bounds: [], limit: null },
+    (key) => target.backend.getPriority(child(refForSnap, key)._path),
+  );
+  for (const { key, value: childValue } of rows) {
+    const childExport = exportValueAt(target, child(refForSnap, key), childValue);
+    exported[key] = childExport.value;
+    containsPriority ||= childExport.containsPriority;
+  }
+  if (priority !== null) exported['.priority'] = priority;
+  return {
+    value: containsPriority ? exported : coerceArrays(exported),
+    containsPriority,
   };
 }

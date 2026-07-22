@@ -15,7 +15,8 @@
  * WHAT IT IS NOT. It is NOT wired into CI (resolved decision #1: the climb is an
  * experiment and costs main-branch velocity nothing; it runs on demand on the
  * WIP branch). This script touches no workflow. It is on-demand only:
- * `bun run compat:climb` (add `--json` for automation).
+ * `bun run compat:climb` (add `--json` for automation, or
+ * `--surface=<key>` to isolate one surface from other active climbs).
  *
  * THE ONE EXIT RULE (the regression rule, cdd.md Step 5.5 / Step 6). The lane
  * exits nonzero **if and only if** a row whose registry status is expected-green
@@ -106,10 +107,10 @@ interface SurfaceResult {
   /** Green rows not yet flipped to conforms — flip candidates (healthy climb). */
   flipCandidates: RowResult[];
   /**
-   * The concerning direction of cdd.md Step 5.3 drift: the registry claims more
-   * conforming rows than the suite proves green. Always fully explained by
-   * `regressions` (conforms + red) and `unguarded` (conforms + no assertion set),
-   * so it is a derived rollup, not a separate signal.
+   * The concerning direction of CDD Steps 5.3 and 6 drift: the registry claims
+   * more expected-green rows than the suite proves green. Always explained by
+   * `regressions` (expected-green + red) and `unguarded` (expected-green + no
+   * assertion set), so it is a derived rollup, not a separate signal.
    */
   overclaims: boolean;
   note?: string;
@@ -233,9 +234,7 @@ export function classifyRows(rows: RowInput[], testcases: TestCase[]): Classific
     redRows: results.filter((r) => r.verdict === 'red').length,
     unmappedRows: results.filter((r) => r.verdict === 'unmapped').length,
     flipCandidates: results.filter((r) =>
-      r.verdict === 'green' &&
-      !r.expectedGreen &&
-      (!r.conformanceDisposition || r.conformanceDisposition === 'pending-fix')
+      r.verdict === 'green' && r.status === 'unverified'
     ),
     regressions: results.filter((r) => r.regressed),
     unguarded: results.filter((r) => r.expectedGreen && r.verdict === 'unmapped'),
@@ -301,7 +300,7 @@ function evaluateSurface(descriptor: (typeof surfaceDescriptors)[number], tmpDir
       regressions: [],
       unguarded,
       flipCandidates: [],
-      overclaims: conformingRows !== 0,
+      overclaims: expectedGreenIds.size !== 0,
       note: suite ? 'suite file not present yet (red at birth)' : 'no conformanceSuite path on descriptor',
     };
   }
@@ -339,7 +338,7 @@ function evaluateSurface(descriptor: (typeof surfaceDescriptors)[number], tmpDir
       regressions: [],
       unguarded: rowResults.filter((r) => r.expectedGreen),
       flipCandidates: [],
-      overclaims: conformingRows !== 0,
+      overclaims: expectedGreenIds.size !== 0,
       note: `suite failed to run (no test output produced)${stderr ? `: ${stderr.trim().split('\n').slice(-1)[0]}` : ''}`,
     };
   }
@@ -365,9 +364,9 @@ function evaluateSurface(descriptor: (typeof surfaceDescriptors)[number], tmpDir
     regressions,
     unguarded,
     flipCandidates: classified.flipCandidates,
-    // The concerning cdd.md Step 5.3 direction only: registry conforms exceeds
-    // live green. Green exceeding conforms is the healthy climb (flipCandidates).
-    overclaims: conformingRows > greenRows,
+    // Expected-green includes documented divergences because their two-sided
+    // pins are lane-regressed exactly like conforming rows (CDD Step 6).
+    overclaims: expectedGreenIds.size > greenRows,
   };
 }
 
@@ -377,7 +376,11 @@ function pct(n: number, d: number): number {
 
 function main(): void {
   const wantJson = process.argv.includes('--json');
-  const climbDescriptors = surfaceDescriptors.filter((d) => d.climb);
+  const requestedSurface = process.argv
+    .find((argument) => argument.startsWith('--surface='))
+    ?.slice('--surface='.length);
+  const climbDescriptors = surfaceDescriptors.filter((descriptor) =>
+    descriptor.climb && (!requestedSurface || descriptor.surface === requestedSurface));
 
   const tmpDir = mkdtempSync(join(tmpdir(), 'pyric-climb-'));
   let results: SurfaceResult[];
@@ -453,7 +456,7 @@ function main(): void {
     }
     if (r.overclaims) {
       console.log(
-        `DRIFT: registry claims more conforming rows (${r.conformingRows}) than the suite proves green (${r.greenRows}); see regressions/unguarded below (cdd.md Step 5.3).`,
+        `DRIFT: registry claims more expected-green rows (${r.expectedGreenRows}) than the suite proves green (${r.greenRows}); see regressions/unguarded below (cdd.md Steps 5.3 and 6).`,
       );
     }
     if (r.unguarded.length > 0) {

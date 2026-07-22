@@ -1,32 +1,29 @@
 /**
  * Characterization guard for the worker CLIENT public surface.
  *
- * `serve/worker/client.ts` is re-exported by `serve/worker/index.ts`, which is
- * the `@pyric/cli/serve/worker` package subpath export. Its export surface is
- * a published contract. This test freezes the runtime (value) export names so a
- * refactor of `client.ts` — for example splitting it into per-family modules
- * behind a barrel — cannot silently add or drop a symbol.
+ * `serve/worker/index.ts` is the `@pyric/cli/serve/worker` package subpath
+ * export. This test freezes that public runtime surface while allowing its
+ * implementation to remain split into service-owned family modules.
  *
  * Type-only exports are guarded separately by `tsc` (the build) and by the
  * packaging gate; this test covers the runtime `Object.keys` surface.
  */
 import { describe, expect, test } from 'bun:test';
-import * as client from '../../../src/serve/worker/client.js';
+import * as client from '../../../src/serve/worker/index.js';
 
-/** The 131 value (runtime) exports of the worker client, sorted. Frozen. */
+/** Runtime exports of the public worker package subpath, frozen. */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
-  'PRESENCE_HEARTBEAT_INTERVAL_MS', 'PRESENCE_STALE_MS', 'RtdbOnDisconnect',
+  'PRESENCE_HEARTBEAT_INTERVAL_MS', 'PRESENCE_STALE_MS',
+  'PYRIC_WORKER_GENERATION_KEY', 'PYRIC_WORKER_NAME', 'PYRIC_WORKER_URL', 'RtdbOnDisconnect',
   'acceptProviderCredential', 'addDoc', 'adminClearUsers', 'adminCreateUser',
   'adminDeleteDocument', 'adminDeleteRtdbValue', 'adminDeleteUser', 'adminGetDocument',
   'adminListDocuments', 'adminReadRtdbState', 'adminReadState', 'adminSetDocument',
   'adminSetRtdbValue', 'adminSubscribeRtdbValue', 'adminUpdateRtdbValue', 'adminUpdateUser',
-  'aiCountTokens',
-  'aiGenerateContent',
-  'aiStreamGenerateContent',
-  'and', 'arrayRemove', 'arrayUnion', 'average', 'beforeAuthStateChanged',
+  'and', 'arrayRemove', 'arrayUnion', 'average',
   'browserLocalPersistence', 'browserSessionPersistence', 'callTool', 'collection',
   'collectionGroup', 'connectAuthEmulator', 'count', 'createUserWithEmailAndPassword',
-  'deleteDoc', 'deleteField', 'deleteObject', 'deleteWorkerBranch', 'doc', 'endAt',
+  'createWorkerReplacement', 'deleteDoc', 'deleteField', 'deleteObject',
+  'deleteWorkerBranch', 'disconnectClient', 'doc', 'endAt',
   'endBefore', 'eventHistory', 'exportWorkerState', 'getActiveRules',
   'getAggregateFromServer', 'getAuth', 'getBlob', 'getBytes', 'getCountFromServer',
   'getDoc', 'getDocs', 'getDownloadURL', 'getFirestore', 'getIdToken', 'getIdTokenResult', 'getLens',
@@ -35,17 +32,21 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'increment', 'inMemoryPersistence', 'limit', 'limitToLast', 'listAll',
   'listRootCollections', 'listSubcollections', 'listUsers', 'listWorkerBranches',
   'mintPresenceClientId',
-  'onAuthStateChanged', 'onIdTokenChanged', 'onSnapshot', 'or', 'orderBy', 'query',
-  'ref', 'relayWorkerOp', 'relayWorkerSub', 'resetAll', 'restorePortSession', 'rtdbChild',
+  'onAuthStateChanged', 'onIdTokenChanged', 'onSnapshot', 'onWorkerRuntimeReload',
+  'or', 'orderBy', 'ownClientUntilPagehide', 'preflightWorkerEpochStorage', 'query',
+  'readPyricRuntimeManifest', 'ref', 'relayWorkerOp', 'relayWorkerSub',
+  'rememberWorkerEpoch', 'resetAll', 'retireWorkerRuntime', 'rtdbChild',
   'rtdbConnectDatabaseEmulator', 'rtdbGet', 'rtdbGetDatabase', 'rtdbGoOffline',
-  'rtdbGoOnline', 'rtdbOff', 'rtdbOnChildAdded', 'rtdbOnChildChanged', 'rtdbOnDisconnect', 'rtdbOnValue',
-  'rtdbPush', 'rtdbRef', 'rtdbRemove', 'rtdbServerTimestamp', 'rtdbSet', 'rtdbUpdate',
+  'rtdbGoOnline', 'rtdbOff', 'rtdbOnChildAdded', 'rtdbOnChildChanged', 'rtdbOnChildMoved',
+  'rtdbOnChildRemoved', 'rtdbOnDisconnect', 'rtdbOnValue', 'rtdbPush', 'rtdbRef',
+  'rtdbRemove', 'rtdbRunTransaction', 'rtdbServerTimestamp', 'rtdbSet', 'rtdbSetPriority',
+  'rtdbSetWithPriority', 'rtdbUpdate',
   'runTransaction', 'saveWorkerBranch', 'serverTimestamp', 'setDatabaseRules', 'setDoc',
   'setFirestoreRules', 'setLens', 'setOpIssuer', 'setPersistence',
-  'setProviderConfig', 'setRules', 'signInAnonymously', 'signInWithCredential',
+  'setProviderConfig', 'setRules', 'signInAnonymously',
   'signInWithEmailAndPassword', 'signOut', 'startAfter', 'startAt', 'startPresence',
   'subscribeEvents', 'subscribePresence',
-  'sum', 'switchWorkerBranch', 'updateDoc', 'updateProfile', 'uploadBytes', 'where',
+  'sum', 'switchWorkerBranch', 'updateDoc', 'uploadBytes', 'where', 'workerNameForEpoch',
   'writeBatch',
 ];
 

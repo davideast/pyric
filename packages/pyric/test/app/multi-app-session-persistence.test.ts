@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import {
   getAuth,
@@ -25,6 +25,8 @@ beforeEach(async () => {
   await resetAppRegistryForTests();
   await Promise.all(getApps().map((app) => deleteApp(app)));
 });
+
+afterEach(() => resetAppRegistryForTests());
 
 describe('multi-app Auth session persistence', () => {
   it('persists default and named sessions independently regardless of getAuth call order', async () => {

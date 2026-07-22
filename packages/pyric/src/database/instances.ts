@@ -5,7 +5,7 @@ import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-a
 import { getOrCreateBackend } from './sandbox/backend-for.js';
 import { RtdbConnectionLifecycle } from './connection-lifecycle.js';
 import { TARGET_SYMBOL, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
-import type { AppDatabase, Database } from './types.js';
+import { Database, type AppDatabase } from './types.js';
 
 // ─── Constructors ────────────────────────────────────────────────────
 
@@ -63,14 +63,14 @@ export function getDatabase(
           }
         },
       };
-      return { [TARGET_SYMBOL]: t, app: target as FirebaseApp };
+      return new Database(t, target as FirebaseApp) as AppDatabase;
     });
   }
   if (isSandboxContext(target)) {
     const backend = getOrCreateBackend(target.sandbox);
     const connection = new RtdbConnectionLifecycle(backend, () => target.auth, false);
     const t: SandboxTarget = { kind: 'sandbox', backend, auth: target.auth, connection };
-    return { [TARGET_SYMBOL]: t };
+    return new Database(t);
   }
   if (isSandbox(target)) {
     const backend = getOrCreateBackend(target);
@@ -86,7 +86,7 @@ export function getDatabase(
       sandbox: target,
       onCurrentUserChanged: (callback) => target.onCurrentUserChanged(callback),
     };
-    return { [TARGET_SYMBOL]: t };
+    return new Database(t);
   }
   throw packageResolutionError();
 }
@@ -114,7 +114,7 @@ export function getAdminDatabase(target: Sandbox | SandboxContext | FirebaseApp)
   const backend = getOrCreateBackend(sandbox);
   const connection = new RtdbConnectionLifecycle(backend, () => null, true);
   const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true, connection };
-  return { [TARGET_SYMBOL]: t };
+  return new Database(t);
 }
 
 function packageResolutionError(): TypeError {

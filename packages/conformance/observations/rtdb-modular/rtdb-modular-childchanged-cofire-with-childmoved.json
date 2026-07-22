@@ -1,13 +1,14 @@
 {
   "name": "rtdb-modular-childchanged-cofire-with-childmoved",
-  "matrixRow": "rtdb-modular #137",
+  "matrixRow": "rtdb-modular#137, rtdb-modular#M75c",
   "rowIds": [
-    "rtdb-modular#137"
+    "rtdb-modular#137",
+    "rtdb-modular#M75c"
   ],
-  "description": "Whether onChildChanged co-fires with onChildMoved on a reorder. Under query(ref, orderByChild(\"score\")) with children a/b/c (score 10/20/30), subscribe BOTH listeners and record which fire for three mutation kinds: (1) a change to the ordered field that moves sort position (value-change-that-reorders: b.score 20\u219240), (2) a change to a NON-ordered sibling field (pure value change, no reorder: a.label), (3) a change to the ordered field that does NOT change rank (value/priority change without a move: c.score 30\u219235). Answers co-fire and how a reordering value change differs from a priority-only / non-reordering change. See docs/reviews/deep-divergence-review.md item 2. rowIds are [] pending the registry-admission ticket, which lands the rows.",
-  "observedAt": "2026-07-09T06:00:46.926Z",
+  "description": "Whether onChildChanged co-fires with onChildMoved on a reorder. Under query(ref, orderByChild(\"score\")) with children a/b/c (score 10/20/30), subscribe BOTH listeners and record which fire for three mutation kinds: (1) a change to the ordered field that moves sort position (value-change-that-reorders: b.score 20→40), (2) a change to a NON-ordered sibling field (pure value change, no reorder: a.label), (3) a change to the ordered field that does NOT change rank (value/priority change without a move: c.score 30→35).",
+  "observedAt": "2026-07-22T11:07:55.691Z",
   "fbSdkVersion": "12.13.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "behavior": {
     "threw": false,
     "code": null,

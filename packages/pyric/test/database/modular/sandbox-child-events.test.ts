@@ -23,7 +23,11 @@ import {
   off,
   query,
   orderByChild,
+  startAt,
+  endAt,
   limitToLast,
+  setPriority,
+  setWithPriority,
   sandbox as rtdbSandbox,
 } from '../../../src/database/index.js';
 
@@ -35,7 +39,7 @@ function setup() {
 
 describe('onChildAdded — initial replay (oracle: rtdb-modular-onchildadded-initial-replay)', () => {
   // Observation: seeded {k1, k2, k3} BEFORE subscribe, observed 3 initial
-  // fires with `firedKeys: ['k1', 'k2', 'k3']` in insertion order.
+  // fires with `firedKeys: ['k1', 'k2', 'k3']` in default priority/key order.
   it('replays existing direct children on subscribe — one fire per key', async () => {
     const { db } = setup();
     await update(ref(db, 'parent'), { k1: { v: 1 }, k2: { v: 2 }, k3: { v: 3 } });
@@ -174,14 +178,12 @@ describe('onChildRemoved (oracle: rtdb-modular-onchildremoved-fires-on-delete)',
 });
 
 describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => {
-  // Observation: under ordered query, firedOnMove=1. Under a plain ref
-  // (no ordering), the upstream contract says it never fires.
-  it('does NOT fire on a plain ref (no ordering) — never fires per RTDB docs', async () => {
+  it('does not fire on a plain ref when a value-only write preserves priority', async () => {
     const { db } = setup();
     await update(ref(db, 'parent'), { k1: { priority: 1 }, k2: { priority: 2 } });
     let fires = 0;
     const unsub = onChildMoved(ref(db, 'parent'), () => { fires++; });
-    // Updates that would re-order under an ordered query do nothing here.
+    // This changes an ordinary child field, not RTDB priority metadata.
     await set(ref(db, 'parent/k1/priority'), 99);
     expect(fires).toBe(0);
     unsub();
@@ -195,13 +197,8 @@ describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => 
     unsub();
   });
 
-  // PINNED DIVERGENCE (matrix row rtdb-modular#137). Registering
-  // `onChildMoved` on an ORDERED QUERY must no longer throw the misleading
-  // "unrecognized reference" TypeError (item 2 of the deep-divergence
-  // review). But the reorder-fire itself is HELD pending two new oracle
-  // captures (windowed displacement + previousChildName): prod fires 1
-  // here, the sandbox holds at 0. Both sides are asserted so the day the
-  // captures land this pin is the single place that flips.
+  // Registering `onChildMoved` on an ordered Query and its reorder fire are
+  // both oracle-backed; this was formerly the pinned row #137 divergence.
   it('accepts a Query without throwing (TypeError cliff removed)', async () => {
     const { db } = setup();
     await update(ref(db, 'parent'), {
@@ -220,7 +217,7 @@ describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => 
     }).not.toThrow();
   });
 
-  it('DIVERGENCE: reorder under an ordered query fires 0 on sandbox (prod fires 1) — held for captures', async () => {
+  it('rtdb-modular#M75c and #137 fire once when an ordered child moves', async () => {
     const { db } = setup();
     await update(ref(db, 'parent'), {
       k1: { priority: 1 },
@@ -234,10 +231,7 @@ describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => 
     );
     // Bump k1 to the top of the sort — prod emits child_moved here.
     await set(ref(db, 'parent/k1/priority'), 10);
-    // Prod value (observation rtdb-modular-onchildmoved-with-orderby.json):
-    //   firedOnMove: 1
-    // Sandbox value (held — reorder semantics pending oracle captures):
-    expect(fires).toBe(0);
+    expect(fires).toBe(1);
     unsub();
   });
 });
@@ -365,6 +359,53 @@ describe('off() variants (oracle: rtdb-modular-off-stops-child-fires)', () => {
     expect(valueFires).toBe(1); // no post-off fire
   });
 
+  it('off(query) removes only listeners on the equivalent query view', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    const ordered = query(parent, orderByChild('v'));
+    let queryFires = 0;
+    let refFires = 0;
+    onValue(ordered, () => { queryFires++; });
+    onValue(parent, () => { refFires++; });
+    expect({ queryFires, refFires }).toEqual({ queryFires: 1, refFires: 1 });
+    off(query(parent, orderByChild('v')));
+    await set(ref(db, 'parent/a'), { v: 1 });
+    expect({ queryFires, refFires }).toEqual({ queryFires: 1, refFires: 2 });
+  });
+
+  it('off(query) recognizes equivalent constraints supplied in a different order', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    let queryFires = 0;
+    onValue(query(parent, orderByChild('v'), startAt(1), endAt(3)), () => { queryFires++; });
+    off(query(parent, endAt(3), orderByChild('v'), startAt(1)));
+    await set(ref(db, 'parent/a'), { v: 2 });
+    expect(queryFires).toBe(1);
+  });
+
+  it('off(query(ref)) removes a listener registered on the equivalent reference', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    let refFires = 0;
+    onValue(parent, () => { refFires++; });
+    off(query(parent));
+    await set(ref(db, 'parent/a'), { v: 1 });
+    expect(refFires).toBe(1);
+  });
+
+  it('off(ref) removes listeners across every query view at that path', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    const ordered = query(parent, orderByChild('v'));
+    let queryFires = 0;
+    onValue(ordered, () => { queryFires++; });
+    off(parent);
+    let freshControlFires = 0;
+    onValue(parent, () => { freshControlFires++; });
+    await set(ref(db, 'parent/a'), { v: 1 });
+    expect({ queryFires, freshControlFires }).toEqual({ queryFires: 1, freshControlFires: 2 });
+  });
+
   it('off(ref, "child_added") removes only that event variety', async () => {
     const { db } = setup();
     let addedFires = 0;
@@ -409,6 +450,27 @@ describe('off() variants (oracle: rtdb-modular-off-stops-child-fires)', () => {
     await set(ref(db, 'parent/k2'), { v: 2 });
     expect(firesA).toBe(1); // off
     expect(firesB).toBe(2); // still listening
+  });
+
+  it('off(ref, eventType, cb) matches the user callback behind onlyOnce wrappers', async () => {
+    const { db } = setup();
+    const parent = ref(db, 'parent');
+    await setWithPriority(ref(db, 'parent/a'), { value: 1 }, 1);
+    await setWithPriority(ref(db, 'parent/b'), { value: 2 }, 2);
+    const fires = { changed: 0, removed: 0, moved: 0 };
+    const changed = (): void => { fires.changed++; };
+    const removed = (): void => { fires.removed++; };
+    const moved = (): void => { fires.moved++; };
+    onChildChanged(parent, changed, { onlyOnce: true });
+    onChildRemoved(parent, removed, { onlyOnce: true });
+    onChildMoved(parent, moved, { onlyOnce: true });
+    off(parent, 'child_changed', changed);
+    off(parent, 'child_removed', removed);
+    off(parent, 'child_moved', moved);
+    await set(ref(db, 'parent/a'), { value: 10 });
+    await setPriority(ref(db, 'parent/b'), 0);
+    await remove(ref(db, 'parent/a'));
+    expect(fires).toEqual({ changed: 0, removed: 0, moved: 0 });
   });
 
   it('returned-unsubscribe from onChildAdded is functionally equivalent to off()', async () => {
