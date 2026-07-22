@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   canonicalPolicy,
   restoreIamPolicy,
+  withTemporaryFirestoreRulesIam,
   type IamPolicy,
 } from '../../src/storage-stdlib-real-iam.ts';
 
@@ -51,4 +52,96 @@ describe('storage stdlib real IAM support', () => {
       expect(requests).toBeGreaterThanOrEqual(4);
     });
   }
+
+  test('owns the grant, work, and restore lifecycle', async () => {
+    const original: IamPolicy = { etag: 'original', bindings: [] };
+    let current = original;
+    const calls: string[] = [];
+    const result = await withTemporaryFirestoreRulesIam(
+      'probe-project',
+      { auth: {}, json: {} },
+      async (iamChanged) => {
+        calls.push(`work:${iamChanged}`);
+        return 'done';
+      },
+      {
+        request: async <T>(url: string, init: RequestInit) => {
+          calls.push(`${init.method ?? 'GET'} ${url}`);
+          if (url.endsWith('/probe-project')) return { projectNumber: '123' } as T;
+          const body = init.body ? JSON.parse(String(init.body)) as { policy?: IamPolicy } : {};
+          if (url.endsWith(':setIamPolicy')) current = { ...body.policy, etag: 'granted' };
+          return current as T;
+        },
+        cleanupRequest: async <T>(url: string, init: RequestInit) => {
+          calls.push(`cleanup:${init.method ?? 'GET'} ${url}`);
+          const body = JSON.parse(String(init.body)) as { policy?: IamPolicy };
+          if (body.policy) current = { ...body.policy, etag: 'restored' };
+          return current as T;
+        },
+        settle: async () => { calls.push('settle'); },
+      },
+    );
+
+    expect(result).toEqual({ value: 'done', iamChanged: true, iamRestored: true });
+    expect(calls).toContain('work:true');
+    expect(calls.filter((call) => call === 'settle')).toHaveLength(2);
+    expect(canonicalPolicy(current)).toBe(canonicalPolicy(original));
+  });
+
+  test('does not rewrite or restore an existing unconditional grant', async () => {
+    const role = 'roles/firebaserules.firestoreServiceAgent';
+    const member = 'serviceAccount:service-123@gcp-sa-firebasestorage.iam.gserviceaccount.com';
+    const policy: IamPolicy = { bindings: [{ role, members: [member] }] };
+    let writes = 0;
+    let cleanupRequests = 0;
+    const result = await withTemporaryFirestoreRulesIam(
+      'probe-project',
+      { auth: {}, json: {} },
+      async (iamChanged) => iamChanged,
+      {
+        request: async <T>(url: string, init: RequestInit) => {
+          if (url.endsWith('/probe-project')) return { projectNumber: '123' } as T;
+          if (init.body && (JSON.parse(String(init.body)) as { policy?: IamPolicy }).policy) writes += 1;
+          return policy as T;
+        },
+        cleanupRequest: async <T>() => {
+          cleanupRequests += 1;
+          return policy as T;
+        },
+      },
+    );
+
+    expect(result).toEqual({ value: false, iamChanged: false, iamRestored: true });
+    expect(writes).toBe(0);
+    expect(cleanupRequests).toBe(0);
+  });
+
+  test('restores the original policy when probe work throws', async () => {
+    const original: IamPolicy = { etag: 'original', bindings: [] };
+    let current = original;
+    let cleanupRequests = 0;
+    const operation = withTemporaryFirestoreRulesIam(
+      'probe-project',
+      { auth: {}, json: {} },
+      async () => { throw new Error('probe failed'); },
+      {
+        request: async <T>(url: string, init: RequestInit) => {
+          if (url.endsWith('/probe-project')) return { projectNumber: '123' } as T;
+          const body = init.body ? JSON.parse(String(init.body)) as { policy?: IamPolicy } : {};
+          if (url.endsWith(':setIamPolicy')) current = { ...body.policy, etag: 'granted' };
+          return current as T;
+        },
+        cleanupRequest: async <T>(_url: string, init: RequestInit) => {
+          cleanupRequests += 1;
+          const body = JSON.parse(String(init.body)) as { policy?: IamPolicy };
+          if (body.policy) current = { ...body.policy, etag: 'restored' };
+          return current as T;
+        },
+      },
+    );
+
+    await expect(operation).rejects.toThrow('probe failed');
+    expect(cleanupRequests).toBeGreaterThanOrEqual(3);
+    expect(canonicalPolicy(current)).toBe(canonicalPolicy(original));
+  });
 });

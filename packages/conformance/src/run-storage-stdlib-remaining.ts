@@ -16,7 +16,7 @@ import {
   runCleanupSteps,
 } from './storage-stdlib-real-budget.ts';
 import { deleteFirestoreDocuments } from './storage-stdlib-real-documents.ts';
-import { restoreIamPolicy, type IamPolicy } from './storage-stdlib-real-iam.ts';
+import { withTemporaryFirestoreRulesIam } from './storage-stdlib-real-iam.ts';
 import {
   deleteStorageObjects,
   firebaseStorageUpload,
@@ -85,72 +85,6 @@ async function verifyDocument(
   if (document.fields?.allow?.booleanValue !== allow) throw new Error(`probe document ${name} did not contain allow=${allow}`);
 }
 
-async function withTemporaryIam<T>(
-  sa: ServiceAccount,
-  headers: AccessHeaders,
-  budget: RequestBudget,
-  cleanupBudget: RequestBudget,
-  work: (iamChanged: boolean) => Promise<T>,
-): Promise<{ value: T; iamChanged: boolean; iamRestored: boolean }> {
-  budget.take('iam', 2);
-  const project = await jsonRequest<{ projectNumber: string }>(
-    `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}`,
-    { headers: headers.auth },
-    'read project number',
-  );
-  const policyUrl = `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`;
-  const original = await jsonRequest<IamPolicy>(
-    policyUrl,
-    { method: 'POST', headers: headers.json, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
-    'snapshot IAM policy',
-  );
-  const role = 'roles/firebaserules.firestoreServiceAgent';
-  const member = `serviceAccount:service-${project.projectNumber}@gcp-sa-firebasestorage.iam.gserviceaccount.com`;
-  const next = structuredClone(original);
-  next.version = Math.max(next.version ?? 0, 3);
-  next.bindings ??= [];
-  const alreadyGranted = next.bindings.some((entry) => entry.role === role && entry.condition === undefined && entry.members.includes(member));
-  let iamChanged = false;
-  let value!: T;
-  let iamRestored = alreadyGranted;
-  try {
-    if (!alreadyGranted) {
-      let binding = next.bindings.find((entry) => entry.role === role && entry.condition === undefined);
-      if (!binding) {
-        binding = { role, members: [] };
-        next.bindings.push(binding);
-      }
-      binding.members.push(member);
-      budget.take('iam');
-      // Cleanup must run even if the policy commits but the client observes a
-      // transport failure before receiving the response.
-      iamChanged = true;
-      await jsonRequest<IamPolicy>(
-        `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
-        { method: 'POST', headers: headers.json, body: JSON.stringify({ policy: next }) },
-        'grant temporary cross-service IAM role',
-      );
-      await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
-    }
-    value = await work(iamChanged);
-  } finally {
-    if (iamChanged) {
-      iamRestored = await restoreIamPolicy(
-        policyUrl,
-        original,
-        headers,
-        async (url, init, label) => {
-          cleanupBudget.take('iam');
-          return jsonRequest<IamPolicy>(url, init, label);
-        },
-        async () => { await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS)); },
-      );
-    }
-  }
-  if (!iamRestored) throw new Error('IAM restoration verification failed');
-  return { value, iamChanged, iamRestored };
-}
-
 async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, secondarySa: ServiceAccount): Promise<void> {
   const headers = await accessHeaders(sa);
   const secondaryHeaders = await accessHeaders(secondarySa);
@@ -189,7 +123,7 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
   let objectsRemoved = false;
   let documentsRemoved = false;
 
-  const result = await withTemporaryIam(sa, headers, budget, cleanupBudget, async () => {
+  const result = await withTemporaryFirestoreRulesIam(sa.project_id, headers, async () => {
     try {
       await patchDocument(primaryDocs.iam, true, headers, budget);
       await patchDocument(primaryDocs.consistency, false, headers, budget);
@@ -282,6 +216,16 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       ]);
     }
     return true;
+  }, {
+    request: async <T>(url: string, init: RequestInit, label: string) => {
+      budget.take('iam');
+      return jsonRequest<T>(url, init, label);
+    },
+    cleanupRequest: async <T>(url: string, init: RequestInit, label: string) => {
+      cleanupBudget.take('iam');
+      return jsonRequest<T>(url, init, label);
+    },
+    settle: async () => { await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS)); },
   });
 
   const cleanup = { releaseRestored, objectsRemoved, documentsRemoved, iamRestored: result.iamRestored };

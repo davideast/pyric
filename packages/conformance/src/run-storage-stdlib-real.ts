@@ -30,17 +30,19 @@ import {
   storageProbeRequestKind,
 } from './storage-stdlib-real-budget.ts';
 import { deleteFirestoreDocuments } from './storage-stdlib-real-documents.ts';
-import {
-  restoreIamPolicy,
-  type IamPolicy,
-} from './storage-stdlib-real-iam.ts';
+import { withTemporaryFirestoreRulesIam } from './storage-stdlib-real-iam.ts';
 import { acquireRunLock } from './storage-stdlib-real-lock.ts';
 import {
   deleteStorageObjects,
   firebaseStorageUpload,
 } from './storage-stdlib-real-objects.ts';
 import {
+  activateStorageSource,
+  replaceRulesFile,
   restoreRulesRelease,
+  restoreStorageRelease,
+  selectRulesFile,
+  storageRulesSnapshot,
   type Release,
   type Ruleset,
 } from './storage-stdlib-real-rules.ts';
@@ -220,306 +222,273 @@ async function run(): Promise<void> {
   if (advanced && !expectEnabledIam && !compileAdvanced) {
     throw new Error('--advanced requires --temporary-iam or --iam-enabled');
   }
-  let originalIam: IamPolicy | undefined;
   let iamChanged = false;
-  let iamGrantAttempted = false;
   let iamRestored = !temporaryIam;
+  let compileOnlyCompleted = false;
   let completedObservation: Record<string, unknown> | undefined;
 
-  try {
-  if (temporaryIam) {
-    const project = await json<{ projectNumber: string }>(
-      `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}`,
-      { headers: authHeaders }, 'read project number',
+  const runProbe = async (): Promise<void> => {
+    const config = await json<{ storageBucket: string; projectId: string }>(
+      `${FIREBASE_API}/projects/${sa.project_id}/adminSdkConfig`, { headers: authHeaders }, 'read Admin SDK config',
     );
-    const policyUrl = `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`;
-    originalIam = await json<IamPolicy>(
-      policyUrl,
-      { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
-      'snapshot IAM policy',
-    );
-    const role = 'roles/firebaserules.firestoreServiceAgent';
-    const member = `serviceAccount:service-${project.projectNumber}@gcp-sa-firebasestorage.iam.gserviceaccount.com`;
-    const next = structuredClone(originalIam);
-    next.version = Math.max(next.version ?? 0, 3);
-    next.bindings ??= [];
-    const alreadyGranted = next.bindings.some((entry) => entry.role === role
-      && entry.condition === undefined
-      && entry.members.includes(member));
-    if (!alreadyGranted) {
-      let binding = next.bindings.find((entry) => entry.role === role && entry.condition === undefined);
-      if (!binding) {
-        binding = { role, members: [] };
-        next.bindings.push(binding);
-      }
-      binding.members.push(member);
-      iamGrantAttempted = true;
-      await json<IamPolicy>(
-        `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
-        { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ policy: next }) },
-        'grant temporary cross-service IAM role',
-      );
-      iamChanged = true;
-      await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
-    }
-  }
-  const config = await json<{ storageBucket: string; projectId: string }>(
-    `${FIREBASE_API}/projects/${sa.project_id}/adminSdkConfig`, { headers: authHeaders }, 'read Admin SDK config',
-  );
-  if (!config.storageBucket) throw new Error('oracle project has no Storage bucket');
+    if (!config.storageBucket) throw new Error('oracle project has no Storage bucket');
 
-  const runId = `r${Date.now().toString(36)}`;
-  const prefix = `__pyric_storage_stdlib/${runId}`;
-  const releaseName = `projects/${sa.project_id}/releases/firebase.storage/${config.storageBucket}`;
-  const releaseUrl = `${RULES_API}/${releaseName}`;
-  const original = await json<Release>(releaseUrl, { headers: authHeaders }, 'snapshot Storage release');
-  const originalRuleset = await json<Ruleset>(`${RULES_API}/${original.rulesetName}`, { headers: authHeaders }, 'snapshot Storage ruleset');
-  const rulesFile = originalRuleset.source.files.find((file) => file.name.endsWith('.rules')) ?? originalRuleset.source.files[0];
-  if (!rulesFile) throw new Error('current Storage ruleset has no source file');
-  if (compileAdvanced) {
-    const runId = 'compile';
-    const content = injectProbeRules(rulesFile.content, runId, true);
-    const files = originalRuleset.source.files.map((file) => file === rulesFile ? { ...file, content } : file);
-    budget.take('rules');
-    const response = await fetch(`${RULES_API}/projects/${sa.project_id}:test`, {
-      method: 'POST',
-      headers: jsonHeaders,
-      body: JSON.stringify({
-        source: { files },
-        testSuite: {
-          testCases: [{
-            expectation: 'ALLOW',
-            request: {
-              method: 'create',
-              path: `/b/${config.storageBucket}/o/__pyric_storage_stdlib/${runId}/canary/x`,
-              resource: { size: 5 },
-            },
-          }],
-        },
-      }),
-    });
-    const result = await response.json() as { issues?: unknown[]; testResults?: Array<{ state?: string }>; error?: unknown };
-    if (!response.ok || result.issues?.length || result.error) {
-      throw new Error(`advanced Storage source preflight failed: ${response.status} ${JSON.stringify(result)}`);
-    }
-    console.log(`[storage-stdlib:real] advanced source preflight ${result.testResults?.[0]?.state ?? 'UNKNOWN'}; no mutations.`);
-    return;
-  }
-  const firestoreReleaseName = `projects/${sa.project_id}/releases/cloud.firestore`;
-  const firestoreReleaseUrl = `${RULES_API}/${firestoreReleaseName}`;
-  const originalFirestore = advanced
-    ? await json<Release>(firestoreReleaseUrl, { headers: authHeaders }, 'snapshot Firestore release')
-    : undefined;
-  const originalFirestoreRuleset = originalFirestore
-    ? await json<Ruleset>(`${RULES_API}/${originalFirestore.rulesetName}`, { headers: authHeaders }, 'snapshot Firestore ruleset')
-    : undefined;
-  const firestoreRulesFile = originalFirestoreRuleset?.source.files.find((file) => file.name.endsWith('.rules'))
-    ?? originalFirestoreRuleset?.source.files[0];
-  if (advanced && !firestoreRulesFile) throw new Error('current Firestore ruleset has no source file');
-
-  const createdObjects = new Set<string>();
-  const docNames = ['a', 'b', 'c'].map((id) => `projects/${sa.project_id}/databases/(default)/documents/__pyric_storage_stdlib/${runId}/docs/${id}`);
-  const behavior: Record<string, unknown> = {};
-  const diagnostics: Record<string, unknown> = {};
-  let probeRulesetName: string | undefined;
-  let releaseRestored = false;
-  let firestoreReleaseRestored = !advanced;
-  let objectsRemoved = false;
-  let documentsRemoved = false;
-
-  const upload = async (family: string, retry = false): Promise<{ allowed: boolean; code?: string; message?: string }> => {
-    const path = `${prefix}/${family}/payload.bin`;
-    createdObjects.add(path);
-    const attempt = async () => firebaseStorageUpload(
+    const runId = `r${Date.now().toString(36)}`;
+    const prefix = `__pyric_storage_stdlib/${runId}`;
+    const storageSnapshot = await storageRulesSnapshot(
+      sa,
       config.storageBucket,
-      path,
-      new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]),
+      { auth: authHeaders, json: jsonHeaders },
       budget,
     );
-    if (!retry) return attempt();
-    let last = await attempt();
-    for (let i = 0; !last.allowed && i < IAM_RETRY_LIMIT; i += 1) {
-      await new Promise((resolveWait) => setTimeout(resolveWait, IAM_RETRY_MS));
-      last = await attempt();
+    const rulesFile = selectRulesFile(storageSnapshot.ruleset);
+    if (compileAdvanced) {
+      const runId = 'compile';
+      const content = injectProbeRules(rulesFile.content, runId, true);
+      const files = replaceRulesFile(storageSnapshot.ruleset, rulesFile, content);
+      budget.take('rules');
+      const response = await fetch(`${RULES_API}/projects/${sa.project_id}:test`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          source: { files },
+          testSuite: {
+            testCases: [{
+              expectation: 'ALLOW',
+              request: {
+                method: 'create',
+                path: `/b/${config.storageBucket}/o/__pyric_storage_stdlib/${runId}/canary/x`,
+                resource: { size: 5 },
+              },
+            }],
+          },
+        }),
+      });
+      const result = await response.json() as { issues?: unknown[]; testResults?: Array<{ state?: string }>; error?: unknown };
+      if (!response.ok || result.issues?.length || result.error) {
+        throw new Error(`advanced Storage source preflight failed: ${response.status} ${JSON.stringify(result)}`);
+      }
+      console.log(`[storage-stdlib:real] advanced source preflight ${result.testResults?.[0]?.state ?? 'UNKNOWN'}; no mutations.`);
+      compileOnlyCompleted = true;
+      return;
     }
-    return last;
-  };
+    const firestoreReleaseName = `projects/${sa.project_id}/releases/cloud.firestore`;
+    const firestoreReleaseUrl = `${RULES_API}/${firestoreReleaseName}`;
+    const originalFirestore = advanced
+      ? await json<Release>(firestoreReleaseUrl, { headers: authHeaders }, 'snapshot Firestore release')
+      : undefined;
+    const originalFirestoreRuleset = originalFirestore
+      ? await json<Ruleset>(`${RULES_API}/${originalFirestore.rulesetName}`, { headers: authHeaders }, 'snapshot Firestore ruleset')
+      : undefined;
+    const firestoreRulesFile = originalFirestoreRuleset?.source.files.find((file) => file.name.endsWith('.rules'))
+      ?? originalFirestoreRuleset?.source.files[0];
+    if (advanced && !firestoreRulesFile) throw new Error('current Firestore ruleset has no source file');
 
-  const activateFirestoreProbeRule = async (allow: boolean): Promise<number> => {
-    if (!originalFirestoreRuleset || !firestoreRulesFile) throw new Error('Firestore rules snapshot unavailable');
-    const content = injectFirestoreProbeRule(firestoreRulesFile.content, runId, allow);
-    const files = originalFirestoreRuleset.source.files.map((file) => file === firestoreRulesFile ? { ...file, content } : file);
-    const created = await json<{ name: string }>(
-      `${RULES_API}/projects/${sa.project_id}/rulesets`,
-      { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ source: { files } }) },
-      `create ${allow ? 'allow' : 'deny'} probe Firestore ruleset`,
-    );
-    await json(
-      firestoreReleaseUrl,
-      { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: firestoreReleaseName, rulesetName: created.name } }) },
-      `activate ${allow ? 'allow' : 'deny'} probe Firestore ruleset`,
-    );
-    const expected = allow ? 200 : 403;
-    const documentUrl = `https://firestore.googleapis.com/v1/${docNames[0]}?key=${encodeURIComponent(web.apiKey)}`;
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      budget.take('firestoreWrite');
-      const response = await fetch(documentUrl);
-      if (response.status === expected) return response.status;
-      await new Promise((resolveWait) => setTimeout(resolveWait, 2_000));
-    }
-    throw new Error(`probe Firestore rules did not reach expected anonymous status ${expected}`);
-  };
+    const createdObjects = new Set<string>();
+    const docNames = ['a', 'b', 'c'].map((id) => `projects/${sa.project_id}/databases/(default)/documents/__pyric_storage_stdlib/${runId}/docs/${id}`);
+    const behavior: Record<string, unknown> = {};
+    const diagnostics: Record<string, unknown> = {};
+    let probeRulesetName: string | undefined;
+    let releaseRestored = false;
+    let firestoreReleaseRestored = !advanced;
+    let objectsRemoved = false;
+    let documentsRemoved = false;
 
-  try {
-    for (const [index, docName] of docNames.entries()) {
-      const fields = index === 0 ? {
-        allow: { booleanValue: true },
-        count: { integerValue: '7' },
-        nested: { mapValue: { fields: { flag: { booleanValue: true } } } },
-        tags: { arrayValue: { values: [{ stringValue: 'alpha' }, { stringValue: 'beta' }] } },
-      } : { allow: { booleanValue: true } };
+    const upload = async (family: string, retry = false): Promise<{ allowed: boolean; code?: string; message?: string }> => {
+      const path = `${prefix}/${family}/payload.bin`;
+      createdObjects.add(path);
+      const attempt = async () => firebaseStorageUpload(
+        config.storageBucket,
+        path,
+        new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]),
+        budget,
+      );
+      if (!retry) return attempt();
+      let last = await attempt();
+      for (let i = 0; !last.allowed && i < IAM_RETRY_LIMIT; i += 1) {
+        await new Promise((resolveWait) => setTimeout(resolveWait, IAM_RETRY_MS));
+        last = await attempt();
+      }
+      return last;
+    };
+
+    const activateFirestoreProbeRule = async (allow: boolean): Promise<number> => {
+      if (!originalFirestoreRuleset || !firestoreRulesFile) throw new Error('Firestore rules snapshot unavailable');
+      const content = injectFirestoreProbeRule(firestoreRulesFile.content, runId, allow);
+      const files = originalFirestoreRuleset.source.files.map((file) => file === firestoreRulesFile ? { ...file, content } : file);
+      const created = await json<{ name: string }>(
+        `${RULES_API}/projects/${sa.project_id}/rulesets`,
+        { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ source: { files } }) },
+        `create ${allow ? 'allow' : 'deny'} probe Firestore ruleset`,
+      );
       await json(
-        `https://firestore.googleapis.com/v1/${docName}`,
-        { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ fields }) },
-        `create probe document ${docName.split('/').at(-1)}`,
+        firestoreReleaseUrl,
+        { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: firestoreReleaseName, rulesetName: created.name } }) },
+        `activate ${allow ? 'allow' : 'deny'} probe Firestore ruleset`,
       );
-    }
+      const expected = allow ? 200 : 403;
+      const documentUrl = `https://firestore.googleapis.com/v1/${docNames[0]}?key=${encodeURIComponent(web.apiKey)}`;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        budget.take('firestoreWrite');
+        const response = await fetch(documentUrl);
+        if (response.status === expected) return response.status;
+        await new Promise((resolveWait) => setTimeout(resolveWait, 2_000));
+      }
+      throw new Error(`probe Firestore rules did not reach expected anonymous status ${expected}`);
+    };
 
-    const probeSource = injectProbeRules(rulesFile.content, runId, advanced);
-    const probeFiles = originalRuleset.source.files.map((file) => file === rulesFile ? { ...file, content: probeSource } : file);
-    const created = await json<{ name: string }>(
-      `${RULES_API}/projects/${sa.project_id}/rulesets`,
-      { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ source: { files: probeFiles } }) },
-      'create probe Storage ruleset',
-    );
-    probeRulesetName = created.name;
-    await json(
-      releaseUrl,
-      { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: releaseName, rulesetName: created.name } }) },
-      'activate probe Storage ruleset',
-    );
+    try {
+      for (const [index, docName] of docNames.entries()) {
+        const fields = index === 0 ? {
+          allow: { booleanValue: true },
+          count: { integerValue: '7' },
+          nested: { mapValue: { fields: { flag: { booleanValue: true } } } },
+          tags: { arrayValue: { values: [{ stringValue: 'alpha' }, { stringValue: 'beta' }] } },
+        } : { allow: { booleanValue: true } };
+        await json(
+          `https://firestore.googleapis.com/v1/${docName}`,
+          { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ fields }) },
+          `create probe document ${docName.split('/').at(-1)}`,
+        );
+      }
 
-    const canary = await upload('canary', true);
-    if (!canary.allowed) throw new Error(`probe rules did not become active: ${canary.code} ${canary.message}`);
-
-    const families = advanced
-      ? ['existing-get', 'absent-field', 'wrong-type', 'nested-map', 'list-membership', 'auth-interpolation', 'named-database', 'false-or', 'true-ternary', 'helper', 'let-binding', 'error-or-true', 'false-and-error']
-      : ['one', 'two', 'three', 'repeat', 'get-exists', 'short', 'missing-exists', 'missing-get'];
-    for (const family of families) {
-      const result = await upload(family, expectEnabledIam && family === (advanced ? 'existing-get' : 'one'));
-      behavior[family] = result.allowed ? 'ALLOW' : 'DENY';
-      diagnostics[family] = { code: result.code, message: result.message };
-    }
-    if (advanced) {
-      behavior['firestore-client-deny-control'] = await activateFirestoreProbeRule(false) === 403 ? 'DENY' : 'UNEXPECTED';
-      const deniedRules = await upload('firestore-deny-rules');
-      behavior['firestore-deny-rules'] = deniedRules.allowed ? 'ALLOW' : 'DENY';
-      diagnostics['firestore-deny-rules'] = { code: deniedRules.code, message: deniedRules.message };
-      behavior['firestore-client-allow-control'] = await activateFirestoreProbeRule(true) === 200 ? 'ALLOW' : 'UNEXPECTED';
-      const allowedRules = await upload('firestore-allow-rules');
-      behavior['firestore-allow-rules'] = allowedRules.allowed ? 'ALLOW' : 'DENY';
-      diagnostics['firestore-allow-rules'] = { code: allowedRules.code, message: allowedRules.message };
-    }
-  } finally {
-    await runCleanupSteps([
-      {
-        label: 'restore Firestore release',
-        run: async () => {
-          if (!originalFirestore) return;
-          firestoreReleaseRestored = await restoreRulesRelease(
-            { auth: authHeaders, json: jsonHeaders },
-            cleanupBudget,
-            firestoreReleaseUrl,
-            firestoreReleaseName,
-            originalFirestore.rulesetName,
-            (url, init, label) => rawJson<Release>(url, init, label),
-          );
-        },
-      },
-      {
-        label: 'restore Storage release',
-        run: async () => {
-          releaseRestored = await restoreRulesRelease(
-            { auth: authHeaders, json: jsonHeaders },
-            cleanupBudget,
-            releaseUrl,
-            releaseName,
-            original.rulesetName,
-            (url, init, label) => rawJson<Release>(url, init, label),
-          );
-        },
-      },
-      {
-        label: 'delete Storage objects',
-        run: async () => {
-          objectsRemoved = await deleteStorageObjects(
-            config.storageBucket,
-            prefix,
-            createdObjects,
-            { auth: authHeaders, json: jsonHeaders },
-            cleanupBudget,
-          );
-        },
-      },
-      {
-        label: 'delete and verify probe documents',
-        run: async () => {
-          documentsRemoved = await deleteFirestoreDocuments(
-            docNames.map((name) => ({ name, headers: { auth: authHeaders, json: jsonHeaders } })),
-            cleanupBudget,
-          );
-        },
-      },
-    ]);
-  }
-
-  if (!releaseRestored || !firestoreReleaseRestored || !objectsRemoved || !documentsRemoved) {
-    throw new Error(`cleanup verification failed: releaseRestored=${releaseRestored} firestoreReleaseRestored=${firestoreReleaseRestored} objectsRemoved=${objectsRemoved} documentsRemoved=${documentsRemoved}`);
-  }
-
-  const observationName = advanced
-      ? 'stdlib-realstorage-p3-advanced-iam-enabled'
-      : expectEnabledIam
-      ? 'stdlib-realstorage-p3-lookup-budget-iam-enabled'
-      : 'stdlib-realstorage-p3-lookup-budget';
-  const linkage = readObservationLinkage(join(OBS_DIR, `${observationName}.json`));
-  completedObservation = {
-    name: observationName,
-    matrixRow: linkage.matrixRow,
-    rowIds: linkage.rowIds,
-    description: advanced
-      ? 'Real-resource Storage-to-Firestore advanced behavior for return types, evaluation order, path boundaries, helper composition, and independence from the Firestore ruleset.'
-      : 'Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents.',
-    observedAt: new Date().toISOString(),
-    fbSdkVersion: (JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('firebase/package.json')), 'utf8')) as { version: string }).version,
-    projectId: sa.project_id,
-    bucket: config.storageBucket,
-    behavior,
-    diagnostics,
-    cleanup: { releaseRestored, firestoreReleaseRestored, objectsRemoved, documentsRemoved, iamRestored: !temporaryIam },
-    iam: { temporaryIam, externallyEnabledIam, iamChanged },
-    requestBudget: budget.snapshot(),
-    cleanupRequestBudget: cleanupBudget.snapshot(),
-    probeBlockSha256: storageStdlibRealProbeBlockDigest(advanced),
-    deployedRulesFileSha256: createHash('sha256')
-      .update(injectProbeRules(rulesFile.content, runId, advanced)).digest('hex'),
-    probeRulesetCreated: !!probeRulesetName,
-  };
-  } finally {
-    if (temporaryIam && originalIam && iamGrantAttempted) {
-      const policyUrl = `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`;
-      iamRestored = await restoreIamPolicy(
-        policyUrl,
-        originalIam,
+      const probeSource = injectProbeRules(rulesFile.content, runId, advanced);
+      const probeFiles = replaceRulesFile(storageSnapshot.ruleset, rulesFile, probeSource);
+      await activateStorageSource(
+        sa,
         { auth: authHeaders, json: jsonHeaders },
-        (url, init, label) => cleanupJson<IamPolicy>(url, init, label),
-        async () => { await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS)); },
+        budget,
+        storageSnapshot,
+        probeFiles,
       );
-    } else if (temporaryIam) {
-      iamRestored = true;
+      probeRulesetName = 'created';
+
+      const canary = await upload('canary', true);
+      if (!canary.allowed) throw new Error(`probe rules did not become active: ${canary.code} ${canary.message}`);
+
+      const families = advanced
+        ? ['existing-get', 'absent-field', 'wrong-type', 'nested-map', 'list-membership', 'auth-interpolation', 'named-database', 'false-or', 'true-ternary', 'helper', 'let-binding', 'error-or-true', 'false-and-error']
+        : ['one', 'two', 'three', 'repeat', 'get-exists', 'short', 'missing-exists', 'missing-get'];
+      for (const family of families) {
+        const result = await upload(family, expectEnabledIam && family === (advanced ? 'existing-get' : 'one'));
+        behavior[family] = result.allowed ? 'ALLOW' : 'DENY';
+        diagnostics[family] = { code: result.code, message: result.message };
+      }
+      if (advanced) {
+        behavior['firestore-client-deny-control'] = await activateFirestoreProbeRule(false) === 403 ? 'DENY' : 'UNEXPECTED';
+        const deniedRules = await upload('firestore-deny-rules');
+        behavior['firestore-deny-rules'] = deniedRules.allowed ? 'ALLOW' : 'DENY';
+        diagnostics['firestore-deny-rules'] = { code: deniedRules.code, message: deniedRules.message };
+        behavior['firestore-client-allow-control'] = await activateFirestoreProbeRule(true) === 200 ? 'ALLOW' : 'UNEXPECTED';
+        const allowedRules = await upload('firestore-allow-rules');
+        behavior['firestore-allow-rules'] = allowedRules.allowed ? 'ALLOW' : 'DENY';
+        diagnostics['firestore-allow-rules'] = { code: allowedRules.code, message: allowedRules.message };
+      }
+    } finally {
+      await runCleanupSteps([
+        {
+          label: 'restore Firestore release',
+          run: async () => {
+            if (!originalFirestore) return;
+            firestoreReleaseRestored = await restoreRulesRelease(
+              { auth: authHeaders, json: jsonHeaders },
+              cleanupBudget,
+              firestoreReleaseUrl,
+              firestoreReleaseName,
+              originalFirestore.rulesetName,
+              (url, init, label) => rawJson<Release>(url, init, label),
+            );
+          },
+        },
+        {
+          label: 'restore Storage release',
+          run: async () => {
+            releaseRestored = await restoreStorageRelease(
+              { auth: authHeaders, json: jsonHeaders },
+              cleanupBudget,
+              storageSnapshot,
+            );
+          },
+        },
+        {
+          label: 'delete Storage objects',
+          run: async () => {
+            objectsRemoved = await deleteStorageObjects(
+              config.storageBucket,
+              prefix,
+              createdObjects,
+              { auth: authHeaders, json: jsonHeaders },
+              cleanupBudget,
+            );
+          },
+        },
+        {
+          label: 'delete and verify probe documents',
+          run: async () => {
+            documentsRemoved = await deleteFirestoreDocuments(
+              docNames.map((name) => ({ name, headers: { auth: authHeaders, json: jsonHeaders } })),
+              cleanupBudget,
+            );
+          },
+        },
+      ]);
     }
+
+    if (!releaseRestored || !firestoreReleaseRestored || !objectsRemoved || !documentsRemoved) {
+      throw new Error(`cleanup verification failed: releaseRestored=${releaseRestored} firestoreReleaseRestored=${firestoreReleaseRestored} objectsRemoved=${objectsRemoved} documentsRemoved=${documentsRemoved}`);
+    }
+
+    const observationName = advanced
+        ? 'stdlib-realstorage-p3-advanced-iam-enabled'
+        : expectEnabledIam
+        ? 'stdlib-realstorage-p3-lookup-budget-iam-enabled'
+        : 'stdlib-realstorage-p3-lookup-budget';
+    const linkage = readObservationLinkage(join(OBS_DIR, `${observationName}.json`));
+    completedObservation = {
+      name: observationName,
+      matrixRow: linkage.matrixRow,
+      rowIds: linkage.rowIds,
+      description: advanced
+        ? 'Real-resource Storage-to-Firestore advanced behavior for return types, evaluation order, path boundaries, helper composition, and independence from the Firestore ruleset.'
+        : 'Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents.',
+      observedAt: new Date().toISOString(),
+      fbSdkVersion: (JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('firebase/package.json')), 'utf8')) as { version: string }).version,
+      projectId: sa.project_id,
+      bucket: config.storageBucket,
+      behavior,
+      diagnostics,
+      cleanup: { releaseRestored, firestoreReleaseRestored, objectsRemoved, documentsRemoved, iamRestored: !temporaryIam },
+      iam: { temporaryIam, externallyEnabledIam, iamChanged },
+      requestBudget: budget.snapshot(),
+      cleanupRequestBudget: cleanupBudget.snapshot(),
+      probeBlockSha256: storageStdlibRealProbeBlockDigest(advanced),
+      deployedRulesFileSha256: createHash('sha256')
+        .update(injectProbeRules(rulesFile.content, runId, advanced)).digest('hex'),
+      probeRulesetCreated: !!probeRulesetName,
+    };
+  };
+
+  if (temporaryIam) {
+    const result = await withTemporaryFirestoreRulesIam(
+      sa.project_id,
+      { auth: authHeaders, json: jsonHeaders },
+      async (changed) => {
+        iamChanged = changed;
+        await runProbe();
+      },
+      {
+        request: json,
+        cleanupRequest: cleanupJson,
+        settle: async () => { await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS)); },
+      },
+    );
+    iamChanged = result.iamChanged;
+    iamRestored = result.iamRestored;
+  } else {
+    await runProbe();
   }
 
+  if (compileOnlyCompleted) return;
   if (!completedObservation) throw new Error('probe completed without an observation payload');
   const cleanup = completedObservation.cleanup as { releaseRestored: boolean; objectsRemoved: boolean; documentsRemoved: boolean; iamRestored: boolean };
   cleanup.iamRestored = iamRestored;
