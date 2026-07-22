@@ -107,4 +107,3 @@ export function refFromURL(db: Database, url: string): DatabaseReference {
   }
   return ref(db, path);
 }
-

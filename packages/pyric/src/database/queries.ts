@@ -171,4 +171,3 @@ export function limitToLast(n: number): QueryConstraint {
     n,
   });
 }
-

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import type { ClientDb } from '../../../src/serve/worker/client.js';
-import { ownClientUntilPagehide } from '../../../src/serve/worker/client/pagehide.js';
+import type { ClientDb } from '../../../../src/serve/worker/client.js';
+import { ownClientUntilPagehide } from '../../../../src/serve/worker/client/pagehide.js';
 
 function pagehideHarness() {
   const listeners = new Set<(event: Event) => void>();

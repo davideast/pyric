@@ -57,4 +57,3 @@ export function buildSandboxRef(
   tag(self as unknown as object, target);
   return self;
 }
-

@@ -324,4 +324,3 @@ export function off(
   }
   cancelSubscriptions(target, r._path, eventType);
 }
-

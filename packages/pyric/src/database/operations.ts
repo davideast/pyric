@@ -155,4 +155,3 @@ function makeThenable(
 export function pushKey(): string {
   return generatePushId();
 }
-

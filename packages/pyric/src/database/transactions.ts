@@ -80,4 +80,3 @@ export async function runTransaction<T>(
   const snap = buildSandboxSnapFromRaw(target, r, result.val);
   return { committed: result.committed, snapshot: snap };
 }
-

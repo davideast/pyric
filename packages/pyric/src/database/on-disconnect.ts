@@ -37,4 +37,3 @@ export function onDisconnect(r: DatabaseReference): OnDisconnect {
   const target = targetOf(r as unknown as object);
   return new OnDisconnect(target, r._path);
 }
-
