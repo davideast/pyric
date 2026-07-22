@@ -10,18 +10,18 @@
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, statSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { collectBody } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { contentTypeFor, pipeFileToResponse, resolveStaticFile, type ServeLogger } from './server.js';
-import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
+import { pipeFileToResponse, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
 import { handleActivity } from './activity-route.js';
+import { createSiteTreeHandler } from './site-tree.js';
 export type { InitPayload } from './init-payload.js';
 
 /**
@@ -34,12 +34,19 @@ export interface ServeEventHub {
   handle(req: IncomingMessage, res: ServerResponse): void;
   broadcast(event: string, data: unknown): void;
   clientCount(): number;
+  /** End all open streams. Idempotent; used by host-neutral session cleanup. */
+  close(): void;
 }
 
 export function createEventHub(): ServeEventHub {
   const clients = new Set<ServerResponse>();
+  let closed = false;
   return {
     handle(req, res) {
+      if (closed) {
+        res.writeHead(503, { 'content-type': 'text/plain' }).end('sandbox session closed');
+        return;
+      }
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-store',
@@ -53,6 +60,7 @@ export function createEventHub(): ServeEventHub {
       res.on('error', () => clients.delete(res));
     },
     broadcast(event, data) {
+      if (closed) return;
       const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
       for (const res of clients) {
         try {
@@ -63,6 +71,12 @@ export function createEventHub(): ServeEventHub {
       }
     },
     clientCount: () => clients.size,
+    close() {
+      if (closed) return;
+      closed = true;
+      for (const res of clients) res.end();
+      clients.clear();
+    },
   };
 }
 
@@ -85,22 +99,14 @@ export interface NamespaceOptions {
    *  current fixture JSON (200) or 404 when nothing is captured yet, so the
    *  served worker can re-hydrate its event history on boot after a death. */
   capture?: { write(json: string): void; read(): string | null };
+  /** Unified Astro documentation + Studio tree, built for `/__pyric/ui/`. */
+  siteUiDir?: string;
+  /** Served SharedWorker epoch stamped only into Studio entry documents. */
+  workerVersion?: string;
   /** `--ui` (Pyric Studio): mounts `/__pyric/workspace` + `/__pyric/projects`
    *  (disk-backed `WorkspaceStore`/`ProjectStore`, plus the SSE watch stream)
    *  that `@pyric/studio`'s `local` mode talks to. */
   studio?: StudioRouteOptions;
-  /** `--ui` (Pyric Studio): the dir of the built Studio app, served under
-   *  `/__pyric/ui/`. Resolved by file path in the CLI (@pyric/cli never
-   *  imports `@pyric/studio`). Absent when `--ui` is off or the build is
-   *  missing. */
-  studioUiDir?: string;
-  /** `--ui` (Pyric Studio): the built docs site (site-docs), served so the
-   *  Studio Docs tab has local docs without the hosted site. Built with base
-   *  `/__pyric/ui/`, so its output straddles two subtrees under the mount:
-   *  the pages/twins/index.json live under `/__pyric/ui/docs/`, but the shared
-   *  assets live at `/__pyric/ui/_astro/` (Astro's asset dir, at the base
-   *  root — NOT under `docs/`). Both are served from this one dir. */
-  docsUiDir?: string;
   /** The OpenAI-compatible upstream `/__pyric/ai-proxy` forwards to
    *  (pyric/ai — cdd-deltas #98.2). Falls back to the
    *  `PYRIC_AI_PROXY_UPSTREAM` env var, then `http://localhost:11434/v1`
@@ -467,6 +473,9 @@ async function handleDenials(
 export function createPyricNamespace(opts: NamespaceOptions) {
   const writerLock = createWriterLock();
   const studioRoutes = opts.studio ? createStudioRoutes(opts.studio) : null;
+  const siteTree = opts.siteUiDir
+    ? createSiteTreeHandler(opts.siteUiDir, opts.workerVersion)
+    : null;
   const denialThrottle = createDenialThrottle();
   // Issued once per server boot. The outer static/Vite host guard protects
   // init.json before this capability is disclosed to the served runtime.
@@ -517,159 +526,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       pipeFileToResponse(file, res);
       return true;
     }
-    // Embedded docs site (site-docs). MUST run BEFORE the general
-    // `/__pyric/ui/` studio handler below: that handler's SPA fallback answers
-    // every miss with Studio's index.html, which would swallow docs pages and
-    // (worse) return HTML for a missing docs asset. Built with base
-    // `/__pyric/ui/`, the docs output lives in TWO subtrees under the mount —
-    // pages/twins/index.json under `/__pyric/ui/docs/`, and shared assets at
-    // `/__pyric/ui/_astro/` (Astro's asset dir sits at the base root, not under
-    // `docs/`). We claim both; `_astro` is Astro-specific and never collides
-    // with Studio (Vite emits `/__pyric/ui/assets/`). No SPA fallback here — a
-    // genuinely missing docs page 404s (a broken doc link must fail loudly, not
-    // masquerade as another page). Directory-format pages (`<slug>/index.html`)
-    // and `bunx serve`-style extensionless→trailing-slash redirects are handled
-    // by resolveStaticFile + the directory redirect below.
-    if (
-      opts.docsUiDir &&
-      (url.pathname === '/__pyric/ui/docs' ||
-        url.pathname.startsWith('/__pyric/ui/docs/') ||
-        url.pathname.startsWith('/__pyric/ui/_astro/'))
-    ) {
-      const rel = url.pathname.slice('/__pyric/ui'.length) || '/';
-      // `bunx serve` parity: an extensionless path that names a real directory
-      // (e.g. `/__pyric/ui/docs` or `/__pyric/ui/docs/<slug>`) redirects to the
-      // trailing-slash form so the directory's index.html loads with correct
-      // relative-URL resolution.
-      if (!rel.endsWith('/') && !extname(rel)) {
-        const dir = join(opts.docsUiDir, decodeURIComponent(rel));
-        if (existsSync(dir) && statSync(dir).isDirectory()) {
-          res.writeHead(301, { location: `${url.pathname}/` }).end();
-          return true;
-        }
-      }
-      const file = resolveStaticFile(opts.docsUiDir, rel);
-      if (!file) {
-        res.writeHead(404).end('not found');
-        return true;
-      }
-      res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
-      pipeFileToResponse(file, res);
-      return true;
-    }
-    if (
-      opts.studioUiDir &&
-      (url.pathname === '/__pyric/ui' || url.pathname.startsWith('/__pyric/ui/'))
-    ) {
-      // The built Pyric Studio app. Served verbatim (NOT through
-      // injectServeTags: that import-map/init injection is for sandbox pages,
-      // not Studio). Studio uses History-API routing under this mount, so any
-      // path that doesn't resolve to a real file falls back to index.html —
-      // INCLUDING paths with dots (deep links like /storage/uploads/logo.png).
-      // Only misses under Vite's content-hashed asset dir stay hard 404s, so a
-      // broken script/style URL fails loudly instead of returning HTML.
-      if (url.pathname === '/__pyric/ui') {
-        res.writeHead(301, { location: '/__pyric/ui/' }).end();
-        return true;
-      }
-      const rel = url.pathname.slice('/__pyric/ui'.length) || '/';
-      let file = resolveStaticFile(opts.studioUiDir, rel);
-      if (!file && !rel.startsWith('/assets/')) {
-        file = resolveStaticFile(opts.studioUiDir, '/index.html');
-      }
-      if (!file) {
-        res.writeHead(404).end('not found');
-        return true;
-      }
-      res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
-      pipeFileToResponse(file, res);
-      return true;
-    }
+    if (siteTree?.(req, res, url)) return true;
     return false; // unknown /__pyric/* → caller 404s
   };
-}
-
-// ─── HTML injection ───────────────────────────────────────────────────
-
-/** The import-map targets. Spec → served URL. */
-export function sdkImportMap(): Record<string, string> {
-  return {
-    'firebase/ai': '/__pyric/sdk/ai.js',
-    'firebase/app': '/__pyric/sdk/app.js',
-    'firebase/auth': '/__pyric/sdk/auth.js',
-    'firebase/database': '/__pyric/sdk/database.js',
-    'firebase/firestore': '/__pyric/sdk/firestore.js',
-    'firebase/messaging': '/__pyric/sdk/messaging.js',
-    'firebase/messaging/sw': '/__pyric/sdk/messaging-sw.js',
-    'firebase/storage': '/__pyric/sdk/storage.js',
-  };
-}
-
-/**
- * Inject the import map + init script into an HTML document. The import map
- * MUST precede any module script that imports a mapped specifier, so both
- * tags go at the very start of `<head>` (fallbacks: after `<html>`, else
- * prepended). Idempotent — a page already carrying the marker is untouched
- * (matters when transformHtml runs over an SPA fallback repeatedly).
- */
-export function injectServeTags(
-  html: string,
-  importMap: Record<string, string> = sdkImportMap(),
-  workerVersion?: string,
-  forceInPage = false,
-): string {
-  const MARKER = 'data-pyric-serve';
-  if (html.includes(MARKER)) return html;
-  // A pyric SANDBOX BUILD (`vite build` under the pyricSandbox plugin's sandbox
-  // mode) already BUNDLES its own runtime + init chunk — injecting the import
-  // map + /__pyric/sdk/init.js on top would boot a SECOND runtime instance on
-  // the page (two banners, two bridge peer registrations, races between them).
-  // The bundle owns the sandbox for a marked page: it fetches
-  // /__pyric/init.json itself (worker path: the SharedWorker does; in-page
-  // path: the runtime does) and owns rules hot-reload the same way. The ONLY
-  // serve-time contribution left is the worker-version staleness stamp, which
-  // the bundled runtime reads from this meta to warn about a stale
-  // still-running SharedWorker.
-  if (html.includes(SANDBOX_BUILD_MARKER)) {
-    if (!workerVersion || html.includes('pyric-worker-v')) return html;
-    const meta = `<meta name="pyric-worker-v" content="${workerVersion}" ${MARKER}>`;
-    const headTag = html.match(/<head[^>]*>/i);
-    if (headTag && headTag.index !== undefined) {
-      const at = headTag.index + headTag[0].length;
-      return html.slice(0, at) + meta + html.slice(at);
-    }
-    return meta + html;
-  }
-  // Stamp the worker's content hash so the page can DETECT staleness: a live
-  // SharedWorker survives serve restarts + reloads and can't hot-update, so it
-  // keeps running old code until every tab of the origin closes. The worker
-  // name is intentionally STABLE (one backend shared by all tabs), so rather
-  // than split tabs across versions, `runtime.ts` compares this served hash to
-  // the running worker's baked hash and warns the user to close all tabs.
-  const versionMeta = workerVersion
-    ? `<meta name="pyric-worker-v" content="${workerVersion}" ${MARKER}>`
-    : '';
-  // `--bridge`: the MCP bridge peers with the IN-PAGE sandbox, so force the page
-  // off the default SharedWorker path. Otherwise the agent drives an empty
-  // in-page sandbox while the app's data lives in the worker. Set before any app
-  // code runs; mirrors the Vite plugin's transformIndexHtml.
-  const forceTag = forceInPage
-    ? `<script ${MARKER}>globalThis.__PYRIC_FORCE_INPAGE__=true;</script>`
-    : '';
-  const tags =
-    versionMeta +
-    forceTag +
-    `<script type="importmap" ${MARKER}>${JSON.stringify({ imports: importMap })}</script>` +
-    `<script type="module" src="/__pyric/sdk/init.js" ${MARKER}></script>`;
-  const head = html.match(/<head[^>]*>/i);
-  if (head && head.index !== undefined) {
-    const at = head.index + head[0].length;
-    return html.slice(0, at) + tags + html.slice(at);
-  }
-  const htmlTag = html.match(/<html[^>]*>/i);
-  if (htmlTag && htmlTag.index !== undefined) {
-    const at = htmlTag.index + htmlTag[0].length;
-    return html.slice(0, at) + tags + html.slice(at);
-  }
-  return tags + html;
 }

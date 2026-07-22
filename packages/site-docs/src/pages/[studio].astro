@@ -1,0 +1,10 @@
+---
+import StudioLayout from '../layouts/studio-layout.astro';
+import { studioStaticPaths } from '../lib/site-routes';
+
+export function getStaticPaths() {
+  return studioStaticPaths();
+}
+---
+
+<StudioLayout />

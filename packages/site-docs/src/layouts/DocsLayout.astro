@@ -6,6 +6,7 @@ import '../styles/rhythm.css';
 import '../styles/api-reference.css';
 import DocsNav from '../components/DocsNav.astro';
 import DocsBreadcrumbs from '../components/DocsBreadcrumbs.astro';
+import SiteLayout from './site-layout.astro';
 import { withBase, STUDIO_TABS, breadcrumbsFor, allDocs, slugOf } from '../lib/content';
 
 interface Props {
@@ -45,21 +46,7 @@ const currentEntry = (await allDocs()).find((e) => slugOf(e) === currentSlug);
 const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{title} · Pyric Studio</title>
-    {description ? <meta name="description" content={description} /> : null}
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
-      rel="stylesheet"
-    />
-  </head>
-  <body>
+<SiteLayout title={`${title} · Pyric Studio`} description={description}>
     {/* The Pyric Studio shell bar — docs are a tab OF Studio, so the
         bar IS Studio's bar: brand, then the full tab set with Docs
         active. Every other tab is a plain full-page link back to
@@ -228,5 +215,4 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
         if (empty) empty.hidden = visibleCount > 0;
       });
     </script>
-  </body>
-</html>
+</SiteLayout>

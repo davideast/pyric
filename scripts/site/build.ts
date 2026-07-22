@@ -1,29 +1,26 @@
 #!/usr/bin/env bun
 /**
- * Composed static Pyric Studio site build — `bash scripts/build-site.sh`.
+ * Static Pyric site build — `bash scripts/build-site.sh`.
  *
- * Assembles ONE static site under `dist/site/` from pieces that are each
- * already static-hostable, with no server behind any of it:
+ * Builds ONE Astro site under `dist/site/`, then adds the static sandbox
+ * runtime used by its Studio routes. There is no server behind any of it:
  *
  *   dist/site/
- *     index.html, assets/…        Studio app (STUDIO_STATIC=1, base "/")
+ *     index.html, <service>/…     Astro-owned Studio entry documents
+ *     docs/…, _astro/…            Astro-owned docs and shared assets
  *     __pyric/sdk/*.js             the SDK + SharedWorker bundles (direct
  *                                  bundleSdk/bundleWorker calls — no `pyric
  *                                  dev` server involved)
  *     __pyric/init.json            the curated demo seed (rules/authUsers/docs)
- *     docs/…                       the site-docs SSG output (packages/site-docs,
- *                                  directory-format pages + flat .md agent twins
- *                                  + /docs/index.json), built with DOCS_BASE=/
- *     _astro/…                     the docs pages' one shared stylesheet
  *     llms.txt                     the docs' generated agent entry point
  *     404.html                     the docs' 404 page, copied to the site
  *                                  root so Firebase Hosting serves it for
  *                                  any dead path (no catch-all rewrite
  *                                  swallows misses into a 200'd app shell)
  *
- * Every piece here is already output:'static'/pure-esbuild; this script's only
- * job is to run each build with the right base path and copy bytes into one
- * tree. It does NOT start a server.
+ * The Astro build owns every page and asset. This script only adds the SDK,
+ * worker, init payload, and the generation stamp Studio uses to select the
+ * same SharedWorker as the application runtime. It does NOT start a server.
  */
 import { existsSync, mkdirSync, rmSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -42,36 +39,37 @@ async function main(): Promise<void> {
   rmSync(DIST, { recursive: true, force: true });
   mkdirSync(DIST, { recursive: true });
 
-  await buildStudio();
-  await bundleSdkAndWorker();
+  await buildSite();
+  const workerEpoch = await bundleSdkAndWorker();
   writeInitJson();
-  await buildDocs();
+  stampStudioEntries(workerEpoch);
 
   log(`Done → ${DIST}`);
 }
 
-// ─── Studio ─────────────────────────────────────────────────────────────
+// ─── Astro site ─────────────────────────────────────────────────────────
 
-async function buildStudio(): Promise<void> {
-  log('Building packages/studio (STUDIO_STATIC=1, base /)');
+async function buildSite(): Promise<void> {
+  log('Building the Studio module and unified Astro site (base /)');
   const studioDir = join(ROOT, 'packages', 'studio');
-  rmSync(join(studioDir, 'dist'), { recursive: true, force: true });
-  await $`bun run --cwd ${studioDir} build`.env({
+  await $`bun run --cwd ${studioDir} build:ports`;
+
+  const siteDir = join(ROOT, 'packages', 'site-docs');
+  await $`bun run --cwd ${siteDir} build`.env({
     ...process.env,
-    STUDIO_BASE: '/',
+    DOCS_BASE: '/',
     STUDIO_STATIC: '1',
   });
-  const appDir = join(studioDir, 'dist', 'app');
-  if (!existsSync(appDir)) {
-    throw new Error(`build-site: studio build did not produce ${appDir}`);
+  const siteDist = join(siteDir, 'dist');
+  if (!existsSync(join(siteDist, 'studio-routes.json')) || !existsSync(join(siteDist, 'docs'))) {
+    throw new Error(`build-site: Astro build did not produce the unified site at ${siteDist}`);
   }
-  log('Copying Studio app → dist/site/');
-  cpSync(appDir, DIST, { recursive: true });
+  cpSync(siteDist, DIST, { recursive: true });
 }
 
 // ─── SDK + SharedWorker bundles ────────────────────────────────────────
 
-async function bundleSdkAndWorker(): Promise<void> {
+async function bundleSdkAndWorker(): Promise<string> {
   log('Bundling SDK + SharedWorker (direct bundleSdk/bundleWorker — no serve)');
   const bundlerModule = join(
     ROOT,
@@ -110,9 +108,10 @@ async function bundleSdkAndWorker(): Promise<void> {
   // indirection) — target the site's __pyric/sdk/ so it lands at
   // /__pyric/sdk/worker.js, matching where `worker/entry.ts`'s
   // `fetchInitPayload()` and the page's `new SharedWorker(...)` expect it.
-  await bundleWorker({ outDir: sdkOutDir, noCache: true });
+  const worker = await bundleWorker({ outDir: sdkOutDir, noCache: true });
 
   log(`SDK + worker bundled → ${sdkOutDir}`);
+  return worker.epoch;
 }
 
 // ─── Demo seed (__pyric/init.json) ────────────────────────────────────
@@ -159,51 +158,36 @@ function writeInitJson(): void {
   writeFileSync(join(outDir, 'init.json'), JSON.stringify(initPayload, null, 2));
 }
 
-// ─── docs (site-docs SSG) + llms.txt ───────────────────────────────────
+// ─── SharedWorker generation on Studio documents ──────────────────────
 
-async function buildDocs(): Promise<void> {
-  log('Building packages/site-docs (DOCS_BASE=/) and composing into dist/site');
-  const docsDir = join(ROOT, 'packages', 'site-docs');
-  rmSync(join(docsDir, 'dist'), { recursive: true, force: true });
-  // DOCS_BASE=/ so the docs live at /docs/<slug>/ and the shared stylesheet at
-  // /_astro/ under the composed site root (astro.config.mjs reads DOCS_BASE).
-  await $`bun run --cwd ${docsDir} build`.env({
-    ...process.env,
-    DOCS_BASE: '/',
-  });
-  const docsDist = join(docsDir, 'dist');
-  const builtDocs = join(docsDist, 'docs');
-  if (!existsSync(builtDocs)) {
-    throw new Error(`build-site: site-docs build did not produce ${builtDocs}`);
+interface StudioRouteManifest {
+  routes: string[];
+}
+
+function stampStudioEntries(workerEpoch: string): void {
+  if (!/^[a-f0-9]{16}$/.test(workerEpoch)) {
+    throw new Error(`build-site: invalid SharedWorker epoch ${workerEpoch}`);
   }
-  // The whole /docs subtree: directory-format pages (<slug>/index.html), the
-  // nested .md agent twins (<slug>.md, matching each page's nested route), and
-  // /docs/index.json. Directory format means a dumb static host serves
-  // /docs/<slug>/ with no rewrite rules.
-  cpSync(builtDocs, join(DIST, 'docs'), { recursive: true });
-  // The docs pages' one shared stylesheet lives at /_astro/ (base=/), while
-  // Studio's own bundle uses assets/, so the two never collide at the site root.
-  const docsAstro = join(docsDist, '_astro');
-  if (existsSync(docsAstro)) {
-    cpSync(docsAstro, join(DIST, '_astro'), { recursive: true });
+  const manifestPath = join(DIST, 'studio-routes.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as StudioRouteManifest;
+  if (
+    !Array.isArray(manifest.routes) ||
+    manifest.routes.some((route) => typeof route !== 'string' || route === 'home')
+  ) {
+    throw new Error(`build-site: invalid Studio route manifest at ${manifestPath}`);
   }
-  // The agent entry point at the site root; its links point at the flat
-  // /docs/<slug>.md twins just copied. Deliberately NOT the docs build's OWN
-  // root index.html (`dist/index.html`, "Pyric docs") — Studio owns / in the
-  // composed site.
-  cpSync(join(docsDist, 'llms.txt'), join(DIST, 'llms.txt'));
-  // The site's real 404 page (packages/site-docs/src/pages/404.astro).
-  // Astro always emits this at the build root regardless of `format`, so it
-  // lands at dist/404.html here — copy it to the composed site's root, where
-  // Firebase Hosting serves it automatically whenever no static file and no
-  // rewrite matches a request (see firebase.json: no more `/docs/**` catch-all
-  // swallowing dead docs paths into a 200'd app shell).
-  const docs404 = join(docsDist, '404.html');
-  if (!existsSync(docs404)) {
-    throw new Error(`build-site: site-docs build did not produce ${docs404}`);
+
+  const entries = [null, ...manifest.routes] as const;
+  for (const route of entries) {
+    const htmlPath = route === null ? join(DIST, 'index.html') : join(DIST, route, 'index.html');
+    const html = readFileSync(htmlPath, 'utf8');
+    if (!html.includes('<head>')) {
+      throw new Error(`build-site: Studio entry has no <head>: ${htmlPath}`);
+    }
+    const meta = `<meta name="pyric-worker-v" content="${workerEpoch}">`;
+    writeFileSync(htmlPath, html.replace('<head>', `<head>${meta}`));
   }
-  cpSync(docs404, join(DIST, '404.html'));
-  log('Docs + llms.txt + 404.html composed → dist/site/docs, /_astro, /llms.txt, /404.html');
+  log(`Stamped ${entries.length} Studio entries with worker ${workerEpoch}`);
 }
 
 await main();

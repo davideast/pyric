@@ -9,31 +9,103 @@
     ],
     "rewrites": [
       {
-        "source": "/firestore/**",
-        "destination": "/index.html"
+        "regex": "^/firestore(/[^.\\\\]*)?/?$",
+        "destination": "/firestore/index.html"
       },
       {
-        "source": "/auth/**",
-        "destination": "/index.html"
+        "regex": "^/auth(/[^.\\\\]*)?/?$",
+        "destination": "/auth/index.html"
       },
       {
-        "source": "/rtdb/**",
-        "destination": "/index.html"
+        "regex": "^/rtdb(/[^.\\\\]*)?/?$",
+        "destination": "/rtdb/index.html"
       },
       {
-        "source": "/storage/**",
-        "destination": "/index.html"
+        "regex": "^/storage(/[^/\\\\]*[^./\\\\][^/\\\\]*)*/?$",
+        "destination": "/storage/index.html"
       },
       {
-        "source": "/traffic/**",
-        "destination": "/index.html"
+        "regex": "^/traffic(/[^.\\\\]*)?/?$",
+        "destination": "/traffic/index.html"
       },
       {
-        "source": "/settings/**",
-        "destination": "/index.html"
+        "regex": "^/settings(/[^.\\\\]*)?/?$",
+        "destination": "/settings/index.html"
       }
     ],
     "headers": [
+      {
+        "source": "/",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/firestore/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/auth/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/rtdb/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/storage/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/traffic/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/settings/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/__pyric/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
       {
         "source": "**/*.md",
         "headers": [

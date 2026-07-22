@@ -35,14 +35,12 @@ function docsHref(): string {
 }
 
 /**
- * Are docs actually composed alongside this Studio? Only the static-site
- * build ships them; under `pyric dev` there is nothing at `<base>/docs`, the
- * SPA fallback answers with the Studio shell, and the router bounces the
- * user home — a dead tab. Probe `<base>/docs/index.json` (the docs search
- * index) and require a JSON content-type: the serve mount's SPA fallback
- * answers ANY miss — dotted paths included (deep links carry dots) — with
- * the shell's `text/html`, so a bare 200 proves nothing; the content-type
- * does. The tab renders only after the probe confirms.
+ * Are docs actually composed alongside this Studio? Both supported Astro
+ * targets ship them, but Studio remains a reusable React module and a partial
+ * deployment could omit them. Probe `<base>/docs/index.json` (the docs search
+ * index) and require a JSON content-type: an SPA fallback can answer any miss
+ * with the shell's `text/html`, so a bare 200 proves nothing. The tab renders
+ * only after the probe confirms the docs tree is present.
  */
 function useDocsAvailable(): boolean {
   const [available, setAvailable] = useState(false);

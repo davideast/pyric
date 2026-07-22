@@ -53,8 +53,7 @@ export function generatedEntrySource(opts: {
     `  assetVersion: ${JSON.stringify(opts.assetVersion)},\n` +
     `  workerVersion: ${JSON.stringify(opts.workerVersion)},\n` +
     `  sdk: () => import('./embedded-sdk.js').then((m) => m.default),\n` +
-    `  studio: () => import('./embedded-studio.js').then((m) => m.default),\n` +
-    `  docs: () => import('./embedded-docs.js').then((m) => m.default),\n` +
+    `  site: () => import('./embedded-site.js').then((m) => m.default),\n` +
     `  tarballs: () => import('./embedded-tarballs.js').then((m) => m.default),\n` +
     `};\n` +
     `const cli = await import(${JSON.stringify(opts.cliImportSpecifier)});\n` +

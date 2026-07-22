@@ -4,21 +4,34 @@
   "rowIds": [
     "firestore-rules#161"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"bytes-toutf8-and-hashing\" (Item 5.3). Sim must implement Bytes + String.toUtf8() + hashing.{md5,sha256,crc32,crc32c}. Pre-fix: every reference hashing rule denied silently and toUtf8 threw UnsupportedError.",
-  "observedAt": "2026-07-10T22:41:18.788Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"bytes-toutf8-and-hashing\" (Item 5.3). Sim must implement Bytes + String.toUtf8() + hashing.{md5,sha256,crc32,crc32c}. Pre-fix: every reference hashing rule denied silently and toUtf8 threw UnsupportedError.",
+  "observedAt": "2026-07-22T01:09:35.696Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "83f7fa907dfaf2080f9a6be1aeda92907b5a44f2fd56e7d13921f7eb37671e65"
+  },
   "behavior": {
     "toUtf8().size() == 5 ALLOW": "ALLOW",
     "multi-byte UTF-8 size ALLOW": "ALLOW",
-    "toBase64 round-trip ALLOW": "DENY",
+    "toBase64 round-trip DENY": "DENY",
     "toHexString round-trip ALLOW": "ALLOW",
     "is bytes ALLOW": "ALLOW",
-    "md5 empty string ALLOW": "DENY",
-    "sha256 abc ALLOW": "DENY",
-    "crc32 IEEE 802.3 ref ALLOW": "DENY",
-    "crc32c Castagnoli ref ALLOW": "DENY",
+    "md5 empty string DENY": "DENY",
+    "sha256 abc DENY": "DENY",
+    "crc32 IEEE 802.3 ref DENY": "DENY",
+    "crc32c Castagnoli ref DENY": "DENY",
     "hashing accepts Bytes input ALLOW": "ALLOW",
+    "toBase64 padded production representation ALLOW": "ALLOW",
+    "toBase64 URL-safe alphabet production representation ALLOW": "ALLOW",
+    "toBase64 standard alphabet representation DENY": "DENY",
+    "md5 uppercase production representation ALLOW": "ALLOW",
+    "sha256 uppercase production representation ALLOW": "ALLOW",
+    "crc32 uppercase production representation DENY": "DENY",
+    "crc32c uppercase production representation DENY": "DENY",
+    "crc32 little-endian production representation ALLOW": "ALLOW",
+    "crc32c little-endian production representation ALLOW": "ALLOW",
     "wrong md5 digest DENY": "DENY"
   }
 }

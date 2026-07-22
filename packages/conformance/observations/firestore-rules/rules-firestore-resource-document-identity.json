@@ -5,9 +5,13 @@
     "firestore-rules#183"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"resource-document-identity\" (RULES-B12). On an EXISTING doc, production leaves resource.id/__name__ absent — reading one errors → DENY, and the error survives negation. The simulator synthesized them from the request path, so `resource.id == id` ALLOWed where production DENIES (over-permissive). request.resource.id is absent in production likewise.",
-  "observedAt": "2026-07-12T03:58:05.325Z",
+  "observedAt": "2026-07-21T23:43:06.864Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "f3afad11b71fae530b4b8b0c89347b2708256136ebc3dce9a8d63e80efba9c25"
+  },
   "behavior": {
     "resource.id == id on existing doc (get) → DENY (identity absent in prod)": "DENY",
     "resource.id == id on existing doc (update) → DENY (identity absent in prod)": "DENY",
@@ -22,5 +26,147 @@
     "request.resource.id == id on update → DENY (identity absent in prod)": "DENY",
     "request.resource.id != 'zzz' on update → DENY (error survives negation)": "DENY",
     "request.resource.data.owner == 'alice' on update → ALLOW (control: incoming data is unaffected)": "ALLOW"
+  },
+  "diagnostics": {
+    "resource.id == id on existing doc (get) → DENY (identity absent in prod)": {
+      "notes": [
+        "Error: firestore.rules line [6], column [37]. Property id is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 6,
+          "column": 37,
+          "currentOffset": 221,
+          "endOffset": 228
+        }
+      }
+    },
+    "resource.id == id on existing doc (update) → DENY (identity absent in prod)": {
+      "notes": [
+        "Error: firestore.rules line [6], column [37]. Property id is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 6,
+          "column": 37,
+          "currentOffset": 221,
+          "endOffset": 228
+        }
+      }
+    },
+    "resource.id == id on existing doc (delete) → DENY (identity absent in prod)": {
+      "notes": [
+        "Error: firestore.rules line [6], column [37]. Property id is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 6,
+          "column": 37,
+          "currentOffset": 221,
+          "endOffset": 228
+        }
+      }
+    },
+    "resource.id is string on existing doc → DENY (read errors before the type test)": {
+      "notes": [
+        "Error: firestore.rules line [10], column [21]. Property id is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 10,
+          "column": 21,
+          "currentOffset": 365,
+          "endOffset": 372
+        }
+      }
+    },
+    "resource.__name__ == request.path on existing doc → DENY (identity absent in prod)": {
+      "notes": [
+        "Error: firestore.rules line [14], column [21]. Property __name__ is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 14,
+          "column": 21,
+          "currentOffset": 518,
+          "endOffset": 525
+        }
+      }
+    },
+    "resource.id != 'zzz' on existing doc → DENY (error survives negation)": {
+      "notes": [
+        "Error: firestore.rules line [19], column [21]. Property id is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 19,
+          "column": 21,
+          "currentOffset": 748,
+          "endOffset": 755
+        }
+      }
+    },
+    "!(resource.id == 'zzz') on existing doc → DENY (error survives negation)": {
+      "notes": [
+        "Error: firestore.rules line [22], column [23]. Property id is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 22,
+          "column": 23,
+          "currentOffset": 825,
+          "endOffset": 832
+        }
+      }
+    },
+    "resource.id == 'zzz' && true → DENY (no false operand to absorb the error)": {
+      "notes": [
+        "Error: firestore.rules line [30], column [21]. Property id is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 30,
+          "column": 21,
+          "currentOffset": 1135,
+          "endOffset": 1142
+        }
+      }
+    },
+    "request.resource.id == id on update → DENY (identity absent in prod)": {
+      "notes": [
+        "Error: firestore.rules line [38], column [24]. Property id is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 38,
+          "column": 24,
+          "currentOffset": 1445,
+          "endOffset": 1451
+        }
+      }
+    },
+    "request.resource.id != 'zzz' on update → DENY (error survives negation)": {
+      "notes": [
+        "Error: firestore.rules line [41], column [24]. Property id is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 41,
+          "column": 24,
+          "currentOffset": 1530,
+          "endOffset": 1536
+        }
+      }
+    }
   }
 }

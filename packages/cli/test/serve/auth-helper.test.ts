@@ -12,17 +12,29 @@ import {
 } from 'pyric/auth';
 import { ServeAuthHelper } from '../../src/serve/entries/auth-helper-core.js';
 
+/** Mirror served in-page wiring: mint via createSignInCredential. */
 function helperForLocalAuth(auth: ReturnType<typeof getAuth>): ServeAuthHelper {
-  const helper = new ServeAuthHelper({
-    list: () => authSandbox.listIdentities(auth),
-    add: (identity) => authSandbox.seedUsers(auth, [{
-      uid: identity.uid,
-      email: identity.email ?? '',
-      password: '__pyric_popup_no_password__',
-      displayName: identity.displayName ?? undefined,
-      customClaims: identity.customClaims,
-    }]),
-  });
+  const helper = new ServeAuthHelper(
+    {
+      list: () => authSandbox.listIdentities(auth),
+    },
+    (request) => {
+      if (request.kind === 'pick') {
+        return authSandbox.createSignInCredential(auth, {
+          providerId: request.providerId,
+          uid: request.identity.uid,
+        });
+      }
+      return authSandbox.createSignInCredential(auth, {
+        providerId: request.providerId,
+        spec: {
+          email: request.spec.email,
+          displayName: request.spec.displayName,
+          customClaims: request.spec.customClaims,
+        },
+      });
+    },
+  );
   authSandbox.setAuthFlowResolver(auth, helper.resolver());
   return helper;
 }
@@ -39,6 +51,14 @@ function wire() {
   authSandbox.delegateProviderEnforcement(auth, true);
   const helper = helperForLocalAuth(auth);
   return { auth, helper };
+}
+
+function expectGoogleProviderMetadata(
+  user: NonNullable<ReturnType<typeof getAuth>['currentUser']>,
+  identityProviderId = 'google.com',
+): void {
+  expect(user.providerId).toBe('firebase');
+  expect(user.providerData?.map((p) => p.providerId)).toContain(identityProviderId);
 }
 
 describe('ServeAuthHelper', () => {
@@ -63,8 +83,12 @@ describe('ServeAuthHelper', () => {
       user: {
         uid: 'google.com:worker@example.com',
         email: 'worker@example.com',
+        providerId: 'firebase',
+        providerData: [{ providerId: 'google.com' }],
       },
     });
+    const cred = await pending;
+    expect((await cred.user.getIdTokenResult()).signInProvider).toBe('google.com');
   });
 
   it('non-delegated (in-page fallback): a disabled google.com popup throws operation-not-allowed', async () => {
@@ -89,13 +113,23 @@ describe('ServeAuthHelper', () => {
     expect(cred.user.email).toBe('new@example.com');
     expect(cred.providerId).toBe('google.com');
     expect(auth.currentUser?.uid).toBe(cred.user.uid);
-    expect((await cred.user.getIdTokenResult()).claims.role).toBe('admin');
+    expectGoogleProviderMetadata(cred.user);
+    expectGoogleProviderMetadata(auth.currentUser!);
+    const token = await cred.user.getIdTokenResult();
+    expect(token.claims.role).toBe('admin');
+    expect(token.signInProvider).toBe('google.com');
+    expect(
+      (token.claims as { firebase?: { sign_in_provider?: string } }).firebase?.sign_in_provider,
+    ).toBe('google.com');
     // seeded → claims visible to rules via the sandbox user DB
     const ids = authSandbox.listIdentities(auth);
-    expect(ids.find((i) => i.email === 'new@example.com')?.customClaims).toEqual({ role: 'admin' });
+    const created = ids.find((i) => i.email === 'new@example.com');
+    expect(created?.customClaims).toEqual({ role: 'admin' });
+    expect(created?.providerId).toBe('google.com');
+    expect(created?.providerUserInfo.map((p) => p.providerId)).toEqual(['google.com']);
   });
 
-  it('created identity appears in the picker and is pickable next time', async () => {
+  it('created identity appears in the picker and is pickable next time with Google metadata', async () => {
     const { auth, helper } = wire();
     const p1 = signInWithPopup(auth, new GoogleAuthProvider());
     helper.add({ email: 'a@example.com' });
@@ -103,7 +137,14 @@ describe('ServeAuthHelper', () => {
     const p2 = signInWithPopup(auth, new GoogleAuthProvider());
     const uid = helper.snapshot().identities.find((i) => i.email === 'a@example.com')!.uid;
     helper.pick(uid);
-    expect((await p2).user.email).toBe('a@example.com');
+    const cred = await p2;
+    expect(cred.user.email).toBe('a@example.com');
+    expectGoogleProviderMetadata(cred.user);
+    expectGoogleProviderMetadata(auth.currentUser!);
+    expect((await cred.user.getIdTokenResult()).signInProvider).toBe('google.com');
+    expect(authSandbox.listIdentities(auth).find((i) => i.uid === uid)?.providerId).toBe(
+      'google.com',
+    );
   });
 
   it('cancel rejects auth/popup-closed-by-user; no user set', async () => {
@@ -114,12 +155,19 @@ describe('ServeAuthHelper', () => {
     expect(auth.currentUser).toBeNull();
   });
 
-  it('redirect flows through the same helper + getRedirectResult', async () => {
+  it('redirect flows through the same helper + getRedirectResult with Google metadata', async () => {
     const { auth, helper } = wire();
     const p = signInWithRedirect(auth, new GoogleAuthProvider());
     helper.add({ email: 'redir@example.com' });
     await p;
-    expect((await getRedirectResult(auth))?.user.email).toBe('redir@example.com');
+    const result = await getRedirectResult(auth);
+    expect(result?.user.email).toBe('redir@example.com');
+    expectGoogleProviderMetadata(result!.user);
+    expectGoogleProviderMetadata(auth.currentUser!);
+    expect((await result!.user.getIdTokenResult()).signInProvider).toBe('google.com');
+    expect(
+      authSandbox.listIdentities(auth).find((i) => i.email === 'redir@example.com')?.providerId,
+    ).toBe('google.com');
   });
 
   it('snapshot is referentially stable between emits (view-layer contract)', async () => {

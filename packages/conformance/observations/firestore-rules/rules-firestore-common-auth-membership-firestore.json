@@ -1,13 +1,17 @@
 {
   "name": "rules-firestore-common-auth-membership-firestore",
-  "matrixRow": "firestore-rules#187",
+  "matrixRow": "firestore-rules#188",
   "rowIds": [
-    "firestore-rules#187"
+    "firestore-rules#188"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"common-auth-membership-firestore\" (FIRESTORE-COMMON-STDLIB). Exact auth/membership stdlib bodies under cloud.firestore: auth null/uid, custom claims, explicit membership maps, and role equality.",
   "observedAt": "2026-07-21T22:03:16.033Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "88524757d00edc619c28b1be21d4f586a34058c23b4b3725225f5116f20b5eaf"
+  },
   "behavior": {
     "isAuthenticated: signed-in caller allowed": "ALLOW",
     "isAuthenticated: anonymous caller denied": "DENY",

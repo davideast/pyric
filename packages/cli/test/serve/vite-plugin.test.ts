@@ -7,13 +7,14 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import path, { join } from 'node:path';
 import { Writable } from 'node:stream';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { pyric } from '../../src/serve/vite-plugin.js';
 import {
   SDK_MODULES,
   defaultSdkEntries,
-  resolveStudioUiDir,
+  resolveSiteUiDir,
   pyricPackageRoot,
   bundleWorker,
   workerSourceHash,
@@ -348,6 +349,38 @@ async function callPyric(
   });
   return { statusCode: res.statusCode, headers: res.headers, body: res.body, nexted };
 }
+
+async function callPyricStack(
+  handlers: PyricMiddleware[],
+  opts: { method?: string; path: string; host?: string; headers?: Record<string, string> },
+): Promise<{ statusCode: number; headers: Record<string, unknown>; body: string; nexted: boolean }> {
+  const req: PyricReq = {
+    method: opts.method ?? 'GET',
+    url: opts.path,
+    originalUrl: opts.path,
+    headers: { host: opts.host ?? 'localhost', ...(opts.headers ?? {}) },
+  };
+  const res = new MockRes();
+  let nexted = false;
+  await new Promise<void>((resolve, reject) => {
+    res.on('finish', resolve);
+    res.on('error', reject);
+    const dispatch = (index: number): void => {
+      if (index === handlers.length) {
+        nexted = true;
+        resolve();
+        return;
+      }
+      try {
+        handlers[index]!(req, res, () => dispatch(index + 1));
+      } catch (error) {
+        reject(error as Error);
+      }
+    };
+    dispatch(0);
+  });
+  return { statusCode: res.statusCode, headers: res.headers, body: res.body, nexted };
+}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const initJson = async (handler: PyricMiddleware): Promise<any> =>
   JSON.parse((await callPyric(handler, { path: '/__pyric/init.json' })).body);
@@ -411,6 +444,105 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     let threw = false;
     try { await bootPlugin({ rules: 'does-not-exist.rules' }, tmp); } catch { threw = true; }
     expect(threw).toBe(true);
+  });
+
+  it('closeBundle disposes the session in Vite middleware mode', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-close-'));
+    let handler: PyricMiddleware | undefined;
+    const p = pyric({ ui: false });
+    const watcher = { add() {}, on() {}, off() {} };
+    await (p.configureServer as (server: unknown) => Promise<void>)({
+      config: { root: tmp, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
+      middlewares: { use(route: string, candidate: PyricMiddleware) { if (route === '/__pyric') handler = candidate; } },
+      watcher,
+      httpServer: null,
+    });
+    if (!handler) throw new Error('plugin did not mount middleware');
+
+    const request = Object.assign(new EventEmitter(), {
+      method: 'GET',
+      url: '/__pyric/events',
+      originalUrl: '/__pyric/events',
+      headers: { host: 'localhost' },
+    }) as unknown as PyricReq;
+    const response = new MockRes();
+    handler(request, response, () => {});
+    await Bun.sleep(0);
+    expect(response.body).toContain(': connected');
+    expect(response.writableEnded).toBe(false);
+
+    await (p.closeBundle as () => Promise<void>)();
+    await (p.closeBundle as () => Promise<void>)();
+    expect(response.writableEnded).toBe(true);
+  });
+
+  it('reconfiguration and closeBundle remove all Functions watcher listeners', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-reconfigure-'));
+    mkdirSync(path.join(tmp, 'functions'));
+    writeFileSync(path.join(tmp, 'firebase.json'), JSON.stringify({ functions: { source: 'functions' } }));
+    writeFileSync(path.join(tmp, 'functions/package.json'), JSON.stringify({ main: 'index.js' }));
+    writeFileSync(path.join(tmp, 'functions/index.js'), 'module.exports = {};');
+    const p = pyric({ ui: false });
+
+    const configure = async () => {
+      const watcher = new EventEmitter() as EventEmitter & { add(path: string): void };
+      watcher.add = () => {};
+      const httpServer = Object.assign(new EventEmitter(), {
+        listening: false,
+        address: () => ({ port: 5173 }),
+      });
+      await (p.configureServer as (server: unknown) => Promise<void>)({
+        config: { root: tmp, logger: { info() {}, warn() {}, error() {} }, server: { allowedHosts: [], host: 'localhost' } },
+        middlewares: { use() {} },
+        watcher,
+        httpServer,
+      });
+      return { watcher, httpServer };
+    };
+
+    const first = await configure();
+    expect(first.watcher.listenerCount('change')).toBe(1);
+    expect(first.watcher.listenerCount('add')).toBe(1);
+    expect(first.watcher.listenerCount('unlink')).toBe(1);
+
+    const second = await configure();
+    expect(first.watcher.listenerCount('change')).toBe(0);
+    expect(first.watcher.listenerCount('add')).toBe(0);
+    expect(first.watcher.listenerCount('unlink')).toBe(0);
+    expect(first.httpServer.listenerCount('upgrade')).toBe(0);
+
+    await (p.closeBundle as () => Promise<void>)();
+    expect(second.watcher.listenerCount('change')).toBe(0);
+    expect(second.watcher.listenerCount('add')).toBe(0);
+    expect(second.watcher.listenerCount('unlink')).toBe(0);
+    expect(second.httpServer.listenerCount('upgrade')).toBe(0);
+  });
+
+  it('reconfiguration bypasses disposed middleware on the same Connect stack', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-middleware-generation-'));
+    const p = pyric({ bridge: { disableAuditLog: true }, ui: false });
+    const handlers: PyricMiddleware[] = [];
+    const watcher = { add() {}, on() {}, off() {} };
+    const server = {
+      config: { root: tmp, logger: { info() {}, warn() {}, error() {} }, server: { allowedHosts: [], host: 'localhost' } },
+      middlewares: {
+        use(route: string, handler: PyricMiddleware) {
+          if (route === '/__pyric') handlers.push(handler);
+        },
+      },
+      watcher,
+      httpServer: null,
+    };
+
+    await (p.configureServer as (value: unknown) => Promise<void>)(server);
+    await (p.configureServer as (value: unknown) => Promise<void>)(server);
+    expect(handlers).toHaveLength(2);
+
+    const health = await callPyricStack(handlers, { path: '/__pyric/health' });
+    expect(health.statusCode).toBe(200);
+    expect(health.nexted).toBe(false);
+    expect(JSON.parse(health.body).status).toBe('ok');
+    await (p.closeBundle as () => Promise<void>)();
   });
 });
 
@@ -507,6 +639,12 @@ describe('M2 — seed precedence + persist validation', () => {
     return 'seed.json';
   };
   afterAll(() => { if (tmp) rmSync(tmp, { recursive: true, force: true }); });
+
+  it('keeps the existing Vite policy where fresh without persist is inert', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-fresh-inert-'));
+    const init = await initJson(await bootPlugin({ fresh: true }, tmp));
+    expect(init.persist).toBe(false);
+  });
 
   it('seed as a bare "collection/doc" map (no persist) → payload.seed IS the map', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-seedmap-'));
@@ -650,14 +788,14 @@ describe('M3 — bridge fold (handler-based)', () => {
 
 // `ui`: the `pyric dev --ui` equivalent. Studio app at /__pyric/ui/ + the
 // disk-backed workspace/project routes Studio's local mode talks to. Resolves the
-// studio-ui assets vendored in this package's dist (the same bytes the standalone
-// embeds). Requires the studio build (CI builds first; resolveStudioUiDir finds
-// packages/studio/dist/app when run from src).
+// Astro site assets vendored in this package's dist (the same bytes the standalone
+// embeds). Requires the site build (CI builds first; resolveSiteUiDir finds
+// packages/site-docs/dist when run from source).
 //
 // Skip the app-serving case (only) when the studio build is absent, with a clear
-// reason rather than a cryptic status mismatch; resolveStudioUiDir mirrors the
+// reason rather than a cryptic status mismatch; resolveSiteUiDir mirrors the
 // production resolution. CI always builds first, so it exercises every case.
-const studioBuilt = resolveStudioUiDir() !== null;
+const studioBuilt = resolveSiteUiDir() !== null;
 
 describe('ui: Pyric Studio mount (parity with dev --ui)', () => {
   const tmps: string[] = [];

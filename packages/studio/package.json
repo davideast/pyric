@@ -4,6 +4,15 @@
   "description": "Pyric Studio \u2014 the data-management and debugging console for the pyric sandbox, served by `pyric dev --ui`. Cross-service viewer/editor, action center, traffic, rules-failure debugging, and the agentic build flow over one event stream.",
   "type": "module",
   "exports": {
+    "./app": {
+      "types": "./dist/studio-app.d.ts",
+      "import": "./dist/studio-app.js"
+    },
+    "./routes": {
+      "types": "./dist/shell/routes.d.ts",
+      "import": "./dist/shell/routes.js"
+    },
+    "./styles": "./dist/styles/index.css",
     "./ports": {
       "types": "./dist/ports.d.ts",
       "import": "./dist/ports.js"
@@ -18,9 +27,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && vite build",
-    "build:ports": "tsc -p tsconfig.json",
-    "dev": "vite",
+    "build": "tsc -p tsconfig.json && bun run scripts/copy-assets.ts",
+    "build:ports": "bun run build",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit",
     "test": "bun test src/ test/"
   },
@@ -45,14 +53,11 @@
   },
   "devDependencies": {
     "@testing-library/react": "^16.1.0",
-    "@tailwindcss/vite": "^4.0.0",
     "@types/bun": "latest",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.0",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
-    "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"
   }

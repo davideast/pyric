@@ -32,6 +32,10 @@ import type { FirestoreApi } from '@pyric/ui/firestore';
 import type { AuthApi } from '@pyric/ui/auth';
 import type { StorageApi } from '@pyric/ui/storage';
 import {
+  createStudioWorkerRuntime,
+  type StudioWorkerRuntime,
+} from './worker-runtime.js';
+import {
   getFirestore as workerGetFirestore,
   setOpIssuer,
   getAuth as workerGetAuth,
@@ -85,9 +89,45 @@ import {
   type ClientDb,
   type PresenceSnapshot,
   type PresenceSession,
+  readPyricRuntimeManifest,
+  workerNameForEpoch,
+  disconnectClient,
 } from '@pyric/cli/serve/worker';
 
 export type { PresenceSnapshot };
+
+interface EpochStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
+}
+
+interface RuntimeDocument {
+  querySelector(selector: string): { getAttribute(name: string): string | null } | null;
+}
+
+/** Resolve the exact worker URL + active generation shared with served apps. */
+export function studioWorkerConnection(options: {
+  workerUrl?: string;
+  document?: RuntimeDocument;
+  storage?: EpochStorage;
+} = {}): { url: string; name: string } {
+  const manifest = readPyricRuntimeManifest(
+    options.document ?? (typeof document === 'undefined' ? undefined : document),
+  );
+  let storage = options.storage;
+  if (!storage) {
+    try {
+      storage = typeof localStorage === 'undefined' ? undefined : localStorage;
+    } catch {
+      storage = undefined;
+    }
+  }
+  return {
+    url: options.workerUrl ?? manifest.worker.url,
+    name: workerNameForEpoch(manifest.worker.servedEpoch, storage),
+  };
+}
 
 /**
  * The per-op auth lens Studio drives. Mirrors `pyric/sandbox`'s `AuthLens` /
@@ -116,6 +156,8 @@ export interface LiveEventFeed {
 export interface WorkerLivePlane {
   /** The worker-backed Firestore handle (carries the `MessagePort`). */
   db: ClientDb;
+  /** Worker version state and the explicit replacement action for Studio. */
+  runtime: StudioWorkerRuntime;
   /** F1: the unified event stream as an `EventFeed`. */
   feed: LiveEventFeed;
   /** Set the per-op auth lens (admin / impersonate / app-session). */
@@ -199,6 +241,8 @@ export interface WorkerLivePlane {
   presenceClientId: string;
   /** Live presence snapshots from the SharedWorker (authoritative). */
   subscribePresence(cb: (snapshot: PresenceSnapshot) => void): () => void;
+  /** Stop page-lifetime listeners, presence, and worker replacement observers. */
+  dispose(): Promise<void>;
 }
 
 /**
@@ -304,12 +348,26 @@ export function connectWorkerLive(
   setOpIssuer('studio');
   let db: ClientDb;
   try {
-    db = workerGetFirestore(workerUrl);
+    const worker = studioWorkerConnection({ workerUrl });
+    db = workerGetFirestore(worker.url, worker.name);
   } catch {
     // getFirestore throws if SharedWorker construction fails (e.g. file://),
     // treat as "no live plane" so the env falls back cleanly.
     return null;
   }
+  let epochStorage: EpochStorage | undefined;
+  try {
+    epochStorage = typeof localStorage === 'undefined' ? undefined : localStorage;
+  } catch {
+    epochStorage = undefined;
+  }
+  const runtime = createStudioWorkerRuntime({
+    db,
+    servedEpoch: readPyricRuntimeManifest(
+      typeof document === 'undefined' ? undefined : document,
+    ).worker.servedEpoch,
+    storage: epochStorage,
+  });
   // Data viewers are admin-only. Pin the lens synchronously, before React can
   // mount a child hook and register its first onSnapshot subscription. The
   // previous effect-time initialization raced child passive effects, leaving
@@ -323,9 +381,18 @@ export function connectWorkerLive(
   // handle reusing the same port (the single-backend invariant).
   const feed = workerEventFeed(db);
   const authHandle = workerGetAuth(db);
+  let disposed = false;
 
   return {
     db,
+    runtime,
+    dispose: async () => {
+      if (disposed) return;
+      disposed = true;
+      presence.stop();
+      runtime.dispose();
+      await disconnectClient(db).catch(() => {});
+    },
     presenceClientId: presence.clientId,
     subscribePresence: (cb) => workerSubscribePresence(db, cb),
     instanceId: () => getWorkerInstanceId(db),

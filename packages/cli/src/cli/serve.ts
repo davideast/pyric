@@ -10,36 +10,26 @@
  * rules load (fail fast on broken rules) → SDK bundle (cached per pyric
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
-import { dirname, join, relative, resolve } from 'node:path';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync, watch as watchFile } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolveStudioUiDir } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
 import {
   isStandalone,
-  materializeDocsUi,
   materializeServeAssets,
-  materializeStudioUi,
+  materializeSiteUi,
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
-import { loadProjectDatabaseRules, loadProjectRules, loadProjectStorageRules, watchProjectRules } from '../serve/rules.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
-import {
-  createEventHub,
-  createPyricNamespace,
-  injectServeTags,
-  type InitPayload,
-} from '../serve/namespace.js';
+import type { InitPayload } from '../serve/namespace.js';
+import { injectServeTags } from '../serve/html-injection.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
-import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from '../serve/state-store.js';
-import { diskProjectStore, diskWorkspace } from '../serve/studio/index.js';
-import { createCaptureStore } from '../serve/capture-store.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import {
   buildChildEnv,
-  createLinePrefixer,
   detectPackageManager,
   readDevScript,
   registerModuleUrl,
@@ -49,13 +39,20 @@ import {
   type DevChildHandle,
 } from './dev-runner.js';
 import {
-  spawnFunctionsRtdbChild,
-  type FunctionsRtdbChildHandle,
-} from '../functions-rtdb/child.js';
+  createFunctionsDevelopmentRuntime,
+  createHttpFunctionsPeerReadiness,
+  type FunctionsDevelopmentEvent,
+  type FunctionsDevelopmentRuntime,
+} from '../functions-rtdb/development-runtime.js';
 import {
   discoverFunctionsRtdbProject,
   type FunctionsRtdbProject,
 } from '../functions-rtdb/project.js';
+import {
+  createSandboxSession,
+  SandboxSeedError,
+  type SandboxSession,
+} from '../serve/sandbox-session.js';
 
 interface HostingConfig {
   public?: string;
@@ -216,100 +213,6 @@ export async function startServe(opts: {
     }
   }
 
-  // Rules: fail fast on broken rules; serve rule-less only when genuinely absent.
-  // Held in a mutable box — the watcher swaps it and the payload producer
-  // always serves the live version.
-  const loaded = await loadProjectRules(opts.cwd, config);
-  const loadedDatabase = await loadProjectDatabaseRules(opts.cwd, config);
-  // Storage rules deploy ONCE at boot — see the `storageRules` doc on
-  // `InitPayload`: `pyric/storage` only honors rules on the FIRST storage
-  // call per Sandbox, so unlike firestore/database rules there is no live
-  // "live" box to swap here; a storage.rules edit needs a restart.
-  const loadedStorage = await loadProjectStorageRules(opts.cwd, config);
-  const live = {
-    rules: loaded.rules,
-    rulesHash: loaded.rulesHash,
-    databaseRules: loadedDatabase.rules,
-    databaseRulesHash: loadedDatabase.rulesHash,
-    databaseUrl: loadedDatabase.databaseUrl,
-  };
-
-  // --capture (default on): the capture store writes .pyric/last-session.json
-  // whenever the page pushes its session fixture via POST /__pyric/capture.
-  // pyric verify (no-arg) reads that file. Independent of --persist — capture
-  // records for the verify loop, persist is for cross-reload durability.
-  const capture = (opts.capture ?? true) ? createCaptureStore(opts.cwd) : null;
-
-  // --persist: the state store IS the durable sandbox (section 3c). Load eagerly so
-  // a corrupt/mismatched file fails the start (inspect-or-delete message)
-  // instead of silently serving ephemeral.
-  const state = opts.persist ? createStateStore(opts.cwd) : null;
-  // --fresh: the escape hatch from "state wins after the first run" — drop
-  // the existing state (+ its backup) so this run re-seeds from scratch.
-  if (state && opts.fresh) {
-    for (const p of [state.path, state.backupPath]) if (existsSync(p)) rmSync(p);
-    logger.note('  ⓘ --fresh: discarded the existing state file; re-seeding');
-    // Half-reset warning: --fresh only deletes the SERVER file. The worker's
-    // durable store is browser IndexedDB, and prime-once only fills an EMPTY
-    // IDB (createWorkerDurableBackend) — a browser that already holds sandbox
-    // data KEEPS it and its next flush repopulates the supposedly-fresh file.
-    // The reset handshake (making --fresh actually clear the browser store) is
-    // future work; until then, say so loudly rather than let the file quietly
-    // refill.
-    logger.note(
-      '  ⚠ --fresh only resets the server-side state file — a browser tab that already has ' +
-        'sandbox data in IndexedDB keeps it and will write it straight back on its next flush. ' +
-        'For a full reset, also clear the browser store: Studio → Settings → Reset, or open an ' +
-        'incognito/private window.',
-    );
-  }
-  let persistedEnvelope = state?.load() ?? null;
-
-  // --seed accepts BOTH shapes: a bare path→fields map, or a PyricStateFile
-  // envelope (detected by its `version` key — what `pyric snapshot` emits).
-  let seed: Record<string, Record<string, unknown>> | null = null;
-  /** Ephemeral fixture restore: the controller blob from a state-file seed,
-   *  restored in-page through the persistence deserializer (wrapper
-   *  re-hydration) via a read-only backend. */
-  let seedState: unknown | null = null;
-  let seedUsers: Record<string, unknown>[] | null = null;
-  let seedLabel = '';
-  if (opts.seed) {
-    const seedPath = resolve(opts.cwd, opts.seed);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(readFileSync(seedPath, 'utf8'));
-    } catch (e) {
-      throw new Error(`pyric dev: failed to read --seed ${seedPath}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error(`pyric dev: --seed must be a JSON object of "collection/doc" → fields, got ${Array.isArray(parsed) ? 'array' : typeof parsed}`);
-    }
-    const obj = parsed as Record<string, unknown>;
-    if (obj.version === STATE_FILE_VERSION && ('firestore' in obj || 'auth' in obj)) {
-      const fixture = obj as unknown as PyricStateFile;
-      const docCount = Object.keys(
-        ((fixture.firestore as { firestore?: Record<string, unknown> } | null)?.firestore) ?? {},
-      ).length;
-      const userCount = fixture.auth?.users?.length ?? 0;
-      seedLabel = `${docCount} doc(s) + ${userCount} user(s) from state fixture`;
-      if (state && !state.exists()) {
-        // Persist first run seeded from a fixture: prime the store, then the
-        // normal persist path restores it like any lived state.
-        if (fixture.firestore != null) state.writeSection('firestore', fixture.firestore);
-        if (fixture.auth != null) state.writeSection('auth', fixture.auth);
-        persistedEnvelope = state.load();
-      } else if (!state) {
-        seedState = fixture.firestore ?? null;
-        seedUsers = (fixture.auth?.users as Record<string, unknown>[] | undefined) ?? null;
-      }
-      // persist + existing state: the lived state wins; the fixture is inert.
-    } else {
-      seed = parsed as Record<string, Record<string, unknown>>;
-      seedLabel = `${Object.keys(seed).length} document(s)`;
-    }
-  }
-
   // SDK bundles (cached per pyric version + entry hash). In a standalone
   // binary the runtime esbuild bundler is unavailable, so the deterministic
   // bundles were built at compile time and embedded; materialize them to a
@@ -354,81 +257,55 @@ export async function startServe(opts: {
 
   // bridgeUrl needs the BOUND port; resolved after listen via this box.
   const origin = { host: opts.host ?? 'localhost', port: 0 };
-  const payload = (): InitPayload => ({
-    rules: live.rules,
-    rulesHash: live.rulesHash,
-    databaseRules: live.databaseRules,
-    databaseRulesHash: live.databaseRulesHash,
-    databaseUrl: live.databaseUrl,
-    storageRules: loadedStorage.rules,
-    storageRulesHash: loadedStorage.rulesHash,
-    // Project identity: scopes the storage IDB name per served project
-    // (issue #359). Local-only — a dev path never leaves the machine.
-    projectKey: opts.cwd,
-    bridgeUrl: mount && origin.port > 0 ? mount.wsUrl(origin) : null,
-    // Precedence: once a state file exists, the lived state is the truth —
-    // --seed applies only on the first (state-less) run.
-    seed: state?.exists() ? null : seed,
-    seedState,
-    persist: Boolean(state),
-    capture: Boolean(capture),
-    authUsers: state
-      ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
-      : seedUsers,
-    // Served firebase/messaging is part of the canonical swap, so the worker
-    // broker must be available whenever the SDK entries are served.
-    messaging: true,
-  });
-
-  const events = createEventHub();
-  // --ui (Pyric Studio): serve the disk-backed workspace + project routes.
-  // Single-project mode: the served `cwd` IS the one project's file tree; the
-  // project store roots at `.pyric/projects` (multi-project ready) but the
-  // current served tree is also reachable directly via /__pyric/workspace.
-  const studio = opts.ui
-    ? {
-        workspace: diskWorkspace(opts.cwd),
-        projects: diskProjectStore(join(opts.cwd, '.pyric', 'projects')),
-      }
-    : undefined;
-  // --ui also serves the BUILT Studio app under /__pyric/ui/. The dir is
+  // --ui also serves the unified Astro site under /__pyric/ui/. The dir is
   // resolved by file path (never imported), so a missing build is a clear
   // warning rather than a crash; the data routes still mount.
-  let studioUiDir: string | undefined;
-  let docsUiDir: string | undefined;
+  let siteUiDir: string | undefined;
   if (opts.ui) {
-    // Standalone: the Studio app was embedded at compile time; materialize it.
-    const dir = isStandalone() ? await materializeStudioUi() : resolveStudioUiDir();
-    const docsDir = isStandalone() ? await materializeDocsUi() : resolveDocsUiDir();
+    const dir = isStandalone() ? await materializeSiteUi() : resolveSiteUiDir();
     if (dir) {
-      studioUiDir = dir;
+      siteUiDir = dir;
     } else {
       logger.note(
-        '  ⚠ --ui: built Studio app not found (run the full build first). ' +
+        '  ⚠ --ui: built Astro site not found (run the full build first). ' +
           'The data routes are mounted, but /__pyric/ui/ will 404.',
       );
     }
-    if (docsDir) {
-      docsUiDir = docsDir;
-    } else {
-      logger.note(
-        '  ⚠ --ui: built docs site not found (run the full build first). ' +
-          'Studio is mounted, but /__pyric/ui/docs/ will 404.',
-      );
-    }
   }
-  const sdkNamespace = createPyricNamespace({
-    sdkDir: bundle.outDir,
-    initPayload: payload,
-    events,
-    activity: (incident) => logger.note(formatActivityWarning(incident)),
-    state: state ?? undefined,
-    capture: capture ?? undefined,
-    studio,
-    studioUiDir,
-    docsUiDir,
-    logger,
-  });
+  let session: SandboxSession;
+  try {
+    session = await createSandboxSession({
+      projectDir: opts.cwd,
+      firebaseConfig: config,
+      sdk: { dir: bundle.outDir, workerVersion },
+      seedFile: opts.seed,
+      persistence: opts.persist ? { fresh: opts.fresh } : undefined,
+      capture: opts.capture,
+      studio: opts.ui ? { siteUiDir } : false,
+      bridgeUrl: () => mount && origin.port > 0 ? mount.wsUrl(origin) : null,
+      activity: (incident) => logger.note(formatActivityWarning(incident)),
+      logger,
+    });
+  } catch (error) {
+    bundle.dispose?.();
+    if (error instanceof SandboxSeedError) {
+      if (error.kind === 'read') {
+        throw new Error(`pyric dev: failed to read --seed ${error.path}: ${error.detail}`);
+      }
+      throw new Error(`pyric dev: --seed must be a JSON object of "collection/doc" → fields, ${error.detail}`);
+    }
+    throw error;
+  }
+  if (opts.persist && opts.fresh) {
+    logger.note('  ⓘ --fresh: discarded the existing state file; re-seeding');
+    logger.note(
+      '  ⚠ --fresh only resets the server-side state file — a browser tab that already has ' +
+        'sandbox data in IndexedDB keeps it and will write it straight back on its next flush. ' +
+        'For a full reset, also clear the browser store: Studio → Settings → Reset, or open an ' +
+        'incognito/private window.',
+    );
+  }
+  const payload = session.payload;
   let handle: Awaited<ReturnType<typeof startStaticServer>>;
   try {
     handle = await startStaticServer({
@@ -437,8 +314,8 @@ export async function startServe(opts: {
       host: opts.host ?? 'localhost',
       spaRewrite: wantsSpaRewrite(hosting),
       namespaceHandler: mount
-        ? async (req, res, url) => (await mount.handler(req, res, url)) || sdkNamespace(req, res, url)
-        : sdkNamespace,
+        ? async (req, res, url) => (await mount.handler(req, res, url)) || session.handle(req, res, url)
+        : session.handle,
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
@@ -447,50 +324,85 @@ export async function startServe(opts: {
       logger,
     });
   } catch (error) {
+    await mount?.close();
+    await session.close();
     bundle.dispose?.();
     throw error;
   }
-  if (bundle.dispose) handle.server.once('close', bundle.dispose);
   origin.port = handle.port;
-  // Attach the WS upgrade to EVERY bound server so the sandbox peer connects on
-  // whichever loopback family the page resolved (localhost binds both now).
-  if (mount) for (const s of handle.servers) mount.attachUpgrade(s);
-  const uiUrl = studioUiDir ? `${handle.url}/__pyric/ui/` : null;
-  const docsUrl = docsUiDir ? `${handle.url}/__pyric/ui/docs/` : null;
-
-  // Discovery pointer (the Claude Code plugin's stdio proxy reads this so it
-  // never has to guess the dynamic port). Written next to the project state
-  // when --bridge is on; removed on clean shutdown. plans/pyric-plugin.
-  if (mount) {
-    const pointer = join(opts.cwd, '.pyric', 'serve.json');
-    try {
-      mkdirSync(dirname(pointer), { recursive: true });
-      writeFileSync(
-        pointer,
-        JSON.stringify(
-          { url: handle.url, mcpUrl: mount.mcpUrl(origin), port: handle.port, pid: process.pid, instanceId: mount.instanceId, project: opts.project ?? 'sandbox' },
-          null,
-          2,
-        ) + '\n',
-      );
-      handle.server.once('close', () => { try { rmSync(pointer); } catch { /* gone already */ } });
-    } catch { /* best-effort: discovery falls back to a port scan */ }
+  // The bridge attachment owns upgrades on every bound family plus discovery.
+  // Its explicit close handle is also folded into stop() below, before the
+  // sandbox session is released.
+  let bridgeAttachment;
+  try {
+    bridgeAttachment = mount?.attachHost({
+      servers: handle.servers,
+      lifecycleServer: handle.server,
+      projectDir: opts.cwd,
+      origin: () => origin.port > 0 ? origin : null,
+    });
+  } catch (error) {
+    await mount?.close();
+    await session.close();
+    await handle.stop().catch(() => undefined);
+    bundle.dispose?.();
+    throw error;
   }
+  const stopServer = handle.stop.bind(handle);
+  let closeResources: Promise<void> | null = null;
+  const closeOwnedResources = (): Promise<void> => {
+    closeResources ??= (async () => {
+      await bridgeAttachment?.close();
+      await mount?.close();
+      await session.close();
+    })();
+    return closeResources;
+  };
+  handle = {
+    ...handle,
+    async stop() {
+      // Initiate listener shutdown before terminating upgraded sockets. Bun's
+      // node:http compatibility layer can strand close callbacks when an
+      // upgraded socket is destroyed first. Resource teardown remains ordered
+      // bridge → sandbox, and the server close is awaited last.
+      const serverStop = stopServer();
+      try {
+        await closeOwnedResources();
+      } finally {
+        await serverStop;
+      }
+    },
+  };
+  if (bundle.dispose) handle.server.once('close', bundle.dispose);
+  handle.server.once('close', () => void closeOwnedResources());
+  const uiUrl = siteUiDir ? `${handle.url}/__pyric/ui/` : null;
+  const docsUrl = siteUiDir ? `${handle.url}/__pyric/ui/docs/` : null;
 
-  // Hot-reload: watch the rules file, swap the live ruleset, broadcast.
-  const watching = (opts.watch ?? true) && loaded.sourcePath !== null;
+  // Hot-reload: the static adapter observes the filesystem; the session owns
+  // read/prepare/last-good replacement and event broadcast.
+  const rulesSourcePath = session.summary.rules.firestore.sourcePath;
+  const watching = (opts.watch ?? true) && rulesSourcePath !== null;
   if (watching) {
-    const watcher = watchProjectRules(
-      loaded.sourcePath!,
-      (next) => {
-        live.rules = next.rules;
-        live.rulesHash = next.rulesHash;
-        events.broadcast('rules-changed', next);
-        logger.note(`  ↻ rules reloaded (hash ${next.rulesHash}) → ${events.clientCount()} page(s)`);
-      },
-      (message) => logger.note(`  ⚠ rules NOT reloaded (last-good stays live): ${message}`),
-    );
-    handle.server.once('close', () => watcher.close());
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const watcher = watchFile(rulesSourcePath!, () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        void session.reloadFirestoreRules().then((result) => {
+          if (result.kind === 'reloaded') {
+            logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+          } else if (result.kind === 'rejected') {
+            logger.note(`  ⚠ rules NOT reloaded (last-good stays live): ${result.error.message}`);
+          }
+        });
+      }, 150);
+    });
+    watcher.on('error', (error) => {
+      logger.note(`  ⚠ rules watcher failed (hot reload off): ${error instanceof Error ? error.message : String(error)}`);
+    });
+    handle.server.once('close', () => {
+      if (debounce) clearTimeout(debounce);
+      watcher.close();
+    });
   }
 
   logger.info(`=== Serving from '${opts.cwd}'...`);
@@ -505,18 +417,18 @@ export async function startServe(opts: {
         : `✔ sandbox  pyric SDK bundles built in ${bundleMs}ms`,
   );
   logger.info(
-    loaded.rules
-      ? `✔ rules    ${loaded.sourcePath} → deployed to the in-page sandbox (hash ${loaded.rulesHash})`
+    session.payload().rules
+      ? `✔ rules    ${session.summary.rules.firestore.sourcePath} → deployed to the in-page sandbox (hash ${session.summary.rules.firestore.hash})`
       : `• rules    no firestore.rules — sandbox runs with default rules`,
   );
   logger.info(
-    loadedDatabase.rules
-      ? `✔ rules    ${loadedDatabase.sourcePath} → deployed to the RTDB sandbox (hash ${loadedDatabase.rulesHash})`
+    session.payload().databaseRules
+      ? `✔ rules    ${session.summary.rules.database.sourcePath} → deployed to the RTDB sandbox (hash ${session.summary.rules.database.hash})`
       : `• rules    no database.rules — RTDB sandbox runs with default rules`,
   );
   logger.info(
-    loadedStorage.rules
-      ? `✔ rules    ${loadedStorage.sourcePath} → deployed to the storage sandbox (hash ${loadedStorage.rulesHash}; ` +
+    session.payload().storageRules
+      ? `✔ rules    ${session.summary.rules.storage.sourcePath} → deployed to the storage sandbox (hash ${session.summary.rules.storage.hash}; ` +
         `edits require a restart — storage rules do not hot-reload)`
       : `• rules    no storage.rules — storage sandbox runs open (no rules configured)`,
   );
@@ -530,20 +442,19 @@ export async function startServe(opts: {
     logger.info(`✔ bridge   MCP endpoint: ${mount.mcpUrl(origin)} (sandbox peers over ws at /__pyric/sandbox)`);
   }
   let persistSummary: ServeRuntime['persist'] = null;
-  if (state) {
-    const fsDocs = persistedEnvelope?.firestore
-      ? Object.keys((persistedEnvelope.firestore as { firestore?: Record<string, unknown> }).firestore ?? {}).length
-      : 0;
-    const users = (persistedEnvelope?.auth as { users?: unknown[] } | null)?.users?.length ?? 0;
+  const persistence = session.summary.persistence;
+  if (persistence) {
+    const fsDocs = persistence.restoredDocs;
+    const users = persistence.restoredUsers;
     persistSummary = { restoredDocs: fsDocs, restoredUsers: users };
     logger.info(
-      persistedEnvelope
-        ? `✔ persist  ${state.path} (${fsDocs} doc(s), ${users} user(s) restored; --seed skipped)`
-        : `✔ persist  new state file at ${state.path} (first run — seed applies)`,
+      persistence.restored
+        ? `✔ persist  ${persistence.path} (${fsDocs} doc(s), ${users} user(s) restored; --seed skipped)`
+        : `✔ persist  new state file at ${persistence.path} (first run — seed applies)`,
     );
-    if (existsSync(state.backupPath)) {
+    if (existsSync(persistence.backupPath)) {
       logger.note(
-        `  ⓘ a recovery backup exists at ${state.backupPath} (prior non-empty state was ` +
+        `  ⓘ a recovery backup exists at ${persistence.backupPath} (prior non-empty state was ` +
           'replaced by an empty one — e.g. a reset). Restore: mv it back over state.json.',
       );
     }
@@ -559,13 +470,13 @@ export async function startServe(opts: {
   // (A fixture that primed the persist store is reported by the persist
   // line; a fixture ignored because lived state exists is intentionally
   // silent about staging.)
-  if ((seed && !state?.exists()) || seedState || seedUsers) {
-    logger.info(`✔ seed     ${seedLabel} staged for page init`);
+  if (session.summary.seedStaged) {
+    logger.info(`✔ seed     ${session.summary.seedLabel} staged for page init`);
   }
-  if (capture) {
-    logger.info(`✔ capture  session → ${capture.path} (run \`pyric verify\` to replay it)`);
+  if (session.summary.capturePath) {
+    logger.info(`✔ capture  session → ${session.summary.capturePath} (run \`pyric verify\` to replay it)`);
   }
-  if (watching) logger.info(`✔ watch    hot-reloading ${loaded.sourcePath} over /__pyric/events`);
+  if (watching) logger.info(`✔ watch    hot-reloading ${rulesSourcePath} over /__pyric/events`);
   // Browser-honesty: the sandbox is browser-resident — firestore/auth and
   // persistence run IN the served page. With no page open, data ops silently
   // no-op. This warning (paired with auto-open in runServe) is the fix for the
@@ -755,7 +666,9 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   }
 
   let devChild: DevChildHandle | null = null;
-  let functionsChild: FunctionsRtdbChildHandle | null = null;
+  let functionsRuntime: FunctionsDevelopmentRuntime | null = null;
+  let resolveFunctionsExit!: (code: number) => void;
+  const functionsExited = new Promise<number>((resolve) => { resolveFunctionsExit = resolve; });
   let resolveSignal!: (signal: NodeJS.Signals) => void;
   const signal = new Promise<NodeJS.Signals>((resolve) => {
     resolveSignal = resolve;
@@ -776,7 +689,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   const stopAfterSignal = async (): Promise<number> => {
     (json ? process.stderr : process.stdout).write('\nShutting down...\n');
     if (devChild && devChild.child.exitCode === null) devChild.signal(await signal);
-    await functionsChild?.stop().catch(() => undefined);
+    await functionsRuntime?.close().catch(() => undefined);
     await runtime.handle.stop().catch(() => undefined);
     removeSignalHandlers();
     return 0;
@@ -785,75 +698,70 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   if (functionsProject && functionsProjectId) {
     const info = json ? process.stderr : process.stdout;
     info.write('• functions waiting for the browser tab to connect the sandbox…\n');
-    const connectedOutcome = await waitOrSignal(waitForSandboxPeer(runtime.handle.url));
-    if ('signal' in connectedOutcome) return stopAfterSignal();
-    const connected = connectedOutcome.value;
-    if (!connected) {
+    const reportFunctionsEvent = (event: FunctionsDevelopmentEvent): void => {
+      if (event.type === 'output') {
+        (event.stream === 'stdout' ? info : process.stderr).write(event.line);
+        return;
+      }
+      if (event.type === 'unexpected-exit') {
+        resolveFunctionsExit(event.code);
+        return;
+      }
+      const childEvent = event.event;
+      if (childEvent.type === 'execution') {
+        const params = Object.entries(childEvent.params)
+          .map(([name, value]) => `${name}=${value}`)
+          .join(', ');
+        const paramsSuffix = params ? ` (${params})` : '';
+        if (childEvent.status === 'fulfilled') {
+          info.write(`✔ function  ${childEvent.exportName} ← /${childEvent.ref}${paramsSuffix}\n`);
+        } else {
+          process.stderr.write(
+            `✖ function  ${childEvent.exportName} ← /${childEvent.ref}${paramsSuffix}: ${childEvent.error.message}\n`,
+          );
+        }
+      } else {
+        process.stderr.write(
+          `✖ functions delivery for ${childEvent.exportName}: ${childEvent.error.message}\n`,
+        );
+      }
+    };
+    functionsRuntime = createFunctionsDevelopmentRuntime({
+      sourceDir: functionsProject.sourceDir,
+      entry: functionsProject.entry,
+      baseEnv: process.env,
+      serveUrl: runtime.handle.url,
+      registerUrl: registerModuleUrl(),
+      instance: `${functionsProjectId}-default-rtdb`,
+      location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
+      readiness: createHttpFunctionsPeerReadiness(runtime.handle.url),
+      onEvent: reportFunctionsEvent,
+    });
+    const startOutcome = await waitOrSignal(functionsRuntime.start());
+    if ('signal' in startOutcome) return stopAfterSignal();
+    const result = startOutcome.value;
+    if (result.kind === 'no-peer') {
       process.stderr.write(
         `  ⚠ functions not started — no browser tab connected after 30s. ` +
           `Open ${runtime.handle.url} and restart pyric dev.\n`,
       );
+    } else if (result.kind === 'failed') {
+      process.stderr.write(`${result.error.message}\n`);
+      await functionsRuntime.close();
+      await runtime.handle.stop();
+      removeSignalHandlers();
+      return 2;
     } else {
-      functionsChild = spawnFunctionsRtdbChild({
-        cwd: functionsProject.sourceDir,
-        entry: functionsProject.entry,
-        env: buildChildEnv(process.env, {
-          serveUrl: runtime.handle.url,
-          registerUrl: registerModuleUrl(),
-        }),
-        instance: `${functionsProjectId}-default-rtdb`,
-        location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
-        onEvent(event) {
-          if (event.type === 'execution') {
-            const params = Object.entries(event.params)
-              .map(([name, value]) => `${name}=${value}`)
-              .join(', ');
-            const paramsSuffix = params ? ` (${params})` : '';
-            if (event.status === 'fulfilled') {
-              info.write(`✔ function  ${event.exportName} ← /${event.ref}${paramsSuffix}\n`);
-            } else {
-              process.stderr.write(
-                `✖ function  ${event.exportName} ← /${event.ref}${paramsSuffix}: ${event.error.message}\n`,
-              );
-            }
-          } else {
-            process.stderr.write(
-              `✖ functions delivery for ${event.exportName}: ${event.error.message}\n`,
-            );
-          }
-        },
-      });
-
-      const stdout = createLinePrefixer('[functions] ', (line) =>
-        (json ? process.stderr : process.stdout).write(line));
-      const stderr = createLinePrefixer('[functions] ', (line) => process.stderr.write(line));
-      functionsChild.child.stdout?.setEncoding('utf8');
-      functionsChild.child.stderr?.setEncoding('utf8');
-      functionsChild.child.stdout?.on('data', (chunk: string) => stdout.push(chunk));
-      functionsChild.child.stderr?.on('data', (chunk: string) => stderr.push(chunk));
-      functionsChild.child.stdout?.once('end', () => stdout.flush());
-      functionsChild.child.stderr?.once('end', () => stderr.flush());
-
-      try {
-        const readyOutcome = await waitOrSignal(functionsChild.ready);
-        if ('signal' in readyOutcome) return stopAfterSignal();
-        const ready = readyOutcome.value;
-        info.write(
-          `✔ functions ${ready.triggerCount} onValueCreated trigger${ready.triggerCount === 1 ? '' : 's'} ` +
-            `from ${relative(cwd, functionsProject.entry)}\n`,
+      const ready = result.ready;
+      info.write(
+        `✔ functions ${ready.triggerCount} onValueCreated trigger${ready.triggerCount === 1 ? '' : 's'} ` +
+          `from ${relative(cwd, functionsProject.entry)}\n`,
+      );
+      for (const unsupported of ready.unsupportedTriggers) {
+        process.stderr.write(
+          `  ⚠ functions export ${unsupported.exportName} uses unsupported trigger ` +
+            `${unsupported.eventType}; it will not run in pyric dev.\n`,
         );
-        for (const unsupported of ready.unsupportedTriggers) {
-          process.stderr.write(
-            `  ⚠ functions export ${unsupported.exportName} uses unsupported trigger ` +
-              `${unsupported.eventType}; it will not run in pyric dev.\n`,
-          );
-        }
-      } catch (error) {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-        await functionsChild.stop();
-        await runtime.handle.stop();
-        removeSignalHandlers();
-        return 2;
       }
     }
   }
@@ -901,7 +809,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       if (settled) return;
       settled = true;
       void (async () => {
-        await functionsChild?.stop().catch(() => undefined);
+        await functionsRuntime?.close().catch(() => undefined);
         if (devChild && devChild.child.exitCode === null) {
           devChild.signal('SIGTERM');
           await devChild.exited.catch(() => undefined);
@@ -915,7 +823,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       if (shuttingDown) return;
       shuttingDown = true;
       (json ? process.stderr : process.stdout).write('\nShutting down...\n');
-      void functionsChild?.stop();
+      void functionsRuntime?.close();
       if (devChild && devChild.child.exitCode === null) {
         // Forward the signal; the child's exit (below) closes the host.
         // (The terminal delivers Ctrl-C to the whole group too — the
@@ -927,8 +835,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     };
     // Child exits → close the host and propagate its code (Ctrl-C → 0).
     if (devChild) void devChild.exited.then((code) => finish(code));
-    if (functionsChild) {
-      void functionsChild.exited.then((code) => {
+    if (functionsRuntime) {
+      void functionsExited.then((code) => {
         if (!settled && !shuttingDown) {
           process.stderr.write(`pyric dev: Functions child exited unexpectedly (code ${code}).\n`);
           finish(code === 0 ? 1 : code);

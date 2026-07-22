@@ -20,6 +20,31 @@
  */
 
 export {
+  PYRIC_WORKER_NAME,
+  PYRIC_WORKER_URL,
+  readPyricRuntimeManifest,
+  type PyricRuntimeManifest,
+} from '../runtime/manifest.js';
+export {
+  PYRIC_WORKER_GENERATION_KEY,
+  preflightWorkerEpochStorage,
+  rememberWorkerEpoch,
+  workerNameForEpoch,
+} from '../runtime/worker-generation.js';
+export {
+  createWorkerReplacement,
+  type WorkerReplacement,
+} from '../runtime/worker-replacement.js';
+export {
+  onWorkerRuntimeReload,
+  retireWorkerRuntime,
+} from './client/runtime-control.js';
+export {
+  disconnectClient,
+  type DisconnectClientOptions,
+} from './client/disconnect.js';
+
+export {
   // Bridge-peer relay seams (leaf-safe: ids are re-minted in-page, frames go
   // over the worker port). The served page wires these into `connectBridge`'s
   // `dispatcher`/`workerRelay` (entries/runtime.ts); Pyric Studio reuses the

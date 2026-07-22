@@ -64,6 +64,12 @@
 @import "./update-lights.css";
 @import "tailwindcss";
 
+/* Studio is consumed as a package by Astro, so Tailwind's automatic scan is
+   rooted in the host application and does not discover Studio's compiled
+   components. Keep the package self-describing: from src/styles this scans
+   src/, and from the published dist/styles copy it scans dist/. */
+@source "../";
+
 /**
  * Map the semantic roles into Tailwind's colour/font namespace.
  *
@@ -75,7 +81,10 @@
  * downstream breaks while surfaces are re-skinned to the mock register in later
  * waves.
  */
-@theme {
+/* Firestore's authored CSS also consumes these aliases directly. `static`
+   keeps that public theme bridge present even when no utility happens to use
+   one of its variables in a particular host build. */
+@theme static {
   /* ── Mock-contract role utilities ─────────────────────────────────── */
   --color-bg: var(--bg);
   --color-panel: var(--panel);
