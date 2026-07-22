@@ -20,6 +20,11 @@ export interface FirestoreRulesObservation {
   inputDigest?: { algorithm?: unknown; value?: unknown };
 }
 
+export interface FirestoreOracleRegistryRow {
+  id: string;
+  oracleObservations: readonly string[];
+}
+
 type Verdict = 'ALLOW' | 'DENY' | 'UNSUPPORTED';
 
 const KNOWN_DIVERGENCES: Readonly<Record<
@@ -115,14 +120,72 @@ export interface FirestoreOracleReplayResult {
   problems: string[];
 }
 
+/**
+ * Prove the one-row/one-observation join that lets replay evidence support a
+ * registry assertion. The scorecard must not rely on a separate climb test to
+ * reject a forged or stale row ID.
+ */
+export function firestoreOracleRegistryProblems(
+  observations: readonly Pick<FirestoreRulesObservation, 'name' | 'rowIds'>[],
+  rows: readonly FirestoreOracleRegistryRow[],
+): string[] {
+  const problems: string[] = [];
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+  const observationByName = new Map(observations.map((observation) => [observation.name, observation]));
+  const observationsByRow = new Map<string, string[]>();
+
+  if (observationByName.size !== observations.length) {
+    problems.push('Firestore Rules oracle replay contains duplicate observation names');
+  }
+  if (rowById.size !== rows.length) {
+    problems.push('Firestore Rules oracle replay contains duplicate registry row IDs');
+  }
+
+  for (const observation of observations) {
+    if (observation.rowIds.length !== 1) continue;
+    const rowId = observation.rowIds[0]!;
+    const row = rowById.get(rowId);
+    if (!row) {
+      problems.push(`${observation.name}: unknown Firestore Rules registry row ${rowId}`);
+      continue;
+    }
+    const assigned = observationsByRow.get(rowId) ?? [];
+    assigned.push(observation.name);
+    observationsByRow.set(rowId, assigned);
+    if (row.oracleObservations.length !== 1 || row.oracleObservations[0] !== observation.name) {
+      problems.push(
+        `${observation.name}: ${rowId} must link back to exactly this observation, got ` +
+        `${row.oracleObservations.join(', ') || '(none)'}`,
+      );
+    }
+  }
+
+  for (const row of rows) {
+    if (row.oracleObservations.length !== 1) {
+      problems.push(`${row.id}: expected exactly one Firestore Rules oracle observation`);
+    }
+    for (const name of row.oracleObservations) {
+      const observation = observationByName.get(name);
+      if (!observation) problems.push(`${row.id}: linked observation ${name} is missing`);
+      else if (observation.rowIds.length !== 1 || observation.rowIds[0] !== row.id) {
+        problems.push(`${row.id}: linked observation ${name} does not link back to this row`);
+      }
+    }
+    const assigned = observationsByRow.get(row.id) ?? [];
+    if (assigned.length !== 1) {
+      problems.push(`${row.id}: expected exactly one assigned observation, got ${assigned.join(', ') || '(none)'}`);
+    }
+  }
+  return problems;
+}
+
 /** Replay once and retain per-row results for the CDD climb reporter. */
 export async function replayFirestoreRulesObservations(): Promise<FirestoreOracleReplayResult[]> {
   const scenarioByObservation = new Map(
     ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => [observationName(scenario), scenario]),
   );
-  const rowStatus = new Map(
-    allCompatibilityRows.filter(({ surface }) => surface === 'firestore-rules').map((row) => [row.id, row]),
-  );
+  const firestoreRows = allCompatibilityRows.filter(({ surface }) => surface === 'firestore-rules');
+  const rowStatus = new Map(firestoreRows.map((row) => [row.id, row]));
   const files = readdirSync(OBS_DIR)
     .filter((file) => file.startsWith(RULES_FIRESTORE_OBSERVATION_PREFIX) && file.endsWith('.json'))
     .sort();
@@ -130,15 +193,21 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
     name: 'firestore-rules-observation-set', rowId: '',
     problems: ['Firestore Rules oracle replay has no committed observations'],
   }];
+  const observations = files.map((file) => {
+    const observation = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as FirestoreRulesObservation;
+    observation.name ||= file.replace(/\.json$/, '');
+    return observation;
+  });
 
   const { SimulateFirestoreRulesHandler } = await import('../../pyric/src/rules/simulator/handler.ts');
   const simulator = new SimulateFirestoreRulesHandler();
-  const replays: FirestoreOracleReplayResult[] = [];
+  const registryProblems = firestoreOracleRegistryProblems(observations, firestoreRows);
+  const replays: FirestoreOracleReplayResult[] = registryProblems.length === 0 ? [] : [{
+    name: 'firestore-rules-registry-linkage', rowId: '', problems: registryProblems,
+  }];
   const matchedDivergences = new Set<string>();
   const observedNames = new Set<string>();
-  for (const file of files) {
-    const observation = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as FirestoreRulesObservation;
-    observation.name ||= file.replace(/\.json$/, '');
+  for (const observation of observations) {
     observedNames.add(observation.name);
     const scenario = scenarioByObservation.get(observation.name);
     if (!scenario) {

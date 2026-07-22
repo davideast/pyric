@@ -21,6 +21,7 @@ import type { CapabilityReport } from './rules-language-capability.ts';
 import type { CoverageReport } from './rules-language-analyzer.ts';
 import {
   deriveFirestoreRulesScorecard,
+  type FirestoreScoreClassification,
   type FirestoreRulesScorecard,
 } from './firestore-rules-scorecard.ts';
 import { loadAndValidateFirestoreAcceptanceEvidence } from './firestore-rules-acceptance-evidence.ts';
@@ -191,10 +192,28 @@ function assuranceOf(verdicts: ConformanceVerdict[]): Assurance {
   return 'eligible';
 }
 
-function registryStatusOfConstruct(
+export function firestoreScoreVerdict(classification: FirestoreScoreClassification): ConformanceVerdict {
+  if (classification === 'conformant') return 'supported';
+  if (classification === 'unknown' || classification === 'unprobeable') return 'qualified';
+  return 'unsupported';
+}
+
+function registryStatusOfRulesConstruct(
   status: 'unprobed' | 'accepted' | 'rejected' | 'unprobeable',
   verdict: ConformanceVerdict,
+  firestoreClassification?: FirestoreScoreClassification,
 ): CompatStatus {
+  if (firestoreClassification) {
+    switch (firestoreClassification) {
+      case 'conformant': return 'conforms';
+      case 'diverged':
+      case 'acceptance-mismatch': return 'diverged-documented';
+      case 'local-unsupported': return 'unsupported';
+      case 'local-error': return 'bug';
+      case 'unknown':
+      case 'unprobeable': return 'unverified';
+    }
+  }
   if (status === 'rejected') return 'diverged-documented';
   if (verdict === 'supported') return 'conforms';
   if (verdict === 'unsupported') return 'unsupported';
@@ -256,7 +275,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
     throw new Error(`Conformance model refused invalid public-surface state:\n${censusProblems.map((gap) => `  - ${gap}`).join('\n')}`);
   }
   const evidence = await deriveConformanceEvidence();
-  const verdicts = deriveAllNodeVerdicts(evidence.graph);
+  const verdicts: Record<string, ConformanceVerdict> = { ...deriveAllNodeVerdicts(evidence.graph) };
   const surfaceVerdicts: Record<string, ConformanceVerdict> = {};
   const snapshots = Object.values(loadAllSnapshots());
   const firestoreSnapshot = snapshots.find(({ engine }) => engine === 'firestore');
@@ -271,6 +290,10 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
     capabilities: firestoreCapability.constructs,
     coverage: firestoreCoverage.constructs,
   });
+  const firestoreScoreById = new Map(firestoreScorecard.constructs.map((construct) => [construct.id, construct]));
+  for (const construct of firestoreScorecard.constructs) {
+    verdicts[construct.id] = firestoreScoreVerdict(construct.classification);
+  }
   const constructFeatures = new Map(snapshots.flatMap(({ constructs }) =>
     constructs.map((construct) => [construct.id, featureKeysForConstruct(construct)] as const),
   ));
@@ -444,18 +467,24 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
     for (const construct of snapshot.constructs) {
       const names = constructFeatures.get(construct.id)!;
       const verdict = verdicts[construct.id];
+      const firestoreScore = snapshot.engine === 'firestore' ? firestoreScoreById.get(construct.id) : undefined;
       const contract = `${construct.engine}-rules`;
       for (const name of names) {
         const feature = ensure(name, developerSurfaceFor(contract));
         classify(feature, 'declared', 'available');
         if (!verdict) throw new Error(`No graph verdict for rules construct '${construct.id}'`);
-        feature.registryStatuses.push(registryStatusOfConstruct(construct.status, verdict));
+        feature.registryStatuses.push(registryStatusOfRulesConstruct(
+          construct.status,
+          verdict,
+          firestoreScore?.classification,
+        ));
         if (verdict) feature.assuranceVerdicts.push(verdict);
         if (construct.note) feature.caveats.push(construct.note);
         feature.claims.push({
           id: construct.id, kind: 'rules-construct', surface: `${construct.engine}-rules`,
           behavior: construct.note ?? `${name} is enumerated in the ${construct.engine} rules-language inventory`,
-          status: construct.status, evidence: [construct.reference, construct.probeNote].filter((value): value is string => Boolean(value)),
+          status: firestoreScore?.classification ?? construct.status,
+          evidence: [construct.reference, construct.probeNote].filter((value): value is string => Boolean(value)),
           assurance: verdict ? assuranceOf([verdict]) : 'not-applicable',
         });
       }

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import type { LanguageConstruct } from '../rules-language/types.ts';
+import type { LanguageConstruct } from '../../rules-language/types.ts';
 import {
   type FirestoreAcceptanceEvidence,
   FIRESTORE_ACCEPTANCE_EVIDENCE_NOTE,
   validateFirestoreAcceptanceEvidence,
-} from './firestore-rules-acceptance-evidence.ts';
+} from '../../src/firestore-rules-acceptance-evidence.ts';
 
 const construct: LanguageConstruct = {
   id: 'firestore.test', kind: 'function', engine: 'firestore', reference: 'test', status: 'accepted',

@@ -264,7 +264,7 @@ Exit: every construct is conformant or explicitly classified with two-sided
 evidence, or is unprobeable with a structured attribution reason; no
 calculation path disagrees about its verdict. This execution meets that exit:
 #174 is conformant with paired receiver/argument witnesses, #164 is a
-documented Test API limitation, and the three unattributable meta-constructs
+documented Test API limitation, and the three unprobeable constructs
 remain visible and receive no credit.
 
 ## Expected movement

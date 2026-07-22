@@ -170,6 +170,27 @@ describe('multi-axis conformance model', () => {
     }
   });
 
+  it('uses the canonical Firestore scorecard for every construct projection', () => {
+    const scoreVerdict = {
+      conformant: 'supported',
+      diverged: 'unsupported',
+      unknown: 'qualified',
+      'acceptance-mismatch': 'unsupported',
+      'local-unsupported': 'unsupported',
+      'local-error': 'unsupported',
+      unprobeable: 'qualified',
+    } as const;
+    for (const construct of model.rulesLanguage.firestoreScorecard.constructs) {
+      expect(model.nodeVerdicts[construct.id]).toBe(scoreVerdict[construct.classification]);
+      expect(model.assuranceNodeVerdicts[construct.id]).toBe(scoreVerdict[construct.classification]);
+    }
+    for (const feature of ['resource.id', 'resource.__name__', 'request.resource.id']) {
+      expect(one(`firestore-rules/${feature}`)).toMatchObject({
+        fidelity: 'conforms', assurance: 'eligible',
+      });
+    }
+  });
+
   it('requires graph-supported evidence for every conforming rules construct', () => {
     for (const support of model.supports.filter(({ surface }) => surface.endsWith('-rules'))) {
       const constructs = support.claims.filter(({ kind }) => kind === 'rules-construct');

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import type { Scenario } from '../../rules-corpus/firestore/index.ts';
-import { firestoreOracleReplayProblems } from '../../src/firestore-rules-oracle-replay.ts';
+import {
+  firestoreOracleRegistryProblems,
+  firestoreOracleReplayProblems,
+} from '../../src/firestore-rules-oracle-replay.ts';
 import { firestoreScenarioInputDigest } from '../../src/firestore-rules-input-digest.ts';
 
 const scenario: Scenario = {
@@ -9,6 +12,35 @@ const scenario: Scenario = {
 };
 
 describe('Firestore Rules oracle replay gate', () => {
+  const linkedObservation = { name: 'rules-firestore-test', rowIds: ['firestore-rules#1'] };
+  const linkedRow = { id: 'firestore-rules#1', oracleObservations: ['rules-firestore-test'] };
+
+  it('rejects an unknown observation row before scoring', () => {
+    expect(firestoreOracleRegistryProblems(
+      [{ ...linkedObservation, rowIds: ['firestore-rules#999'] }], [linkedRow],
+    )).toEqual(expect.arrayContaining([
+      expect.stringContaining('unknown Firestore Rules registry row firestore-rules#999'),
+    ]));
+  });
+
+  it('rejects a stale registry backlink before scoring', () => {
+    expect(firestoreOracleRegistryProblems(
+      [linkedObservation], [{ ...linkedRow, oracleObservations: ['rules-firestore-other'] }],
+    )).toEqual(expect.arrayContaining([
+      expect.stringContaining('must link back to exactly this observation'),
+      expect.stringContaining('linked observation rules-firestore-other is missing'),
+    ]));
+  });
+
+  it('rejects multiple observations assigned to one row before scoring', () => {
+    expect(firestoreOracleRegistryProblems([
+      linkedObservation,
+      { name: 'rules-firestore-copy', rowIds: ['firestore-rules#1'] },
+    ], [linkedRow])).toEqual(expect.arrayContaining([
+      expect.stringContaining('expected exactly one assigned observation'),
+    ]));
+  });
+
   it('rejects a local verdict regression', () => {
     const problems = firestoreOracleReplayProblems(scenario, {
       name: 'rules-firestore-test', rowIds: ['firestore-rules#1'], behavior: { probe: 'ALLOW' },
