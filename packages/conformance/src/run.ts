@@ -1138,6 +1138,51 @@ const probes: Probe[] = [
       const cursorBase = query(c, orderBy('rank'), orderBy(documentId()));
       const snapshotCursor = query(cursorBase, startAt(cursorSnapshot));
       const explicitCursor = query(cursorBase, startAt(1, aRef.id));
+      let snapshotCursorConverterCalls = 0;
+      const statefulCursorConverter: FirestoreDataConverter<Record<string, unknown>> = {
+        toFirestore: (value) => value,
+        fromFirestore: () => {
+          snapshotCursorConverterCalls += 1;
+          return { rank: 999 };
+        },
+      };
+      const convertedCursorSnapshot = await getDoc(aRef.withConverter(statefulCursorConverter));
+      const snapshotCursorConverterCallsAfterFetch = snapshotCursorConverterCalls;
+      const statefulSnapshotCursor = query(cursorBase, startAt(convertedCursorSnapshot));
+      const snapshotCursorConverterCallsAfterConstruction = snapshotCursorConverterCalls;
+      const statefulSnapshotCursorEqualToExplicit = queryEqual(
+        statefulSnapshotCursor,
+        explicitCursor,
+      );
+      const snapshotCursorConverterCallsAfterEquality = snapshotCursorConverterCalls;
+      const statefulSnapshotCursorFirstExecutionIds = (await getDocs(statefulSnapshotCursor))
+        .docs.map((snap) => snap.id);
+      const snapshotCursorConverterCallsAfterFirstExecution = snapshotCursorConverterCalls;
+      const statefulSnapshotCursorSecondExecutionIds = (await getDocs(statefulSnapshotCursor))
+        .docs.map((snap) => snap.id);
+      const snapshotCursorConverterCallsAfterSecondExecution = snapshotCursorConverterCalls;
+      const rawAddedRef = await addDoc(c, { kind: 'raw-added-reference' });
+      const convertedAddedRef = await addDoc(
+        c.withConverter(converterA),
+        { kind: 'converted-added-reference' },
+      );
+      await setDoc(aRef, {
+        rawAddedReference: rawAddedRef,
+        convertedAddedReference: convertedAddedRef,
+      }, { merge: true });
+      const rawAddedReferenceQuery = query(c, where('rawAddedReference', '==', rawAddedRef));
+      const rebuiltRawAddedReferenceQuery = query(
+        c,
+        where('rawAddedReference', '==', doc(db, rawAddedRef.path)),
+      );
+      const convertedAddedReferenceQuery = query(
+        c,
+        where('convertedAddedReference', '==', convertedAddedRef),
+      );
+      const rebuiltConvertedAddedReferenceQuery = query(
+        c,
+        where('convertedAddedReference', '==', doc(db, convertedAddedRef.path)),
+      );
       let getterCalls = 0;
       const getterOperand = Object.defineProperty({}, 'value', {
         enumerable: true,
@@ -1210,6 +1255,26 @@ const probes: Probe[] = [
         frozenBytesExecutionAfterInputMutation,
         frozenVectorExecutionAfterInputMutation,
         snapshotAndExplicitCursorEqual: queryEqual(snapshotCursor, explicitCursor),
+        snapshotCursorConverterCallsAfterFetch,
+        snapshotCursorConverterCallsAfterConstruction,
+        statefulSnapshotCursorEqualToExplicit,
+        snapshotCursorConverterCallsAfterEquality,
+        statefulSnapshotCursorFirstExecutionIds,
+        snapshotCursorConverterCallsAfterFirstExecution,
+        statefulSnapshotCursorSecondExecutionIds,
+        snapshotCursorConverterCallsAfterSecondExecution,
+        rawAddDocReferenceEqualToRebuilt: queryEqual(
+          rawAddedReferenceQuery,
+          rebuiltRawAddedReferenceQuery,
+        ),
+        convertedAddDocReferenceEqualToRebuilt: queryEqual(
+          convertedAddedReferenceQuery,
+          rebuiltConvertedAddedReferenceQuery,
+        ),
+        rawAddDocReferenceExecutionIds: (await getDocs(rawAddedReferenceQuery))
+          .docs.map((snap) => snap.id),
+        convertedAddDocReferenceExecutionIds: (await getDocs(convertedAddedReferenceQuery))
+          .docs.map((snap) => snap.id),
         vectorValueBuiltTwice: queryEqual(vectorA, vectorB),
         vectorValueChanged: queryEqual(vectorA, vectorChanged),
         dateEqualsEquivalentTimestamp: queryEqual(dateValue, timestampA),
@@ -1225,7 +1290,12 @@ const probes: Probe[] = [
         bigintErrorCode: bigintValue.code,
         identity: queryEqual(q1, q1),
       };
-      await Promise.all([deleteDoc(aRef), deleteDoc(bRef)]);
+      await Promise.all([
+        deleteDoc(aRef),
+        deleteDoc(bRef),
+        deleteDoc(rawAddedRef),
+        deleteDoc(convertedAddedRef),
+      ]);
       await deleteApp(otherApp);
       await dropCurrentUser();
       return result;

@@ -45,6 +45,15 @@ interface DocumentSnapshotEqualityState {
 
 const documentSnapshotEquality = new WeakMap<object, DocumentSnapshotEqualityState>();
 
+/** Return the converter-free snapshot state captured at read time. Cursor
+ * constraints must derive bounds from this raw snapshot just as Firebase
+ * does; observing a converted snapshot's public `.data()` would invoke
+ * consumer code and could change the bound on each sandbox-live rebuild. */
+export function rawDocumentSnapshotForCursor(snapshot: object): ChainDocSnap {
+  return documentSnapshotEquality.get(snapshot)?.raw
+    ?? snapshot as unknown as ChainDocSnap;
+}
+
 interface QuerySnapshotDocEqualityState {
   readonly path: string;
   readonly data: CapturedQueryOperand;

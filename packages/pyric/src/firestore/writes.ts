@@ -24,6 +24,14 @@ import type {
   FirestoreDataConverter,
 } from './types.js';
 import { withFirestoreFirebaseError } from './errors.js';
+import {
+  boundedActivityIdentity,
+  registerActivityValue,
+} from './sandbox/activity-value-registry.js';
+import {
+  copyQueryValueRegistration,
+  registerReferenceQueryValue,
+} from './sandbox/query-value-registry.js';
 
 // ─── Writes ───────────────────────────────────────────────────────────
 
@@ -98,12 +106,16 @@ export async function addDoc<T = DocumentData>(
     target,
     (fresh) => fresh.doc(absPath) as unknown as object,
   );
+  registerActivityValue(tagged, boundedActivityIdentity('reference', absPath));
+  registerReferenceQueryValue(tagged, absPath, target, tagged);
   if (conv) {
-    return buildSandboxShell(
+    const shell = buildSandboxShell(
       tagged as { id: string; path: string },
       target,
       conv,
-    ) as DocumentReference<T>;
+    );
+    copyQueryValueRegistration(tagged, shell);
+    return shell as DocumentReference<T>;
   }
   return tagged as DocumentReference<T>;
 }

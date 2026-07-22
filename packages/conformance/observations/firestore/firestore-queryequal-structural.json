@@ -5,7 +5,7 @@
     "firestore#116"
   ],
   "description": "queryEqual semantics — does prod compare structurally or by identity?",
-  "observedAt": "2026-07-22T03:01:53.565Z",
+  "observedAt": "2026-07-22T03:22:08.772Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -114,6 +114,28 @@
       "code": null
     },
     "snapshotAndExplicitCursorEqual": true,
+    "snapshotCursorConverterCallsAfterFetch": 0,
+    "snapshotCursorConverterCallsAfterConstruction": 0,
+    "statefulSnapshotCursorEqualToExplicit": true,
+    "snapshotCursorConverterCallsAfterEquality": 0,
+    "statefulSnapshotCursorFirstExecutionIds": [
+      "a",
+      "b"
+    ],
+    "snapshotCursorConverterCallsAfterFirstExecution": 0,
+    "statefulSnapshotCursorSecondExecutionIds": [
+      "a",
+      "b"
+    ],
+    "snapshotCursorConverterCallsAfterSecondExecution": 0,
+    "rawAddDocReferenceEqualToRebuilt": true,
+    "convertedAddDocReferenceEqualToRebuilt": true,
+    "rawAddDocReferenceExecutionIds": [
+      "a"
+    ],
+    "convertedAddDocReferenceExecutionIds": [
+      "a"
+    ],
     "vectorValueBuiltTwice": true,
     "vectorValueChanged": false,
     "dateEqualsEquivalentTimestamp": true,

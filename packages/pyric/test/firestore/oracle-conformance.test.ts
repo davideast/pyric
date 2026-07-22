@@ -1107,6 +1107,70 @@ describe('oracle conformance (firestore)', () => {
       query(cursorBase, startAt(cursorSnapshot)),
       query(cursorBase, startAt(1, cursorRef.id)),
     )).toBe(obs.snapshotAndExplicitCursorEqual as boolean);
+
+    let snapshotCursorConverterCalls = 0;
+    const statefulCursorConverter = {
+      toFirestore: (value: Record<string, unknown>) => value,
+      fromFirestore: () => {
+        snapshotCursorConverterCalls += 1;
+        return { rank: 999 };
+      },
+    };
+    const convertedCursorSnapshot = await getDoc(
+      withConverter(cursorRef, statefulCursorConverter),
+    );
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterFetch as number);
+    const statefulSnapshotCursor = query(cursorBase, startAt(convertedCursorSnapshot));
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterConstruction as number);
+    expect(queryEqual(statefulSnapshotCursor, query(cursorBase, startAt(1, cursorRef.id))))
+      .toBe(obs.statefulSnapshotCursorEqualToExplicit as boolean);
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterEquality as number);
+    expect((await getDocs(statefulSnapshotCursor)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.statefulSnapshotCursorFirstExecutionIds as string[]);
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterFirstExecution as number);
+    expect((await getDocs(statefulSnapshotCursor)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.statefulSnapshotCursorSecondExecutionIds as string[]);
+    expect(snapshotCursorConverterCalls)
+      .toBe(obs.snapshotCursorConverterCallsAfterSecondExecution as number);
+
+    const rawAddedRef = await addDoc(collection(db, 'returned-refs'), { kind: 'raw' });
+    const addDocConverter = {
+      toFirestore: (value: { kind: string }) => value,
+      fromFirestore: (snapshot: { data(): { kind: string } }) => snapshot.data(),
+    };
+    const convertedAddedRef = await addDoc(
+      withConverter(collection(db, 'returned-refs'), addDocConverter),
+      { kind: 'converted' },
+    );
+    await setDoc(cursorRef, {
+      rank: 1,
+      rawAddedReference: rawAddedRef,
+      convertedAddedReference: convertedAddedRef,
+    });
+    const rawAddedReferenceQuery = query(
+      base,
+      where('rawAddedReference', '==', rawAddedRef),
+    );
+    const convertedAddedReferenceQuery = query(
+      base,
+      where('convertedAddedReference', '==', convertedAddedRef),
+    );
+    expect(queryEqual(
+      rawAddedReferenceQuery,
+      query(base, where('rawAddedReference', '==', doc(db, rawAddedRef.path))),
+    )).toBe(obs.rawAddDocReferenceEqualToRebuilt as boolean);
+    expect(queryEqual(
+      convertedAddedReferenceQuery,
+      query(base, where('convertedAddedReference', '==', doc(db, convertedAddedRef.path))),
+    )).toBe(obs.convertedAddDocReferenceEqualToRebuilt as boolean);
+    expect((await getDocs(rawAddedReferenceQuery)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.rawAddDocReferenceExecutionIds as string[]);
+    expect((await getDocs(convertedAddedReferenceQuery)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.convertedAddDocReferenceExecutionIds as string[]);
   });
 
   it('firestore#117 snapshotEqual distinguishes read identity from listener structure', async () => {

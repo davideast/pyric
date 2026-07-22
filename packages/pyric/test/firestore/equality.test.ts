@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   collection,
+  addDoc,
   doc,
   getDoc,
   getDocs,
@@ -134,6 +135,61 @@ describe('Firestore equality helpers', () => {
       startAt(1, ref.id),
     );
     expect(queryEqual(fromSnapshot, fromValues)).toBe(true);
+  });
+
+  it('captures snapshot cursor bounds without invoking a consumer converter', async () => {
+    const { db } = setup();
+    const ref = doc(db, 'items/a');
+    await setDoc(ref, { rank: 1 });
+    await setDoc(doc(db, 'items/b'), { rank: 2 });
+    let converterCalls = 0;
+    const statefulConverter = {
+      toFirestore: (value: { rank: number }) => value,
+      fromFirestore: () => {
+        converterCalls += 1;
+        return { rank: 999 };
+      },
+    };
+    const snapshot = await getDoc(withConverter(ref, statefulConverter));
+    const base = query(
+      collection(db, 'items'),
+      orderBy('rank'),
+      orderBy(documentId()),
+    );
+    const fromSnapshot = query(base, startAt(snapshot));
+
+    expect(converterCalls).toBe(0);
+    expect(queryEqual(fromSnapshot, query(base, startAt(1, ref.id)))).toBe(true);
+    expect((await getDocs(fromSnapshot)).docs.map((docSnapshot) => docSnapshot.id))
+      .toEqual(['a', 'b']);
+    expect((await getDocs(fromSnapshot)).docs.map((docSnapshot) => docSnapshot.id))
+      .toEqual(['a', 'b']);
+    expect(converterCalls).toBe(0);
+  });
+
+  it('treats raw and converted addDoc results as executable reference values', async () => {
+    const { db } = setup();
+    const returned = collection(db, 'returned');
+    const rawRef = await addDoc(returned, { kind: 'raw' });
+    const convertedRef = await addDoc(withConverter(returned, {
+      toFirestore: (value: { kind: string }) => value,
+      fromFirestore: (snapshot: { data(): { kind: string } }) => snapshot.data(),
+    }), { kind: 'converted' });
+    await setDoc(doc(db, 'items/a'), { rawRef, convertedRef });
+    const items = collection(db, 'items');
+    const rawQuery = query(items, where('rawRef', '==', rawRef));
+    const convertedQuery = query(items, where('convertedRef', '==', convertedRef));
+
+    expect(queryEqual(
+      rawQuery,
+      query(items, where('rawRef', '==', doc(db, rawRef.path))),
+    )).toBe(true);
+    expect(queryEqual(
+      convertedQuery,
+      query(items, where('convertedRef', '==', doc(db, convertedRef.path))),
+    )).toBe(true);
+    expect((await getDocs(rawQuery)).docs.map((snapshot) => snapshot.id)).toEqual(['a']);
+    expect((await getDocs(convertedQuery)).docs.map((snapshot) => snapshot.id)).toEqual(['a']);
   });
 
   it('queryEqual does not observe valid getter operands after query construction', () => {
