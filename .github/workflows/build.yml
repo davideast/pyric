@@ -108,7 +108,10 @@ jobs:
 
       - name: Oracle conformance gate (observations × probes)
         # Loads every observations/*.json, protects their captured values, then
-        # runs each live probe. A contradiction fails the build.
+        # replays each registered conformance probe against the local shim and
+        # the frozen record — it contacts nothing live. A contradiction between
+        # the shim and the committed observation fails the build. Live
+        # re-capture is a separate scheduled lane (oracle-recapture.yml).
         run: bun run packages/conformance/src/check-observations.ts
 
       - name: Conformance graph integrity
