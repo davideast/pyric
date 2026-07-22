@@ -195,6 +195,12 @@ export function synthesizeVirtualModule(specifier: PreviewModuleId): string {
   }
 }
 
+/** Named bindings declared by a preview virtual module. */
+export function virtualModuleExportNames(specifier: PreviewModuleId): readonly string[] {
+  const spec = ALIASES[specifier];
+  return spec.kind === 'reexport' ? spec.exports : [];
+}
+
 export function virtualImportsPlugin(): esbuild.Plugin {
   const aliased = new Set(Object.keys(ALIASES));
   return {
