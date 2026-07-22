@@ -17,8 +17,8 @@
  * the bottom enforces that, so a new capture can't silently go un-checked.
  */
 import { describe, expect, it } from 'bun:test';
-import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   ActionCodeOperation,
@@ -90,11 +90,18 @@ const NOT_APPLICABLE: Record<string, string> = {
     'BLOCKED: same disabled Email/Password provider — the probe could not create the user whose email it would change.',
 };
 
+// Instrumented completeness gate: `load(name)` records which behavior fields are
+// read so the completeness test can fail an observation that is only mentioned in
+// a comment or loaded but never asserted. See
+// `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
+const obsGate = createObservationGate({
+  dir: OBS_DIR,
+  match: (f) => f.startsWith('auth-'),
+  notApplicable: NOT_APPLICABLE,
+});
+
 function load(name: string): Record<string, unknown> {
-  const json = JSON.parse(readFileSync(join(OBS_DIR, name), 'utf8')) as {
-    behavior: Record<string, unknown>;
-  };
-  return json.behavior;
+  return obsGate.load(name);
 }
 
 /** Drain the microtask queue a few times — the shim's initial listener fire is
@@ -769,12 +776,9 @@ describe('oracle conformance (auth)', () => {
   // ── completeness: every observation is asserted or explicitly N/A ─────
 
   it('every auth observation is covered (no silent gaps)', () => {
-    const all = readdirSync(OBS_DIR).filter((f) => f.startsWith('auth-') && f.endsWith('.json'));
-    expect(all.length).toBeGreaterThanOrEqual(26);
-    const source = readFileSync(import.meta.path, 'utf8');
-    const uncovered = all.filter(
-      (f) => !source.includes(f.replace('.json', '')) && !(f in NOT_APPLICABLE),
-    );
-    expect(uncovered).toEqual([]);
+    const r = obsGate.report();
+    expect(r.committed.length).toBeGreaterThanOrEqual(26);
+    expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
+    expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });
 });

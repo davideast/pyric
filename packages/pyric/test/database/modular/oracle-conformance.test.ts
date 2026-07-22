@@ -49,8 +49,8 @@
  *     already does this, so the warm-client contract conforms.
  */
 import { describe, it, expect } from 'bun:test';
-import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createObservationGate } from '../../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
@@ -92,11 +92,21 @@ const NOT_APPLICABLE: Record<string, string> = {
     'requires terminating the writer process; the sandbox boundary is pinned as a documented divergence in M84',
 };
 
+// Instrumented completeness gate. `load(name)` records which behavior fields are
+// read so the completeness test can fail an observation that is only mentioned in
+// a comment or loaded but never asserted. The onDisconnect captures are asserted
+// in the sibling `on-disconnect.test.ts`; the gate covers those via a static
+// `siblingSources` load-call check (stricter than a bare mention). See
+// `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
+const obsGate = createObservationGate({
+  dir: OBS_DIR,
+  match: (f) => f.startsWith('rtdb-modular-'),
+  notApplicable: NOT_APPLICABLE,
+  siblingSources: [join(import.meta.dir, '..', 'on-disconnect.test.ts')],
+});
+
 function load(name: string): Record<string, unknown> {
-  const json = JSON.parse(readFileSync(join(OBS_DIR, name), 'utf8')) as {
-    behavior: Record<string, unknown>;
-  };
-  return json.behavior;
+  return obsGate.load(name);
 }
 
 function setup() {
@@ -959,17 +969,16 @@ describe('oracle conformance (rtdb-modular)', () => {
   // ── completeness: every `rtdb-modular-*` observation is covered ────────
 
   it('every rtdb-modular observation is covered (no silent gaps)', () => {
-    const all = readdirSync(OBS_DIR).filter(
-      (f) => f.startsWith('rtdb-modular-') && f.endsWith('.json'),
-    );
-    expect(all.length).toBe(44);
-    const source = [
-      readFileSync(import.meta.path, 'utf8'),
-      readFileSync(join(import.meta.dir, '..', 'on-disconnect.test.ts'), 'utf8'),
-    ].join('\n');
-    const uncovered = all.filter(
-      (f) => !source.includes(f.replace('.json', '')) && !(f in NOT_APPLICABLE),
-    );
-    expect(uncovered).toEqual([]);
+    const r = obsGate.report();
+    expect(r.committed.length).toBe(44);
+    expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
+    // The onDisconnect captures are asserted in on-disconnect.test.ts.
+    expect(r.assertedInSibling.sort()).toEqual([
+      'rtdb-modular-ondisconnect-clean-set',
+      'rtdb-modular-ondisconnect-operations-cancel',
+      'rtdb-modular-ondisconnect-registration',
+      'rtdb-modular-ondisconnect-rules',
+    ]);
+    expect(r.uncovered).toEqual([]); // every capture is asserted (here or sibling) or N/A
   });
 });
