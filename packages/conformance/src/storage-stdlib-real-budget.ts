@@ -8,8 +8,8 @@ export const STORAGE_PROBE_LIMITS = {
 // Cleanup has an independent bounded reserve so an unexpected ALLOW result
 // cannot spend the requests required to remove the resources it created.
 export const STORAGE_CLEANUP_LIMITS = {
-  storage: 20,
-  firestoreWrite: 12,
+  storage: 40,
+  firestoreWrite: 24,
   rules: 8,
   iam: 6,
 } as const;

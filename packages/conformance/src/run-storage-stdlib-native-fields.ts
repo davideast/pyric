@@ -1,5 +1,3 @@
-import { deleteApp, initializeApp } from 'firebase/app';
-import { getMetadata, getStorage, ref as storageRef, updateMetadata, uploadBytes } from 'firebase/storage';
 import {
   accessHeaders,
   storageConfig,
@@ -14,9 +12,11 @@ import {
 } from './storage-stdlib-real-budget.ts';
 import {
   deleteStorageObjects,
+  firebaseStorageMetadata,
+  firebaseStorageMetadataUpdate,
+  firebaseStorageUpload,
   gcsMetadata,
   gcsUpload,
-  storageDecision,
   type GcsObject,
   type StorageDecision,
 } from './storage-stdlib-real-objects.ts';
@@ -78,10 +78,11 @@ function nativeRules(runId: string, metadata: Record<string, GcsObject>): string
 
 export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebConfig): Promise<void> {
   const headers = await accessHeaders(sa);
-  const config = await storageConfig(sa, headers);
-  if (config.projectId !== web.projectId) throw new Error('Web config and Storage probe service account target different projects');
   const budget = new RequestBudget({ ...STORAGE_PROBE_LIMITS });
   const cleanupBudget = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
+  budget.take('rules');
+  const config = await storageConfig(sa, headers);
+  if (config.projectId !== web.projectId) throw new Error('Web config and Storage probe service account target different projects');
   const snapshot = await storageRulesSnapshot(sa, config.storageBucket, headers, budget);
   const rulesFile = selectRulesFile(snapshot.ruleset);
   const runId = `r${Date.now().toString(36)}`;
@@ -99,7 +100,6 @@ export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebC
   const diagnostics: Record<string, unknown> = {};
   let releaseRestored = false;
   let objectsRemoved = false;
-  let app: ReturnType<typeof initializeApp> | undefined;
 
   const template = injectIntoMatch(
     rulesFile.content,
@@ -120,27 +120,13 @@ export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebC
     await preflightStorageSource(sa, config.storageBucket, headers, budget, files, `${nativePrefix}/canary.bin`);
     await activateStorageSource(sa, headers, budget, snapshot, files);
 
-    app = initializeApp({ ...web, storageBucket: config.storageBucket }, `storage-stdlib-native-${runId}`);
-    const storage = getStorage(app);
     const clientRead = async (family: string): Promise<StorageDecision> => {
-      budget.take('storage');
-      try {
-        await getMetadata(storageRef(storage, `${nativePrefix}/${family}.bin`));
-        return storageDecision();
-      } catch (error) {
-        return storageDecision(error);
-      }
+      return firebaseStorageMetadata(config.storageBucket, `${nativePrefix}/${family}.bin`, budget);
     };
     const clientUpload = async (family: string, bytes = payload): Promise<StorageDecision> => {
-      budget.take('storage');
       const path = `${nativePrefix}/${family}.bin`;
       createdObjects.add(path);
-      try {
-        await uploadBytes(storageRef(storage, path), bytes);
-        return storageDecision();
-      } catch (error) {
-        return storageDecision(error);
-      }
+      return firebaseStorageUpload(config.storageBucket, path, bytes, budget);
     };
 
     const canary = await clientUpload('canary');
@@ -157,14 +143,11 @@ export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebC
     }
 
     const metadataPath = `${nativePrefix}/metadata-update.bin`;
-    budget.take('storage');
-    try {
-      await updateMetadata(storageRef(storage, metadataPath), { customMetadata: { probe: runId } });
-      behavior['metadata-update'] = 'ALLOW';
-    } catch (error) {
-      behavior['metadata-update'] = 'DENY';
-      diagnostics['metadata-update'] = storageDecision(error);
-    }
+    const metadataUpdate = await firebaseStorageMetadataUpdate(
+      config.storageBucket, metadataPath, { probe: runId }, budget,
+    );
+    behavior['metadata-update'] = metadataUpdate.allowed ? 'ALLOW' : 'DENY';
+    diagnostics['metadata-update'] = metadataUpdate;
     const metadataAfter = await gcsMetadata(config.storageBucket, metadataPath, headers, budget);
     const metadataBefore = serverMetadata['metadata-update'];
     behavior['metadata-update-relations'] = {
@@ -192,7 +175,6 @@ export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebC
     await runCleanupSteps([
       { label: 'restore Storage release', run: async () => { releaseRestored = await restoreStorageRelease(headers, cleanupBudget, snapshot); } },
       { label: 'delete Storage objects', run: async () => { objectsRemoved = await deleteStorageObjects(config.storageBucket, prefix, createdObjects, headers, cleanupBudget); } },
-      { label: 'delete Firebase app', run: async () => { if (app) await deleteApp(app); } },
     ]);
   }
   if (!releaseRestored || !objectsRemoved) throw new Error(`native cleanup failed: releaseRestored=${releaseRestored} objectsRemoved=${objectsRemoved}`);

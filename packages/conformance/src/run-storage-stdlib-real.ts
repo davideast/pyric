@@ -13,8 +13,6 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deleteApp, initializeApp } from 'firebase/app';
-import { getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { readObservationLinkage } from './observation-linkage.ts';
 import {
   accessHeaders,
@@ -31,6 +29,7 @@ import {
   runCleanupSteps,
   storageProbeRequestKind,
 } from './storage-stdlib-real-budget.ts';
+import { deleteFirestoreDocuments } from './storage-stdlib-real-documents.ts';
 import {
   restoreIamPolicy,
   type IamPolicy,
@@ -38,6 +37,7 @@ import {
 import { acquireRunLock } from './storage-stdlib-real-lock.ts';
 import {
   deleteStorageObjects,
+  firebaseStorageUpload,
 } from './storage-stdlib-real-objects.ts';
 import {
   restoreRulesRelease,
@@ -317,8 +317,6 @@ async function run(): Promise<void> {
     ?? originalFirestoreRuleset?.source.files[0];
   if (advanced && !firestoreRulesFile) throw new Error('current Firestore ruleset has no source file');
 
-  const app = initializeApp({ ...web, storageBucket: config.storageBucket }, `storage-stdlib-${runId}`);
-  const storage = getStorage(app);
   const createdObjects = new Set<string>();
   const docNames = ['a', 'b', 'c'].map((id) => `projects/${sa.project_id}/databases/(default)/documents/__pyric_storage_stdlib/${runId}/docs/${id}`);
   const behavior: Record<string, unknown> = {};
@@ -332,19 +330,12 @@ async function run(): Promise<void> {
   const upload = async (family: string, retry = false): Promise<{ allowed: boolean; code?: string; message?: string }> => {
     const path = `${prefix}/${family}/payload.bin`;
     createdObjects.add(path);
-    const attempt = async () => {
-      budget.take('storage');
-      try {
-        await uploadBytes(storageRef(storage, path), new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]));
-        return { allowed: true };
-      } catch (error) {
-        return {
-          allowed: false,
-          code: (error as { code?: string }).code,
-          message: error instanceof Error ? error.message : String(error),
-        };
-      }
-    };
+    const attempt = async () => firebaseStorageUpload(
+      config.storageBucket,
+      path,
+      new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]),
+      budget,
+    );
     if (!retry) return attempt();
     let last = await attempt();
     for (let i = 0; !last.allowed && i < IAM_RETRY_LIMIT; i += 1) {
@@ -470,23 +461,15 @@ async function run(): Promise<void> {
           );
         },
       },
-      ...docNames.map((docName) => ({
-        label: `delete probe document ${docName}`,
-        run: async () => {
-          cleanupBudget.take('firestoreWrite');
-          const response = await fetch(`https://firestore.googleapis.com/v1/${docName}`, { method: 'DELETE', headers: authHeaders });
-          if (!response.ok && response.status !== 404) throw new Error(`delete probe document failed: ${response.status} ${await response.text()}`);
-        },
-      })),
       {
-        label: 'verify probe document cleanup',
+        label: 'delete and verify probe documents',
         run: async () => {
-          cleanupBudget.take('firestoreWrite', docNames.length);
-          const checks = await Promise.all(docNames.map((docName) => fetch(`https://firestore.googleapis.com/v1/${docName}`, { headers: authHeaders })));
-          documentsRemoved = checks.every((response) => response.status === 404);
+          documentsRemoved = await deleteFirestoreDocuments(
+            docNames.map((name) => ({ name, headers: { auth: authHeaders, json: jsonHeaders } })),
+            cleanupBudget,
+          );
         },
       },
-      { label: 'delete Firebase app', run: async () => deleteApp(app) },
     ]);
   }
 

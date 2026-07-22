@@ -1,6 +1,4 @@
-import { deleteApp, initializeApp } from 'firebase/app';
 import { createHash } from 'node:crypto';
-import { getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 import {
   accessHeaders,
   firestoreDocumentName,
@@ -17,10 +15,11 @@ import {
   STORAGE_PROBE_LIMITS,
   runCleanupSteps,
 } from './storage-stdlib-real-budget.ts';
+import { deleteFirestoreDocuments } from './storage-stdlib-real-documents.ts';
 import { restoreIamPolicy, type IamPolicy } from './storage-stdlib-real-iam.ts';
 import {
   deleteStorageObjects,
-  storageDecision,
+  firebaseStorageUpload,
   type StorageDecision,
 } from './storage-stdlib-real-objects.ts';
 import {
@@ -84,17 +83,6 @@ async function verifyDocument(
     `verify probe document ${name}`,
   );
   if (document.fields?.allow?.booleanValue !== allow) throw new Error(`probe document ${name} did not contain allow=${allow}`);
-}
-
-async function deleteDocuments(targets: Array<{ name: string; headers: AccessHeaders }>, budget: RequestBudget): Promise<boolean> {
-  for (const target of targets) {
-    budget.take('firestoreWrite');
-    const response = await fetch(`https://firestore.googleapis.com/v1/${target.name}`, { method: 'DELETE', headers: target.headers.auth });
-    if (!response.ok && response.status !== 404) throw new Error(`delete probe document failed: ${response.status} ${await response.text()}`);
-  }
-  budget.take('firestoreWrite', targets.length);
-  const checks = await Promise.all(targets.map((target) => fetch(`https://firestore.googleapis.com/v1/${target.name}`, { headers: target.headers.auth })));
-  return checks.every((response) => response.status === 404);
 }
 
 async function withTemporaryIam<T>(
@@ -166,11 +154,12 @@ async function withTemporaryIam<T>(
 async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, secondarySa: ServiceAccount): Promise<void> {
   const headers = await accessHeaders(sa);
   const secondaryHeaders = await accessHeaders(secondarySa);
+  const budget = new RequestBudget({ ...STORAGE_PROBE_LIMITS });
+  const cleanupBudget = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
+  budget.take('rules');
   const config = await storageConfig(sa, headers);
   if (config.projectId !== web.projectId) throw new Error('Web config and primary probe service account target different projects');
   if (secondarySa.project_id === sa.project_id) throw new Error('secondary probe project must differ from primary project');
-  const budget = new RequestBudget({ ...STORAGE_PROBE_LIMITS });
-  const cleanupBudget = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
   const snapshot = await storageRulesSnapshot(sa, config.storageBucket, headers, budget);
   const rulesFile = selectRulesFile(snapshot.ruleset);
   const runId = `r${Date.now().toString(36)}`;
@@ -199,26 +188,21 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
   let releaseRestored = false;
   let objectsRemoved = false;
   let documentsRemoved = false;
-  let app: ReturnType<typeof initializeApp> | undefined;
 
   const result = await withTemporaryIam(sa, headers, budget, cleanupBudget, async () => {
     try {
       await patchDocument(primaryDocs.iam, true, headers, budget);
       await patchDocument(primaryDocs.consistency, false, headers, budget);
       await activateStorageSource(sa, headers, budget, snapshot, files);
-      app = initializeApp({ ...web, storageBucket: config.storageBucket }, `storage-stdlib-remaining-${runId}`);
-      const storage = getStorage(app);
-
       const upload = async (family: string, id: string): Promise<StorageDecision> => {
-        budget.take('storage');
         const path = `${prefix}/${family}/${id}.bin`;
         createdObjects.add(path);
-        try {
-          await uploadBytes(storageRef(storage, path), new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]));
-          return storageDecision();
-        } catch (error) {
-          return storageDecision(error);
-        }
+        return firebaseStorageUpload(
+          config.storageBucket,
+          path,
+          new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]),
+          budget,
+        );
       };
 
       let iamCanary = await upload('iam-canary', 'a');
@@ -294,8 +278,7 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       await runCleanupSteps([
         { label: 'restore Storage release', run: async () => { releaseRestored = await restoreStorageRelease(headers, cleanupBudget, snapshot); } },
         { label: 'delete Storage objects', run: async () => { objectsRemoved = await deleteStorageObjects(config.storageBucket, prefix, createdObjects, headers, cleanupBudget); } },
-        { label: 'delete Firestore documents', run: async () => { documentsRemoved = await deleteDocuments(allTargets, cleanupBudget); } },
-        { label: 'delete Firebase app', run: async () => { if (app) await deleteApp(app); } },
+        { label: 'delete Firestore documents', run: async () => { documentsRemoved = await deleteFirestoreDocuments(allTargets, cleanupBudget); } },
       ]);
     }
     return true;

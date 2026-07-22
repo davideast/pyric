@@ -16,23 +16,23 @@ describe('storage stdlib real request safety', () => {
 
   test('reserves enough requests for worst-case native object cleanup', () => {
     const cleanup = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
-    cleanup.take('storage', 16);
-    cleanup.take('rules', 2);
+    cleanup.take('storage', 32);
+    cleanup.take('rules', 4);
     expect(cleanup.snapshot().counts).toEqual({
-      storage: 16,
+      storage: 32,
       firestoreWrite: 0,
-      rules: 2,
+      rules: 4,
       iam: 0,
     });
   });
 
   test('reserves and classifies every cross-service cleanup request', () => {
     const cleanup = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
-    cleanup.take('firestoreWrite', 12);
+    cleanup.take('firestoreWrite', 24);
     cleanup.take('rules', 8);
     cleanup.take('iam', 6);
     expect(cleanup.snapshot().counts).toEqual({
-      storage: 0, firestoreWrite: 12, rules: 8, iam: 6,
+      storage: 0, firestoreWrite: 24, rules: 8, iam: 6,
     });
     expect(storageProbeRequestKind('https://storage.googleapis.com/storage/v1/b/x')).toBe('storage');
     expect(storageProbeRequestKind('https://firestore.googleapis.com/v1/projects/x')).toBe('firestoreWrite');
