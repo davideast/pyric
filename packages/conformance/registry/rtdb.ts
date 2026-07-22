@@ -1254,7 +1254,7 @@ export const rtdbRegistry = {
           rowRef: "M37h",
           surface: "rtdb-modular",
           featureKeys: ["runTransaction"],
-          behavior: "**Divergence:** two ordinary concurrent `runTransaction` calls are serialized by the in-process backend, so their update functions are not retried with Firebase's captured contention counts. Synchronous re-entrant conflicting writes do retry, up to 25 attempts.",
+          behavior: "**Divergence:** two ordinary concurrent `runTransaction` calls are serialized by the in-process backend, so their update functions are not retried with Firebase's captured contention counts. A synchronous re-entrant conflicting write does trigger a deterministic retry.",
           status: "diverged-documented",
           evidence: "Oracle `rtdb-modular-concurrent-transforms` captures invocation counts [2, 3]; `unit:modular/cdd-climb-cases.ts` pins the sandbox's [1, 1] ordinary-concurrency boundary and separately covers its deterministic re-entrant retry seam.",
           automation: "oracle-backed",
