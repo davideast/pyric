@@ -546,6 +546,7 @@ describe('oracle conformance (firestore)', () => {
     expect(e instanceof Error).toBe(obs.isErrorInstance as boolean);
     expect(e.name).toBe(obs.errorName as string);
     expect(e.constructor.name).toBe(obs.constructorName as string);
+    expect(e instanceof FirebaseError).toBe(obs.isFirebaseError as boolean);
   });
 
   it('firestore#21 rules-denied modular writes throw a Firebase-shaped error', async () => {
