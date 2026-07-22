@@ -548,9 +548,9 @@ export function pyric(options: PyricOptions = {}): Plugin {
       configuredSession = session;
       configuredBridge = mount;
       try {
-      if (options.persist && options.fresh) {
-        server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
-      }
+        if (options.persist && options.fresh) {
+          server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
+        }
 
       // DNS-rebinding guard for the /__pyric/* surface. Vite has its own host
       // check, but a `configureServer` hook that doesn't return a function mounts
@@ -566,26 +566,35 @@ export function pyric(options: PyricOptions = {}): Plugin {
 
       // Connect-middleware adapter (build `url` from originalUrl; next() when the
       // namespace closure returns false; never rewrite route bodies).
-      server.middlewares.use('/__pyric', (req: IncomingMessage & { originalUrl?: string }, res: ServerResponse, next: () => void) => {
-        if (!hostAllowed(req)) {
-          res.statusCode = 403;
-          res.end(`pyric: refused request for Host '${req.headers.host ?? ''}' (DNS-rebinding guard).`);
-          return;
-        }
-        const url = new URL(req.originalUrl ?? req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-        // Bridge first (mirrors serve.ts): /__pyric/mcp + /__pyric/health must be
-        // handled by the mount, not 404 through the namespace. Falls through to the
-        // namespace when the mount returns false (every non-bridge route).
-        Promise.resolve(mount ? mount.handler(req, res, url) : false)
-          .then((bridged) => (bridged ? true : Promise.resolve(session.handle(req, res, url))))
-          .then((handled) => {
-            if (!handled) next();
-          })
-          .catch((err: unknown) => {
-            if (!res.headersSent) res.statusCode = 500;
-            res.end(err instanceof Error ? err.message : String(err));
-          });
-      });
+        let middlewareActive = true;
+        configuredListenerDisposers.push(() => { middlewareActive = false; });
+        server.middlewares.use('/__pyric', (req: IncomingMessage & { originalUrl?: string }, res: ServerResponse, next: () => void) => {
+          // Connect does not expose layer removal. Reconfiguration therefore
+          // deactivates the old generation so it yields to the newly appended
+          // middleware instead of answering through closed resources.
+          if (!middlewareActive) {
+            next();
+            return;
+          }
+          if (!hostAllowed(req)) {
+            res.statusCode = 403;
+            res.end(`pyric: refused request for Host '${req.headers.host ?? ''}' (DNS-rebinding guard).`);
+            return;
+          }
+          const url = new URL(req.originalUrl ?? req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+          // Bridge first (mirrors serve.ts): /__pyric/mcp + /__pyric/health must be
+          // handled by the mount, not 404 through the namespace. Falls through to the
+          // namespace when the mount returns false (every non-bridge route).
+          Promise.resolve(mount ? mount.handler(req, res, url) : false)
+            .then((bridged) => (bridged ? true : Promise.resolve(session.handle(req, res, url))))
+            .then((handled) => {
+              if (!handled) next();
+            })
+            .catch((err: unknown) => {
+              if (!res.headersSent) res.statusCode = 500;
+              res.end(err instanceof Error ? err.message : String(err));
+            });
+        });
 
       // WS upgrade for the in-page sandbox peer (ws://…/__pyric/sandbox). The
       // listener only fires once upgrades arrive (after listen), so adding it in
@@ -632,7 +641,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
             baseEnv: process.env,
             registerUrl: registerModuleUrl(),
             ...(childModuleUrl ? { childModuleUrl } : {}),
-        });
+          });
         configuredFunctions = functionsAttachment;
       }
 

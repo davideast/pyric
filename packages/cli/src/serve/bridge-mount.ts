@@ -228,20 +228,38 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (url.pathname === MCP_PATH) {
         try {
           const sessionId = (req.headers['mcp-session-id'] ?? req.headers['Mcp-Session-Id']) as string | undefined;
-          let session = sessionId ? sessions.get(sessionId) : undefined;
-          if (session) bumpIdle(session);
-          else session = await newSession();
+          let session: Session;
+          let created = false;
+          if (sessionId) {
+            const existing = sessions.get(sessionId);
+            if (!existing) {
+              res.writeHead(404, { 'content-type': 'application/json' });
+              res.end(JSON.stringify({ error: 'pyric bridge: MCP session not found' }));
+              return true;
+            }
+            session = existing;
+            bumpIdle(session);
+          } else {
+            session = await newSession();
+            created = true;
+          }
 
           if (req.method === 'DELETE' && sessionId) {
-            await session.close();
-            sessions.delete(sessionId);
+            await closeSession(session);
             res.writeHead(204).end();
             return true;
           }
           // The transport reads the raw request stream itself. Do NOT pre-parse
           // the body (the old `collectBody` path); a double read hangs the
           // initialize POST.
-          await session.transport.handleRequest(req, res);
+          try {
+            await session.transport.handleRequest(req, res);
+          } finally {
+            // A request without a session id is allowed to allocate only while
+            // it attempts initialization. Invalid/non-initialize traffic must
+            // not strand an uninitialized transport against the session cap.
+            if (created && session.sessionId === null) await closeSession(session);
+          }
         } catch (err) {
           const statusCode = (err as { statusCode?: number })?.statusCode ?? 500;
           if (!res.headersSent) {

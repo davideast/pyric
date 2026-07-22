@@ -95,6 +95,53 @@ describe('pyric dev --bridge', () => {
     expect(names).toEqual([...DEFAULT_MCP_TOOL_NAMES].sort());
   });
 
+  it('reclaims uninitialized transports and rejects stale session ids without exhausting the cap', async () => {
+    const r = await serve(true);
+    const headers = {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+    };
+    const initialize = () => fetch(r.mcpUrl!, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'cap-regression', version: '0' },
+        },
+      }),
+    });
+
+    for (let index = 0; index < 64; index += 1) {
+      const response = await fetch(r.mcpUrl!, {
+        method: 'POST',
+        headers,
+        body: '{}',
+      });
+      await response.text();
+    }
+    const afterInvalid = await initialize();
+    expect(afterInvalid.status).toBe(200);
+    await afterInvalid.text();
+
+    for (let index = 0; index < 64; index += 1) {
+      const response = await fetch(r.mcpUrl!, {
+        method: 'POST',
+        headers: { ...headers, 'mcp-session-id': `stale-${index}` },
+        body: JSON.stringify({ jsonrpc: '2.0', id: index + 10, method: 'tools/list', params: {} }),
+      });
+      expect(response.status).toBe(404);
+      await response.text();
+    }
+    const afterStale = await initialize();
+    expect(afterStale.status).toBe(200);
+    await afterStale.text();
+  });
+
   it('accepts a WS sandbox peer on the serve origin', async () => {
     const r = await serve(true);
     const ws = new WebSocket(`ws://localhost:${r.handle.port}/__pyric/sandbox`);
