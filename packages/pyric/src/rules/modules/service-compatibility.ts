@@ -216,8 +216,10 @@ function expressionReceiverType(
     case 'mapLiteral': return 'map';
     case 'pathLiteral': return 'path';
     case 'memberAccess': {
+      const objectType = expressionReceiverType(expression.object, ctx);
+      if (objectType === 'mixed') return 'mixed';
       if (expression.property === 'data' &&
-          expressionReceiverType(expression.object, ctx) === 'document') return 'map';
+          objectType === 'document') return 'map';
       if (expression.object.type === 'mapLiteral') {
         const entry = expression.object.entries.find(({ key }) =>
           key.type === 'literal' && key.value === expression.property);
@@ -226,6 +228,8 @@ function expressionReceiverType(
       return null;
     }
     case 'bracketAccess': {
+      const objectType = expressionReceiverType(expression.object, ctx);
+      if (objectType === 'mixed') return 'mixed';
       if (expression.object.type === 'listLiteral' && expression.index.type === 'literal' &&
           typeof expression.index.value === 'number' && Number.isInteger(expression.index.value)) {
         const element = expression.object.elements[expression.index.value];
@@ -237,7 +241,6 @@ function expressionReceiverType(
           key.type === 'literal' && key.value === indexValue);
         return entry ? expressionReceiverType(entry.value, ctx) : null;
       }
-      const objectType = expressionReceiverType(expression.object, ctx);
       if (objectType === 'string') return 'string';
       const objectPath = ambientBindingPath(expression.object, ctx);
       if (ctx.service === 'firebase.storage' && Array.isArray(objectPath) &&
@@ -247,6 +250,7 @@ function expressionReceiverType(
     }
     case 'sliceAccess': {
       const objectType = expressionReceiverType(expression.object, ctx);
+      if (objectType === 'mixed') return 'mixed';
       return objectType === 'list' || objectType === 'string' ? objectType : null;
     }
     case 'methodCall': {

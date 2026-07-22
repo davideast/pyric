@@ -521,22 +521,19 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.success, expression).toBe(false);
     }
   });
-  test('rejects heterogeneous method receivers in caller modules', () => {
-    const result = resolveModules(
-      makeStorageSource("import { broken } from './policy';", 'broken(request.auth != null)'),
-      {
-        modules: {
-          './policy': `
-            export function broken(flag) {
-              let value = flag ? ['owner'] : 'owner';
-              return value.keys().hasAll(['owner']);
-            }
-          `,
-        },
-      },
-    );
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+  test('rejects direct and projected heterogeneous method receivers', () => {
+    const bodies = [
+      "let value = flag ? ['owner'] : 'owner'; return value.keys().hasAll(['owner']);",
+      "let values = flag ? [{'owner': true}] : 'owner'; return values[0].keys().hasAll(['owner']);",
+    ];
+    for (const body of bodies) {
+      const result = resolveModules(
+        makeStorageSource("import { broken } from './policy';", 'broken(request.auth != null)'),
+        { modules: { './policy': `export function broken(flag) { ${body} }` } },
+      );
+      expect(result.success, body).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+    }
   });
   test('rejects Map.get fallbacks that hide incompatible retrieved values', () => {
     const result = resolveModules(
