@@ -127,5 +127,3 @@ export function analyzeRtdb(rulesJson: string): AnalyzeResult {
   rtdbWalkTree(tree, out);
   return out;
 }
-
-/** Engine-dispatched entry point. */

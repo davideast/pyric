@@ -507,14 +507,3 @@ function evaluateBinaryOp(
     default: throw new EvalError(`Unknown binary op: ${op}`);
   }
 }
-
-// ═══ Type-conversion builtins (RULES-B5 / RULES-B6) ═══
-//
-// CEL's int()/float()/bool() conversions are STRICT — they error on inputs
-// that JS would silently coerce. The pre-fix impl used `parseInt` (which
-// grabs a leading numeric prefix, so `int('12abc')` → 12) and `Boolean`
-// (truthiness, so `bool('false')` → true). Both diverge from prod, which
-// rejects a malformed string outright. Docs: rules.Integer / rules.Float /
-// rules.Boolean (string converters require a fully-valid literal).
-
-/** `int(x)` — truncate a number/float, parse a strict-integer string, or 0/1 a bool. */

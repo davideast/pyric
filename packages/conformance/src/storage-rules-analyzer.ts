@@ -149,7 +149,3 @@ export function analyzeStorage(source: string): AnalyzeResult {
   stWalkMatch(rules._root, 0, out);
   return out;
 }
-
-// ════════════════════════════════════════════════════════════════════
-// RTDB
-// ════════════════════════════════════════════════════════════════════

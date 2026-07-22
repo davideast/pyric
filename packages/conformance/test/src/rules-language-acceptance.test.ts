@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { requireExactProbeResults } from './rules-language-acceptance.ts';
+import { requireExactProbeResults } from '../../src/rules-language-acceptance.ts';
 
 describe('rules-language production acceptance evidence', () => {
   it('fails closed when the Rules Test API omits a result row', () => {

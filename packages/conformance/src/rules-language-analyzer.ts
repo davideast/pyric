@@ -15,8 +15,8 @@
  * cannot be determined from the AST (e.g. a bare `size()` on a value of
  * unknown type, ambiguous across string/list/map/set/bytes) are NOT credited
  * to any construct — they are surfaced as `unresolved` diagnostics instead.
- * Under-counting is honest; over-counting would inflate the trust number the
- * issue is built to protect. The same bar applies to `duration.seconds`/
+ * Under-counting is honest; over-counting would inflate the evidence-coverage
+ * measure. The same bar applies to `duration.seconds`/
  * `duration.nanos` vs `timestamp.seconds`/`timestamp.nanos` (same method
  * names, disambiguated only by proving the receiver's type — a namespace
  * constructor, a `request.time`-rooted access, or sound Timestamp/Duration
@@ -125,7 +125,7 @@ export interface ConstructCoverage {
    *  analysis. Such constructs are carried in `constructs` for the full
    *  audit trail but EXCLUDED from `totalConstructs` and the two coverage
    *  ratios below — counting a permanently-uncreditable construct in the
-   *  denominator would put a ceiling on the trust number for a reason
+   *  denominator would put a ceiling on evidence coverage for a reason
    *  unrelated to real coverage gaps. An empty `exercisedBy`/`verifiedBy`
    *  here is expected forever, not a pending gap. */
   unattributable?: string;
@@ -138,7 +138,7 @@ export interface EngineCoverage {
   verifiedConstructs: number;
   /** exercised / total, 0..1 (analyzer-measured breadth over the corpus). */
   exercisedCoverage: number;
-  /** verified / total, 0..1 — the trust number (production-confirmed). */
+  /** verified / total, 0..1 — production-backed evidence coverage. */
   verifiedCoverage: number;
   constructs: ConstructCoverage[];
   scenarioCount: number;

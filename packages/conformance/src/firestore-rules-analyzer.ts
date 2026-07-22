@@ -366,10 +366,3 @@ export function analyzeFirestore(source: string): AnalyzeResult {
   fsWalkMatch(ast.service.match, 0, out);
   return out;
 }
-
-// ════════════════════════════════════════════════════════════════════
-// STORAGE
-// ════════════════════════════════════════════════════════════════════
-
-/** Structural view of the storage AST (its node types are module-private in
- *  src/storage/rules.ts; we walk `StorageRules._root` by shape). */

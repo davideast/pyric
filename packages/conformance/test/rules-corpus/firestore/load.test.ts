@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { firestoreScenarioRecordProblems } from '../../rules-corpus/firestore/load.ts';
+import { firestoreScenarioRecordProblems } from '../../../rules-corpus/firestore/load.ts';
 
 function record(description: string, expectation: 'ALLOW' | 'DENY') {
   return {
