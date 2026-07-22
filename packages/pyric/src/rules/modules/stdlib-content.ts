@@ -3,7 +3,7 @@
  * Regenerate via `bun run inline-stdlib` (or `bun run build`, which
  * runs the generator as part of `prebuild`).
  *
- * Mirror of every `.rules` file under `src/modules/stdlib/`,
+ * Mirror of every `.rules` file under `src/rules/modules/stdlib/`,
  * inlined as TypeScript string literals so the resolver can run
  * in the browser. See `scripts/inline-stdlib.ts`.
  */

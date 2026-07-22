@@ -2,10 +2,10 @@
  * Browser-safe `resolveModules` wrapper.
  *
  * The on-disk resolver in `./resolver.ts` falls back to `readFileSync`
- * when a `2+modules` import names a stdlib module (priority 4). That
+ * when a `2+modules` import names a stdlib module (priority 5). That
  * path can't run in the browser. This wrapper pre-supplies every
  * stdlib module via the resolver's existing `modules: Record<string,
- * string>` option, so the disk-reading priority-4 path never fires —
+ * string>` option, so the disk-reading priority-5 path never fires —
  * the inline content satisfies the import first.
  *
  * Stdlib modules are addressable by their KEY (`'auth'`, `'membership'`,
