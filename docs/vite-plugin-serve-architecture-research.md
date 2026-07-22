@@ -111,12 +111,13 @@ Keep watcher selection outside: the CLI adapter uses `watchProjectRules`; the Vi
 
 ## Implementation outcome
 
-The subsequent design pass kept the recommended three-layer shape and narrowed
-the shared boundary where the host contracts demanded it. The implemented
-`sandbox-session` module owns rules loading and last-good replacement, seed and
-persistence precedence, capture, Studio stores, the live init payload, the
-`/__pyric` namespace, SSE clients, and idempotent session cleanup. Both the
-static/CLI adapter and the Vite adapter construct that same module.
+The subsequent design passes kept the recommended three-layer shape and
+narrowed the shared boundary where the host contracts demanded it. The
+implemented `sandbox-session` module owns rules loading and last-good
+replacement, seed and persistence precedence, capture, Studio stores, the live
+init payload, the `/__pyric` namespace, SSE clients, and idempotent session
+cleanup. Both the static/CLI adapter and the Vite adapter construct that same
+module.
 
 Bridge construction and Functions lifecycle remain adapter-owned. They need
 host facts that are intentionally absent from the session interface: bound HTTP
@@ -127,12 +128,42 @@ shallower. The session instead accepts only the late-bound bridge URL needed by
 the init payload; each adapter composes the bridge handler ahead of the shared
 namespace handler.
 
-Vite cleanup is explicit in its hooks: each transition captures the current
-session, clears the configured reference, removes adapter-owned watcher
-listeners, and closes the captured session. There is deliberately no
-mutation-hiding `closeActiveSession()` helper. `closeBundle` provides the
-middleware-mode lifecycle signal, where `httpServer` is null, while the shared
-session's idempotent `close()` ends its owned SSE streams.
+The Vite adapter now owns one active sandbox generation. Each transition
+captures the current generation, clears the configured reference, closes the
+captured generation, and publishes its replacement only after successful
+construction. There is deliberately no mutation-hiding `closeActiveSession()`
+helper. `closeBundle` provides the middleware-mode lifecycle signal, where
+`httpServer` is null.
+
+The plugin is also split by independent change family. `vite-plugin.ts` is a
+stable composition root; module swapping, page/build state, and active sandbox
+generation live behind separate interfaces. Generation retains one external
+create/close interface while its Vite-specific bridge, Functions, middleware,
+and rules-watcher adapters live in separate concept files. This keeps lifecycle
+ordering explicit without making unrelated feature pull requests edit the same
+implementation file.
+
+## Maintainer change map
+
+This is reference information for routing a change to its owning module and
+test. A feature change should normally touch one row. The composition roots
+change only when a new concern or Vite hook is introduced.
+
+| Change | Production module | Primary test |
+|---|---|---|
+| Firebase import swap, Node shim, optimiser, filesystem allow-list | `packages/cli/src/serve/vite-module-swap.ts` | `packages/cli/test/serve/vite-module-swap.test.ts` |
+| Build gating, emitted init chunk, HTML/runtime tags, page AI bootstrap | `packages/cli/src/serve/vite-page-runtime.ts` | `packages/cli/test/serve/vite-page-runtime.test.ts` |
+| Active-generation replacement and rollback ordering | `packages/cli/src/serve/vite-sandbox-generation.ts` | `packages/cli/test/serve/vite-sandbox-generation.test.ts` |
+| Bridge creation and Vite HTTP-server attachment | `packages/cli/src/serve/vite-generation-bridge.ts` | bridge cases in `vite-plugin-generation.test.ts` and `vite-plugin-bridge-e2e.test.ts` |
+| Functions discovery and child attachment | `packages/cli/src/serve/vite-generation-functions.ts` | `packages/cli/test/serve/vite-plugin-functions.test.ts` |
+| Connect adaptation and DNS-rebinding guard | `packages/cli/src/serve/vite-generation-middleware.ts` | middleware cases in `vite-plugin-integration.test.ts` |
+| Vite watcher adaptation for rules reload | `packages/cli/src/serve/vite-generation-rules-watch.ts` | reload/listener cases in `vite-plugin-integration.test.ts` |
+| Public plugin options or hook composition | `packages/cli/src/serve/vite-plugin.ts` | the owning family test plus `vite-plugin-integration.test.ts` when composition changes |
+
+Internal modules are imported directly; do not add an internal barrel or a
+hand-maintained feature registry. Keep detailed behaviour assertions in the
+owning test file and reserve `vite-plugin-integration.test.ts` for contracts
+between hook families.
 
 ## Verification implications
 
