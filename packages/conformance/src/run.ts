@@ -80,6 +80,7 @@ import {
   arrayUnion,
   Bytes,
   collection,
+  collectionGroup,
   deleteDoc,
   deleteField,
   doc,
@@ -92,6 +93,8 @@ import {
   getDocs,
   getFirestore,
   increment,
+  limit,
+  limitToLast,
   onSnapshot,
   or,
   orderBy,
@@ -980,6 +983,30 @@ const probes: Probe[] = [
       const q4 = query(c, where('x', '==', { a: 1 }));
       const q5 = query(c, where('x', '==', { a: 1 }));
       const q6 = query(c, where('x', '==', { a: 2 }));
+      const otherCollection = collection(db, RUN_DOC('queryequal-other'));
+      const collectionGroupA = collectionGroup(db, 'queryequal-group');
+      const collectionGroupB = collectionGroup(db, 'queryequal-group');
+      const collectionGroupChanged = collectionGroup(db, 'queryequal-other-group');
+      const orderedA = query(c, orderBy('rank'), orderBy(documentId()));
+      const orderedB = query(c, orderBy('rank'), orderBy(documentId()));
+      const orderedDescending = query(c, orderBy('rank', 'desc'), orderBy(documentId()));
+      const orderedReversed = query(c, orderBy(documentId()), orderBy('rank'));
+      const limitedA = query(c, orderBy('rank'), limit(1));
+      const limitedB = query(c, orderBy('rank'), limit(1));
+      const limitedChanged = query(c, orderBy('rank'), limit(2));
+      const limitedLast = query(c, orderBy('rank'), limitToLast(1));
+      const compositeA = query(c, and(where('x', '==', 1), where('y', '==', 2)));
+      const compositeB = query(c, and(where('x', '==', 1), where('y', '==', 2)));
+      const compositeValueChanged = query(c, and(where('x', '==', 1), where('y', '==', 3)));
+      const compositeShapeChanged = query(c, or(where('x', '==', 1), where('y', '==', 2)));
+      const startAtA = query(orderedA, startAt(1, aRef.id));
+      const startAtB = query(orderedA, startAt(1, aRef.id));
+      const startAtChanged = query(orderedA, startAt(2, bRef.id));
+      const startAfterSame = query(orderedA, startAfter(1, aRef.id));
+      const endAtA = query(orderedA, endAt(1, aRef.id));
+      const endAtB = query(orderedA, endAt(1, aRef.id));
+      const endAtChanged = query(orderedA, endAt(2, bRef.id));
+      const endBeforeSame = query(orderedA, endBefore(1, aRef.id));
       const structuredA = query(c, where('x', '==', ['x', { enabled: true }]));
       const structuredB = query(c, where('x', '==', ['x', { enabled: true }]));
       const structuredChanged = query(c, where('x', '==', ['x', { enabled: false }]));
@@ -1072,6 +1099,26 @@ const probes: Probe[] = [
         differentValue: queryEqual(q1, q3),
         objectValueBuiltTwice: queryEqual(q4, q5),
         objectValueChanged: queryEqual(q4, q6),
+        sameCollectionScope: queryEqual(q1, query(c, where('x', '==', 1))),
+        differentCollectionScope: queryEqual(q1, query(otherCollection, where('x', '==', 1))),
+        sameCollectionGroupScope: queryEqual(collectionGroupA, collectionGroupB),
+        differentCollectionGroupScope: queryEqual(collectionGroupA, collectionGroupChanged),
+        collectionAndCollectionGroupDiffer: queryEqual(c, collectionGroupA),
+        sameOrderSequence: queryEqual(orderedA, orderedB),
+        differentOrderDirection: queryEqual(orderedA, orderedDescending),
+        differentOrderSequence: queryEqual(orderedA, orderedReversed),
+        sameLimit: queryEqual(limitedA, limitedB),
+        differentLimit: queryEqual(limitedA, limitedChanged),
+        limitAndLimitToLastDiffer: queryEqual(limitedA, limitedLast),
+        sameCompositeFilter: queryEqual(compositeA, compositeB),
+        differentCompositeFilterValue: queryEqual(compositeA, compositeValueChanged),
+        differentCompositeFilterShape: queryEqual(compositeA, compositeShapeChanged),
+        sameStartCursor: queryEqual(startAtA, startAtB),
+        differentStartCursorValue: queryEqual(startAtA, startAtChanged),
+        startAtAndStartAfterDiffer: queryEqual(startAtA, startAfterSame),
+        sameEndCursor: queryEqual(endAtA, endAtB),
+        differentEndCursorValue: queryEqual(endAtA, endAtChanged),
+        endAtAndEndBeforeDiffer: queryEqual(endAtA, endBeforeSame),
         structuredValueBuiltTwice: queryEqual(structuredA, structuredB),
         structuredValueChanged: queryEqual(structuredA, structuredChanged),
         timestampValueBuiltTwice: queryEqual(timestampA, timestampB),
@@ -1131,6 +1178,26 @@ const probes: Probe[] = [
       const q = query(c, where('v', '==', 1));
       const snap1 = await getDocs(q);
       const snap2 = await getDocs(q);
+      const aRef = doc(c, 'a');
+      const bRef = doc(c, 'b');
+      await setDoc(bRef, { v: 1 });
+      const document1 = await getDoc(aRef);
+      const document2 = await getDoc(aRef);
+      const documentOtherRef = await getDoc(bRef);
+      const queryChild = snap1.docs[0]!;
+      const missingRef = doc(c, 'missing');
+      const missing1 = await getDoc(missingRef);
+      const missing2 = await getDoc(missingRef);
+      const converterA: FirestoreDataConverter<Record<string, unknown>> = {
+        toFirestore: (value) => value,
+        fromFirestore: (snapshot) => snapshot.data(),
+      };
+      const converterB = { ...converterA };
+      const convertedA1 = await getDoc(aRef.withConverter(converterA));
+      const convertedA2 = await getDoc(aRef.withConverter(converterA));
+      const convertedB = await getDoc(aRef.withConverter(converterB));
+      await setDoc(aRef, { v: 2 });
+      const documentChanged = await getDoc(aRef);
       const json = snap1.toJSON();
       const fromJson1 = querySnapshotFromJSON(db, json);
       const fromJson2 = querySnapshotFromJSON(db, json);
@@ -1152,13 +1219,22 @@ const probes: Probe[] = [
         sameJsonSnapshotsEqual: snapshotEqual(fromJson1, fromJson2),
         listenerSnapshotsDistinct: listenerSnap1 !== listenerSnap2,
         simultaneousListenerSnapshotsEqual: snapshotEqual(listenerSnap1, listenerSnap2),
+        documentIdentity: snapshotEqual(document1, document1),
+        documentSameRefTwoFetches: snapshotEqual(document1, document2),
+        documentDifferentRefSameData: snapshotEqual(document1, documentOtherRef),
+        documentChangedData: snapshotEqual(document1, documentChanged),
+        documentMissingSameRef: snapshotEqual(missing1, missing2),
+        documentExistingAndMissingDiffer: snapshotEqual(document1, missing1),
+        documentQueryChildMatchesGet: snapshotEqual(queryChild, document1),
+        documentSameConverterIdentity: snapshotEqual(convertedA1, convertedA2),
+        documentDifferentConverterIdentity: snapshotEqual(convertedA1, convertedB),
         listenerMetadata: [listenerSnap1, listenerSnap2].map((snapshot) => ({
           fromCache: snapshot.metadata.fromCache,
           hasPendingWrites: snapshot.metadata.hasPendingWrites,
         })),
         size: snap1.size,
       };
-      await deleteDoc(doc(c, 'a'));
+      await Promise.all([deleteDoc(aRef), deleteDoc(bRef)]);
       await dropCurrentUser();
       return result;
     },

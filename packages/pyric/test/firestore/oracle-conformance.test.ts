@@ -36,6 +36,7 @@ import {
   getFirestore,
   doc,
   collection,
+  collectionGroup,
   getDoc,
   getDocs,
   setDoc,
@@ -52,6 +53,7 @@ import {
   startAfter,
   endAt,
   endBefore,
+  limit,
   limitToLast,
   onSnapshot,
   runTransaction,
@@ -872,6 +874,7 @@ describe('oracle conformance (firestore)', () => {
     const q4 = query(collection(db, 'c'), where('v', '==', { a: 1 }));
     const q5 = query(collection(db, 'c'), where('v', '==', { a: 1 }));
     const q6 = query(collection(db, 'c'), where('v', '==', { a: 2 }));
+    const base = collection(db, 'c');
     const structuredA = query(collection(db, 'c'), where('v', '==', ['x', { enabled: true }]));
     const structuredB = query(collection(db, 'c'), where('v', '==', ['x', { enabled: true }]));
     const timestampA = query(collection(db, 'c'), where('v', '==', Timestamp.fromMillis(1_234)));
@@ -894,6 +897,65 @@ describe('oracle conformance (firestore)', () => {
     expect(obs.objectValueBuiltTwice).toBe(true);
     expect(queryEqual(q4, q5)).toBe(obs.objectValueBuiltTwice as boolean);
     expect(queryEqual(q4, q6)).toBe(obs.objectValueChanged as boolean);
+    expect(queryEqual(q1, query(base, where('v', '==', 1))))
+      .toBe(obs.sameCollectionScope as boolean);
+    expect(queryEqual(q1, query(collection(db, 'other'), where('v', '==', 1))))
+      .toBe(obs.differentCollectionScope as boolean);
+    expect(queryEqual(collectionGroup(db, 'group'), collectionGroup(db, 'group')))
+      .toBe(obs.sameCollectionGroupScope as boolean);
+    expect(queryEqual(collectionGroup(db, 'group'), collectionGroup(db, 'other-group')))
+      .toBe(obs.differentCollectionGroupScope as boolean);
+    expect(queryEqual(base, collectionGroup(db, 'group')))
+      .toBe(obs.collectionAndCollectionGroupDiffer as boolean);
+
+    const orderedA = query(base, orderBy('rank'), orderBy(documentId()));
+    const orderedB = query(base, orderBy('rank'), orderBy(documentId()));
+    expect(queryEqual(orderedA, orderedB)).toBe(obs.sameOrderSequence as boolean);
+    expect(queryEqual(
+      orderedA,
+      query(base, orderBy('rank', 'desc'), orderBy(documentId())),
+    )).toBe(obs.differentOrderDirection as boolean);
+    expect(queryEqual(
+      orderedA,
+      query(base, orderBy(documentId()), orderBy('rank')),
+    )).toBe(obs.differentOrderSequence as boolean);
+
+    const limited = query(base, orderBy('rank'), limit(1));
+    expect(queryEqual(limited, query(base, orderBy('rank'), limit(1))))
+      .toBe(obs.sameLimit as boolean);
+    expect(queryEqual(limited, query(base, orderBy('rank'), limit(2))))
+      .toBe(obs.differentLimit as boolean);
+    expect(queryEqual(limited, query(base, orderBy('rank'), limitToLast(1))))
+      .toBe(obs.limitAndLimitToLastDiffer as boolean);
+
+    const composite = query(base, and(where('v', '==', 1), where('rank', '==', 2)));
+    expect(queryEqual(
+      composite,
+      query(base, and(where('v', '==', 1), where('rank', '==', 2))),
+    )).toBe(obs.sameCompositeFilter as boolean);
+    expect(queryEqual(
+      composite,
+      query(base, and(where('v', '==', 1), where('rank', '==', 3))),
+    )).toBe(obs.differentCompositeFilterValue as boolean);
+    expect(queryEqual(
+      composite,
+      query(base, or(where('v', '==', 1), where('rank', '==', 2))),
+    )).toBe(obs.differentCompositeFilterShape as boolean);
+
+    const start = query(orderedA, startAt(1, 'a'));
+    expect(queryEqual(start, query(orderedA, startAt(1, 'a'))))
+      .toBe(obs.sameStartCursor as boolean);
+    expect(queryEqual(start, query(orderedA, startAt(2, 'b'))))
+      .toBe(obs.differentStartCursorValue as boolean);
+    expect(queryEqual(start, query(orderedA, startAfter(1, 'a'))))
+      .toBe(obs.startAtAndStartAfterDiffer as boolean);
+    const end = query(orderedA, endAt(1, 'a'));
+    expect(queryEqual(end, query(orderedA, endAt(1, 'a'))))
+      .toBe(obs.sameEndCursor as boolean);
+    expect(queryEqual(end, query(orderedA, endAt(2, 'b'))))
+      .toBe(obs.differentEndCursorValue as boolean);
+    expect(queryEqual(end, query(orderedA, endBefore(1, 'a'))))
+      .toBe(obs.endAtAndEndBeforeDiffer as boolean);
     expect(queryEqual(structuredA, structuredB)).toBe(obs.structuredValueBuiltTwice as boolean);
     expect(queryEqual(timestampA, timestampB)).toBe(obs.timestampValueBuiltTwice as boolean);
     expect(queryEqual(bytesA, bytesB)).toBe(obs.bytesValueBuiltTwice as boolean);
@@ -927,7 +989,6 @@ describe('oracle conformance (firestore)', () => {
       fromFirestore: (snapshot: { data(): Record<string, unknown> }) => snapshot.data(),
     };
     const converterB = { ...converterA };
-    const base = collection(db, 'c');
     expect(queryEqual(
       withConverter(base, converterA),
       withConverter(base, converterA),
@@ -1017,6 +1078,39 @@ describe('oracle conformance (firestore)', () => {
     expect(s1.size).toBe(obs.size as number);
     expect(snapshotEqual(s1, s1)).toBe(obs.identity as boolean);
     expect(snapshotEqual(s1, s2)).toBe(obs.twoFetchesSameData as boolean);
+
+    await setDoc(doc(db, 'c/y'), { v: 1 });
+    const document1 = await getDoc(doc(db, 'c/x'));
+    const document2 = await getDoc(doc(db, 'c/x'));
+    const documentOtherRef = await getDoc(doc(db, 'c/y'));
+    const missing1 = await getDoc(doc(db, 'c/missing'));
+    const missing2 = await getDoc(doc(db, 'c/missing'));
+    const queryChild = s1.docs[0]!;
+    expect(snapshotEqual(document1, document1)).toBe(obs.documentIdentity as boolean);
+    expect(snapshotEqual(document1, document2)).toBe(obs.documentSameRefTwoFetches as boolean);
+    expect(snapshotEqual(document1, documentOtherRef))
+      .toBe(obs.documentDifferentRefSameData as boolean);
+    expect(snapshotEqual(missing1, missing2)).toBe(obs.documentMissingSameRef as boolean);
+    expect(snapshotEqual(document1, missing1))
+      .toBe(obs.documentExistingAndMissingDiffer as boolean);
+    expect(snapshotEqual(queryChild, document1))
+      .toBe(obs.documentQueryChildMatchesGet as boolean);
+
+    const converterA = {
+      toFirestore: (value: Record<string, unknown>) => value,
+      fromFirestore: (snapshot: { data(): Record<string, unknown> }) => snapshot.data(),
+    };
+    const converterB = { ...converterA };
+    const convertedA1 = await getDoc(withConverter(doc(db, 'c/x'), converterA));
+    const convertedA2 = await getDoc(withConverter(doc(db, 'c/x'), converterA));
+    const convertedB = await getDoc(withConverter(doc(db, 'c/x'), converterB));
+    expect(snapshotEqual(convertedA1, convertedA2))
+      .toBe(obs.documentSameConverterIdentity as boolean);
+    expect(snapshotEqual(convertedA1, convertedB))
+      .toBe(obs.documentDifferentConverterIdentity as boolean);
+    await setDoc(doc(db, 'c/x'), { v: 2 });
+    const documentChanged = await getDoc(doc(db, 'c/x'));
+    expect(snapshotEqual(document1, documentChanged)).toBe(obs.documentChangedData as boolean);
 
     const firstListenerSnapshot = () => new Promise<QuerySnapshot>((resolve) => {
       let unsubscribe = () => {};

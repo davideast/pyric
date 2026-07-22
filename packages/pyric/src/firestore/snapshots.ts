@@ -38,6 +38,7 @@ import type {
 interface DocumentSnapshotEqualityState {
   readonly target: Target;
   readonly path: string;
+  readonly kind: 'document' | 'query-child';
   readonly converter: FirestoreDataConverter<unknown> | null;
   readonly raw: ChainDocSnap;
 }
@@ -73,10 +74,12 @@ function recordDocumentSnapshot(
   raw: ChainDocSnap,
   target: Target,
   converter: FirestoreDataConverter<unknown> | null,
+  kind: 'document' | 'query-child',
 ): void {
   documentSnapshotEquality.set(snapshot, {
     target,
     path: raw.ref.path,
+    kind,
     converter,
     raw,
   });
@@ -94,7 +97,10 @@ export function taggedSnapshotsEqual(left: object, right: object): boolean {
   const a = documentSnapshotEquality.get(left);
   const b = documentSnapshotEquality.get(right);
   if (!a || !b) return querySnapshotsEqual(left, right);
-  if (a.target !== b.target || a.path !== b.path || a.converter !== b.converter) return false;
+  if (a.target !== b.target
+    || a.path !== b.path
+    || a.kind !== b.kind
+    || a.converter !== b.converter) return false;
   const aExists = snapshotExists(a.raw);
   const bExists = snapshotExists(b.raw);
   if (aExists !== bExists) return false;
@@ -209,6 +215,7 @@ export function applyConverterToDocSnap<AppModel>(
   snap: ChainDocSnap,
   conv: FirestoreDataConverter<AppModel>,
   target: Target,
+  kind: 'document' | 'query-child',
 ): DocumentSnapshot<AppModel> {
   const wrapped = {
     id: snap.id,
@@ -240,6 +247,7 @@ export function applyConverterToDocSnap<AppModel>(
     snap,
     target,
     conv as FirestoreDataConverter<unknown>,
+    kind,
   );
   return wrapped;
 }
@@ -283,7 +291,13 @@ export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
     for (const doc of s.docs) {
       if (doc) {
         tag(doc as object, target);
-        recordDocumentSnapshot(doc as object, doc as unknown as ChainDocSnap, target, null);
+        recordDocumentSnapshot(
+          doc as object,
+          doc as unknown as ChainDocSnap,
+          target,
+          null,
+          'query-child',
+        );
       }
       if (doc?.ref) {
         tag(doc.ref as object, target);
@@ -292,7 +306,7 @@ export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
       if (doc) normalizeExists(doc);
     }
   } else if (s.ref) {
-    recordDocumentSnapshot(snap, snap as unknown as ChainDocSnap, target, null);
+    recordDocumentSnapshot(snap, snap as unknown as ChainDocSnap, target, null, 'document');
   }
   return snap;
 }

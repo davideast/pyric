@@ -42,6 +42,7 @@ export async function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promi
       snap as unknown as ChainDocSnap,
       conv as FirestoreDataConverter<T>,
       target,
+      'document',
     );
   }
   tagSnapshotRefs(snap, target);
@@ -55,7 +56,12 @@ export async function getDocs<T = DocumentData>(query: Query<T>): Promise<QueryS
   if (conv) {
     const c = conv as FirestoreDataConverter<T>;
     const wrappedDocs = (snap as unknown as ChainQuerySnap).docs.map((d) =>
-      applyConverterToDocSnap(d as unknown as ChainDocSnap, c, target) as QueryDocumentSnapshot<T>,
+      applyConverterToDocSnap(
+        d as unknown as ChainDocSnap,
+        c,
+        target,
+        'query-child',
+      ) as QueryDocumentSnapshot<T>,
     );
     const wrapped = tag({
       size: wrappedDocs.length,
