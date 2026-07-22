@@ -147,7 +147,7 @@ export const rulesRegistry = {
           featureKeys: ["concat","removeAll","toSet"],
           behavior: "`List.concat()`/`removeAll()`/`toSet()` (Item 5.2) in rules",
           status: "conforms",
-          evidence: "`oracle:rules-firestore-list-methods-concat-removeall-toset` — production Firestore Rules Test API verdicts for all nine cases, replayed verdict-for-verdict by `unit:rules/oracle-conformance.test.ts`. The seven positive List witnesses and the concat DENY witness match; the historical `toSet().difference()` join case is also DENY in both engines and is classified under unsupported row #174 rather than credited here.",
+          evidence: "`oracle:rules-firestore-list-methods-concat-removeall-toset` — production Firestore Rules Test API verdicts for all nine cases, replayed verdict-for-verdict by `unit:rules/oracle-conformance.test.ts`. The seven positive List witnesses and the concat DENY witness match; the historical `toSet().difference(list)` case remains DENY because production requires a Set argument.",
           oracleObservations: ["rules-firestore-list-methods-concat-removeall-toset"],
         }),
         row1({
@@ -202,9 +202,8 @@ export const rulesRegistry = {
           rowRef: "174",
           featureKeys: ["difference","union","intersection"],
           behavior: "`Set.difference()`/`union()`/`intersection()` (Item 5.1) in rules",
-          status: "unsupported",
-          conformanceDisposition: "held",
-          evidence: "`oracle:rules-firestore-set-algebra-difference-union-intersection` captures production DENY for all eight cases and now retains per-case API diagnostics. Production reports `Function not found` at the call site for `difference`, `union`, and `intersection`, including a Set argument and a negative control; therefore this oracle cannot produce a positive algebra witness. The local simulator reproduces the evaluation-error DENY boundary but does not claim working algebra. This row was previously mislabeled conforming because replay silently skipped simulator abstentions; stricter replay, diagnostics, and the capability report now keep it explicitly unsupported.",
+          status: "conforms",
+          evidence: "`oracle:rules-firestore-set-algebra-difference-union-intersection` captures the receiver and argument boundary in twelve production cases: Map.keys() is a List and rejects Set-only algebra, explicit toSet() receivers ALLOW difference/union/intersection with Set arguments, and a wrong-result control DENIES. The local simulator replays every verdict and the per-construct acceptance probes use the same positive toSet() shapes.",
           oracleObservations: ["rules-firestore-set-algebra-difference-union-intersection"],
         }),
         row1({

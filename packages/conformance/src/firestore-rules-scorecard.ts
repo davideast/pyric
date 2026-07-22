@@ -17,6 +17,7 @@ import {
   computeCoverageReport,
   type ConstructCoverage,
 } from './rules-language-analyzer.ts';
+import { loadAndValidateFirestoreAcceptanceEvidence } from './firestore-rules-acceptance-evidence.ts';
 
 export const FIRESTORE_SCORE_CLASSIFICATIONS = [
   'conformant',
@@ -267,6 +268,7 @@ export function deriveFirestoreRulesScorecard(
 
 export async function computeFirestoreRulesScorecard(): Promise<FirestoreRulesScorecard> {
   const snapshot = loadSnapshot('firestore');
+  loadAndValidateFirestoreAcceptanceEvidence(snapshot.constructs);
   const capability = computeCapabilityReport().engines.find((entry) => entry.engine === 'firestore');
   const coverage = (await computeCoverageReport()).engines.find((entry) => entry.engine === 'firestore');
   if (!capability || !coverage) throw new Error('Firestore reports are missing from the conformance model');

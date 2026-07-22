@@ -1023,15 +1023,15 @@ function evaluateMethodCall(
       case 'hasAll': return obj.hasAll(argValues[0] as unknown[] | FirestoreSet);
       case 'hasAny': return obj.hasAny(argValues[0] as unknown[] | FirestoreSet);
       case 'size': return obj.size();
-      // Production accepts the syntax but errors when these calls evaluate.
-      // Preserve that DENY boundary; do not expose the host helper's guessed
-      // algebra as Firestore Rules behavior without a distinguishing capture.
       case 'difference':
       case 'union':
-      case 'intersection':
-        throw new EvalError(
-          `Set.${method}() is unavailable in the captured production Firestore Rules evaluator`,
-        );
+      case 'intersection': {
+        const other = argValues[0];
+        if (!(other instanceof FirestoreSet)) {
+          throw new EvalError(`Unsupported operation: set.${method} requires a Set argument`);
+        }
+        return obj[method](other);
+      }
     }
   }
 
@@ -1050,7 +1050,9 @@ function evaluateMethodCall(
   if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
     const map = obj as Record<string, unknown>;
     switch (method) {
-      case 'keys': return new FirestoreSet(Object.keys(map));
+      // Production Map.keys() returns a List, not a Set. List membership
+      // methods work on it, but Set-only algebra requires an explicit toSet().
+      case 'keys': return Object.keys(map);
       case 'values': return Object.values(map);
       case 'size': return Object.keys(map).length;
       // RULES-B7: key checks use OWN keys only (no prototype-chain leak).
@@ -1136,6 +1138,10 @@ function evaluateMethodCall(
         // numeric 1 and string '1' remain distinct, matching production.
         return new FirestoreSet(obj);
       }
+      case 'difference':
+      case 'union':
+      case 'intersection':
+        throw new EvalError(`Function not found on List receiver: ${method}`);
     }
   }
 

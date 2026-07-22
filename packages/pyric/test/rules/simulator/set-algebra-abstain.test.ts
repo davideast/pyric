@@ -1,19 +1,10 @@
 /**
- * Set.difference / Set.union / Set.intersection — explicit evaluation error.
+ * Set algebra receiver boundary: Map.keys() is List; toSet() is Set.
  *
  * Oracle capture (set-algebra-difference-union-intersection and
  * list-methods-concat-removeall-toset corpus scenarios) showed the simulator
- * computing a plausible-looking result for these three methods while
- * production DENIES every request that reaches them (false-ALLOW: the
- * most dangerous divergence for a rules-assurance tool). The methods
- * don't behave as modeled in the real Firestore Rules CEL dialect.
- *
- * Rather than reverse-engineer the true semantics blind, the simulator
- * now raises the same unavailable-operation evaluation boundary whenever
- * `.difference()`, `.union()`, or `.intersection()` is called on a
- * FirestoreSet. hasOnly/hasAll/hasAny/size/equals on FirestoreSet, and
- * List.concat/removeAll/toSet, are unaffected — those are prod-verified
- * and must keep working.
+ * production DENIES algebra on Map.keys() but ALLOWS the same methods after
+ * explicit List.toSet(). The simulator must preserve that type distinction.
  */
 import { describe, expect, test } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
@@ -30,11 +21,11 @@ function run(rules: string, tc: TestCase) {
 function expectUnavailable(result: ReturnType<typeof run>): void {
   expect(result.decision).toBe('DENY');
   expect(result.trace.some((entry) =>
-    entry.verdict === 'ERROR' && /unavailable in the captured production/.test(entry.message ?? ''),
+    entry.verdict === 'ERROR' && /Function not found on List receiver/.test(entry.message ?? ''),
   )).toBe(true);
 }
 
-describe('Set.difference/union/intersection match production unavailable-operation errors', () => {
+describe('Map.keys() List receivers reject Set-only algebra', () => {
   test('difference() with a list arg errors to DENY', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
@@ -140,13 +131,13 @@ service cloud.firestore {
     expectUnavailable(result);
   });
 
-  test('List.toSet().difference() errors to DENY (list-methods scenario wiring case)', () => {
+  test('List.toSet().difference() evaluates on an actual Set receiver', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /toSetChainAllow/{id} {
       allow create: if request.auth != null
-        && request.resource.data.a.toSet().difference(['a']).hasOnly(['b','c']);
+        && request.resource.data.a.toSet().difference(['a'].toSet()).hasOnly(['b','c']);
     }
   }
 }`;
@@ -158,7 +149,8 @@ service cloud.firestore {
       auth: { uid: 'alice' },
       data: { a: ['a', 'b', 'c'] },
     } as TestCase);
-    expectUnavailable(result);
+    expect(result.decision).toBe('ALLOW');
+    expect(result.state).toBe('PASSED');
   });
 
   test('DENY witness with difference() carries the unavailable-operation error', () => {
@@ -187,7 +179,7 @@ service cloud.firestore {
   });
 });
 
-describe('Set/List operations unaffected by the unavailable algebra methods', () => {
+describe('Set/List operations at the receiver boundary', () => {
   function ok(rules: string, tc: TestCase) {
     const result = run(rules, tc);
     expect(result.state).toBe('PASSED');

@@ -130,6 +130,8 @@ interface ConstructProbeResult {
    *  decision matched. */
   evaluationAgreement?: boolean;
   evaluationDetail?: string;
+  expectedDecision?: 'ALLOW' | 'DENY';
+  actualDecision?: 'ALLOW' | 'DENY';
 }
 
 interface EngineProbeReport {
@@ -319,6 +321,9 @@ async function probeFirestoreConstruct(
   }
   const result = requireExactProbeResults('firestore', c.id, req.cases.length, res.data.results)[0]!;
   const decision = result.decision;
+  if (decision === 'UNSUPPORTED') {
+    throw new Error(`[firestore] production returned impossible UNSUPPORTED decision for "${c.id}"`);
+  }
   const expected = EXPECTS_DENY.has(c.id) ? 'DENY' : 'ALLOW';
   const agree = decision === expected;
   if (!agree) {
@@ -334,6 +339,8 @@ async function probeFirestoreConstruct(
     probeDigest,
     evaluationAgreement: agree,
     evaluationDetail: `expected ${expected}, got ${decision}`,
+    expectedDecision: expected,
+    actualDecision: decision,
     ...(agree ? {} : { probeNote: `accepted; evaluation disagreement: expected ${expected} got ${decision}` }),
   };
 }
@@ -356,6 +363,9 @@ async function probeStorageConstruct(
   }
   const result = requireExactProbeResults('storage', c.id, req.cases.length, res.data.results)[0]!;
   const decision = result.decision;
+  if (decision === 'UNSUPPORTED') {
+    throw new Error(`[storage] production returned impossible UNSUPPORTED decision for "${c.id}"`);
+  }
   const expected = EXPECTS_DENY.has(c.id) ? 'DENY' : 'ALLOW';
   const agree = decision === expected;
   if (!agree) {
@@ -370,6 +380,8 @@ async function probeStorageConstruct(
     status: 'accepted',
     evaluationAgreement: agree,
     evaluationDetail: `expected ${expected}, got ${decision}`,
+    expectedDecision: expected,
+    actualDecision: decision,
     ...(agree ? {} : { probeNote: `accepted; evaluation disagreement: expected ${expected} got ${decision}` }),
   };
 }
@@ -406,6 +418,28 @@ function writeSnapshotStatuses(engine: RulesEngine, results: ConstructProbeResul
     else delete (c as { probeEvaluationAgreement?: unknown }).probeEvaluationAgreement;
   }
   writeFileSync(file, JSON.stringify(snapshot, null, 2) + '\n', 'utf8');
+}
+
+function writeFirestoreAcceptanceEvidence(
+  report: AcceptanceReport,
+  projectId: string,
+): void {
+  const firestore = report.engines.find((engine) => engine.engine === 'firestore');
+  if (!firestore) return;
+  const evidence = {
+    schema: 'pyric.conformance.firestore-rules-acceptance-evidence.v1',
+    generatedNote:
+      'Committed read-only Rules Test API evidence. The score validator binds every construct to this record, ' +
+      'its current probe digest, status, and exact expected/actual decision.',
+    capturedAt: report.probedAt,
+    projectId,
+    ...firestore,
+  };
+  writeFileSync(
+    join(LANG_DIR, 'firestore-acceptance-evidence.json'),
+    JSON.stringify(evidence, null, 2) + '\n',
+    'utf8',
+  );
 }
 
 async function run(): Promise<void> {
@@ -470,6 +504,8 @@ async function run(): Promise<void> {
       for (const r of disagreements) console.log(`    - ${r.id}: ${r.evaluationDetail}`);
     }
   }
+
+  writeFirestoreAcceptanceEvidence(report, scope.projectId);
 
   writeFileSync(join(LANG_DIR, 'acceptance-report.json'), JSON.stringify(report, null, 2) + '\n', 'utf8');
 

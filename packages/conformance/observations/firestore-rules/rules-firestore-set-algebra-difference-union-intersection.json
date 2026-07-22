@@ -4,13 +4,13 @@
   "rowIds": [
     "firestore-rules#174"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus scenario \"set-algebra-difference-union-intersection\" (Item 5.1). Hosted production diagnostics report Function not found for Set.difference/union/intersection; retain intended-positive, Set-argument, and negative-control cases without claiming algebra conformance.",
-  "observedAt": "2026-07-21T23:43:07.154Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"set-algebra-difference-union-intersection\" (Item 5.1). Production distinguishes Map.keys() List receivers (no set algebra) from explicit List.toSet() Set receivers (difference/union/intersection supported); paired cases lock the boundary.",
+  "observedAt": "2026-07-22T00:18:41.692Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "031bbcf64214d733d104b6fcee8da2f98e4f1ff244b85d6b76331f5fdaf4a97a"
+    "value": "0c22d1964dc2c7c4d4400ee9fb1aad9c4a56d0713e53f0f4452dc0c1f73756ed"
   },
   "behavior": {
     "set difference (list arg) → hasOnly([c]) ALLOW": "DENY",
@@ -20,7 +20,11 @@
     "set intersection → hasOnly([b,c]) ALLOW": "DENY",
     "set intersection no overlap → empty ALLOW": "DENY",
     "chained union+difference → hasOnly([b,c]) ALLOW": "DENY",
-    "difference with wrong expected size DENY": "DENY"
+    "difference with wrong expected size DENY": "DENY",
+    "explicit toSet difference ALLOW": "ALLOW",
+    "explicit toSet union ALLOW": "ALLOW",
+    "explicit toSet intersection ALLOW": "ALLOW",
+    "explicit toSet difference wrong size DENY": "DENY"
   },
   "diagnostics": {
     "set difference (list arg) → hasOnly([c]) ALLOW": {

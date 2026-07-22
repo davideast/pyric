@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 126,
+    "numerator": 129,
     "denominator": 140,
-    "ratio": 0.9,
-    "percent": 90
+    "ratio": 0.9214285714285714,
+    "percent": 92.1
   },
   "axes": {
     "productionAcceptance": {
@@ -162,15 +162,15 @@
       "unprobeable": 3
     },
     "localAcceptance": {
-      "accepted": 131,
-      "rejected": 6,
+      "accepted": 134,
+      "rejected": 3,
       "unsupported": 0,
       "unprobeable": 3
     },
     "localCapability": {
-      "implemented": 131,
+      "implemented": 134,
       "unsupported": 0,
-      "error": 6,
+      "error": 3,
       "unprobeable": 3
     },
     "productionEvidence": {
@@ -180,12 +180,12 @@
     }
   },
   "counts": {
-    "conformant": 126,
+    "conformant": 129,
     "diverged": 2,
     "unknown": 0,
     "acceptance-mismatch": 6,
     "local-unsupported": 0,
-    "local-error": 3,
+    "local-error": 0,
     "unprobeable": 3
   },
   "constructs": {
@@ -1067,36 +1067,39 @@
     },
     "firestore.method.set.difference": {
       "productionAcceptance": "accepted",
-      "localAcceptance": "rejected",
-      "localCapability": "error",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
       "productionProbeDigest": "ec861d47c23c8c8f20e96cc953039e8469d8494d8de5e2ce23cdd678190a8d38",
       "currentProbeDigest": "ec861d47c23c8c8f20e96cc953039e8469d8494d8de5e2ce23cdd678190a8d38",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
-      "classification": "local-error"
+      "classification": "conformant"
     },
     "firestore.method.set.union": {
       "productionAcceptance": "accepted",
-      "localAcceptance": "rejected",
-      "localCapability": "error",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
       "productionProbeDigest": "e412b6bf315bad1b039d38d89cd641c97b657774e43252a2579e4b100ae7c9ae",
       "currentProbeDigest": "e412b6bf315bad1b039d38d89cd641c97b657774e43252a2579e4b100ae7c9ae",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
-      "classification": "local-error"
+      "classification": "conformant"
     },
     "firestore.method.set.intersection": {
       "productionAcceptance": "accepted",
-      "localAcceptance": "rejected",
-      "localCapability": "error",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
       "productionProbeDigest": "5f3d66c8789f7d98bf76e64700660bced8cb8b6a18e9728b6bb30e1d973870a3",
       "currentProbeDigest": "5f3d66c8789f7d98bf76e64700660bced8cb8b6a18e9728b6bb30e1d973870a3",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
-      "classification": "local-error"
+      "classification": "conformant"
     },
     "firestore.method.set.hasAll": {
       "productionAcceptance": "accepted",

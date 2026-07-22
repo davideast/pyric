@@ -17,12 +17,12 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1083);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1084);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
-      numerator: 126, denominator: 140, ratio: 126 / 140, percent: 90,
+      numerator: 129, denominator: 140, ratio: 129 / 140, percent: 92.1,
     });
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);
@@ -157,8 +157,8 @@ describe('multi-axis conformance model', () => {
     for (const feature of ['set.difference', 'set.intersection', 'set.union']) {
       expect(one(`firestore-rules/${feature}`)).toMatchObject({
         availability: 'available',
-        fidelity: 'unsupported',
-        assurance: 'ineligible',
+        fidelity: 'conforms',
+        assurance: 'eligible',
       });
     }
     for (const feature of ['duration.seconds', 'duration.nanos']) {

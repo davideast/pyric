@@ -8,7 +8,7 @@ Final local execution base: `3011b4cc` (latest `main` on 2026-07-21)
 
 ## Execution result
 
-The local execution reached a canonical strict score of **126/140 (90.0%)** and
+The local execution reached a canonical strict score of **129/140 (92.1%)** and
 ordered-universe SHA-256
 `c096e0fd13900b095ffdfe235da72e5dd6a1a7f469ef91bb90ad878eaff4b03a`.
 The denominator remained 140 throughout the climb.
@@ -20,23 +20,27 @@ removes its evidence credit and fails the exact score gate. Production
 acceptance is independently bound to the current per-construct microprobe by a
 second digest; stale acceptance labels receive no score credit.
 Accepted constructs also require the exact production and local microprobe
-verdicts to match the authored expectation. A missing API result aborts capture
-instead of defaulting to ALLOW.
+verdicts to match the authored expectation. A missing or extra API result
+aborts at the wire adapter before positional normalization. The committed
+Firestore acceptance-evidence ledger preserves capture metadata and every
+expected/actual verdict; score computation binds it to the compact snapshot
+and current probe digest.
 
 | Final classification | Constructs | Interpretation |
 |---|---:|---|
-| Conformant | 126 | Acceptance parity and production-backed behavior both match without contamination |
+| Conformant | 129 | Acceptance parity and production-backed behavior both match without contamination |
 | Diverged | 2 | `getAfter` / `existsAfter`; retained as a documented Rules Test API probe limitation because the official atomic-write contract and local batch tests require the modeled behavior |
 | Unknown | 0 | No accepted construct remains without a primary classification |
 | Acceptance mismatch | 6 | Production rejects the minimal probe while the local evaluator currently accepts it |
-| Local error | 3 | Set algebra syntax is accepted, but captured evaluation denies and local evaluation errors; row #174 is held as unsupported |
+| Local error | 0 | No accepted construct currently errors in the local microprobe |
 | Unprobeable | 3 | Import, get-budget, and type-dispatch retain explicit unprobeable reasons and remain in the denominator |
 
 The hill climb fixed rows #161, #165, #166, #167, #171, and #173, captured
 positive and negative byte/hash representation witnesses plus
 `duration.seconds()`/`duration.nanos()` evidence, and tightened the oracle so a
-row cannot claim conformance by returning `UNSUPPORTED`. Row #174 was corrected
-from conforming to unsupported. The committed score baseline compares the full
+row cannot claim conformance by returning `UNSUPPORTED`. Row #174 now has
+paired production witnesses proving that `Map.keys()` is a List while explicit
+`toSet()` receivers implement Set algebra with Set arguments. The committed score baseline compares the full
 per-construct fact set and ordered ID manifest, so any future movement requires
 an explicit baseline update. Three production-rejected resource-identity probes
 also receive credit because the local minimal probes reject at the same
@@ -55,12 +59,11 @@ the plan's final explicit-classification contract rather than pretending those
 limits are fixes. The production Rules Test API returns `Function not found`
 diagnostics for every `getAfter`/`existsAfter` case; it cannot express an atomic
 batch projection, while the documented contract and local batch tests require
-that behavior. The same API returns `Function not found` at every Set-algebra
-call site, including Set-argument and negative-control cases, so no positive
-algebra witness exists in this oracle. Both limitations remain denominator- and
-score-contaminating, with their production diagnostics retained in the
-observations. A future deployed-rules probe may supersede either classification;
-it is not authorized or required by this side-effect-free Test API climb.
+that behavior. Earlier Set-algebra failures were receiver/argument type errors,
+not an oracle limitation: `Map.keys()` returns a List, and
+`set.difference(list)` is invalid. Explicit `toSet()` receivers with Set
+arguments provide positive production witnesses for difference, union, and
+intersection; the observation retains both sides of that boundary.
 
 This plan applies Conformance Driven Development (CDD) to the existing
 Firestore Rules surface. Unlike a new CDD surface, Firestore Rules already has
@@ -257,7 +260,7 @@ contract and local batch suite remain pinned.
 Exit: every construct is conformant or explicitly classified with two-sided
 evidence, or is unprobeable with a structured attribution reason; no
 calculation path disagrees about its verdict. This execution meets that exit:
-#174 is held with matching production/local error boundaries, #164 is a
+#174 is conformant with paired receiver/argument witnesses, #164 is a
 documented Test API limitation, and the three unattributable meta-constructs
 remain visible and receive no credit.
 
@@ -271,7 +274,7 @@ cannot become supported under the current acceptance model merely by matching a
 runtime verdict. Capturing the two accepted duration methods would make the
 strict proxy **123/140 (87.9%)**.
 
-The executed score reached **126/140 (90.0%)** because the final computation
+The executed score reached **129/140 (92.1%)** because the final computation
 also represents local acceptance explicitly and credits three verified
 resource-identity probes where production and Pyric both reject at evaluation.
 
@@ -280,7 +283,7 @@ would move 107/140 to 129/140 (92.1%); verifying the two duration methods would
 move it to 131/140 (93.6%). Those are evidence gains, not automatically
 conformance gains. The remaining path to 140 requires acceptance-parity work,
 behavioral evidence for the three scenario-level semantics, and resolution of
-the Set algebra contradiction. No projected point is earned until its probes,
+the remaining acceptance and unprobeable classifications. No projected point is earned until its probes,
 observations, assertions, and registry status agree.
 
 ## Verification commands

@@ -2,15 +2,15 @@
  * ─── Scenario 7: set-algebra-difference-union-intersection ────────────────────
  * Targets Item 5.1 of the rebuild plan — Set.difference / union /
  * intersection. The hosted production Test API accepts the ruleset but reports
- * Function-not-found evaluation errors for all three methods. The scenario
- * retains intended-positive shapes, a Set-argument case, and a negative control
- * so that limitation is distinguishable from working algebra.
+ * Function-not-found evaluation errors when the receiver is Map.keys() (a
+ * List), while explicit List.toSet() receivers implement all three methods.
+ * The paired shapes make the receiver-type boundary distinguishable.
  */
 import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   fm: 'Item 5.1',
-  rationale: 'Hosted production diagnostics report Function not found for Set.difference/union/intersection; retain intended-positive, Set-argument, and negative-control cases without claiming algebra conformance.',
+  rationale: 'Production distinguishes Map.keys() List receivers (no set algebra) from explicit List.toSet() Set receivers (difference/union/intersection supported); paired cases lock the boundary.',
   rules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -53,6 +53,19 @@ service cloud.firestore {
     match /diffDeny/{id} {
       allow create: if request.auth != null
         && request.resource.data.m.keys().difference(['a']).size() == 99;
+    }
+    // Positive Set witnesses — explicit toSet() receivers.
+    match /toSetDiffAllow/{id} {
+      allow create: if [1, 2].toSet().difference([1].toSet()).hasOnly([2]);
+    }
+    match /toSetUnionAllow/{id} {
+      allow create: if [1].toSet().union([2].toSet()).hasOnly([1, 2]);
+    }
+    match /toSetInterAllow/{id} {
+      allow create: if [1, 2].toSet().intersection([2].toSet()).hasOnly([2]);
+    }
+    match /toSetDiffDeny/{id} {
+      allow create: if [1, 2].toSet().difference([1].toSet()).size() == 99;
     }
   }
 }`,
@@ -120,6 +133,22 @@ service cloud.firestore {
       path: 'diffDeny/d8',
       auth: { uid: 'alice' },
       data: { m: { a: 1, b: 2 } },
+    },
+    {
+      description: 'explicit toSet difference ALLOW', expectation: 'ALLOW', method: 'create',
+      path: 'toSetDiffAllow/d9', auth: null, data: {},
+    },
+    {
+      description: 'explicit toSet union ALLOW', expectation: 'ALLOW', method: 'create',
+      path: 'toSetUnionAllow/d10', auth: null, data: {},
+    },
+    {
+      description: 'explicit toSet intersection ALLOW', expectation: 'ALLOW', method: 'create',
+      path: 'toSetInterAllow/d11', auth: null, data: {},
+    },
+    {
+      description: 'explicit toSet difference wrong size DENY', expectation: 'DENY', method: 'create',
+      path: 'toSetDiffDeny/d12', auth: null, data: {},
     },
   ],
   group: 'stress',

@@ -57,11 +57,12 @@ export class FirestoreSet {
   //   difference(other: Set) -> Set
   //   union(other: Set) -> Set
   //   intersection(other: Set) -> Set
-  // Mirroring hasOnly/hasAll/hasAny, we accept a List (string[]) too.
+  // Production requires a Set argument for algebra (unlike membership methods,
+  // which also accept Lists). The evaluator enforces that receiver boundary.
 
   /** Items in this set but not in `other`. */
-  difference(other: unknown[] | FirestoreSet): FirestoreSet {
-    const otherItems = other instanceof FirestoreSet ? other.toArray() : other;
+  difference(other: FirestoreSet): FirestoreSet {
+    const otherItems = other.toArray();
     const result: unknown[] = [];
     for (const item of this.items) {
       if (!otherItems.some((candidate) => rulesValuesEqual(item, candidate))) result.push(item);
@@ -70,14 +71,14 @@ export class FirestoreSet {
   }
 
   /** Items in either set. */
-  union(other: unknown[] | FirestoreSet): FirestoreSet {
-    const otherArr = other instanceof FirestoreSet ? other.toArray() : other;
+  union(other: FirestoreSet): FirestoreSet {
+    const otherArr = other.toArray();
     return new FirestoreSet([...this.items, ...otherArr]);
   }
 
   /** Items in both sets. */
-  intersection(other: unknown[] | FirestoreSet): FirestoreSet {
-    const otherItems = other instanceof FirestoreSet ? other.toArray() : other;
+  intersection(other: FirestoreSet): FirestoreSet {
+    const otherItems = other.toArray();
     const result: unknown[] = [];
     for (const item of this.items) {
       if (otherItems.some((candidate) => rulesValuesEqual(item, candidate))) result.push(item);
