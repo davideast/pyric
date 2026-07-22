@@ -155,14 +155,7 @@
     ],
     "messaging": [],
     "messaging-sw": [],
-    "database": [
-      "EmulatorMockTokenOptions",
-      "EventType",
-      "IteratedDataSnapshot",
-      "ListenOptions",
-      "QueryConstraintType",
-      "TransactionOptions"
-    ],
+    "database": [],
     "storage": [
       "EmulatorMockTokenOptions",
       "ListOptions",
