@@ -6,7 +6,7 @@ import {
   createRtdbDisconnectProbes,
   runProbeCleanup,
   type RtdbDisconnectContext,
-} from '../../src/capture/rtdb-disconnect/probes.ts';
+} from '../../../../src/capture/rtdb-disconnect/probes.ts';
 
 const context = {
   config: {
@@ -24,7 +24,7 @@ const context = {
   runId: 'test-run',
 } satisfies RtdbDisconnectContext;
 
-const observationDir = join(import.meta.dir, '..', '..', 'observations', 'rtdb-modular');
+const observationDir = join(import.meta.dir, '..', '..', '..', '..', 'observations', 'rtdb-modular');
 
 describe('RTDB disconnect capture descriptors', () => {
   it('regenerates the linkage recorded by every committed disconnect observation', () => {
