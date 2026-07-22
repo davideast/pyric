@@ -29,6 +29,25 @@ export function child(parent: DatabaseReference, path: string): DatabaseReferenc
 }
 
 /**
+ * `refFromURL(db, url)` — build a {@link DatabaseReference} from an
+ * absolute database URL (`https://<namespace>.firebaseio.com/path`).
+ *
+ * The sandbox is single-database, so only the URL path is honored; unlike the
+ * production SDK, the host is not checked against the database namespace.
+ */
+export function refFromURL(db: Database, url: string): DatabaseReference {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    throw new Error(
+      `pyric/database: refFromURL received a value that is not an absolute URL: ${url}`,
+    );
+  }
+  return ref(db, path);
+}
+
+/**
  * Build a sandbox-backed `DatabaseReference`. Cached parent / root
  * pointers are computed lazily so a long chain doesn't materialise
  * every intermediate ref upfront.

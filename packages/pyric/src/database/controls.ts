@@ -1,6 +1,5 @@
 import { targetOf } from './routing.js';
-import type { Database, DatabaseReference } from './types.js';
-import { ref } from './references.js';
+import type { Database } from './types.js';
 
 // ─── Emulator (no-op on sandbox) ─────────────────────────────────────
 
@@ -79,31 +78,4 @@ export function enableLogging(
 ): void {
   void logger;
   void persistent;
-}
-
-/**
- * `refFromURL(db, url)` — build a {@link DatabaseReference} from an
- * absolute database URL (`https://<namespace>.firebaseio.com/path`).
- *
- * Real alias with real behavior: parses the path out of the URL and
- * delegates to {@link ref}, so the returned ref resolves + reads exactly
- * like `ref(db, path)`. The sandbox is single-database and has no host /
- * namespace, so the URL's HOST is not validated against the handle (the
- * real SDK throws if the host doesn't match the db's namespace); only
- * the path component is honored.
- */
-export function refFromURL(db: Database, url: string): DatabaseReference {
-  // Strip the scheme + host, keep the path. `new URL` handles the
-  // `https://<ns>.firebaseio.com/a/b` and `.firebasedatabase.app`
-  // hosts alike; the query string / hash (if any) is dropped —
-  // RTDB paths carry neither.
-  let path: string;
-  try {
-    path = new URL(url).pathname;
-  } catch {
-    throw new Error(
-      `pyric/database: refFromURL received a value that is not an absolute URL: ${url}`,
-    );
-  }
-  return ref(db, path);
 }
