@@ -6,7 +6,7 @@
  * when credentialed, replays each scenario against the PRODUCTION Firestore Rules
  * Test API via the same `TestFirestoreRulesHandler` the live parity harness
  * uses. One observation JSON is written per scenario into
- * `observations/firestore/rules-firestore-<scenario.id>.json`, using the
+ * `observations/firestore-rules/rules-firestore-<scenario.id>.json`, using the
  * standard Observation envelope. Production is the source of truth: the
  * captured `behavior` is a verdict table keyed by case description
  * (ALLOW / DENY), which the in-process replay suite then checks the sandbox
@@ -16,6 +16,8 @@
  *   PARITY_SA_BASE64 — base64-encoded service-account JSON holding only
  *   `firebaserules.rulesets.test`. The project the SA belongs to is the
  *   project the rules are tested against.
+ *   PARITY_SA_PATH — local path to the same JSON credential. The runner
+ *   converts it in-process so the secret never appears in a shell command.
  *
  * RUNNABLE-BUT-INERT WITHOUT CREDENTIALS:
  *   With PARITY_SA_BASE64 absent, this runner makes NO network calls. It
@@ -32,16 +34,20 @@
  *   PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \
  *     bun run packages/conformance/src/run-rules.ts
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { TestFirestoreRulesResult } from '../../../packages/pyric/src/rules/test/spec.ts';
+import type { TestFirestoreRulesResult, TestResult } from '../../../packages/pyric/src/rules/test/spec.ts';
 import {
   ALL_RULES_FIRESTORE_SCENARIOS,
   RULES_FIRESTORE_OBSERVATION_PREFIX,
   observationName,
   type Scenario,
 } from '../rules-corpus/firestore/index.ts';
+import {
+  firestoreScenarioInputDigest,
+  type FirestoreScenarioInputDigest,
+} from './firestore-rules-input-digest.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-firestore-* observations belong to the native 'firestore-rules' surface.
@@ -73,6 +79,22 @@ interface Observation {
   fbSdkVersion: string;
   projectId: string;
   behavior: Record<string, unknown>;
+  inputDigest: FirestoreScenarioInputDigest;
+  /** Production diagnostics keyed by case description. Kept separately from
+   * the verdict table so oracle replay stays stable while held/error cases
+   * retain evidence of the observable boundary that produced a DENY. */
+  diagnostics?: Record<string, { notes: string[]; api?: unknown }>;
+}
+
+export function existingLinkage(path: string): Pick<Observation, 'matrixRow' | 'rowIds'> {
+  if (!existsSync(path)) return { matrixRow: '', rowIds: [] };
+  const existing = JSON.parse(readFileSync(path, 'utf8')) as Partial<Observation>;
+  return {
+    matrixRow: typeof existing.matrixRow === 'string' ? existing.matrixRow : '',
+    rowIds: Array.isArray(existing.rowIds)
+      ? existing.rowIds.filter((rowId): rowId is string => typeof rowId === 'string')
+      : [],
+  };
 }
 
 /** Absolute path an observation for `scenario` writes to. */
@@ -98,21 +120,42 @@ export function selectFirestoreScenarios(args: string[]): Scenario[] {
 }
 
 /** Build the verdict table (case description → prod decision) for a scenario. */
-function verdictTable(
+type SuccessfulRulesResult = Extract<TestFirestoreRulesResult, { success: true }>;
+
+function assertSuccessfulRulesResult(
   scenario: Scenario,
   res: TestFirestoreRulesResult,
-): Record<string, 'ALLOW' | 'DENY' | 'UNSUPPORTED'> {
+): asserts res is SuccessfulRulesResult {
   if (!res.success) {
     throw new Error(
       `Production Rules Test API failed for scenario "${scenario.id}": ` +
         `${res.error.code} ${res.error.message}`,
     );
   }
+}
+
+function verdictTable(
+  scenario: Scenario,
+  res: SuccessfulRulesResult,
+): Record<string, 'ALLOW' | 'DENY' | 'UNSUPPORTED'> {
   const table: Record<string, 'ALLOW' | 'DENY' | 'UNSUPPORTED'> = {};
   res.data.results.forEach((r, i) => {
     table[scenario.cases[i].description] = r.decision;
   });
   return table;
+}
+
+export function diagnosticTable(
+  results: readonly TestResult[],
+): Record<string, { notes: string[]; api?: unknown }> {
+  return Object.fromEntries(
+    results
+      .filter((result) => result.notes.length > 0)
+      .map((result) => [result.description, {
+        notes: [...result.notes],
+        ...(result.api !== undefined ? { api: result.api } : {}),
+      }]),
+  );
 }
 
 function printInertPlan(scenarios: Scenario[]): void {
@@ -157,18 +200,22 @@ async function capture(scenarios: Scenario[]): Promise<void> {
 
   for (const scenario of scenarios) {
     const res = await handler.execute(scope, scenario.rules, scenario.cases);
+    assertSuccessfulRulesResult(scenario, res);
     const behavior = verdictTable(scenario, res);
+    const diagnostics = diagnosticTable(res.data.results);
+    const path = observationPath(scenario);
+    const linkage = existingLinkage(path);
     const obs: Observation = {
       name: observationName(scenario),
-      matrixRow: '',
-      rowIds: [],
+      ...linkage,
       description: `Firestore Rules Test API verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). ${scenario.rationale}`,
       observedAt: new Date().toISOString(),
       fbSdkVersion,
       projectId: scope.projectId,
+      inputDigest: firestoreScenarioInputDigest(scenario),
       behavior,
+      ...(Object.keys(diagnostics).length > 0 ? { diagnostics } : {}),
     };
-    const path = observationPath(scenario);
     writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
     const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
     const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
@@ -185,6 +232,11 @@ async function capture(scenarios: Scenario[]): Promise<void> {
 
 if (import.meta.main) {
   const scenarios = selectFirestoreScenarios(process.argv.slice(2));
+  if (!process.env.PARITY_SA_BASE64 && process.env.PARITY_SA_PATH) {
+    process.env.PARITY_SA_BASE64 = Buffer.from(
+      readFileSync(process.env.PARITY_SA_PATH),
+    ).toString('base64');
+  }
   // Same env-var contract as the parity harness (harness.ts hasParitySecret).
   // Checked inline so the inert path imports none of the heavy machinery.
   if (!process.env.PARITY_SA_BASE64) {

@@ -61,7 +61,7 @@ import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './rules.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './admin-firestore.js';
-import { isRtdbOp, handleRtdbOp } from './rtdb.js';
+import { isRtdbOp, handleRtdbOp, drainPortRtdbDisconnects, forgetPortRtdbConnection } from './rtdb.js';
 import { isStorageOp, handleStorageOp } from './storage.js';
 import { isConnectionOp, handleConnectionOp } from './connection.js';
 import { isStudioOp, handleStudioOp } from './studio.js';
@@ -256,7 +256,7 @@ async function dispatchMessage(
     }
   } else if (msg.t === 'disconnect') {
     try {
-      cleanupPort(ctx, port);
+      await cleanupPortWithDisconnect(ctx, port);
       ok(port, msg.id, undefined);
     } catch (error) {
       fail(port, msg.id, error);
@@ -264,6 +264,25 @@ async function dispatchMessage(
   } else if (msg.t === 'tool') {
     await handleTool(ctx, port, msg);
   }
+}
+
+/** Best-effort close path: drain queued RTDB work before session teardown. */
+export async function cleanupPortWithDisconnect(ctx: HostCtx, port: PortLike): Promise<void> {
+  let drainFailure: unknown;
+  try {
+    await drainPortRtdbDisconnects(ctx, port);
+  } catch (error) {
+    drainFailure = error;
+  }
+  try {
+    cleanupPort(ctx, port);
+  } catch (error) {
+    if (drainFailure !== undefined) {
+      throw new AggregateError([drainFailure, error], 'Multiple SharedWorker port resources failed to tear down');
+    }
+    throw error;
+  }
+  if (drainFailure !== undefined) throw drainFailure;
 }
 
 // ─── Port cleanup ─────────────────────────────────────────────────────────
@@ -303,6 +322,7 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   // Presence: best-effort remove this port's logical client when it was the
   // last association (lease expiry remains the correctness path).
   attempt(() => { cleanupPortPresence(ctx, port); });
+  attempt(() => { forgetPortRtdbConnection(ctx, port); });
 
   const portSubs = ctx.subs.get(port);
   if (portSubs) {

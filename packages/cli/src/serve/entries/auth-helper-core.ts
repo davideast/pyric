@@ -5,8 +5,9 @@
  * directory and returns a Firebase-shaped credential; it never constructs an
  * Auth handle or mutates a Sandbox. In SharedWorker mode the directory reads
  * the worker's user pool and the picked credential is committed by
- * `auth.acceptIdentity`. The in-page fallback supplies a small adapter over its
- * local auth user store.
+ * `auth.acceptIdentity`. The in-page fallback supplies a mint that calls
+ * `sandbox.createSignInCredential` so the resolved User carries real
+ * provider metadata.
  */
 import type {
   AuthFlowRequest,
@@ -31,9 +32,21 @@ export interface HelperIdentity {
 
 export interface HelperIdentityDirectory {
   list(): HelperIdentity[] | Promise<HelperIdentity[]>;
-  /** Optional on the worker path: `auth.acceptIdentity` performs the write. */
+  /** Optional on the worker path: `auth.acceptIdentity` performs the write.
+   *  Unused when a custom {@link HelperCredentialMint} owns creation. */
   add?(identity: HelperIdentity): void | Promise<void>;
 }
+
+/**
+ * Mint a Firebase-shaped credential for a picker pick/add. The default mint
+ * builds a bare helper User (worker path → discarded by `acceptIdentity`).
+ * The in-page fallback injects `sandbox.createSignInCredential`.
+ */
+export type HelperCredentialMint = (
+  request:
+    | { kind: 'pick'; identity: HelperIdentity; providerId: string }
+    | { kind: 'add'; spec: NewIdentitySpec; providerId: string },
+) => UserCredential | Promise<UserCredential>;
 
 export interface HelperSnapshot {
   /** The in-flight request, or null when no popup/redirect is pending. */
@@ -52,8 +65,13 @@ export class ServeAuthHelper {
   private readonly listeners = new Set<() => void>();
   private cached: HelperSnapshot | null = null;
   private identities: HelperIdentity[] = [];
+  private readonly mint: HelperCredentialMint;
 
-  constructor(private readonly directory: HelperIdentityDirectory) {
+  constructor(
+    private readonly directory: HelperIdentityDirectory,
+    mint?: HelperCredentialMint,
+  ) {
+    this.mint = mint ?? ((request) => this.defaultMint(request));
     this.refreshIdentities();
   }
 
@@ -118,22 +136,17 @@ export class ServeAuthHelper {
       pending.reject(authError('auth/internal-error', `unknown identity ${uid}`));
       return;
     }
-    pending.resolve(this.credential(identity, pending.req.providerId));
+    void Promise.resolve(
+      this.mint({ kind: 'pick', identity, providerId: pending.req.providerId }),
+    ).then(pending.resolve, pending.reject);
   }
 
   add(spec: NewIdentitySpec): void {
     const pending = this.take();
     if (!pending) return;
-    const identity: HelperIdentity = {
-      uid: `${pending.req.providerId}:${spec.email}`,
-      email: spec.email,
-      displayName: spec.displayName ?? null,
-      customClaims: spec.customClaims ?? {},
-    };
-    void Promise.resolve(this.directory.add?.(identity)).then(
-      () => pending.resolve(this.credential(identity, pending.req.providerId)),
-      pending.reject,
-    );
+    void Promise.resolve(
+      this.mint({ kind: 'add', spec, providerId: pending.req.providerId }),
+    ).then(pending.resolve, pending.reject);
   }
 
   cancel(): void {
@@ -154,23 +167,63 @@ export class ServeAuthHelper {
     return pending;
   }
 
-  private credential(identity: HelperIdentity, providerId: string): UserCredential {
-    const user: User = {
-      uid: identity.uid,
-      email: identity.email,
-      displayName: identity.displayName,
-      isAnonymous: false,
-      getIdToken: async () => `pyric-serve-${identity.uid}`,
-      getIdTokenResult: async () => ({
-        token: `pyric-serve-${identity.uid}`,
-        claims: { sub: identity.uid, ...identity.customClaims },
-        expirationTime: new Date(Date.now() + 3600_000).toISOString(),
-        issuedAtTime: new Date().toISOString(),
-        authTime: new Date().toISOString(),
-      }),
+  private async defaultMint(
+    request:
+      | { kind: 'pick'; identity: HelperIdentity; providerId: string }
+      | { kind: 'add'; spec: NewIdentitySpec; providerId: string },
+  ): Promise<UserCredential> {
+    if (request.kind === 'pick') {
+      return bareCredential(request.identity, request.providerId);
+    }
+    const identity: HelperIdentity = {
+      uid: `${request.providerId}:${request.spec.email}`,
+      email: request.spec.email,
+      displayName: request.spec.displayName ?? null,
+      customClaims: request.spec.customClaims ?? {},
     };
-    return { user, providerId, operationType: 'signIn' };
+    await Promise.resolve(this.directory.add?.(identity));
+    return bareCredential(identity, request.providerId);
   }
+}
+
+/** Bare helper User — worker path discards this in favor of `acceptIdentity`. */
+function bareCredential(identity: HelperIdentity, providerId: string): UserCredential {
+  const issuedAtTime = new Date().toISOString();
+  const expirationTime = new Date(Date.now() + 3600_000).toISOString();
+  const user: User = {
+    uid: identity.uid,
+    email: identity.email,
+    displayName: identity.displayName,
+    isAnonymous: false,
+    emailVerified: false,
+    photoURL: null,
+    phoneNumber: null,
+    providerId: 'firebase',
+    providerData: [
+      {
+        uid: identity.uid,
+        displayName: identity.displayName,
+        email: identity.email,
+        phoneNumber: null,
+        photoURL: null,
+        providerId,
+      },
+    ],
+    getIdToken: async () => `pyric-serve-${identity.uid}`,
+    getIdTokenResult: async () => ({
+      token: `pyric-serve-${identity.uid}`,
+      claims: {
+        sub: identity.uid,
+        ...identity.customClaims,
+        firebase: { sign_in_provider: providerId },
+      },
+      signInProvider: providerId,
+      expirationTime,
+      issuedAtTime,
+      authTime: issuedAtTime,
+    }),
+  };
+  return { user, providerId, operationType: 'signIn' };
 }
 
 function authError(code: string, message: string): Error & { code: string } {

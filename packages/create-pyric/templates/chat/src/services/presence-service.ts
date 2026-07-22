@@ -1,4 +1,4 @@
-import { onValue, ref, serverTimestamp, set } from 'firebase/database';
+import { onDisconnect, onValue, ref, serverTimestamp, set } from 'firebase/database';
 import { auth, rtdb } from '../firebase/app';
 import { asUserId, type AuthUser, type PresenceEntry, type PresenceRecord, ServiceError } from '../firebase/types';
 import { requireUid } from './firestore-helpers';
@@ -24,19 +24,15 @@ export class PresenceService {
    * `/presence/{uid}` the first time a user comes online, which is what
    * fires the `onPresenceOnline` Cloud Function.
    *
-   * In a production build we also register a real `onDisconnect` so the node
-   * flips to offline when the socket drops. `onDisconnect` is not part of the
-   * sandbox's Realtime Database surface yet (RTDB support is incomplete), so
-   * under `vite dev` we rely on the explicit `goOffline` writes below.
+   * Register `onDisconnect` before publishing the online state so production
+   * and the local sandbox both flip the node to offline on a clean lifecycle
+   * boundary. The explicit `goOffline` method remains the user-driven path.
    */
   async goOnline(user: AuthUser): Promise<void> {
     const uid = requireUid(user.uid);
     try {
       const reference = presenceRef(uid);
-      if (import.meta.env.PROD) {
-        const { onDisconnect } = await import('firebase/database');
-        await onDisconnect(reference).set({ state: 'offline', displayName: user.displayName, at: serverTimestamp() });
-      }
+      await onDisconnect(reference).set({ state: 'offline', displayName: user.displayName, at: serverTimestamp() });
       await set(reference, { state: 'online', displayName: user.displayName, at: serverTimestamp() });
     } catch (error) {
       throw mapRtdbError(error);

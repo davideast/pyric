@@ -58,6 +58,10 @@
       "types": "./dist/database/index.d.ts",
       "import": "./dist/database/index.js"
     },
+    "./database/internal": {
+      "types": "./dist/database/internal.d.ts",
+      "import": "./dist/database/internal.js"
+    },
     "./storage": {
       "types": "./dist/storage/index.d.ts",
       "import": "./dist/storage/index.js"

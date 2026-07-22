@@ -68,6 +68,7 @@ import {
   registerActivityValue,
   trustedWireActivityValue,
 } from '../sandbox/activity-value-registry.js';
+import { registerQueryValue } from '../sandbox/query-value-registry.js';
 
 /**
  * Decode a base64url string (`-`/`_` alphabet, no padding) back into a
@@ -124,20 +125,36 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean): unknown 
     }
     return hydrated;
   };
+  const withQueryIdentity = <T extends object>(hydrated: T, snapshot: unknown): T => {
+    registerQueryValue(hydrated, Object.freeze(snapshot as object), () => hydrated);
+    return withActivityIdentity(hydrated);
+  };
 
   if (obj.__type__ === '__vector__' && Array.isArray(obj.value)) {
-    return withActivityIdentity(new Vector(obj.value as number[]));
+    const values = Object.freeze((obj.value as number[]).slice());
+    return withQueryIdentity(new Vector(values), { type: 'vector', values });
   }
 
   // pyric/rules wrapper marker form (used for IDB persistence + wire).
   if (typeof obj.__type === 'string') {
     switch (obj.__type) {
       case 'timestamp':
-        return withActivityIdentity(new Timestamp(obj.seconds as number, obj.nanos as number));
-      case 'bytes':
-        return withActivityIdentity(new Bytes(base64UrlDecode(obj.base64 as string)));
+        return withQueryIdentity(
+          new Timestamp(obj.seconds as number, obj.nanos as number),
+          { type: 'timestamp', seconds: obj.seconds, nanoseconds: obj.nanos },
+        );
+      case 'bytes': {
+        const bytes = base64UrlDecode(obj.base64 as string);
+        return withQueryIdentity(
+          new Bytes(bytes),
+          { type: 'bytes', values: Object.freeze(Array.from(bytes)) },
+        );
+      }
       case 'latlng':
-        return withActivityIdentity(new LatLng(obj.lat as number, obj.lng as number));
+        return withQueryIdentity(
+          new LatLng(obj.lat as number, obj.lng as number),
+          { type: 'geo-point', latitude: obj.lat, longitude: obj.lng },
+        );
       case 'duration':
         return withActivityIdentity(new Duration(obj.seconds as number, obj.nanos as number));
       case 'reference':
@@ -156,15 +173,25 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean): unknown 
         // The rules Timestamp uses nanos (not nanoseconds) — same value.
         const seconds = obj.seconds as number;
         const nanoseconds = obj.nanoseconds as number;
-        return withActivityIdentity(new Timestamp(seconds, nanoseconds));
+        return withQueryIdentity(
+          new Timestamp(seconds, nanoseconds),
+          { type: 'timestamp', seconds, nanoseconds },
+        );
       }
       case 'firestore/bytes/1.0': {
         // fb.Bytes.toJSON() emits { type, bytes } where bytes is standard base64.
-        return withActivityIdentity(new Bytes(base64StdDecode(obj.bytes as string)));
+        const bytes = base64StdDecode(obj.bytes as string);
+        return withQueryIdentity(
+          new Bytes(bytes),
+          { type: 'bytes', values: Object.freeze(Array.from(bytes)) },
+        );
       }
       case 'firestore/geoPoint/1.0': {
         // fb.GeoPoint.toJSON() emits { latitude, longitude, type }.
-        return withActivityIdentity(new LatLng(obj.latitude as number, obj.longitude as number));
+        return withQueryIdentity(
+          new LatLng(obj.latitude as number, obj.longitude as number),
+          { type: 'geo-point', latitude: obj.latitude, longitude: obj.longitude },
+        );
       }
     }
   }

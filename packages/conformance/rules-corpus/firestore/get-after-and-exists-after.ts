@@ -1,20 +1,15 @@
 /**
  * ─── Scenario 12: get-after-and-exists-after ──────────────────────────────────
- * Targets Item 7 — getAfter()/existsAfter() with projectAfterState. Pre-fix:
- * both threw UnsupportedError. The 0.D trap (top-level update REPLACES
- * nested map) only shows up in prod when the agent makes an `update` write
- * with a partial nested map; this scenario pins the projection against prod
- * for create + delete (the writeMode-free defaults) so the basic surface
- * is locked in. The recursive merge / dot-path semantics are unit-tested
- * in projectAfterState (no prod equivalent: the prod Test API doesn't
- * expose writeMode either, but it computes the same projection internally
- * from the Test request shape).
+ * Targets Item 7 — getAfter()/existsAfter() with projectAfterState. The hosted
+ * production Test API accepts the ruleset but reports Function not found for
+ * both functions, so this corpus pins the endpoint limitation. The documented
+ * atomic projection semantics remain covered by the local target/batch tests.
  */
 import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   fm: 'Item 7',
-  rationale: 'Sim must implement getAfter()/existsAfter(). Pre-fix: both threw UnsupportedError; rules using them silently denied.',
+  rationale: 'Hosted production diagnostics report Function not found for getAfter()/existsAfter(); retain the verdicts as a Test API limitation while local atomic-projection tests pin the documented contract.',
   rules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {

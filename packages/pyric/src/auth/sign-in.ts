@@ -9,6 +9,7 @@ import type {
   AuthFlowRequest,
   AuthFlowResolver,
   Persistence,
+  User,
   UserCredential,
 } from './types.js';
 
@@ -118,6 +119,51 @@ async function resolveFlow(
   );
 }
 
+/**
+ * After a resolver/mock hands back a User, ensure `providerData` reflects the
+ * linked provider recorded by {@link SandboxBackend.recordProviderSignIn}.
+ * Bare helper Users (no `providerData`) are patched in place when possible so
+ * `cred.user === auth.currentUser` still holds; otherwise the store-built User
+ * replaces them.
+ */
+function ensureProviderUser(
+  backend: SandboxTarget['backend'],
+  user: User,
+  providerId: string,
+): User {
+  if (user.providerData?.some((entry) => entry.providerId === providerId)) {
+    return user;
+  }
+  const stored = backend.findByUid(user.uid);
+  if (!stored) return user;
+  const rebuilt = backend.buildUserFromStored(stored);
+  const mutable = user as { -readonly [K in keyof User]: User[K] };
+  try {
+    mutable.providerId = rebuilt.providerId ?? 'firebase';
+    mutable.providerData = rebuilt.providerData;
+    mutable.emailVerified = rebuilt.emailVerified;
+    mutable.photoURL = rebuilt.photoURL;
+    mutable.phoneNumber = rebuilt.phoneNumber;
+    mutable.getIdToken = (forceRefresh?: boolean) => rebuilt.getIdToken(forceRefresh);
+    mutable.getIdTokenResult = (forceRefresh?: boolean) => rebuilt.getIdTokenResult(forceRefresh);
+    return user;
+  } catch {
+    return rebuilt;
+  }
+}
+
+async function commitProviderSignIn(
+  backend: SandboxTarget['backend'],
+  credential: UserCredential,
+  providerId: string,
+): Promise<UserCredential> {
+  backend.assertSignInAllowed(credential.user.uid);
+  backend.recordProviderSignIn(credential.user, providerId);
+  const user = ensureProviderUser(backend, credential.user, providerId);
+  await backend.transitionCurrentUser(user, providerId);
+  return user === credential.user ? credential : { ...credential, user };
+}
+
 export async function signInWithPopup(
   auth: Auth,
   provider: AuthProvider,
@@ -126,10 +172,7 @@ export async function signInWithPopup(
   const { backend } = targetOf(auth);
   const credential = await resolveFlow(backend, provider, 'signIn', resolver, 'popup');
   const providerId = credential.providerId ?? provider.providerId;
-  backend.assertSignInAllowed(credential.user.uid);
-  backend.recordProviderSignIn(credential.user, providerId);
-  await backend.transitionCurrentUser(credential.user, providerId);
-  return credential;
+  return commitProviderSignIn(backend, credential, providerId);
 }
 
 export async function signInWithRedirect(
@@ -140,10 +183,8 @@ export async function signInWithRedirect(
   const { backend } = targetOf(auth);
   const credential = await resolveFlow(backend, provider, 'signIn', resolver, 'redirect');
   const providerId = credential.providerId ?? provider.providerId;
-  backend.assertSignInAllowed(credential.user.uid);
-  backend.recordProviderSignIn(credential.user, providerId);
-  await backend.transitionCurrentUser(credential.user, providerId);
-  backend.setRedirectResult(credential);
+  const committed = await commitProviderSignIn(backend, credential, providerId);
+  backend.setRedirectResult(committed);
 }
 
 export async function getRedirectResult(

@@ -427,7 +427,9 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const database = exportedNames(result.files.find((f) => f.endsWith('/database.js'))!);
     for (const name of [
       'getDatabase', 'ref', 'child', 'get', 'set', 'update', 'remove', 'push',
-      'onValue', 'off', 'serverTimestamp', 'connectDatabaseEmulator',
+      'onValue', 'onChildAdded', 'onChildChanged', 'onDisconnect', 'OnDisconnect',
+      'goOffline', 'goOnline', 'off', 'serverTimestamp',
+      'connectDatabaseEmulator',
       'runTransaction', 'query', 'orderByChild', 'orderByKey', 'orderByValue',
       'startAt', 'startAfter', 'endAt', 'endBefore', 'equalTo',
       'limitToFirst', 'limitToLast',

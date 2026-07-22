@@ -110,4 +110,15 @@ describe('rich User preservation (sandbox)', () => {
     expect(auth.currentUser?.email).toBe('manual@example.com');
     expect(auth.currentUser?.displayName).toBe('Display manual');
   });
+
+  it('bare resolver without providerData: popup patches google.com onto currentUser', async () => {
+    const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+    authSandbox.setAuthFlowResolver(auth, richResolver('bare-google'));
+    const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+    expect(cred.user).toBe(auth.currentUser!);
+    expect(cred.user.providerData?.map((p) => p.providerId)).toContain('google.com');
+    expect(cred.user.providerId).toBe('firebase');
+    expect((await cred.user.getIdTokenResult()).signInProvider).toBe('google.com');
+  });
 });

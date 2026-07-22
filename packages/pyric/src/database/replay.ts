@@ -14,7 +14,7 @@ import {
   update,
   sandbox as rtdbSandbox,
   type Database,
-} from './modular.js';
+} from './index.js';
 import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
 
 export interface RtdbReplayOptions {

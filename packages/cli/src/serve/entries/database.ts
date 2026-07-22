@@ -14,6 +14,12 @@ import {
   rtdbGetDatabase,
   rtdbOff,
   rtdbOnValue,
+  rtdbOnChildAdded,
+  rtdbOnChildChanged,
+  rtdbOnDisconnect,
+  rtdbGoOffline,
+  rtdbGoOnline,
+  RtdbOnDisconnect,
   rtdbPush,
   rtdbRef,
   rtdbRemove,
@@ -46,6 +52,18 @@ export const update = (useWorker ? rtdbUpdate : ip.update) as typeof ip.update;
 export const remove = (useWorker ? rtdbRemove : ip.remove) as typeof ip.remove;
 export const push = (useWorker ? rtdbPush : ip.push) as typeof ip.push;
 export const onValue = (useWorker ? rtdbOnValue : ip.onValue) as typeof ip.onValue;
+export const onChildAdded = (
+  useWorker ? rtdbOnChildAdded : ip.onChildAdded
+) as typeof ip.onChildAdded;
+export const onChildChanged = (
+  useWorker ? rtdbOnChildChanged : ip.onChildChanged
+) as typeof ip.onChildChanged;
+export const onDisconnect = (
+  useWorker ? rtdbOnDisconnect : ip.onDisconnect
+) as typeof ip.onDisconnect;
+export const OnDisconnect = (
+  useWorker ? RtdbOnDisconnect : ip.OnDisconnect
+) as typeof ip.OnDisconnect;
 export const off = (useWorker ? rtdbOff : ip.off) as typeof ip.off;
 export const serverTimestamp = (
   useWorker ? rtdbServerTimestamp : ip.serverTimestamp
@@ -55,12 +73,12 @@ export const connectDatabaseEmulator = (
 ) as typeof ip.connectDatabaseEmulator;
 
 // ── Low-hanging-fruit exports (issue #149) ────────────────────────────────
-// Served mode is always sandbox-backed (never a prod handle), and these are
-// honest no-ops in the sandbox model regardless of the worker/in-page split,
-// so they are unconditional no-ops here — no worker RPC needed. This also
-// gives served apps import-time parity for the `firebase/database` surface.
-export const goOffline = ((_db?: unknown) => {}) as typeof ip.goOffline;
-export const goOnline = ((_db?: unknown) => {}) as typeof ip.goOnline;
+// Served mode is always sandbox-backed (never a prod handle). The connection
+// controls still cross the worker boundary because goOffline drains that
+// port's one-shot onDisconnect queue; transport-selection controls remain
+// honest no-ops in either runtime.
+export const goOffline = (useWorker ? rtdbGoOffline : ip.goOffline) as typeof ip.goOffline;
+export const goOnline = (useWorker ? rtdbGoOnline : ip.goOnline) as typeof ip.goOnline;
 export const forceLongPolling = (() => {}) as typeof ip.forceLongPolling;
 export const forceWebSockets = (() => {}) as typeof ip.forceWebSockets;
 export const enableLogging = ((_logger?: unknown, _persistent?: unknown) => {}) as typeof ip.enableLogging;

@@ -1,0 +1,21 @@
+{
+  "name": "rules-firestore-hierarchical-match-cascade",
+  "matrixRow": "firestore-rules#187",
+  "rowIds": [
+    "firestore-rules#187"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"hierarchical-match-cascade\" (CDD: hierarchical match cascade). A nested match must resolve relative to its parent: the exact child path allows while the parent, a sibling, and an extra descendant deny.",
+  "observedAt": "2026-07-21T23:43:05.601Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "5ac81772c3c2188c49805af56e9a5f0f7de21bd3466272d3a762505e4ee49933"
+  },
+  "behavior": {
+    "exact nested child path ALLOW": "ALLOW",
+    "parent path without child DENY": "DENY",
+    "sibling path outside nested match DENY": "DENY",
+    "descendant beyond exact nested match DENY": "DENY"
+  }
+}

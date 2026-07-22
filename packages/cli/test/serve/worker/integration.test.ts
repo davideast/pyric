@@ -1,16 +1,8 @@
-/**
- * FULL client↔host round-trip (the gate reproduction).
- *
- * host.test.ts drives `handleMessage` directly with hand-built descriptors.
- * This wires the REAL `client.ts` to the REAL `host.ts` over a fake async
- * MessagePort pair (mimicking a real worker port) and a shimmed `SharedWorker`,
- * so the exact browser sequence runs in bun: getFirestore → getAuth →
- * createUser → onSnapshot(query) → addDoc. This is where the gate bug lives
- * (the host alone works; the integration does not).
- */
+/** Full client↔host round trips over a fake asynchronous MessagePort pair. */
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
+  cleanupPortWithDisconnect,
   handleMessage,
   type HostCtx,
   type PortLike,
@@ -20,10 +12,12 @@ import {
   initializeSandbox,
   createMemoryBackend,
 } from 'pyric/sandbox';
+import { deleteApp, getApps, initializeApp } from 'pyric/app';
 import { getFirestore as ipGetFirestore } from 'pyric/firestore';
 import { getAuth as ipGetAuth } from 'pyric/auth';
 import { monitorFirebaseActivity, type ActivityIncident } from 'pyric/firestore/internal';
 import * as client from '../../../src/serve/worker/client.js';
+import { disconnectClient } from '../../../src/serve/worker/client/disconnect.js';
 
 const GATE_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -42,11 +36,12 @@ interface FakePort {
   postMessage(msg: unknown): void;
   onmessage: ((ev: { data: unknown }) => void) | null;
   start(): void;
+  close(): void;
   addEventListener(type: string, fn: () => void): void;
 }
 function portPair(): { a: FakePort; b: FakePort } {
-  const a: FakePort = { onmessage: null, postMessage() {}, start() {}, addEventListener() {} };
-  const b: FakePort = { onmessage: null, postMessage() {}, start() {}, addEventListener() {} };
+  const a: FakePort = { onmessage: null, postMessage() {}, start() {}, close() {}, addEventListener() {} };
+  const b: FakePort = { onmessage: null, postMessage() {}, start() {}, close() {}, addEventListener() {} };
   a.postMessage = (msg) => setTimeout(() => b.onmessage?.({ data: msg }), 0);
   b.postMessage = (msg) => setTimeout(() => a.onmessage?.({ data: msg }), 0);
   return { a, b };
@@ -308,6 +303,281 @@ describe('client↔host event stream (Studio data plane)', () => {
     const snap = await client.rtdbGet(pushed);
     expect(snap.exists()).toBe(true);
     expect(snap.val()).toEqual({ value: 7 });
+  });
+
+  it('RTDB child listeners work through the shared-worker client', async () => {
+    const { db } = await connectClient();
+    const rtdb = client.rtdbGetDatabase(db);
+    const scores = client.rtdbRef(rtdb, 'scores');
+    await client.rtdbSet(scores, { ada: { value: 7 } });
+
+    const added: Array<{ key: string | null; value: unknown }> = [];
+    const changed: Array<{ key: string | null; value: unknown }> = [];
+    const unsubscribeAdded = client.rtdbOnChildAdded(scores, (snap) => {
+      added.push({ key: snap.key, value: snap.val() });
+    });
+    const unsubscribeChanged = client.rtdbOnChildChanged(scores, (snap) => {
+      changed.push({ key: snap.key, value: snap.val() });
+    });
+    await sleep();
+
+    expect(added).toEqual([{ key: 'ada', value: { value: 7 } }]);
+    expect(changed).toEqual([]);
+
+    await client.rtdbSet(client.rtdbChild(scores, 'grace'), { value: 9 });
+    await sleep();
+    expect(added.at(-1)).toEqual({ key: 'grace', value: { value: 9 } });
+    expect(changed).toEqual([]);
+
+    await client.rtdbSet(client.rtdbChild(scores, 'ada'), { value: 8 });
+    await sleep();
+    expect(changed).toEqual([{ key: 'ada', value: { value: 8 } }]);
+
+    await client.rtdbRemove(client.rtdbChild(scores, 'grace'));
+    await sleep();
+    expect(changed).toEqual([{ key: 'ada', value: { value: 8 } }]);
+
+    unsubscribeAdded();
+    unsubscribeChanged();
+    await client.rtdbSet(client.rtdbChild(scores, 'lin'), { value: 10 });
+    await client.rtdbSet(client.rtdbChild(scores, 'ada'), { value: 11 });
+    await sleep();
+    expect(added).toHaveLength(2);
+    expect(changed).toHaveLength(1);
+  });
+
+  it('RTDB child listeners preserve numeric children and ignore object field order', async () => {
+    const { db } = await connectClient();
+    const rtdb = client.rtdbGetDatabase(db);
+    const rows = client.rtdbRef(rtdb, 'rows');
+    await client.rtdbSet(rows, ['zero', 'one', 'two']);
+
+    const added: string[] = [];
+    const changed: unknown[] = [];
+    const unsubscribeAdded = client.rtdbOnChildAdded(rows, (snap) => added.push(snap.key ?? ''));
+    const unsubscribeChanged = client.rtdbOnChildChanged(rows, (snap) => changed.push(snap.val()));
+    await sleep();
+    expect(added).toEqual(['0', '1', '2']);
+
+    await client.rtdbSet(client.rtdbChild(rows, '1'), { a: 1, b: 2 });
+    await sleep();
+    expect(changed).toEqual([{ a: 1, b: 2 }]);
+    await client.rtdbSet(client.rtdbChild(rows, '1'), { b: 2, a: 1 });
+    await sleep();
+    expect(changed).toHaveLength(1);
+
+    unsubscribeAdded();
+    unsubscribeChanged();
+  });
+
+  it('goOffline drains a writer port onDisconnect queue once while an independent port observes', async () => {
+    const ctx = await makeHostCtx();
+    const connectPort = (url: string) => {
+      const { a: clientPort, b: hostPort } = portPair();
+      const hostPortLike: PortLike = { postMessage: (message: OutboundMessage) => hostPort.postMessage(message) };
+      hostPort.onmessage = (event) => { void handleMessage(ctx, hostPortLike, event.data as InboundMessage); };
+      (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+        port = clientPort;
+        constructor(_url: unknown, _opts: unknown) {}
+      };
+      return { db: client.getFirestore(url), hostPort: hostPortLike };
+    };
+
+    const { db: writerClient, hostPort: writerHostPort } = connectPort('worker://disconnect-writer');
+    const { db: observerClient } = connectPort('worker://disconnect-observer');
+    const writerDb = client.rtdbGetDatabase(writerClient);
+    const observerDb = client.rtdbGetDatabase(observerClient);
+    const writerRef = client.rtdbRef(writerDb, 'disconnect');
+    const observerRef = client.rtdbRef(observerDb, 'disconnect');
+    await client.rtdbSet(writerRef, {
+      presence: { state: 'online', child: 'original-child' },
+      update: { keep: true, value: 1 },
+      nestedUpdate: { a: { b: 'old', c: 'keep' }, stable: true },
+      remove: { before: true },
+      cancelled: { child: 'original' },
+    });
+
+    const events: unknown[] = [];
+    const unsubscribe = client.rtdbOnValue(observerRef, (snapshot) => events.push(snapshot.val()));
+    await sleep();
+    const presence = client.rtdbChild(writerRef, 'presence');
+    await client.rtdbOnDisconnect(presence).set({ state: 'offline', child: 'parent-child' });
+    await client.rtdbOnDisconnect(client.rtdbChild(presence, 'child')).set('queued-child');
+    await client.rtdbOnDisconnect(client.rtdbChild(presence, 'child')).cancel();
+    await client.rtdbOnDisconnect(client.rtdbChild(writerRef, 'update')).update({ value: 2, added: true });
+    const nestedUpdate = client.rtdbChild(writerRef, 'nestedUpdate');
+    await client.rtdbOnDisconnect(nestedUpdate).update({ a: { b: 'new' }, changed: true });
+    await client.rtdbOnDisconnect(client.rtdbChild(nestedUpdate, 'a/b')).set('child-write');
+    await client.rtdbOnDisconnect(client.rtdbChild(nestedUpdate, 'a/b')).cancel();
+    await client.rtdbOnDisconnect(client.rtdbChild(writerRef, 'remove')).remove();
+    await client.rtdbOnDisconnect(client.rtdbChild(writerRef, 'cancelled/child')).set('queued-child');
+    await client.rtdbOnDisconnect(client.rtdbChild(writerRef, 'cancelled')).cancel();
+    expect((await client.rtdbGet(client.rtdbChild(observerRef, 'presence'))).val())
+      .toEqual({ state: 'online', child: 'original-child' });
+
+    client.rtdbGoOffline(writerDb);
+    await sleep();
+    const terminal = (await client.rtdbGet(observerRef)).val();
+    expect(terminal).toEqual({
+      presence: { state: 'offline', child: 'original-child' },
+      update: { keep: true, value: 2, added: true },
+      nestedUpdate: { a: { b: 'old', c: 'keep' }, stable: true, changed: true },
+      cancelled: { child: 'original' },
+    });
+    expect(events).toEqual([
+      {
+        presence: { state: 'online', child: 'original-child' },
+        update: { keep: true, value: 1 },
+        nestedUpdate: { a: { b: 'old', c: 'keep' }, stable: true },
+        remove: { before: true },
+        cancelled: { child: 'original' },
+      },
+      {
+        presence: { state: 'offline', child: 'original-child' },
+        update: { keep: true, value: 1 },
+        nestedUpdate: { a: { b: 'old', c: 'keep' }, stable: true },
+        remove: { before: true },
+        cancelled: { child: 'original' },
+      },
+      {
+        presence: { state: 'offline', child: 'original-child' },
+        update: { keep: true, value: 2, added: true },
+        nestedUpdate: { a: { b: 'old', c: 'keep' }, stable: true },
+        remove: { before: true },
+        cancelled: { child: 'original' },
+      },
+      {
+        presence: { state: 'offline', child: 'original-child' },
+        update: { keep: true, value: 2, added: true },
+        nestedUpdate: { a: { b: 'old', c: 'keep' }, stable: true, changed: true },
+        remove: { before: true },
+        cancelled: { child: 'original' },
+      },
+      terminal,
+    ]);
+    await cleanupPortWithDisconnect(ctx, writerHostPort);
+    await sleep();
+    expect(events).toHaveLength(5);
+    unsubscribe();
+  });
+
+  it('served app deletion drains its worker-owned onDisconnect queue', async () => {
+    const ctx = await makeHostCtx();
+    (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+      port: FakePort;
+      constructor(_url: unknown, _opts: unknown) {
+        const { a: clientPort, b: hostPort } = portPair();
+        const hostPortLike: PortLike = {
+          postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
+        };
+        hostPort.onmessage = (event) => {
+          void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
+        };
+        this.port = clientPort;
+      }
+    };
+    const { workerClientForApp } = await import('../../../src/serve/entries/app-client.js');
+    const options = getApps()[0]?.options ?? { projectId: 'served-delete' };
+    const writerApp = initializeApp(options, 'served-delete-writer');
+    const observerApp = initializeApp(options, 'served-delete-observer');
+    const writerDb = client.rtdbGetDatabase(workerClientForApp(writerApp));
+    const observerDb = client.rtdbGetDatabase(workerClientForApp(observerApp));
+    const writerRef = client.rtdbRef(writerDb, 'served/delete');
+    await client.rtdbSet(writerRef, 'online');
+    await client.rtdbOnDisconnect(writerRef).set('offline');
+
+    await deleteApp(writerApp);
+    await sleep();
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'served/delete'))).val()).toBe('offline');
+    await deleteApp(observerApp);
+  });
+
+  it('non-persisted pagehide drains the served app worker queue', async () => {
+    const ctx = await makeHostCtx();
+    const pagehideListeners = new Set<(event: Event) => void>();
+    const priorAdd = globalThis.addEventListener;
+    const priorRemove = globalThis.removeEventListener;
+    globalThis.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject) => {
+      if (type === 'pagehide' && typeof listener === 'function') {
+        pagehideListeners.add(listener as (event: Event) => void);
+      }
+    }) as typeof globalThis.addEventListener;
+    globalThis.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject) => {
+      if (type === 'pagehide' && typeof listener === 'function') {
+        pagehideListeners.delete(listener as (event: Event) => void);
+      }
+    }) as typeof globalThis.removeEventListener;
+    try {
+      (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+        port: FakePort;
+        constructor(_url: unknown, _opts: unknown) {
+          const { a: clientPort, b: hostPort } = portPair();
+          const hostPortLike: PortLike = {
+            postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
+          };
+          hostPort.onmessage = (event) => {
+            void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
+          };
+          this.port = clientPort;
+        }
+      };
+      const { workerClientForApp } = await import('../../../src/serve/entries/app-client.js');
+      const options = getApps()[0]?.options ?? { projectId: 'served-delete' };
+      const writerApp = initializeApp(options, 'served-pagehide-writer');
+      const writerDb = client.rtdbGetDatabase(workerClientForApp(writerApp));
+      const writerRef = client.rtdbRef(writerDb, 'served/pagehide');
+      await client.rtdbSet(writerRef, 'online');
+      await client.rtdbOnDisconnect(writerRef).set('offline');
+
+      for (const listener of pagehideListeners) {
+        listener({ persisted: false } as PageTransitionEvent);
+      }
+      await sleep();
+      const observerApp = initializeApp(options, 'served-pagehide-observer');
+      const observerDb = client.rtdbGetDatabase(workerClientForApp(observerApp));
+      expect((await client.rtdbGet(client.rtdbRef(observerDb, 'served/pagehide'))).val()).toBe('offline');
+      await deleteApp(writerApp);
+      await deleteApp(observerApp);
+    } finally {
+      globalThis.addEventListener = priorAdd;
+      globalThis.removeEventListener = priorRemove;
+    }
+  });
+
+  it('continues worker disconnect draining after a rules denial and still tears down the writer', async () => {
+    const ctx = await makeHostCtx();
+    const connectPort = (url: string) => {
+      const { a: clientPort, b: hostPort } = portPair();
+      const hostPortLike: PortLike = { postMessage: (message: OutboundMessage) => hostPort.postMessage(message) };
+      hostPort.onmessage = (event) => { void handleMessage(ctx, hostPortLike, event.data as InboundMessage); };
+      (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+        port = clientPort;
+        constructor(_url: unknown, _opts: unknown) {}
+      };
+      return client.getFirestore(url);
+    };
+
+    const writerClient = connectPort('worker://disconnect-rules-writer');
+    const observerClient = connectPort('worker://disconnect-rules-observer');
+    const writerDb = client.rtdbGetDatabase(writerClient);
+    const observerDb = client.rtdbGetDatabase(observerClient);
+    const target = client.rtdbRef(writerDb, 'rulesTarget');
+    const control = client.rtdbRef(writerDb, 'drainControl');
+    await client.setDatabaseRules(writerClient, { rules: {
+      rulesTarget: { '.read': true, '.write': true },
+      drainControl: { '.read': true, '.write': true },
+    } });
+    await client.rtdbSet(target, 'seed');
+    await client.rtdbOnDisconnect(target).set('denied');
+    await client.rtdbOnDisconnect(control).set('drained');
+    await client.setDatabaseRules(writerClient, { rules: {
+      rulesTarget: { '.read': true, '.write': false },
+      drainControl: { '.read': true, '.write': true },
+    } });
+
+    await expect(disconnectClient(writerClient)).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'rulesTarget'))).val()).toBe('seed');
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'drainControl'))).val()).toBe('drained');
   });
 
   it('Storage getDownloadURL returns a URL owned by the calling page', async () => {

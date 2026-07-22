@@ -4,10 +4,14 @@
   "rowIds": [
     "firestore-rules#177"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"unsupported-feature-witness\" (Item 0.A). Sim must report UNSUPPORTED (not silently DENY) when it hits a real built-in it has not implemented.",
-  "observedAt": "2026-07-10T22:41:18.085Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"unsupported-feature-witness\" (Item 0.A). Sim must report UNSUPPORTED (not silently DENY) when it hits a real built-in it has not implemented.",
+  "observedAt": "2026-07-21T23:43:07.517Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "ca04f302dd325bd57dd77976b67acfddd71ac1833973c601b87fa906a75fae73"
+  },
   "behavior": {
     "hashing.crc32(...) — sim should ABSTAIN, prod should ALLOW": "ALLOW"
   }

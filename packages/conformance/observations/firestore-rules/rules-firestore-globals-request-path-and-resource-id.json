@@ -4,16 +4,78 @@
   "rowIds": [
     "firestore-rules#166"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"globals-request-path-and-resource-id\" (Item 6). Sim must populate request.path (Path), request.query (Map), resource.id (String), resource.__name__ (Path). Pre-fix: all undefined; rules using them silently denied.",
-  "observedAt": "2026-07-10T22:41:18.980Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"globals-request-path-and-resource-id\" (Item 6). Sim must populate request.path, expose request.query only for list requests, and preserve production absence/error semantics for document identity.",
+  "observedAt": "2026-07-22T01:09:36.639Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "9c46a6c27a6ed6c37601304f6683f19f9eb1c49ea953910a2c36a95e647f0713"
+  },
   "behavior": {
     "request.path is path ALLOW": "ALLOW",
     "request.path equals literal ALLOW": "ALLOW",
-    "request.query empty map ALLOW": "DENY",
+    "request.query empty map DENY": "DENY",
     "resource.id on create → DENY (resource is null pre-write)": "DENY",
     "resource.__name__ on create → DENY (resource is null pre-write)": "DENY",
     "wrong resource.id DENY": "DENY"
+  },
+  "diagnostics": {
+    "request.query empty map DENY": {
+      "notes": [
+        "Error: firestore.rules line [17], column [12]. Property query is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 17,
+          "column": 12,
+          "currentOffset": 611,
+          "endOffset": 617
+        }
+      }
+    },
+    "resource.id on create → DENY (resource is null pre-write)": {
+      "notes": [
+        "Error: firestore.rules line [24], column [12]. Null value error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 24,
+          "column": 12,
+          "currentOffset": 921,
+          "endOffset": 928
+        }
+      }
+    },
+    "resource.__name__ on create → DENY (resource is null pre-write)": {
+      "notes": [
+        "Error: firestore.rules line [31], column [12]. Null value error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 31,
+          "column": 12,
+          "currentOffset": 1198,
+          "endOffset": 1205
+        }
+      }
+    },
+    "wrong resource.id DENY": {
+      "notes": [
+        "Error: firestore.rules line [37], column [12]. Null value error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 37,
+          "column": 12,
+          "currentOffset": 1409,
+          "endOffset": 1416
+        }
+      }
+    }
   }
 }

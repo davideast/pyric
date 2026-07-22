@@ -104,8 +104,8 @@ describe('request.query — list ops without query payload', () => {
   });
 });
 
-describe('request.query — non-list ops always empty', () => {
-  test('get op: tc.query is ignored, request.query is empty', () => {
+describe('request.query — absent on non-list ops', () => {
+  test('get op: tc.query is ignored and reading request.query errors to DENY', () => {
     // Even if a test mistakenly passes query for a get op, the simulator
     // treats it as empty (matches production: query only flows on list).
     const tcGet: TestCase = {
@@ -120,8 +120,7 @@ describe('request.query — non-list ops always empty', () => {
       rules('request.query.limit == 5', 'get'),
       [tcGet],
     );
-    // request.query is empty for non-list ops → request.query.limit is
-    // null → null == 5 is false → DENY (matches expectation).
+    // request.query is absent for non-list ops, so member access errors → DENY.
     expect(r.success && r.data.passed).toBe(1);
   });
 });

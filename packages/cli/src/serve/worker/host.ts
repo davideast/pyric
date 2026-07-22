@@ -44,4 +44,4 @@ export {
   listBranchNames,
 } from './host/connection.js';
 // The message dispatcher seam (entry.ts + tests) and per-port teardown.
-export { handleMessage, cleanupPort } from './host/dispatch.js';
+export { handleMessage, cleanupPort, cleanupPortWithDisconnect } from './host/dispatch.js';

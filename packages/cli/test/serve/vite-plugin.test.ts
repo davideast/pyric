@@ -349,6 +349,38 @@ async function callPyric(
   });
   return { statusCode: res.statusCode, headers: res.headers, body: res.body, nexted };
 }
+
+async function callPyricStack(
+  handlers: PyricMiddleware[],
+  opts: { method?: string; path: string; host?: string; headers?: Record<string, string> },
+): Promise<{ statusCode: number; headers: Record<string, unknown>; body: string; nexted: boolean }> {
+  const req: PyricReq = {
+    method: opts.method ?? 'GET',
+    url: opts.path,
+    originalUrl: opts.path,
+    headers: { host: opts.host ?? 'localhost', ...(opts.headers ?? {}) },
+  };
+  const res = new MockRes();
+  let nexted = false;
+  await new Promise<void>((resolve, reject) => {
+    res.on('finish', resolve);
+    res.on('error', reject);
+    const dispatch = (index: number): void => {
+      if (index === handlers.length) {
+        nexted = true;
+        resolve();
+        return;
+      }
+      try {
+        handlers[index]!(req, res, () => dispatch(index + 1));
+      } catch (error) {
+        reject(error as Error);
+      }
+    };
+    dispatch(0);
+  });
+  return { statusCode: res.statusCode, headers: res.headers, body: res.body, nexted };
+}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const initJson = async (handler: PyricMiddleware): Promise<any> =>
   JSON.parse((await callPyric(handler, { path: '/__pyric/init.json' })).body);
@@ -442,6 +474,75 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     await (p.closeBundle as () => Promise<void>)();
     await (p.closeBundle as () => Promise<void>)();
     expect(response.writableEnded).toBe(true);
+  });
+
+  it('reconfiguration and closeBundle remove all Functions watcher listeners', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-reconfigure-'));
+    mkdirSync(path.join(tmp, 'functions'));
+    writeFileSync(path.join(tmp, 'firebase.json'), JSON.stringify({ functions: { source: 'functions' } }));
+    writeFileSync(path.join(tmp, 'functions/package.json'), JSON.stringify({ main: 'index.js' }));
+    writeFileSync(path.join(tmp, 'functions/index.js'), 'module.exports = {};');
+    const p = pyric({ ui: false });
+
+    const configure = async () => {
+      const watcher = new EventEmitter() as EventEmitter & { add(path: string): void };
+      watcher.add = () => {};
+      const httpServer = Object.assign(new EventEmitter(), {
+        listening: false,
+        address: () => ({ port: 5173 }),
+      });
+      await (p.configureServer as (server: unknown) => Promise<void>)({
+        config: { root: tmp, logger: { info() {}, warn() {}, error() {} }, server: { allowedHosts: [], host: 'localhost' } },
+        middlewares: { use() {} },
+        watcher,
+        httpServer,
+      });
+      return { watcher, httpServer };
+    };
+
+    const first = await configure();
+    expect(first.watcher.listenerCount('change')).toBe(1);
+    expect(first.watcher.listenerCount('add')).toBe(1);
+    expect(first.watcher.listenerCount('unlink')).toBe(1);
+
+    const second = await configure();
+    expect(first.watcher.listenerCount('change')).toBe(0);
+    expect(first.watcher.listenerCount('add')).toBe(0);
+    expect(first.watcher.listenerCount('unlink')).toBe(0);
+    expect(first.httpServer.listenerCount('upgrade')).toBe(0);
+
+    await (p.closeBundle as () => Promise<void>)();
+    expect(second.watcher.listenerCount('change')).toBe(0);
+    expect(second.watcher.listenerCount('add')).toBe(0);
+    expect(second.watcher.listenerCount('unlink')).toBe(0);
+    expect(second.httpServer.listenerCount('upgrade')).toBe(0);
+  });
+
+  it('reconfiguration bypasses disposed middleware on the same Connect stack', async () => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-middleware-generation-'));
+    const p = pyric({ bridge: { disableAuditLog: true }, ui: false });
+    const handlers: PyricMiddleware[] = [];
+    const watcher = { add() {}, on() {}, off() {} };
+    const server = {
+      config: { root: tmp, logger: { info() {}, warn() {}, error() {} }, server: { allowedHosts: [], host: 'localhost' } },
+      middlewares: {
+        use(route: string, handler: PyricMiddleware) {
+          if (route === '/__pyric') handlers.push(handler);
+        },
+      },
+      watcher,
+      httpServer: null,
+    };
+
+    await (p.configureServer as (value: unknown) => Promise<void>)(server);
+    await (p.configureServer as (value: unknown) => Promise<void>)(server);
+    expect(handlers).toHaveLength(2);
+
+    const health = await callPyricStack(handlers, { path: '/__pyric/health' });
+    expect(health.statusCode).toBe(200);
+    expect(health.nexted).toBe(false);
+    expect(JSON.parse(health.body).status).toBe('ok');
+    await (p.closeBundle as () => Promise<void>)();
   });
 });
 

@@ -1,6 +1,6 @@
 /** Session-aware Service Worker relay over the authoritative SharedWorker host. */
 import {
-  cleanupPort,
+  cleanupPortWithDisconnect,
   handleMessage,
   type HostCtx,
   type PortLike,
@@ -53,7 +53,7 @@ export function createServiceWorkerRelay(options: {
             if (!previous) return;
             try {
               const ctx = await options.getCtx();
-              cleanupPort(ctx, previous.port);
+              await cleanupPortWithDisconnect(ctx, previous.port);
             } catch (error) {
               options.onError?.(error, envelope);
             }

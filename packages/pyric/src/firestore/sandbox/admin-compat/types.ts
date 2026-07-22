@@ -20,6 +20,7 @@ import {
   boundedActivityIdentity,
   registerActivityValue,
 } from '../../../firestore/sandbox/activity-value-registry.js';
+import { registerQueryValue } from '../../../firestore/sandbox/query-value-registry.js';
 import type {
   QueryOrderDirection,
   QueryWhereFilterOp,
@@ -311,6 +312,11 @@ export class Timestamp {
       this,
       boundedActivityIdentity('timestamp', String(seconds), '\0', String(nanoseconds)),
     );
+    registerQueryValue(this, Object.freeze({
+      type: 'timestamp',
+      seconds,
+      nanoseconds,
+    }), () => new Timestamp(seconds, nanoseconds));
   }
   static now(): Timestamp {
     return Timestamp.fromMillis(Date.now());

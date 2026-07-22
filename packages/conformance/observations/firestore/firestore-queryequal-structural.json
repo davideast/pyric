@@ -5,12 +5,187 @@
     "firestore#116"
   ],
   "description": "queryEqual semantics — does prod compare structurally or by identity?",
-  "observedAt": "2026-05-17T23:36:46.155Z",
+  "observedAt": "2026-07-22T03:35:06.457Z",
   "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "projectId": "digame-mas",
   "behavior": {
     "sameQueryBuiltTwice": true,
     "differentValue": false,
+    "objectValueBuiltTwice": true,
+    "objectValueChanged": false,
+    "sameCollectionScope": true,
+    "differentCollectionScope": false,
+    "sameCollectionGroupScope": true,
+    "differentCollectionGroupScope": false,
+    "collectionAndCollectionGroupDiffer": false,
+    "sameOrderSequence": true,
+    "differentOrderDirection": false,
+    "differentOrderSequence": false,
+    "sameLimit": true,
+    "differentLimit": false,
+    "limitAndLimitToLastDiffer": false,
+    "sameCompositeFilter": true,
+    "differentCompositeFilterValue": false,
+    "differentCompositeFilterShape": false,
+    "sameStartCursor": true,
+    "differentStartCursorValue": false,
+    "startAtAndStartAfterDiffer": false,
+    "sameEndCursor": true,
+    "differentEndCursorValue": false,
+    "endAtAndEndBeforeDiffer": false,
+    "structuredValueBuiltTwice": true,
+    "structuredValueChanged": false,
+    "timestampValueBuiltTwice": true,
+    "timestampValueChanged": false,
+    "bytesValueBuiltTwice": true,
+    "bytesValueChanged": false,
+    "geoPointValueBuiltTwice": true,
+    "geoPointValueChanged": false,
+    "referenceValueBuiltTwice": true,
+    "referenceValueChanged": false,
+    "referenceOtherDatabaseRejected": true,
+    "referenceOtherDatabaseErrorCode": "invalid-argument",
+    "nestedReferenceOtherDatabaseRejected": true,
+    "nestedReferenceOtherDatabaseErrorCode": "invalid-argument",
+    "arrayReferenceOtherDatabaseRejected": true,
+    "arrayReferenceOtherDatabaseErrorCode": "invalid-argument",
+    "convertedReferenceOtherDatabaseRejected": true,
+    "convertedReferenceOtherDatabaseErrorCode": "invalid-argument",
+    "rawAndConvertedReferenceOperandsEqual": true,
+    "constructedQueriesRemainEqualAfterOperandMutation": true,
+    "frozenExecutionIds": [
+      "a"
+    ],
+    "independentExecutionIds": [
+      "a"
+    ],
+    "timestampExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "bytesExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "geoPointExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "referenceExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "vectorExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "bytesExecutionAfterInputMutation": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "vectorExecutionAfterInputMutation": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "frozenBytesExecutionAfterInputMutation": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "frozenVectorExecutionAfterInputMutation": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "snapshotAndExplicitCursorEqual": true,
+    "snapshotCursorConverterCallsAfterFetch": 0,
+    "snapshotCursorConverterCallsAfterConstruction": 0,
+    "statefulSnapshotCursorEqualToExplicit": true,
+    "snapshotCursorConverterCallsAfterEquality": 0,
+    "statefulSnapshotCursorFirstExecutionIds": [
+      "a",
+      "b"
+    ],
+    "snapshotCursorConverterCallsAfterFirstExecution": 0,
+    "statefulSnapshotCursorSecondExecutionIds": [
+      "a",
+      "b"
+    ],
+    "snapshotCursorConverterCallsAfterSecondExecution": 0,
+    "statefulSnapshotCursorMatrix": {
+      "startAt": {
+        "equalToExplicit": true,
+        "firstExecutionIds": [
+          "a",
+          "b"
+        ],
+        "secondExecutionIds": [
+          "a",
+          "b"
+        ]
+      },
+      "startAfter": {
+        "equalToExplicit": true,
+        "firstExecutionIds": [
+          "b"
+        ],
+        "secondExecutionIds": [
+          "b"
+        ]
+      },
+      "endAt": {
+        "equalToExplicit": true,
+        "firstExecutionIds": [
+          "a"
+        ],
+        "secondExecutionIds": [
+          "a"
+        ]
+      },
+      "endBefore": {
+        "equalToExplicit": true,
+        "firstExecutionIds": [],
+        "secondExecutionIds": []
+      }
+    },
+    "snapshotCursorConverterCallsAfterAllOverloads": 0,
+    "rawAddDocReferenceEqualToRebuilt": true,
+    "convertedAddDocReferenceEqualToRebuilt": true,
+    "rawAddDocReferenceExecutionIds": [
+      "a"
+    ],
+    "convertedAddDocReferenceExecutionIds": [
+      "a"
+    ],
+    "vectorValueBuiltTwice": true,
+    "vectorValueChanged": false,
+    "dateEqualsEquivalentTimestamp": true,
+    "negativeZeroEqualsPositiveZero": false,
+    "sameConverterIdentity": true,
+    "differentConverterIdentity": false,
+    "getterQueriesEqual": true,
+    "getterCallsAfterConstruction": 2,
+    "getterCallsAfterEquality": 2,
+    "undefinedRejected": true,
+    "undefinedErrorCode": "invalid-argument",
+    "bigintRejected": true,
+    "bigintErrorCode": null,
     "identity": true
   }
 }

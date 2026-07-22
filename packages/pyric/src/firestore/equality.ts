@@ -1,5 +1,6 @@
 /** `pyric/firestore` — sandbox reference and snapshot equality helpers. */
-import { targetOf, underlyingOf } from './state.js';
+import { converterOf, targetOf, underlyingOf } from './state.js';
+import { taggedSnapshotsEqual } from './snapshots.js';
 import type {
   DocumentReference,
   Query,
@@ -20,7 +21,12 @@ export function refEqual(a: DocumentReference, b: DocumentReference): boolean {
 
 export function queryEqual(a: Query, b: Query): boolean {
   assertRecognizedPair(a as object, b as object);
-  return a === b;
+  if (converterOf(a as object) !== converterOf(b as object)) return false;
+  const left = underlyingOf(a as object) as {
+    isStructurallyEqual?: (other: unknown) => boolean;
+  };
+  const right = underlyingOf(b as object);
+  return left.isStructurallyEqual?.(right) ?? a === b;
 }
 
 export function snapshotEqual(
@@ -28,5 +34,5 @@ export function snapshotEqual(
   b: DocumentSnapshot | QuerySnapshot,
 ): boolean {
   assertRecognizedPair(a as object, b as object);
-  return a === b;
+  return taggedSnapshotsEqual(a as object, b as object);
 }

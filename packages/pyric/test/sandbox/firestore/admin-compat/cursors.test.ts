@@ -195,15 +195,15 @@ describe('runtime contracts', () => {
     expect(String(err)).toContain('orderBy() clauses');
   });
 
-  it('limitToLast without orderBy throws a FirestoreError invalid-argument (FS-B16)', async () => {
+  it('firestore#61 limitToLast without orderBy throws the production unimplemented code', async () => {
     const db = setup();
     let err: unknown;
     try {
       await db.collection('tickets').limitToLast(2).get();
     } catch (e) { err = e; }
     expect(String(err)).toContain('orderBy clause');
-    // FS-B16 — the throw now carries a typed `.code` (was a plain Error).
-    expect((err as { code?: string }).code).toBe('invalid-argument');
+    // The throw remains typed, and its code matches the production observation.
+    expect((err as { code?: string }).code).toBe('unimplemented');
   });
 
   it('snapshot cursor from a non-existent doc throws not-found with a .code (FS-B16)', async () => {

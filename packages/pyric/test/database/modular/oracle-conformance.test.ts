@@ -87,7 +87,10 @@ import {
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-modular');
 
 /** Observations that cannot be replayed against the sandbox, with the reason. */
-const NOT_APPLICABLE: Record<string, string> = {};
+const NOT_APPLICABLE: Record<string, string> = {
+  'rtdb-modular-ondisconnect-abrupt-exit.json':
+    'requires terminating the writer process; the sandbox boundary is pinned as a documented divergence in M84',
+};
 
 function load(name: string): Record<string, unknown> {
   const json = JSON.parse(readFileSync(join(OBS_DIR, name), 'utf8')) as {
@@ -959,8 +962,11 @@ describe('oracle conformance (rtdb-modular)', () => {
     const all = readdirSync(OBS_DIR).filter(
       (f) => f.startsWith('rtdb-modular-') && f.endsWith('.json'),
     );
-    expect(all.length).toBe(39);
-    const source = readFileSync(import.meta.path, 'utf8');
+    expect(all.length).toBe(44);
+    const source = [
+      readFileSync(import.meta.path, 'utf8'),
+      readFileSync(join(import.meta.dir, '..', 'on-disconnect.test.ts'), 'utf8'),
+    ].join('\n');
     const uncovered = all.filter(
       (f) => !source.includes(f.replace('.json', '')) && !(f in NOT_APPLICABLE),
     );

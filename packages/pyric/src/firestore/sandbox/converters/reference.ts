@@ -28,6 +28,7 @@
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';
 import { Reference } from 'pyric/rules/internal';
+import { registeredReferenceQueryValuePath } from '../query-value-registry.js';
 
 /** Minimal duck-type for admin SDK DocumentReference. */
 interface AdminDocumentReferenceLike {
@@ -53,6 +54,10 @@ function isAdminDocumentReference(v: unknown): v is AdminDocumentReferenceLike {
 export const documentReferenceConverter: ValueConverter = {
   name: 'document-reference',
   convert(value) {
+    if (typeof value === 'object' && value !== null) {
+      const registeredPath = registeredReferenceQueryValuePath(value);
+      if (registeredPath !== undefined) return new Reference(registeredPath);
+    }
     if (!isAdminDocumentReference(value)) return KEEP;
     return new Reference(value.path);
   },

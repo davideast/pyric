@@ -14,6 +14,7 @@ import type {
 import {
   targetOf,
   converterOf,
+  tag,
   chainDocFor,
   chainQueryFor,
 } from './state.js';
@@ -21,6 +22,7 @@ import {
   wrapSandboxDocSnap,
   applyConverterToDocSnap,
   tagSnapshotRefs,
+  recordQuerySnapshot,
 } from './snapshots.js';
 import type {
   DocumentReference,
@@ -39,6 +41,8 @@ export async function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promi
     return applyConverterToDocSnap(
       snap as unknown as ChainDocSnap,
       conv as FirestoreDataConverter<T>,
+      target,
+      'document',
     );
   }
   tagSnapshotRefs(snap, target);
@@ -52,16 +56,24 @@ export async function getDocs<T = DocumentData>(query: Query<T>): Promise<QueryS
   if (conv) {
     const c = conv as FirestoreDataConverter<T>;
     const wrappedDocs = (snap as unknown as ChainQuerySnap).docs.map((d) =>
-      applyConverterToDocSnap(d as unknown as ChainDocSnap, c) as QueryDocumentSnapshot<T>,
+      applyConverterToDocSnap(
+        d as unknown as ChainDocSnap,
+        c,
+        target,
+        'query-child',
+      ) as QueryDocumentSnapshot<T>,
     );
-    return {
+    const wrapped = tag({
       size: wrappedDocs.length,
       empty: wrappedDocs.length === 0,
       docs: wrappedDocs,
-    };
+    }, target);
+    recordQuerySnapshot(wrapped, snap as object, target, query as object, 'read');
+    return wrapped;
   }
   tagSnapshotRefs(snap, target);
   const docs = (snap as unknown as ChainQuerySnap).docs;
   for (const d of docs) wrapSandboxDocSnap(d as object);
+  recordQuerySnapshot(snap as object, snap as object, target, query as object, 'read');
   return snap as unknown as QuerySnapshot<T>;
 }

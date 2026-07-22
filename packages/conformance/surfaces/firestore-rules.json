@@ -10,7 +10,8 @@
     "rules-firestore-"
   ],
   "coverage": true,
-  "scopeNote": "native (no upstream): the Firestore rules simulator, measured against the production Rules Test API engine. Seven documented simulator divergences are the founding diverged-documented rows of this surface.",
+  "climb": true,
+  "scopeNote": "native (no upstream): the Firestore rules simulator, measured against the production Rules Test API engine. The strict construct score is published separately; remaining divergences and unsupported rows stay visible and contaminate assurance.",
   "conformanceSuite": "packages/pyric/test/rules/oracle-conformance.test.ts",
   "captureRigs": [
     "rules-firestore"

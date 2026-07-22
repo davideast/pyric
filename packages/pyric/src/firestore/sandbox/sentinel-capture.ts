@@ -22,6 +22,8 @@
  * — probe R2 measured p99 ≤ 0.009ms across 0/1/16 sentinels per doc.
  */
 
+import { registeredQueryValue } from './query-value-registry.js';
+
 export interface SentinelHit {
   /** Dotted path with bracket-array-indices. */
   field: string;
@@ -30,11 +32,18 @@ export interface SentinelHit {
 
 export function walkForSentinels(value: unknown, prefix = ''): SentinelHit[] {
   const hits: SentinelHit[] = [];
+  const seen = new WeakSet<object>();
   visit(value, prefix);
   return hits;
 
   function visit(v: unknown, p: string): void {
     if (v === null || v === undefined || typeof v !== 'object') return;
+    if (seen.has(v)) return;
+    seen.add(v);
+    // Firestore scalar wrappers (including DocumentReference) are leaves.
+    // Walking their owner/runtime links is both irrelevant to sentinel
+    // capture and can encounter cycles.
+    if (registeredQueryValue(v) !== undefined) return;
     if (Array.isArray(v)) {
       v.forEach((el, i) => visit(el, `${p}[${i}]`));
       return;
