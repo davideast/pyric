@@ -1,18 +1,5 @@
+import { readdirSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
-import {
-  runDatabaseRulesGenerate,
-  runDatabaseRulesLint,
-  runDatabaseRulesSimulate,
-  runDatabaseRulesValidate,
-} from './database-rules.js';
-import { runFirestoreIndexesGenerate } from './firestore-indexes.js';
-import {
-  runRulesLint,
-  runRulesResolve,
-  runRulesSimulate,
-  runRulesValidate,
-} from './rules.js';
-import { runStorageRulesLint, runStorageRulesSimulate } from './storage-rules.js';
 
 type ServiceCommandPath = readonly [service: string, artifact: string, operation: string];
 
@@ -39,22 +26,22 @@ export function createServiceCommandRegistry(
   return registry;
 }
 
-const SERVICE_COMMANDS = [
-  { path: ['firestore', 'rules', 'lint'], run: runRulesLint },
-  { path: ['firestore', 'rules', 'validate'], run: runRulesValidate },
-  { path: ['firestore', 'rules', 'simulate'], run: runRulesSimulate },
-  { path: ['firestore', 'rules', 'resolve'], run: runRulesResolve },
-  { path: ['firestore', 'indexes', 'generate'], run: runFirestoreIndexesGenerate },
-  { path: ['storage', 'rules', 'lint'], run: runStorageRulesLint },
-  { path: ['storage', 'rules', 'simulate'], run: runStorageRulesSimulate },
-  { path: ['database', 'rules', 'lint'], run: runDatabaseRulesLint },
-  { path: ['database', 'rules', 'validate'], run: runDatabaseRulesValidate },
-  { path: ['database', 'rules', 'simulate'], run: runDatabaseRulesSimulate },
-  { path: ['database', 'rules', 'generate'], run: runDatabaseRulesGenerate },
-] as const satisfies readonly ServiceCommand[];
+async function loadServiceCommands(): Promise<readonly ServiceCommand[]> {
+  const directory = new URL('./service-command-records/', import.meta.url);
+  const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
+  const files = readdirSync(directory)
+    .filter((file) => file.endsWith(extension) && !file.endsWith('.d.ts'))
+    .sort();
+  return await Promise.all(files.map(async (file) => {
+    const module = await import(new URL(file, directory).href) as { default: ServiceCommand };
+    return module.default;
+  }));
+}
 
-const SERVICE_COMMAND_REGISTRY = createServiceCommandRegistry(SERVICE_COMMANDS);
-const SERVICES: ReadonlySet<string> = new Set(SERVICE_COMMANDS.map(({ path }) => path[0]));
+const serviceCommands = loadServiceCommands().then((commands) => ({
+  registry: createServiceCommandRegistry(commands),
+  services: new Set(commands.map(({ path }) => path[0])),
+}));
 
 function invocation(parsed: ParsedArgs): string {
   return [parsed.subcommand, ...parsed.positional].filter(Boolean).join(' ');
@@ -66,11 +53,12 @@ function invocation(parsed: ParsedArgs): string {
  * top-level dispatcher can continue with commands such as `dev` and `verify`.
  */
 export async function dispatchServiceCommand(parsed: ParsedArgs): Promise<number | null> {
+  const { registry, services } = await serviceCommands;
   const service = parsed.subcommand;
-  if (!service || !SERVICES.has(service)) return null;
+  if (!service || !services.has(service)) return null;
 
   const [artifact, operation] = parsed.positional;
-  const command = SERVICE_COMMAND_REGISTRY.get(routeKey([service, artifact, operation]));
+  const command = registry.get(routeKey([service, artifact, operation]));
   if (command) {
     return await command.run({
       ...parsed,
