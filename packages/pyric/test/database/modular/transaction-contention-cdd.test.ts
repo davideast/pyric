@@ -12,14 +12,14 @@ import { loadObservation, setup } from './cdd-replay-helpers.js';
 const concurrentObservation = loadObservation('rtdb-modular-concurrent-transforms');
 
 describe('RTDB CDD transaction contention cases', () => {
-  it('rtdb-modular#157 accumulates concurrent increment sentinels', async () => {
+  it('rtdb-modular#157 documents synchronous increment serialization', async () => {
     const { first, second } = setup();
     const target = ref(first, 'contention/increment');
     await set(target, 0);
-    await Promise.all([
-      set(target, increment(2)),
-      set(ref(second, 'contention/increment'), increment(3)),
-    ]);
+    const firstWrite = set(target, increment(2));
+    expect(first[TARGET_SYMBOL].backend.adminGet('/contention/increment')).toBe(2);
+    const secondWrite = set(ref(second, 'contention/increment'), increment(3));
+    await Promise.all([firstWrite, secondWrite]);
     expect((await get(target)).val()).toBe(concurrentObservation.incrementTerminal);
   });
 
