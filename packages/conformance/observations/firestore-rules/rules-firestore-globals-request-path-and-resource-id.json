@@ -5,23 +5,23 @@
     "firestore-rules#166"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"globals-request-path-and-resource-id\" (Item 6). Sim must populate request.path, expose request.query only for list requests, and preserve production absence/error semantics for document identity.",
-  "observedAt": "2026-07-21T23:43:05.444Z",
+  "observedAt": "2026-07-22T01:09:36.639Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "79bd5d46d2a8369d457cd424e9ba54ff001a6819fba5fc8ef00d19f30d2093b6"
+    "value": "9c46a6c27a6ed6c37601304f6683f19f9eb1c49ea953910a2c36a95e647f0713"
   },
   "behavior": {
     "request.path is path ALLOW": "ALLOW",
     "request.path equals literal ALLOW": "ALLOW",
-    "request.query empty map ALLOW": "DENY",
+    "request.query empty map DENY": "DENY",
     "resource.id on create → DENY (resource is null pre-write)": "DENY",
     "resource.__name__ on create → DENY (resource is null pre-write)": "DENY",
     "wrong resource.id DENY": "DENY"
   },
   "diagnostics": {
-    "request.query empty map ALLOW": {
+    "request.query empty map DENY": {
       "notes": [
         "Error: firestore.rules line [17], column [12]. Property query is undefined on object."
       ],

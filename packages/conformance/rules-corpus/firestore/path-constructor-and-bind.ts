@@ -121,7 +121,7 @@ service cloud.firestore {
     {
       // The description is the immutable production-observation join key. The
       // captured verdict established that this expression is denied.
-      description: 'path() idempotent on Path arg ALLOW',
+      description: 'path() idempotent on Path arg DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'pathIdempotentAllow/d8',

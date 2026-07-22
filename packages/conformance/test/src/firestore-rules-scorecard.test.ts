@@ -123,6 +123,12 @@ describe('Firestore Rules scorecard', () => {
       coverage: [{ ...coverage(id), verifiedByRows: ['firestore-rules#187'] }],
     });
     expect(withRow.constructs[0]?.classification).toBe('conformant');
+
+    const unrelatedRow = deriveFirestoreRulesScorecard({
+      constructs: [construct(id)], capabilities: [capability(id)],
+      coverage: [{ ...coverage(id), verifiedByRows: ['firestore-rules#160'] }],
+    });
+    expect(unrelatedRow.constructs[0]?.classification).toBe('unknown');
   });
 
   it('withholds credit when an accepted local probe returns the wrong verdict', () => {

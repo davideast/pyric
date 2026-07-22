@@ -68,6 +68,7 @@ import {
   indexConstructScopes,
   type ProductionVerdict,
 } from './production-verification.ts';
+import { assertFirestoreRulesOracleReplay } from './firestore-rules-oracle-replay.ts';
 
 // ── Result shape ──────────────────────────────────────────────────────
 
@@ -877,6 +878,7 @@ export interface CoverageReport {
 const RULES_ENGINES: readonly RulesEngine[] = ['firestore', 'storage', 'rtdb'] as const;
 
 export async function computeCoverageReport(): Promise<CoverageReport> {
+  await assertFirestoreRulesOracleReplay();
   const engines: EngineCoverage[] = [];
   const scopes = indexConstructScopes(surfaceRegistries);
   for (const engine of RULES_ENGINES) {

@@ -5,21 +5,21 @@
     "firestore-rules#174"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"set-algebra-difference-union-intersection\" (Item 5.1). Production distinguishes Map.keys() List receivers (no set algebra) from explicit List.toSet() Set receivers (difference/union/intersection supported); paired cases lock the boundary.",
-  "observedAt": "2026-07-22T00:18:41.692Z",
+  "observedAt": "2026-07-22T01:09:36.036Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "0c22d1964dc2c7c4d4400ee9fb1aad9c4a56d0713e53f0f4452dc0c1f73756ed"
+    "value": "0d366777f30ffa0e859164b8ec6a7ff34c21363b72adaff652d813f3b9dffbe4"
   },
   "behavior": {
-    "set difference (list arg) → hasOnly([c]) ALLOW": "DENY",
-    "set difference (set arg) → hasOnly([x]) ALLOW": "DENY",
-    "set union → size 4 ALLOW": "DENY",
-    "set union dedupes overlap → size 3 ALLOW": "DENY",
-    "set intersection → hasOnly([b,c]) ALLOW": "DENY",
-    "set intersection no overlap → empty ALLOW": "DENY",
-    "chained union+difference → hasOnly([b,c]) ALLOW": "DENY",
+    "set difference (list arg) → hasOnly([c]) DENY": "DENY",
+    "set difference (set arg) → hasOnly([x]) DENY": "DENY",
+    "set union → size 4 DENY": "DENY",
+    "set union dedupes overlap → size 3 DENY": "DENY",
+    "set intersection → hasOnly([b,c]) DENY": "DENY",
+    "set intersection no overlap → empty DENY": "DENY",
+    "chained union+difference → hasOnly([b,c]) DENY": "DENY",
     "difference with wrong expected size DENY": "DENY",
     "explicit toSet difference ALLOW": "ALLOW",
     "explicit toSet union ALLOW": "ALLOW",
@@ -27,7 +27,7 @@
     "explicit toSet difference wrong size DENY": "DENY"
   },
   "diagnostics": {
-    "set difference (list arg) → hasOnly([c]) ALLOW": {
+    "set difference (list arg) → hasOnly([c]) DENY": {
       "notes": [
         "Error: firestore.rules line [7], column [12]. Function not found error: Name: [difference]."
       ],
@@ -52,7 +52,7 @@
         ]
       }
     },
-    "set difference (set arg) → hasOnly([x]) ALLOW": {
+    "set difference (set arg) → hasOnly([x]) DENY": {
       "notes": [
         "Error: firestore.rules line [12], column [12]. Function not found error: Name: [difference]."
       ],
@@ -77,7 +77,7 @@
         ]
       }
     },
-    "set union → size 4 ALLOW": {
+    "set union → size 4 DENY": {
       "notes": [
         "Error: firestore.rules line [17], column [12]. Function not found error: Name: [union]."
       ],
@@ -102,7 +102,7 @@
         ]
       }
     },
-    "set union dedupes overlap → size 3 ALLOW": {
+    "set union dedupes overlap → size 3 DENY": {
       "notes": [
         "Error: firestore.rules line [22], column [12]. Function not found error: Name: [union]."
       ],
@@ -127,7 +127,7 @@
         ]
       }
     },
-    "set intersection → hasOnly([b,c]) ALLOW": {
+    "set intersection → hasOnly([b,c]) DENY": {
       "notes": [
         "Error: firestore.rules line [27], column [12]. Function not found error: Name: [intersection]."
       ],
@@ -153,7 +153,7 @@
         ]
       }
     },
-    "set intersection no overlap → empty ALLOW": {
+    "set intersection no overlap → empty DENY": {
       "notes": [
         "Error: firestore.rules line [32], column [12]. Function not found error: Name: [intersection]."
       ],
@@ -178,7 +178,7 @@
         ]
       }
     },
-    "chained union+difference → hasOnly([b,c]) ALLOW": {
+    "chained union+difference → hasOnly([b,c]) DENY": {
       "notes": [
         "Error: firestore.rules line [37], column [12]. Function not found error: Name: [union]."
       ],

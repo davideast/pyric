@@ -2,8 +2,8 @@
 
 Status: executed locally on 2026-07-21 under the explicit-classification exit contract below (no PR, push, or remote CI)
 
-Baseline date: 2026-07-21  
-Initial analysis main commit: `564ab7ad`  
+Baseline date: 2026-07-21
+Initial analysis main commit: `564ab7ad`
 Final local execution base: `3011b4cc` (latest `main` on 2026-07-21)
 
 ## Execution result
@@ -23,8 +23,8 @@ Accepted constructs also require the exact production and local microprobe
 verdicts to match the authored expectation. A missing or extra API result
 aborts at the wire adapter before positional normalization. The committed
 Firestore acceptance-evidence ledger preserves capture metadata and every
-expected/actual verdict; score computation binds it to the compact snapshot
-and current probe digest. The gate also binds the captured expected verdict to
+expected/actual verdict returned by evaluation; score computation binds it to
+the compact snapshot and current probe digest. The gate also binds the captured expected verdict to
 the current canonical probe case, binds rejection/unprobeable diagnostics
 exactly, and runs on both the standalone score command and the central
 conformance-model projection path.

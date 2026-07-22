@@ -36,7 +36,7 @@ export interface FirestoreScorecardBaseline {
     'productionAcceptance' | 'localAcceptance' | 'productionRejectionSignature' | 'localRejectionSignature' |
     'localCapability' | 'productionProbeDigest' | 'currentProbeDigest' | 'acceptanceProbeBound' |
     'productionEvaluationAgreement' | 'localEvaluationAgreement' |
-    'productionEvidence' | 'classification'
+    'productionEvidence' | 'classification' | 'verifiedBy' | 'verifiedByRows' | 'divergedByRows'
   >>>;
 }
 
@@ -67,6 +67,9 @@ export function firestoreScorecardBaseline(
         ? { localEvaluationAgreement: construct.localEvaluationAgreement } : {}),
       productionEvidence: construct.productionEvidence,
       classification: construct.classification,
+      verifiedBy: construct.verifiedBy,
+      verifiedByRows: construct.verifiedByRows,
+      divergedByRows: construct.divergedByRows,
     }])),
   };
 }
@@ -137,6 +140,11 @@ export function compareFirestoreScorecardBaseline(
     ] as const) {
       if (before[field] !== after[field]) {
         factChanges.push(`${id}: ${field} ${before[field]} -> ${after[field]}`);
+      }
+    }
+    for (const field of ['verifiedBy', 'verifiedByRows', 'divergedByRows'] as const) {
+      if (json(before[field]) !== json(after[field])) {
+        factChanges.push(`${id}: ${field} ${json(before[field])} -> ${json(after[field])}`);
       }
     }
   }

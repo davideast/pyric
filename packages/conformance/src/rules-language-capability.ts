@@ -78,7 +78,7 @@ service cloud.firestore {
  *  the SAME per-construct micro-scenario generator the capability probe
  *  uses against the local simulator — one generator, two backends. */
 export type FsProbe =
-  | { expr: string; method?: TestCase['method']; withMocks?: TestCase['functionMocks'] }
+  | { expr: string; method?: TestCase['method']; query?: TestCase['query']; withMocks?: TestCase['functionMocks'] }
   | { rules: string; cases: TestCase[] }
   | { unprobeable: string };
 
@@ -106,7 +106,10 @@ export function resolveFsProbe(probe: FsProbe): { rules: string; cases: TestCase
   if ('unprobeable' in probe) return probe;
   if ('rules' in probe) return { rules: probe.rules, cases: probe.cases };
   const rules = FS_RULESET(probe.expr, probe.method === 'create' || probe.method === 'update' || probe.method === 'delete' ? 'write' : 'read');
-  const cases: TestCase[] = [{ description: 'probe', ...FS_BASE_CASE, method: probe.method ?? 'get', functionMocks: probe.withMocks }];
+  const cases: TestCase[] = [{
+    description: 'probe', ...FS_BASE_CASE, method: probe.method ?? 'get',
+    functionMocks: probe.withMocks, query: probe.query,
+  }];
   return { rules, cases };
 }
 
@@ -265,7 +268,9 @@ export function fsProbeFor(c: LanguageConstruct): FsProbe {
   if (c.kind === 'binding') {
     const name = c.id.slice('firestore.binding.'.length);
     if (name === 'path-variable') return { expr: 'id == id' };
-    if (name === 'request.query') return { expr: 'request.method == request.method' }; // query only bound on list; probe method availability instead
+    if (name === 'request.query') return {
+      expr: 'request.query.limit == 10', method: 'list', query: { limit: 10 },
+    };
     return { expr: `${name} == ${name}` };
   }
   // Rule-kinds — allow verbs and structural forms.
@@ -327,8 +332,8 @@ service cloud.firestore {
   }
 }`, cases: [{ description: 'probe', ...FS_BASE_CASE, path: 'probe/x/sub/y' }] };
     }
-    if (name === 'error-absorption-or') return { expr: 'true || (request.resource.data.missing.deep == 1)' };
-    if (name === 'error-absorption-and') return { expr: '!(false && (request.resource.data.missing.deep == 1))' };
+    if (name === 'error-absorption-or') return { expr: '(request.resource.data.missing.deep == 1) || true' };
+    if (name === 'error-absorption-and') return { expr: '!((request.resource.data.missing.deep == 1) && false)' };
     if (name === 'get-budget') {
       return { unprobeable: 'the get() budget (cap 10 per evaluation) is a resource-limit semantic, not expressible as a single-expression micro-scenario.' };
     }
@@ -768,7 +773,7 @@ export function computeCapabilityReport(): CapabilityReport {
   }
   return {
     generatedNote:
-      'DRAFT (issue #185 step 3). Language coverage = constructs the simulator EVALUATES / auto-probeable constructs (implemented + unsupported). `error` marks malformed micro-scenarios; `unprobeable` marks constructs no micro-scenario can auto-generate (behavioral semantics, module resolution, unmodeled fields). Not yet wired into the ratchet (step 4).',
+      'Supporting capability axis consumed by the strict Firestore Rules score gate. Language coverage = constructs the simulator EVALUATES / auto-probeable constructs (implemented + unsupported). `error` marks malformed micro-scenarios; `unprobeable` marks constructs no micro-scenario can auto-generate (behavioral semantics, module resolution, unmodeled fields).',
     engines,
   };
 }

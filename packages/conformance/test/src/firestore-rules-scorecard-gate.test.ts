@@ -44,6 +44,23 @@ describe('Firestore Rules scorecard baseline gate', () => {
     });
   });
 
+  it('pins evidence provenance for every construct', () => {
+    const current = scorecard(['a']);
+    const baseline = firestoreScorecardBaseline(current);
+    const substituted = structuredClone(current);
+    substituted.constructs = [{
+      ...substituted.constructs[0]!,
+      verifiedBy: ['different-scenario'],
+      verifiedByRows: ['firestore-rules#999'],
+      divergedByRows: ['firestore-rules#998'],
+    }];
+    expect(compareFirestoreScorecardBaseline(baseline, substituted).factChanges).toEqual(expect.arrayContaining([
+      expect.stringContaining('verifiedBy'),
+      expect.stringContaining('verifiedByRows'),
+      expect.stringContaining('divergedByRows'),
+    ]));
+  });
+
   it('names denominator additions and removals instead of hiding them in a percentage', () => {
     const baseline = firestoreScorecardBaseline(scorecard(['a', 'b']));
     const comparison = compareFirestoreScorecardBaseline(baseline, scorecard(['b', 'c']));

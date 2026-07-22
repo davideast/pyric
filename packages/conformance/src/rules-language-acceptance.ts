@@ -74,6 +74,7 @@ import {
   stProbeFor,
   resolveStProbe,
 } from './rules-language-capability.ts';
+import { FIRESTORE_ACCEPTANCE_EVIDENCE_NOTE } from './firestore-rules-acceptance-evidence.ts';
 import { firestoreRulesTestInputDigest } from './firestore-rules-input-digest.ts';
 import {
   loadSnapshot,
@@ -125,9 +126,8 @@ interface ConstructProbeResult {
   status: AcceptanceStatus;
   probeNote?: string;
   probeDigest?: { algorithm: 'sha256'; value: string };
-  /** Set only for `accepted` constructs where the micro-scenario defines an
-   *  expected verdict (i.e. all of them) — whether production's actual
-   *  decision matched. */
+  /** Set whenever production returned a per-case verdict, including
+   *  evaluation-time rejections. Compile-time rejections have no verdict. */
   evaluationAgreement?: boolean;
   evaluationDetail?: string;
   expectedDecision?: 'ALLOW' | 'DENY';
@@ -332,7 +332,13 @@ async function probeFirestoreConstruct(
   if (!agree) {
     const rejectionReason = evaluationRejectionReason(result?.notes ?? []);
     if (rejectionReason) {
-      return { id: c.id, kind: c.kind, status: 'rejected', probeNote: rejectionReason, probeDigest };
+      return {
+        id: c.id, kind: c.kind, status: 'rejected', probeNote: rejectionReason, probeDigest,
+        evaluationAgreement: agree,
+        evaluationDetail: `expected ${expected}, got ${decision}`,
+        expectedDecision: expected,
+        actualDecision: decision,
+      };
     }
   }
   return {
@@ -434,9 +440,7 @@ function writeFirestoreAcceptanceEvidence(
   if (!firestore) return;
   const evidence = {
     schema: 'pyric.conformance.firestore-rules-acceptance-evidence.v1',
-    generatedNote:
-      'Committed read-only Rules Test API evidence. The score validator binds every construct to this record, ' +
-      'its current probe digest, status, and exact expected/actual decision.',
+    generatedNote: FIRESTORE_ACCEPTANCE_EVIDENCE_NOTE,
     capturedAt: report.probedAt,
     projectId,
     ...firestore,
@@ -506,7 +510,7 @@ async function run(): Promise<void> {
     }
     const disagreements = results.filter((r) => r.evaluationAgreement === false);
     if (disagreements.length > 0) {
-      console.log(`  EVALUATION DISAGREEMENT (accepted, but verdict differs from expectation):`);
+      console.log(`  EVALUATION DISAGREEMENT (production verdict differs from expectation):`);
       for (const r of disagreements) console.log(`    - ${r.id}: ${r.evaluationDetail}`);
     }
   }

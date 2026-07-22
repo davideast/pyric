@@ -129,7 +129,7 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'toBase64 round-trip ALLOW',
+      description: 'toBase64 round-trip DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'base64Allow/d3',
@@ -153,7 +153,7 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'md5 empty string ALLOW',
+      description: 'md5 empty string DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'md5EmptyAllow/d6',
@@ -161,7 +161,7 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'sha256 abc ALLOW',
+      description: 'sha256 abc DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'sha256AbcAllow/d7',
@@ -169,7 +169,7 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'crc32 IEEE 802.3 ref ALLOW',
+      description: 'crc32 IEEE 802.3 ref DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'crc32RefAllow/d8',
@@ -177,7 +177,7 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'crc32c Castagnoli ref ALLOW',
+      description: 'crc32c Castagnoli ref DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'crc32cRefAllow/d9',
@@ -233,7 +233,7 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'crc32 uppercase production representation ALLOW',
+      description: 'crc32 uppercase production representation DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'crc32UpperAllow/d15',
@@ -241,7 +241,7 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'crc32c uppercase production representation ALLOW',
+      description: 'crc32c uppercase production representation DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'crc32cUpperAllow/d16',

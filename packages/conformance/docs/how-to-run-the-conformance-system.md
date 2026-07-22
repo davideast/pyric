@@ -51,8 +51,8 @@ Green looks like this (trimmed):
 ```
 $ bun run compat:check
 # Compatibility registry validation
-Rows: 815
-Observations: 267
+Rows: 824
+Observations: 276
 Conformance checks: 4
 Problems: 0
 
@@ -74,8 +74,8 @@ Browser query projection: … bytes raw, … bytes gzip
 Assurance verdicts: 1067 nodes (851 supported, 135 qualified, 81 unsupported)
 Generated verdict lookup: … bytes raw, … bytes gzip
 
-Firestore Rules conformance: 126/140 (90%) — 2 diverged, 0 unknown,
-6 acceptance-mismatch, 0 local-unsupported, 3 local-error, 3 unprobeable.
+Firestore Rules conformance: 129/140 (92.1%) — 2 diverged, 0 unknown,
+6 acceptance-mismatch, 0 local-unsupported, 0 local-error, 3 unprobeable.
 ✓ Score, denominator, and per-construct facts match the committed baseline.
 
 # Compatibility coverage
@@ -828,7 +828,7 @@ These two are pure in-process probes of installed library code. That is why
 |---|---|---|
 | `oracle-run` | 130 observations across five surfaces: `auth-` (28), `firestore-` (40), `rtdb-` (14), `rtdb-modular-` (39), `storage-` (9) | `PYRIC_ORACLE_FIREBASE_CONFIG` (web config JSON) plus `PYRIC_ORACLE_SA_PATH` (service-account file). The project needs Anonymous sign-in enabled and Firestore rules scoped to the `pyric_oracle` namespace. An RTDB instance and a Storage bucket are optional: those probes self-skip when absent. |
 | `rtdb-rules` | 8 `rules-rtdb-` observations: per-case ALLOW/DENY verdicts for the RTDB rules corpus | The same two vars as `oracle-run`. The service account must additionally hold a role granting the `firebase.database` scope, so `/.settings/rules.json` PUT and GET both succeed. |
-| `rules-firestore` | 27 `rules-firestore-` observations: per-case ALLOW/DENY/UNSUPPORTED verdicts from the production Firestore Rules Test API, each SHA-256-bound to its exact rules/request inputs | `PARITY_SA_BASE64`: a base64 service account holding ONLY `firebaserules.rulesets.test`. It cannot read or write any data. |
+| `rules-firestore` | 28 `rules-firestore-` observations: per-case ALLOW/DENY/UNSUPPORTED verdicts from the production Firestore Rules Test API, each SHA-256-bound to its exact rules/request inputs | `PARITY_SA_BASE64`: a base64 service account holding ONLY `firebaserules.rulesets.test`. It cannot read or write any data. |
 | `rules-storage` | 8 `rules-storage-` observations, via the same `projects.test` endpoint | `PARITY_SA_BASE64`, same minimal scope. |
 | `ai-logic` | 14 `ai-` observations: error, SSE-framing, envelope, function-call, and countTokens facts from the production Firebase AI Logic proxy | `PYRIC_AI_FIREBASE_CONFIG`. The project needs Firebase AI Logic enabled, with the Gemini Developer API backend reachable through the `firebasevertexai.googleapis.com` proxy. |
 | `messaging-send` | 10 `messaging-send-` observations: what the production FCM v1 `messages:send` endpoint accepts, and its exact error envelopes | `PYRIC_MESSAGING_SA_BASE64`. The project needs Cloud Messaging (FCM v1) enabled. |

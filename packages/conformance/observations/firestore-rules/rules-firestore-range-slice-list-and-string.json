@@ -5,27 +5,27 @@
     "firestore-rules#173"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"range-slice-list-and-string\" (Item 4). Sim must parse and evaluate range slice [i:j] for List and String; pre-fix grammar rejected the syntax outright.",
-  "observedAt": "2026-07-21T23:43:06.668Z",
+  "observedAt": "2026-07-22T01:09:35.575Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
-    "value": "ec3c7d749e675a8ed4eb88575508fcec48d18e010cdc4e7ec2b41e936c8cc160"
+    "value": "fa5ca9b9cf22057145c13c8a8dcdbebcc8bbeaacee0a6ca2f48f1da07041054e"
   },
   "behavior": {
     "list mid-slice → sub-list of size 2 ALLOW": "ALLOW",
     "list slice indexing → element at slice[0] ALLOW": "ALLOW",
     "list full-length slice → size 4 ALLOW": "ALLOW",
     "list slice [i:i] → empty ALLOW": "ALLOW",
-    "list slice end OOB clamps to length ALLOW": "DENY",
+    "list slice end OOB clamps to length DENY": "DENY",
     "string mid-substring ALLOW": "ALLOW",
     "string prefix substring ALLOW": "ALLOW",
     "string slice [i:i] → empty string ALLOW": "ALLOW",
-    "string slice end OOB clamps to length ALLOW": "DENY",
+    "string slice end OOB clamps to length DENY": "DENY",
     "list slice with wrong expected size DENY": "DENY"
   },
   "diagnostics": {
-    "list slice end OOB clamps to length ALLOW": {
+    "list slice end OOB clamps to length DENY": {
       "notes": [
         "Error: firestore.rules line [27], column [12]. Index out of bound error. Index: [98] , size: [4]."
       ],
@@ -39,7 +39,7 @@
         }
       }
     },
-    "string slice end OOB clamps to length ALLOW": {
+    "string slice end OOB clamps to length DENY": {
       "notes": [
         "Error: firestore.rules line [47], column [12]. Index out of bound error. Index: [98] , size: [11]."
       ],

@@ -70,7 +70,7 @@ service cloud.firestore {
     {
       // The description is the frozen observation join key and retains its
       // historical ALLOW suffix; production's captured verdict is DENY.
-      description: 'request.query empty map ALLOW',
+      description: 'request.query empty map DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'reqQueryAllow/d3',

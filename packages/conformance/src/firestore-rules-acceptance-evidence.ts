@@ -11,6 +11,9 @@ export const FIRESTORE_ACCEPTANCE_EVIDENCE_PATH = join(
   'rules-language',
   'firestore-acceptance-evidence.json',
 );
+export const FIRESTORE_ACCEPTANCE_EVIDENCE_NOTE =
+  'Committed read-only Rules Test API evidence. The score validator binds every construct to this record, ' +
+  'its current probe digest and status, plus exact expected/actual decisions whenever evaluation returned a verdict.';
 
 export interface FirestoreAcceptanceEvidenceConstruct {
   id: string;
@@ -26,10 +29,16 @@ export interface FirestoreAcceptanceEvidenceConstruct {
 
 export interface FirestoreAcceptanceEvidence {
   schema: 'pyric.conformance.firestore-rules-acceptance-evidence.v1';
+  generatedNote: string;
   capturedAt: string;
   projectId: string;
   engine: 'firestore';
   total: number;
+  accepted: number;
+  rejected: number;
+  unprobeable: number;
+  evaluationAgree: number;
+  evaluationDisagree: number;
   constructs: FirestoreAcceptanceEvidenceConstruct[];
 }
 
@@ -45,6 +54,7 @@ export function validateFirestoreAcceptanceEvidence(
   canonicalProbe: (construct: LanguageConstruct) => CanonicalProbeFact,
 ): void {
   if (evidence.schema !== 'pyric.conformance.firestore-rules-acceptance-evidence.v1' ||
+      evidence.generatedNote !== FIRESTORE_ACCEPTANCE_EVIDENCE_NOTE ||
       evidence.engine !== 'firestore' || !evidence.projectId || Number.isNaN(Date.parse(evidence.capturedAt))) {
     throw new Error('Firestore acceptance evidence metadata is invalid');
   }
@@ -53,6 +63,16 @@ export function validateFirestoreAcceptanceEvidence(
       `Firestore acceptance evidence universe mismatch: expected ${snapshot.length}, got ` +
       `${evidence.total}/${evidence.constructs.length}`,
     );
+  }
+  const aggregates = {
+    accepted: evidence.constructs.filter(({ status }) => status === 'accepted').length,
+    rejected: evidence.constructs.filter(({ status }) => status === 'rejected').length,
+    unprobeable: evidence.constructs.filter(({ status }) => status === 'unprobeable').length,
+    evaluationAgree: evidence.constructs.filter(({ evaluationAgreement }) => evaluationAgreement === true).length,
+    evaluationDisagree: evidence.constructs.filter(({ evaluationAgreement }) => evaluationAgreement === false).length,
+  };
+  if (Object.entries(aggregates).some(([key, value]) => evidence[key as keyof typeof aggregates] !== value)) {
+    throw new Error('Firestore acceptance evidence aggregate counts do not match construct rows');
   }
   const byId = new Map<string, FirestoreAcceptanceEvidenceConstruct>();
   for (const row of evidence.constructs) {
@@ -81,7 +101,9 @@ export function validateFirestoreAcceptanceEvidence(
     if (row.status === 'unprobeable' && row.probeNote !== canonical.unprobeableReason) {
       throw new Error(`Firestore acceptance evidence unprobeable reason mismatch for ${construct.id}`);
     }
-    if (row.status === 'accepted') {
+    const evaluationTimeRejection = row.status === 'rejected' &&
+      !row.probeNote?.startsWith('RULES_ERROR:') && !row.probeNote?.startsWith('INVALID_REQUEST:');
+    if (row.status === 'accepted' || evaluationTimeRejection) {
       if (!row.probeDigest || row.expectedDecision === undefined || row.actualDecision === undefined ||
           row.evaluationAgreement !== (row.expectedDecision === row.actualDecision) ||
           row.expectedDecision !== canonical.expectedDecision ||

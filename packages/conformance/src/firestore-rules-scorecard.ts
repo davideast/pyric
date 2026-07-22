@@ -120,7 +120,8 @@ function classify(
     return 'acceptance-mismatch';
   }
   if (coverage.verdict === 'unverified') return 'unknown';
-  if (construct.id === 'firestore.semantic.hierarchical-match-cascade' && coverage.verifiedByRows.length === 0) {
+  if (construct.id === 'firestore.semantic.hierarchical-match-cascade' &&
+      !coverage.verifiedByRows.includes('firestore-rules#187')) {
     return 'unknown';
   }
   return 'conformant';

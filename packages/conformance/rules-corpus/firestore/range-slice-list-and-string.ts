@@ -102,7 +102,7 @@ service cloud.firestore {
     {
       // Immutable production-observation join key; the captured verdict is
       // DENY because production rejects the out-of-bounds end.
-      description: 'list slice end OOB clamps to length ALLOW',
+      description: 'list slice end OOB clamps to length DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'listClampAllow/d5',
@@ -136,7 +136,7 @@ service cloud.firestore {
     {
       // Immutable production-observation join key; the captured verdict is
       // DENY because production rejects the out-of-bounds end.
-      description: 'string slice end OOB clamps to length ALLOW',
+      description: 'string slice end OOB clamps to length DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'strClampAllow/d9',

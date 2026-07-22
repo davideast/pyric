@@ -71,7 +71,7 @@ service cloud.firestore {
 }`,
   cases: [
     {
-      description: 'set difference (list arg) → hasOnly([c]) ALLOW',
+      description: 'set difference (list arg) → hasOnly([c]) DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'diffListAllow/d1',
@@ -79,7 +79,7 @@ service cloud.firestore {
       data: { m: { a: 1, b: 2, c: 3 } },
     },
     {
-      description: 'set difference (set arg) → hasOnly([x]) ALLOW',
+      description: 'set difference (set arg) → hasOnly([x]) DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'diffSetAllow/d2',
@@ -87,7 +87,7 @@ service cloud.firestore {
       data: { a: { x: 1, y: 2 }, b: { y: 2, z: 3 } },
     },
     {
-      description: 'set union → size 4 ALLOW',
+      description: 'set union → size 4 DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'unionAllow/d3',
@@ -95,7 +95,7 @@ service cloud.firestore {
       data: { m: { a: 1, b: 2 } },
     },
     {
-      description: 'set union dedupes overlap → size 3 ALLOW',
+      description: 'set union dedupes overlap → size 3 DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'unionDedupAllow/d4',
@@ -103,7 +103,7 @@ service cloud.firestore {
       data: { m: { a: 1, b: 2 } },
     },
     {
-      description: 'set intersection → hasOnly([b,c]) ALLOW',
+      description: 'set intersection → hasOnly([b,c]) DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'interAllow/d5',
@@ -111,7 +111,7 @@ service cloud.firestore {
       data: { m: { a: 1, b: 2, c: 3 } },
     },
     {
-      description: 'set intersection no overlap → empty ALLOW',
+      description: 'set intersection no overlap → empty DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'interEmptyAllow/d6',
@@ -119,7 +119,7 @@ service cloud.firestore {
       data: { m: { a: 1, b: 2 } },
     },
     {
-      description: 'chained union+difference → hasOnly([b,c]) ALLOW',
+      description: 'chained union+difference → hasOnly([b,c]) DENY',
       expectation: 'DENY',
       method: 'create',
       path: 'chainAllow/d7',
