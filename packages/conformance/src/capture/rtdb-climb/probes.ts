@@ -6,16 +6,29 @@ import {
   QueryConstraint,
   TransactionResult,
   child,
+  equalTo,
   get,
   getDatabase,
+  increment,
+  limitToFirst,
   off,
+  onChildAdded,
+  onChildChanged,
+  onChildMoved,
+  onChildRemoved,
   onValue,
+  orderByChild,
   orderByKey,
+  orderByPriority,
   query,
   ref,
   refFromURL,
+  remove,
   runTransaction,
   set,
+  setPriority,
+  setWithPriority,
+  startAt,
   update,
   type Database as DatabaseHandle,
 } from 'firebase/database';
@@ -171,6 +184,166 @@ async function captureInvocation(task: () => unknown): Promise<Record<string, un
 
 export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
   return [
+    {
+      name: 'rtdb-modular-child-previous-name',
+      matrixRow: 'rtdb-modular#M75, rtdb-modular#M75c',
+      rowIds: ['rtdb-modular#M75', 'rtdb-modular#M75c'],
+      description:
+        'previousChildName values for initial replay, add/change/remove, and ordered movement, with terminal state independently confirmed.',
+      observe: () => repeatStable(2, async (attempt) => {
+        const path = scenarioPath(ctx, 'child-previous-name', attempt);
+        const client = await createClient(ctx, `child-previous-name-${attempt}`);
+        const target = ref(client.db, path);
+        const added: Array<[string | null, string | null]> = [];
+        const changed: Array<[string | null, string | null]> = [];
+        const removed: Array<[string | null, string | null]> = [];
+        const moved: Array<[string | null, string | null]> = [];
+        try {
+          await set(target, {
+            a: { rank: 1, stable: false },
+            b: { rank: 2, stable: false },
+            c: { rank: 3, stable: false },
+          });
+          const ordered = query(target, orderByKey());
+          onChildAdded(ordered, (snap, previous) => { added.push([snap.key, previous ?? null]); });
+          onChildChanged(ordered, ((snap: DataSnapshot, previous?: string | null) => {
+            changed.push([snap.key, previous ?? null]);
+          }) as (snap: DataSnapshot) => void);
+          onChildRemoved(ordered, ((snap: DataSnapshot, previous?: string | null) => {
+            removed.push([snap.key, previous ?? null]);
+          }) as (snap: DataSnapshot) => void);
+          const rankOrdered = query(target, orderByChild('rank'));
+          onChildMoved(rankOrdered, (snap, previous) => moved.push([snap.key, previous]));
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          const initialAdded = [...added];
+          await set(child(target, 'd'), { rank: 4, stable: false });
+          await update(child(target, 'b'), { stable: true });
+          await remove(child(target, 'a'));
+          await update(child(target, 'c'), { rank: 0 });
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return {
+            initialAdded,
+            postMutationAdded: added.slice(initialAdded.length),
+            changed,
+            removed,
+            moved,
+            terminal: await adminRead(ctx, path),
+          };
+        } finally {
+          off(target);
+          await cleanup([() => client.close(), () => adminRemove(ctx, path)]);
+        }
+      }),
+    },
+    {
+      name: 'rtdb-modular-priority-contract',
+      matrixRow: 'rtdb-modular#M89, rtdb-modular#M90, rtdb-modular#M91',
+      rowIds: ['rtdb-modular#M89', 'rtdb-modular#M90', 'rtdb-modular#M91'],
+      description:
+        'Priority round trips, replacement/preservation/clearing, priority ordering with bounds and limits, movement, and transaction lifecycle.',
+      observe: () => repeatStable(2, async (attempt) => {
+        const path = scenarioPath(ctx, 'priority-contract', attempt);
+        const client = await createClient(ctx, `priority-contract-${attempt}`);
+        const target = ref(client.db, path);
+        const moved: Array<[string | null, string | null]> = [];
+        try {
+          await setWithPriority(child(target, 'a'), { value: 1 }, 10);
+          await setWithPriority(child(target, 'b'), { value: 2 }, 5);
+          await setWithPriority(child(target, 'c'), { value: 3 }, 5);
+          const before = await Promise.all(['a', 'b', 'c'].map(async (key) => {
+            const snap = await get(child(target, key));
+            return { key, priority: snap.priority, exportVal: snap.exportVal() };
+          }));
+          const orderedKeys: Array<string | null> = [];
+          (await get(query(target, orderByPriority()))).forEach((snap) => {
+            orderedKeys.push(snap.key);
+          });
+          const boundedKeys: Array<string | null> = [];
+          (await get(query(target, orderByPriority(), startAt(5), limitToFirst(2)))).forEach((snap) => {
+            boundedKeys.push(snap.key);
+          });
+          const equalKeys: Array<string | null> = [];
+          (await get(query(target, orderByPriority(), equalTo(5)))).forEach((snap) => {
+            equalKeys.push(snap.key);
+          });
+          onChildMoved(query(target, orderByPriority()), (snap, previous) => moved.push([snap.key, previous]));
+          await setPriority(child(target, 'a'), 0);
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          const afterMove = await get(child(target, 'a'));
+          await update(target, { 'a/value': 4 });
+          const afterUpdate = (await get(child(target, 'a'))).priority;
+          await runTransaction(child(target, 'a'), (current) => ({
+            value: ((current as { value?: number } | null)?.value ?? 0) + 1,
+          }));
+          const afterTransaction = (await get(child(target, 'a'))).priority;
+          await set(child(target, 'b'), { value: 20 });
+          const afterSet = (await get(child(target, 'b'))).priority;
+          await setPriority(child(target, 'c'), null);
+          const afterClear = await get(child(target, 'c'));
+          return {
+            before,
+            orderedKeys,
+            boundedKeys,
+            equalKeys,
+            moved,
+            afterMove: { priority: afterMove.priority, exportVal: afterMove.exportVal() },
+            afterUpdate,
+            afterTransaction,
+            afterSet,
+            afterClear: { priority: afterClear.priority, exportVal: afterClear.exportVal() },
+            terminal: await adminRead(ctx, path),
+          };
+        } finally {
+          off(target);
+          await cleanup([() => client.close(), () => adminRemove(ctx, path)]);
+        }
+      }),
+    },
+    {
+      name: 'rtdb-modular-concurrent-transforms',
+      matrixRow: 'rtdb-modular#157, rtdb-modular#161',
+      rowIds: ['rtdb-modular#157', 'rtdb-modular#161'],
+      description:
+        'Two-client concurrent increments and transactions preserve both updates, with transaction retry evidence and independent terminal reads.',
+      observe: () => repeatStable(2, async (attempt) => {
+        const path = scenarioPath(ctx, 'concurrent-transforms', attempt);
+        const first = await createClient(ctx, `concurrent-transforms-${attempt}-first`);
+        const second = await createClient(ctx, `concurrent-transforms-${attempt}-second`);
+        try {
+          const incrementPath = `${path}/increment`;
+          await set(ref(first.db, incrementPath), 0);
+          await Promise.all([
+            update(ref(first.db, path), { increment: increment(2) }),
+            update(ref(second.db, path), { increment: increment(3) }),
+          ]);
+          const transactionPath = `${path}/transaction`;
+          await set(ref(first.db, transactionPath), 0);
+          await Promise.all([get(ref(first.db, transactionPath)), get(ref(second.db, transactionPath))]);
+          const firstArgs: unknown[] = [];
+          const secondArgs: unknown[] = [];
+          const results = await Promise.all([
+            runTransaction(ref(first.db, transactionPath), (current) => {
+              firstArgs.push(current);
+              return ((current as number | null) ?? 0) + 1;
+            }),
+            runTransaction(ref(second.db, transactionPath), (current) => {
+              secondArgs.push(current);
+              return ((current as number | null) ?? 0) + 1;
+            }),
+          ]);
+          return {
+            incrementTerminal: await adminRead(ctx, incrementPath),
+            transactionTerminal: await adminRead(ctx, transactionPath),
+            committed: results.map((result) => result.committed),
+            retryObserved: firstArgs.length > 1 || secondArgs.length > 1,
+            invocationCountsSorted: [firstArgs.length, secondArgs.length].sort((a, b) => a - b),
+            finalSnapshotsSorted: results.map((result) => result.snapshot.val()).sort(),
+          };
+        } finally {
+          await cleanup([() => first.close(), () => second.close(), () => adminRemove(ctx, path)]);
+        }
+      }),
+    },
     {
       name: 'rtdb-modular-runtime-class-identity',
       matrixRow: 'rtdb-modular#M85, rtdb-modular#M86, rtdb-modular#M87, rtdb-modular#M88',
