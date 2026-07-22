@@ -22,8 +22,13 @@ import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
-import { RulesFloat } from './wrappers/float.js';
 import { projectAfterState } from './project-after-state.js';
+import {
+  requestQuery,
+  resolveServerTimestamps,
+  reviveFirestoreNumbers,
+} from './firestore-values.js';
+export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
 import {
   collectMatches,
   renderMatchBlockPath,
@@ -162,92 +167,6 @@ function newEntry(rule: AllowRule, index: number): RuleEvaluation {
 
 // ═══ Build simulation context from TestCase ═══
 
-// ═══ Server timestamp sentinel ═══
-
-/** Sentinel value for FieldValue.serverTimestamp() in test data. */
-export const SERVER_TIMESTAMP = { __type: 'serverTimestamp' } as const;
-
-function isServerTimestampSentinel(value: unknown): boolean {
-  return typeof value === 'object' && value !== null
-    && (value as Record<string, unknown>).__type === 'serverTimestamp';
-}
-
-/**
- * Recursively replace serverTimestamp sentinels with the actual server time.
- * Item 1.3: `serverTime` is now a Timestamp wrapper (was ISO string). The
- * SAME instance is reused across every sentinel hit so `data.createdAt ==
- * request.time` succeeds via rulesValuesEqual -> Timestamp.equals (field
- * compare). Without instance reuse, two distinct Timestamp instances would
- * still equate via field compare — but the single-instance invariant is
- * documented here so future refactors don't break it accidentally.
- */
-export function resolveServerTimestamps(
-  data: Record<string, unknown>,
-  serverTime: Timestamp,
-): Record<string, unknown> {
-  const resolved: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(data)) {
-    if (isServerTimestampSentinel(value)) {
-      resolved[key] = serverTime;
-    } else if (isPlainObject(value)) {
-      // Only descend into plain objects ({} / Object.create(null)). After
-      // Item 1 the value tree may legitimately contain class instances
-      // (Timestamp, Bytes, LatLng, future DocumentReference) — walking
-      // them as maps would shred their prototype and break `is timestamp`,
-      // `is reference`, etc.
-      resolved[key] = resolveServerTimestamps(value as Record<string, unknown>, serverTime);
-    } else {
-      resolved[key] = value;
-    }
-  }
-  return resolved;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object') return false;
-  if (Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-/**
- * Restore the Firestore numeric tag that JSON's single Number type erases.
- * Non-integral wire values can only be doubles, while integral values remain
- * integers unless a future explicit typed sentinel says otherwise.
- */
-export function reviveFirestoreNumbers(value: unknown): unknown {
-  if (typeof value === 'number' && !Number.isInteger(value)) return new RulesFloat(value);
-  if (Array.isArray(value)) return value.map(reviveFirestoreNumbers);
-  if (isPlainObject(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, child]) => [key, reviveFirestoreNumbers(child)]),
-    );
-  }
-  return value;
-}
-
-/**
- * Populate `request.query` for `list` operations from the optional
- * TestCase.query payload (REBUILD_PLAN.md Item 6 follow-up).
- *
- * Production's `request.query` exposes `limit / offset / orderBy` as
- * always-present, NULLABLE fields on a `list` request — `request.query.limit
- * == null` is the documented way to assert "no limit clause." So we ALWAYS
- * expose the three keys (null when the test omits them) rather than omitting
- * them; otherwise, after RULES-B2 (dotted-field access of a MISSING key
- * errors), `request.query.limit` would error instead of reading null, breaking
- * the legitimate `== null` guard. For non-list methods `request.query` is
- * absent, so accessing it errors and the rule denies, matching production.
- */
-function buildRequestQuery(tc: TestCase): Record<string, unknown> | undefined {
-  if (tc.method !== 'list') return undefined;
-  return {
-    limit: tc.query?.limit ?? null,
-    offset: tc.query?.offset ?? null,
-    orderBy: tc.query?.orderBy ?? null,
-  };
-}
-
 function buildContext(
   tc: TestCase,
   functions: FunctionDef[],
@@ -358,7 +277,7 @@ function buildContext(
       resource: { data: reqResourceData },
       method: tc.method,
       path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
-      ...(buildRequestQuery(tc) ? { query: buildRequestQuery(tc) } : {}),
+      ...(requestQuery(tc) ? { query: requestQuery(tc) } : {}),
       time: serverTime,
     },
     // `resource` is the PRE-WRITE stored document. When the request target does
