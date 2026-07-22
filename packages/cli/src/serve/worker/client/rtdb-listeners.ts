@@ -1,5 +1,6 @@
 /** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
 import type { InboundMessage } from '../protocol.js';
+import { queryIdentifier } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   _defaultLens,
@@ -49,20 +50,7 @@ export function dropRtdbListenersForPort(port: ClientPort): void {
 
 function targetScope(target: RtdbTarget): string {
   if (!isRtdbQuery(target)) return 'default';
-  const spec = target._spec;
-  if (spec.orderBy === null && spec.bounds.length === 0 && spec.limit === null) return 'default';
-  const boundOrder: Record<(typeof spec.bounds)[number]['kind'], number> = {
-    startAt: 0,
-    startAfter: 0,
-    equalTo: 1,
-    endAt: 2,
-    endBefore: 2,
-  };
-  return JSON.stringify({
-    orderBy: spec.orderBy,
-    bounds: [...spec.bounds].sort((left, right) => boundOrder[left.kind] - boundOrder[right.kind]),
-    limit: spec.limit,
-  });
+  return queryIdentifier(target._spec);
 }
 
 function removeRegistration(registration: ListenerRegistration): void {
@@ -141,6 +129,8 @@ export function rtdbOnValue(
   const rawUnsubscribe = openValueSubscription(target, (snapshot) => {
     try {
       next(snapshot);
+    } catch {
+      // Firebase isolates listener exceptions from sibling deliveries.
     } finally {
       if (listenOptions?.onlyOnce) queueMicrotask(() => unsubscribe());
     }

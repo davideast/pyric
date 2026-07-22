@@ -107,6 +107,25 @@ describe('RTDB worker listeners', () => {
     expect(deliveredDespiteThrow).toEqual(['c', 'b', 'a']);
   });
 
+  it('isolates thrown value callbacks from sibling listeners', async () => {
+    const { db } = await connectClient();
+    const target = client.rtdbRef(client.rtdbGetDatabase(db), 'value-callback-isolation');
+    await client.rtdbSet(target, 0);
+
+    const delivered: unknown[] = [];
+    const stopThrowing = client.rtdbOnValue(target, () => {
+      throw new Error('listener failure');
+    });
+    const stopControl = client.rtdbOnValue(target, (snapshot) => delivered.push(snapshot.val()));
+    await sleep();
+    await client.rtdbSet(target, 1);
+    await sleep();
+
+    expect(delivered).toEqual([0, 1]);
+    stopThrowing();
+    stopControl();
+  });
+
   it('removes duplicate callbacks one registration at a time and scopes query off', async () => {
     const { db } = await connectClient();
     const rtdb = client.rtdbGetDatabase(db);

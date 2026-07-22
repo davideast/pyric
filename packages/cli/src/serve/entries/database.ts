@@ -7,6 +7,7 @@
  */
 import * as ip from 'pyric/database';
 import { getDatabase as pyricGetDatabase } from 'pyric/database';
+import { queryIdentifier } from 'pyric/database/internal';
 import { rtdbChild, rtdbGetDatabase, rtdbRef } from '../worker/client/rtdb-references.js';
 import {
   rtdbGet,
@@ -202,7 +203,7 @@ export const query = (
               && 'port' in other.ref
               && built.ref.port === other.ref.port
               && built.ref._path === other.ref._path
-              && JSON.stringify(built._spec) === JSON.stringify(other._spec);
+              && queryIdentifier(built._spec) === queryIdentifier(other._spec);
           },
         };
       })
