@@ -1,10 +1,10 @@
 /**
  * Red conformance suite: sandbox answer engine rows (ai#scripted-* and
- * ai#openai-*). One test per registry row id. The openai rows drive a local
- * OpenAI-compatible mock served by Bun.
+ * ai#openai-*). One test per registry row id. The openai rows drive an
+ * OpenAI-compatible response fixture through the engine's injected fetch seam.
  * RED BY DESIGN until the ai mirror lands (CDD map #92).
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { aiSeam, observedBehavior, PROBE_MODEL, type AiSeam } from './support.ts';
 
 const envelope = observedBehavior('ai-generate-minimal-envelope');
@@ -148,10 +148,8 @@ describe('ai: scripted engine', () => {
 });
 
 describe('ai: openai engine translation', () => {
-  let server: any;
-  let baseUrl: string;
   let lastBody: any;
-  let nextResponse: (req: Request) => Response;
+  let nextResponse = () => jsonCompletion('ok');
 
   function jsonCompletion(content: string): Response {
     return Response.json({
@@ -173,26 +171,16 @@ describe('ai: openai engine translation', () => {
 
   function openaiAi(): { ai: any; model: any } {
     const sandbox = seam.sandboxMod.initializeSandbox();
-    const ai = seam.ai.getAI(sandbox, { engine: { kind: 'openai', baseUrl } });
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      lastBody = JSON.parse(String(init?.body));
+      return nextResponse();
+    }) as typeof fetch;
+    const ai = seam.ai.getAI(sandbox, {
+      engine: { kind: 'openai', baseUrl: 'http://openai.test/v1', fetch: fetchImpl },
+    });
     const model = seam.ai.getGenerativeModel(ai, { model: PROBE_MODEL });
     return { ai, model };
   }
-
-  beforeAll(() => {
-    nextResponse = () => jsonCompletion('ok');
-    server = Bun.serve({
-      port: 0,
-      fetch: async (request: Request) => {
-        lastBody = await request.json().catch(() => undefined);
-        return nextResponse(request);
-      },
-    });
-    baseUrl = `http://localhost:${server.port}/v1`;
-  });
-
-  afterAll(() => {
-    server?.stop(true);
-  });
 
   rowTest('ai#openai-request-translation contents and systemInstruction become chat messages and the reply becomes a Gemini envelope', async () => {
     nextResponse = () => jsonCompletion('translated reply');
