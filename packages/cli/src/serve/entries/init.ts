@@ -2,7 +2,8 @@
  * `/__pyric/sdk/init.js` — the script tag `pyric dev` injects into every
  * served HTML page. Pulls the shared runtime and mounts the sign-in helper.
  * In worker mode the helper reads the worker user directory and owns UI state
- * only; in fallback mode it adapts the page sandbox's Auth store.
+ * only; in fallback mode it mints credentials via `createSignInCredential`
+ * so OAuth users carry real provider metadata.
  */
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import {
@@ -19,27 +20,36 @@ import { getPyricRuntimeStatus } from '../runtime/status.js';
 
 const localAuth = useWorker ? null : getAuth(sandbox);
 const workerAuth = useWorker && workerDb ? getWorkerAuth(workerDb) : null;
-const helper = new ServeAuthHelper(
-  workerAuth
-    ? {
-        list: async () => (await listUsers(workerAuth)).map((user) => ({
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          customClaims: user.customClaims,
-        })),
-      }
-    : {
+const helper = workerAuth
+  ? new ServeAuthHelper({
+      list: async () => (await listUsers(workerAuth)).map((user) => ({
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        customClaims: user.customClaims,
+      })),
+    })
+  : new ServeAuthHelper(
+      {
         list: () => authSandbox.listIdentities(localAuth!),
-        add: (identity) => authSandbox.seedUsers(localAuth!, [{
-          uid: identity.uid,
-          email: identity.email ?? '',
-          password: '__pyric_popup_no_password__',
-          displayName: identity.displayName ?? undefined,
-          customClaims: identity.customClaims,
-        }]),
       },
-);
+      (request) => {
+        if (request.kind === 'pick') {
+          return authSandbox.createSignInCredential(localAuth!, {
+            providerId: request.providerId,
+            uid: request.identity.uid,
+          });
+        }
+        return authSandbox.createSignInCredential(localAuth!, {
+          providerId: request.providerId,
+          spec: {
+            email: request.spec.email,
+            displayName: request.spec.displayName,
+            customClaims: request.spec.customClaims,
+          },
+        });
+      },
+    );
 const resolver = helper.resolver();
 installServeAuthResolver(resolver);
 if (localAuth) authSandbox.setAuthFlowResolver(localAuth, resolver);
