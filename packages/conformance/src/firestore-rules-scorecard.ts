@@ -42,6 +42,8 @@ export interface FirestoreConstructScore {
   productionProbeDigest?: string;
   currentProbeDigest?: string;
   acceptanceProbeBound: boolean;
+  productionEvaluationAgreement?: boolean;
+  localEvaluationAgreement?: boolean;
   productionEvidence: ConstructCoverage['verdict'];
   classification: FirestoreScoreClassification;
   verifiedBy: readonly string[];
@@ -112,6 +114,10 @@ function classify(
   }
   if (capability.classification === 'unsupported') return 'local-unsupported';
   if (capability.classification === 'error') return 'local-error';
+  if (construct.status === 'accepted' &&
+      (construct.probeEvaluationAgreement !== true || capability.evaluationAgreement !== true)) {
+    return 'acceptance-mismatch';
+  }
   if (coverage.verdict === 'unverified') return 'unknown';
   if (construct.id === 'firestore.semantic.hierarchical-match-cascade' && coverage.verifiedByRows.length === 0) {
     return 'unknown';
@@ -198,6 +204,10 @@ export function deriveFirestoreRulesScorecard(
       ...(capability.probeDigest ? { currentProbeDigest: capability.probeDigest.value } : {}),
       acceptanceProbeBound: construct.probeDigest?.algorithm === 'sha256' &&
         construct.probeDigest.value === capability.probeDigest?.value,
+      ...(construct.probeEvaluationAgreement !== undefined
+        ? { productionEvaluationAgreement: construct.probeEvaluationAgreement } : {}),
+      ...(capability.evaluationAgreement !== undefined
+        ? { localEvaluationAgreement: capability.evaluationAgreement } : {}),
       productionEvidence: evidence.verdict,
       classification: classify(construct, capability, evidence),
       verifiedBy: [...evidence.verifiedBy],

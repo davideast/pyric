@@ -14,6 +14,7 @@ function construct(id: string, status: LanguageConstruct['status'] = 'accepted')
     ...(status === 'accepted' || status === 'rejected'
       ? { probeDigest: { algorithm: 'sha256' as const, value: 'a'.repeat(64) } }
       : {}),
+    ...(status === 'accepted' ? { probeEvaluationAgreement: true } : {}),
     ...(status === 'rejected' ? { probeNote: 'Property id is undefined on object.' } : {}),
   };
 }
@@ -28,6 +29,7 @@ function capability(
     classification,
     detail: classification === 'error' ? "eval error: No field 'id' on map" : 'test',
     probeDigest: { algorithm: 'sha256', value: 'a'.repeat(64) },
+    evaluationAgreement: classification === 'implemented',
   };
 }
 
@@ -121,6 +123,15 @@ describe('Firestore Rules scorecard', () => {
       coverage: [{ ...coverage(id), verifiedByRows: ['firestore-rules#187'] }],
     });
     expect(withRow.constructs[0]?.classification).toBe('conformant');
+  });
+
+  it('withholds credit when an accepted local probe returns the wrong verdict', () => {
+    const scorecard = deriveFirestoreRulesScorecard({
+      constructs: [construct('x')],
+      capabilities: [{ ...capability('x'), evaluationAgreement: false, detail: 'decision DENY' }],
+      coverage: [coverage('x')],
+    });
+    expect(scorecard.constructs[0]?.classification).toBe('acceptance-mismatch');
   });
 
   it('does not credit a rejection at a different observable boundary', () => {

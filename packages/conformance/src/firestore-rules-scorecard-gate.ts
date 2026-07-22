@@ -35,6 +35,7 @@ export interface FirestoreScorecardBaseline {
     FirestoreConstructScore,
     'productionAcceptance' | 'localAcceptance' | 'productionRejectionSignature' | 'localRejectionSignature' |
     'localCapability' | 'productionProbeDigest' | 'currentProbeDigest' | 'acceptanceProbeBound' |
+    'productionEvaluationAgreement' | 'localEvaluationAgreement' |
     'productionEvidence' | 'classification'
   >>>;
 }
@@ -60,6 +61,10 @@ export function firestoreScorecardBaseline(
       ...(construct.productionProbeDigest ? { productionProbeDigest: construct.productionProbeDigest } : {}),
       ...(construct.currentProbeDigest ? { currentProbeDigest: construct.currentProbeDigest } : {}),
       acceptanceProbeBound: construct.acceptanceProbeBound,
+      ...(construct.productionEvaluationAgreement !== undefined
+        ? { productionEvaluationAgreement: construct.productionEvaluationAgreement } : {}),
+      ...(construct.localEvaluationAgreement !== undefined
+        ? { localEvaluationAgreement: construct.localEvaluationAgreement } : {}),
       productionEvidence: construct.productionEvidence,
       classification: construct.classification,
     }])),
@@ -125,6 +130,8 @@ export function compareFirestoreScorecardBaseline(
       'productionProbeDigest',
       'currentProbeDigest',
       'acceptanceProbeBound',
+      'productionEvaluationAgreement',
+      'localEvaluationAgreement',
       'productionEvidence',
       'classification',
     ] as const) {

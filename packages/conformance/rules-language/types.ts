@@ -115,6 +115,9 @@ export interface LanguageConstruct {
    *  result produced `status`/`probeNote`. Acceptance credit is withheld when
    *  this no longer matches the canonical probe generator. */
   probeDigest?: { algorithm: 'sha256'; value: string };
+  /** Whether production's evaluated verdict matched the canonical probe's
+   *  expected verdict. Required for accepted constructs to receive credit. */
+  probeEvaluationAgreement?: boolean;
   /** Present when this construct can never be credited by the static AST
    *  analyzer (rules-language-analyzer.ts, issue #185 step 2): it is a
    *  genuine language semantic with no expression-level AST representation

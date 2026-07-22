@@ -1019,9 +1019,9 @@ function evaluateMethodCall(
   // FirestoreSet methods
   if (obj instanceof FirestoreSet) {
     switch (method) {
-      case 'hasOnly': return obj.hasOnly(argValues[0] as string[] | FirestoreSet);
-      case 'hasAll': return obj.hasAll(argValues[0] as string[] | FirestoreSet);
-      case 'hasAny': return obj.hasAny(argValues[0] as string[] | FirestoreSet);
+      case 'hasOnly': return obj.hasOnly(argValues[0] as unknown[] | FirestoreSet);
+      case 'hasAll': return obj.hasAll(argValues[0] as unknown[] | FirestoreSet);
+      case 'hasAny': return obj.hasAny(argValues[0] as unknown[] | FirestoreSet);
       case 'size': return obj.size();
       // Production accepts the syntax but errors when these calls evaluate.
       // Preserve that DENY boundary; do not expose the host helper's guessed
@@ -1132,14 +1132,9 @@ function evaluateMethodCall(
         return obj.filter(v => !other.some(o => rulesValuesEqual(v, o)));
       }
       case 'toSet': {
-        // Convert to FirestoreSet. The class stores strings only — coerce
-        // via String() on each element. This is sufficient for the common
-        // case of `[]Doc.tags.toSet()`-style usage where the source list
-        // is already strings. Non-string elements (numbers, booleans) get
-        // String()-coerced and may collapse onto each other (1 and '1'
-        // become the same set member). Locked-in behavior is whatever the
-        // parity scenario confirms; if prod diverges we revisit.
-        return new FirestoreSet(obj.map(v => String(v)));
+        // Sets preserve Rules values and deduplicate by Rules value equality;
+        // numeric 1 and string '1' remain distinct, matching production.
+        return new FirestoreSet(obj);
       }
     }
   }

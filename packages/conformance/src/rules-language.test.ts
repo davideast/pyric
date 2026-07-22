@@ -118,6 +118,14 @@ describe('rules-language snapshots + loader', () => {
     expect(validateSnapshotValue('firestore', base())).toEqual([]);
   });
 
+  it('rejects accepted Firestore evidence without digest and evaluation agreement', () => {
+    const snap = base();
+    (snap.constructs[0] as { status: string }).status = 'accepted';
+    const problems = validateSnapshotValue('firestore', snap);
+    expect(problems.some((problem) => problem.includes('requires a probeDigest'))).toBe(true);
+    expect(problems.some((problem) => problem.includes('requires probeEvaluationAgreement'))).toBe(true);
+  });
+
   it('rejects duplicate ids within an engine', () => {
     const snap = base();
     snap.constructs.push({ ...snap.constructs[0] });

@@ -1,17 +1,19 @@
-export class FirestoreSet {
-  private items: Set<string>;
+import { rulesValuesEqual } from './value-equality.js';
 
-  constructor(items: Iterable<string>) {
-    this.items = new Set(items);
+export class FirestoreSet {
+  private items: unknown[];
+
+  constructor(items: Iterable<unknown>) {
+    this.items = [];
+    for (const item of items) {
+      if (!this.items.some((existing) => rulesValuesEqual(existing, item))) this.items.push(item);
+    }
   }
 
   /** True if the set contains ONLY keys from the provided list/set (and no others). */
-  hasOnly(keys: string[] | FirestoreSet): boolean {
+  hasOnly(keys: unknown[] | FirestoreSet): boolean {
     const arr = keys instanceof FirestoreSet ? keys.toArray() : keys;
-    for (const item of this.items) {
-      if (!arr.includes(item)) return false;
-    }
-    return true;
+    return this.items.every((item) => arr.some((key) => rulesValuesEqual(item, key)));
   }
 
   /** Value equality against another FirestoreSet (order-insensitive).
@@ -19,38 +21,35 @@ export class FirestoreSet {
    *  [uid].toSet()`). */
   equals(other: unknown): boolean {
     if (!(other instanceof FirestoreSet)) return false;
-    if (other.items.size !== this.items.size) return false;
-    for (const item of this.items) {
-      if (!other.items.has(item)) return false;
-    }
-    return true;
+    if (other.items.length !== this.items.length) return false;
+    return this.items.every((item) => other.items.some((candidate) => rulesValuesEqual(item, candidate)));
   }
 
   /** True if the set contains ALL keys from the provided list/set. */
-  hasAll(keys: string[] | FirestoreSet): boolean {
+  hasAll(keys: unknown[] | FirestoreSet): boolean {
     const arr = keys instanceof FirestoreSet ? keys.toArray() : keys;
     for (const key of arr) {
-      if (!this.items.has(key)) return false;
+      if (!this.items.some((item) => rulesValuesEqual(item, key))) return false;
     }
     return true;
   }
 
   /** True if the set contains ANY key from the provided list/set. */
-  hasAny(keys: string[] | FirestoreSet): boolean {
+  hasAny(keys: unknown[] | FirestoreSet): boolean {
     const arr = keys instanceof FirestoreSet ? keys.toArray() : keys;
     for (const key of arr) {
-      if (this.items.has(key)) return true;
+      if (this.items.some((item) => rulesValuesEqual(item, key))) return true;
     }
     return false;
   }
 
   /** Number of items in the set. */
   size(): number {
-    return this.items.size;
+    return this.items.length;
   }
 
   /** Convert to array (for debugging). */
-  toArray(): string[] {
+  toArray(): unknown[] {
     return [...this.items];
   }
 
@@ -61,29 +60,27 @@ export class FirestoreSet {
   // Mirroring hasOnly/hasAll/hasAny, we accept a List (string[]) too.
 
   /** Items in this set but not in `other`. */
-  difference(other: string[] | FirestoreSet): FirestoreSet {
-    const otherSet = new Set(other instanceof FirestoreSet ? other.toArray() : other);
-    const result: string[] = [];
+  difference(other: unknown[] | FirestoreSet): FirestoreSet {
+    const otherItems = other instanceof FirestoreSet ? other.toArray() : other;
+    const result: unknown[] = [];
     for (const item of this.items) {
-      if (!otherSet.has(item)) result.push(item);
+      if (!otherItems.some((candidate) => rulesValuesEqual(item, candidate))) result.push(item);
     }
     return new FirestoreSet(result);
   }
 
   /** Items in either set. */
-  union(other: string[] | FirestoreSet): FirestoreSet {
+  union(other: unknown[] | FirestoreSet): FirestoreSet {
     const otherArr = other instanceof FirestoreSet ? other.toArray() : other;
-    const merged = new Set<string>(this.items);
-    for (const item of otherArr) merged.add(item);
-    return new FirestoreSet(merged);
+    return new FirestoreSet([...this.items, ...otherArr]);
   }
 
   /** Items in both sets. */
-  intersection(other: string[] | FirestoreSet): FirestoreSet {
-    const otherSet = new Set(other instanceof FirestoreSet ? other.toArray() : other);
-    const result: string[] = [];
+  intersection(other: unknown[] | FirestoreSet): FirestoreSet {
+    const otherItems = other instanceof FirestoreSet ? other.toArray() : other;
+    const result: unknown[] = [];
     for (const item of this.items) {
-      if (otherSet.has(item)) result.push(item);
+      if (otherItems.some((candidate) => rulesValuesEqual(item, candidate))) result.push(item);
     }
     return new FirestoreSet(result);
   }

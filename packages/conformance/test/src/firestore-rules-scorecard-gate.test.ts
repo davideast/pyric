@@ -15,12 +15,14 @@ function scorecard(ids: readonly string[]): FirestoreRulesScorecard {
   const constructs: LanguageConstruct[] = ids.map((id) => ({
     id, kind: 'operator', engine: 'firestore', reference: 'test', status: 'accepted',
     probeDigest: { algorithm: 'sha256', value: 'a'.repeat(64) },
+    probeEvaluationAgreement: true,
   }));
   return deriveFirestoreRulesScorecard({
     constructs,
     capabilities: ids.map((id) => ({
       id, kind: 'operator', classification: 'implemented', detail: 'test',
       probeDigest: { algorithm: 'sha256' as const, value: 'a'.repeat(64) },
+      evaluationAgreement: true,
     })),
     coverage: ids.map((id) => ({
       id, kind: 'operator', verdict: 'verified', exercisedBy: ['s'], verifiedBy: ['s'], verifiedByRows: [],

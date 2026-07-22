@@ -53,6 +53,8 @@ export interface ConstructCapability {
   detail: string;
   /** Current canonical production/local microprobe identity (Firestore). */
   probeDigest?: { algorithm: 'sha256'; value: string };
+  /** Whether the local verdict matches the canonical probe expectation. */
+  evaluationAgreement?: boolean;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -108,7 +110,7 @@ export function resolveFsProbe(probe: FsProbe): { rules: string; cases: TestCase
   return { rules, cases };
 }
 
-function fsRunResolved(resolved: ReturnType<typeof resolveFsProbe>): { classification: Classification; detail: string } {
+function fsRunResolved(resolved: ReturnType<typeof resolveFsProbe>): { classification: Classification; detail: string; evaluationAgreement?: boolean } {
   if ('unprobeable' in resolved) return { classification: 'unprobeable', detail: resolved.unprobeable };
   const { rules, cases } = resolved;
   let res;
@@ -123,7 +125,9 @@ function fsRunResolved(resolved: ReturnType<typeof resolveFsProbe>): { classific
   if (r.decision === 'UNSUPPORTED') return { classification: 'unsupported', detail: fsUnsupportedReason(r) };
   const errEntry = r.trace.find((t) => t.verdict === 'ERROR');
   if (errEntry && r.decision !== 'ALLOW') return { classification: 'error', detail: `eval error: ${errEntry.message ?? ''}` };
-  return { classification: 'implemented', detail: `decision ${r.decision}` };
+  const evaluationAgreement = res.data.results.length === cases.length &&
+    res.data.results.every((result, index) => result.decision === cases[index]?.expectation);
+  return { classification: 'implemented', detail: `decision ${r.decision}`, evaluationAgreement };
 }
 
 function fsUnsupportedReason(r: { trace: Array<{ verdict: string; message?: string }> }): string {
@@ -703,7 +707,7 @@ export function probeEngine(engine: RulesEngine): ConstructCapability[] {
   const snapshot = loadSnapshot(engine);
   const out: ConstructCapability[] = [];
   for (const c of snapshot.constructs) {
-    let r: { classification: Classification; detail: string };
+    let r: { classification: Classification; detail: string; evaluationAgreement?: boolean };
     let probeDigest: ConstructCapability['probeDigest'];
     if (engine === 'firestore') {
       const resolved = resolveFirestoreConstructProbe(c);
@@ -714,7 +718,11 @@ export function probeEngine(engine: RulesEngine): ConstructCapability[] {
     }
     else if (engine === 'storage') r = stRun(stProbeFor(c));
     else r = rtRun(rtProbeFor(c));
-    out.push({ id: c.id, kind: c.kind, classification: r.classification, detail: r.detail, ...(probeDigest ? { probeDigest } : {}) });
+    out.push({
+      id: c.id, kind: c.kind, classification: r.classification, detail: r.detail,
+      ...(probeDigest ? { probeDigest } : {}),
+      ...(r.evaluationAgreement !== undefined ? { evaluationAgreement: r.evaluationAgreement } : {}),
+    });
   }
   return out;
 }

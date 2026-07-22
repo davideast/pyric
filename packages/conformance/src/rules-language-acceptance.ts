@@ -149,6 +149,21 @@ interface AcceptanceReport {
   engines: EngineProbeReport[];
 }
 
+/** Fail closed when the API omits or duplicates a probe result. */
+export function requireExactProbeResults<T>(
+  engine: RulesEngine,
+  constructId: string,
+  expectedCount: number,
+  results: readonly T[],
+): readonly T[] {
+  if (results.length !== expectedCount) {
+    throw new Error(
+      `[${engine}] invalid result count probing "${constructId}": expected ${expectedCount}, got ${results.length}`,
+    );
+  }
+  return results;
+}
+
 // ── Firestore adapter ────────────────────────────────────────────────────
 
 /**
@@ -302,8 +317,8 @@ async function probeFirestoreConstruct(
     // aborts rather than silently mislabeling a construct.
     throw new Error(`[firestore] infra error probing "${c.id}": ${res.error.code}: ${res.error.message}`);
   }
-  const result = res.data.results[0];
-  const decision = result?.decision ?? 'ALLOW';
+  const result = requireExactProbeResults('firestore', c.id, req.cases.length, res.data.results)[0]!;
+  const decision = result.decision;
   const expected = EXPECTS_DENY.has(c.id) ? 'DENY' : 'ALLOW';
   const agree = decision === expected;
   if (!agree) {
@@ -339,8 +354,8 @@ async function probeStorageConstruct(
     }
     throw new Error(`[storage] infra error probing "${c.id}": ${res.error.code}: ${res.error.message}`);
   }
-  const result = res.data.results[0];
-  const decision = result?.decision ?? 'ALLOW';
+  const result = requireExactProbeResults('storage', c.id, req.cases.length, res.data.results)[0]!;
+  const decision = result.decision;
   const expected = EXPECTS_DENY.has(c.id) ? 'DENY' : 'ALLOW';
   const agree = decision === expected;
   if (!agree) {
@@ -387,6 +402,8 @@ function writeSnapshotStatuses(engine: RulesEngine, results: ConstructProbeResul
     else delete (c as { probeNote?: string }).probeNote;
     if (r.probeDigest) c.probeDigest = r.probeDigest;
     else delete (c as { probeDigest?: unknown }).probeDigest;
+    if (r.evaluationAgreement !== undefined) c.probeEvaluationAgreement = r.evaluationAgreement;
+    else delete (c as { probeEvaluationAgreement?: unknown }).probeEvaluationAgreement;
   }
   writeFileSync(file, JSON.stringify(snapshot, null, 2) + '\n', 'utf8');
 }

@@ -19,6 +19,9 @@ set to match. Editing a scenario without a production recapture therefore
 removes its evidence credit and fails the exact score gate. Production
 acceptance is independently bound to the current per-construct microprobe by a
 second digest; stale acceptance labels receive no score credit.
+Accepted constructs also require the exact production and local microprobe
+verdicts to match the authored expectation. A missing API result aborts capture
+instead of defaulting to ALLOW.
 
 | Final classification | Constructs | Interpretation |
 |---|---:|---|
@@ -42,6 +45,10 @@ Row #187 adds a dedicated four-case hierarchical-match witness so that semantic
 is credited by an exact child ALLOW plus parent, sibling, and over-deep DENY
 controls, rather than by generic nested syntax. The score command now replays
 all production observations before evaluating its exact baseline.
+The final cold-review ratchet also exposed and fixed numeric Set membership:
+`toSet()` now preserves Rules values and deduplicates by Rules value equality,
+so the three production-ALLOW `Set.hasAll`/`hasAny`/`hasOnly` probes agree
+locally without conflating numeric `1` and string `'1'`.
 
 Execution exposed two limits in the proposed phase exits, so completion uses
 the plan's final explicit-classification contract rather than pretending those

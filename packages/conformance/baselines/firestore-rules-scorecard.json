@@ -196,6 +196,8 @@
       "productionProbeDigest": "641c2f4f70fc4489a1a9819da5115cc35f54a97e3fbcf78afff97376428e0da1",
       "currentProbeDigest": "641c2f4f70fc4489a1a9819da5115cc35f54a97e3fbcf78afff97376428e0da1",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -206,6 +208,8 @@
       "productionProbeDigest": "29c828bffd9670865340a6e6044f2707543866770d100cfc9ccece0a58563f45",
       "currentProbeDigest": "29c828bffd9670865340a6e6044f2707543866770d100cfc9ccece0a58563f45",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -216,6 +220,8 @@
       "productionProbeDigest": "2af3137968f2d082bd2ac6a8626aea99fec3286415a12eb95d34827fb23ce517",
       "currentProbeDigest": "2af3137968f2d082bd2ac6a8626aea99fec3286415a12eb95d34827fb23ce517",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -226,6 +232,8 @@
       "productionProbeDigest": "604df1a954e26256cf3930ffb451cc33c0bb8ba82b1e1aac00c76c8c38a4ca38",
       "currentProbeDigest": "604df1a954e26256cf3930ffb451cc33c0bb8ba82b1e1aac00c76c8c38a4ca38",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -236,6 +244,8 @@
       "productionProbeDigest": "8b89972f46a8b8c3464639dce085bd7b8894edd0b0f5fc6c5bc9841aecee5768",
       "currentProbeDigest": "8b89972f46a8b8c3464639dce085bd7b8894edd0b0f5fc6c5bc9841aecee5768",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -246,6 +256,8 @@
       "productionProbeDigest": "1f420c677d721e38358771b2f5b3f320ec91c108b6d9df7128c94d4d28dc0407",
       "currentProbeDigest": "1f420c677d721e38358771b2f5b3f320ec91c108b6d9df7128c94d4d28dc0407",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -256,6 +268,8 @@
       "productionProbeDigest": "8ff5d327f18843404a1aae3b7a51f025aa4dae5f717d83f612c260b0d066ee1c",
       "currentProbeDigest": "8ff5d327f18843404a1aae3b7a51f025aa4dae5f717d83f612c260b0d066ee1c",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -266,6 +280,8 @@
       "productionProbeDigest": "776c254f52a24c74099e95b1e85fe70b0f5026b5c1a6d4dbe15c1b5e7015ec2c",
       "currentProbeDigest": "776c254f52a24c74099e95b1e85fe70b0f5026b5c1a6d4dbe15c1b5e7015ec2c",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -276,6 +292,8 @@
       "productionProbeDigest": "066fb3bdaa7068a9101fd9ad14d2db9320093ae8cf83f6a59b3a671368082785",
       "currentProbeDigest": "066fb3bdaa7068a9101fd9ad14d2db9320093ae8cf83f6a59b3a671368082785",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -286,6 +304,8 @@
       "productionProbeDigest": "066fb3bdaa7068a9101fd9ad14d2db9320093ae8cf83f6a59b3a671368082785",
       "currentProbeDigest": "066fb3bdaa7068a9101fd9ad14d2db9320093ae8cf83f6a59b3a671368082785",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -296,6 +316,8 @@
       "productionProbeDigest": "fcd075e018ddf9e5d4abb41c4df9483060b4faccf7a1df2292b9b0317bb112e9",
       "currentProbeDigest": "fcd075e018ddf9e5d4abb41c4df9483060b4faccf7a1df2292b9b0317bb112e9",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -306,6 +328,8 @@
       "productionProbeDigest": "60da1e3b892a45052bcdeee2f10c3da4fb5dc0e541360193bb26ef8257a0e66f",
       "currentProbeDigest": "60da1e3b892a45052bcdeee2f10c3da4fb5dc0e541360193bb26ef8257a0e66f",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -352,6 +376,8 @@
       "productionProbeDigest": "a09b12f5d792cfb12c9599699584ba92d5ba5bcca3d681affbc36e4ece6d828d",
       "currentProbeDigest": "a09b12f5d792cfb12c9599699584ba92d5ba5bcca3d681affbc36e4ece6d828d",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -362,6 +388,8 @@
       "productionProbeDigest": "7ad4bdb569d835f106df1cde2ff1d919fe133bd597d6a052d8af39601f5edf9e",
       "currentProbeDigest": "7ad4bdb569d835f106df1cde2ff1d919fe133bd597d6a052d8af39601f5edf9e",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -372,6 +400,8 @@
       "productionProbeDigest": "05bb337a78603a30aab815038811a5d8f5cefdde74d28f557da72f993310a478",
       "currentProbeDigest": "05bb337a78603a30aab815038811a5d8f5cefdde74d28f557da72f993310a478",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -383,6 +413,7 @@
       "productionProbeDigest": "f32451dbd8fecc39b54fa32e9f07880cdb3074ef1d401a30c29b29d18b4e2445",
       "currentProbeDigest": "f32451dbd8fecc39b54fa32e9f07880cdb3074ef1d401a30c29b29d18b4e2445",
       "acceptanceProbeBound": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "diverged",
       "classification": "diverged"
     },
@@ -394,6 +425,7 @@
       "productionProbeDigest": "2b406346426d2b443ef0bb1e71ed1cc4fb48d5fab1460a061203a7196b9ecd3a",
       "currentProbeDigest": "2b406346426d2b443ef0bb1e71ed1cc4fb48d5fab1460a061203a7196b9ecd3a",
       "acceptanceProbeBound": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "diverged",
       "classification": "diverged"
     },
@@ -405,6 +437,7 @@
       "productionProbeDigest": "0378fc98cd92b55c16d6f12e748a87dbd5ce44cc02f58f113707bc4d79f8d408",
       "currentProbeDigest": "0378fc98cd92b55c16d6f12e748a87dbd5ce44cc02f58f113707bc4d79f8d408",
       "acceptanceProbeBound": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "unverified",
       "classification": "acceptance-mismatch"
     },
@@ -415,6 +448,8 @@
       "productionProbeDigest": "25b7328e34fc9dc74144fccb0f13b1ca3e94538697d27981219b05c17f6abe90",
       "currentProbeDigest": "25b7328e34fc9dc74144fccb0f13b1ca3e94538697d27981219b05c17f6abe90",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -425,6 +460,8 @@
       "productionProbeDigest": "3a2536725e41e5a619d65e0d706a2a5daa6e8d1e60cdfe3625019c522d2f7a12",
       "currentProbeDigest": "3a2536725e41e5a619d65e0d706a2a5daa6e8d1e60cdfe3625019c522d2f7a12",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -435,6 +472,8 @@
       "productionProbeDigest": "3dd839721a3be09ecf9fed1160175a6acb17d9d6bafcc38fb9bd1498fac4dea0",
       "currentProbeDigest": "3dd839721a3be09ecf9fed1160175a6acb17d9d6bafcc38fb9bd1498fac4dea0",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -445,6 +484,8 @@
       "productionProbeDigest": "cca67e96a5beff99a334eb684b42f0b1e79959a89bc0bd0c24a5cab79d956b16",
       "currentProbeDigest": "cca67e96a5beff99a334eb684b42f0b1e79959a89bc0bd0c24a5cab79d956b16",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -455,6 +496,8 @@
       "productionProbeDigest": "c90a9b77cdd59a8b5a354153882a186eecab6388b4fca8601eab23c35a0e2830",
       "currentProbeDigest": "c90a9b77cdd59a8b5a354153882a186eecab6388b4fca8601eab23c35a0e2830",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -465,6 +508,8 @@
       "productionProbeDigest": "58748f60f6f8b1dde3fca19c82ca0886a875aa72e348fe15ae9cce74db0a8dc4",
       "currentProbeDigest": "58748f60f6f8b1dde3fca19c82ca0886a875aa72e348fe15ae9cce74db0a8dc4",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -476,6 +521,7 @@
       "productionProbeDigest": "607eee122ba3df6b35ec7ea31ef54d1a14012a250d841fabacd90b2304c68a98",
       "currentProbeDigest": "607eee122ba3df6b35ec7ea31ef54d1a14012a250d841fabacd90b2304c68a98",
       "acceptanceProbeBound": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "unverified",
       "classification": "acceptance-mismatch"
     },
@@ -486,6 +532,8 @@
       "productionProbeDigest": "26b5a5ea3b0dad7991a9686e64cd313f030b982187abe271d11526f123aaeaa0",
       "currentProbeDigest": "26b5a5ea3b0dad7991a9686e64cd313f030b982187abe271d11526f123aaeaa0",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -496,6 +544,8 @@
       "productionProbeDigest": "f1862b13b9eb481476689ce0de631a57792a70a6136d7c1de4dc7f53038455be",
       "currentProbeDigest": "f1862b13b9eb481476689ce0de631a57792a70a6136d7c1de4dc7f53038455be",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -506,6 +556,8 @@
       "productionProbeDigest": "5c083a830fea476a5850e9fd5cbcf6304ea667c1d5eb9460b1047e839ab257f9",
       "currentProbeDigest": "5c083a830fea476a5850e9fd5cbcf6304ea667c1d5eb9460b1047e839ab257f9",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -516,6 +568,8 @@
       "productionProbeDigest": "eb9cf01db581035ae653bbb1eeb257f978140dc3937a247ef1689a34575b5067",
       "currentProbeDigest": "eb9cf01db581035ae653bbb1eeb257f978140dc3937a247ef1689a34575b5067",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -526,6 +580,8 @@
       "productionProbeDigest": "916b58d80541900cf5a8a8d3422f76b370c2061af14bc4b0ce0fb2748643a367",
       "currentProbeDigest": "916b58d80541900cf5a8a8d3422f76b370c2061af14bc4b0ce0fb2748643a367",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -536,6 +592,8 @@
       "productionProbeDigest": "afb5af402a738594cc72f841bd1d4602694bebcb76591be5f92d3f13d01a63be",
       "currentProbeDigest": "afb5af402a738594cc72f841bd1d4602694bebcb76591be5f92d3f13d01a63be",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -546,6 +604,8 @@
       "productionProbeDigest": "c29c061620b0544755cc1d33922965b90e546bb5bc8078419ffcbdadb7dd499a",
       "currentProbeDigest": "c29c061620b0544755cc1d33922965b90e546bb5bc8078419ffcbdadb7dd499a",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -556,6 +616,8 @@
       "productionProbeDigest": "ba7f0fc386fe8467dbe234b6464acf30685cdced04a064b30461e2bc0b97c623",
       "currentProbeDigest": "ba7f0fc386fe8467dbe234b6464acf30685cdced04a064b30461e2bc0b97c623",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -566,6 +628,8 @@
       "productionProbeDigest": "1deaa772d180ab6cde39ca2e652c7533fa5fc42af8b725feb384e6a3dc515206",
       "currentProbeDigest": "1deaa772d180ab6cde39ca2e652c7533fa5fc42af8b725feb384e6a3dc515206",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -576,6 +640,8 @@
       "productionProbeDigest": "ecca62075e3e4679827a673eb9645a3259d7890acf7f5a6acd1c45f6953efdbd",
       "currentProbeDigest": "ecca62075e3e4679827a673eb9645a3259d7890acf7f5a6acd1c45f6953efdbd",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -586,6 +652,8 @@
       "productionProbeDigest": "03b5ad2771606b0545a474c9547aad0a1f51a3604867ba15da81dcb4227ecd50",
       "currentProbeDigest": "03b5ad2771606b0545a474c9547aad0a1f51a3604867ba15da81dcb4227ecd50",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -596,6 +664,8 @@
       "productionProbeDigest": "71e70e83b46d7349d0cda41532778d2e9c65fa72d66b5269b0454555ae0357f9",
       "currentProbeDigest": "71e70e83b46d7349d0cda41532778d2e9c65fa72d66b5269b0454555ae0357f9",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -606,6 +676,8 @@
       "productionProbeDigest": "fdf6a58bf062456a0cacb3ce2e87fa556d740bd4540b54d121b45e427d692c7f",
       "currentProbeDigest": "fdf6a58bf062456a0cacb3ce2e87fa556d740bd4540b54d121b45e427d692c7f",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -616,6 +688,8 @@
       "productionProbeDigest": "5d5da84a7f0f0c27c60fb12583fa4c4c225bb48c0ce31639ad454917552e91ae",
       "currentProbeDigest": "5d5da84a7f0f0c27c60fb12583fa4c4c225bb48c0ce31639ad454917552e91ae",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -627,6 +701,7 @@
       "productionProbeDigest": "6bfee12fe7fffe3f7ce50cbcd8efe56bca23772358319872a658411401835035",
       "currentProbeDigest": "6bfee12fe7fffe3f7ce50cbcd8efe56bca23772358319872a658411401835035",
       "acceptanceProbeBound": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "unverified",
       "classification": "acceptance-mismatch"
     },
@@ -637,6 +712,8 @@
       "productionProbeDigest": "9d074578cdb255ca9fb78ad4e57edd3a980650c2eee385f93d9b02bb18a53a8e",
       "currentProbeDigest": "9d074578cdb255ca9fb78ad4e57edd3a980650c2eee385f93d9b02bb18a53a8e",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -647,6 +724,8 @@
       "productionProbeDigest": "f42c0316c290b9d60008c40d0ef5ba600dd420e0ea36b7e5edfed6f50aafb3f4",
       "currentProbeDigest": "f42c0316c290b9d60008c40d0ef5ba600dd420e0ea36b7e5edfed6f50aafb3f4",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -657,6 +736,8 @@
       "productionProbeDigest": "5c61d6233b4802720179b317580ead0da5621c0edde58acf2ba3257bc221607a",
       "currentProbeDigest": "5c61d6233b4802720179b317580ead0da5621c0edde58acf2ba3257bc221607a",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -667,6 +748,8 @@
       "productionProbeDigest": "d7981fee959f86564c5d7cdf05e2d8f02f368fb351778061468844fb1f85e6d9",
       "currentProbeDigest": "d7981fee959f86564c5d7cdf05e2d8f02f368fb351778061468844fb1f85e6d9",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -677,6 +760,8 @@
       "productionProbeDigest": "845407edd1031161667df6127795e1c3b561551c9e5c2197e13d57be9b4196b0",
       "currentProbeDigest": "845407edd1031161667df6127795e1c3b561551c9e5c2197e13d57be9b4196b0",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -687,6 +772,8 @@
       "productionProbeDigest": "87aa32927ed7997ef96dc31d8a8c1f23ec74a1dce4f4097d314b86ac9e29caea",
       "currentProbeDigest": "87aa32927ed7997ef96dc31d8a8c1f23ec74a1dce4f4097d314b86ac9e29caea",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -697,6 +784,8 @@
       "productionProbeDigest": "92fa1dde16c5bdd587a7afcf743cf41b5c466916f07733a716fd7b17628d65e0",
       "currentProbeDigest": "92fa1dde16c5bdd587a7afcf743cf41b5c466916f07733a716fd7b17628d65e0",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -707,6 +796,8 @@
       "productionProbeDigest": "6f2cb7613b356fc1e07499a2c696428954763c0a28daae1811ccab7a97846808",
       "currentProbeDigest": "6f2cb7613b356fc1e07499a2c696428954763c0a28daae1811ccab7a97846808",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -717,6 +808,8 @@
       "productionProbeDigest": "46929133d40950b5f5688a01944c106501d3dd4a62f3dd5f32f58d938a94003a",
       "currentProbeDigest": "46929133d40950b5f5688a01944c106501d3dd4a62f3dd5f32f58d938a94003a",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -727,6 +820,8 @@
       "productionProbeDigest": "eaf2f48c4fc301ca6c65816b30f5fa053bba0e56aa1f2d923344d84ab94c920c",
       "currentProbeDigest": "eaf2f48c4fc301ca6c65816b30f5fa053bba0e56aa1f2d923344d84ab94c920c",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -737,6 +832,8 @@
       "productionProbeDigest": "cda672f52dc85bbf55c4b61df06f9e264689c4a91f570fbb7d4b10b7491abe12",
       "currentProbeDigest": "cda672f52dc85bbf55c4b61df06f9e264689c4a91f570fbb7d4b10b7491abe12",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -747,6 +844,8 @@
       "productionProbeDigest": "7a17361868a1fb79e11c417d2c2009e8e4ef211cc281904349911966d7b136ad",
       "currentProbeDigest": "7a17361868a1fb79e11c417d2c2009e8e4ef211cc281904349911966d7b136ad",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -757,6 +856,8 @@
       "productionProbeDigest": "e1b477600b27b0fcf233ef9e6cd33fcac59f6578b6476f81a802308c80b73091",
       "currentProbeDigest": "e1b477600b27b0fcf233ef9e6cd33fcac59f6578b6476f81a802308c80b73091",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -767,6 +868,8 @@
       "productionProbeDigest": "bfdb1ac45064729e38765541178f723c9a31884f59b341e4f50008d4f68c4c8d",
       "currentProbeDigest": "bfdb1ac45064729e38765541178f723c9a31884f59b341e4f50008d4f68c4c8d",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -777,6 +880,8 @@
       "productionProbeDigest": "ed9fd6b82af57c7daa87d1770eb0ad6d122a5e5e64784ec6dd180a7d38ad6673",
       "currentProbeDigest": "ed9fd6b82af57c7daa87d1770eb0ad6d122a5e5e64784ec6dd180a7d38ad6673",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -787,6 +892,8 @@
       "productionProbeDigest": "848bcaf2b2325e85eb4de5ed3d1dcf14bdda5d98bdbcddad949227abce2cd244",
       "currentProbeDigest": "848bcaf2b2325e85eb4de5ed3d1dcf14bdda5d98bdbcddad949227abce2cd244",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -797,6 +904,8 @@
       "productionProbeDigest": "7eecfdebdd0d9b29ba55603998bcaeab6f37b891975086fab4196966279d708e",
       "currentProbeDigest": "7eecfdebdd0d9b29ba55603998bcaeab6f37b891975086fab4196966279d708e",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -807,6 +916,8 @@
       "productionProbeDigest": "bcb60519189bea1914ca03a73d88f6da60ed7b13f8bc66a39d80f6fb8ac18d98",
       "currentProbeDigest": "bcb60519189bea1914ca03a73d88f6da60ed7b13f8bc66a39d80f6fb8ac18d98",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -817,6 +928,8 @@
       "productionProbeDigest": "3c43d760b92479fdd33ae5952d6ce283ee926cd1d0470cda5540304ff9eb69bd",
       "currentProbeDigest": "3c43d760b92479fdd33ae5952d6ce283ee926cd1d0470cda5540304ff9eb69bd",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -827,6 +940,8 @@
       "productionProbeDigest": "c16f0522a103aa7b3321e0d2916709c1b78939a7f7a9c377942e27d7ffe9f7c1",
       "currentProbeDigest": "c16f0522a103aa7b3321e0d2916709c1b78939a7f7a9c377942e27d7ffe9f7c1",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -837,6 +952,8 @@
       "productionProbeDigest": "7e5a69b5a414c8f7425f9cb072e598d2e6d6209e57b5157c59c8eb599efc40e2",
       "currentProbeDigest": "7e5a69b5a414c8f7425f9cb072e598d2e6d6209e57b5157c59c8eb599efc40e2",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -848,6 +965,7 @@
       "productionProbeDigest": "0659755883dcf0cf629bac715446cc2e9c5210e6d0a4c16fbc930e1d71a6772e",
       "currentProbeDigest": "0659755883dcf0cf629bac715446cc2e9c5210e6d0a4c16fbc930e1d71a6772e",
       "acceptanceProbeBound": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "unverified",
       "classification": "acceptance-mismatch"
     },
@@ -859,6 +977,7 @@
       "productionProbeDigest": "7163c07a13c741b781c21cf54a867812fdc4d10ccfb5c241b7135b6f28de6f64",
       "currentProbeDigest": "7163c07a13c741b781c21cf54a867812fdc4d10ccfb5c241b7135b6f28de6f64",
       "acceptanceProbeBound": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "unverified",
       "classification": "acceptance-mismatch"
     },
@@ -870,6 +989,7 @@
       "productionProbeDigest": "037893de2201bed48546e9b654a1ffeaeae7a2fc655d1b7a2525e608b3b469c9",
       "currentProbeDigest": "037893de2201bed48546e9b654a1ffeaeae7a2fc655d1b7a2525e608b3b469c9",
       "acceptanceProbeBound": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "unverified",
       "classification": "acceptance-mismatch"
     },
@@ -880,6 +1000,8 @@
       "productionProbeDigest": "8543e24cc263ea45f212ba573f218bd8c355954029a0d124ca099f9a1fed82e4",
       "currentProbeDigest": "8543e24cc263ea45f212ba573f218bd8c355954029a0d124ca099f9a1fed82e4",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -890,6 +1012,8 @@
       "productionProbeDigest": "e8cb11a2ce4db394cf7c722275a5a7144a01d810889fd9df02fe7f92bd39414c",
       "currentProbeDigest": "e8cb11a2ce4db394cf7c722275a5a7144a01d810889fd9df02fe7f92bd39414c",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -900,6 +1024,8 @@
       "productionProbeDigest": "9e8d06d403c385fb7c33a63e7060d9931cc8042d0e153224cd4113039b9dce64",
       "currentProbeDigest": "9e8d06d403c385fb7c33a63e7060d9931cc8042d0e153224cd4113039b9dce64",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -910,6 +1036,8 @@
       "productionProbeDigest": "92a9d4e769da5e7dd6758f9784af784ee28b0c75f6da28e5842346778230e2f9",
       "currentProbeDigest": "92a9d4e769da5e7dd6758f9784af784ee28b0c75f6da28e5842346778230e2f9",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -920,6 +1048,8 @@
       "productionProbeDigest": "2b378b2c84e7524c9f13e29c163c97cc0b4167aa21941a5afb5d993d5134b0c7",
       "currentProbeDigest": "2b378b2c84e7524c9f13e29c163c97cc0b4167aa21941a5afb5d993d5134b0c7",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -930,6 +1060,8 @@
       "productionProbeDigest": "3f542eb1122c39a293780bdb70fbb63fad55987459b7c30e4c57e895b320d372",
       "currentProbeDigest": "3f542eb1122c39a293780bdb70fbb63fad55987459b7c30e4c57e895b320d372",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -940,6 +1072,7 @@
       "productionProbeDigest": "ec861d47c23c8c8f20e96cc953039e8469d8494d8de5e2ce23cdd678190a8d38",
       "currentProbeDigest": "ec861d47c23c8c8f20e96cc953039e8469d8494d8de5e2ce23cdd678190a8d38",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "local-error"
     },
@@ -950,6 +1083,7 @@
       "productionProbeDigest": "e412b6bf315bad1b039d38d89cd641c97b657774e43252a2579e4b100ae7c9ae",
       "currentProbeDigest": "e412b6bf315bad1b039d38d89cd641c97b657774e43252a2579e4b100ae7c9ae",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "local-error"
     },
@@ -960,6 +1094,7 @@
       "productionProbeDigest": "5f3d66c8789f7d98bf76e64700660bced8cb8b6a18e9728b6bb30e1d973870a3",
       "currentProbeDigest": "5f3d66c8789f7d98bf76e64700660bced8cb8b6a18e9728b6bb30e1d973870a3",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "local-error"
     },
@@ -970,6 +1105,8 @@
       "productionProbeDigest": "d89fc52e2f56ce42dae2e0608975c51ebfdd7483b7a9a6a8a3e5022423fce431",
       "currentProbeDigest": "d89fc52e2f56ce42dae2e0608975c51ebfdd7483b7a9a6a8a3e5022423fce431",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -980,6 +1117,8 @@
       "productionProbeDigest": "bc0085e3bf7b78f562bdfb4ae94f08a7be9f82b63963bccbf2afe2b587f329fc",
       "currentProbeDigest": "bc0085e3bf7b78f562bdfb4ae94f08a7be9f82b63963bccbf2afe2b587f329fc",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -990,6 +1129,8 @@
       "productionProbeDigest": "40100c57cdbe6a91c57c6952f94243e7395e1d2e39d2ba5762ba5ff94fefe33e",
       "currentProbeDigest": "40100c57cdbe6a91c57c6952f94243e7395e1d2e39d2ba5762ba5ff94fefe33e",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1000,6 +1141,8 @@
       "productionProbeDigest": "bfdb1ac45064729e38765541178f723c9a31884f59b341e4f50008d4f68c4c8d",
       "currentProbeDigest": "bfdb1ac45064729e38765541178f723c9a31884f59b341e4f50008d4f68c4c8d",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1010,6 +1153,8 @@
       "productionProbeDigest": "ecca62075e3e4679827a673eb9645a3259d7890acf7f5a6acd1c45f6953efdbd",
       "currentProbeDigest": "ecca62075e3e4679827a673eb9645a3259d7890acf7f5a6acd1c45f6953efdbd",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1020,6 +1165,8 @@
       "productionProbeDigest": "37bd4569397f346bb3d2534f6becfdbd03106a1f0560621bc4092860e22df98a",
       "currentProbeDigest": "37bd4569397f346bb3d2534f6becfdbd03106a1f0560621bc4092860e22df98a",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1030,6 +1177,8 @@
       "productionProbeDigest": "359c3237ae342e954cf804cf1c70190956e5179380383dedf01b06a1b5e15038",
       "currentProbeDigest": "359c3237ae342e954cf804cf1c70190956e5179380383dedf01b06a1b5e15038",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1040,6 +1189,8 @@
       "productionProbeDigest": "5cd74e8a0a152ce63265a16e3cb9657a5c5f4fabb49dbe9dae39231de039de70",
       "currentProbeDigest": "5cd74e8a0a152ce63265a16e3cb9657a5c5f4fabb49dbe9dae39231de039de70",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1050,6 +1201,8 @@
       "productionProbeDigest": "4a67d3fed0eb9029f75ee9f1c64215b0c87c01d48334e6c6da033861e4f40f83",
       "currentProbeDigest": "4a67d3fed0eb9029f75ee9f1c64215b0c87c01d48334e6c6da033861e4f40f83",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1060,6 +1213,8 @@
       "productionProbeDigest": "19e649bd199d440dbc5e4bd203a46b51221e2b32385e18947319dcfb3863c098",
       "currentProbeDigest": "19e649bd199d440dbc5e4bd203a46b51221e2b32385e18947319dcfb3863c098",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1070,6 +1225,8 @@
       "productionProbeDigest": "c44fa234d2b42d4c0980bead7a94aad1eea7efd966b97e1fa2bdef4f6b6ff6d7",
       "currentProbeDigest": "c44fa234d2b42d4c0980bead7a94aad1eea7efd966b97e1fa2bdef4f6b6ff6d7",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1080,6 +1237,8 @@
       "productionProbeDigest": "0826741669cb7e82ea575f2979e9c7cf523e8cdc466d44c05e0303428e0db3da",
       "currentProbeDigest": "0826741669cb7e82ea575f2979e9c7cf523e8cdc466d44c05e0303428e0db3da",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1090,6 +1249,8 @@
       "productionProbeDigest": "012586a08142c4899507a762a70ab21386975336a4151cbaec0da27768806246",
       "currentProbeDigest": "012586a08142c4899507a762a70ab21386975336a4151cbaec0da27768806246",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1100,6 +1261,8 @@
       "productionProbeDigest": "1f2ecb6ea3116ca8d1e46a8ca58259931a4c74ced8c4ab79e5c2f195387749cc",
       "currentProbeDigest": "1f2ecb6ea3116ca8d1e46a8ca58259931a4c74ced8c4ab79e5c2f195387749cc",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1110,6 +1273,8 @@
       "productionProbeDigest": "ea3aa64b062229b51a7bb1f624eae5595ee692613b5712ae1f43a99f8647985c",
       "currentProbeDigest": "ea3aa64b062229b51a7bb1f624eae5595ee692613b5712ae1f43a99f8647985c",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1120,6 +1285,8 @@
       "productionProbeDigest": "57c6137ac544096bf00207b5004afb06891e23b765bd8f6623323787da1cfa2e",
       "currentProbeDigest": "57c6137ac544096bf00207b5004afb06891e23b765bd8f6623323787da1cfa2e",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1130,6 +1297,8 @@
       "productionProbeDigest": "6ddf6a2d33cdb552aa814c7b196bf26975fae71f90aee5f792062867c2bfdb3e",
       "currentProbeDigest": "6ddf6a2d33cdb552aa814c7b196bf26975fae71f90aee5f792062867c2bfdb3e",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1140,6 +1309,8 @@
       "productionProbeDigest": "c319a1a13a9590a5ee5ed672c4aa3d1e02a4dcbfefd201d631459c20ddf44153",
       "currentProbeDigest": "c319a1a13a9590a5ee5ed672c4aa3d1e02a4dcbfefd201d631459c20ddf44153",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1150,6 +1321,8 @@
       "productionProbeDigest": "54abf7385fd8589934148dc821f70478dd9710dd949df7607ba7725c3effe46a",
       "currentProbeDigest": "54abf7385fd8589934148dc821f70478dd9710dd949df7607ba7725c3effe46a",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1160,6 +1333,8 @@
       "productionProbeDigest": "4a90fb84373cd21ad5336ba43799f6ce0af66f65a352779bdc23fd3c9921242c",
       "currentProbeDigest": "4a90fb84373cd21ad5336ba43799f6ce0af66f65a352779bdc23fd3c9921242c",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1170,6 +1345,8 @@
       "productionProbeDigest": "eb9cf01db581035ae653bbb1eeb257f978140dc3937a247ef1689a34575b5067",
       "currentProbeDigest": "eb9cf01db581035ae653bbb1eeb257f978140dc3937a247ef1689a34575b5067",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1180,6 +1357,8 @@
       "productionProbeDigest": "6edb0f4fb5f0370be079a11a1fced8a71dc67d875f1549b5d9a69023a897b146",
       "currentProbeDigest": "6edb0f4fb5f0370be079a11a1fced8a71dc67d875f1549b5d9a69023a897b146",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1190,6 +1369,8 @@
       "productionProbeDigest": "5ec2b72bc3d2605e44976408f20ffb8fea6352bcc40e61a431db8a0832f0d7d3",
       "currentProbeDigest": "5ec2b72bc3d2605e44976408f20ffb8fea6352bcc40e61a431db8a0832f0d7d3",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1200,6 +1381,8 @@
       "productionProbeDigest": "ae0930b4eb57e868ada65ed8856db7dd3f6ce5091b45eeef3d37d0610d80d722",
       "currentProbeDigest": "ae0930b4eb57e868ada65ed8856db7dd3f6ce5091b45eeef3d37d0610d80d722",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1210,6 +1393,8 @@
       "productionProbeDigest": "65627f15db83ee1e1786237d59180915b93386705082407ed290744266770a58",
       "currentProbeDigest": "65627f15db83ee1e1786237d59180915b93386705082407ed290744266770a58",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1220,6 +1405,8 @@
       "productionProbeDigest": "767bda875d189b27f02b927d789bd916e5a426cd6d9c290721526ef87803f8e5",
       "currentProbeDigest": "767bda875d189b27f02b927d789bd916e5a426cd6d9c290721526ef87803f8e5",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1230,6 +1417,8 @@
       "productionProbeDigest": "c956cfb88aaeb54dc59f6b24ae89d9bb0de1ece850d372231885147170be3991",
       "currentProbeDigest": "c956cfb88aaeb54dc59f6b24ae89d9bb0de1ece850d372231885147170be3991",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1240,6 +1429,8 @@
       "productionProbeDigest": "555c7c94363a18a9e9c9ba2570fe0246e7ce0461fd0a9a1de90ea72c8efca061",
       "currentProbeDigest": "555c7c94363a18a9e9c9ba2570fe0246e7ce0461fd0a9a1de90ea72c8efca061",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1250,6 +1441,8 @@
       "productionProbeDigest": "5e957d246e9ed64e9deebfe38ff84a0bc35ccf911e0d29db2d6d0ca093867cd6",
       "currentProbeDigest": "5e957d246e9ed64e9deebfe38ff84a0bc35ccf911e0d29db2d6d0ca093867cd6",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1260,6 +1453,8 @@
       "productionProbeDigest": "4a1fd4dd4281272459fa57efdf9e53851fc7af88ea26cb989ab3a0893c6c3350",
       "currentProbeDigest": "4a1fd4dd4281272459fa57efdf9e53851fc7af88ea26cb989ab3a0893c6c3350",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1270,6 +1465,8 @@
       "productionProbeDigest": "4615a37a2f7da33a2c0e368aa0181da5f7e8cb7892fb9b368a561c437b56d19b",
       "currentProbeDigest": "4615a37a2f7da33a2c0e368aa0181da5f7e8cb7892fb9b368a561c437b56d19b",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1280,6 +1477,8 @@
       "productionProbeDigest": "3723dd4ecfd4479e1e0ca79ea3b931dc6b4907e16d8ab06afbbdda96ceb9e65e",
       "currentProbeDigest": "3723dd4ecfd4479e1e0ca79ea3b931dc6b4907e16d8ab06afbbdda96ceb9e65e",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1290,6 +1489,8 @@
       "productionProbeDigest": "4279f91730daa4178906da6e6eaed3a0452576081b76c8799183945818063c66",
       "currentProbeDigest": "4279f91730daa4178906da6e6eaed3a0452576081b76c8799183945818063c66",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1300,6 +1501,8 @@
       "productionProbeDigest": "86ec6e05f7e6e284c4df170c7c2936fd9fe67123017e93bd4d4967213fd22da0",
       "currentProbeDigest": "86ec6e05f7e6e284c4df170c7c2936fd9fe67123017e93bd4d4967213fd22da0",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1310,6 +1513,8 @@
       "productionProbeDigest": "277a9a3f40a79d697acac4a736de8f1c989e4620eb202d9e2395704ba91b9349",
       "currentProbeDigest": "277a9a3f40a79d697acac4a736de8f1c989e4620eb202d9e2395704ba91b9349",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1320,6 +1525,8 @@
       "productionProbeDigest": "951156fa4f46513414f44314e904a50010fe7c6ee499f20736d4b5ede9f3e729",
       "currentProbeDigest": "951156fa4f46513414f44314e904a50010fe7c6ee499f20736d4b5ede9f3e729",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1330,6 +1537,8 @@
       "productionProbeDigest": "0ec97b0ebbcbcb5c18225f772b325b6f204b41f8d8d7dda2cbb418ffb7dcfca1",
       "currentProbeDigest": "0ec97b0ebbcbcb5c18225f772b325b6f204b41f8d8d7dda2cbb418ffb7dcfca1",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1340,6 +1549,8 @@
       "productionProbeDigest": "34e8e10330b80e02e6679d8f0aa03c34e3da8f8143df52bbff38632743054051",
       "currentProbeDigest": "34e8e10330b80e02e6679d8f0aa03c34e3da8f8143df52bbff38632743054051",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1350,6 +1561,8 @@
       "productionProbeDigest": "d269d9c86cbbce991e8123293302610f9c0b91a51a71ccb2ecb13637ca8a377b",
       "currentProbeDigest": "d269d9c86cbbce991e8123293302610f9c0b91a51a71ccb2ecb13637ca8a377b",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1360,6 +1573,8 @@
       "productionProbeDigest": "4405398ee959b0e102654d4c52afb41789d65f32dd5a1ff47cde7fd5ba652f37",
       "currentProbeDigest": "4405398ee959b0e102654d4c52afb41789d65f32dd5a1ff47cde7fd5ba652f37",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1370,6 +1585,8 @@
       "productionProbeDigest": "4f1f2bf6bc319043d401372a8ab06c95475075f06cfd4d1d8c1dd2bf1289d767",
       "currentProbeDigest": "4f1f2bf6bc319043d401372a8ab06c95475075f06cfd4d1d8c1dd2bf1289d767",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1380,6 +1597,8 @@
       "productionProbeDigest": "3468636fabb0d767f39590d2b3d52da8202301c20dbc0cd920c01c7855d98711",
       "currentProbeDigest": "3468636fabb0d767f39590d2b3d52da8202301c20dbc0cd920c01c7855d98711",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1390,6 +1609,8 @@
       "productionProbeDigest": "4dc43c5b0a2c0bfe5021ac565745841b67729f496107fc68ad9dd093850485f5",
       "currentProbeDigest": "4dc43c5b0a2c0bfe5021ac565745841b67729f496107fc68ad9dd093850485f5",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1400,6 +1621,8 @@
       "productionProbeDigest": "ab63f80bd725b889e6bf625b6751fc082de07a52cbd9db2ca52399298fc42b5a",
       "currentProbeDigest": "ab63f80bd725b889e6bf625b6751fc082de07a52cbd9db2ca52399298fc42b5a",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1410,6 +1633,8 @@
       "productionProbeDigest": "c5172c6b1e239853d508a222cacd40282af3bbb2fab969907725d6ec90fe358b",
       "currentProbeDigest": "c5172c6b1e239853d508a222cacd40282af3bbb2fab969907725d6ec90fe358b",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1420,6 +1645,8 @@
       "productionProbeDigest": "1a470bda7415d6ace19b0850bb45ea404c9e5ab4233456e9799551cd25425649",
       "currentProbeDigest": "1a470bda7415d6ace19b0850bb45ea404c9e5ab4233456e9799551cd25425649",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1430,6 +1657,8 @@
       "productionProbeDigest": "1d4a839750746dc1bf9b49b8babc42c2519e5ff27680b49cb8344e33d5d9175c",
       "currentProbeDigest": "1d4a839750746dc1bf9b49b8babc42c2519e5ff27680b49cb8344e33d5d9175c",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1440,6 +1669,8 @@
       "productionProbeDigest": "5655e4fe5a12c9e7a0123e24ff09bb03b98af4f98fd1727b0828514e82cfe7fb",
       "currentProbeDigest": "5655e4fe5a12c9e7a0123e24ff09bb03b98af4f98fd1727b0828514e82cfe7fb",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1450,6 +1681,8 @@
       "productionProbeDigest": "9a5b40fd1503057e431d62ede7441ed010fdeab2cc48fddcc1a41ee926ebab79",
       "currentProbeDigest": "9a5b40fd1503057e431d62ede7441ed010fdeab2cc48fddcc1a41ee926ebab79",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1460,6 +1693,8 @@
       "productionProbeDigest": "8e1cee3c10a65e06e027c5529cae7829cd3f2a9f5e27567a0330c313556724c9",
       "currentProbeDigest": "8e1cee3c10a65e06e027c5529cae7829cd3f2a9f5e27567a0330c313556724c9",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1470,6 +1705,8 @@
       "productionProbeDigest": "529ee53402865aaac3fdf558a5ab74f02774baa483893d166a148ec352d62bfb",
       "currentProbeDigest": "529ee53402865aaac3fdf558a5ab74f02774baa483893d166a148ec352d62bfb",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1480,6 +1717,8 @@
       "productionProbeDigest": "0a01525823dc02c4299770843c88d91dd7c459181e118653b50fcca151470963",
       "currentProbeDigest": "0a01525823dc02c4299770843c88d91dd7c459181e118653b50fcca151470963",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1490,6 +1729,8 @@
       "productionProbeDigest": "9cee3264723ef8db803135e1c6a94b6c32de7eaa756cf0b19b858a1a37e9db79",
       "currentProbeDigest": "9cee3264723ef8db803135e1c6a94b6c32de7eaa756cf0b19b858a1a37e9db79",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1500,6 +1741,8 @@
       "productionProbeDigest": "1d4a839750746dc1bf9b49b8babc42c2519e5ff27680b49cb8344e33d5d9175c",
       "currentProbeDigest": "1d4a839750746dc1bf9b49b8babc42c2519e5ff27680b49cb8344e33d5d9175c",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1510,6 +1753,8 @@
       "productionProbeDigest": "4ada67446beada973b07827f34a7066c76ea94ef367cbac1760d715e1ff8a302",
       "currentProbeDigest": "4ada67446beada973b07827f34a7066c76ea94ef367cbac1760d715e1ff8a302",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1520,6 +1765,8 @@
       "productionProbeDigest": "bf8343951a36e8eb6f12bda6993eb511ba1833b5607c8ba336715028affcce5a",
       "currentProbeDigest": "bf8343951a36e8eb6f12bda6993eb511ba1833b5607c8ba336715028affcce5a",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1530,6 +1777,8 @@
       "productionProbeDigest": "1d4a839750746dc1bf9b49b8babc42c2519e5ff27680b49cb8344e33d5d9175c",
       "currentProbeDigest": "1d4a839750746dc1bf9b49b8babc42c2519e5ff27680b49cb8344e33d5d9175c",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1548,6 +1797,8 @@
       "productionProbeDigest": "5ba72edc54df422cedc5ee376921b8b2be1e05fda9dfc104b6ab91de56d7c370",
       "currentProbeDigest": "5ba72edc54df422cedc5ee376921b8b2be1e05fda9dfc104b6ab91de56d7c370",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1558,6 +1809,8 @@
       "productionProbeDigest": "1fc852d937081c549c3dd9635af825d79c01ed1e7f46293768c7c4554e1e47ff",
       "currentProbeDigest": "1fc852d937081c549c3dd9635af825d79c01ed1e7f46293768c7c4554e1e47ff",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1568,6 +1821,8 @@
       "productionProbeDigest": "967caa956195d548018a6daf51fdcbbf751e53afa6f580f11db5fa3d467a3c14",
       "currentProbeDigest": "967caa956195d548018a6daf51fdcbbf751e53afa6f580f11db5fa3d467a3c14",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
@@ -1578,6 +1833,8 @@
       "productionProbeDigest": "42502f9d13e8607570c4686bfabf6b69291ea05b6cf7a0026fb56cb9aea6fd56",
       "currentProbeDigest": "42502f9d13e8607570c4686bfabf6b69291ea05b6cf7a0026fb56cb9aea6fd56",
       "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
       "productionEvidence": "verified",
       "classification": "conformant"
     },
