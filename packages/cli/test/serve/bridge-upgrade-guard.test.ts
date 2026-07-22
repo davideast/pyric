@@ -4,7 +4,7 @@
  * request-time `isAllowedHost`. A hostile page could open a WS to the loopback
  * bridge and hijack the agent tool channel (`registerSandboxPeer` last-wins).
  *
- * These tests drive `mount.attachUpgrade`'s handler DIRECTLY with a fake
+ * These tests drive `mount.attachHost`'s upgrade handler DIRECTLY with a fake
  * EventEmitter "server" + mock req/socket — no real listen()/socket, per the
  * repo's CI-hang constraint (real-server+loopback tests hang under bun/Linux).
  * `WebSocketServer.prototype.handleUpgrade` is stubbed so we can assert whether
@@ -48,10 +48,15 @@ function driveUpgrade(
     upgradeGuard: { boundHost: opts.boundHost ?? 'localhost', allowedHosts: opts.allowedHosts },
   });
   const server = new EventEmitter();
-  mount.attachUpgrade(server as unknown as Server);
+  mount.attachHost({
+    servers: [server as unknown as Server],
+    projectDir: process.cwd(),
+    origin: () => null,
+  });
 
   let destroyed = false;
-  const socket = { destroy: () => { destroyed = true; } };
+  const socket = new EventEmitter() as EventEmitter & { destroy(): void };
+  socket.destroy = () => { destroyed = true; socket.emit('close'); };
   const req = { url: opts.path ?? WS_PATH, headers };
   server.emit('upgrade', req, socket, Buffer.alloc(0));
   return { destroyed, handshakes };
