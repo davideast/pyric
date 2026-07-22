@@ -67,6 +67,15 @@ class ReferenceQueryValue {
   }
 }
 
+export function registeredReferenceQueryValuePath(value: object): string | undefined {
+  const registered = values.get(value);
+  if (typeof registered !== 'object'
+    || registered === null
+    || !(REFERENCE_QUERY_VALUE_KEY in registered)) return undefined;
+  const path = (registered as { path?: unknown }).path;
+  return typeof path === 'string' ? path : undefined;
+}
+
 export function registerReferenceQueryValue(
   value: object,
   path: string,

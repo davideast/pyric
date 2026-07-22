@@ -5,16 +5,447 @@
     "firestore#117"
   ],
   "description": "snapshotEqual semantics — does prod compare structurally or by identity across two fetches of the same query?",
-  "observedAt": "2026-07-22T02:46:13.253Z",
+  "observedAt": "2026-07-22T03:10:36.949Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
     "identity": true,
     "twoFetchesSameData": false,
+    "repeatedFetchEquality": [
+      false,
+      true,
+      true
+    ],
+    "repeatedFetchState": [
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      }
+    ],
+    "repeatedFetchVisibleStateSame": true,
+    "differentReadQuerySameDocumentsEqual": false,
+    "differentReadQueryDocumentsSame": true,
+    "changedReadEquality": [
+      false,
+      false,
+      true
+    ],
+    "changedReadState": [
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      {
+        "ids": [
+          "a",
+          "b"
+        ],
+        "data": [
+          {
+            "v": 1
+          },
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          },
+          {
+            "type": "added",
+            "id": "b",
+            "oldIndex": -1,
+            "newIndex": 1
+          }
+        ],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      {
+        "ids": [
+          "a",
+          "b"
+        ],
+        "data": [
+          {
+            "v": 1
+          },
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          },
+          {
+            "type": "added",
+            "id": "b",
+            "oldIndex": -1,
+            "newIndex": 1
+          }
+        ],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      {
+        "ids": [
+          "a",
+          "b"
+        ],
+        "data": [
+          {
+            "v": 1
+          },
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          },
+          {
+            "type": "added",
+            "id": "b",
+            "oldIndex": -1,
+            "newIndex": 1
+          }
+        ],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      }
+    ],
     "deserializedSnapshotsDistinct": true,
     "sameJsonSnapshotsEqual": true,
     "listenerSnapshotsDistinct": true,
     "simultaneousListenerSnapshotsEqual": true,
+    "listenerSameState": {
+      "ids": [
+        "a"
+      ],
+      "data": [
+        {
+          "v": 1
+        }
+      ],
+      "changes": [
+        {
+          "type": "added",
+          "id": "a",
+          "oldIndex": -1,
+          "newIndex": 0
+        }
+      ],
+      "metadata": {
+        "fromCache": true,
+        "hasPendingWrites": false
+      }
+    },
+    "simultaneousListenerStateSame": true,
+    "differentQuerySameDocumentsEqual": false,
+    "differentQuerySameDocuments": [
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": true,
+          "hasPendingWrites": false
+        }
+      },
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": true,
+          "hasPendingWrites": false
+        }
+      }
+    ],
+    "differentListenerQueryDocumentsSame": true,
+    "differentDocumentsEqual": false,
+    "differentDocuments": [
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": true,
+          "hasPendingWrites": false
+        }
+      },
+      {
+        "ids": [
+          "a",
+          "b"
+        ],
+        "data": [
+          {
+            "v": 1
+          },
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "b",
+            "oldIndex": -1,
+            "newIndex": 1
+          }
+        ],
+        "metadata": {
+          "fromCache": true,
+          "hasPendingWrites": true
+        }
+      }
+    ],
+    "differentDocumentsChanged": true,
+    "restoredDocumentsDifferentChangesEqual": false,
+    "restoredDocumentsDifferentChanges": [
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "added",
+            "id": "a",
+            "oldIndex": -1,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": true,
+          "hasPendingWrites": false
+        }
+      },
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [
+          {
+            "type": "modified",
+            "id": "a",
+            "oldIndex": 0,
+            "newIndex": 0
+          }
+        ],
+        "metadata": {
+          "fromCache": true,
+          "hasPendingWrites": true
+        }
+      }
+    ],
+    "restoredDocumentsStateSame": true,
+    "restoredChangesDiffer": true,
+    "metadataOnlySnapshotsEqual": false,
+    "metadataOnlySnapshots": [
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": true
+        }
+      },
+      {
+        "ids": [
+          "a"
+        ],
+        "data": [
+          {
+            "v": 1
+          }
+        ],
+        "changes": [],
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      }
+    ],
+    "metadataOnlyDocumentsSame": true,
+    "metadataOnlyChangesSame": true,
+    "metadataOnlyMetadataDiffer": true,
     "documentIdentity": true,
     "documentSameRefTwoFetches": true,
     "documentDifferentRefSameData": false,

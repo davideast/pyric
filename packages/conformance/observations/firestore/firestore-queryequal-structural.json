@@ -5,7 +5,7 @@
     "firestore#116"
   ],
   "description": "queryEqual semantics — does prod compare structurally or by identity?",
-  "observedAt": "2026-07-22T02:46:10.424Z",
+  "observedAt": "2026-07-22T03:01:53.565Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -59,6 +59,60 @@
     "independentExecutionIds": [
       "a"
     ],
+    "timestampExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "bytesExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "geoPointExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "referenceExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "vectorExecution": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "bytesExecutionAfterInputMutation": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "vectorExecutionAfterInputMutation": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "frozenBytesExecutionAfterInputMutation": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
+    "frozenVectorExecutionAfterInputMutation": {
+      "ids": [
+        "a"
+      ],
+      "code": null
+    },
     "snapshotAndExplicitCursorEqual": true,
     "vectorValueBuiltTwice": true,
     "vectorValueChanged": false,

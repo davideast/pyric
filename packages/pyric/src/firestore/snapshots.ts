@@ -61,13 +61,19 @@ interface QuerySnapshotEqualityState {
   readonly query: object;
   readonly converter: FirestoreDataConverter<unknown> | null;
   readonly source: 'read' | 'listener';
-  readonly readIdentity?: object;
+  readonly readPhase?: 'initial' | 'settled';
   readonly metadata: { readonly fromCache: boolean; readonly hasPendingWrites: boolean };
   readonly docs: readonly QuerySnapshotDocEqualityState[];
   readonly changes: readonly QuerySnapshotChangeEqualityState[];
 }
 
 const querySnapshotEquality = new WeakMap<object, QuerySnapshotEqualityState>();
+interface ReadQueryState {
+  readonly query: WeakRef<object>;
+  docs: readonly QuerySnapshotDocEqualityState[];
+  metadata: { readonly fromCache: boolean; readonly hasPendingWrites: boolean };
+}
+const readQueriesByTarget = new WeakMap<object, ReadQueryState[]>();
 
 function recordDocumentSnapshot(
   snapshot: object,
@@ -112,14 +118,9 @@ function querySnapshotsEqual(left: object, right: object): boolean {
   const a = querySnapshotEquality.get(left);
   const b = querySnapshotEquality.get(right);
   if (!a || !b || a.target !== b.target || a.converter !== b.converter) return false;
-  // Separate one-shot reads carry distinct internal view snapshots in
-  // Firebase even when their documents match. Listener deliveries, however,
-  // are compared structurally.
   if (a.source !== b.source) return false;
-  if (a.source === 'read') return a.readIdentity === b.readIdentity;
-  const leftQuery = underlyingOf(a.query) as { isStructurallyEqual?: (other: unknown) => boolean };
-  const rightQuery = underlyingOf(b.query);
-  if (!(leftQuery.isStructurallyEqual?.(rightQuery) ?? leftQuery === rightQuery)) return false;
+  if (!queryObjectsEqual(a.query, b.query)) return false;
+  if (a.source === 'read' && a.readPhase !== b.readPhase) return false;
   if (a.metadata.fromCache !== b.metadata.fromCache
     || a.metadata.hasPendingWrites !== b.metadata.hasPendingWrites) return false;
   if (!querySnapshotDocsEqual(a.docs, b.docs) || a.changes.length !== b.changes.length) return false;
@@ -131,6 +132,38 @@ function querySnapshotsEqual(left: object, right: object): boolean {
       && change.path === other.path
       && capturedQueryOperandsEqual(change.data, other.data);
   });
+}
+
+function queryObjectsEqual(left: object, right: object): boolean {
+  const leftQuery = underlyingOf(left) as { isStructurallyEqual?: (other: unknown) => boolean };
+  const rightQuery = underlyingOf(right);
+  return leftQuery.isStructurallyEqual?.(rightQuery) ?? leftQuery === rightQuery;
+}
+
+function readPhase(
+  target: Target,
+  query: object,
+  docs: readonly QuerySnapshotDocEqualityState[],
+  metadata: { readonly fromCache: boolean; readonly hasPendingWrites: boolean },
+): 'initial' | 'settled' {
+  const targetKey = target as object;
+  const seen = (readQueriesByTarget.get(targetKey) ?? []).filter((candidate) =>
+    candidate.query.deref() !== undefined);
+  const state = seen.find((candidate) => {
+    const candidateQuery = candidate.query.deref();
+    return candidateQuery !== undefined && queryObjectsEqual(candidateQuery, query);
+  });
+  if (state !== undefined) {
+    const sameState = querySnapshotDocsEqual(state.docs, docs)
+      && state.metadata.fromCache === metadata.fromCache
+      && state.metadata.hasPendingWrites === metadata.hasPendingWrites;
+    state.docs = docs;
+    state.metadata = metadata;
+    return sameState ? 'settled' : 'initial';
+  }
+  seen.push({ query: new WeakRef(query), docs, metadata });
+  readQueriesByTarget.set(targetKey, seen);
+  return 'initial';
 }
 
 function querySnapshotDocsEqual(
@@ -173,16 +206,17 @@ export function recordQuerySnapshot(
     oldIndex: change.oldIndex ?? -1,
     newIndex: change.newIndex ?? -1,
   })));
+  const metadata = Object.freeze({
+    fromCache: raw.metadata?.fromCache === true,
+    hasPendingWrites: raw.metadata?.hasPendingWrites === true,
+  });
   querySnapshotEquality.set(snapshot, {
     target,
     query,
     converter: converterOf(query) ?? null,
     source,
-    ...(source === 'read' ? { readIdentity: {} } : {}),
-    metadata: Object.freeze({
-      fromCache: raw.metadata?.fromCache === true,
-      hasPendingWrites: raw.metadata?.hasPendingWrites === true,
-    }),
+    ...(source === 'read' ? { readPhase: readPhase(target, query, docs, metadata) } : {}),
+    metadata,
     docs,
     changes,
   });

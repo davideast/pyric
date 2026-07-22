@@ -975,7 +975,22 @@ const probes: Probe[] = [
       const c = collection(db, RUN_DOC('queryequal'));
       const aRef = doc(c, 'a');
       const bRef = doc(c, 'b');
-      await setDoc(aRef, { value: { score: 1 }, rank: 1 });
+      const localRef = doc(db, 'query-equality/ref');
+      const timestampValue = Timestamp.fromMillis(1_234);
+      const bytesInput = new Uint8Array([1, 2]);
+      const bytesValue = Bytes.fromUint8Array(bytesInput);
+      const geoPointValue = new GeoPoint(10, 20);
+      const vectorInput = [1, 2];
+      const vectorValue = vector(vectorInput);
+      await setDoc(aRef, {
+        value: { score: 1 },
+        rank: 1,
+        timestampValue,
+        bytesValue,
+        geoPointValue,
+        referenceValue: localRef,
+        vectorValue,
+      });
       await setDoc(bRef, { value: { score: 2 }, rank: 2 });
       const q1 = query(c, where('x', '==', 1));
       const q2 = query(c, where('x', '==', 1));
@@ -1010,16 +1025,16 @@ const probes: Probe[] = [
       const structuredA = query(c, where('x', '==', ['x', { enabled: true }]));
       const structuredB = query(c, where('x', '==', ['x', { enabled: true }]));
       const structuredChanged = query(c, where('x', '==', ['x', { enabled: false }]));
-      const timestampA = query(c, where('x', '==', Timestamp.fromMillis(1_234)));
+      const timestampA = query(c, where('x', '==', timestampValue));
       const timestampB = query(c, where('x', '==', Timestamp.fromMillis(1_234)));
       const timestampChanged = query(c, where('x', '==', Timestamp.fromMillis(1_235)));
-      const bytesA = query(c, where('x', '==', Bytes.fromUint8Array(new Uint8Array([1, 2]))));
+      const bytesA = query(c, where('x', '==', bytesValue));
       const bytesB = query(c, where('x', '==', Bytes.fromUint8Array(new Uint8Array([1, 2]))));
       const bytesChanged = query(c, where('x', '==', Bytes.fromUint8Array(new Uint8Array([1, 3]))));
-      const geoA = query(c, where('x', '==', new GeoPoint(10, 20)));
+      const geoA = query(c, where('x', '==', geoPointValue));
       const geoB = query(c, where('x', '==', new GeoPoint(10, 20)));
       const geoChanged = query(c, where('x', '==', new GeoPoint(10, 21)));
-      const refA = query(c, where('x', '==', doc(db, 'query-equality/ref')));
+      const refA = query(c, where('x', '==', localRef));
       const refB = query(c, where('x', '==', doc(db, 'query-equality/ref')));
       const refChanged = query(c, where('x', '==', doc(db, 'query-equality/other')));
       const otherApp = initializeApp(
@@ -1037,7 +1052,7 @@ const probes: Probe[] = [
           ? (error as { code: string }).code
           : null;
       }
-      const vectorA = query(c, where('x', '==', vector([1, 2])));
+      const vectorA = query(c, where('x', '==', vectorValue));
       const vectorB = query(c, where('x', '==', vector([1, 2])));
       const vectorChanged = query(c, where('x', '==', vector([1, 3])));
       const dateValue = query(c, where('x', '==', new Date(1_234)));
@@ -1064,7 +1079,6 @@ const probes: Probe[] = [
           };
         }
       };
-      const localRef = doc(db, 'query-equality/ref');
       const foreignRef = doc(otherDb, 'query-equality/ref');
       const nestedForeignReference = constructionError({ ref: foreignRef });
       const arrayForeignReference = constructionError([foreignRef]);
@@ -1078,6 +1092,48 @@ const probes: Probe[] = [
       mutableOperand.score = 2;
       const frozenExecutionIds = (await getDocs(frozenExecutionQuery)).docs.map((snap) => snap.id);
       const independentExecutionIds = (await getDocs(independentExecutionQuery)).docs.map((snap) => snap.id);
+      const execute = async (field: string, value: unknown) => {
+        try {
+          return {
+            ids: (await getDocs(query(c, where(field, '==', value)))).docs.map((snap) => snap.id),
+            code: null,
+          };
+        } catch (error) {
+          return {
+            ids: [],
+            code: typeof (error as { code?: unknown })?.code === 'string'
+              ? (error as { code: string }).code
+              : null,
+          };
+        }
+      };
+      const timestampExecution = await execute('timestampValue', timestampValue);
+      const bytesExecution = await execute('bytesValue', bytesValue);
+      const geoPointExecution = await execute('geoPointValue', geoPointValue);
+      const referenceExecution = await execute('referenceValue', localRef);
+      const vectorExecution = await execute('vectorValue', vectorValue);
+      const frozenBytesQuery = query(c, where('bytesValue', '==', bytesValue));
+      const frozenVectorQuery = query(c, where('vectorValue', '==', vectorValue));
+      bytesInput[0] = 9;
+      vectorInput[0] = 9;
+      const bytesExecutionAfterInputMutation = await execute('bytesValue', bytesValue);
+      const vectorExecutionAfterInputMutation = await execute('vectorValue', vectorValue);
+      const frozenBytesExecutionAfterInputMutation = await getDocs(frozenBytesQuery)
+        .then((snapshot) => ({ ids: snapshot.docs.map((docSnapshot) => docSnapshot.id), code: null }))
+        .catch((error: unknown) => ({
+          ids: [] as string[],
+          code: typeof (error as { code?: unknown })?.code === 'string'
+            ? (error as { code: string }).code
+            : null,
+        }));
+      const frozenVectorExecutionAfterInputMutation = await getDocs(frozenVectorQuery)
+        .then((snapshot) => ({ ids: snapshot.docs.map((docSnapshot) => docSnapshot.id), code: null }))
+        .catch((error: unknown) => ({
+          ids: [] as string[],
+          code: typeof (error as { code?: unknown })?.code === 'string'
+            ? (error as { code: string }).code
+            : null,
+        }));
       const cursorSnapshot = await getDoc(aRef);
       const cursorBase = query(c, orderBy('rank'), orderBy(documentId()));
       const snapshotCursor = query(cursorBase, startAt(cursorSnapshot));
@@ -1144,6 +1200,15 @@ const probes: Probe[] = [
         ),
         frozenExecutionIds,
         independentExecutionIds,
+        timestampExecution,
+        bytesExecution,
+        geoPointExecution,
+        referenceExecution,
+        vectorExecution,
+        bytesExecutionAfterInputMutation,
+        vectorExecutionAfterInputMutation,
+        frozenBytesExecutionAfterInputMutation,
+        frozenVectorExecutionAfterInputMutation,
         snapshotAndExplicitCursorEqual: queryEqual(snapshotCursor, explicitCursor),
         vectorValueBuiltTwice: queryEqual(vectorA, vectorB),
         vectorValueChanged: queryEqual(vectorA, vectorChanged),
@@ -1178,9 +1243,116 @@ const probes: Probe[] = [
       const q = query(c, where('v', '==', 1));
       const snap1 = await getDocs(q);
       const snap2 = await getDocs(q);
+      const snap3 = await getDocs(q);
+      const equivalentQueryRead = await getDocs(query(c, where('v', '==', 1)));
+      const differentQueryRead = await getDocs(query(c, orderBy('v')));
       const aRef = doc(c, 'a');
       const bRef = doc(c, 'b');
-      await setDoc(bRef, { v: 1 });
+      const summarize = (snapshot: typeof snap1, includeMetadataChanges = false) => ({
+        ids: snapshot.docs.map((docSnapshot) => docSnapshot.id),
+        data: snapshot.docs.map((docSnapshot) => docSnapshot.data()),
+        changes: snapshot.docChanges(
+          includeMetadataChanges ? { includeMetadataChanges: true } : undefined,
+        ).map((change) => ({
+          type: change.type,
+          id: change.doc.id,
+          oldIndex: change.oldIndex,
+          newIndex: change.newIndex,
+        })),
+        metadata: {
+          fromCache: snapshot.metadata.fromCache,
+          hasPendingWrites: snapshot.metadata.hasPendingWrites,
+        },
+      });
+      const firstListenerSnapshot = (source = q) => new Promise<typeof snap1>((resolve, reject) => {
+        let unsubscribe = () => {};
+        unsubscribe = onSnapshot(source, (snapshot) => {
+          unsubscribe();
+          resolve(snapshot);
+        }, reject);
+      });
+      const [listenerSnap1, listenerSnap2, differentQuerySnapshot] = await Promise.all([
+        firstListenerSnapshot(),
+        firstListenerSnapshot(),
+        firstListenerSnapshot(query(c, orderBy('v'))),
+      ]);
+      const [beforeDocumentChange, afterDocumentChange] = await new Promise<[
+        typeof snap1,
+        typeof snap1,
+      ]>((resolve, reject) => {
+        let first: typeof snap1 | undefined;
+        let writeCompletion: Promise<void> | undefined;
+        let unsubscribe = () => {};
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          if (first === undefined) {
+            first = snapshot;
+            writeCompletion = setDoc(bRef, { v: 1 });
+            void writeCompletion.catch(reject);
+            return;
+          }
+          unsubscribe();
+          void writeCompletion?.then(() => resolve([first!, snapshot]), reject);
+        }, reject);
+      });
+      const changedRead1 = await getDocs(q);
+      const changedRead2 = await getDocs(q);
+      const changedRead3 = await getDocs(q);
+
+      const historyCollection = collection(db, RUN_DOC('snapshotequal-history'));
+      const historyRef = doc(historyCollection, 'a');
+      await setDoc(historyRef, { v: 1 });
+      const [historyInitial, historyChanged, historyRestored] = await new Promise<[
+        typeof snap1,
+        typeof snap1,
+        typeof snap1,
+      ]>((resolve, reject) => {
+        const snapshots: Array<typeof snap1> = [];
+        let unsubscribe = () => {};
+        unsubscribe = onSnapshot(historyCollection, (snapshot) => {
+          snapshots.push(snapshot);
+          if (snapshots.length === 1) {
+            void setDoc(historyRef, { v: 2 }).catch(reject);
+          } else if (snapshots.length === 2) {
+            void setDoc(historyRef, { v: 1 }).catch(reject);
+          } else {
+            unsubscribe();
+            resolve([snapshots[0]!, snapshots[1]!, snapshots[2]!]);
+          }
+        }, reject);
+      });
+
+      const metadataCollection = collection(db, RUN_DOC('snapshotequal-metadata'));
+      const metadataRef = doc(metadataCollection, 'a');
+      await setDoc(metadataRef, { v: 1 });
+      const [metadataPending, metadataSettled] = await new Promise<[
+        typeof snap1,
+        typeof snap1,
+      ]>((resolve, reject) => {
+        let wrote = false;
+        let pending: typeof snap1 | undefined;
+        let unsubscribe = () => {};
+        unsubscribe = onSnapshot(
+          metadataCollection,
+          { includeMetadataChanges: true },
+          (snapshot) => {
+            if (!wrote) {
+              wrote = true;
+              void setDoc(metadataRef, { v: 1 }).catch(reject);
+              return;
+            }
+            if (snapshot.metadata.hasPendingWrites) {
+              pending = snapshot;
+              return;
+            }
+            if (pending !== undefined) {
+              unsubscribe();
+              resolve([pending, snapshot]);
+            }
+          },
+          reject,
+        );
+      });
+
       const document1 = await getDoc(aRef);
       const document2 = await getDoc(aRef);
       const documentOtherRef = await getDoc(bRef);
@@ -1201,24 +1373,90 @@ const probes: Probe[] = [
       const json = snap1.toJSON();
       const fromJson1 = querySnapshotFromJSON(db, json);
       const fromJson2 = querySnapshotFromJSON(db, json);
-      const firstListenerSnapshot = () => new Promise<typeof snap1>((resolve, reject) => {
-        let unsubscribe = () => {};
-        unsubscribe = onSnapshot(q, (snapshot) => {
-          unsubscribe();
-          resolve(snapshot);
-        }, reject);
-      });
-      const [listenerSnap1, listenerSnap2] = await Promise.all([
-        firstListenerSnapshot(),
-        firstListenerSnapshot(),
-      ]);
+      const repeatedFetchState = [snap1, snap2, snap3, equivalentQueryRead].map((snapshot) =>
+        summarize(snapshot));
+      const differentReadQueryState = [summarize(snap3), summarize(differentQueryRead)];
+      const differentListenerQueryState = [
+        summarize(listenerSnap1),
+        summarize(differentQuerySnapshot),
+      ];
+      const simultaneousListenerState = [summarize(listenerSnap1), summarize(listenerSnap2)];
+      const differentDocumentState = [
+        summarize(beforeDocumentChange),
+        summarize(afterDocumentChange),
+      ];
+      const restoredChangeState = [summarize(historyInitial), summarize(historyRestored)];
+      const metadataOnlyState = [summarize(metadataPending), summarize(metadataSettled)];
+      const sameJson = (left: unknown, right: unknown) =>
+        JSON.stringify(left) === JSON.stringify(right);
       const result = {
         identity: snapshotEqual(snap1, snap1),
         twoFetchesSameData: snapshotEqual(snap1, snap2),
+        repeatedFetchEquality: [
+          snapshotEqual(snap1, snap2),
+          snapshotEqual(snap2, snap3),
+          snapshotEqual(snap3, equivalentQueryRead),
+        ],
+        repeatedFetchState,
+        repeatedFetchVisibleStateSame: repeatedFetchState.slice(1).every((state) =>
+          sameJson(state, repeatedFetchState[0])),
+        differentReadQuerySameDocumentsEqual: snapshotEqual(snap3, differentQueryRead),
+        differentReadQueryDocumentsSame: sameJson(
+          differentReadQueryState[0]!.data,
+          differentReadQueryState[1]!.data,
+        ),
+        changedReadEquality: [
+          snapshotEqual(snap3, changedRead1),
+          snapshotEqual(changedRead1, changedRead2),
+          snapshotEqual(changedRead2, changedRead3),
+        ],
+        changedReadState: [snap3, changedRead1, changedRead2, changedRead3].map((snapshot) =>
+          summarize(snapshot)),
         deserializedSnapshotsDistinct: fromJson1 !== fromJson2,
         sameJsonSnapshotsEqual: snapshotEqual(fromJson1, fromJson2),
         listenerSnapshotsDistinct: listenerSnap1 !== listenerSnap2,
         simultaneousListenerSnapshotsEqual: snapshotEqual(listenerSnap1, listenerSnap2),
+        listenerSameState: summarize(listenerSnap1),
+        simultaneousListenerStateSame: sameJson(
+          simultaneousListenerState[0],
+          simultaneousListenerState[1],
+        ),
+        differentQuerySameDocumentsEqual: snapshotEqual(listenerSnap1, differentQuerySnapshot),
+        differentQuerySameDocuments: differentListenerQueryState,
+        differentListenerQueryDocumentsSame: sameJson(
+          differentListenerQueryState[0]!.data,
+          differentListenerQueryState[1]!.data,
+        ),
+        differentDocumentsEqual: snapshotEqual(beforeDocumentChange, afterDocumentChange),
+        differentDocuments: differentDocumentState,
+        differentDocumentsChanged: !sameJson(
+          differentDocumentState[0]!.data,
+          differentDocumentState[1]!.data,
+        ),
+        restoredDocumentsDifferentChangesEqual: snapshotEqual(historyInitial, historyRestored),
+        restoredDocumentsDifferentChanges: restoredChangeState,
+        restoredDocumentsStateSame: sameJson(
+          restoredChangeState[0]!.data,
+          restoredChangeState[1]!.data,
+        ),
+        restoredChangesDiffer: !sameJson(
+          restoredChangeState[0]!.changes,
+          restoredChangeState[1]!.changes,
+        ),
+        metadataOnlySnapshotsEqual: snapshotEqual(metadataPending, metadataSettled),
+        metadataOnlySnapshots: metadataOnlyState,
+        metadataOnlyDocumentsSame: sameJson(
+          metadataOnlyState[0]!.data,
+          metadataOnlyState[1]!.data,
+        ),
+        metadataOnlyChangesSame: sameJson(
+          metadataOnlyState[0]!.changes,
+          metadataOnlyState[1]!.changes,
+        ),
+        metadataOnlyMetadataDiffer: !sameJson(
+          metadataOnlyState[0]!.metadata,
+          metadataOnlyState[1]!.metadata,
+        ),
         documentIdentity: snapshotEqual(document1, document1),
         documentSameRefTwoFetches: snapshotEqual(document1, document2),
         documentDifferentRefSameData: snapshotEqual(document1, documentOtherRef),
@@ -1234,7 +1472,12 @@ const probes: Probe[] = [
         })),
         size: snap1.size,
       };
-      await Promise.all([deleteDoc(aRef), deleteDoc(bRef)]);
+      await Promise.all([
+        deleteDoc(aRef),
+        deleteDoc(bRef),
+        deleteDoc(historyRef),
+        deleteDoc(metadataRef),
+      ]);
       await dropCurrentUser();
       return result;
     },

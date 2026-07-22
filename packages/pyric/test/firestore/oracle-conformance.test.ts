@@ -868,6 +868,22 @@ describe('oracle conformance (firestore)', () => {
       'c/a': { value: { score: 1 }, rank: 1 },
       'c/b': { value: { score: 2 }, rank: 2 },
     });
+    const localReference = doc(db, 'query-equality/ref');
+    const timestampValue = Timestamp.fromMillis(1_234);
+    const bytesInput = new Uint8Array([1, 2]);
+    const bytesValue = Bytes.fromUint8Array(bytesInput);
+    const geoPointValue = new GeoPoint(10, 20);
+    const vectorInput = [1, 2];
+    const vectorValue = vector(vectorInput);
+    await setDoc(doc(db, 'c/a'), {
+      value: { score: 1 },
+      rank: 1,
+      timestampValue,
+      bytesValue,
+      geoPointValue,
+      referenceValue: localReference,
+      vectorValue,
+    });
     const q1 = query(collection(db, 'c'), where('v', '==', 1));
     const q2 = query(collection(db, 'c'), where('v', '==', 1));
     const q3 = query(collection(db, 'c'), where('v', '==', 2));
@@ -1058,6 +1074,32 @@ describe('oracle conformance (firestore)', () => {
     expect((await getDocs(independentExecutionQuery)).docs.map((snapshot) => snapshot.id))
       .toEqual(obs.independentExecutionIds as string[]);
 
+    const execute = async (field: string, value: unknown) => ({
+      ids: (await getDocs(query(base, where(field, '==', value)))).docs.map((snapshot) =>
+        snapshot.id),
+      code: null,
+    });
+    expect(await execute('timestampValue', timestampValue)).toEqual(obs.timestampExecution);
+    expect(await execute('bytesValue', bytesValue)).toEqual(obs.bytesExecution);
+    expect(await execute('geoPointValue', geoPointValue)).toEqual(obs.geoPointExecution);
+    expect(await execute('referenceValue', localReference)).toEqual(obs.referenceExecution);
+    expect(await execute('vectorValue', vectorValue)).toEqual(obs.vectorExecution);
+
+    const frozenBytesQuery = query(base, where('bytesValue', '==', bytesValue));
+    const frozenVectorQuery = query(base, where('vectorValue', '==', vectorValue));
+    bytesInput[0] = 9;
+    vectorInput[0] = 9;
+    expect(await execute('bytesValue', bytesValue)).toEqual(obs.bytesExecutionAfterInputMutation);
+    expect(await execute('vectorValue', vectorValue)).toEqual(obs.vectorExecutionAfterInputMutation);
+    expect({
+      ids: (await getDocs(frozenBytesQuery)).docs.map((snapshot) => snapshot.id),
+      code: null,
+    }).toEqual(obs.frozenBytesExecutionAfterInputMutation);
+    expect({
+      ids: (await getDocs(frozenVectorQuery)).docs.map((snapshot) => snapshot.id),
+      code: null,
+    }).toEqual(obs.frozenVectorExecutionAfterInputMutation);
+
     const cursorRef = doc(db, 'c/a');
     const cursorSnapshot = await getDoc(cursorRef);
     const cursorBase = query(base, orderBy('rank'), orderBy(documentId()));
@@ -1069,17 +1111,61 @@ describe('oracle conformance (firestore)', () => {
 
   it('firestore#117 snapshotEqual distinguishes read identity from listener structure', async () => {
     const obs = load('firestore-snapshotequal-structural.json');
+    for (const discriminator of [
+      'repeatedFetchVisibleStateSame',
+      'differentReadQueryDocumentsSame',
+      'simultaneousListenerStateSame',
+      'differentListenerQueryDocumentsSame',
+      'differentDocumentsChanged',
+      'restoredDocumentsStateSame',
+      'restoredChangesDiffer',
+      'metadataOnlyDocumentsSame',
+      'metadataOnlyChangesSame',
+      'metadataOnlyMetadataDiffer',
+    ]) {
+      expect(obs[discriminator]).toBe(true);
+    }
 
     const db = freshDb();
     seedDb(db, { 'c/x': { v: 1 } });
     const q = query(collection(db, 'c'), where('v', '==', 1));
     const s1 = (await getDocs(q)) as QuerySnapshot;
     const s2 = (await getDocs(q)) as QuerySnapshot;
+    const s3 = (await getDocs(q)) as QuerySnapshot;
+    const equivalentQueryRead = (await getDocs(
+      query(collection(db, 'c'), where('v', '==', 1)),
+    )) as QuerySnapshot;
+    const differentQueryRead = (await getDocs(
+      query(collection(db, 'c'), orderBy('v')),
+    )) as QuerySnapshot;
     expect(s1.size).toBe(obs.size as number);
     expect(snapshotEqual(s1, s1)).toBe(obs.identity as boolean);
     expect(snapshotEqual(s1, s2)).toBe(obs.twoFetchesSameData as boolean);
+    expect([
+      snapshotEqual(s1, s2),
+      snapshotEqual(s2, s3),
+      snapshotEqual(s3, equivalentQueryRead),
+    ])
+      .toEqual(obs.repeatedFetchEquality as boolean[]);
+    expect([s2, s3, equivalentQueryRead].every((snapshot) =>
+      JSON.stringify(snapshot.docs.map((docSnapshot) => docSnapshot.data()))
+      === JSON.stringify(s1.docs.map((docSnapshot) => docSnapshot.data())))).toBe(true);
+    expect(snapshotEqual(s3, differentQueryRead))
+      .toBe(obs.differentReadQuerySameDocumentsEqual as boolean);
+    expect(s3.docs.map((snapshot) => snapshot.data()))
+      .toEqual(differentQueryRead.docs.map((snapshot) => snapshot.data()));
 
     await setDoc(doc(db, 'c/y'), { v: 1 });
+    const changedRead1 = (await getDocs(q)) as QuerySnapshot;
+    const changedRead2 = (await getDocs(q)) as QuerySnapshot;
+    const changedRead3 = (await getDocs(q)) as QuerySnapshot;
+    expect([
+      snapshotEqual(s3, changedRead1),
+      snapshotEqual(changedRead1, changedRead2),
+      snapshotEqual(changedRead2, changedRead3),
+    ]).toEqual(obs.changedReadEquality as boolean[]);
+    expect(changedRead1.docs.map((snapshot) => snapshot.data()))
+      .toEqual(changedRead2.docs.map((snapshot) => snapshot.data()));
     const document1 = await getDoc(doc(db, 'c/x'));
     const document2 = await getDoc(doc(db, 'c/x'));
     const documentOtherRef = await getDoc(doc(db, 'c/y'));
@@ -1112,20 +1198,96 @@ describe('oracle conformance (firestore)', () => {
     const documentChanged = await getDoc(doc(db, 'c/x'));
     expect(snapshotEqual(document1, documentChanged)).toBe(obs.documentChangedData as boolean);
 
-    const firstListenerSnapshot = () => new Promise<QuerySnapshot>((resolve) => {
+    const firstListenerSnapshot = (source: typeof q) => new Promise<QuerySnapshot>((resolve) => {
       let unsubscribe = () => {};
-      unsubscribe = onSnapshot(q, (snapshot) => {
+      unsubscribe = onSnapshot(source, (snapshot) => {
         unsubscribe();
         resolve(snapshot as QuerySnapshot);
       });
     });
+    const listenerCollection = collection(db, 'listener-state');
+    await setDoc(doc(listenerCollection, 'a'), { v: 1 });
+    const listenerQuery = query(listenerCollection, where('v', '==', 1));
     const [listenerSnap1, listenerSnap2] = await Promise.all([
-      firstListenerSnapshot(),
-      firstListenerSnapshot(),
+      firstListenerSnapshot(listenerQuery),
+      firstListenerSnapshot(listenerQuery),
     ]);
     expect(listenerSnap1 !== listenerSnap2).toBe(obs.listenerSnapshotsDistinct as boolean);
     expect(snapshotEqual(listenerSnap1, listenerSnap2))
       .toBe(obs.simultaneousListenerSnapshotsEqual as boolean);
+    expect(listenerSnap1.metadata).toEqual(listenerSnap2.metadata);
+
+    const differentQuerySnapshot = await firstListenerSnapshot(
+      query(listenerCollection, orderBy('v')),
+    );
+    expect(listenerSnap1.docs.map((snapshot) => snapshot.id))
+      .toEqual(differentQuerySnapshot.docs.map((snapshot) => snapshot.id));
+    expect(snapshotEqual(listenerSnap1, differentQuerySnapshot))
+      .toBe(obs.differentQuerySameDocumentsEqual as boolean);
+
+    const documentsCollection = collection(db, 'listener-documents');
+    await setDoc(doc(documentsCollection, 'a'), { v: 1 });
+    const documentSnapshots: QuerySnapshot[] = [];
+    const unsubscribeDocuments = onSnapshot(documentsCollection, (snapshot) => {
+      documentSnapshots.push(snapshot as QuerySnapshot);
+    });
+    await settle();
+    const beforeDocumentChange = documentSnapshots.at(-1)!;
+    await setDoc(doc(documentsCollection, 'b'), { v: 1 });
+    await settle();
+    const afterDocumentChange = documentSnapshots.at(-1)!;
+    unsubscribeDocuments();
+    expect(beforeDocumentChange.docs.map((snapshot) => snapshot.id))
+      .not.toEqual(afterDocumentChange.docs.map((snapshot) => snapshot.id));
+    expect(snapshotEqual(beforeDocumentChange, afterDocumentChange))
+      .toBe(obs.differentDocumentsEqual as boolean);
+
+    const historyCollection = collection(db, 'listener-history');
+    const historyRef = doc(historyCollection, 'a');
+    await setDoc(historyRef, { v: 1 });
+    const historySnapshots: QuerySnapshot[] = [];
+    const unsubscribeHistory = onSnapshot(historyCollection, (snapshot) => {
+      historySnapshots.push(snapshot as QuerySnapshot);
+    });
+    await settle();
+    const historyInitial = historySnapshots.at(-1)!;
+    await setDoc(historyRef, { v: 2 });
+    await settle();
+    await setDoc(historyRef, { v: 1 });
+    await settle();
+    const historyRestored = historySnapshots.at(-1)!;
+    unsubscribeHistory();
+    expect(historyInitial.docs.map((snapshot) => snapshot.data()))
+      .toEqual(historyRestored.docs.map((snapshot) => snapshot.data()));
+    expect(historyInitial.docChanges().map((change) => change.type))
+      .not.toEqual(historyRestored.docChanges().map((change) => change.type));
+    expect(snapshotEqual(historyInitial, historyRestored))
+      .toBe(obs.restoredDocumentsDifferentChangesEqual as boolean);
+
+    const metadataCollection = collection(db, 'listener-metadata');
+    const metadataRef = doc(metadataCollection, 'a');
+    await setDoc(metadataRef, { v: 1 });
+    const metadataSnapshots: QuerySnapshot[] = [];
+    const unsubscribeMetadata = onSnapshot(
+      metadataCollection,
+      { includeMetadataChanges: true },
+      (snapshot) => metadataSnapshots.push(snapshot as QuerySnapshot),
+    );
+    await settle();
+    await setDoc(metadataRef, { v: 1 });
+    await settle();
+    unsubscribeMetadata();
+    const metadataPending = metadataSnapshots.find((snapshot) =>
+      snapshot.metadata.hasPendingWrites)!;
+    const pendingIndex = metadataSnapshots.indexOf(metadataPending);
+    const metadataSettled = metadataSnapshots.slice(pendingIndex + 1).find((snapshot) =>
+      !snapshot.metadata.hasPendingWrites)!;
+    expect(metadataPending.docs.map((snapshot) => snapshot.data()))
+      .toEqual(metadataSettled.docs.map((snapshot) => snapshot.data()));
+    expect(metadataPending.docChanges()).toEqual(metadataSettled.docChanges());
+    expect(metadataPending.metadata).not.toEqual(metadataSettled.metadata);
+    expect(snapshotEqual(metadataPending, metadataSettled))
+      .toBe(obs.metadataOnlySnapshotsEqual as boolean);
   });
 
   // ── completeness: every observation is asserted or explicitly N/A ─────
