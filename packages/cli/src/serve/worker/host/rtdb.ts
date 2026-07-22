@@ -14,29 +14,80 @@ import {
   ref as rtdbRef,
   get as rtdbGet,
   set as rtdbSet,
+  setPriority as rtdbSetPriority,
+  setWithPriority as rtdbSetWithPriority,
   update as rtdbUpdate,
   remove as rtdbRemove,
   onDisconnect as rtdbOnDisconnect,
   serverTimestamp as rtdbServerTimestamp,
+  runTransaction as rtdbRunTransaction,
+  QUERY_SYMBOL,
   sandbox as rtdbSandbox,
   type DataSnapshot,
+  type DatabaseReference,
+  type Query,
 } from 'pyric/database';
 import {
   DisconnectOperationQueue,
   type DisconnectOperation,
 } from 'pyric/database/internal';
 
-import type { OpMessage } from '../protocol.js';
+import type { OpMessage, RtdbQuerySpec } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { lensRtdb } from './core.js';
 
 export function rtdbSnapToWire(snap: DataSnapshot): unknown {
+  const entries: Array<{
+    key: string;
+    value: unknown;
+    priority: string | number | null;
+  }> = [];
+  snap.forEach((child) => {
+    if (child.key !== null) {
+      entries.push({ key: child.key, value: child.val(), priority: child.priority });
+    }
+  });
   return {
     key: snap.key,
     exists: snap.exists(),
     value: snap.val(),
     size: snap.size,
+    priority: snap.priority,
+    entries,
   };
+}
+
+export function rtdbTarget(
+  db: Parameters<typeof rtdbRef>[0],
+  path: string,
+  spec?: RtdbQuerySpec,
+): DatabaseReference | Query {
+  const targetRef = rtdbRef(db, path);
+  if (!spec) return targetRef;
+  return {
+    ref: targetRef,
+    _spec: spec,
+    [QUERY_SYMBOL]: true,
+    isEqual: (other) => other === null ? false : other.ref === targetRef && other._spec === spec,
+    toJSON: () => targetRef.toString(),
+    toString: () => targetRef.toString(),
+  };
+}
+
+function sameRtdbValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) &&
+      left.length === right.length && left.every((value, index) => sameRtdbValue(value, right[index]));
+  }
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord).sort();
+  const rightKeys = Object.keys(rightRecord).sort();
+  return leftKeys.length === rightKeys.length && leftKeys.every(
+    (key, index) => key === rightKeys[index] && sameRtdbValue(leftRecord[key], rightRecord[key]),
+  );
 }
 
 function resolveRtdbSentinels(value: unknown): unknown {
@@ -55,6 +106,8 @@ function resolveRtdbSentinels(value: unknown): unknown {
 const RTDB_METHODS = new Set<string>([
   'rtdb.get',
   'rtdb.set',
+  'rtdb.setPriority',
+  'rtdb.setWithPriority',
   'rtdb.update',
   'rtdb.remove',
   'rtdb.push',
@@ -65,6 +118,7 @@ const RTDB_METHODS = new Set<string>([
   'rtdb.onDisconnectCancel',
   'rtdb.goOffline',
   'rtdb.goOnline',
+  'rtdb.transactionCommit',
 ]);
 
 interface PortDisconnectMetadata {
@@ -122,7 +176,13 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike): Pr
         operation.mergeAfterChildRegistration && operation.value !== null &&
         typeof operation.value === 'object' && !Array.isArray(operation.value)
       ) await rtdbUpdate(target, resolveRtdbSentinels(operation.value) as Record<string, unknown>);
-      else await rtdbSet(target, resolveRtdbSentinels(operation.value) as never);
+      else if (operation.priority !== undefined) {
+        await rtdbSetWithPriority(
+          target,
+          resolveRtdbSentinels(operation.value) as never,
+          operation.priority,
+        );
+      } else await rtdbSet(target, resolveRtdbSentinels(operation.value) as never);
     } catch (error) {
       failures.push(error);
     }
@@ -155,7 +215,7 @@ export async function handleRtdbOp(
     case 'rtdb.get': {
       try {
         const db = lensRtdb(ctx, msg.actAs, port);
-        ok(port, msg.id, rtdbSnapToWire(await rtdbGet(rtdbRef(db, msg.path))));
+        ok(port, msg.id, rtdbSnapToWire(await rtdbGet(rtdbTarget(db, msg.path, msg.query))));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -165,6 +225,30 @@ export async function handleRtdbOp(
         const db = lensRtdb(ctx, msg.actAs, port);
         const value = resolveRtdbSentinels(msg.value);
         await rtdbSet(rtdbRef(db, msg.path), value as never);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.setPriority': {
+      try {
+        const db = lensRtdb(ctx, msg.actAs, port);
+        await rtdbSetPriority(rtdbRef(db, msg.path), msg.priority);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.setWithPriority': {
+      try {
+        const db = lensRtdb(ctx, msg.actAs, port);
+        await rtdbSetWithPriority(
+          rtdbRef(db, msg.path),
+          resolveRtdbSentinels(msg.value) as never,
+          msg.priority,
+        );
         await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -265,6 +349,32 @@ export async function handleRtdbOp(
     case 'rtdb.goOnline': {
       offlinePortSet(ctx).delete(port);
       ok(port, msg.id, null);
+      break;
+    }
+
+    case 'rtdb.transactionCommit': {
+      try {
+        const db = lensRtdb(ctx, msg.actAs, port);
+        const target = rtdbRef(db, msg.path);
+        let retry = false;
+        const result = await rtdbRunTransaction(
+          target,
+          (current) => {
+            if (!sameRtdbValue(current, msg.expected)) {
+              retry = true;
+              return undefined;
+            }
+            return resolveRtdbSentinels(msg.value) as never;
+          },
+          { applyLocally: msg.applyLocally },
+        );
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, {
+          retry,
+          committed: result.committed,
+          snapshot: rtdbSnapToWire(result.snapshot),
+        });
+      } catch (e) { fail(port, msg.id, e); }
       break;
     }
 

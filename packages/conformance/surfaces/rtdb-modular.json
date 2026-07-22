@@ -23,7 +23,7 @@
     "rtdb-modular-"
   ],
   "coverage": true,
-  "conformanceSuite": "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+  "conformanceSuite": "packages/pyric/test/database/cdd",
   "captureRigs": [
     "oracle-run"
   ],

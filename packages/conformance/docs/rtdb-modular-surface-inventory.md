@@ -1,6 +1,6 @@
 # RTDB modular climb inventory
 
-Status: behavior universe approved; CDD graduation held, 2026-07-22
+Status: CDD graduated, 2026-07-22
 
 This inventory defines the `firebase/database` compatibility obligations for
 the RTDB modular CDD climb. The public export census remains authoritative for
@@ -43,10 +43,12 @@ entry paths. Network transport selection and total loss of every local host may
 remain documented divergences; they may not be removed from the denominator to
 improve the score.
 
-The surface is not currently opted into the global `compat:climb` lane. Its
-legacy conformance tests predate the row-ID convention, so that reporter cannot
-yet prove one assertion set per row or reconcile its live-green count with the
-registry. The production observations and ordinary blocking suites remain
-authoritative for this score movement. Re-enable `climb: true` only after the
-existing behavioral tests are mapped to every row; descriptor-only assertions
-do not satisfy this boundary.
+Graduation was proven by the dedicated blocking suite in
+`packages/pyric/test/database/cdd`: all 184 registry rows have one row-keyed
+assertion set, and the isolated climb reported 184/184 live-green rows with no
+unmapped tests, unkeyed tests, regressions, or unguarded greens. The public
+database suites cover the in-process entry path, while the served-application
+integration suite exercises the unchanged `firebase/database` import shape
+through SharedWorker transport. The surface descriptor therefore drops the
+temporary `climb` marker after graduation; the row-keyed suite remains part of
+the blocking package test lane.

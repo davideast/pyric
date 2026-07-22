@@ -4,14 +4,13 @@
  * ops for the Pyric Studio RTDB viewer.
  */
 
-import type { InboundMessage } from '../protocol.js';
+import type { InboundMessage, RtdbQuerySpec } from '../protocol.js';
 import {
   isDisconnectedPort,
   closeSubscription,
   openSnapshotSubscription,
   nextId,
   nextSubId,
-  rpc,
   dataRpc,
   _snapSubs,
   _defaultLens,
@@ -91,12 +90,20 @@ function makeRtdbRef(port: ClientPort, path: string): RtdbRefHandle {
     __kind: 'rtdb-ref',
     port,
     path: normalized,
+    _path: normalized,
     key: rtdbKey(normalized),
     get parent() {
       return normalized === '/' ? null : makeRtdbRef(port, parentPath);
     },
     get root() {
       return makeRtdbRef(port, '/');
+    },
+    isEqual(other) {
+      return other !== null && other.__kind === 'rtdb-ref' &&
+        other.port === port && other.path === normalized;
+    },
+    toJSON() {
+      return `worker://rtdb${normalized}`;
     },
     toString() {
       return `worker://rtdb${normalized}`;
@@ -125,26 +132,86 @@ function valueAt(root: unknown, path: string): unknown {
   return current === undefined ? null : current;
 }
 
-function makeRtdbSnapshot(refHandle: RtdbRefHandle, value: unknown, exists?: boolean): RtdbDataSnapshot {
+interface RtdbWireEntry {
+  key: string;
+  value: unknown;
+  priority?: string | number | null;
+}
+
+interface RtdbWireSnapshot {
+  value?: unknown;
+  exists?: boolean;
+  key?: string | null;
+  priority?: string | number | null;
+  entries?: RtdbWireEntry[];
+}
+
+type RtdbQueryLike = {
+  readonly ref: RtdbRefHandle;
+  readonly _spec: RtdbQuerySpec;
+};
+
+type RtdbTarget = RtdbRefHandle | RtdbQueryLike;
+
+function isRtdbQuery(target: RtdbTarget): target is RtdbQueryLike {
+  return 'ref' in target && '_spec' in target;
+}
+
+function targetParts(target: RtdbTarget): {
+  ref: RtdbRefHandle;
+  query?: RtdbQuerySpec;
+} {
+  return isRtdbQuery(target)
+    ? { ref: target.ref, query: target._spec }
+    : { ref: target };
+}
+
+function makeRtdbSnapshot(
+  refHandle: RtdbRefHandle,
+  value: unknown,
+  exists?: boolean,
+  priority: string | number | null = null,
+  entries?: RtdbWireEntry[],
+): RtdbDataSnapshot {
   const childValue = (path: string) => valueAt(value, path);
-  const size =
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? Object.keys(value as Record<string, unknown>).length
-      : 0;
+  const size = entries?.length ?? (
+    value && typeof value === 'object'
+      ? Object.keys(value as Record<string, unknown>).filter((key) => valueAt(value, key) !== null).length
+      : 0
+  );
   const snapshot: RtdbDataSnapshot = {
     key: refHandle.key,
     size,
+    priority,
     exists: () => exists ?? (value !== null && value !== undefined),
     val: () => value ?? null,
-    child: (path) => makeRtdbSnapshot(rtdbChild(refHandle, path), childValue(path)),
+    child: (path) => {
+      const direct = path.split('/').filter(Boolean);
+      const entry = direct.length === 1 ? entries?.find((candidate) => candidate.key === direct[0]) : undefined;
+      return makeRtdbSnapshot(
+        rtdbChild(refHandle, path),
+        childValue(path),
+        undefined,
+        entry?.priority ?? null,
+      );
+    },
     hasChild: (path) => childValue(path) !== null && childValue(path) !== undefined,
     hasChildren: () => size > 0,
     exportVal: () => value ?? null,
     toJSON: () => value ?? null,
     forEach: (cb) => {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-      for (const [key, childVal] of Object.entries(value as Record<string, unknown>)) {
-        if (cb(makeRtdbSnapshot(rtdbChild(refHandle, key), childVal)) === true) return true;
+      const orderedEntries: RtdbWireEntry[] = entries ?? (
+        !value || typeof value !== 'object' || Array.isArray(value)
+          ? []
+          : Object.entries(value as Record<string, unknown>).map(([key, childValue]) => ({ key, value: childValue }))
+      );
+      for (const entry of orderedEntries) {
+        if (cb(makeRtdbSnapshot(
+          rtdbChild(refHandle, entry.key),
+          entry.value,
+          undefined,
+          entry.priority ?? null,
+        )) === true) return true;
       }
       return false;
     },
@@ -154,106 +221,47 @@ function makeRtdbSnapshot(refHandle: RtdbRefHandle, value: unknown, exists?: boo
 }
 
 function hydrateRtdbSnapshot(refHandle: RtdbRefHandle, wire: unknown): RtdbDataSnapshot {
-  const payload = wire as { value?: unknown; exists?: boolean; key?: string | null };
-  return makeRtdbSnapshot(refHandle, payload.value ?? null, payload.exists);
+  const payload = wire as RtdbWireSnapshot;
+  return makeRtdbSnapshot(
+    refHandle,
+    payload.value ?? null,
+    payload.exists,
+    payload.priority ?? null,
+    payload.entries,
+  );
 }
 
-export async function rtdbGet(r: RtdbRefHandle): Promise<RtdbDataSnapshot> {
+export async function rtdbGet(target: RtdbTarget): Promise<RtdbDataSnapshot> {
+  const { ref: r, query } = targetParts(target);
   return hydrateRtdbSnapshot(
     r,
-    await dataRpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.get', path: r.path }),
+    await dataRpc(r.port, {
+      t: 'op', id: nextId(), method: 'rtdb.get', path: r.path, ...(query ? { query } : {}),
+    }),
   );
-}
-
-export async function adminReadRtdbState(db: ClientDb | ClientRtdb): Promise<unknown> {
-  return rpc(db.port, { t: 'op', id: nextId(), method: 'rtdb.adminSnapshot' });
-}
-
-export async function adminSetRtdbValue(
-  db: ClientDb | ClientRtdb,
-  path: string,
-  value: unknown,
-): Promise<void> {
-  await rpc(db.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'rtdb.set',
-    path,
-    value,
-    actAs: { mode: 'admin' },
-  });
-}
-
-export async function adminUpdateRtdbValue(
-  db: ClientDb | ClientRtdb,
-  path: string,
-  values: Record<string, unknown>,
-): Promise<void> {
-  await rpc(db.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'rtdb.update',
-    path,
-    values,
-    actAs: { mode: 'admin' },
-  });
-}
-
-export async function adminDeleteRtdbValue(
-  db: ClientDb | ClientRtdb,
-  path: string,
-): Promise<void> {
-  await rpc(db.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'rtdb.remove',
-    path,
-    actAs: { mode: 'admin' },
-  });
-}
-
-/**
- * Subscribe to the raw value at an RTDB path with the ADMIN lens (Pyric Studio
- * data viewer). Rides the same `{service:'rtdb'}` value-subscription channel as
- * `rtdbOnValue`, but pins `actAs: {mode:'admin'}` per-sub instead of following
- * the module default lens, so Studio's viewer stays admin (PRINCIPLES M3) while
- * the page's own listeners keep their session semantics.
- *
- * `next` receives the plain JSON value at `path` (`null` when absent) on
- * subscribe and again after every write that changes the subtree.
- */
-export function adminSubscribeRtdbValue(
-  db: ClientDb | ClientRtdb,
-  path: string,
-  next: (value: unknown) => void,
-  error?: (err: unknown) => void,
-): Unsubscribe {
-  const subId = nextSubId();
-  const opened = openSnapshotSubscription(
-    db.port,
-    subId,
-    {
-      port: db.port,
-      next: (wire) => next((wire as { value?: unknown } | null)?.value ?? null),
-      error,
-    },
-    stampIssuer({
-      t: 'sub',
-      subId,
-      target: { service: 'rtdb', path: normalizeRtdbPath(path) },
-      actAs: { mode: 'admin' },
-    } satisfies InboundMessage),
-  );
-  if (!opened && error) {
-    queueMicrotask(() => error(new Error('FIREBASE FATAL ERROR: Database has been deleted.')));
-  }
-  return () => {
-    closeSubscription(db.port, subId);
-  };
 }
 
 export async function rtdbSet(r: RtdbRefHandle, value: unknown): Promise<void> {
   await dataRpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.set', path: r.path, value });
+}
+
+export async function rtdbSetPriority(
+  r: RtdbRefHandle,
+  priority: string | number | null,
+): Promise<void> {
+  await dataRpc(r.port, {
+    t: 'op', id: nextId(), method: 'rtdb.setPriority', path: r.path, priority,
+  });
+}
+
+export async function rtdbSetWithPriority(
+  r: RtdbRefHandle,
+  value: unknown,
+  priority: string | number | null,
+): Promise<void> {
+  await dataRpc(r.port, {
+    t: 'op', id: nextId(), method: 'rtdb.setWithPriority', path: r.path, value, priority,
+  });
 }
 
 export async function rtdbUpdate(r: RtdbRefHandle, values: Record<string, unknown>): Promise<void> {
@@ -277,17 +285,29 @@ export function rtdbPush(r: RtdbRefHandle, value?: unknown): RtdbRefHandle & Pro
 }
 
 export function rtdbOnValue(
-  r: RtdbRefHandle,
+  target: RtdbTarget,
   next: (snap: RtdbDataSnapshot) => void,
-  error?: (err: unknown) => void,
+  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
+  options?: { readonly onlyOnce?: boolean },
 ): Unsubscribe {
+  const { ref: r, query } = targetParts(target);
+  const error = typeof cancelCallbackOrOptions === 'function' ? cancelCallbackOrOptions : undefined;
+  const listenOptions = typeof cancelCallbackOrOptions === 'function'
+    ? options
+    : cancelCallbackOrOptions;
   const subId = nextSubId();
   const msg: InboundMessage = _defaultLens
-    ? { t: 'sub', subId, target: { service: 'rtdb', path: r.path }, actAs: _defaultLens }
-    : { t: 'sub', subId, target: { service: 'rtdb', path: r.path } };
+    ? { t: 'sub', subId, target: { service: 'rtdb', path: r.path, ...(query ? { query } : {}) }, actAs: _defaultLens }
+    : { t: 'sub', subId, target: { service: 'rtdb', path: r.path, ...(query ? { query } : {}) } };
+  let fired = false;
   const opened = openSnapshotSubscription(r.port, subId, {
     port: r.port,
-    next: (wire) => next(hydrateRtdbSnapshot(r, wire)),
+    next: (wire) => {
+      if (listenOptions?.onlyOnce && fired) return;
+      fired = true;
+      if (listenOptions?.onlyOnce) closeSubscription(r.port, subId);
+      next(hydrateRtdbSnapshot(r, wire));
+    },
     error,
   }, stampIssuer(msg));
   if (!opened && error) queueMicrotask(() => error(new Error('FIREBASE FATAL ERROR: Database has been deleted.')));
@@ -296,7 +316,7 @@ export function rtdbOnValue(
   };
 }
 
-type ChildEventKind = 'added' | 'changed';
+type ChildEventKind = 'added' | 'changed' | 'removed' | 'moved';
 
 function directChildren(value: unknown): Record<string, unknown> {
   if (Array.isArray(value)) {
@@ -338,50 +358,190 @@ function rtdbKeyCompare(left: string, right: string): number {
 }
 
 function rtdbOnChildEvent(
-  r: RtdbRefHandle,
+  target: RtdbTarget,
   kind: ChildEventKind,
-  next: (snap: RtdbDataSnapshot) => void,
+  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
+  error?: (err: unknown) => void,
 ): Unsubscribe {
+  const { ref: r, query } = targetParts(target);
   let initialized = false;
-  let previous: Record<string, unknown> = {};
+  let previous: RtdbWireEntry[] = [];
 
-  return rtdbOnValue(r, (parent) => {
-    const current = directChildren(parent.val());
+  return rtdbOnValue(target, (parent) => {
+    const current: RtdbWireEntry[] = [];
+    parent.forEach((childSnap) => {
+      if (childSnap.key !== null) {
+        current.push({ key: childSnap.key, value: childSnap.val(), priority: childSnap.priority });
+      }
+    });
+    // Plain snapshots produced by older hosts do not carry ordered entries.
+    if (current.length === 0) {
+      for (const key of Object.keys(directChildren(parent.val())).sort(rtdbKeyCompare)) {
+        current.push({ key, value: directChildren(parent.val())[key] });
+      }
+    }
     if (!initialized) {
       initialized = true;
       if (kind === 'added') {
-        for (const key of Object.keys(current).sort(rtdbKeyCompare)) {
-          next(makeRtdbSnapshot(rtdbChild(r, key), current[key]));
+        for (let index = 0; index < current.length; index++) {
+          const entry = current[index]!;
+          next(
+            makeRtdbSnapshot(rtdbChild(r, entry.key), entry.value, undefined, entry.priority ?? null),
+            current[index - 1]?.key ?? null,
+          );
         }
       }
       previous = current;
       return;
     }
 
-    for (const key of Object.keys(current).sort(rtdbKeyCompare)) {
-      const existed = Object.prototype.hasOwnProperty.call(previous, key);
-      if (kind === 'added' ? !existed : existed && !sameRtdbValue(previous[key], current[key])) {
-        next(makeRtdbSnapshot(rtdbChild(r, key), current[key]));
+    const previousByKey = new Map(previous.map((entry, index) => [entry.key, { entry, index }]));
+    const currentByKey = new Map(current.map((entry, index) => [entry.key, { entry, index }]));
+    const emit = (entry: RtdbWireEntry, previousChildName: string | null): void => {
+      next(
+        makeRtdbSnapshot(rtdbChild(r, entry.key), entry.value, undefined, entry.priority ?? null),
+        previousChildName,
+      );
+    };
+
+    if (kind === 'removed') {
+      for (const prior of previous) {
+        if (!currentByKey.has(prior.key)) {
+          const priorIndex = previousByKey.get(prior.key)!.index;
+          emit(prior, previous[priorIndex - 1]?.key ?? null);
+        }
+      }
+    } else {
+      for (let index = 0; index < current.length; index++) {
+        const entry = current[index]!;
+        const prior = previousByKey.get(entry.key);
+        const previousChildName = current[index - 1]?.key ?? null;
+        if (kind === 'added' && !prior) emit(entry, previousChildName);
+        if (kind === 'changed' && prior && !sameRtdbValue(prior.entry.value, entry.value)) {
+          emit(entry, previousChildName);
+        }
+        if (kind === 'moved' && prior) {
+          const orderBy = query?.orderBy ?? { kind: 'priority' as const };
+          const indexed = (candidate: RtdbWireEntry): unknown => {
+            if (orderBy.kind === 'key') return candidate.key;
+            if (orderBy.kind === 'priority') return candidate.priority ?? null;
+            if (orderBy.kind === 'value') return candidate.value;
+            return valueAt(candidate.value, orderBy.path);
+          };
+          // Production emits child_moved when the child's indexed value
+          // changes, even when its predecessor remains the same.
+          if (!sameRtdbValue(indexed(prior.entry), indexed(entry))) {
+            emit(entry, previousChildName);
+          }
+        }
       }
     }
     previous = current;
-  });
+  }, error);
 }
 
 /** Derives direct-child additions from the existing parent value stream. */
 export function rtdbOnChildAdded(
-  r: RtdbRefHandle,
-  next: (snap: RtdbDataSnapshot) => void,
+  r: RtdbTarget,
+  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
+  options?: { readonly onlyOnce?: boolean },
 ): Unsubscribe {
-  return rtdbOnChildEvent(r, 'added', next);
+  return subscribeRtdbChild(r, 'added', next, cancelCallbackOrOptions, options);
 }
 
 /** Derives existing direct-child value changes from the parent value stream. */
 export function rtdbOnChildChanged(
-  r: RtdbRefHandle,
-  next: (snap: RtdbDataSnapshot) => void,
+  r: RtdbTarget,
+  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
+  options?: { readonly onlyOnce?: boolean },
 ): Unsubscribe {
-  return rtdbOnChildEvent(r, 'changed', next);
+  return subscribeRtdbChild(r, 'changed', next, cancelCallbackOrOptions, options);
+}
+
+export function rtdbOnChildRemoved(
+  r: RtdbTarget,
+  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
+  options?: { readonly onlyOnce?: boolean },
+): Unsubscribe {
+  return subscribeRtdbChild(r, 'removed', next, cancelCallbackOrOptions, options);
+}
+
+export function rtdbOnChildMoved(
+  r: RtdbTarget,
+  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
+  options?: { readonly onlyOnce?: boolean },
+): Unsubscribe {
+  return subscribeRtdbChild(r, 'moved', next, cancelCallbackOrOptions, options);
+}
+
+function subscribeRtdbChild(
+  target: RtdbTarget,
+  kind: ChildEventKind,
+  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
+  options?: { readonly onlyOnce?: boolean },
+): Unsubscribe {
+  const error = typeof cancelCallbackOrOptions === 'function' ? cancelCallbackOrOptions : undefined;
+  const listenOptions = typeof cancelCallbackOrOptions === 'function'
+    ? options
+    : cancelCallbackOrOptions;
+  if (!listenOptions?.onlyOnce) return rtdbOnChildEvent(target, kind, next, error);
+  let stopped = false;
+  let unsubscribe: Unsubscribe = () => {};
+  unsubscribe = rtdbOnChildEvent(target, kind, (snapshot, previousChildName) => {
+    if (stopped) return;
+    stopped = true;
+    unsubscribe();
+    next(snapshot, kind === 'removed' ? null : previousChildName);
+  }, error);
+  return unsubscribe;
+}
+
+export interface RtdbTransactionOptions {
+  readonly applyLocally?: boolean;
+}
+
+export interface RtdbTransactionResult {
+  readonly committed: boolean;
+  readonly snapshot: RtdbDataSnapshot;
+  toJSON(): { committed: boolean; snapshot: unknown };
+}
+
+function transactionResult(committed: boolean, snapshot: RtdbDataSnapshot): RtdbTransactionResult {
+  return {
+    committed,
+    snapshot,
+    toJSON: () => ({ committed, snapshot: snapshot.toJSON() }),
+  };
+}
+
+export async function rtdbRunTransaction<T>(
+  r: RtdbRefHandle,
+  transactionUpdate: (current: T | null) => T | undefined,
+  options?: RtdbTransactionOptions,
+): Promise<RtdbTransactionResult> {
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const before = await rtdbGet(r);
+    const expected = before.val() as T | null;
+    const value = transactionUpdate(expected);
+    if (value === undefined) return transactionResult(false, before);
+    const wire = await dataRpc(r.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'rtdb.transactionCommit',
+      path: r.path,
+      expected,
+      value,
+      applyLocally: options?.applyLocally,
+    }) as { retry?: boolean; committed: boolean; snapshot: RtdbWireSnapshot };
+    const snapshot = hydrateRtdbSnapshot(r, wire.snapshot);
+    if (!wire.retry) return transactionResult(wire.committed, snapshot);
+  }
+  throw new Error('maxretry');
 }
 
 export class RtdbOnDisconnect {

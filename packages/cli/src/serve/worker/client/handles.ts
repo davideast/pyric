@@ -35,15 +35,20 @@ export interface RtdbRefHandle {
   readonly __kind: 'rtdb-ref';
   readonly port: ClientPort;
   readonly path: string;
+  /** Firebase-mirror internal path consumed by the pure query builder. */
+  readonly _path: string;
   readonly key: string | null;
   readonly parent: RtdbRefHandle | null;
   readonly root: RtdbRefHandle;
+  isEqual(other: RtdbRefHandle | null): boolean;
+  toJSON(): string;
   toString(): string;
 }
 
 export interface RtdbDataSnapshot {
   readonly key: string | null;
   readonly size: number;
+  readonly priority: string | number | null;
   exists(): boolean;
   val(): unknown;
   child(path: string): RtdbDataSnapshot;

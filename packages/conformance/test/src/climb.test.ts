@@ -55,6 +55,7 @@ describe('classifyRows — the regression rule', () => {
     { id: 'messaging#10', status: 'conforms' }, // no assertion set -> unguarded
     { id: 'messaging#11', status: 'unverified' }, // passes -> flip candidate
     { id: 'messaging#12', status: 'unsupported', conformanceDisposition: 'held' }, // passes -> reviewed hold
+    { id: 'messaging#13', status: 'unsupported' }, // passes -> never a flip candidate
   ];
   const testcases: TestCase[] = [
     { classname: 'messaging#2', name: 'ok', passed: true },
@@ -63,6 +64,7 @@ describe('classifyRows — the regression rule', () => {
     { classname: 'messaging#9', name: 'pin broke', passed: false },
     { classname: 'messaging#11', name: 'passes early', passed: true },
     { classname: 'messaging#12', name: 'held behavior is pinned', passed: true },
+    { classname: 'messaging#13', name: 'unsupported behavior is pinned', passed: true },
     { classname: 'completeness gate', name: 'covers rows', passed: false }, // unkeyed
   ];
   const c = classifyRows(rows, testcases);
@@ -86,6 +88,7 @@ describe('classifyRows — the regression rule', () => {
 
   test('a passing reviewed hold is not proposed for promotion', () => {
     expect(c.flipCandidates.some((r) => r.id === 'messaging#12')).toBe(false);
+    expect(c.flipCandidates.some((r) => r.id === 'messaging#13')).toBe(false);
   });
 
   test('an unkeyed failing test (completeness gate) never gates', () => {
@@ -95,7 +98,7 @@ describe('classifyRows — the regression rule', () => {
   });
 
   test('verdict tallies', () => {
-    expect(c.greenRows).toBe(3); // #2, #11, #12
+    expect(c.greenRows).toBe(4); // #2, #11, #12, #13
     expect(c.redRows).toBe(3); // #4, #8, #9
     expect(c.unmappedRows).toBe(1); // #10
   });
