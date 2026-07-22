@@ -15,12 +15,15 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getOrCreateBackend } from '../../../src/database/sandbox/backend-for.js';
 import {
   getDatabase,
   ref,
   set,
   get,
   onValue,
+  onChildAdded,
+  onChildChanged,
   runTransaction,
   sandbox as rtdbSandbox,
 } from '../../../src/database/index.js';
@@ -301,6 +304,35 @@ describe('runTransaction — listener fires on commit', () => {
     off();
   });
 
+  it('committed write fans out to child listeners', async () => {
+    const { db } = setup();
+    await set(ref(db, 'counters/alpha'), 1);
+    const values: unknown[] = [];
+    const off = onChildChanged(ref(db, 'counters'), (snap) => {
+      values.push(snap.val());
+    });
+
+    await runTransaction<number>(ref(db, 'counters/alpha'), (current) =>
+      (current ?? 0) + 1,
+    );
+
+    expect(values).toEqual([2]);
+    off();
+  });
+
+  it('committed creation fans out to child-added listeners', async () => {
+    const { db } = setup();
+    const values: unknown[] = [];
+    const off = onChildAdded(ref(db, 'counters'), (snap) => {
+      values.push(snap.val());
+    });
+
+    await runTransaction<number>(ref(db, 'counters/alpha'), () => 1);
+
+    expect(values).toEqual([1]);
+    off();
+  });
+
   it('aborted transaction does NOT fan out to listeners', async () => {
     const { db } = setup();
     await set(ref(db, 'counter'), 100);
@@ -311,5 +343,16 @@ describe('runTransaction — listener fires on commit', () => {
     // Only the initial fire. The abort path does NO write → no fan-out.
     expect(fireCount).toBe(preTx);
     off();
+  });
+
+  it('applyLocally false still notifies persistence subscribers', async () => {
+    const { sandbox, db } = setup();
+    let writes = 0;
+    const unsubscribe = getOrCreateBackend(sandbox).subscribeWrites(() => { writes++; });
+
+    await runTransaction<number>(ref(db, 'counter'), () => 1, { applyLocally: false });
+
+    expect(writes).toBe(1);
+    unsubscribe();
   });
 });

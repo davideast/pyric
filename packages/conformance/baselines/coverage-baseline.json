@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T10:07:43.098Z",
+  "generatedAt": "2026-07-22T10:38:18.585Z",
   "services": {
     "ai": {
       "publicSurface": {
@@ -660,7 +660,7 @@
     "rtdb-modular#M90": "conforms",
     "rtdb-modular#M91": "conforms",
     "rtdb-modular#M92": "conforms",
-    "rtdb-modular#M93": "conforms",
+    "rtdb-modular#M93": "diverged-documented",
     "rtdb-modular#M94": "conforms",
     "rtdb-modular#94": "conforms",
     "rtdb-modular#95": "conforms",

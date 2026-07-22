@@ -14,6 +14,7 @@ import { queryIdentifier } from './query-shape.js';
  */
 export function ref(db: Database, path?: string): DatabaseReference {
   const target = targetOf(db);
+  if (path !== undefined) validateReferencePath(path, true);
   return buildSandboxRef(target, path ?? '/');
 }
 
@@ -26,6 +27,7 @@ export function ref(db: Database, path?: string): DatabaseReference {
  */
 export function child(parent: DatabaseReference, path: string): DatabaseReference {
   const target = targetOf(parent as unknown as object);
+  validateReferencePath(path, false);
   const absSegs = [...pathSegments(parent._path), ...pathSegments(path)];
   return buildSandboxRef(target, joinPath(absSegs));
 }
@@ -38,15 +40,28 @@ export function child(parent: DatabaseReference, path: string): DatabaseReferenc
  * production SDK, the host is not checked against the database namespace.
  */
 export function refFromURL(db: Database, url: string): DatabaseReference {
-  let path: string;
+  let parsed: URL;
   try {
-    path = new URL(url).pathname;
+    parsed = new URL(url);
   } catch {
     throw new Error(
       `pyric/database: refFromURL received a value that is not an absolute URL: ${url}`,
     );
   }
-  return ref(db, path);
+  if (parsed.hash !== '') {
+    throw new Error(
+      'refFromURL failed: url argument must be a valid firebase URL and the path can\'t contain ".", "#", "$", "[", or "]".',
+    );
+  }
+  return ref(db, parsed.pathname);
+}
+
+function validateReferencePath(path: string, allowEmpty: boolean): void {
+  if ((!allowEmpty && path.length === 0) || /[.#$[\]]/.test(path)) {
+    throw new Error(
+      `child failed: path argument was an invalid path = "${path}". Paths must be non-empty strings and can't contain ".", "#", "$", "[", or "]"`,
+    );
+  }
 }
 
 /**

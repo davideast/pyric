@@ -35,7 +35,7 @@ export class OperationEvents {
 
   mutation(
     auth: AuthState,
-    op: 'set' | 'update' | 'remove' | 'transaction',
+    op: 'set' | 'update' | 'remove' | 'transaction' | 'setPriority',
     path: string,
     fields: { before?: unknown; after?: unknown; detail?: Record<string, unknown> } = {},
   ): void {

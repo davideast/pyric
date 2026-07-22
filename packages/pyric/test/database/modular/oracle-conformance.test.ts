@@ -29,6 +29,9 @@
  *   - rtdb-modular-runtransaction-current-value-arg: prod invoked the
  *     update fn twice (speculative null, then the real value); the
  *     sandbox invokes it exactly once with the actual current value.
+ *   - rtdb-modular-reference-shape-url: equality semantics conform, but
+ *     prod serializes HTTPS database URLs while the sandbox identifies
+ *     its local target with a sandbox:// URL.
  *
  * REPLAYS GREEN (conformance, not divergence):
  *   - rtdb-modular-runtransaction-warm-client-speculation: even with a
@@ -107,6 +110,15 @@ function setup() {
   return { sandbox, db };
 }
 
+function referenceStringShape(value: string, path: string): Record<string, unknown> {
+  const parsed = new URL(value);
+  return {
+    protocol: parsed.protocol,
+    hostname: parsed.hostname,
+    pathMatches: parsed.pathname.endsWith(`/${path}`),
+  };
+}
+
 async function invocationShape(task: () => unknown): Promise<Record<string, unknown>> {
   let value: unknown;
   try {
@@ -119,6 +131,20 @@ async function invocationShape(task: () => unknown): Promise<Record<string, unkn
     return { timing: 'resolved', name: null };
   } catch (error) {
     return { timing: 'asynchronous-reject', name: error instanceof Error ? error.name : typeof error };
+  }
+}
+
+function synchronousInvocationShape(task: () => unknown): Record<string, unknown> {
+  try {
+    task();
+    return { timing: 'resolved', value: null };
+  } catch (error) {
+    return {
+      timing: 'synchronous-throw',
+      name: error instanceof Error ? error.name : typeof error,
+      code: (error as { code?: unknown }).code ?? null,
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -289,12 +315,16 @@ describe('oracle conformance (rtdb-modular)', () => {
   describe('reference and write contracts', () => {
     it('rtdb-modular#100 exposes reference navigation and string shape', () => {
       const obs = load('rtdb-modular-reference-shape-url.json');
+      const validation = obs.referenceValidation as Record<string, unknown>;
       const { db } = setup();
       const target = ref(db, 'parent/child');
       expect(target.key).toBe((obs.nested as Record<string, unknown>).key);
       expect(typeof target.toString()).toBe('string');
       expect(target.parent).not.toBeNull();
       expect(target.root).not.toBeNull();
+      expect(['.', '#', '$', '[', ']'].map((character) =>
+        synchronousInvocationShape(() => ref(db, `bad${character}path`)),
+      )).toEqual(validation.invalidRefPaths);
     });
 
     it('rtdb-modular#101 creates the root reference', () => {
@@ -305,10 +335,18 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect(root.parent).toBe((obs.root as Record<string, unknown>).parent);
     });
 
-    it('rtdb-modular#102 joins embedded child paths', () => {
+    it('rtdb-modular#102 joins embedded child paths and validates them', () => {
+      const obs = load('rtdb-modular-reference-shape-url.json');
+      const validation = obs.referenceValidation as Record<string, unknown>;
       const { db } = setup();
       const direct = ref(db, 'parent/a/b');
       expect(child(ref(db, 'parent'), 'a/b').toString()).toBe(direct.toString());
+      expect(synchronousInvocationShape(() => child(ref(db), 'bad#path'))).toEqual(
+        validation.invalidChildPath,
+      );
+      expect(synchronousInvocationShape(() => child(ref(db), ''))).toEqual(
+        validation.emptyChildPath,
+      );
     });
 
     it('rtdb-modular#103 navigates parent references', () => {
@@ -336,9 +374,14 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect(actual).toEqual({ timing: expected.timing, name: expected.name });
     });
 
-    it('rtdb-modular#M93 preserves Query and DatabaseReference equality and JSON shape', () => {
+    it('rtdb-modular#M93 pins conforming equality and divergent URL serialization', () => {
       const obs = load('rtdb-modular-reference-shape-url.json');
       const expected = obs.queryIdentity as Record<string, unknown>;
+      const {
+        referenceToJSON: productionReferenceToJSON,
+        queryToJSON: productionQueryToJSON,
+        ...expectedEquality
+      } = expected;
       const first = setup();
       const second = setup();
       const target = ref(first.db, 'parent/child');
@@ -346,8 +389,6 @@ describe('oracle conformance (rtdb-modular)', () => {
       const constrained = query(target, orderByValue(), startAt(1), endAt(2));
       const equivalent = query(target, endAt(2), orderByValue(), startAt(1));
       expect({
-        referenceToJSON: typeof target.toJSON(),
-        queryToJSON: typeof constrained.toJSON(),
         sameReference: target.isEqual(same),
         defaultQueryEqualsReference: target.isEqual(query(target)),
         referenceEqualsDefaultQuery: query(target).isEqual(target),
@@ -357,11 +398,23 @@ describe('oracle conformance (rtdb-modular)', () => {
         differentApp: target.isEqual(ref(second.db, 'parent/child')),
         nullValue: target.isEqual(null),
         nonQuery: target.isEqual({} as never),
-      }).toEqual({
-        ...expected,
-        referenceToJSON: 'string',
-        queryToJSON: 'string',
+      }).toEqual(expectedEquality);
+
+      const sandboxReferenceToJSON = referenceStringShape(target.toJSON(), 'parent/child');
+      const sandboxQueryToJSON = referenceStringShape(constrained.toJSON(), 'parent/child');
+      expect(productionReferenceToJSON).toEqual({
+        protocol: 'https:',
+        hostname: 'digame-mas-default-rtdb.firebaseio.com',
+        pathMatches: true,
       });
+      expect(productionQueryToJSON).toEqual(productionReferenceToJSON);
+      expect(sandboxReferenceToJSON).toEqual({
+        protocol: 'sandbox:',
+        hostname: 'rtdb',
+        pathMatches: true,
+      });
+      expect(sandboxQueryToJSON).toEqual(sandboxReferenceToJSON);
+      expect(sandboxReferenceToJSON).not.toEqual(productionReferenceToJSON);
       expect(target.toJSON()).toBe(target.toString());
       expect(constrained.toJSON()).toBe(constrained.toString());
     });
@@ -386,13 +439,20 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect((await get(target)).val()).toEqual(obs.afterRejected);
     });
 
-    it('rtdb-modular#174 pins refFromURL host validation divergence', async () => {
+    it('rtdb-modular#174 pins URL validation and the host divergence', async () => {
       const obs = load('rtdb-modular-reference-shape-url.json');
+      const validation = obs.referenceValidation as Record<string, unknown>;
       const { db } = setup();
       await set(ref(db, 'from-url/value'), { ok: true });
       expect((obs.mismatchedHost as Record<string, unknown>).timing).toBe('synchronous-throw');
       const sandboxRef = refFromURL(db, 'https://different.invalid/from-url/value');
       expect((await get(sandboxRef)).val()).toEqual({ ok: true });
+      expect(synchronousInvocationShape(() =>
+        refFromURL(db, 'https://different.invalid/path#bad'),
+      )).toEqual(validation.fragmentUrl);
+      expect(refFromURL(db, 'ftp://different.invalid/from-url/value')._path).toBe('/from-url/value');
+      expect(refFromURL(db, 'https://different.invalid/from-url/value?ignored=true')._path)
+        .toBe('/from-url/value');
     });
   });
 

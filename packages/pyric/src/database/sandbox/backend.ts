@@ -28,7 +28,7 @@ export class RtdbBackend {
     this.values = new ValueListeners(this.state);
     this.children = new ChildListeners(this.state);
     this.writes = new WritePlane(this.state, this.values, this.children);
-    this.transactions = new Transactions(this.state, this.values);
+    this.transactions = new Transactions(this.state, this.values, this.children);
     this.persistence = new PersistenceState(this.state, this.values, this.children);
   }
 

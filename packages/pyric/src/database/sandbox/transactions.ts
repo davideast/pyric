@@ -1,5 +1,6 @@
 import type { AuthState } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
+import type { ChildListeners } from './child-listeners.js';
 import { cloneJson, pathSegments, type JsonValue } from './data-tree.js';
 import { coerceArrays, normalizeWrite } from './normalize.js';
 import { canonicalPath, denyResultFor } from './operation-events.js';
@@ -14,6 +15,7 @@ export class Transactions {
   constructor(
     private readonly state: BackendState,
     private readonly values: ValueListeners,
+    private readonly children: ChildListeners,
   ) {}
 
   run(
@@ -67,9 +69,11 @@ export class Transactions {
       const priorRoot = this.state.tree.snapshot();
       const priorPriorities = Object.fromEntries(this.state.priorities.entries());
       const currentPriority = this.state.priorities.get(path);
+      const childPriors = this.children.snapshotParents();
       this.state.tree.write(path, resolved);
       this.state.priorities.replace(path, currentPriority);
       this.values.fanOut([path]);
+      this.children.fanOut(childPriors);
       const at = Date.now();
       const evaluation = this.state.rules.evaluate('write', path === '/' ? '/' : path, {
         auth, mockData: priorRoot as Record<string, unknown>, newData: resolved,
@@ -82,9 +86,11 @@ export class Transactions {
           resourceAfter: { data: resolved, exists: resolved !== null },
           groupId, groupKind: 'transaction',
         });
+        const rollbackChildPriors = this.children.snapshotParents();
         this.state.tree.restore(priorRoot);
         this.state.priorities.restore(priorPriorities);
         this.values.fanOut([path]);
+        this.children.fanOut(rollbackChildPriors);
         throw transactionPermissionDenied();
       }
       this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation);
@@ -113,11 +119,14 @@ export class Transactions {
       groupId, groupKind: 'transaction',
     });
     const priority = this.state.priorities.get(path);
+    const childPriors = this.children.snapshotParents();
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, priority);
     this.state.mutations.mark(path);
     this.values.fanOut([path]);
+    this.children.fanOut(childPriors);
     this.finishEvents(auth, path, proposed, current, resolved, groupId, now, false);
+    this.state.notifyWrite();
     return { committed: true, val: resolved, key };
   }
 
