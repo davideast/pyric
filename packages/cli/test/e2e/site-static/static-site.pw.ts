@@ -116,7 +116,7 @@ test('the checked-in Firestore example runs in its isolated iframe and resets', 
 test('the chess showcase commits an allowed move, denies an illegal move, and resets', async ({ page }) => {
   const urls = trackRequests(page);
   await page.goto('/docs/examples/chess/');
-  const frame = page.frameLocator('iframe[title="Chess, with Security Rules as the game engine"]');
+  const frame = page.frameLocator('iframe[data-example-id="chess"]');
 
   await frame.getByRole('button', { name: 'Try legal e2 → e4' }).click();
   await expect(frame.getByText('Allowed · e2 → e4')).toBeVisible();

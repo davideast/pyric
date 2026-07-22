@@ -17,6 +17,7 @@ const { id, title, showcase = false } = Astro.props;
     sandbox="allow-scripts allow-same-origin"
     scrolling="no"
     data-example-frame
+    data-example-id={id}
     data-min-height={showcase ? '560' : '304'}
   ></iframe>
 </div>
