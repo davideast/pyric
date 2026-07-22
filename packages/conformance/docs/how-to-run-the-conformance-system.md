@@ -889,6 +889,69 @@ behaves as pinned. A changed file means cloud behavior MOVED, and the affected
 rows need review before you commit. Never commit a changed observation without
 reading what changed.
 
+### The scheduled re-capture lane
+
+A manual re-run is the only thing that keeps a capture honest, and nobody
+re-runs a rig on a schedule by hand. `.github/workflows/oracle-recapture.yml`
+does it automatically. It runs **weekly** (Monday 06:00 UTC) and on manual
+dispatch, re-executes the schedulable rigs against live Firebase, and applies
+the same drift report — `git diff` over the observations tree — as a gate. The
+offline gates in `build.yml` cannot catch this class of change: server-side
+facts such as the send-plane error envelopes, the oversized-payload byte
+boundary, and batch limits can move with no client SDK release, so only a fresh
+capture sees them.
+
+The lane runs two of the three tiers from
+[the fleet, by automation tier](#the-fleet-by-automation-tier):
+
+- The **unattended** rigs (`admin-app`, `app-registry`) always run — they need
+  no secret.
+- The **credentialed** rigs `oracle-run`, `messaging-send`, `rules-firestore`,
+  and `rules-storage` each run only when their secret is present. When a secret
+  is absent (a fork, or a repo that has not provisioned the oracle project) that
+  rig's leg skips cleanly with a warning and the run stays green, the same
+  secret-absent contract `simulator-parity.yml` uses. `messaging-send` carries
+  the highest-drift-risk records, the purely server-side `messaging-admin`
+  facts, so it is the one to prioritize provisioning.
+
+Three rigs are deliberately left out. `messaging-web` is human-witnessed
+(headed Chromium, persistent profile) and cannot run on a CI worker. `ai-logic`
+is credentialed but every run consumes paid model quota, so it stays a manual
+capture; it can be added as another credentialed leg when that trade is
+accepted. `rtdb-rules` is the one rig that mutates a live project — its
+[deploy, capture, restore, read-back invariant](#the-safety-invariant-deploy-capture-restore-read-back)
+is a witnessed correctness contract, not something to run unattended, so the
+lane never touches it.
+
+The comparison ignores the `observedAt` stamp every capture rewrites (and any
+pure reformatting), so the lane fires only on a real change to a captured fact,
+not on the timestamp. It never commits, pushes, or otherwise persists a changed
+observation: the observations tree is read-only to CI.
+
+### When the drift report fires
+
+A red re-capture run means a fact you had pinned no longer matches production.
+The changed observations are not in the repository — the lane refuses to write
+them — so the recovery is deliberate, on a branch, by a person:
+
+1. **Read the diff** in the failed run's job summary. Each drifted file is shown
+   with the `observedAt` noise already stripped, so what is left is the behavior
+   that moved. If the summary lists nothing and the run is still red, the failure
+   is the rig itself, not drift — read the step log.
+2. **Reproduce it locally.** Point the same rig's env vars at the oracle project
+   and run its `script` on a branch, then `git diff` the observations tree. The
+   local diff should match the summary.
+3. **Decide what the change is.** Either production genuinely moved and the new
+   capture is the truth, or the affected rows now describe a real difference from
+   production. Re-capture the observation, then follow
+   [record a divergence](#record-a-divergence) for every row the moved fact now
+   contradicts: pin both sides in the surface's conformance suite, flip the row
+   to `diverged-documented`, regenerate, and re-run `compat:validate`. Never
+   weaken an assertion or hand-edit a capture to make the report go green.
+4. **Commit the re-capture with its row changes together**, so the observation
+   and the claims it backs move in one reviewed step. The next scheduled run then
+   passes because the pinned facts match production again.
+
 ## Add to the system
 
 ### The rule that outranks the rest

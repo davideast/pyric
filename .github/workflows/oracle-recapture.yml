@@ -1,0 +1,135 @@
+# Oracle re-capture lane — weekly production drift detection.
+#
+# Nothing else in CI re-consults production: build.yml only checks committed
+# observations against the offline model and the version guard, so a `conforms`
+# claim can silently outlive the behavior it was captured against. This lane
+# re-runs the schedulable capture rigs against live Firebase, overwriting the
+# observation files in place, then reports any change to the observations tree
+# as drift — the same "the diff is the drift report" mechanism a human uses
+# locally (see packages/conformance/docs/how-to-run-the-conformance-system.md).
+# The comparison ignores the per-run `observedAt` timestamp every capture
+# stamps, so it fires only on a real change to a captured fact.
+#
+# Two tiers of rig run here (the guide's rig fleet section is the map):
+#   1. unattended — admin-app + app-registry: pure in-process probes of the
+#      installed firebase / firebase-admin packages. No secret, no network;
+#      they always run.
+#   2. credentialed — oracle-run, messaging-send, rules-firestore,
+#      rules-storage: each reaches a real Firebase project and needs a
+#      provisioned secret. Each matrix leg gates on its own secret and skips
+#      cleanly (a warning, a green run) when it is absent — the same
+#      secret-absent pattern simulator-parity.yml uses so a fork or an
+#      unconfigured repo never sees a red run.
+#
+# Deliberately excluded:
+#   - rtdb-rules      — the one rig that MUTATES a live project (deploys a
+#                       ruleset, then restores). Its deploy/capture/restore/
+#                       read-back invariant is a human-witnessed correctness
+#                       contract; it is not run unattended here.
+#   - messaging-web   — human-witnessed, headed Chromium with a persistent
+#                       profile. Cannot run on a CI worker by nature.
+#   - ai-logic        — credentialed, but every run consumes paid model quota
+#                       and it sits outside this lane's scoped rig set. It can
+#                       be added as another credentialed matrix leg (guard
+#                       PYRIC_AI_FIREBASE_CONFIG) when that trade is accepted.
+#
+# SAFETY: this lane never commits, pushes, or otherwise persists a changed
+# observation. On drift it fails loudly with the diff in the job summary; a
+# human reviews the affected rows and re-captures deliberately on a branch.
+
+name: Oracle re-capture
+
+on:
+  schedule:
+    # Weekly, Monday 06:00 UTC — off-peak and clear of the daily build (09:17)
+    # and playground (10:43) crons.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# Read-only: drift surfaces as a red run with the diff in the summary. The lane
+# writes nothing back to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  # One re-capture at a time; a manual dispatch supersedes an in-flight run.
+  group: oracle-recapture
+  cancel-in-progress: false
+
+jobs:
+  unattended:
+    name: Unattended rigs (installed-SDK probes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Re-capture admin-app observations
+        # In-process probes of the installed firebase-admin app registry.
+        # --write overwrites the admin-app-* observation files in place so the
+        # drift step can diff them (verify mode, the default, would not rewrite).
+        run: bun run packages/conformance/src/admin-app-probes.ts --write
+      - name: Re-capture app-registry observations
+        # In-process probes of the installed firebase/app client registry.
+        run: bun run packages/conformance/src/app-registry-probes.ts --write
+      - name: Detect observation drift
+        run: bun scripts/ci/oracle-drift-report.ts "unattended rigs (admin-app, app-registry)"
+
+  credentialed:
+    name: Credentialed rig (${{ matrix.rig }})
+    runs-on: ubuntu-latest
+    strategy:
+      # One rig's drift or absent secret must not cancel the others.
+      fail-fast: false
+      matrix:
+        include:
+          - rig: oracle-run
+            script: packages/conformance/src/run.ts
+            guard: PYRIC_ORACLE_FIREBASE_CONFIG
+          - rig: messaging-send
+            script: packages/conformance/src/messaging-send-probes.ts
+            guard: PYRIC_MESSAGING_SA_BASE64
+          - rig: rules-firestore
+            script: packages/conformance/src/run-rules.ts
+            guard: PARITY_SA_BASE64
+          - rig: rules-storage
+            script: packages/conformance/src/run-rules-storage.ts
+            guard: PARITY_SA_BASE64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Check credential availability
+        id: secret-check
+        # Skip cleanly when this rig's secret is absent (fork / unconfigured
+        # repo), exactly like simulator-parity's parity-stress job. The guard
+        # var name is per-rig; ${!GUARD} reads whichever one this leg needs.
+        env:
+          GUARD: ${{ matrix.guard }}
+          PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
+          PYRIC_MESSAGING_SA_BASE64: ${{ secrets.PYRIC_MESSAGING_SA_BASE64 }}
+          PARITY_SA_BASE64: ${{ secrets.PARITY_SA_BASE64 }}
+        run: |
+          if [ -z "${!GUARD}" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::$GUARD not configured — ${{ matrix.rig }} re-capture skipped. Add the oracle secret to enable production drift detection for this rig."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install
+        if: steps.secret-check.outputs.available == 'true'
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Re-capture ${{ matrix.rig }} against production
+        if: steps.secret-check.outputs.available == 'true'
+        env:
+          PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
+          PYRIC_MESSAGING_SA_BASE64: ${{ secrets.PYRIC_MESSAGING_SA_BASE64 }}
+          PARITY_SA_BASE64: ${{ secrets.PARITY_SA_BASE64 }}
+        run: bun run ${{ matrix.script }}
+      - name: Detect observation drift
+        if: steps.secret-check.outputs.available == 'true'
+        run: bun scripts/ci/oracle-drift-report.ts "${{ matrix.rig }}"
