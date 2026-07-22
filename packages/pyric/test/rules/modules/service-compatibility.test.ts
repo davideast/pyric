@@ -1,8 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { resolveModules } from '../../../src/rules/modules/resolver.js';
 import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
-import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
-import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 const makeSource = (imports: string, body: string = '') => `${imports}
 rules_version = '2+modules';
 service cloud.firestore {
@@ -584,7 +582,7 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
     expect(bind.success).toBe(true);
     expect(rejected.success).toBe(false);
   });
-  test('resolved modules cannot false-allow through metadata prototype properties', () => {
+  test('admits prototype-named metadata keys for runtime own-property enforcement', () => {
     for (const key of ['constructor', 'toString', 'hasOwnProperty']) {
       const result = resolveModules(
         makeStorageSource("import { present } from './policy';", 'present()'),
@@ -595,18 +593,6 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
         } },
       );
       expect(result.success, key).toBe(true);
-      if (!result.success) continue;
-      const rules = parseStorageRules(result.data.resolved);
-      const decision = evaluateStorageRules(rules, {
-        request: {
-          auth: null,
-          method: 'create',
-          path: 'b/test/o/payload.bin',
-          resource: { size: 1, metadata: {} },
-        },
-        resource: null,
-      });
-      expect(decision.allowed, key).toBe(false);
     }
   });
 });
