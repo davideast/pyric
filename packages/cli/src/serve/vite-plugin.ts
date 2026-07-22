@@ -147,6 +147,14 @@ export interface PyricOptions {
   ai?: PyricAiOptions;
 }
 
+function resolveFunctionsOptions(
+  options: PyricOptions['functions'],
+): false | { region?: string; instance?: string; watch?: boolean } {
+  if (options === false) return false;
+  if (typeof options === 'object') return options;
+  return {};
+}
+
 /**
  * The dev-only Vite plugin. Add to `vite.config`:
  *
@@ -221,12 +229,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
           capture: options.capture,
           bridge: bridgeOpts,
           ui: options.ui ?? true,
-          functions:
-            options.functions === false
-              ? false
-              : typeof options.functions === 'object'
-                ? options.functions
-                : {},
+          functions: resolveFunctionsOptions(options.functions),
         },
         ai: pageRuntime.ai(),
       });

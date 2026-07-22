@@ -36,7 +36,10 @@ export function attachViteGenerationMiddleware(input: {
         `http://${req.headers.host ?? 'localhost'}`,
       );
       Promise.resolve(bridge ? bridge.handler(req, res, url) : false)
-        .then((bridged) => (bridged ? true : Promise.resolve(session.handle(req, res, url))))
+        .then((bridged) => {
+          if (bridged) return true;
+          return session.handle(req, res, url);
+        })
         .then((handled) => {
           if (!handled) next();
         })

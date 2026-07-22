@@ -7,6 +7,12 @@ import type {
   BridgeMountOptions,
 } from './bridge-mount.js';
 
+function resolveAllowedHosts(allowedHosts: true | string[] | undefined): true | string[] {
+  if (allowedHosts === true) return true;
+  if (Array.isArray(allowedHosts)) return allowedHosts;
+  return [];
+}
+
 export function createViteGenerationBridge(input: {
   server: ViteDevServer;
   projectDir: string;
@@ -23,12 +29,7 @@ export function createViteGenerationBridge(input: {
     project: options?.project ?? functionsProjectId ?? undefined,
     upgradeGuard: {
       boundHost: typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
-      allowedHosts:
-        serverOptions.allowedHosts === true
-          ? true
-          : Array.isArray(serverOptions.allowedHosts)
-            ? serverOptions.allowedHosts
-            : [],
+      allowedHosts: resolveAllowedHosts(serverOptions.allowedHosts),
     },
   });
 }

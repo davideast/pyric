@@ -32,6 +32,11 @@ function swapsInBuild(env: ConfigEnv, override: boolean | undefined): boolean {
   return override ?? env.mode !== 'production';
 }
 
+function injectIntoHead(html: string, tags: string): string {
+  if (html.includes('</head>')) return html.replace('</head>', `${tags}</head>`);
+  return tags + html;
+}
+
 /** Own build-generation and served-page state for one plugin instance. */
 export function createVitePageRuntime(input: {
   options: VitePageRuntimeOptions;
@@ -74,22 +79,22 @@ export function createVitePageRuntime(input: {
       const runtimeChipTag = `<meta name="${PYRIC_RUNTIME_CHIP_META}" content="${runtimeChipMetaValue(options.runtimeChip)}" data-studio="${studioEnabled ? 'on' : 'off'}" ${marker}>`;
       if (sandboxBuild) {
         if (html.includes(SANDBOX_BUILD_META)) return html;
-        const initTag = initChunkFile
-          ? `<script type="module" crossorigin src="/${initChunkFile}" data-pyric-sandbox-init></script>`
-          : '';
+        let initTag = '';
+        if (initChunkFile) {
+          initTag = `<script type="module" crossorigin src="/${initChunkFile}" data-pyric-sandbox-init></script>`;
+        }
         const tags = SANDBOX_BUILD_META + runtimeChipTag + initTag;
-        return html.includes('</head>')
-          ? html.replace('</head>', `${tags}</head>`)
-          : tags + html;
+        return injectIntoHead(html, tags);
       }
       if (html.includes(marker)) return html;
       const head = workerRuntime.headTag(marker);
-      const aiEngineTag = resolvedAi.engineWire
-        ? `<script ${marker}>globalThis.__PYRIC_AI_ENGINE__=${JSON.stringify(resolvedAi.engineWire).replace(/</g, '\\u003c')};</script>`
-        : '';
+      let aiEngineTag = '';
+      if (resolvedAi.engineWire) {
+        aiEngineTag = `<script ${marker}>globalThis.__PYRIC_AI_ENGINE__=${JSON.stringify(resolvedAi.engineWire).replace(/</g, '\\u003c')};</script>`;
+      }
       const tag = head + aiEngineTag + runtimeChipTag +
         `<script type="module" src="/@fs/${initEntry}" ${marker}></script>`;
-      return html.includes('</head>') ? html.replace('</head>', `${tag}</head>`) : tag + html;
+      return injectIntoHead(html, tag);
     },
   };
 }

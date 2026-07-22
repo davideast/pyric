@@ -77,6 +77,17 @@ The God-object rule. A single class longer than 400 lines is a design smell, not
 - Authored pages link each other by relative `.md` path; the site's remark
   plugin resolves those to routes and fails the build on a broken link.
 
+## 3b. Conditional expressions stay simple
+
+Rule.
+
+- Nested ternary expressions are prohibited.
+- Prefer explicit `if`/`else` branches or a named helper over a ternary.
+- A ternary is acceptable only when the complete expression fits on one line
+  and both outcomes are short, simple values.
+- If a ternary needs to wrap, performs work in either branch, or introduces a
+  second condition, replace it with explicit control flow.
+
 ## 4. Barrel-file policy
 
 The ratified rule is: the directory is the index, and aggregation is computed, not hand-maintained. Source barrels align to it with one carve-out.

@@ -26,12 +26,17 @@ export async function resolveViteGenerationFunctions(input: {
 }): Promise<ResolvedViteGenerationFunctions> {
   const { projectDir, options, discover, readFirebaseRc } = input;
   const project = options === false ? null : discover(projectDir);
+  let projectId: string | null = null;
+  if (project) {
+    projectId =
+      process.env.PYRIC_PROJECT ??
+      (await readFirebaseRc(projectDir))?.projects?.default ??
+      'demo-project';
+  }
   return {
     options: typeof options === 'object' ? options : {},
     project,
-    projectId: project
-      ? (process.env.PYRIC_PROJECT ?? (await readFirebaseRc(projectDir))?.projects?.default ?? 'demo-project')
-      : null,
+    projectId,
   };
 }
 
