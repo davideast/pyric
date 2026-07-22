@@ -51,6 +51,7 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
   type Functions = ReadonlyMap<string, FunctionDef>;
   const declarationTypes = new Map<FunctionDef, Environment>();
   const declarationProvenances = new Map<FunctionDef, ProvenanceEnvironment>();
+  const declarationFunctions = new Map<FunctionDef, Functions>();
 
   const inferFunctionReturn = (
     fn: FunctionDef,
@@ -59,13 +60,14 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
     stack: ReadonlySet<string>,
   ): SourceReceiverType | null => {
     if (stack.has(fn.name)) return null;
+    const lexicalFunctions = declarationFunctions.get(fn) ?? functions;
     const environment = new Map<string, SourceReceiverType | null>(declarationTypes.get(fn));
     fn.parameters.forEach((parameter, index) => environment.set(parameter, argumentTypes[index] ?? null));
     const nestedStack = new Set([...stack, fn.name]);
     for (const binding of fn.lets) {
-      environment.set(binding.name, inferType(binding.value, environment, functions, nestedStack));
+      environment.set(binding.name, inferType(binding.value, environment, lexicalFunctions, nestedStack));
     }
-    return inferType(fn.body, environment, functions, nestedStack);
+    return inferType(fn.body, environment, lexicalFunctions, nestedStack);
   };
 
   const inferType = (
@@ -117,8 +119,19 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
       }
       case 'methodCall':
         if (expression.method === 'get') {
+          if (expression.object.type === 'identifier' && expression.object.name === 'firestore') {
+            return methodReturnType(expression);
+          }
           const fallback = expression.args[1];
-          return fallback ? inferType(fallback, environment, functions, stack) : null;
+          if (expression.object.type === 'mapLiteral' && expression.args[0]?.type === 'literal') {
+            const key = expression.args[0].value;
+            const entry = expression.object.entries.find(({ key: entryKey }) =>
+              entryKey.type === 'literal' && entryKey.value === key);
+            return entry
+              ? inferType(entry.value, environment, functions, stack)
+              : fallback ? inferType(fallback, environment, functions, stack) : null;
+          }
+          return fallback ? 'unknown' : null;
         }
         return methodReturnType(expression);
       case 'sliceAccess': return inferType(expression.object, environment, functions, stack);
@@ -145,14 +158,16 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
     stack: ReadonlySet<string>,
   ): SourceProvenance {
     if (stack.has(fn.name)) return 'unknown-ambient';
+    const lexicalFunctions = declarationFunctions.get(fn) ?? functions;
     const environment = new Map<string, SourceProvenance>(declarationProvenances.get(fn));
     fn.parameters.forEach((parameter, index) =>
       environment.set(parameter, argumentProvenances[index] ?? null));
     const nestedStack = new Set([...stack, fn.name]);
     for (const binding of fn.lets) {
-      environment.set(binding.name, inferProvenance(binding.value, environment, functions, nestedStack));
+      environment.set(binding.name, inferProvenance(
+        binding.value, environment, lexicalFunctions, nestedStack));
     }
-    return inferProvenance(fn.body, environment, functions, nestedStack);
+    return inferProvenance(fn.body, environment, lexicalFunctions, nestedStack);
   }
 
   function inferProvenance(
@@ -230,6 +245,7 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
     stack: ReadonlySet<string>,
   ) => {
     if (stack.has(fn.name)) return;
+    const lexicalFunctions = declarationFunctions.get(fn) ?? functions;
     const environment = new Map<string, SourceReceiverType | null>(declarationTypes.get(fn));
     const provenanceEnvironment = new Map<string, SourceProvenance>(
       declarationProvenances.get(fn),
@@ -239,14 +255,15 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
       provenanceEnvironment.set(parameter, argumentProvenances[index] ?? null));
     const nestedStack = new Set([...stack, fn.name]);
     for (const binding of fn.lets) {
-      analyzeExpression(binding.value, environment, provenanceEnvironment, functions, nestedStack);
-      environment.set(binding.name, inferType(binding.value, environment, functions, nestedStack));
+      analyzeExpression(binding.value, environment, provenanceEnvironment, lexicalFunctions, nestedStack);
+      environment.set(binding.name, inferType(
+        binding.value, environment, lexicalFunctions, nestedStack));
       provenanceEnvironment.set(
         binding.name,
-        inferProvenance(binding.value, provenanceEnvironment, functions, nestedStack),
+        inferProvenance(binding.value, provenanceEnvironment, lexicalFunctions, nestedStack),
       );
     }
-    analyzeExpression(fn.body, environment, provenanceEnvironment, functions, nestedStack);
+    analyzeExpression(fn.body, environment, provenanceEnvironment, lexicalFunctions, nestedStack);
   };
 
   const analyzeExpression = (
@@ -271,11 +288,18 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
     }
   };
 
-  const serviceFunctions = new Map<string, FunctionDef>();
-  for (const fn of [...(ast.functions ?? []), ...(ast.service.functions ?? [])]) {
-    serviceFunctions.set(fn.name, fn);
+  const globalFunctions = new Map((ast.functions ?? []).map((fn) => [fn.name, fn]));
+  const serviceFunctions = new Map(globalFunctions);
+  for (const fn of ast.service.functions ?? []) serviceFunctions.set(fn.name, fn);
+  for (const fn of ast.functions ?? []) {
     declarationTypes.set(fn, new Map());
     declarationProvenances.set(fn, new Map());
+    declarationFunctions.set(fn, globalFunctions);
+  }
+  for (const fn of ast.service.functions ?? []) {
+    declarationTypes.set(fn, new Map());
+    declarationProvenances.set(fn, new Map());
+    declarationFunctions.set(fn, serviceFunctions);
   }
   const addMatch = (
     match: MatchBlock,
@@ -293,6 +317,7 @@ export function moduleCallSites(ast: FirestoreRules, functionName: string): read
       functions.set(fn.name, fn);
       declarationTypes.set(fn, captures);
       declarationProvenances.set(fn, inheritedProvenances);
+      declarationFunctions.set(fn, functions);
     }
     for (const { condition } of match.allows) {
       analyzeExpression(condition, captures, inheritedProvenances, functions, new Set());

@@ -9,7 +9,7 @@
  * Additional explicit modes cover native object fields and the remaining
  * cross-service database/project boundaries through the same exclusive lock.
  */
-import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,16 +19,26 @@ import { readObservationLinkage } from './observation-linkage.ts';
 import {
   accessHeaders,
   FIREBASE_API,
-  jsonRequest as json,
+  jsonRequest as rawJson,
   resolveServiceAccount,
   RULES_API,
   type WebConfig,
 } from './storage-stdlib-real-api.ts';
-import { runCleanupSteps } from './storage-stdlib-real-budget.ts';
+import {
+  RequestBudget,
+  STORAGE_CLEANUP_LIMITS,
+  STORAGE_PROBE_LIMITS,
+  runCleanupSteps,
+  storageProbeRequestKind,
+} from './storage-stdlib-real-budget.ts';
 import {
   canonicalPolicy,
   type IamPolicy,
 } from './storage-stdlib-real-iam.ts';
+import { acquireRunLock } from './storage-stdlib-real-lock.ts';
+import {
+  deleteStorageObjects,
+} from './storage-stdlib-real-objects.ts';
 import {
   type Release,
   type Ruleset,
@@ -39,36 +49,6 @@ const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
 const IAM_SETTLE_MS = 120_000;
 const IAM_RETRY_MS = 30_000;
 const IAM_RETRY_LIMIT = 6;
-const LOCK_PATH = '/tmp/pyric-storage-stdlib-real.lock';
-
-export function acquireRunLock(lockPath = LOCK_PATH): () => void {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const fd = openSync(lockPath, 'wx', 0o600);
-      writeFileSync(fd, `${process.pid}\n`);
-      closeSync(fd);
-      return () => {
-        try {
-          if (readFileSync(lockPath, 'utf8').trim() === String(process.pid)) unlinkSync(lockPath);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        }
-      };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      const pid = Number.parseInt(readFileSync(lockPath, 'utf8').trim(), 10);
-      try {
-        process.kill(pid, 0);
-        throw new Error(`another storage-stdlib real-resource probe is already running (pid ${pid})`);
-      } catch (probeError) {
-        if ((probeError as NodeJS.ErrnoException).code !== 'ESRCH') throw probeError;
-        unlinkSync(lockPath);
-      }
-    }
-  }
-  throw new Error('could not acquire storage-stdlib real-resource probe lock');
-}
-
 function inert(): void {
   console.log('[storage-stdlib:real] credentials absent — INERT preview; no network calls.');
   console.log('Requires PYRIC_ORACLE_SA_PATH and PYRIC_AI_FIREBASE_CONFIG.');
@@ -218,6 +198,16 @@ async function run(): Promise<void> {
   if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');
 
   const { auth: authHeaders, json: jsonHeaders } = await accessHeaders(sa);
+  const budget = new RequestBudget({ ...STORAGE_PROBE_LIMITS });
+  const cleanupBudget = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
+  const json = async <T>(url: string, init: RequestInit, label: string): Promise<T> => {
+    budget.take(storageProbeRequestKind(url));
+    return rawJson<T>(url, init, label);
+  };
+  const cleanupJson = async <T>(url: string, init: RequestInit, label: string): Promise<T> => {
+    cleanupBudget.take(storageProbeRequestKind(url));
+    return rawJson<T>(url, init, label);
+  };
   const temporaryIam = Bun.argv.includes('--temporary-iam');
   const externallyEnabledIam = Bun.argv.includes('--iam-enabled');
   const compileAdvanced = Bun.argv.includes('--compile-advanced');
@@ -289,6 +279,7 @@ async function run(): Promise<void> {
     const runId = 'compile';
     const content = injectProbeRules(rulesFile.content, runId, true);
     const files = originalRuleset.source.files.map((file) => file === rulesFile ? { ...file, content } : file);
+    budget.take('rules');
     const response = await fetch(`${RULES_API}/projects/${sa.project_id}:test`, {
       method: 'POST',
       headers: jsonHeaders,
@@ -339,10 +330,11 @@ async function run(): Promise<void> {
 
   const upload = async (family: string, retry = false): Promise<{ allowed: boolean; code?: string; message?: string }> => {
     const path = `${prefix}/${family}/payload.bin`;
+    createdObjects.add(path);
     const attempt = async () => {
+      budget.take('storage');
       try {
         await uploadBytes(storageRef(storage, path), new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]));
-        createdObjects.add(path);
         return { allowed: true };
       } catch (error) {
         return {
@@ -378,6 +370,7 @@ async function run(): Promise<void> {
     const expected = allow ? 200 : 403;
     const documentUrl = `https://firestore.googleapis.com/v1/${docNames[0]}?key=${encodeURIComponent(web.apiKey)}`;
     for (let attempt = 0; attempt < 5; attempt += 1) {
+      budget.take('firestoreWrite');
       const response = await fetch(documentUrl);
       if (response.status === expected) return response.status;
       await new Promise((resolveWait) => setTimeout(resolveWait, 2_000));
@@ -441,47 +434,43 @@ async function run(): Promise<void> {
         label: 'restore Firestore release',
         run: async () => {
           if (!originalFirestore) return;
-          await json(
+          await cleanupJson(
             firestoreReleaseUrl,
             { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: firestoreReleaseName, rulesetName: originalFirestore.rulesetName } }) },
             'restore original Firestore release',
           );
-          const restored = await json<Release>(firestoreReleaseUrl, { headers: authHeaders }, 'verify restored Firestore release');
+          const restored = await cleanupJson<Release>(firestoreReleaseUrl, { headers: authHeaders }, 'verify restored Firestore release');
           firestoreReleaseRestored = restored.rulesetName === originalFirestore.rulesetName;
         },
       },
       {
         label: 'restore Storage release',
         run: async () => {
-          await json(
+          await cleanupJson(
             releaseUrl,
             { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: releaseName, rulesetName: original.rulesetName } }) },
             'restore original Storage release',
           );
-          const restored = await json<Release>(releaseUrl, { headers: authHeaders }, 'verify restored Storage release');
+          const restored = await cleanupJson<Release>(releaseUrl, { headers: authHeaders }, 'verify restored Storage release');
           releaseRestored = restored.rulesetName === original.rulesetName;
         },
       },
-      ...[...createdObjects].map((objectPath) => ({
-        label: `delete probe object ${objectPath}`,
-        run: async () => {
-          const response = await fetch(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(config.storageBucket)}/o/${encodeURIComponent(objectPath)}`, { method: 'DELETE', headers: authHeaders });
-          if (!response.ok && response.status !== 404) throw new Error(`delete probe object failed: ${response.status} ${await response.text()}`);
-        },
-      })),
       {
-        label: 'verify probe object cleanup',
+        label: 'delete Storage objects',
         run: async () => {
-          const list = await json<{ items?: unknown[] }>(
-            `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(config.storageBucket)}/o?prefix=${encodeURIComponent(prefix)}`,
-            { headers: authHeaders }, 'verify probe object cleanup',
+          objectsRemoved = await deleteStorageObjects(
+            config.storageBucket,
+            prefix,
+            createdObjects,
+            { auth: authHeaders, json: jsonHeaders },
+            cleanupBudget,
           );
-          objectsRemoved = (list.items?.length ?? 0) === 0;
         },
       },
       ...docNames.map((docName) => ({
         label: `delete probe document ${docName}`,
         run: async () => {
+          cleanupBudget.take('firestoreWrite');
           const response = await fetch(`https://firestore.googleapis.com/v1/${docName}`, { method: 'DELETE', headers: authHeaders });
           if (!response.ok && response.status !== 404) throw new Error(`delete probe document failed: ${response.status} ${await response.text()}`);
         },
@@ -489,6 +478,7 @@ async function run(): Promise<void> {
       {
         label: 'verify probe document cleanup',
         run: async () => {
+          cleanupBudget.take('firestoreWrite', docNames.length);
           const checks = await Promise.all(docNames.map((docName) => fetch(`https://firestore.googleapis.com/v1/${docName}`, { headers: authHeaders })));
           documentsRemoved = checks.every((response) => response.status === 404);
         },
@@ -522,6 +512,8 @@ async function run(): Promise<void> {
     diagnostics,
     cleanup: { releaseRestored, firestoreReleaseRestored, objectsRemoved, documentsRemoved, iamRestored: !temporaryIam },
     iam: { temporaryIam, externallyEnabledIam, iamChanged },
+    requestBudget: budget.snapshot(),
+    cleanupRequestBudget: cleanupBudget.snapshot(),
     probeBlockSha256: storageStdlibRealProbeBlockDigest(advanced),
     deployedRulesFileSha256: createHash('sha256')
       .update(injectProbeRules(rulesFile.content, runId, advanced)).digest('hex'),
@@ -530,34 +522,34 @@ async function run(): Promise<void> {
   } finally {
     if (temporaryIam && originalIam && iamGrantAttempted) {
       const policyUrl = `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`;
-      const currentPolicy = await json<IamPolicy>(
+      const currentPolicy = await cleanupJson<IamPolicy>(
         policyUrl,
         { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
         'read IAM policy before restore',
       );
       if (canonicalPolicy(currentPolicy) !== canonicalPolicy(originalIam)) {
         const restore = { ...originalIam, etag: currentPolicy.etag };
-        await json<IamPolicy>(
+        await cleanupJson<IamPolicy>(
           `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
           { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ policy: restore }) },
           'restore original IAM policy',
         );
       }
       await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
-      let finalPolicy = await json<IamPolicy>(
+      let finalPolicy = await cleanupJson<IamPolicy>(
         `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`,
         { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
         'verify settled IAM policy restoration',
       );
       if (canonicalPolicy(finalPolicy) !== canonicalPolicy(originalIam)) {
         const restore = { ...originalIam, etag: finalPolicy.etag };
-        await json<IamPolicy>(
+        await cleanupJson<IamPolicy>(
           `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
           { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ policy: restore }) },
           'repeat original IAM policy restoration after propagation drift',
         );
         await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
-        finalPolicy = await json<IamPolicy>(
+        finalPolicy = await cleanupJson<IamPolicy>(
           `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:getIamPolicy`,
           { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
           'verify repeated IAM policy restoration',

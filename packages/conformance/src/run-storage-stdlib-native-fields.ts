@@ -112,8 +112,8 @@ export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebC
   try {
     for (const name of seedNames) {
       const path = `${nativePrefix}/${name}.bin`;
-      serverMetadata[name] = await gcsUpload(config.storageBucket, path, payload, headers, budget);
       createdObjects.add(path);
+      serverMetadata[name] = await gcsUpload(config.storageBucket, path, payload, headers, budget);
     }
     const source = injectIntoMatch(rulesFile.content, STORAGE_MATCH, '`match /b/{bucket}/o`', nativeRules(runId, serverMetadata));
     const files = replaceRulesFile(snapshot.ruleset, rulesFile, source);
@@ -134,9 +134,9 @@ export async function runStorageStdlibNativeFields(sa: ServiceAccount, web: WebC
     const clientUpload = async (family: string, bytes = payload): Promise<StorageDecision> => {
       budget.take('storage');
       const path = `${nativePrefix}/${family}.bin`;
+      createdObjects.add(path);
       try {
         await uploadBytes(storageRef(storage, path), bytes);
-        createdObjects.add(path);
         return storageDecision();
       } catch (error) {
         return storageDecision(error);

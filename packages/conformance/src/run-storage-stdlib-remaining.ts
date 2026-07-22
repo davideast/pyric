@@ -71,7 +71,13 @@ async function patchDocument(name: string, allow: boolean, headers: AccessHeader
   );
 }
 
-async function verifyDocument(name: string, allow: boolean, headers: AccessHeaders): Promise<void> {
+async function verifyDocument(
+  name: string,
+  allow: boolean,
+  headers: AccessHeaders,
+  budget: RequestBudget,
+): Promise<void> {
+  budget.take('firestoreWrite');
   const document = await jsonRequest<{ fields?: { allow?: { booleanValue?: boolean } } }>(
     `https://firestore.googleapis.com/v1/${name}`,
     { headers: headers.auth },
@@ -86,6 +92,7 @@ async function deleteDocuments(targets: Array<{ name: string; headers: AccessHea
     const response = await fetch(`https://firestore.googleapis.com/v1/${target.name}`, { method: 'DELETE', headers: target.headers.auth });
     if (!response.ok && response.status !== 404) throw new Error(`delete probe document failed: ${response.status} ${await response.text()}`);
   }
+  budget.take('firestoreWrite', targets.length);
   const checks = await Promise.all(targets.map((target) => fetch(`https://firestore.googleapis.com/v1/${target.name}`, { headers: target.headers.auth })));
   return checks.every((response) => response.status === 404);
 }
@@ -94,6 +101,7 @@ async function withTemporaryIam<T>(
   sa: ServiceAccount,
   headers: AccessHeaders,
   budget: RequestBudget,
+  cleanupBudget: RequestBudget,
   work: (iamChanged: boolean) => Promise<T>,
 ): Promise<{ value: T; iamChanged: boolean; iamRestored: boolean }> {
   budget.take('iam', 2);
@@ -137,14 +145,14 @@ async function withTemporaryIam<T>(
     value = await work(iamChanged);
   } finally {
     if (iamChanged) {
-      budget.take('iam');
+      cleanupBudget.take('iam');
       const current = await jsonRequest<IamPolicy>(
         policyUrl,
         { method: 'POST', headers: headers.json, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
         'read IAM policy before restore',
       );
       if (canonicalPolicy(current) !== canonicalPolicy(original)) {
-        budget.take('iam');
+        cleanupBudget.take('iam');
         await jsonRequest<IamPolicy>(
           `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
           { method: 'POST', headers: headers.json, body: JSON.stringify({ policy: { ...original, etag: current.etag } }) },
@@ -152,14 +160,14 @@ async function withTemporaryIam<T>(
         );
       }
       await new Promise((resolveWait) => setTimeout(resolveWait, IAM_SETTLE_MS));
-      budget.take('iam');
+      cleanupBudget.take('iam');
       let finalPolicy = await jsonRequest<IamPolicy>(
         policyUrl,
         { method: 'POST', headers: headers.json, body: JSON.stringify({ options: { requestedPolicyVersion: 3 } }) },
         'verify settled IAM restoration',
       );
       if (canonicalPolicy(finalPolicy) !== canonicalPolicy(original)) {
-        budget.take('iam', 2);
+        cleanupBudget.take('iam', 2);
         await jsonRequest<IamPolicy>(
           `https://cloudresourcemanager.googleapis.com/v1/projects/${sa.project_id}:setIamPolicy`,
           { method: 'POST', headers: headers.json, body: JSON.stringify({ policy: { ...original, etag: finalPolicy.etag } }) },
@@ -217,7 +225,7 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
   let documentsRemoved = false;
   let app: ReturnType<typeof initializeApp> | undefined;
 
-  const result = await withTemporaryIam(sa, headers, budget, async () => {
+  const result = await withTemporaryIam(sa, headers, budget, cleanupBudget, async () => {
     try {
       await patchDocument(primaryDocs.iam, true, headers, budget);
       await patchDocument(primaryDocs.consistency, false, headers, budget);
@@ -228,9 +236,9 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       const upload = async (family: string, id: string): Promise<StorageDecision> => {
         budget.take('storage');
         const path = `${prefix}/${family}/${id}.bin`;
+        createdObjects.add(path);
         try {
           await uploadBytes(storageRef(storage, path), new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]));
-          createdObjects.add(path);
           return storageDecision();
         } catch (error) {
           return storageDecision(error);
@@ -272,8 +280,8 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
 
       await patchDocument(primaryDocs.namedDefault, true, headers, budget);
       await patchDocument(primaryDocs.namedProbes, false, headers, budget);
-      await verifyDocument(primaryDocs.namedDefault, true, headers);
-      await verifyDocument(primaryDocs.namedProbes, false, headers);
+      await verifyDocument(primaryDocs.namedDefault, true, headers, budget);
+      await verifyDocument(primaryDocs.namedProbes, false, headers, budget);
       for (const family of ['named-default', 'named-probes']) {
         const item = await upload(family, 'phase-a');
         namedBehavior[`${family}:default-true-probes-false`] = item.allowed ? 'ALLOW' : 'DENY';
@@ -281,8 +289,8 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
       }
       await patchDocument(primaryDocs.namedDefault, false, headers, budget);
       await patchDocument(primaryDocs.namedProbes, true, headers, budget);
-      await verifyDocument(primaryDocs.namedDefault, false, headers);
-      await verifyDocument(primaryDocs.namedProbes, true, headers);
+      await verifyDocument(primaryDocs.namedDefault, false, headers, budget);
+      await verifyDocument(primaryDocs.namedProbes, true, headers, budget);
       for (const family of ['named-default', 'named-probes']) {
         const item = await upload(family, 'phase-b');
         namedBehavior[`${family}:default-false-probes-true`] = item.allowed ? 'ALLOW' : 'DENY';
@@ -291,8 +299,8 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
 
       await patchDocument(primaryDocs.isolation, false, headers, budget);
       await patchDocument(secondaryIsolation, true, secondaryHeaders, budget);
-      await verifyDocument(primaryDocs.isolation, false, headers);
-      await verifyDocument(secondaryIsolation, true, secondaryHeaders);
+      await verifyDocument(primaryDocs.isolation, false, headers, budget);
+      await verifyDocument(secondaryIsolation, true, secondaryHeaders, budget);
       await new Promise((resolveWait) => setTimeout(resolveWait, 2_000));
       const isolationA = await upload('isolation', 'primary-false-secondary-true');
       isolationBehavior['primary-false-secondary-true'] = isolationA.allowed ? 'ALLOW' : 'DENY';
@@ -300,8 +308,8 @@ async function runRemainingCrossService(sa: ServiceAccount, web: WebConfig, seco
 
       await patchDocument(primaryDocs.isolation, true, headers, budget);
       await patchDocument(secondaryIsolation, false, secondaryHeaders, budget);
-      await verifyDocument(primaryDocs.isolation, true, headers);
-      await verifyDocument(secondaryIsolation, false, secondaryHeaders);
+      await verifyDocument(primaryDocs.isolation, true, headers, budget);
+      await verifyDocument(secondaryIsolation, false, secondaryHeaders, budget);
       await new Promise((resolveWait) => setTimeout(resolveWait, 2_000));
       const isolationB = await upload('isolation', 'primary-true-secondary-false');
       isolationBehavior['primary-true-secondary-false'] = isolationB.allowed ? 'ALLOW' : 'DENY';

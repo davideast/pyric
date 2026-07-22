@@ -333,24 +333,6 @@ export function resolveModulesWith(
   }
 
   const requestedNames = new Set(ast.imports.flatMap((imp) => imp.functions));
-  for (const [fnName, fn] of allModuleFunctions) {
-    const origin = functionOrigin.get(fnName);
-    const calls = [...fn.lets.flatMap(({ value }) => collectCalls(value)), ...collectCalls(fn.body)];
-    const foreignCall = calls.find((call) => {
-      const calledOrigin = functionOrigin.get(call);
-      return calledOrigin && calledOrigin !== origin && !requestedNames.has(call);
-    });
-    if (foreignCall) {
-      return {
-        success: false,
-        error: {
-          code: 'UNKNOWN_FUNCTION',
-          message: `Function '${fnName}' in module '${origin}' cannot call '${foreignCall}' from another module`,
-        },
-      };
-    }
-  }
-
   // 4. Validate the reachable call graph while building dependency-first order.
   const injected: FunctionDef[] = [];
   const added = new Set<string>();
@@ -396,6 +378,23 @@ export function resolveModulesWith(
         message: `Recursive module function dependency: ${traversal.cycle.join(' -> ')}`,
       },
     };
+  }
+  for (const fn of injected) {
+    const origin = functionOrigin.get(fn.name);
+    const calls = [...fn.lets.flatMap(({ value }) => collectCalls(value)), ...collectCalls(fn.body)];
+    const foreignCall = calls.find((call) => {
+      const calledOrigin = functionOrigin.get(call);
+      return calledOrigin && calledOrigin !== origin && !requestedNames.has(call);
+    });
+    if (foreignCall) {
+      return {
+        success: false,
+        error: {
+          code: 'UNKNOWN_FUNCTION',
+          message: `Function '${fn.name}' in module '${origin}' cannot call '${foreignCall}' from another module`,
+        },
+      };
+    }
   }
 
   // 5. Validate source/module scope boundaries and call-site compatibility.

@@ -11,10 +11,17 @@ export const STORAGE_CLEANUP_LIMITS = {
   storage: 20,
   firestoreWrite: 12,
   rules: 4,
-  iam: 2,
+  iam: 5,
 } as const;
 
 export type BudgetKind = 'storage' | 'firestoreWrite' | 'rules' | 'iam';
+
+export function storageProbeRequestKind(url: string): BudgetKind {
+  if (url.startsWith('https://storage.googleapis.com/')) return 'storage';
+  if (url.startsWith('https://firestore.googleapis.com/')) return 'firestoreWrite';
+  if (url.startsWith('https://cloudresourcemanager.googleapis.com/')) return 'iam';
+  return 'rules';
+}
 
 export class RequestBudget {
   readonly counts: Record<BudgetKind, number> = {

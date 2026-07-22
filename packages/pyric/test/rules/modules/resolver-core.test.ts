@@ -230,6 +230,17 @@ ${declaration}`, { modules: {
     }
   });
 
+  test('ignores cross-module calls in unreachable unrequested exports', () => {
+    const result = resolveModulesWith(null, storageSource(
+      "import { good } from './a';\nimport { other } from './b';",
+      'good() && other()',
+    ), { modules: {
+      './a': 'export function good() { return true; } export function bad() { return helper(); }',
+      './b': 'export function other() { return true; } export function helper() { return true; }',
+    } });
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+  });
+
   test.each([
     ["import { firestoreCaller } from './mixed';", 'incompatible export alone'],
     ["import { portable, firestoreCaller } from './mixed';", 'both exports'],

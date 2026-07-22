@@ -68,12 +68,29 @@ export async function deleteStorageObjects(
     }
   }
   budget.take('storage');
-  const list = await jsonRequest<{ items?: unknown[] }>(
+  const list = await jsonRequest<{ items?: Array<{ name?: string }> }>(
     `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o?prefix=${encodeURIComponent(prefix)}`,
     { headers: headers.auth },
     'verify object cleanup',
   );
-  return (list.items?.length ?? 0) === 0;
+  for (const item of list.items ?? []) {
+    if (!item.name || objects.has(item.name)) continue;
+    budget.take('storage');
+    const response = await fetch(
+      `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(item.name)}`,
+      { method: 'DELETE', headers: headers.auth },
+    );
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`delete discovered probe object failed: ${response.status} ${await response.text()}`);
+    }
+  }
+  budget.take('storage');
+  const verification = await jsonRequest<{ items?: unknown[] }>(
+    `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o?prefix=${encodeURIComponent(prefix)}`,
+    { headers: headers.auth },
+    'verify final object cleanup',
+  );
+  return (verification.items?.length ?? 0) === 0;
 }
 
 export function storageDecision(error?: unknown): StorageDecision {

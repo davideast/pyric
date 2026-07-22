@@ -3,6 +3,7 @@ import {
   RequestBudget,
   STORAGE_CLEANUP_LIMITS,
   runCleanupSteps,
+  storageProbeRequestKind,
 } from '../../src/storage-stdlib-real-budget.ts';
 
 describe('storage stdlib real request safety', () => {
@@ -23,6 +24,20 @@ describe('storage stdlib real request safety', () => {
       rules: 2,
       iam: 0,
     });
+  });
+
+  test('reserves and classifies every cross-service cleanup request', () => {
+    const cleanup = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
+    cleanup.take('firestoreWrite', 12);
+    cleanup.take('rules', 4);
+    cleanup.take('iam', 5);
+    expect(cleanup.snapshot().counts).toEqual({
+      storage: 0, firestoreWrite: 12, rules: 4, iam: 5,
+    });
+    expect(storageProbeRequestKind('https://storage.googleapis.com/storage/v1/b/x')).toBe('storage');
+    expect(storageProbeRequestKind('https://firestore.googleapis.com/v1/projects/x')).toBe('firestoreWrite');
+    expect(storageProbeRequestKind('https://cloudresourcemanager.googleapis.com/v1/projects/x')).toBe('iam');
+    expect(storageProbeRequestKind('https://firebaserules.googleapis.com/v1/projects/x')).toBe('rules');
   });
 
   test('cleanup continues after a restoration step fails', async () => {

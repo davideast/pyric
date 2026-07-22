@@ -52,6 +52,32 @@ service firebase.storage {
     expect(result.success).toBe(false);
   });
 
+  test('resolves global helper calls in their lexical function scope', () => {
+    const result = resolveModules(`rules_version = '2+modules';
+import { policy } from './policy';
+function helper() { return 1; }
+function globalGate() { return helper(); }
+service firebase.storage {
+  function helper() { return {'owner': true}; }
+  match /b/{bucket}/o { match /{path=**} { allow read: if policy(globalGate()); } }
+}`, { modules: {
+        './policy': "export function policy(value) { return value.keys().hasAll(['owner']); }",
+      } });
+    expect(result.success).toBe(false);
+  });
+
+  test('does not infer a source Map.get return solely from its fallback', () => {
+    const result = resolveModules(`rules_version = '2+modules';
+import { broken } from './policy';
+service firebase.storage {
+  function actual() { return {'x': 1}.get('x', 'fallback'); }
+  match /b/{bucket}/o { match /{path=**} { allow read: if broken(actual()); } }
+}`, { modules: {
+        './policy': "export function broken(value) { return value.matches('x'); }",
+      } });
+    expect(result.success).toBe(false);
+  });
+
   test('rejects unresolved nested receivers projected from a map parameter', () => {
     for (const expression of [
       "value.nested.flag.matches('x')",

@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { acquireRunLock } from '../../src/run-storage-stdlib-real.ts';
+import { acquireRunLock } from '../../src/storage-stdlib-real-lock.ts';
 
-describe('storage stdlib real runner', () => {
-  test('exclusive lock rejects an overlapping real-resource run', () => {
+describe('storage stdlib real run lock', () => {
+  test('rejects an overlapping real-resource run', () => {
     const path = `/tmp/pyric-storage-stdlib-real-test-${process.pid}.lock`;
     const release = acquireRunLock(path);
     try {
