@@ -164,6 +164,17 @@ export class RtdbBackend {
   private readonly valueListeners = new Set<ValueListener>();
   private readonly childListeners = new Set<ChildListener>();
   private nextId = 0;
+  private resetGeneration = 0;
+
+  /** Monotonic sandbox-reset marker consumed by client-owned connection queues. */
+  get connectionResetGeneration(): number {
+    return this.resetGeneration;
+  }
+
+  /** Invalidate ephemeral connection state without changing persisted data. */
+  invalidateConnectionQueues(): void {
+    this.resetGeneration += 1;
+  }
 
   /**
    * Persistence change-subscribers. The sandbox persistence controller
@@ -1729,6 +1740,12 @@ export class RtdbBackend {
     this.tree.restore(root ?? {});
     this.fanOut(['/']);
     this.fanOutChildren(priors);
+  }
+
+  /** Reset sandbox data and invalidate every ephemeral client connection queue. */
+  resetTree(): void {
+    this.invalidateConnectionQueues();
+    this.restoreTree(null);
   }
 
   /**

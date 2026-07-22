@@ -7,14 +7,25 @@ export class RtdbConnectionLifecycle {
   private readonly operations = new DisconnectOperationQueue();
   private draining: Promise<void> | null = null;
   private online = true;
+  private resetGeneration: number;
 
   constructor(
     private readonly backend: RtdbBackend,
     private readonly auth: () => AuthState,
     private readonly admin: boolean,
-  ) {}
+  ) {
+    this.resetGeneration = backend.connectionResetGeneration;
+  }
+
+  private synchronizeReset(): void {
+    if (this.resetGeneration === this.backend.connectionResetGeneration) return;
+    this.operations.clear();
+    this.online = true;
+    this.resetGeneration = this.backend.connectionResetGeneration;
+  }
 
   register(operation: DisconnectOperation): Promise<void> {
+    this.synchronizeReset();
     try {
       if (!this.admin) {
         if (operation.kind === 'update') {
@@ -35,6 +46,7 @@ export class RtdbConnectionLifecycle {
   }
 
   cancel(path: string): Promise<void> {
+    this.synchronizeReset();
     this.operations.cancel(path);
     return Promise.resolve();
   }
@@ -45,16 +57,19 @@ export class RtdbConnectionLifecycle {
   }
 
   goOffline(): void {
+    this.synchronizeReset();
     if (!this.online) return;
     this.online = false;
     void this.drain().catch(() => undefined);
   }
 
   goOnline(): void {
+    this.synchronizeReset();
     this.online = true;
   }
 
   drain(): Promise<void> {
+    this.synchronizeReset();
     if (this.draining) return this.draining;
     const queued = this.operations.takeAll();
     this.draining = (async () => {

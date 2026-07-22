@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
-import { deleteApp, initializeApp } from '../../../src/app/index.js';
-import { resetAppRegistryForTests } from '../../../src/app/registry.js';
+import { deleteApp, initializeApp } from '../../src/app/index.js';
+import { resetAppRegistryForTests } from '../../src/app/registry.js';
 import {
   getDatabase,
   get,
@@ -15,11 +15,11 @@ import {
   set,
   serverTimestamp,
   sandbox as rtdbSandbox,
-} from '../../../src/database/index.js';
+} from '../../src/database/index.js';
 
 const OBS_DIR = join(
   import.meta.dir,
-  '..', '..', '..', '..', '..',
+  '..', '..', '..', '..',
   'packages', 'conformance', 'observations', 'rtdb-modular',
 );
 

@@ -965,7 +965,7 @@ describe('oracle conformance (rtdb-modular)', () => {
     expect(all.length).toBe(44);
     const source = [
       readFileSync(import.meta.path, 'utf8'),
-      readFileSync(join(import.meta.dir, 'on-disconnect.test.ts'), 'utf8'),
+      readFileSync(join(import.meta.dir, '..', 'on-disconnect.test.ts'), 'utf8'),
     ].join('\n');
     const uncovered = all.filter(
       (f) => !source.includes(f.replace('.json', '')) && !(f in NOT_APPLICABLE),

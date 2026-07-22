@@ -73,10 +73,10 @@ export const connectDatabaseEmulator = (
 ) as typeof ip.connectDatabaseEmulator;
 
 // ── Low-hanging-fruit exports (issue #149) ────────────────────────────────
-// Served mode is always sandbox-backed (never a prod handle), and these are
-// honest no-ops in the sandbox model regardless of the worker/in-page split,
-// so they are unconditional no-ops here — no worker RPC needed. This also
-// gives served apps import-time parity for the `firebase/database` surface.
+// Served mode is always sandbox-backed (never a prod handle). The connection
+// controls still cross the worker boundary because goOffline drains that
+// port's one-shot onDisconnect queue; transport-selection controls remain
+// honest no-ops in either runtime.
 export const goOffline = (useWorker ? rtdbGoOffline : ip.goOffline) as typeof ip.goOffline;
 export const goOnline = (useWorker ? rtdbGoOnline : ip.goOnline) as typeof ip.goOnline;
 export const forceLongPolling = (() => {}) as typeof ip.forceLongPolling;

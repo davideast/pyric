@@ -130,7 +130,7 @@ const ALIASES: Record<PreviewModuleId, AliasSpec> = {
   // test driver namespace — that's runner-side only, not app code.
   // The exported list mirrors `pyric/database`'s modular surface;
   // higher-tier additions (child-event listeners, query constraints)
-  // can be added here as they ship in `packages/pyric/src/database/modular.ts`.
+  // can be added here as they ship in the `packages/pyric/src/database/` API families.
   'firebase/database': {
     kind: 'reexport',
     exports: [

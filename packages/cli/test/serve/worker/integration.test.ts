@@ -21,6 +21,7 @@ import {
   initializeSandbox,
   createMemoryBackend,
 } from 'pyric/sandbox';
+import { deleteApp, initializeApp } from 'pyric/app';
 import { getFirestore as ipGetFirestore } from 'pyric/firestore';
 import { getAuth as ipGetAuth } from 'pyric/auth';
 import { monitorFirebaseActivity, type ActivityIncident } from 'pyric/firestore/internal';
@@ -378,7 +379,7 @@ describe('client↔host event stream (Studio data plane)', () => {
     unsubscribeChanged();
   });
 
-  it('drains a writer port onDisconnect queue once while an independent port observes', async () => {
+  it('goOffline drains a writer port onDisconnect queue once while an independent port observes', async () => {
     const ctx = await makeHostCtx();
     const connectPort = (url: string) => {
       const { a: clientPort, b: hostPort } = portPair();
@@ -423,7 +424,7 @@ describe('client↔host event stream (Studio data plane)', () => {
     expect((await client.rtdbGet(client.rtdbChild(observerRef, 'presence'))).val())
       .toEqual({ state: 'online', child: 'original-child' });
 
-    await disconnectClient(writerClient);
+    client.rtdbGoOffline(writerDb);
     await sleep();
     const terminal = (await client.rtdbGet(observerRef)).val();
     expect(terminal).toEqual({
@@ -467,6 +468,87 @@ describe('client↔host event stream (Studio data plane)', () => {
     await sleep();
     expect(events).toHaveLength(5);
     unsubscribe();
+  });
+
+  it('served app deletion drains its worker-owned onDisconnect queue', async () => {
+    const ctx = await makeHostCtx();
+    (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+      port: FakePort;
+      constructor(_url: unknown, _opts: unknown) {
+        const { a: clientPort, b: hostPort } = portPair();
+        const hostPortLike: PortLike = {
+          postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
+        };
+        hostPort.onmessage = (event) => {
+          void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
+        };
+        this.port = clientPort;
+      }
+    };
+    const { workerClientForApp } = await import('../../../src/serve/entries/app-client.js');
+    const writerApp = initializeApp({ projectId: 'served-delete' }, 'served-delete-writer');
+    const observerApp = initializeApp({ projectId: 'served-delete' }, 'served-delete-observer');
+    const writerDb = client.rtdbGetDatabase(workerClientForApp(writerApp));
+    const observerDb = client.rtdbGetDatabase(workerClientForApp(observerApp));
+    const writerRef = client.rtdbRef(writerDb, 'served/delete');
+    await client.rtdbSet(writerRef, 'online');
+    await client.rtdbOnDisconnect(writerRef).set('offline');
+
+    await deleteApp(writerApp);
+    await sleep();
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'served/delete'))).val()).toBe('offline');
+    await deleteApp(observerApp);
+  });
+
+  it('non-persisted pagehide drains the served app worker queue', async () => {
+    const ctx = await makeHostCtx();
+    const pagehideListeners = new Set<(event: Event) => void>();
+    const priorAdd = globalThis.addEventListener;
+    const priorRemove = globalThis.removeEventListener;
+    globalThis.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject) => {
+      if (type === 'pagehide' && typeof listener === 'function') {
+        pagehideListeners.add(listener as (event: Event) => void);
+      }
+    }) as typeof globalThis.addEventListener;
+    globalThis.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject) => {
+      if (type === 'pagehide' && typeof listener === 'function') {
+        pagehideListeners.delete(listener as (event: Event) => void);
+      }
+    }) as typeof globalThis.removeEventListener;
+    try {
+      (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+        port: FakePort;
+        constructor(_url: unknown, _opts: unknown) {
+          const { a: clientPort, b: hostPort } = portPair();
+          const hostPortLike: PortLike = {
+            postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
+          };
+          hostPort.onmessage = (event) => {
+            void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
+          };
+          this.port = clientPort;
+        }
+      };
+      const { workerClientForApp } = await import('../../../src/serve/entries/app-client.js');
+      const writerApp = initializeApp({ projectId: 'served-delete' }, 'served-pagehide-writer');
+      const writerDb = client.rtdbGetDatabase(workerClientForApp(writerApp));
+      const writerRef = client.rtdbRef(writerDb, 'served/pagehide');
+      await client.rtdbSet(writerRef, 'online');
+      await client.rtdbOnDisconnect(writerRef).set('offline');
+
+      for (const listener of pagehideListeners) {
+        listener({ persisted: false } as PageTransitionEvent);
+      }
+      await sleep();
+      const observerApp = initializeApp({ projectId: 'served-delete' }, 'served-pagehide-observer');
+      const observerDb = client.rtdbGetDatabase(workerClientForApp(observerApp));
+      expect((await client.rtdbGet(client.rtdbRef(observerDb, 'served/pagehide'))).val()).toBe('offline');
+      await deleteApp(writerApp);
+      await deleteApp(observerApp);
+    } finally {
+      globalThis.addEventListener = priorAdd;
+      globalThis.removeEventListener = priorRemove;
+    }
   });
 
   it('continues worker disconnect draining after a rules denial and still tears down the writer', async () => {
