@@ -119,9 +119,9 @@ export function createRemoteFirestore(
     },
     runTransaction<R>(
       fn: (tx: Transaction) => Promise<R> | R,
-      _opts?: OperationOptions,
+      opts?: OperationOptions,
     ): Promise<R> {
-      return runRemoteTransaction(arm, fn);
+      return runRemoteTransaction(arm, fn, opts?.maxAttempts);
     },
 
     // ── Sandbox-only surface (sync contracts — remediating throws) ───

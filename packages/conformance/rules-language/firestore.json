@@ -235,15 +235,14 @@
       "kind": "function",
       "engine": "firestore",
       "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore#function_getAfter_",
-      "status": "rejected",
+      "status": "accepted",
       "moduleCallable": true,
-      "note": "Service legality is stronger than this isolated acceptance probe: getAfter() is official Firestore Rules syntax and the atomic stdlib workflow is live-validated against a real database. Its local batch-identity behavior remains honestly diverged.",
-      "probeNote": "Error: firestore.rules line [5], column [23]. Function not found error: Name: [getAfter].",
+      "note": "The hosted Rules Test API reports function-not-found, so acceptance and evaluation are verified by authenticated Web SDK writes against temporarily deployed production rules with exact release restoration.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "f32451dbd8fecc39b54fa32e9f07880cdb3074ef1d401a30c29b29d18b4e2445"
       },
-      "probeEvaluationAgreement": false
+      "probeEvaluationAgreement": true
     },
     {
       "id": "firestore.function.existsAfter",
@@ -253,14 +252,13 @@
       "kind": "function",
       "engine": "firestore",
       "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore#function_existsAfter_",
-      "status": "rejected",
-      "note": "Discrepancy: the simulator's evaluator implements existsAfter() (simulator/evaluator.ts case 'existsAfter'), but the parser validator's BUILTIN_FUNCTIONS set (grammar/FirestoreValidator.ts) lists only get/exists/getAfter/debug — existsAfter is absent there, so the validator alone would not recognize it as a builtin.",
-      "probeNote": "Error: firestore.rules line [5], column [23]. Function not found error: Name: [existsAfter].",
+      "status": "accepted",
+      "note": "The hosted Rules Test API reports function-not-found, so acceptance and evaluation are verified by authenticated Web SDK writes against temporarily deployed production rules with exact release restoration.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "2b406346426d2b443ef0bb1e71ed1cc4fb48d5fab1460a061203a7196b9ecd3a"
       },
-      "probeEvaluationAgreement": false
+      "probeEvaluationAgreement": true
     },
     {
       "id": "firestore.function.debug",

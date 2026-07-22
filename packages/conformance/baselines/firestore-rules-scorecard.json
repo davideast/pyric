@@ -149,16 +149,16 @@
     ]
   },
   "score": {
-    "numerator": 129,
+    "numerator": 131,
     "denominator": 140,
-    "ratio": 0.9214285714285714,
-    "percent": 92.1
+    "ratio": 0.9357142857142857,
+    "percent": 93.6
   },
   "axes": {
     "productionAcceptance": {
       "unprobed": 0,
-      "accepted": 126,
-      "rejected": 11,
+      "accepted": 128,
+      "rejected": 9,
       "unprobeable": 3
     },
     "localAcceptance": {
@@ -174,14 +174,14 @@
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 129,
-      "diverged": 2,
+      "verified": 131,
+      "diverged": 0,
       "unverified": 9
     }
   },
   "counts": {
-    "conformant": 129,
-    "diverged": 2,
+    "conformant": 131,
+    "diverged": 0,
     "unknown": 0,
     "acceptance-mismatch": 6,
     "local-unsupported": 0,
@@ -651,44 +651,42 @@
       "divergedByRows": []
     },
     "firestore.function.getAfter": {
-      "productionAcceptance": "rejected",
+      "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
-      "productionRejectionSignature": "function-not-found:getAfter",
       "localCapability": "implemented",
       "productionProbeDigest": "f32451dbd8fecc39b54fa32e9f07880cdb3074ef1d401a30c29b29d18b4e2445",
       "currentProbeDigest": "f32451dbd8fecc39b54fa32e9f07880cdb3074ef1d401a30c29b29d18b4e2445",
       "acceptanceProbeBound": true,
-      "productionEvaluationAgreement": false,
+      "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "get-after-and-exists-after"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "firestore-rules#164"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.function.existsAfter": {
-      "productionAcceptance": "rejected",
+      "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
-      "productionRejectionSignature": "function-not-found:existsAfter",
       "localCapability": "implemented",
       "productionProbeDigest": "2b406346426d2b443ef0bb1e71ed1cc4fb48d5fab1460a061203a7196b9ecd3a",
       "currentProbeDigest": "2b406346426d2b443ef0bb1e71ed1cc4fb48d5fab1460a061203a7196b9ecd3a",
       "acceptanceProbeBound": true,
-      "productionEvaluationAgreement": false,
+      "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "get-after-and-exists-after"
       ],
-      "verifiedByRows": [],
-      "divergedByRows": [
+      "verifiedByRows": [
         "firestore-rules#164"
-      ]
+      ],
+      "divergedByRows": []
     },
     "firestore.function.debug": {
       "productionAcceptance": "rejected",

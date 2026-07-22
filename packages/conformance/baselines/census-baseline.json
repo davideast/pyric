@@ -147,10 +147,8 @@
       "QueryNonFilterConstraint",
       "QueryOrderByConstraint",
       "QueryStartAtConstraint",
-      "SnapshotMetadata",
       "SnapshotOptions",
       "TaskState",
-      "TransactionOptions",
       "UnionToIntersection",
       "UpdateData",
       "WithFieldValue"

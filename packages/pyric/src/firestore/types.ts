@@ -53,6 +53,11 @@ export interface Firestore {
   readonly app?: FirebaseApp;
 }
 
+/** Options accepted by the modular Web-SDK-shaped `runTransaction`. */
+export interface TransactionOptions {
+  maxAttempts?: number;
+}
+
 /** Firestore handle returned by Firebase-shaped app overloads. */
 export type AppFirestore = Firestore & { readonly app: FirebaseApp };
 
@@ -80,10 +85,16 @@ export interface CollectionReference<_T = DocumentData> {
 export interface Query<_T = DocumentData> {
   readonly _isQuery?: true;
 }
+export interface SnapshotMetadata {
+  readonly fromCache: boolean;
+  readonly hasPendingWrites: boolean;
+}
 /** A point-in-time view of one document. */
 export interface DocumentSnapshot<T = DocumentData> {
   readonly id: string;
+  readonly ref: DocumentReference<T>;
   readonly exists: boolean | (() => boolean);
+  readonly metadata: SnapshotMetadata;
   data(): T | undefined;
 }
 /**
@@ -100,6 +111,7 @@ export interface QuerySnapshot<T = DocumentData> {
   readonly size: number;
   readonly empty: boolean;
   readonly docs: ReadonlyArray<QueryDocumentSnapshot<T>>;
+  readonly metadata: SnapshotMetadata;
 }
 export type WriteBatch = ChainWriteBatch;
 export type Transaction = ChainTransaction;

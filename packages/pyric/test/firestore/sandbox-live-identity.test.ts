@@ -33,12 +33,51 @@ import {
   query,
   where,
   onSnapshot,
+  runTransaction,
+  writeBatch,
   refEqual,
   SandboxError,
   type Firestore,
   type DocumentSnapshot,
   type QuerySnapshot,
 } from '../../src/firestore/index.js';
+
+describe('atomic operation identity and ownership', () => {
+  it('freezes live auth for the full transaction callback', async () => {
+    const { sandbox, db } = setup();
+    sandbox.currentUser = { uid: 'alice' };
+    const ref = doc(db, 'users/alice');
+    await setDoc(ref, { count: 0 });
+
+    await runTransaction(db, async (tx) => {
+      sandbox.currentUser = { uid: 'bob' };
+      const snapshot = await tx.get(ref);
+      tx.update(ref, { count: (snapshot.data()?.count as number) + 1 });
+    });
+
+    sandbox.currentUser = { uid: 'alice' };
+    expect((await getDoc(ref)).data()?.count).toBe(1);
+  });
+
+  it('keeps a batch bound to its construction-time owner and identity', async () => {
+    const first = initializeSandbox();
+    const second = initializeSandbox();
+    setRules(first, RULES);
+    setRules(second, RULES);
+    first.currentUser = { uid: 'alice' };
+    second.currentUser = { uid: 'alice' };
+    const firstDb = getFirestore(first);
+    const secondRef = doc(getFirestore(second), 'users/alice');
+    const batch = writeBatch(firstDb);
+    batch.set(secondRef, { owner: 'first' });
+    first.currentUser = { uid: 'bob' };
+
+    await batch.commit();
+
+    expect(snapshotDocuments(first)['users/alice']).toEqual({ owner: 'first' });
+    expect(snapshotDocuments(second)['users/alice']).toBeUndefined();
+  });
+});
 
 /**
  * Rules that gate writes/reads by `request.auth.uid`. Tight enough

@@ -37,7 +37,17 @@ import { Bytes, GeoPoint, vector } from './field-values.js';
  */
 export const TARGET_SYMBOL: unique symbol = Symbol('pyric/firestore/target');
 
-export type SandboxTarget = { kind: 'sandbox'; db: SandboxFirestore; sandbox: Sandbox };
+interface FirestoreTargetLifecycle {
+  own?: (cleanup: () => void) => () => void;
+  assertUsable?: () => void;
+  terminate?: () => void;
+}
+
+export type SandboxTarget = FirestoreTargetLifecycle & {
+  kind: 'sandbox';
+  db: SandboxFirestore;
+  sandbox: Sandbox;
+};
 /**
  * Live-identity sandbox target — built by `getFirestore(sandbox)`.
  *
@@ -55,13 +65,11 @@ export type SandboxTarget = { kind: 'sandbox'; db: SandboxFirestore; sandbox: Sa
  *
  * `withAuth(null)` is anonymous; `withAuth(state)` is signed-in.
  */
-export type SandboxLiveTarget = {
+export type SandboxLiveTarget = FirestoreTargetLifecycle & {
   kind: 'sandbox-live';
   sandbox: Sandbox;
   getDb: () => SandboxFirestore;
   authScope?: object;
-  own?: (cleanup: () => void) => () => void;
-  assertUsable?: () => void;
 };
 export type Target = SandboxTarget | SandboxLiveTarget;
 
@@ -208,6 +216,17 @@ export function parentRebuild(parent: object): (db: SandboxFirestore) => object 
 }
 
 export function targetOf(refOrDb: object): Target {
+  const target = resolveTarget(refOrDb);
+  target.assertUsable?.();
+  return target;
+}
+
+/** Resolve a target for idempotent termination without rejecting an already-terminated handle. */
+export function targetForTermination(refOrDb: object): Target {
+  return resolveTarget(refOrDb);
+}
+
+function resolveTarget(refOrDb: object): Target {
   let target: Target | undefined;
   if (TARGET_SYMBOL in refOrDb) {
     target = (refOrDb as { [TARGET_SYMBOL]: Target })[TARGET_SYMBOL];
@@ -219,7 +238,6 @@ export function targetOf(refOrDb: object): Target {
       'pyric/firestore: unrecognized reference — was it produced by a factory in this package?',
     );
   }
-  if (target.kind === 'sandbox-live') target.assertUsable?.();
   return target;
 }
 

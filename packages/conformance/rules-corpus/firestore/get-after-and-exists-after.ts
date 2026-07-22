@@ -1,15 +1,15 @@
 /**
  * ─── Scenario 12: get-after-and-exists-after ──────────────────────────────────
  * Targets Item 7 — getAfter()/existsAfter() with projectAfterState. The hosted
- * production Test API accepts the ruleset but reports Function not found for
- * both functions, so this corpus pins the endpoint limitation. The documented
- * atomic projection semantics remain covered by the local target/batch tests.
+ * Rules Test API cannot evaluate these functions, so production verdicts are
+ * captured through temporarily deployed rules and authenticated Web SDK
+ * operations against the real database.
  */
 import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   fm: 'Item 7',
-  rationale: 'Hosted production diagnostics report Function not found for getAfter()/existsAfter(); retain the verdicts as a Test API limitation while local atomic-projection tests pin the documented contract.',
+  rationale: 'Live-database evidence covers target and existence semantics; local atomic-projection tests additionally pin cross-document batch behavior.',
   rules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {

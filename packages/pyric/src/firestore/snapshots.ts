@@ -24,6 +24,7 @@ import {
 } from './state.js';
 import { firestoreValuesEqual } from './sandbox/value-equality.js';
 import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
+import { clientStateFor } from './client-state.js';
 import {
   captureQueryOperand,
   capturedQueryOperandsEqual,
@@ -237,9 +238,10 @@ export function recordQuerySnapshot(
  * Other surface (id / ref / exists) passes through unchanged so
  * `tagSnapshotRefs` still operates on the original snap object.
  */
-export function wrapSandboxDocSnap<T>(snap: object): DocumentSnapshot<T> {
+export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSnapshot<T> {
   const s = snap as {
     data: () => DocumentData | undefined;
+    ref?: { path?: string };
   };
   const original = s.data.bind(snap);
   Object.defineProperty(s, 'data', {
@@ -247,6 +249,12 @@ export function wrapSandboxDocSnap<T>(snap: object): DocumentSnapshot<T> {
     configurable: true,
     writable: true,
   });
+  if (target && s.ref?.path) {
+    Object.defineProperty(s, 'metadata', {
+      value: clientStateFor(target).snapshotMetadata(s.ref.path),
+      configurable: true,
+    });
+  }
   return snap as DocumentSnapshot<T>;
 }
 
@@ -264,6 +272,7 @@ export function applyConverterToDocSnap<AppModel>(
     id: snap.id,
     ref: snap.ref,
     exists: snap.exists,
+    metadata: clientStateFor(target).snapshotMetadata(snap.ref.path),
     data: () => {
       // Sandbox snaps expose `exists` as a property (Admin shape).
       const exists = typeof snap.exists === 'function'
@@ -276,7 +285,9 @@ export function applyConverterToDocSnap<AppModel>(
       // raw value (never undefined).
       const queryDocSnap: QueryDocumentSnapshot = {
         id: snap.id,
+        ref: snap.ref as unknown as QueryDocumentSnapshot['ref'],
         exists: true,
+        metadata: clientStateFor(target).snapshotMetadata(snap.ref.path),
         data: () => raw,
       };
       return conv.fromFirestore(queryDocSnap);

@@ -35,6 +35,7 @@ import {
  * know whether the reader hits `LocalState`, a stub, or a remote.
  */
 export type TransactionReader = (path: string) => DocumentData | null;
+export type TransactionVersionReader = (path: string) => number;
 
 /**
  * Thrown synchronously by `tx.get` / `tx.getAll` when called after
@@ -56,6 +57,24 @@ export class ReadAfterWriteError extends Error {
   }
 }
 
+/** Internal signal: a document read by this attempt changed before commit. */
+export class RetryableTransactionConflictError extends Error {
+  constructor() {
+    super('A document read in the transaction changed before commit.');
+    this.name = 'RetryableTransactionConflictError';
+  }
+}
+
+/** Raised after the configured transaction attempts are exhausted. */
+export class TransactionAttemptsExhaustedError extends Error {
+  readonly simError = makeError('failed-precondition', 'Transaction failed all retries.');
+
+  constructor() {
+    super('Transaction failed all retries.');
+    this.name = 'TransactionAttemptsExhaustedError';
+  }
+}
+
 /**
  * Single-use transaction context. See file header for design notes.
  */
@@ -63,9 +82,13 @@ export class TransactionContext implements Transaction {
   private readonly reader: TransactionReader;
   private readonly reads: CapturedRead[] = [];
   private readonly writes: QueuedWrite[] = [];
+  private readonly readVersions = new Map<string, number>();
   private writeStarted = false;
 
-  constructor(reader: TransactionReader) {
+  constructor(
+    reader: TransactionReader,
+    private readonly versionReader: TransactionVersionReader = () => 0,
+  ) {
     this.reader = reader;
   }
 
@@ -74,6 +97,9 @@ export class TransactionContext implements Transaction {
   get(path: string): TransactionSnapshot {
     this.assertReadsAllowed();
     const data = this.reader(path);
+    if (!this.readVersions.has(path)) {
+      this.readVersions.set(path, this.versionReader(path));
+    }
     this.reads.push({ path, data });
     // Capture-by-value: callbacks that mutate `data()` later don't
     // poison the captured read set. Cheap (small docs) and matches
@@ -115,8 +141,12 @@ export class TransactionContext implements Transaction {
    * called the instance is dead — further calls would corrupt the
    * commit. Item 2 calls this exactly once after the callback returns.
    */
-  consume(): { reads: readonly CapturedRead[]; writes: readonly QueuedWrite[] } {
-    return { reads: this.reads, writes: this.writes };
+  consume(): {
+    reads: readonly CapturedRead[];
+    writes: readonly QueuedWrite[];
+    readVersions: ReadonlyMap<string, number>;
+  } {
+    return { reads: this.reads, writes: this.writes, readVersions: this.readVersions };
   }
 
   /**

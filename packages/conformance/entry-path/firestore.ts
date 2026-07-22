@@ -17,10 +17,8 @@
  * managers and collectors) are alternative cache strategies a real app picks
  * between. The entry-path gate proves a symbol works only if a program
  * actually imports and runs it, so picking one door here would drop the other
- * from the proven set. Every door is walked, and where two are genuinely
- * exclusive in an app (single- vs multi-tab persistence) both are still run,
- * because each no-ops honestly on a sandbox target and the point is to prove
- * the call shape, not to model one app's choice.
+ * from the proven set. Every door is walked, and where initialization choices
+ * are genuinely exclusive, each is exercised on its own Firebase app.
  *
  * The initialization is byte-for-byte Firebase-shaped; package resolution is
  * the only switch between the Firebase and Pyric implementations.
@@ -85,13 +83,22 @@ export async function run(): Promise<void> {
     throw new Error('a cache builder did not return a config token');
   }
 
-  // Legacy persistence toggles. On a sandbox target these are honest no-ops
-  // (persistence is already the default), but a real app calls them at
-  // startup, so the entry path must prove they resolve. `clear` runs first,
-  // as apps do to drop a stale cache, then the two enable variants.
+  // Legacy persistence toggles are alternative startup patterns, not calls an
+  // app may stack on an already initialized instance. Exercise each against a
+  // fresh service handle so the entry path remains valid production usage.
+  const legacySingleApp = initializeApp(
+    { projectId: 'entry-path-project' },
+    'entry-path-legacy-single',
+  );
+  const legacyMultiApp = initializeApp(
+    { projectId: 'entry-path-project' },
+    'entry-path-legacy-multi',
+  );
+  const dbLegacySingle = getFirestore(legacySingleApp);
+  const dbLegacyMulti = getFirestore(legacyMultiApp);
   await clearIndexedDbPersistence(db);
-  await enableIndexedDbPersistence(db);
-  await enableMultiTabIndexedDbPersistence(db);
+  await enableIndexedDbPersistence(dbLegacySingle);
+  await enableMultiTabIndexedDbPersistence(dbLegacyMulti);
 
   // https://firebase.google.com/docs/firestore/quickstart — the one real
   // write this program performs and asserts.
@@ -135,5 +142,9 @@ export async function run(): Promise<void> {
 
   // Teardown is the last thing the program does — `terminate` disposes the
   // instance, so nothing runs after it.
-  await terminate(db);
+  await Promise.all([
+    terminate(db),
+    terminate(dbLegacySingle),
+    terminate(dbLegacyMulti),
+  ]);
 }

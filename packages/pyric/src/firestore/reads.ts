@@ -32,11 +32,15 @@ import type {
   QueryDocumentSnapshot,
   FirestoreDataConverter,
 } from './types.js';
+import { clientStateFor } from './client-state.js';
 
 export async function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promise<DocumentSnapshot<T>> {
   const target = targetOf(ref);
+  const client = clientStateFor(target);
+  client.markStarted();
   const conv = converterOf(ref);
   const snap = await chainDocFor(target, ref).get();
+  client.cachePath(ref.path);
   if (conv) {
     return applyConverterToDocSnap(
       snap as unknown as ChainDocSnap,
@@ -46,13 +50,16 @@ export async function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promi
     );
   }
   tagSnapshotRefs(snap, target);
-  return wrapSandboxDocSnap<T>(snap as object);
+  return wrapSandboxDocSnap<T>(snap as object, target);
 }
 
 export async function getDocs<T = DocumentData>(query: Query<T>): Promise<QuerySnapshot<T>> {
   const target = targetOf(query);
+  const client = clientStateFor(target);
+  client.markStarted();
   const conv = converterOf(query);
   const snap = await chainQueryFor(target, query).get();
+  client.cacheQuery(query as object);
   if (conv) {
     const c = conv as FirestoreDataConverter<T>;
     const wrappedDocs = (snap as unknown as ChainQuerySnap).docs.map((d) =>
@@ -67,13 +74,22 @@ export async function getDocs<T = DocumentData>(query: Query<T>): Promise<QueryS
       size: wrappedDocs.length,
       empty: wrappedDocs.length === 0,
       docs: wrappedDocs,
+      metadata: client.querySnapshotMetadata(),
     }, target);
+    for (const document of wrappedDocs) client.cachePath(document.ref.path);
     recordQuerySnapshot(wrapped, snap as object, target, query as object, 'read');
     return wrapped;
   }
   tagSnapshotRefs(snap, target);
   const docs = (snap as unknown as ChainQuerySnap).docs;
-  for (const d of docs) wrapSandboxDocSnap(d as object);
+  for (const d of docs) {
+    client.cachePath(d.ref.path);
+    wrapSandboxDocSnap(d as object, target);
+  }
+  Object.defineProperty(snap, 'metadata', {
+    value: client.querySnapshotMetadata(),
+    configurable: true,
+  });
   recordQuerySnapshot(snap as object, snap as object, target, query as object, 'read');
   return snap as unknown as QuerySnapshot<T>;
 }

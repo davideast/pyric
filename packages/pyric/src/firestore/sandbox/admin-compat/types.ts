@@ -48,6 +48,8 @@ export type AuthContext = { uid: string; token?: Record<string, unknown> } | nul
  */
 export interface OperationOptions {
   auth?: AuthContext;
+  /** Firestore transaction retry bound; ignored by non-transaction operations. */
+  maxAttempts?: number;
 }
 
 /**

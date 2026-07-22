@@ -24,6 +24,7 @@ import type {
   FirestoreDataConverter,
 } from './types.js';
 import { withFirestoreFirebaseError } from './errors.js';
+import { clientStateFor } from './client-state.js';
 import {
   boundedActivityIdentity,
   registerActivityValue,
@@ -67,8 +68,11 @@ export async function setDoc<T = DocumentData>(
   const payload = conv
     ? (conv as FirestoreDataConverter<T>).toFirestore(data)
     : (data as unknown as DocumentData);
-  return withFirestoreFirebaseError(() =>
-    chainDocFor(target, ref).set(payload, options as ChainSetOptions | undefined),
+  return clientStateFor(target).runWrite(
+    () => withFirestoreFirebaseError(() =>
+      chainDocFor(target, ref).set(payload, options as ChainSetOptions | undefined),
+    ),
+    ref.path,
   );
 }
 
@@ -82,12 +86,18 @@ export async function setDoc<T = DocumentData>(
  */
 export async function updateDoc(ref: DocumentReference, data: DocumentData): Promise<void> {
   const target = targetOf(ref);
-  return withFirestoreFirebaseError(() => chainDocFor(target, ref).update(data));
+  return clientStateFor(target).runWrite(
+    () => withFirestoreFirebaseError(() => chainDocFor(target, ref).update(data)),
+    ref.path,
+  );
 }
 
 export async function deleteDoc(ref: DocumentReference): Promise<void> {
   const target = targetOf(ref);
-  return withFirestoreFirebaseError(() => chainDocFor(target, ref).delete());
+  return clientStateFor(target).runWrite(
+    () => withFirestoreFirebaseError(() => chainDocFor(target, ref).delete()),
+    ref.path,
+  );
 }
 
 export async function addDoc<T = DocumentData>(
@@ -99,7 +109,11 @@ export async function addDoc<T = DocumentData>(
   const payload = conv
     ? (conv as FirestoreDataConverter<T>).toFirestore(data)
     : (data as unknown as DocumentData);
-  const ref = await withFirestoreFirebaseError(() => chainCollFor(target, coll).add(payload));
+  const ref = await clientStateFor(target).runWrite(async () => {
+    const created = await withFirestoreFirebaseError(() => chainCollFor(target, coll).add(payload));
+    clientStateFor(target).cachePath(created.path);
+    return created;
+  });
   const absPath = (ref as unknown as { path: string }).path;
   const tagged = tagSandboxRef(
     ref as object,
