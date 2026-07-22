@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import type { ClientDb } from '@pyric/cli/serve/worker';
-import { registerWorkerPagehideDisconnect } from './worker-lifecycle';
+import type { ClientDb } from '../../../src/serve/worker/client.js';
+import { ownClientUntilPagehide } from '../../../src/serve/worker/client/pagehide.js';
 
 function pagehideHarness() {
   const listeners = new Set<(event: Event) => void>();
@@ -20,12 +20,12 @@ function pagehideHarness() {
   };
 }
 
-describe('playground SharedWorker lifecycle', () => {
+describe('SharedWorker page lifecycle', () => {
   it('disconnects once on permanent pagehide and preserves bfcache sessions', async () => {
     const harness = pagehideHarness();
     const client = {} as ClientDb;
     let disconnects = 0;
-    const unregister = registerWorkerPagehideDisconnect(client, harness.events, async (actual) => {
+    const lifecycle = ownClientUntilPagehide(client, harness.events, async (actual) => {
       expect(actual).toBe(client);
       disconnects += 1;
     });
@@ -38,7 +38,7 @@ describe('playground SharedWorker lifecycle', () => {
     await Promise.resolve();
     expect(disconnects).toBe(1);
 
-    unregister();
+    lifecycle.dispose();
     expect(harness.listenerCount()).toBe(0);
   });
 });

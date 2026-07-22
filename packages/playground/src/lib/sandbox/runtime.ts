@@ -6,7 +6,6 @@ import {
   type SandboxRunner,
 } from './runner';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
-import { registerWorkerPagehideDisconnect } from './worker-lifecycle';
 
 export type { PlaygroundSandboxMode };
 
@@ -46,7 +45,7 @@ export function isSharedSandboxMode(): boolean {
 export function getWorkerDb(): WorkerRuntime.ClientDb {
   if (!workerDb) {
     workerDb = WorkerRuntime.getFirestore(WORKER_URL);
-    registerWorkerPagehideDisconnect(workerDb);
+    WorkerRuntime.ownClientUntilPagehide(workerDb);
   }
   return workerDb;
 }
