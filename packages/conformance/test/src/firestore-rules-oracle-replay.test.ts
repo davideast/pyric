@@ -78,11 +78,38 @@ describe('Firestore Rules oracle replay gate', () => {
       name: 'rules-firestore-get-after-and-exists-after',
       rowIds: ['firestore-rules#164'],
       behavior: { 'getAfter target == request.resource.data ALLOW': 'DENY' },
+      diagnostics: {
+        'getAfter target == request.resource.data ALLOW': {
+          notes: ['Function not found error: Name: [getAfter]'],
+          api: { functionCalls: [{ function: 'getAfter' }] },
+        },
+      },
       inputDigest: firestoreScenarioInputDigest(divergentScenario),
     }, { 'getAfter target == request.resource.data ALLOW': 'ALLOW' }, {
       id: 'firestore-rules#164', status: 'conforms', conformanceDisposition: 'probe-limitation',
     });
     expect(problems).toEqual([expect.stringContaining('must remain diverged-documented')]);
+  });
+
+  it('rejects a probe limitation whose production diagnostic disappears', () => {
+    const divergentScenario: Scenario = {
+      ...scenario,
+      id: 'get-after-and-exists-after',
+      cases: [{ ...scenario.cases[0]!, description: 'getAfter target == request.resource.data ALLOW' }],
+    };
+    const problems = firestoreOracleReplayProblems(divergentScenario, {
+      name: 'rules-firestore-get-after-and-exists-after',
+      rowIds: ['firestore-rules#164'],
+      behavior: { 'getAfter target == request.resource.data ALLOW': 'DENY' },
+      diagnostics: {},
+      inputDigest: firestoreScenarioInputDigest(divergentScenario),
+    }, { 'getAfter target == request.resource.data ALLOW': 'ALLOW' }, {
+      id: 'firestore-rules#164', status: 'diverged-documented', conformanceDisposition: 'probe-limitation',
+    });
+    expect(problems).toEqual(expect.arrayContaining([
+      expect.stringContaining('missing getAfter function-not-found diagnostic'),
+      expect.stringContaining('missing getAfter diagnostic function call'),
+    ]));
   });
 
   it('never lets a simulator abstention underwrite score evidence', () => {

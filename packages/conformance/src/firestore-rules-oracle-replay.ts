@@ -9,6 +9,7 @@ import {
 } from '../rules-corpus/firestore/index.ts';
 import { allCompatibilityRows } from '../registry/index.ts';
 import { firestoreScenarioInputDigest } from './firestore-rules-input-digest.ts';
+import { loadFirestoreRulesExceptions } from './firestore-rules-exceptions.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'firestore-rules');
@@ -17,6 +18,10 @@ export interface FirestoreRulesObservation {
   name: string;
   rowIds: string[];
   behavior: Record<string, unknown>;
+  diagnostics?: Record<string, {
+    notes?: unknown;
+    api?: { functionCalls?: unknown };
+  }>;
   inputDigest?: { algorithm?: unknown; value?: unknown };
 }
 
@@ -27,38 +32,25 @@ export interface FirestoreOracleRegistryRow {
 
 type Verdict = 'ALLOW' | 'DENY' | 'UNSUPPORTED';
 
-const KNOWN_DIVERGENCES: Readonly<Record<
-  string,
-  {
-    rowId: string;
-    conformanceDisposition: string;
-    prodVerdict: 'ALLOW' | 'DENY';
-    simVerdict: 'ALLOW' | 'DENY';
-    reason: string;
-    issue: string;
-  }
->> = {
-  'rules-firestore-get-after-and-exists-after :: getAfter target == request.resource.data ALLOW': {
-    rowId: 'firestore-rules#164', conformanceDisposition: 'probe-limitation',
-    prodVerdict: 'DENY', simVerdict: 'ALLOW',
-    reason: 'simulator getAfter() does not model the post-write document identity production compares against', issue: '#135',
-  },
-  'rules-firestore-get-after-and-exists-after :: existsAfter create true ALLOW': {
-    rowId: 'firestore-rules#164', conformanceDisposition: 'probe-limitation',
-    prodVerdict: 'DENY', simVerdict: 'ALLOW',
-    reason: 'simulator existsAfter() on a create does not match production post-write existence semantics', issue: '#135',
-  },
-  'rules-firestore-get-after-and-exists-after :: existsAfter delete false ALLOW': {
-    rowId: 'firestore-rules#164', conformanceDisposition: 'probe-limitation',
-    prodVerdict: 'DENY', simVerdict: 'ALLOW',
-    reason: 'simulator existsAfter() on a delete does not match production post-write existence semantics', issue: '#135',
-  },
-  'rules-firestore-get-after-and-exists-after :: existsAfter unrelated mocked path ALLOW': {
-    rowId: 'firestore-rules#164', conformanceDisposition: 'probe-limitation',
-    prodVerdict: 'DENY', simVerdict: 'ALLOW',
-    reason: 'simulator existsAfter() over an unrelated mocked path does not match production', issue: '#135',
-  },
-};
+const KNOWN_EXCEPTIONS = loadFirestoreRulesExceptions();
+
+function diagnosticProblems(
+  observation: FirestoreRulesObservation,
+  caseKey: string,
+  expectedFunction: string,
+): string[] {
+  const diagnostic = observation.diagnostics?.[caseKey];
+  const notes = Array.isArray(diagnostic?.notes) ? diagnostic.notes : [];
+  const calls = Array.isArray(diagnostic?.api?.functionCalls) ? diagnostic.api.functionCalls : [];
+  const expectedNote = `Function not found error: Name: [${expectedFunction}]`;
+  const noteMatches = notes.some((note) => typeof note === 'string' && note.includes(expectedNote));
+  const callMatches = calls.some((call) => typeof call === 'object' && call !== null
+    && (call as { function?: unknown }).function === expectedFunction);
+  return [
+    ...(!noteMatches ? [`${observation.name} :: ${caseKey}: missing ${expectedFunction} function-not-found diagnostic`] : []),
+    ...(!callMatches ? [`${observation.name} :: ${caseKey}: missing ${expectedFunction} diagnostic function call`] : []),
+  ];
+}
 
 export function firestoreOracleReplayProblems(
   scenario: Scenario,
@@ -91,9 +83,10 @@ export function firestoreOracleReplayProblems(
       problems.push(`${key}: simulator abstained; an abstention cannot underwrite canonical score evidence`);
       continue;
     }
-    const known = KNOWN_DIVERGENCES[key];
+    const known = KNOWN_EXCEPTIONS.get(key);
     if (known) {
       matchedDivergences?.add(key);
+      problems.push(...diagnosticProblems(observation, caseKey, known.diagnosticFunction));
       if (row.id !== known.rowId) problems.push(`${key}: divergence belongs to ${known.rowId}, not ${row.id}`);
       if (row.status !== 'diverged-documented') {
         problems.push(`${key}: ${known.rowId} must remain diverged-documented while verdicts differ`);
@@ -101,8 +94,8 @@ export function firestoreOracleReplayProblems(
       if (row.conformanceDisposition !== known.conformanceDisposition) {
         problems.push(`${key}: ${known.rowId} must retain ${known.conformanceDisposition} disposition`);
       }
-      if (prodVerdict !== known.prodVerdict) problems.push(`${key}: pinned production verdict changed`);
-      if (simVerdict !== known.simVerdict) {
+      if (prodVerdict !== known.productionVerdict) problems.push(`${key}: pinned production verdict changed`);
+      if (simVerdict !== known.simulatorVerdict) {
         problems.push(`${key}: pinned simulator verdict changed (${known.issue}: ${known.reason})`);
       }
       continue;
@@ -254,7 +247,7 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
       name, rowId: '', problems: [`${name}: corpus scenario has no committed observation`],
     });
   }
-  for (const [key, known] of Object.entries(KNOWN_DIVERGENCES)) {
+  for (const [key, known] of KNOWN_EXCEPTIONS) {
     if (!matchedDivergences.has(key)) replays.push({
       name: key, rowId: known.rowId, problems: [`${key}: stale or unused divergence pin`],
     });
