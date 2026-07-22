@@ -151,8 +151,14 @@ describe('oracle conformance (rtdb-modular)', () => {
       const constructor = (databaseModule as Record<string, unknown>).Database;
       expect(typeof constructor).toBe(expected);
       const { db } = setup();
+      expect(db.constructor.name).toBe(
+        (obs.database as Record<string, unknown>).constructorName,
+      );
       expect(db instanceof (constructor as new () => object)).toBe(
         (obs.database as Record<string, boolean>).instanceOf,
+      );
+      expect(Object.getPrototypeOf(db) === (constructor as Function).prototype).toBe(
+        (obs.database as Record<string, boolean>).prototypeIsExportPrototype,
       );
       expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
         (obs.database as Record<string, unknown>).prototypeKeys,
@@ -167,8 +173,14 @@ describe('oracle conformance (rtdb-modular)', () => {
       const { db } = setup();
       await set(ref(db, 'runtime-snapshot'), { value: 1 });
       const snapshot = await get(ref(db, 'runtime-snapshot'));
+      expect(snapshot.constructor.name).toBe(
+        (obs.snapshot as Record<string, unknown>).constructorName,
+      );
       expect(snapshot instanceof (constructor as new () => object)).toBe(
         (obs.snapshot as Record<string, boolean>).instanceOf,
+      );
+      expect(Object.getPrototypeOf(snapshot) === (constructor as Function).prototype).toBe(
+        (obs.snapshot as Record<string, boolean>).prototypeIsExportPrototype,
       );
       expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
         (obs.snapshot as Record<string, unknown>).prototypeKeys,
@@ -199,14 +211,23 @@ describe('oracle conformance (rtdb-modular)', () => {
       expect(typeof constructor).toBe(expected);
       const { db } = setup();
       const result = await runTransaction(ref(db, 'runtime-transaction'), () => 1);
+      expect(result.constructor.name).toBe(
+        (obs.transactionResult as Record<string, unknown>).constructorName,
+      );
       expect(result instanceof (constructor as new () => object)).toBe(
         (obs.transactionResult as Record<string, boolean>).instanceOf,
+      );
+      expect(Object.getPrototypeOf(result) === (constructor as Function).prototype).toBe(
+        (obs.transactionResult as Record<string, boolean>).prototypeIsExportPrototype,
       );
       expect(Object.getOwnPropertyNames((constructor as Function).prototype).sort()).toEqual(
         (obs.transactionResult as Record<string, unknown>).prototypeKeys,
       );
       expect(result.toJSON()).toEqual(
         (obs.transactionResult as Record<string, unknown>).toJSON,
+      );
+      expect(typeof result.toJSON).toBe(
+        (obs.transactionResult as Record<string, unknown>).toJSONType,
       );
     });
   });

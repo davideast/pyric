@@ -1582,7 +1582,7 @@ export const rtdbRegistry = {
           rowRef: "M71",
           surface: "rtdb-modular",
           featureKeys: ["ref","child"],
-          behavior: "`DataSnapshot` shape: `size` (getter), `priority` (currently always `null`), `exportVal()`, `key`, `ref`, `val()`, `exists()`, `child()`, `hasChild()`, `hasChildren()`, `forEach()`, `toJSON()`. It does NOT ship the legacy namespaced `numChildren()` method (DB-B10)",
+          behavior: "`DataSnapshot` shape: `size` (getter), `priority` (`null` when absent), `exportVal()`, `key`, `ref`, `val()`, `exists()`, `child()`, `hasChild()`, `hasChildren()`, `forEach()`, `toJSON()`. It does NOT ship the legacy namespaced `numChildren()` method (DB-B10)",
           status: "conforms",
           evidence: "Sandbox aligned: `unit:modular/snapshot-shape.test.ts` (\"exposes size/priority/exportVal; NOT numChildren()\"); matches oracle `packages/conformance/observations/rtdb-modular/rtdb-modular-get-snapshot-shape.json` (`hasSize: true, hasNumChildren: false`) + upstream `api/Reference_impl.ts:288-447`. **Flipped masking tests**: `modular/queries.test.ts` + `modular/sandbox-target.test.ts` asserted `snap.numChildren()` — updated to `snap.size`.",
           automation: "oracle-backed",

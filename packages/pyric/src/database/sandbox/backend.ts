@@ -174,7 +174,8 @@ export class RtdbBackend {
   private readonly childListeners = new Set<ChildListener>();
   private readonly priorities = new Map<string, Exclude<Priority, null>>();
   private mutationVersion = 0;
-  private readonly mutationVersionsByPath = new Map<string, number>();
+  private readonly activeTransactionVersions: number[] = [];
+  private readonly transactionMutationHistory: Array<{ version: number; paths: string[] }> = [];
   private nextId = 0;
   private resetGeneration = 0;
 
@@ -291,18 +292,37 @@ export class RtdbBackend {
 
   private markMutation(paths: string | string[] = '/'): void {
     this.mutationVersion += 1;
-    for (const path of Array.isArray(paths) ? paths : [paths]) {
-      this.mutationVersionsByPath.set(joinPath(pathSegments(path)), this.mutationVersion);
+    if (this.activeTransactionVersions.length > 0) {
+      this.transactionMutationHistory.push({
+        version: this.mutationVersion,
+        paths: (Array.isArray(paths) ? paths : [paths]).map((path) =>
+          joinPath(pathSegments(path))),
+      });
     }
   }
 
   private hasConflictingMutationSince(version: number, path: string): boolean {
     const canonical = joinPath(pathSegments(path));
-    for (const [mutatedPath, mutatedVersion] of this.mutationVersionsByPath) {
-      if (mutatedVersion <= version) continue;
-      if (pathsOverlap(canonical, mutatedPath)) return true;
+    for (const mutation of this.transactionMutationHistory) {
+      if (mutation.version <= version) continue;
+      if (mutation.paths.some((mutatedPath) => pathsOverlap(canonical, mutatedPath))) return true;
     }
     return false;
+  }
+
+  private releaseTransactionVersion(version: number): void {
+    const index = this.activeTransactionVersions.lastIndexOf(version);
+    if (index >= 0) this.activeTransactionVersions.splice(index, 1);
+    if (this.activeTransactionVersions.length === 0) {
+      this.transactionMutationHistory.length = 0;
+      return;
+    }
+    const oldestActiveVersion = Math.min(...this.activeTransactionVersions);
+    const firstRelevant = this.transactionMutationHistory.findIndex(
+      (mutation) => mutation.version > oldestActiveVersion,
+    );
+    if (firstRelevant < 0) this.transactionMutationHistory.length = 0;
+    else if (firstRelevant > 0) this.transactionMutationHistory.splice(0, firstRelevant);
   }
 
   private emitOperation(
@@ -1392,8 +1412,15 @@ export class RtdbBackend {
       // another client invalidates this read and retries the callback,
       // matching RTDB optimistic contention semantics.
       const currentForFn = current === null ? null : coerceArrays(cloneJson(current)) as JsonValue;
-      proposed = updateFn(currentForFn);
-      if (!this.hasConflictingMutationSince(versionBeforeCallback, path) || proposed === undefined) {
+      this.activeTransactionVersions.push(versionBeforeCallback);
+      let conflicted = false;
+      try {
+        proposed = updateFn(currentForFn);
+        conflicted = this.hasConflictingMutationSince(versionBeforeCallback, path);
+      } finally {
+        this.releaseTransactionVersion(versionBeforeCallback);
+      }
+      if (!conflicted || proposed === undefined) {
         settled = true;
         break;
       }

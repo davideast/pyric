@@ -37,11 +37,11 @@ function subscribeWithLiveAuth(
       try {
         backendUnsubscribe = subscribe(authFor(target), stop);
       } catch {
-        // A denied live-auth reattach suspends delivery until the next Auth
-        // transition instead of leaking events under the old identity. The
-        // backend reports ordinary registration/revocation denials through
-        // the listener's cancellation callback when one was supplied.
+        // A permission-denied reattach is terminal even when the caller did
+        // not supply a cancellation callback. Do not let a later identity
+        // transition resurrect a registration Firebase already canceled.
         backendUnsubscribe = () => {};
+        stop();
       }
     })
     : undefined;
@@ -303,7 +303,12 @@ function subscribeChild(
       // Firebase queues an existing child_added batch before its only-once
       // detach takes effect and delivers that batch in reverse key order.
       for (const [snap, previousChildName] of initial.reverse()) {
-        cb(snap, previousChildName);
+        try {
+          cb(snap, previousChildName);
+        } catch {
+          // Listener exceptions are isolated; one child in the captured
+          // initial batch must not abort the remaining deliveries.
+        }
       }
     }
     return unsubscribe;

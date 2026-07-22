@@ -224,6 +224,22 @@ describe('RTDB CDD climb row cases', () => {
       deliveries: [null],
       cancellations: 1,
     });
+
+    const callbacklessSandbox = initializeSandbox();
+    callbacklessSandbox.currentUser = { uid: 'initial-user' };
+    const callbacklessDb = getDatabase(callbacklessSandbox);
+    const callbacklessWriter = getDatabase(callbacklessSandbox.withAuth({ uid: 'writer' }));
+    rtdbSandbox.setRules(callbacklessDb, {
+      rules: { '.read': 'auth != null', '.write': 'true' },
+    });
+    const callbacklessValues: unknown[] = [];
+    onValue(ref(callbacklessDb, 'callbackless-denial'), (snapshot) => {
+      callbacklessValues.push(snapshot.val());
+    });
+    callbacklessSandbox.currentUser = null;
+    callbacklessSandbox.currentUser = { uid: 'later-user' };
+    await set(ref(callbacklessWriter, 'callbackless-denial'), 1);
+    expect(callbacklessValues).toEqual([null]);
   });
 
   it('rtdb-modular#96 leaves inactive canonical Firebase databases untagged', async () => {
@@ -341,6 +357,18 @@ describe('RTDB CDD climb row cases', () => {
       moved: childOnlyOnceObservation.moved,
       cancellations: childOnlyOnceObservation.cancellations,
     });
+  });
+
+  it('rtdb-modular#M75d isolates thrown callbacks across the initial onlyOnce batch', async () => {
+    const { first } = setup();
+    const target = ref(first, 'child-only-once-errors');
+    await set(target, { a: 1, b: 2, c: 3 });
+    const delivered: Array<string | null> = [];
+    expect(() => onChildAdded(target, (snapshot) => {
+      delivered.push(snapshot.key);
+      throw new Error('listener failure');
+    }, { onlyOnce: true })).not.toThrow();
+    expect(delivered).toEqual(['c', 'b', 'a']);
   });
 
   it('rtdb-modular#M89 round-trips, preserves, replaces, and clears priority', async () => {
@@ -469,5 +497,18 @@ describe('RTDB CDD climb row cases', () => {
     expect(unrelatedCalls).toBe(1);
     expect(unrelatedResult.committed).toBe(true);
     expect(unrelatedResult.snapshot?.val()).toBe(1);
+  });
+
+  it('releases path-version history after transaction conflict checks', async () => {
+    const { first } = setup();
+    const backend = first[TARGET_SYMBOL].backend as unknown as {
+      transactionMutationHistory: unknown[];
+    };
+    for (let index = 0; index < 100; index++) {
+      await set(ref(first, `history/${index}`), index);
+    }
+    await runTransaction(ref(first, 'history/transaction'), (current) =>
+      ((current as number | null) ?? 0) + 1);
+    expect(backend.transactionMutationHistory).toHaveLength(0);
   });
 });

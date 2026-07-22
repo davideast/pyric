@@ -367,6 +367,10 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
         const changed: Array<[string | null, string | null]> = [];
         const removed: Array<[string | null, string | null]> = [];
         const moved: Array<[string | null, string | null]> = [];
+        const controlAdded: Array<string | null> = [];
+        const controlChanged: Array<string | null> = [];
+        const controlRemoved: Array<string | null> = [];
+        const controlMoved: Array<string | null> = [];
         const cancellations: Record<string, unknown>[] = [];
         try {
           await set(target, {
@@ -389,15 +393,29 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
             (snap, previous) => { moved.push([snap.key, previous]); },
             { onlyOnce: true },
           );
-          // Let the initial child_added replay settle before mutations so the
-          // capture distinguishes the initial batch from later additions.
-          await pause(250);
+          onChildAdded(target, (snap) => { controlAdded.push(snap.key); });
+          onChildChanged(target, (snap) => { controlChanged.push(snap.key); });
+          onChildRemoved(target, (snap) => { controlRemoved.push(snap.key); });
+          onChildMoved(query(target, orderByChild('rank')), (snap) => {
+            controlMoved.push(snap.key);
+          });
+          await waitFor('child onlyOnce initial replay readiness', () =>
+            added.length === 3 && controlAdded.length === 3);
           await update(child(target, 'a'), { value: 10, rank: 4 });
+          await waitFor('child onlyOnce first change readiness', () =>
+            controlChanged.length === 1 && controlMoved.length === 1);
           await update(child(target, 'a'), { value: 11, rank: 0 });
+          await waitFor('child onlyOnce second change readiness', () =>
+            controlChanged.length === 2 && controlMoved.length === 2);
           await remove(child(target, 'b'));
+          await waitFor('child onlyOnce first removal readiness', () =>
+            controlRemoved.length === 1);
           await remove(child(target, 'c'));
+          await waitFor('child onlyOnce second removal readiness', () =>
+            controlRemoved.length === 2);
           await set(child(target, 'd'), { rank: 5, value: 4 });
-          await pause(250);
+          await waitFor('child onlyOnce later addition readiness', () =>
+            controlAdded.length === 4);
           return { added, changed, removed, moved, cancellations };
         } finally {
           off(target);
@@ -699,21 +717,27 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           const target = ref(client.db, path);
           await set(target, 0);
           const values: unknown[] = [];
+          const controlValues: unknown[] = [];
           const callback = (snapshot: DataSnapshot) => values.push(snapshot.val());
           onValue(target, callback);
           onValue(target, callback);
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          onValue(target, (snapshot) => controlValues.push(snapshot.val()));
+          await waitFor('duplicate off initial readiness', () =>
+            values.length === 2 && controlValues.at(-1) === 0);
           const afterInitial = [...values];
           await set(target, 1);
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          await waitFor('duplicate off first write readiness', () =>
+            values.length === 4 && controlValues.at(-1) === 1);
           const afterFirstWrite = [...values];
           off(target, 'value', callback);
           await set(target, 2);
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          await waitFor('duplicate off first removal readiness', () =>
+            values.length === 5 && controlValues.at(-1) === 2);
           const afterFirstOff = [...values];
           off(target, 'value', callback);
           await set(target, 3);
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          await waitFor('duplicate off second removal readiness', () =>
+            controlValues.at(-1) === 3);
           return {
             afterInitial,
             afterFirstWrite,
