@@ -17,15 +17,14 @@
  * deploy hosting` refuses it). `pyric({ swapInBuild })` forces the build
  * behavior on/off regardless of mode. See `sandbox-marker.ts`.
  *
- * This is a thin adapter over serve's proven machinery. It REUSES, not reimplements:
+ * This is the Vite adapter over serve's proven machinery. It reuses:
  *   - the node-builtin shims — `NODE_BUILTIN_SHIMS`;
  *   - the swap targets — `defaultSdkEntries()` (the `serve/entries/*` wrappers,
  *     compiled-dist preferred, src fallback);
- *   - the `/__pyric/*` namespace — `createPyricNamespace` mounted verbatim behind
- *     a connect-middleware adapter;
- *   - rules load + prepare — `loadProjectRules` / `prepareRulesSource`;
+ *   - the host-neutral sandbox session — rules, fixtures, stores, live payload,
+ *     Studio routes, `/__pyric/*` namespace, and owned cleanup;
  *   - the SharedWorker host — `bundleWorker` served at `/__pyric/sdk/worker.js`;
- *   - durable stores — `createStateStore` (persist) / `createCaptureStore`.
+ *   - the bridge mount shared with `pyric dev --bridge`.
  *
  * Scope = M1 (swap + rules) + M2 (SharedWorker multi-tab + persist/capture/seed)
  * + M3 (the MCP bridge fold — `{ bridge }`). M3 reuses `createBridgeMount` (the
@@ -39,8 +38,7 @@
  * the same `/__pyric/*` routes. If the worker bundle fails, the plugin falls back
  * to the in-page sandbox (single-tab, ephemeral).
  */
-import { readFile } from 'node:fs/promises';
-import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
 import type { Plugin, UserConfig, ConfigEnv } from 'vite';
@@ -54,23 +52,8 @@ import {
   NODE_BUILTIN_SHIMS,
 } from './bundler.js';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
-import {
-  createEventHub,
-  createPyricNamespace,
-  type InitPayload,
-} from './namespace.js';
 import { formatActivityWarning } from './activity-warning.js';
-import { diskWorkspace, diskProjectStore } from './studio/index.js';
 import { createBridgeMount } from './bridge-mount.js';
-import {
-  loadProjectDatabaseRules,
-  loadProjectRules,
-  loadProjectStorageRules,
-  prepareRulesSource,
-  rulesHashOf,
-} from './rules.js';
-import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from './state-store.js';
-import { createCaptureStore } from './capture-store.js';
 import { isAllowedHost } from './server.js';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
@@ -99,6 +82,11 @@ import {
   runtimeChipMetaValue,
   type PyricRuntimeChipOption,
 } from './runtime/chip-config.js';
+import {
+  createSandboxSession,
+  SandboxSeedError,
+  type SandboxSession,
+} from './sandbox-session.js';
 
 /**
  * Whether a `vite build` should run the firebase→pyric swap (produce a SANDBOX
@@ -287,26 +275,6 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
   };
 
-  // Live rules box — the watcher swaps it; the init payload always serves the
-  // current version.
-  const live: {
-    rules: string | null;
-    rulesHash: string | null;
-    databaseRules: { rules: Record<string, unknown> } | null;
-    databaseRulesHash: string | null;
-    databaseUrl: string | null;
-    storageRules: string | null;
-    storageRulesHash: string | null;
-  } = {
-    rules: null,
-    rulesHash: null,
-    databaseRules: null,
-    databaseRulesHash: null,
-    databaseUrl: null,
-    storageRules: null,
-    storageRulesHash: null,
-  };
-
   // M2: the SharedWorker bundle's content hash (sync) — stamped into the page so
   // a still-running OLD worker is detected as stale. The collaborator becomes
   // ready once its bundle succeeds; until then (or on bundle failure) the page
@@ -335,6 +303,8 @@ export function pyric(options: PyricOptions = {}): Plugin {
   // sandbox path — the bridge peer is the in-page sandbox, never the SharedWorker,
   // so multi-tab is disabled under bridge to keep agent + app on one backend.
   const bridgeOpts = options.bridge === true ? {} : options.bridge || null;
+  let configuredSession: SandboxSession | null = null;
+  const configuredListenerDisposers: Array<() => void> = [];
 
   // Plugin-level AI engine, normalized to the JSON-safe wire shape. Travels
   // to the worker host via the init payload (→ ctx.aiEngine) AND to the in-page
@@ -423,9 +393,14 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     async configureServer(server) {
+      const priorSession = configuredSession;
+      configuredSession = null;
+      for (const dispose of configuredListenerDisposers.splice(0).reverse()) dispose();
+      await priorSession?.close();
       const cwd = options.root ?? server.config.root;
 
-      // Reproduce serve's rules prelude: firebase.json (optional) → loadProjectRules.
+      // Resolve the optional Firebase configuration before the shared session
+      // loads and prepares the project's rules.
       let fbJson: FirebaseJson | null = null;
       try {
         fbJson = await readFirebaseJson(cwd);
@@ -437,72 +412,6 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // target. Projects without that convention retain the normal Firebase
       // discovery path.
       const config = resolveViteRulesConfig(cwd, options.rules, fbJson);
-      const loaded = await loadProjectRules(cwd, config);
-      const loadedDatabase = await loadProjectDatabaseRules(cwd, config);
-      const loadedStorage = await loadProjectStorageRules(cwd, config);
-      live.rules = loaded.rules;
-      live.rulesHash = loaded.rulesHash;
-      live.databaseRules = loadedDatabase.rules;
-      live.databaseRulesHash = loadedDatabase.rulesHash;
-      live.databaseUrl = loadedDatabase.databaseUrl;
-      live.storageRules = loadedStorage.rules;
-      live.storageRulesHash = loadedStorage.rulesHash;
-
-      // ── M2 durable stores (mirrors serve's startServe orchestration) ──────
-      // Capture (default-on): the worker/page pushes its session fixture to
-      // /__pyric/capture; the store writes .pyric/last-session.json for `pyric verify`.
-      const capture = (options.capture ?? true) ? createCaptureStore(cwd) : undefined;
-      // Persist: createStateStore IS the durable sandbox. Load eagerly so a
-      // corrupt/mismatched file fails the start (not silently ephemeral).
-      const state = options.persist ? createStateStore(cwd) : undefined;
-      if (state && options.fresh) {
-        for (const p of [state.path, state.backupPath]) if (existsSync(p)) rmSync(p);
-        server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
-      }
-      // Eager load (mirrors serve.ts:158) — parse the file NOW so a corrupt or
-      // version-mismatched state file throws StateFileError and FAILS THE START
-      // with the actionable inspect-or-delete message. Without this the first
-      // parse is deferred into initPayload() at request time, where it throws
-      // synchronously AFTER namespace.ts has committed `writeHead(200)`: the
-      // client gets a 200 with an empty body, the page/worker swallow the JSON
-      // error, and the sandbox silently runs WITHOUT the persisted data + rules.
-      // (No-op on first run: load() returns null for a missing file.)
-      // configureServer is async, so an uncaught throw aborts the dev start.
-      if (state) state.load();
-
-      // Seed: a "collection/doc" → fields map, OR a `pyric snapshot` state-file
-      // envelope (detected by its `version` key). Ported from serve.ts.
-      let seed: Record<string, Record<string, unknown>> | null = null;
-      let seedState: unknown | null = null;
-      let seedUsers: Record<string, unknown>[] | null = null;
-      if (options.seed) {
-        const seedPath = path.resolve(cwd, options.seed);
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(readFileSync(seedPath, 'utf8'));
-        } catch (e) {
-          throw new Error(`@pyric/cli/vite: failed to read seed ${seedPath}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-          throw new Error('@pyric/cli/vite: seed must be a JSON object of "collection/doc" → fields');
-        }
-        const obj = parsed as Record<string, unknown>;
-        if (obj.version === STATE_FILE_VERSION && ('firestore' in obj || 'auth' in obj)) {
-          const fixture = obj as unknown as PyricStateFile;
-          if (state && !state.exists()) {
-            // persist first run from a fixture: prime the store, then the normal
-            // persist path restores it like any lived state.
-            if (fixture.firestore != null) state.writeSection('firestore', fixture.firestore);
-            if (fixture.auth != null) state.writeSection('auth', fixture.auth);
-          } else if (!state) {
-            seedState = fixture.firestore ?? null;
-            seedUsers = (fixture.auth?.users as Record<string, unknown>[] | undefined) ?? null;
-          }
-          // persist + existing state: lived state wins; the fixture is inert.
-        } else {
-          seed = parsed as Record<string, Record<string, unknown>>;
-        }
-      }
 
       // ── M2 SharedWorker host: bundle it (cached per version) and serve it at
       // /__pyric/sdk/worker.js. This is what flips runtime.ts to the worker path.
@@ -566,45 +475,6 @@ export function pyric(options: PyricOptions = {}): Plugin {
           })
         : null;
 
-      // The /__pyric/* namespace, reused VERBATIM (now with the sdk dir + state +
-      // capture routes live).
-      const events = createEventHub();
-      const initPayload = (): InitPayload => ({
-        rules: live.rules,
-        rulesHash: live.rulesHash,
-        databaseRules: live.databaseRules,
-        databaseRulesHash: live.databaseRulesHash,
-        databaseUrl: live.databaseUrl,
-        storageRules: live.storageRules,
-        storageRulesHash: live.storageRulesHash,
-        // Project identity: scopes the storage IDB name per served project
-        // (issue #359). Local-only — a dev path never leaves the machine.
-        projectKey: cwd,
-        // The bound port is known only after `listen`; initPayload runs per
-        // request (after listen), so resolve it lazily here. Absolute ws://host:port
-        // mirrors serve (the browser reads this as the bridge peer URL).
-        bridgeUrl: (() => {
-          if (!mount) return null;
-          const addr = server.httpServer?.address();
-          const port = addr && typeof addr === 'object' ? addr.port : 0;
-          const host = (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
-          return port > 0 ? mount.wsUrl({ host, port }) : null;
-        })(),
-        // Precedence: once a state file exists, lived state is the truth — seed
-        // applies only on the first (state-less) run.
-        seed: state?.exists() ? null : seed,
-        seedState,
-        persist: Boolean(state),
-        capture: Boolean(capture),
-        authUsers: state
-          ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
-          : seedUsers,
-        // Messaging is part of the canonical firebase/* sandbox swap.
-        messaging: true,
-        // Plugin-level engine → the worker host's ctx.aiEngine (host-ai.ts),
-        // which wins over any op-carried engine. Null when unset.
-        ai: resolvedAi.engineWire ? { engine: resolvedAi.engineWire } : null,
-      });
       // Pyric Studio: mount the disk-backed workspace/project routes that
       // Studio's `local` mode talks to + serve the built Studio app at
       // /__pyric/ui/. Mirrors `pyric dev --ui`; the unified Astro site is
@@ -615,12 +485,6 @@ export function pyric(options: PyricOptions = {}): Plugin {
       // app, Studio, and agent all observe the ONE sandbox. Explicit `ui: false`
       // still wins.
       const uiEnabled = options.ui ?? true;
-      const studio = uiEnabled
-        ? {
-            workspace: diskWorkspace(cwd),
-            projects: diskProjectStore(path.join(cwd, '.pyric', 'projects')),
-          }
-        : undefined;
       let siteUiDir: string | undefined;
       if (uiEnabled) {
         siteUiDir = resolveSiteUiDir() ?? undefined;
@@ -632,28 +496,44 @@ export function pyric(options: PyricOptions = {}): Plugin {
         }
       }
       const { sdkDir, epoch: workerVersion } = workerRuntime.status();
-      const namespace = createPyricNamespace({
-        sdkDir,
-        initPayload,
-        events,
-        activity: (incident) => server.config.logger.warn(formatActivityWarning(incident)),
-        state,
-        capture,
-        studio,
-        siteUiDir,
-        workerVersion: workerVersion ?? undefined,
-        // `ai.proxyUpstream`: what `/__pyric/ai-proxy` forwards to (beats the
-        // PYRIC_AI_PROXY_UPSTREAM env var; falls back to the default when unset).
-        aiProxyUpstream: resolvedAi.proxyUpstream,
-        // Adapt Vite's logger to the plain info/note shape the namespace's
-        // diagnostics (denial relay, future hot-reload lines) expect —
-        // matches the `↻`/`⚠ [pyric]` lines already logged elsewhere in this
-        // plugin via `server.config.logger` directly.
-        logger: {
-          info: (m) => server.config.logger.info(m),
-          note: (m) => server.config.logger.warn(m),
-        },
-      });
+      let session: SandboxSession;
+      try {
+        session = await createSandboxSession({
+          projectDir: cwd,
+          firebaseConfig: config,
+          sdk: { dir: sdkDir, workerVersion: workerVersion ?? undefined },
+          seedFile: options.seed,
+          persistence: options.persist ? { fresh: options.fresh } : undefined,
+          capture: options.capture,
+          studio: uiEnabled ? { siteUiDir } : false,
+          bridgeUrl: () => {
+            if (!mount) return null;
+            const addr = server.httpServer?.address();
+            const port = addr && typeof addr === 'object' ? addr.port : 0;
+            const host = (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
+            return port > 0 ? mount.wsUrl({ host, port }) : null;
+          },
+          ai: resolvedAi.engineWire ? { engine: resolvedAi.engineWire } : null,
+          aiProxyUpstream: resolvedAi.proxyUpstream,
+          activity: (incident) => server.config.logger.warn(formatActivityWarning(incident)),
+          logger: {
+            info: (message) => server.config.logger.info(message),
+            note: (message) => server.config.logger.warn(message),
+          },
+        });
+      } catch (error) {
+        if (error instanceof SandboxSeedError) {
+          if (error.kind === 'read') {
+            throw new Error(`@pyric/cli/vite: failed to read seed ${error.path}: ${error.detail}`);
+          }
+          throw new Error('@pyric/cli/vite: seed must be a JSON object of "collection/doc" → fields');
+        }
+        throw error;
+      }
+      configuredSession = session;
+      if (options.persist && options.fresh) {
+        server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
+      }
 
       // DNS-rebinding guard for the /__pyric/* surface. Vite has its own host
       // check, but a `configureServer` hook that doesn't return a function mounts
@@ -680,7 +560,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         // handled by the mount, not 404 through the namespace. Falls through to the
         // namespace when the mount returns false (every non-bridge route).
         Promise.resolve(mount ? mount.handler(req, res, url) : false)
-          .then((bridged) => (bridged ? true : Promise.resolve(namespace(req, res, url))))
+          .then((bridged) => (bridged ? true : Promise.resolve(session.handle(req, res, url))))
           .then((handled) => {
             if (!handled) next();
           })
@@ -967,41 +847,49 @@ export function pyric(options: PyricOptions = {}): Plugin {
           server.watcher.on('change', onFunctionsFsEvent);
           server.watcher.on('add', onFunctionsFsEvent);
           server.watcher.on('unlink', onFunctionsFsEvent);
+          configuredListenerDisposers.push(() => {
+            if (reloadDebounce) clearTimeout(reloadDebounce);
+            server.watcher.off('change', onFunctionsFsEvent);
+            server.watcher.off('add', onFunctionsFsEvent);
+            server.watcher.off('unlink', onFunctionsFsEvent);
+          });
         }
       }
 
-      // Rules hot-reload from Vite's OWN watcher (no second fs watcher). Reuse
-      // prepareRulesSource (resolve + lint); last-good stays live on a broken save.
-      // Debounced (editors emit several change events per save) — matches
-      // watchProjectRules' 150ms cadence, which we can't reuse here (it opens its
-      // own fs watcher).
-      if (loaded.sourcePath) {
-        const rulesFile = loaded.sourcePath;
+      // Vite owns filesystem observation; the session owns read/prepare/hash,
+      // last-good replacement, live payload mutation, and SSE broadcast.
+      const rulesFile = session.summary.rules.firestore.sourcePath;
+      if (rulesFile) {
         let debounce: ReturnType<typeof setTimeout> | null = null;
         server.watcher.add(rulesFile);
-        server.watcher.on('change', (file) => {
+        const onRulesChange = (file: string): void => {
           if (path.resolve(file) !== path.resolve(rulesFile)) return;
           if (debounce) clearTimeout(debounce);
           debounce = setTimeout(() => {
-          void readFile(rulesFile, 'utf8').then(
-            (raw) => {
-              try {
-                const rules = prepareRulesSource(raw, rulesFile);
-                live.rules = rules;
-                live.rulesHash = rulesHashOf(rules);
-                events.broadcast('rules-changed', { rules, rulesHash: live.rulesHash });
-                server.config.logger.info(`  ↻ [pyric] rules reloaded (${live.rulesHash})`);
-              } catch (e) {
+            void session.reloadFirestoreRules().then((result) => {
+              if (result.kind === 'reloaded') {
+                server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})`);
+              } else if (result.kind === 'rejected') {
                 server.config.logger.warn(
-                  `  ⚠ [pyric] rules NOT reloaded (last-good stays live): ${e instanceof Error ? e.message : String(e)}`,
+                  `  ⚠ [pyric] rules NOT reloaded (last-good stays live): ${result.error.message}`,
                 );
               }
-            },
-            () => {},
-          );
+            });
           }, 150);
+        };
+        server.watcher.on('change', onRulesChange);
+        configuredListenerDisposers.push(() => {
+          if (debounce) clearTimeout(debounce);
+          server.watcher.off('change', onRulesChange);
         });
       }
+    },
+
+    async closeBundle() {
+      const session = configuredSession;
+      configuredSession = null;
+      for (const dispose of configuredListenerDisposers.splice(0).reverse()) dispose();
+      await session?.close();
     },
 
     // Sandbox build only: emit the serve init entry as its own chunk. Emitted in

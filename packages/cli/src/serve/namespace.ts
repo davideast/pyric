@@ -34,12 +34,19 @@ export interface ServeEventHub {
   handle(req: IncomingMessage, res: ServerResponse): void;
   broadcast(event: string, data: unknown): void;
   clientCount(): number;
+  /** End all open streams. Idempotent; used by host-neutral session cleanup. */
+  close(): void;
 }
 
 export function createEventHub(): ServeEventHub {
   const clients = new Set<ServerResponse>();
+  let closed = false;
   return {
     handle(req, res) {
+      if (closed) {
+        res.writeHead(503, { 'content-type': 'text/plain' }).end('sandbox session closed');
+        return;
+      }
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-store',
@@ -53,6 +60,7 @@ export function createEventHub(): ServeEventHub {
       res.on('error', () => clients.delete(res));
     },
     broadcast(event, data) {
+      if (closed) return;
       const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
       for (const res of clients) {
         try {
@@ -63,6 +71,12 @@ export function createEventHub(): ServeEventHub {
       }
     },
     clientCount: () => clients.size,
+    close() {
+      if (closed) return;
+      closed = true;
+      for (const res of clients) res.end();
+      clients.clear();
+    },
   };
 }
 
