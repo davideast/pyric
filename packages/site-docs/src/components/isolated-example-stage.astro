@@ -1,0 +1,58 @@
+---
+import { withBase } from '../lib/content';
+
+interface Props {
+  id: string;
+  title: string;
+  showcase?: boolean;
+}
+
+const { id, title, showcase = false } = Astro.props;
+---
+
+<div class:list={['example-stage', { 'is-showcase': showcase }]}>
+  <iframe
+    title={title}
+    src={withBase(`/examples/${id}/`)}
+    sandbox="allow-scripts allow-same-origin"
+    scrolling="no"
+    data-example-frame
+    data-min-height={showcase ? '560' : '304'}
+  ></iframe>
+</div>
+
+<script>
+  const installFrameSizing = (frame: HTMLIFrameElement) => {
+    if (frame.dataset.sizingInstalled === 'true') return;
+    frame.dataset.sizingInstalled = 'true';
+
+    let observer: ResizeObserver | undefined;
+    const resize = () => {
+      const document = frame.contentDocument;
+      if (!document) return;
+      const height = Math.max(
+        Number(frame.dataset.minHeight ?? 0),
+        document.documentElement.scrollHeight,
+        document.body?.scrollHeight ?? 0,
+      );
+      frame.style.height = `${height}px`;
+    };
+    frame.addEventListener('load', () => {
+      observer?.disconnect();
+      const document = frame.contentDocument;
+      if (!document) return;
+      observer = new ResizeObserver(resize);
+      observer.observe(document.documentElement);
+      if (document.body) observer.observe(document.body);
+      resize();
+    });
+  };
+
+  document.querySelectorAll<HTMLIFrameElement>('[data-example-frame]').forEach(installFrameSizing);
+</script>
+
+<style>
+  .example-stage { width: 100%; margin: 0; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; background: #15151d; }
+  iframe { display: block; width: 100%; height: 19rem; border: 0; overflow: hidden; background: #15151d; }
+  .is-showcase iframe { height: 35rem; }
+</style>

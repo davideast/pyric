@@ -1,5 +1,5 @@
 ---
-title: Chess, with Security Rules as the game engine
+title: Play chess against Security Rules
 navLabel: Chess showcase
 group: Secure & debug
 section: Examples
@@ -8,34 +8,36 @@ description: Play chess against Firestore Security Rules in an isolated Pyric sa
 example: chess
 ---
 
-The application does not decide whether a move is legal. It builds the next Firestore document and submits the write. The Security Rules decide.
+## Try the board
 
-Try `e2` to `e4`. Pyric commits the new board. Reset, then try `e2` to `e5`. The Rules deny the write and the board stays where it was.
+Choose a piece and its destination. `e2 → e4` is allowed; `e2 → e5` is denied and leaves the board unchanged. Switch the identity to see turn ownership enforced.
 
-The playable board handles ordinary moves, captures, and pawn moves. The Rules artifact also contains branches for promotion, en passant, castling, draw, checkmate, and resignation; inspect those branches in the source rather than treating this UI as a complete chess client.
+Use **Play Fool's Mate** to run four allowed moves. After the final write commits, the browser tests every legal reply and reports checkmate.
 
-## Why chess belongs in Security Rules
-
-Games make every Rules problem visible at once: identity, turns, valid state changes, geometry, path blocking, captures, and data that must change together. Chess adds check detection, castling, promotion, and en passant.
-
-The board stores 64 squares and a position field for every piece. A geometry document maps pieces and squares to possible destinations. That changes an awkward calculation into a lookup the Rules language can perform.
+## What Pyric is doing
 
 ```text
-browser move → proposed Firestore document → Security Rules → commit or deny
+move → proposed Firestore document → Security Rules → commit or deny → next board
 ```
 
-The source tabs below are not a simplified copy. They show the move builder, the complete Rules file, and the geometry data loaded by this sandbox.
+The app proposes a complete next board. Pyric evaluates that write in an isolated browser sandbox using the authenticated player, current document, geometry data, and authored Rules.
+
+The Rules import `auth`, `geometry`, `state`, and `turns` from Pyric's Standard Library. Those modules keep common checks—authentication, turn changes, move counts, participant identity, and configured movement—out of the chess-specific code.
+
+## Why chess is useful here
+
+Chess puts several Rules problems on one board: identity, turns, valid state changes, blocked paths, captures, and king safety. A geometry document turns movement into lookups the Rules language can evaluate.
 
 ## The failure that shaped Pyric's linter
 
-The first chess implementation needed five production deploy attempts. Three failed to compile. Two compiled and then failed at runtime because several overlapping rules exhausted a shared expression budget.
+The first version needed five production deploy attempts. Three failed to compile. Two compiled, then exhausted a shared expression budget at runtime.
 
-The second version began with those measured limits in Pyric's linter. Each move category received a unique `moveType` gate, so unrelated branches stop immediately. It compiled on the first production deployment; its knight and pin cases passed there without another debugging cycle.
+The second version began with those measured limits in Pyric's linter. Each move category has a unique `moveType` gate, so unrelated branches stop immediately. It compiled on its first production deployment; its knight and pin cases passed there.
 
-That history matters more than the board. Pyric's Rules tooling carries constraints learned from production so the next difficult Rules system does not have to rediscover them.
+Pyric's linter carries those production limits so another Rules system does not have to rediscover them by deploying.
 
-## What this showcase proves
+## What this example proves
 
-The committed Rules artifact is the production-observed chess v2 source. Pyric replays all 17 scenario shapes locally: valid and invalid geometry, blocked paths, captures, pins, check, turn ownership, checkmate claims, and resignation. The earlier v1 artifact ran all 17 against production; v2's production check covered the knight and pin cases.
+The modular Rules are derived from the production-observed chess v2 source. The local suite covers valid and invalid geometry, blocked paths, captures, pins, check, turn ownership, and resignation. Checkmate detection is application logic applied only after the Rules commit a move; the Rules do not accept a client-authored checkmate claim.
 
 Pyric is still a development mirror, not Firebase production. Before shipping a game or any Rules-heavy application, run its important cases against a Firebase project too. The observations give this example provenance; they do not claim that every v2 scenario has production evidence.

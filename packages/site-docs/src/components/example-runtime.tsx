@@ -19,10 +19,10 @@ export function ExampleRuntime({ id }: Props) {
     <main className="example-runtime">
       <header>
         <span className={`status status-${state.status}`} aria-hidden="true" />
-        <strong>{definition.title}</strong>
+        <strong>{definition.header}</strong>
         <button type="button" onClick={reset}>Reset sandbox</button>
       </header>
-      <p>{definition.description}</p>
+      <p>{definition.summary}</p>
       <pre aria-live="polite">{state.status === 'running'
         ? 'Running…'
         : state.status === 'ready'

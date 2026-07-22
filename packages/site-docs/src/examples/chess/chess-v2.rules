@@ -1,4 +1,10 @@
-rules_version = '2';
+rules_version = '2+modules';
+
+import { isAuthenticated } from 'auth';
+import { validSimpleMove } from 'geometry';
+import { isPlaying, moveIncremented, participantsUnchanged } from 'state';
+import { isMyTurn, turnFlipped } from 'turns';
+
 service cloud.firestore {
   match /databases/{database}/documents {
     match /gameConfig/{id} { allow read: if true; allow write: if false; }
@@ -6,15 +12,6 @@ service cloud.firestore {
 
       function cfg() { return get(/databases/$(database)/documents/gameConfig/chessv2).data; }
 
-      function isMyTurn() {
-        return request.auth != null
-            && ((resource.data.currentTurn == 'host' && request.auth.uid == resource.data.host)
-                || (resource.data.currentTurn == 'guest' && request.auth.uid == resource.data.guest));
-      }
-      function turnFlipped() {
-        return (resource.data.currentTurn == 'host' && request.resource.data.currentTurn == 'guest')
-            || (resource.data.currentTurn == 'guest' && request.resource.data.currentTurn == 'host');
-      }
       function isOwnPiece() {
         let piece = resource.data[request.resource.data.moveFrom];
         return (resource.data.currentTurn == 'host'
@@ -23,11 +20,9 @@ service cloud.firestore {
                 && (piece == 'k' || piece == 'q' || piece == 'r' || piece == 'b' || piece == 'n' || piece == 'p'));
       }
       function baseMoveChecks() {
-        return resource.data.status == 'playing'
+        return isAuthenticated() && isPlaying()
             && isMyTurn() && turnFlipped() && isOwnPiece()
-            && request.resource.data.moveCount == resource.data.moveCount + 1
-            && request.resource.data.host == resource.data.host
-            && request.resource.data.guest == resource.data.guest;
+            && moveIncremented() && participantsUnchanged();
       }
 
       function validPieceMove() {
@@ -35,7 +30,7 @@ service cloud.firestore {
         let mt = request.resource.data.moveTo;
         let piece = resource.data[mf];
         let p = cfg().paths[mf][mt];
-        return mt in cfg().moves[piece][mf]
+        return validSimpleMove(cfg())
             && (cfg().pieceCategory[piece] == 'jump'
                 || ((p.len < 1 || resource.data[p.c0] == '')
                     && (p.len < 2 || resource.data[p.c1] == '')
@@ -343,11 +338,6 @@ service cloud.firestore {
       allow update: if request.resource.data.moveType == 'castle_q'
             && request.resource.data.status == 'playing'
             && baseMoveChecks() && validCastleQueenside() && myKingSafe();
-      // Checkmate
-      allow update: if request.resource.data.moveType == 'checkmate'
-            && request.resource.data.status == 'won'
-            && resource.data.status == 'playing'
-            && isMyTurn() && opponentInCheck();
       // Draw
       allow update: if request.resource.data.moveType == 'draw'
             && request.resource.data.status == 'draw'

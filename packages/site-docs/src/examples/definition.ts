@@ -5,8 +5,9 @@ export interface PyricExampleContext {
 }
 
 interface PyricExampleMetadata {
-  title: string;
-  description: string;
+  header: string;
+  subLabel: string;
+  summary: string;
   docsPath: string;
   service: 'firestore';
 }
@@ -35,6 +36,6 @@ export function assertPyricSnippet(
   definition: PyricExampleDefinition,
 ): asserts definition is PyricSnippetDefinition {
   if (definition.presentation === 'showcase') {
-    throw new Error(`Pyric showcase '${definition.title}' cannot use the generic example runtime`);
+    throw new Error(`Pyric showcase '${definition.header}' cannot use the generic example runtime`);
   }
 }

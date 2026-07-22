@@ -74,6 +74,150 @@ function rank(square: string): number {
   return Number(square[1]);
 }
 
+type Side = 'white' | 'black';
+type BoardMove = { from: string; to: string; enPassant?: string };
+
+const KNIGHT_STEPS = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]] as const;
+const KING_STEPS = [[1, 1], [1, 0], [1, -1], [0, 1], [0, -1], [-1, 1], [-1, 0], [-1, -1]] as const;
+const ORTHOGONAL = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+const DIAGONAL = [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
+
+function squareAt(file: number, rank: number): string | null {
+  if (file < 0 || file > 7 || rank < 1 || rank > 8) return null;
+  return `${FILES[file]}${rank}`;
+}
+
+function coordinates(square: string): [number, number] {
+  return [FILES.indexOf(square[0] as typeof FILES[number]), rank(square)];
+}
+
+function sideOf(piece: string): Side | null {
+  if (!piece) return null;
+  return piece === piece.toUpperCase() ? 'white' : 'black';
+}
+
+function attacksSquare(game: ChessGame, from: string, target: string): boolean {
+  const piece = String(game[from] ?? '');
+  const [file, pieceRank] = coordinates(from);
+  const [targetFile, targetRank] = coordinates(target);
+  const fileDelta = targetFile - file;
+  const rankDelta = targetRank - pieceRank;
+  const kind = piece.toLowerCase();
+
+  if (kind === 'p') {
+    const direction = sideOf(piece) === 'white' ? 1 : -1;
+    return rankDelta === direction && Math.abs(fileDelta) === 1;
+  }
+  if (kind === 'n') return KNIGHT_STEPS.some(([df, dr]) => df === fileDelta && dr === rankDelta);
+  if (kind === 'k') return Math.max(Math.abs(fileDelta), Math.abs(rankDelta)) === 1;
+
+  const diagonal = Math.abs(fileDelta) === Math.abs(rankDelta);
+  const straight = fileDelta === 0 || rankDelta === 0;
+  if ((kind === 'b' && !diagonal) || (kind === 'r' && !straight) || (kind === 'q' && !diagonal && !straight)) return false;
+
+  const fileStep = Math.sign(fileDelta);
+  const rankStep = Math.sign(rankDelta);
+  let currentFile = file + fileStep;
+  let currentRank = pieceRank + rankStep;
+  while (currentFile !== targetFile || currentRank !== targetRank) {
+    const square = squareAt(currentFile, currentRank);
+    if (!square || game[square]) return false;
+    currentFile += fileStep;
+    currentRank += rankStep;
+  }
+  return true;
+}
+
+export function isInCheck(game: ChessGame, side: Side): boolean {
+  const king = String(game[side === 'white' ? 'hp_K' : 'gp_k'] ?? '');
+  if (!king) return false;
+  return SQUARES.some((square) => {
+    const attacker = sideOf(String(game[square] ?? ''));
+    return attacker !== null && attacker !== side && attacksSquare(game, square, king);
+  });
+}
+
+function pseudoLegalMoves(game: ChessGame, side: Side): BoardMove[] {
+  const moves: BoardMove[] = [];
+  const add = (from: string, to: string | null) => {
+    if (!to) return;
+    const targetSide = sideOf(String(game[to] ?? ''));
+    if (targetSide !== side && String(game[to] ?? '').toLowerCase() !== 'k') moves.push({ from, to });
+  };
+
+  for (const from of SQUARES) {
+    const piece = String(game[from] ?? '');
+    if (sideOf(piece) !== side) continue;
+    const kind = piece.toLowerCase();
+    const [file, pieceRank] = coordinates(from);
+
+    if (kind === 'p') {
+      const direction = side === 'white' ? 1 : -1;
+      const one = squareAt(file, pieceRank + direction);
+      if (one && !game[one]) {
+        moves.push({ from, to: one });
+        const homeRank = side === 'white' ? 2 : 7;
+        const two = squareAt(file, pieceRank + direction * 2);
+        if (pieceRank === homeRank && two && !game[two]) moves.push({ from, to: two });
+      }
+      for (const fileStep of [-1, 1]) {
+        const to = squareAt(file + fileStep, pieceRank + direction);
+        if (to && sideOf(String(game[to] ?? '')) === (side === 'white' ? 'black' : 'white')) add(from, to);
+      }
+      const enPassantTo = String(game.lastDoublePawn ?? '');
+      if (enPassantTo) {
+        const [targetFile, targetRank] = coordinates(enPassantTo);
+        const captured = squareAt(targetFile, pieceRank);
+        const expectedPawn = side === 'white' ? 'p' : 'P';
+        if (targetRank === pieceRank + direction
+          && Math.abs(targetFile - file) === 1
+          && captured
+          && game[captured] === expectedPawn) {
+          moves.push({ from, to: enPassantTo, enPassant: captured });
+        }
+      }
+      continue;
+    }
+
+    if (kind === 'n' || kind === 'k') {
+      const steps = kind === 'n' ? KNIGHT_STEPS : KING_STEPS;
+      for (const [df, dr] of steps) add(from, squareAt(file + df, pieceRank + dr));
+      continue;
+    }
+
+    const directions = kind === 'b' ? DIAGONAL : kind === 'r' ? ORTHOGONAL : [...DIAGONAL, ...ORTHOGONAL];
+    for (const [df, dr] of directions) {
+      for (let distance = 1; distance < 8; distance += 1) {
+        const to = squareAt(file + df * distance, pieceRank + dr * distance);
+        if (!to) break;
+        const occupied = Boolean(game[to]);
+        add(from, to);
+        if (occupied) break;
+      }
+    }
+  }
+  return moves;
+}
+
+function boardAfter(game: ChessGame, move: BoardMove): ChessGame {
+  const next = { ...game, [move.from]: '', [move.to]: game[move.from] };
+  if (move.enPassant) next[move.enPassant] = '';
+  const kingField = sideOf(String(game[move.from])) === 'white' ? 'hp_K' : 'gp_k';
+  if (String(game[move.from]).toLowerCase() === 'k') next[kingField] = move.to;
+  return next;
+}
+
+export function isCheckmate(game: ChessGame, side: Side): boolean {
+  return isInCheck(game, side)
+    && !pseudoLegalMoves(game, side).some((move) => !isInCheck(boardAfter(game, move), side));
+}
+
+export function checkmateWinner(game: ChessGame): Side | null {
+  const sideToMove: Side = game.currentTurn === 'host' ? 'white' : 'black';
+  if (!isCheckmate(game, sideToMove)) return null;
+  return sideToMove === 'white' ? 'black' : 'white';
+}
+
 /** Build the complete Firestore document a client proposes; Rules make the decision. */
 export function proposeMove(game: ChessGame, from: string, to: string): ChessGame {
   const piece = String(game[from] ?? '');

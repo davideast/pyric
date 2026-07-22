@@ -1,15 +1,23 @@
 import { doc, getFirestore, setDoc } from 'pyric/firestore';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { inspect, seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
+import { resolveModulesBrowser } from 'pyric/rules/internal';
 import config from './chess-v2-config.json';
-import rules from './chess-v2.rules?raw';
-import { createChessGame, proposeMove, type ChessGame } from './run';
+import authoredRules from './chess-v2.rules?raw';
+import { checkmateWinner, createChessGame, proposeMove, type ChessGame } from './run';
+
+const resolution = resolveModulesBrowser(authoredRules);
+if (!resolution.success) {
+  throw new Error(`Could not resolve the chess Rules modules: ${resolution.error.message}`);
+}
+const rules = resolution.data.resolved;
 
 export interface ChessVerdict {
   allowed: boolean;
   uid: 'white' | 'black';
   write: string;
   detail: string;
+  checkmate: 'white' | 'black' | null;
 }
 
 export interface ChessSession {
@@ -44,11 +52,16 @@ export function createChessSession(): ChessSession {
       const reference = doc(getFirestore(sandbox.withAuth({ uid })), 'chess-v2', 'demo');
       try {
         await setDoc(reference, proposed);
+        const game = gameFrom(sandbox);
+        const winner = checkmateWinner(game);
         return {
           allowed: true,
           uid,
           write: `${from} → ${to}`,
-          detail: 'The Rules allowed the write. Firestore now contains the proposed board.',
+          detail: winner
+            ? `The Rules allowed the move. ${winner === 'white' ? 'White' : 'Black'} wins by checkmate.`
+            : 'The Rules allowed the write. Firestore now contains the proposed board.',
+          checkmate: winner,
         };
       } catch (error) {
         const denial = inspect(sandbox, { recentEventLimit: 1 }).events.recentDenials[0];
@@ -58,6 +71,7 @@ export function createChessSession(): ChessSession {
           write: `${from} → ${to}`,
           detail: denial?.debugMessage
             ?? (error instanceof Error ? error.message : String(error)),
+          checkmate: null,
         };
       }
     },

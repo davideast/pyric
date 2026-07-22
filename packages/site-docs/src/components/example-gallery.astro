@@ -9,9 +9,9 @@ const examples = Object.entries(PYRIC_EXAMPLES)
 <div class="example-gallery">
   {examples.map(([id, example]) => (
     <a class:list={['example-card', { 'is-showcase': example.definition.presentation === 'showcase' }]} href={withBase(example.definition.docsPath)}>
-      <span>{example.definition.presentation === 'showcase' ? 'Showcase' : 'Example'}</span>
-      <h2>{example.definition.title}</h2>
-      <p>{example.definition.description}</p>
+      <span>{example.definition.subLabel}</span>
+      <h2>{example.definition.header}</h2>
+      <p>{example.definition.summary}</p>
       <code>{id}</code>
     </a>
   ))}

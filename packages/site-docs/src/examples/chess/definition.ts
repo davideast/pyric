@@ -1,8 +1,9 @@
 import { definePyricExample } from '../definition';
 
 export default definePyricExample({
-  title: 'Chess, with Security Rules as the game engine',
-  description: 'Move a piece. The application proposes the document; Pyric decides whether the Rules allow it.',
+  header: 'Play chess against Security Rules',
+  subLabel: 'Firestore Security Rules · Isolated browser sandbox',
+  summary: 'Move a piece; Pyric commits the new board or denies the write.',
   docsPath: '/docs/examples/chess/',
   service: 'firestore',
   presentation: 'showcase',

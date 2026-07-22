@@ -12,7 +12,7 @@ const id = Astro.params.example as PyricExampleId;
 const definition = pyricExample(id).definition;
 ---
 
-<ExampleLayout title={definition.title}>
+<ExampleLayout title={definition.header}>
   {definition.renderer === 'chess'
     ? <ChessShowcase client:only="react" />
     : <ExampleRuntime id={id} client:only="react" />}

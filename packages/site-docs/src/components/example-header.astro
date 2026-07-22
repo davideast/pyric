@@ -1,0 +1,22 @@
+---
+interface Props {
+  header: string;
+  subLabel: string;
+  summary: string;
+}
+
+const { header, subLabel, summary } = Astro.props;
+---
+
+<header class="example-header">
+  <p>{subLabel}</p>
+  <h1>{header}</h1>
+  <div>{summary}</div>
+</header>
+
+<style>
+  .example-header { margin: 0 0 1.5rem; }
+  .example-header p { margin: 0 0 .55rem; color: var(--accent); font-family: var(--font-mono); font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+  .example-header h1 { max-width: 20ch; margin: 0; color: var(--ink); font-size: clamp(2rem, 4vw, 3.4rem); font-weight: 650; line-height: 1.02; letter-spacing: -.04em; }
+  .example-header div { max-width: 58ch; margin-top: .8rem; color: var(--muted); font-size: 1rem; line-height: 1.55; }
+</style>

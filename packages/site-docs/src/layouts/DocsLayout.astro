@@ -19,6 +19,7 @@ interface Props {
   apiImportPath?: string;
   apiSymbolCount?: number;
   apiEvidenceSlug?: string;
+  examplePage?: boolean;
 }
 
 const {
@@ -31,6 +32,7 @@ const {
   apiImportPath,
   apiSymbolCount,
   apiEvidenceSlug,
+  examplePage = false,
 } = Astro.props;
 const isApi = kind === 'api';
 const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
@@ -72,7 +74,7 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
       </div>
     </header>
 
-    <div class="docs-shell">
+    <div class:list={['docs-shell', { 'docs-shell--example': examplePage }]}>
       {/* Mobile drawer duplicates the nav; CSS shows exactly one. */}
       <details class="docs-nav-drawer">
         <summary>Navigate</summary>
@@ -81,7 +83,7 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
 
       <DocsNav currentSlug={currentSlug} />
 
-      <main class="doc-main">
+      <main class:list={['doc-main', { 'doc-main--example': examplePage }]}>
         {breadcrumbs.length > 0 ? <DocsBreadcrumbs crumbs={breadcrumbs} /> : null}
         {
           isApi && apiImportPath ? (
@@ -102,9 +104,9 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
             </header>
           ) : null
         }
-        <article class:list={['prose', { 'api-reference-body': isApi }]}>
-          <slot />
-        </article>
+        {examplePage
+          ? <slot />
+          : <article class:list={['prose', { 'api-reference-body': isApi }]}><slot /></article>}
       </main>
 
       {
@@ -216,3 +218,12 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
       });
     </script>
 </SiteLayout>
+
+<style>
+  .docs-shell--example { max-width: 100rem; grid-template-columns: minmax(200px, 240px) minmax(0, 1fr); }
+  .docs-shell--example .doc-toc { display: none; }
+  .doc-main--example { max-width: 70rem; }
+  @media (max-width: 800px) {
+    .docs-shell--example { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>

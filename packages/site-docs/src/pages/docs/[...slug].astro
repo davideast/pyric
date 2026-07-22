@@ -3,6 +3,8 @@ import type { AstroComponentFactory } from 'astro/runtime/server/index.js';
 import DocsLayout from '../../layouts/DocsLayout.astro';
 import PyricExample from '../../components/pyric-example.astro';
 import ExampleGallery from '../../components/example-gallery.astro';
+import ExampleDocPage from '../../components/example-doc-page.astro';
+import { pyricExample } from '../../examples/registry';
 import { allDocs, slugOf, type DocEntry } from '../../lib/content';
 
 export async function getStaticPaths() {
@@ -19,6 +21,8 @@ interface Props {
 
 const { entry } = Astro.props;
 const Content = entry.Content as AstroComponentFactory;
+const registeredExample = entry.data.example ? pyricExample(entry.data.example) : undefined;
+const isShowcase = registeredExample?.definition.presentation === 'showcase';
 ---
 
 <DocsLayout
@@ -31,8 +35,13 @@ const Content = entry.Content as AstroComponentFactory;
   apiImportPath={entry.data.apiImportPath}
   apiSymbolCount={entry.data.apiSymbolCount}
   apiEvidenceSlug={entry.data.apiEvidenceSlug}
+  examplePage={isShowcase}
 >
-  <Content />
-  {entry.data.gallery ? <ExampleGallery /> : null}
-  {entry.data.example ? <PyricExample id={entry.data.example} /> : null}
+  {isShowcase && entry.data.example
+    ? <ExampleDocPage id={entry.data.example}><Content /></ExampleDocPage>
+    : <>
+        <Content />
+        {entry.data.gallery ? <ExampleGallery /> : null}
+        {entry.data.example ? <PyricExample id={entry.data.example} /> : null}
+      </>}
 </DocsLayout>
