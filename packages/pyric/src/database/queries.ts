@@ -2,6 +2,13 @@ import type { JsonValue } from './sandbox/data-tree.js';
 import { applyConstraint, emptySpec, type QuerySpec } from './sandbox/query.js';
 import { buildConstraint, isQuery, queryIdentifier } from './query-shape.js';
 import { targetOf } from './routing.js';
+import {
+  normalizeOptionalEndpointValue,
+  validateCursorKey,
+  validateLimit,
+  validateOrderByChildPath,
+  validateQuerySpec,
+} from './query-validation.js';
 import { CONSTRAINT_SYMBOL, QUERY_SYMBOL, type DatabaseReference, type Query, type QueryConstraint } from './types.js';
 
 // ─── Queries (Tier 3) ────────────────────────────────────────────────
@@ -49,17 +56,7 @@ export function query(
   for (const c of constraints) {
     spec = applyConstraint(spec, c[CONSTRAINT_SYMBOL]);
   }
-  if (spec.orderBy === null || spec.orderBy.kind === 'priority') {
-    for (const bound of spec.bounds) {
-      const value = bound.value;
-      if (value !== null && typeof value !== 'string'
-        && !(typeof value === 'number' && Number.isFinite(value))) {
-        throw new Error(
-          'Query: When ordering by priority, the first argument passed to startAt(), startAfter() endAt(), endBefore(), or equalTo() must be a valid priority value (null, a number, or a string).',
-        );
-      }
-    }
-  }
+  validateQuerySpec(spec);
   const q: Query = {
     ref: baseRef,
     _spec: spec,
@@ -88,6 +85,7 @@ export function query(
  *  child path. Locked by oracle observation
  *  `rtdb-modular-orderbychild-window.json`. */
 export function orderByChild(path: string): QueryConstraint {
+  validateOrderByChildPath(path);
   return buildConstraint('orderByChild', {
     kind: 'orderBy',
     spec: { kind: 'child', path },
@@ -131,6 +129,8 @@ export function startAt(
   value: JsonValue,
   key?: string,
 ): QueryConstraint {
+  validateCursorKey('startAt', key);
+  value = normalizeOptionalEndpointValue('startAt', value) as JsonValue;
   return buildConstraint('startAt', {
     kind: 'bound',
     bound: { kind: 'startAt', value, key },
@@ -143,6 +143,7 @@ export function startAfter(
   value: JsonValue,
   key?: string,
 ): QueryConstraint {
+  validateCursorKey('startAfter', key);
   return buildConstraint('startAfter', {
     kind: 'bound',
     bound: { kind: 'startAfter', value, key },
@@ -155,6 +156,8 @@ export function endAt(
   value: JsonValue,
   key?: string,
 ): QueryConstraint {
+  validateCursorKey('endAt', key);
+  value = normalizeOptionalEndpointValue('endAt', value) as JsonValue;
   return buildConstraint('endAt', {
     kind: 'bound',
     bound: { kind: 'endAt', value, key },
@@ -167,6 +170,7 @@ export function endBefore(
   value: JsonValue,
   key?: string,
 ): QueryConstraint {
+  validateCursorKey('endBefore', key);
   return buildConstraint('endBefore', {
     kind: 'bound',
     bound: { kind: 'endBefore', value, key },
@@ -180,6 +184,7 @@ export function equalTo(
   value: JsonValue,
   key?: string,
 ): QueryConstraint {
+  validateCursorKey('equalTo', key);
   return buildConstraint('equalTo', {
     kind: 'bound',
     bound: { kind: 'equalTo', value, key },
@@ -189,6 +194,7 @@ export function equalTo(
 /** `limitToFirst(n)` — keep the first N children of the ordered window.
  *  Locked by oracle observation `rtdb-modular-limittofirst-vs-limittolast.json`. */
 export function limitToFirst(n: number): QueryConstraint {
+  validateLimit('limitToFirst', n);
   return buildConstraint('limitToFirst', {
     kind: 'limit',
     limitKind: 'limitToFirst',
@@ -199,6 +205,7 @@ export function limitToFirst(n: number): QueryConstraint {
 /** `limitToLast(n)` — keep the last N children of the ordered window.
  *  Locked by oracle observation `rtdb-modular-limittofirst-vs-limittolast.json`. */
 export function limitToLast(n: number): QueryConstraint {
+  validateLimit('limitToLast', n);
   return buildConstraint('limitToLast', {
     kind: 'limit',
     limitKind: 'limitToLast',

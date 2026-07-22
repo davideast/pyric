@@ -46,6 +46,7 @@ export const CDD_REPLAYED_OBSERVATIONS = new Set([
   'rtdb-modular-priority-contract',
   'rtdb-modular-concurrent-transforms',
   'rtdb-modular-listener-cancellation',
+  'rtdb-modular-query-construction-validation',
 ]);
 
 const childPreviousObservation = loadObservation('rtdb-modular-child-previous-name');

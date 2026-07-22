@@ -106,6 +106,8 @@ export interface ValueListener {
    * last value of `null` is stored as `null`, distinct from `undefined`).
    */
   lastValue?: JsonValue;
+  /** Priority metadata at/below the watched path on the last delivery. */
+  lastPriorityState?: string;
 }
 
 interface ValueListenerSnapshot {
@@ -598,7 +600,7 @@ export class RtdbBackend {
     this.replacePriority(path, resolved === null ? null : priority);
     const priorityChanged = priorPriorityState !== this.priorityStateAtOrBelow(path);
     this.markMutation(path);
-    this.fanOut([path], priorityChanged ? path : undefined);
+    this.fanOut([path]);
     this.fanOutChildren(priors, priorityChanged ? path : undefined);
     const after = this.tree.read(path);
     const method = after === null ? 'remove' : 'set';
@@ -697,7 +699,7 @@ export class RtdbBackend {
     else this.priorities.set(joinPath(pathSegments(path)), priority);
     this.markMutation(path);
     const priorityChanged = previousPriority !== priority;
-    if (priorityChanged) this.fanOut([path], path);
+    if (priorityChanged) this.fanOut([path]);
     this.fanOutChildren(priors, priorityChanged ? path : undefined);
     this.notifyWrite();
   }
@@ -795,7 +797,7 @@ export class RtdbBackend {
     this.replacePriority(path, resolved === null ? null : priority);
     const priorityChanged = priorPriorityState !== this.priorityStateAtOrBelow(path);
     this.markMutation(path);
-    this.fanOut([path], priorityChanged ? path : undefined);
+    this.fanOut([path]);
     this.fanOutChildren(priors, priorityChanged ? path : undefined);
     // A write that pruned to nothing (`set(ref, null)` / `set(ref, {})`)
     // is semantically a remove; label it as such even if it arrived via
@@ -842,7 +844,7 @@ export class RtdbBackend {
     else this.priorities.set(joinPath(pathSegments(path)), priority);
     this.markMutation(path);
     const priorityChanged = previousPriority !== priority;
-    if (priorityChanged) this.fanOut([path], path);
+    if (priorityChanged) this.fanOut([path]);
     this.fanOutChildren(priors, priorityChanged ? path : undefined);
     this.notifyWrite();
   }
@@ -1211,6 +1213,7 @@ export class RtdbBackend {
       // Record the initial value so a subsequent no-change write is
       // suppressed (DB-B8).
       listener.lastValue = snap.val;
+      listener.lastPriorityState = this.priorityStateAtOrBelow(path);
       try {
         cb(snap);
         this.emitListener('delivery', listener, auth, {
@@ -1291,7 +1294,7 @@ export class RtdbBackend {
    * paths or is an ancestor/descendant of any (the listener observes
    * the subtree it's watching, so any descendant write triggers).
    */
-  private fanOut(touched: string[], priorityChangedPath?: string): void {
+  private fanOut(touched: string[]): void {
     if (this.valueListeners.size === 0) return;
     const touchedSet = touched.map((p) => joinPath(pathSegments(p)));
     for (const listener of this.valueListeners) {
@@ -1304,9 +1307,6 @@ export class RtdbBackend {
         if (lp === '/') return true;
         // Touched is a descendant of the listener's path → fires.
         if (tp.startsWith(lpp)) return true;
-        // A priority belongs only to its node, so changing an ancestor's
-        // priority does not change a descendant snapshot.
-        if (priorityChangedPath !== undefined) return false;
         // Touched is an ancestor of the listener's path → also fires
         // (the listener's subtree might be different now).
         if (lp.startsWith(tpp)) return true;
@@ -1363,8 +1363,9 @@ export class RtdbBackend {
       // unchanged must NOT re-fire — RTDB's SyncTree dedups no-change.
       const snap = this.makeSnap(listener.path);
       const last = listener.lastValue;
-      if (priorityChangedPath === undefined
-        && last !== undefined && jsonValuesEqual(last, snap.val)) {
+      const priorityState = this.priorityStateAtOrBelow(listener.path);
+      if (last !== undefined && jsonValuesEqual(last, snap.val)
+        && listener.lastPriorityState === priorityState) {
         this.emitListener('suppressed', listener, listener.auth, {
           event: 'value',
           reason: 'no-op',
@@ -1372,6 +1373,7 @@ export class RtdbBackend {
         continue;
       }
       listener.lastValue = snap.val;
+      listener.lastPriorityState = priorityState;
       this.emitListener('delivery', listener, listener.auth, {
         event: 'value',
         size: snap.exists ? 1 : 0,
