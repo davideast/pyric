@@ -16,8 +16,8 @@ describe('packaged conformance query', () => {
   it('preserves the three trust axes in the generated Node projection', () => {
     expect(one('getAfter')).toMatchObject({
       availability: 'available',
-      fidelity: 'diverged',
-      assurance: 'ineligible',
+      fidelity: 'conforms',
+      assurance: 'eligible',
     });
     expect(one('onDisconnect')).toMatchObject({
       availability: 'available',

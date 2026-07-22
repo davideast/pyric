@@ -28,8 +28,8 @@ describe('Playground can-i-use tool', () => {
         feature: 'getAfter',
         surface: 'firestore-rules',
         availability: 'available',
-        fidelity: 'diverged',
-        assurance: 'ineligible',
+        fidelity: 'conforms',
+        assurance: 'eligible',
       })],
     });
 

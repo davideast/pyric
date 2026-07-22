@@ -39,8 +39,8 @@ describe('can-i-use command', () => {
       supports: [{
         feature: 'getAfter',
         availability: 'available',
-        fidelity: 'diverged',
-        assurance: 'ineligible',
+        fidelity: 'conforms',
+        assurance: 'eligible',
       }],
     });
   });
