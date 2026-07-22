@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   endAt,
@@ -20,13 +18,9 @@ import {
   startAt,
   type QueryConstraint,
 } from '../../../src/database/index.js';
+import { load } from './oracle-conformance.support.js';
 
-const observation = (JSON.parse(readFileSync(join(
-  import.meta.dir,
-  '..', '..', '..', '..', '..',
-  'packages', 'conformance', 'observations', 'rtdb-modular',
-  'rtdb-modular-query-construction-validation.json',
-), 'utf8')) as { behavior: Record<string, unknown> }).behavior;
+const observation = load('rtdb-modular-query-construction-validation.json');
 
 function invocation(task: () => unknown): Record<string, unknown> {
   try {

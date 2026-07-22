@@ -18,18 +18,22 @@ const obsGate = createObservationGate({
   notApplicable: NOT_APPLICABLE,
   siblingSources: [
     join(import.meta.dir, '..', 'on-disconnect.test.ts'),
+    join(import.meta.dir, 'listener-lifecycle-cdd.test.ts'),
     join(import.meta.dir, 'oracle-conformance-listeners.test.ts'),
     join(import.meta.dir, 'oracle-conformance-queries.test.ts'),
     join(import.meta.dir, 'oracle-conformance-reference-writes.test.ts'),
     join(import.meta.dir, 'oracle-conformance-runtime-identity.test.ts'),
     join(import.meta.dir, 'oracle-conformance-transactions.test.ts'),
+    join(import.meta.dir, 'priority-metadata-cdd.test.ts'),
+    join(import.meta.dir, 'query-validation.test.ts'),
+    join(import.meta.dir, 'transaction-contention-cdd.test.ts'),
   ],
 });
 
 describe('oracle conformance (rtdb-modular): completeness', () => {
   it('every rtdb-modular observation is covered (no silent gaps)', () => {
     const report = obsGate.report();
-    expect(report.committed.length).toBe(44);
+    expect(report.committed.length).toBe(54);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

@@ -7,9 +7,9 @@ import {
   set,
   TARGET_SYMBOL,
 } from '../../../src/database/index.js';
-import { loadObservation, setup } from './cdd-replay-helpers.js';
+import { loadObservation as load, setup } from './cdd-replay-helpers.js';
 
-const concurrentObservation = loadObservation('rtdb-modular-concurrent-transforms');
+const concurrentObservation = load('rtdb-modular-concurrent-transforms');
 
 describe('RTDB CDD transaction contention cases', () => {
   it('rtdb-modular#157 documents synchronous increment serialization', async () => {

@@ -19,11 +19,11 @@ import {
   setWithPriority,
   update,
 } from '../../../src/database/index.js';
-import { cancellationShape, loadObservation, setup } from './cdd-replay-helpers.js';
+import { cancellationShape, loadObservation as load, setup } from './cdd-replay-helpers.js';
 
-const childPreviousObservation = loadObservation('rtdb-modular-child-previous-name');
-const childOnlyOnceObservation = loadObservation('rtdb-modular-child-listener-only-once');
-const cancellationObservation = loadObservation('rtdb-modular-listener-cancellation');
+const childPreviousObservation = load('rtdb-modular-child-previous-name');
+const childOnlyOnceObservation = load('rtdb-modular-child-listener-only-once');
+const cancellationObservation = load('rtdb-modular-listener-cancellation');
 
 describe('RTDB CDD listener lifecycle cases', () => {
   it('rtdb-modular#M75a delivers cancellation errors for denied and revoked listeners', async () => {

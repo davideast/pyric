@@ -15,9 +15,9 @@ import {
   startAt,
   update,
 } from '../../../src/database/index.js';
-import { keys, loadObservation, setup } from './cdd-replay-helpers.js';
+import { keys, loadObservation as load, setup } from './cdd-replay-helpers.js';
 
-const priorityObservation = loadObservation('rtdb-modular-priority-contract');
+const priorityObservation = load('rtdb-modular-priority-contract');
 
 describe('RTDB CDD priority metadata cases', () => {
   it('rtdb-modular#M89 round-trips, preserves, replaces, and clears priority', async () => {
