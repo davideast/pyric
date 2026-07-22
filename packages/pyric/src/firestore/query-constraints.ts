@@ -114,7 +114,11 @@ function whereConstraint(
   return {
     applySandbox: (q) => q.where(fieldPath, op, value),
     prepareSandbox: prepared ? undefined : (owner) => {
-      const captured = captureQueryOperand(value, owner);
+      const captured = captureQueryOperand(
+        value,
+        owner,
+        op === 'in' || op === 'not-in',
+      );
       return whereConstraint(fieldPath, op, captured.executionValue, true);
     },
     _sandboxFilter: sandboxFilter,

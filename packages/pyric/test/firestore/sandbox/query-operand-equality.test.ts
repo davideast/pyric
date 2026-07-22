@@ -33,6 +33,7 @@ describe('captured query operand equality', () => {
     expect(() => captureQueryOperand({ nested: [[1]] })).toThrow();
     expect(() => captureQueryOperand([{ nested: [1] }])).not.toThrow();
     expect(() => captureQueryOperand({ nested: [{ values: [1] }] })).not.toThrow();
+    expect(() => captureQueryOperand([[[1]]], undefined, true)).not.toThrow();
   });
 
   test('preserves numeric signs and normalizes Date to Timestamp', () => {

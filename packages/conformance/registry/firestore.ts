@@ -1594,7 +1594,7 @@ export const firestoreRegistry = {
         row18({
           rowRef: "116",
           featureKeys: ["queryEqual"],
-          behavior: "`queryEqual(a, b)` structurally compares collection and collection-group scope, filter/order/limit/cursor constraint structure, converter identity, and construction-time Firestore value snapshots for both equality and execution without re-observing caller objects. Snapshots cover maps/arrays, scalar objects, references (including raw and converted `addDoc()` results), and vectors; normalize Date to Timestamp; preserve the distinction between -0 and 0; compare snapshot and explicit bounds for all four cursor overloads by value without invoking snapshot converters, including across live-target rebuilds; and reject undefined, bigint, nested arrays, and recursively nested cross-database reference operands during query construction.",
+          behavior: "`queryEqual(a, b)` structurally compares collection and collection-group scope, filter/order/limit/cursor constraint structure, converter identity, and construction-time Firestore value snapshots for both equality and execution without re-observing caller objects. Snapshots cover maps/arrays, scalar objects, references (including raw and converted `addDoc()` results), and vectors; normalize Date to Timestamp; preserve the distinction between -0 and 0; compare snapshot and explicit bounds for all four cursor overloads by value without invoking snapshot converters, including across live-target rebuilds; reject undefined, bigint, nested arrays for ordinary and array-membership operands, and recursively nested cross-database references during query construction; and preserve Firebase's nested-array allowance for `in`/`not-in` candidate lists.",
           status: "conforms",
           evidence: "Oracle-locked by `packages/conformance/observations/firestore/firestore-queryequal-structural.json`: collection and collection-group scope, order sequence/direction, limits, composite filters, cursor values/inclusivity, converters, and Firestore operands all distinguish equal from changed queries as production does. The capture executes mutable maps, Timestamp, Bytes, GeoPoint, DocumentReference (including raw and converted `addDoc()` results), and Vector queries; proves Bytes/Vector source-array mutation cannot change existing or new queries; proves all four snapshot cursor overloads compare with explicit bounds and execute twice without invoking a consumer converter; and locks recursive foreign-reference rejection, Date/Timestamp normalization, and -0 handling. `firestore-query-nested-array-validation.json` separately pins the production SDK's client-side rejection of nested arrays without implying a cloud round trip. The replay forces live-target identity rebuilds for every snapshot cursor overload. `oracle:firestore#116` replays every claimed fact.",
           risk: ["specific-field"],
@@ -1705,10 +1705,19 @@ export const firestoreRegistry = {
               "nestedArrayRejected":true,
               "nestedArrayErrorCode":"invalid-argument",
               "mapNestedArrayRejected":true,
-              "mapNestedArrayErrorCode":"invalid-argument"
+              "mapNestedArrayErrorCode":"invalid-argument",
+              "inNestedArrayRejected":false,
+              "inNestedArrayErrorCode":null,
+              "inDeepNestedArrayRejected":false,
+              "notInNestedArrayRejected":false,
+              "notInNestedArrayErrorCode":null,
+              "arrayContainsNestedArrayRejected":true,
+              "arrayContainsNestedArrayErrorCode":"invalid-argument",
+              "arrayContainsAnyNestedArrayRejected":true,
+              "arrayContainsAnyNestedArrayErrorCode":"invalid-argument"
             },
             "probe":"packages/pyric/test/firestore/oracle-conformance.test.ts",
-            "guards":"query construction rejects nested arrays at the top level and recursively inside maps, matching the production SDK's client-side validation."
+            "guards":"query construction rejects nested arrays for ordinary and array-membership operands while preserving in/not-in candidate-list semantics, matching the production SDK's client-side validation."
           }],
         }),
         row18({

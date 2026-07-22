@@ -4,14 +4,23 @@
   "rowIds": [
     "firestore#116"
   ],
-  "description": "Client-side firebase/firestore query validation rejects nested arrays both as the top-level operand and inside a map. This validation occurs during query construction and requires no network or Firebase project.",
-  "observedAt": "2026-07-22T04:21:45.000Z",
+  "description": "Client-side firebase/firestore query validation rejects nested arrays for ordinary and array-membership operands, while in/not-in accept their candidate-list wrapper and nested array candidates. This validation occurs during query construction and requires no network or Firebase project.",
+  "observedAt": "2026-07-22T04:37:26.000Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "client-side-validation-no-project",
   "behavior": {
     "nestedArrayRejected": true,
     "nestedArrayErrorCode": "invalid-argument",
     "mapNestedArrayRejected": true,
-    "mapNestedArrayErrorCode": "invalid-argument"
+    "mapNestedArrayErrorCode": "invalid-argument",
+    "inNestedArrayRejected": false,
+    "inNestedArrayErrorCode": null,
+    "inDeepNestedArrayRejected": false,
+    "notInNestedArrayRejected": false,
+    "notInNestedArrayErrorCode": null,
+    "arrayContainsNestedArrayRejected": true,
+    "arrayContainsNestedArrayErrorCode": "invalid-argument",
+    "arrayContainsAnyNestedArrayRejected": true,
+    "arrayContainsAnyNestedArrayErrorCode": "invalid-argument"
   }
 }

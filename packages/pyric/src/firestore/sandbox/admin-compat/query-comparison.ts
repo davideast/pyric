@@ -36,7 +36,11 @@ export function snapshotFilter(
   if (filter.kind === 'where') {
     const comparisonValue = 'comparisonValue' in filter
       ? filter.comparisonValue
-      : captureQueryOperand(filter.value, owner);
+      : captureQueryOperand(
+        filter.value,
+        owner,
+        filter.op === 'in' || filter.op === 'not-in',
+      );
     return Object.freeze({
       kind: 'where',
       field: filter.field,

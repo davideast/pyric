@@ -114,6 +114,7 @@ import {
   writeBatch,
   type FirestoreDataConverter,
   type Firestore,
+  type WhereFilterOp,
 } from 'firebase/firestore';
 import {
   deleteObject,
@@ -1336,12 +1337,12 @@ const probes: Probe[] = [
     name: 'firestore-query-nested-array-validation',
     matrixRow: 'firestore #116',
     rowIds: ['firestore#116'],
-    description: 'Client-side query construction rejects nested arrays at every map depth.',
+    description: 'Client-side nested-array validation distinguishes in/not-in candidate lists from ordinary and array-membership operands.',
     async observe() {
       const c = collection(db, RUN_DOC('query-nested-array-validation'));
-      const constructionError = (value: unknown): { rejected: boolean; code: string | null } => {
+      const constructionError = (op: WhereFilterOp, value: unknown): { rejected: boolean; code: string | null } => {
         try {
-          query(c, where('value', '==', value));
+          query(c, where('value', op, value));
           return { rejected: false, code: null };
         } catch (error) {
           return {
@@ -1352,13 +1353,27 @@ const probes: Probe[] = [
           };
         }
       };
-      const nestedArray = constructionError([[1]]);
-      const mapNestedArray = constructionError({ nested: [[1]] });
+      const nestedArray = constructionError('==', [[1]]);
+      const mapNestedArray = constructionError('==', { nested: [[1]] });
+      const inNestedArray = constructionError('in', [[1]]);
+      const inDeepNestedArray = constructionError('in', [[[1]]]);
+      const notInNestedArray = constructionError('not-in', [[1]]);
+      const arrayContainsNestedArray = constructionError('array-contains', [[1]]);
+      const arrayContainsAnyNestedArray = constructionError('array-contains-any', [[1]]);
       return {
         nestedArrayRejected: nestedArray.rejected,
         nestedArrayErrorCode: nestedArray.code,
         mapNestedArrayRejected: mapNestedArray.rejected,
         mapNestedArrayErrorCode: mapNestedArray.code,
+        inNestedArrayRejected: inNestedArray.rejected,
+        inNestedArrayErrorCode: inNestedArray.code,
+        inDeepNestedArrayRejected: inDeepNestedArray.rejected,
+        notInNestedArrayRejected: notInNestedArray.rejected,
+        notInNestedArrayErrorCode: notInNestedArray.code,
+        arrayContainsNestedArrayRejected: arrayContainsNestedArray.rejected,
+        arrayContainsNestedArrayErrorCode: arrayContainsNestedArray.code,
+        arrayContainsAnyNestedArrayRejected: arrayContainsAnyNestedArray.rejected,
+        arrayContainsAnyNestedArrayErrorCode: arrayContainsAnyNestedArray.code,
       };
     },
   },

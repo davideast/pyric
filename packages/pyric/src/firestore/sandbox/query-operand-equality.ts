@@ -28,6 +28,7 @@ function canonicalize(
   value: unknown,
   ancestors: Set<object>,
   owner?: object,
+  allowNestedArrays = false,
   parentIsArray = false,
 ): CanonicalQueryValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
@@ -90,8 +91,16 @@ function canonicalize(
   ancestors.add(value);
   try {
     if (Array.isArray(value)) {
-      if (parentIsArray) throw invalidOperand('Nested arrays are not supported.');
-      const entries = value.map((entry) => canonicalize(entry, ancestors, owner, true));
+      if (parentIsArray && !allowNestedArrays) {
+        throw invalidOperand('Nested arrays are not supported.');
+      }
+      const entries = value.map((entry) => canonicalize(
+        entry,
+        ancestors,
+        owner,
+        allowNestedArrays,
+        true,
+      ));
       const execution = entries.map((entry) => entry.execution);
       registerActivityValue(execution, activityValue(value));
       return {
@@ -111,6 +120,7 @@ function canonicalize(
           (value as Record<string, unknown>)[key],
           ancestors,
           owner,
+          allowNestedArrays,
           false,
         ),
       }));
@@ -136,9 +146,13 @@ function canonicalize(
  * Equality later compares only this trusted snapshot and never re-observes
  * the caller's supported Firestore value or its getters.
  */
-export function captureQueryOperand(value: unknown, owner?: object): CapturedQueryOperand {
+export function captureQueryOperand(
+  value: unknown,
+  owner?: object,
+  allowNestedArrays = false,
+): CapturedQueryOperand {
   try {
-    const captured = canonicalize(value, new Set(), owner);
+    const captured = canonicalize(value, new Set(), owner, allowNestedArrays);
     return Object.freeze({
       kind: 'canonical' as const,
       value: captured.comparison,

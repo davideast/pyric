@@ -860,13 +860,16 @@ describe('oracle conformance (firestore)', () => {
 
   // ── query / snapshot equality ────────────────────────────────────────
 
-  it('firestore#116 rejects nested query arrays during construction', () => {
+  it('firestore#116 follows operator-specific nested-array validation', () => {
     const obs = load('firestore-query-nested-array-validation.json');
     const db = freshDb();
     const base = collection(db, 'c');
-    const constructionError = (value: unknown): { rejected: boolean; code: string | null } => {
+    const constructionError = (
+      op: Parameters<typeof where>[1],
+      value: unknown,
+    ): { rejected: boolean; code: string | null } => {
       try {
-        query(base, where('value', '==', value));
+        query(base, where('value', op, value));
         return { rejected: false, code: null };
       } catch (error) {
         return {
@@ -878,12 +881,30 @@ describe('oracle conformance (firestore)', () => {
       }
     };
 
-    const nestedArray = constructionError([[1]]);
+    const nestedArray = constructionError('==', [[1]]);
     expect(nestedArray.rejected).toBe(obs.nestedArrayRejected as boolean);
     expect(nestedArray.code).toBe(obs.nestedArrayErrorCode as string);
-    const mapNestedArray = constructionError({ nested: [[1]] });
+    const mapNestedArray = constructionError('==', { nested: [[1]] });
     expect(mapNestedArray.rejected).toBe(obs.mapNestedArrayRejected as boolean);
     expect(mapNestedArray.code).toBe(obs.mapNestedArrayErrorCode as string);
+    const inNestedArray = constructionError('in', [[1]]);
+    expect(inNestedArray.rejected).toBe(obs.inNestedArrayRejected as boolean);
+    expect(inNestedArray.code).toBe(obs.inNestedArrayErrorCode as null);
+    expect(constructionError('in', [[[1]]]).rejected)
+      .toBe(obs.inDeepNestedArrayRejected as boolean);
+    const notInNestedArray = constructionError('not-in', [[1]]);
+    expect(notInNestedArray.rejected).toBe(obs.notInNestedArrayRejected as boolean);
+    expect(notInNestedArray.code).toBe(obs.notInNestedArrayErrorCode as null);
+    const arrayContainsNestedArray = constructionError('array-contains', [[1]]);
+    expect(arrayContainsNestedArray.rejected)
+      .toBe(obs.arrayContainsNestedArrayRejected as boolean);
+    expect(arrayContainsNestedArray.code)
+      .toBe(obs.arrayContainsNestedArrayErrorCode as string);
+    const arrayContainsAnyNestedArray = constructionError('array-contains-any', [[1]]);
+    expect(arrayContainsAnyNestedArray.rejected)
+      .toBe(obs.arrayContainsAnyNestedArrayRejected as boolean);
+    expect(arrayContainsAnyNestedArray.code)
+      .toBe(obs.arrayContainsAnyNestedArrayErrorCode as string);
   });
 
   it('firestore#116 queryEqual matches captured primitive and object constraints', async () => {
