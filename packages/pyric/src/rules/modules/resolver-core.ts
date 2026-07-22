@@ -35,7 +35,7 @@ function assertNever(value: never): never {
 
 /**
  * Injectable disk access for the two load paths that read files: relative
- * imports (priority 2) and the on-disk stdlib fallback (priority 4). The
+ * imports (priority 2) and the on-disk stdlib fallback (priority 5). The
  * node entry (`./resolver.js`) supplies a real reader; browser consumers
  * (`./resolver-browser.js`) pass `null` — they pre-supply every module via
  * `options.modules`, so the disk paths are unreachable there by
