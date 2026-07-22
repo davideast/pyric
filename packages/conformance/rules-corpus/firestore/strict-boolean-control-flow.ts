@@ -17,6 +17,15 @@ service cloud.firestore {
     match /nonBoolTernaryDeny/{id} {
       allow create: if 1 ? true : false;
     }
+    match /nonBoolAndErrorDiscriminator/{id} {
+      allow create: if (1 && true) || !(1 && true);
+    }
+    match /nonBoolOrErrorDiscriminator/{id} {
+      allow create: if (false || 1) || !(false || 1);
+    }
+    match /nonBoolTernaryErrorDiscriminator/{id} {
+      allow create: if (1 ? true : false) || !(1 ? true : false);
+    }
     match /booleanControlAllow/{id} {
       allow create: if true && (false || true) && (true ? true : false);
     }
@@ -58,6 +67,30 @@ service cloud.firestore {
       expectation: 'ALLOW',
       method: 'create',
       path: 'booleanControlAllow/d4',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'non-boolean && error discriminator → DENY',
+      expectation: 'DENY',
+      method: 'create',
+      path: 'nonBoolAndErrorDiscriminator/d7',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'non-boolean || error discriminator → DENY',
+      expectation: 'DENY',
+      method: 'create',
+      path: 'nonBoolOrErrorDiscriminator/d8',
+      auth: { uid: 'alice' },
+      data: {},
+    },
+    {
+      description: 'non-boolean ternary error discriminator → DENY',
+      expectation: 'DENY',
+      method: 'create',
+      path: 'nonBoolTernaryErrorDiscriminator/d9',
       auth: { uid: 'alice' },
       data: {},
     },

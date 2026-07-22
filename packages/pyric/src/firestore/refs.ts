@@ -29,11 +29,11 @@ import {
   boundedActivityIdentity,
   registerActivityValue,
 } from './sandbox/activity-value-registry.js';
-import { registerQueryValue } from './sandbox/query-value-registry.js';
+import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
 
-function registerDocumentValue<T extends object>(ref: T, path: string): T {
+function registerDocumentValue<T extends object>(ref: T, path: string, owner: object): T {
   registerActivityValue(ref, boundedActivityIdentity('reference', path));
-  registerQueryValue(ref, Object.freeze({ type: 'reference', path }));
+  registerReferenceQueryValue(ref, path, owner);
   return ref;
 }
 
@@ -60,7 +60,7 @@ export function doc<T = DocumentData>(
       target,
       (fresh) => fresh.doc(path) as unknown as object,
     );
-    return registerDocumentValue(tagged, path) as DocumentReference<T>;
+    return registerDocumentValue(tagged, path, target) as DocumentReference<T>;
   }
   const coll = asChainColl(underlyingOf(parent));
   const ref = pathSegments.length === 0
@@ -78,9 +78,9 @@ export function doc<T = DocumentData>(
       target,
       conv,
     );
-    return registerDocumentValue(shell, absPath) as DocumentReference<T>;
+    return registerDocumentValue(shell, absPath, target) as DocumentReference<T>;
   }
-  return registerDocumentValue(tagged, absPath) as DocumentReference<T>;
+  return registerDocumentValue(tagged, absPath, target) as DocumentReference<T>;
 }
 
 /**

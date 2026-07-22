@@ -5,7 +5,7 @@
     "firestore#116"
   ],
   "description": "queryEqual semantics — does prod compare structurally or by identity?",
-  "observedAt": "2026-07-22T00:27:24.909Z",
+  "observedAt": "2026-07-22T00:49:26.024Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -23,6 +23,21 @@
     "geoPointValueChanged": false,
     "referenceValueBuiltTwice": true,
     "referenceValueChanged": false,
+    "referenceOtherDatabaseRejected": true,
+    "referenceOtherDatabaseErrorCode": "invalid-argument",
+    "vectorValueBuiltTwice": true,
+    "vectorValueChanged": false,
+    "dateEqualsEquivalentTimestamp": true,
+    "negativeZeroEqualsPositiveZero": false,
+    "sameConverterIdentity": true,
+    "differentConverterIdentity": false,
+    "getterQueriesEqual": true,
+    "getterCallsAfterConstruction": 2,
+    "getterCallsAfterEquality": 2,
+    "undefinedRejected": true,
+    "undefinedErrorCode": "invalid-argument",
+    "bigintRejected": true,
+    "bigintErrorCode": null,
     "identity": true
   }
 }

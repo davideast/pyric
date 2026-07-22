@@ -5,7 +5,7 @@
     "firestore#138a"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"strict-boolean-control-flow\" (RULES-B6). Firestore Rules requires boolean operands for &&, ||, and ternary conditions; non-booleans error and deny. On create, resource == null denies while request.resource carries the incoming document.",
-  "observedAt": "2026-07-22T00:12:17.057Z",
+  "observedAt": "2026-07-22T00:43:57.168Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -13,6 +13,9 @@
     "non-boolean || operand errors → DENY": "DENY",
     "non-boolean ternary condition errors → DENY": "DENY",
     "boolean control-flow operands evaluate normally → ALLOW": "ALLOW",
+    "non-boolean && error discriminator → DENY": "DENY",
+    "non-boolean || error discriminator → DENY": "DENY",
+    "non-boolean ternary error discriminator → DENY": "DENY",
     "resource == null on create → DENY": "DENY",
     "request.resource has incoming data on create → ALLOW": "ALLOW"
   }

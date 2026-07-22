@@ -66,6 +66,8 @@ import {
   Timestamp,
   Bytes,
   GeoPoint,
+  withConverter,
+  vector,
   type Firestore,
   type DocumentSnapshot,
   type QuerySnapshot,
@@ -875,6 +877,12 @@ describe('oracle conformance (firestore)', () => {
     const geoB = query(collection(db, 'c'), where('v', '==', new GeoPoint(10, 20)));
     const refA = query(collection(db, 'c'), where('v', '==', doc(db, 'query-equality/ref')));
     const refB = query(collection(db, 'c'), where('v', '==', doc(db, 'query-equality/ref')));
+    const otherDb = freshDb();
+    const vectorA = query(collection(db, 'c'), where('v', '==', vector([1, 2])));
+    const vectorB = query(collection(db, 'c'), where('v', '==', vector([1, 2])));
+    const dateValue = query(collection(db, 'c'), where('v', '==', new Date(1_234)));
+    const negativeZero = query(collection(db, 'c'), where('v', '==', -0));
+    const positiveZero = query(collection(db, 'c'), where('v', '==', 0));
     expect(queryEqual(q1, q2)).toBe(obs.sameQueryBuiltTwice as boolean);
     expect(queryEqual(q1, q1)).toBe(obs.identity as boolean);
     expect(queryEqual(q1, q3)).toBe(obs.differentValue as boolean);
@@ -886,6 +894,7 @@ describe('oracle conformance (firestore)', () => {
     expect(queryEqual(bytesA, bytesB)).toBe(obs.bytesValueBuiltTwice as boolean);
     expect(queryEqual(geoA, geoB)).toBe(obs.geoPointValueBuiltTwice as boolean);
     expect(queryEqual(refA, refB)).toBe(obs.referenceValueBuiltTwice as boolean);
+    expect(queryEqual(vectorA, vectorB)).toBe(obs.vectorValueBuiltTwice as boolean);
 
     const changedValues = [
       ['structuredValueChanged', structuredA,
@@ -898,10 +907,62 @@ describe('oracle conformance (firestore)', () => {
         query(collection(db, 'c'), where('v', '==', new GeoPoint(10, 21)))],
       ['referenceValueChanged', refA,
         query(collection(db, 'c'), where('v', '==', doc(db, 'query-equality/other')))],
+      ['vectorValueChanged', vectorA,
+        query(collection(db, 'c'), where('v', '==', vector([1, 3])))],
     ] as const;
     for (const [observation, left, right] of changedValues) {
       expect(queryEqual(left, right)).toBe(obs[observation] as boolean);
     }
+
+    expect(queryEqual(dateValue, timestampA)).toBe(obs.dateEqualsEquivalentTimestamp as boolean);
+    expect(queryEqual(negativeZero, positiveZero)).toBe(obs.negativeZeroEqualsPositiveZero as boolean);
+
+    const converterA = {
+      toFirestore: (value: Record<string, unknown>) => value,
+      fromFirestore: (snapshot: { data(): Record<string, unknown> }) => snapshot.data(),
+    };
+    const converterB = { ...converterA };
+    const base = collection(db, 'c');
+    expect(queryEqual(
+      withConverter(base, converterA),
+      withConverter(base, converterA),
+    )).toBe(obs.sameConverterIdentity as boolean);
+    expect(queryEqual(
+      withConverter(base, converterA),
+      withConverter(base, converterB),
+    )).toBe(obs.differentConverterIdentity as boolean);
+
+    let getterCalls = 0;
+    const getterOperand = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get() { getterCalls += 1; return 1; },
+    });
+    const getterA = query(base, where('v', '==', getterOperand));
+    const getterB = query(base, where('v', '==', getterOperand));
+    expect(getterCalls).toBe(obs.getterCallsAfterConstruction as number);
+    expect(queryEqual(getterA, getterB)).toBe(obs.getterQueriesEqual as boolean);
+    expect(getterCalls).toBe(obs.getterCallsAfterEquality as number);
+
+    const constructionError = (value: unknown): { threw: boolean; code: string | null } => {
+      try {
+        query(base, where('v', '==', value));
+        return { threw: false, code: null };
+      } catch (error) {
+        return {
+          threw: true,
+          code: typeof (error as { code?: unknown })?.code === 'string'
+            ? (error as { code: string }).code
+            : null,
+        };
+      }
+    };
+    const undefinedResult = constructionError(undefined);
+    expect(undefinedResult.threw).toBe(obs.undefinedRejected as boolean);
+    expect(undefinedResult.code).toBe(obs.undefinedErrorCode as string);
+    expect(constructionError(BigInt(1)).threw).toBe(obs.bigintRejected as boolean);
+    const otherDatabaseResult = constructionError(doc(otherDb, 'query-equality/ref'));
+    expect(otherDatabaseResult.threw).toBe(obs.referenceOtherDatabaseRejected as boolean);
+    expect(otherDatabaseResult.code).toBe(obs.referenceOtherDatabaseErrorCode as string);
   });
 
   it('firestore#117 snapshotEqual returns production identity booleans', async () => {

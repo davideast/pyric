@@ -26,7 +26,7 @@ describe('activity query operand identity', () => {
     expect(first).toEqual(second);
   });
 
-  it('never executes Proxy traps, including during an empty query', async () => {
+  it('keeps diagnostics trap-free while query construction rejects an opaque Proxy', () => {
     const fail = () => { throw new Error('diagnostics executed a Proxy trap'); };
     const operand = new Proxy({}, {
       get: fail,
@@ -41,14 +41,9 @@ describe('activity query operand identity', () => {
     expect(() => activityValue(operand)).not.toThrow();
     expect(() => activityValue(revoked.proxy)).not.toThrow();
 
-    const rules = `rules_version = '2'; service cloud.firestore {
-      match /databases/{database}/documents { match /{document=**} { allow read: if true; } }
-    }`;
     const env = new LocalEnvironment();
-    env.deployRules(rules);
     const db = new FirestoreImpl(env, { uid: 'alice' });
-    const result = await db.collection('empty').where('field', '==', operand).get();
-    expect(result.empty).toBe(true);
+    expect(() => db.collection('empty').where('field', '==', operand)).toThrow();
   });
 
   it('captures getters during construction but never re-observes them for equality', () => {

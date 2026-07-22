@@ -86,7 +86,10 @@ export type QueryStatePatch = Partial<Pick<
 
 function snapshotQueryValue(value: unknown): unknown { return value; }
 
-function snapshotFilter(filter: Filter | QueryFilter | ComparableQueryFilter): ComparableQueryFilter {
+function snapshotFilter(
+  filter: Filter | QueryFilter | ComparableQueryFilter,
+  owner?: object,
+): ComparableQueryFilter {
   if (filter.kind === 'where') {
     return Object.freeze({
       kind: 'where',
@@ -95,12 +98,12 @@ function snapshotFilter(filter: Filter | QueryFilter | ComparableQueryFilter): C
       value: snapshotQueryValue(filter.value),
       comparisonValue: 'comparisonValue' in filter
         ? filter.comparisonValue
-        : captureQueryOperand(filter.value),
+        : captureQueryOperand(filter.value, owner),
     });
   }
   return Object.freeze({
     kind: filter.kind,
-    filters: Object.freeze(filter.filters.map(snapshotFilter)),
+    filters: Object.freeze(filter.filters.map((nested) => snapshotFilter(nested, owner))),
   }) as ComparableQueryFilter;
 }
 
@@ -108,10 +111,11 @@ function snapshotCursor(
   values: readonly unknown[],
   inclusive: boolean,
   fromSnapshot: boolean,
+  owner?: object,
 ): ComparableCursor {
   return Object.freeze({
     values: Object.freeze(values.map(snapshotQueryValue)),
-    comparisonValues: Object.freeze(values.map(captureQueryOperand)),
+    comparisonValues: Object.freeze(values.map((value) => captureQueryOperand(value, owner))),
     inclusive,
     fromSnapshot,
   });
@@ -262,7 +266,9 @@ export class QueryImpl implements Query {
     this.auth = state.auth;
     this.collectionPath = state.collectionPath;
     this.documentRef = state.documentRef;
-    this.clauses = Object.freeze((state.clauses ?? []).map(snapshotFilter));
+    this.clauses = Object.freeze((state.clauses ?? []).map(
+      (filter) => snapshotFilter(filter),
+    ));
     this.orders = Object.freeze((state.orders ?? []).map((order) => Object.freeze({ ...order })));
     this.limitCount = state.limitCount;
     this.limitFromEnd = state.limitFromEnd ?? false;

@@ -29,7 +29,7 @@ import {
   boundedActivityIdentity,
   registerActivityValue,
 } from '../../../firestore/sandbox/activity-value-registry.js';
-import { registerQueryValue } from '../../../firestore/sandbox/query-value-registry.js';
+import { registerReferenceQueryValue } from '../../../firestore/sandbox/query-value-registry.js';
 import {
   FirestoreCompatError,
   type AuthContext,
@@ -77,7 +77,7 @@ export class DocumentRefImpl implements DocumentReference {
     this.path = path;
     this.id = lastSegment(path);
     registerActivityValue(this, boundedActivityIdentity('reference', path));
-    registerQueryValue(this, Object.freeze({ type: 'reference', path }));
+    registerReferenceQueryValue(this, path, env);
   }
 
   get parent(): CollectionReference {

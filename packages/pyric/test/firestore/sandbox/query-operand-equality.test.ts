@@ -3,6 +3,7 @@ import {
   captureQueryOperand,
   capturedQueryOperandsEqual,
 } from '../../../src/firestore/sandbox/query-operand-equality.js';
+import { Timestamp } from '../../../src/firestore/sandbox/admin-compat/types.js';
 
 describe('captured query operand equality', () => {
   test('compares nested Firestore maps and arrays structurally', () => {
@@ -14,11 +15,24 @@ describe('captured query operand equality', () => {
     expect(capturedQueryOperandsEqual(left, changed)).toBe(false);
   });
 
-  test('falls back to identity when construction cannot snapshot an operand', () => {
+  test('rejects values that Firebase cannot use as query operands', () => {
     const opaque = new Proxy({}, { ownKeys: () => { throw new Error('opaque'); } });
-    const other = new Proxy({}, { ownKeys: () => { throw new Error('opaque'); } });
 
-    expect(capturedQueryOperandsEqual(captureQueryOperand(opaque), captureQueryOperand(opaque))).toBe(true);
-    expect(capturedQueryOperandsEqual(captureQueryOperand(opaque), captureQueryOperand(other))).toBe(false);
+    for (const value of [undefined, BigInt(1), () => undefined, opaque]) {
+      expect(() => captureQueryOperand(value)).toThrow();
+      try {
+        captureQueryOperand(value);
+      } catch (error) {
+        expect((error as { code?: unknown }).code).toBe('invalid-argument');
+      }
+    }
+  });
+
+  test('preserves numeric signs and normalizes Date to Timestamp', () => {
+    expect(capturedQueryOperandsEqual(captureQueryOperand(-0), captureQueryOperand(0))).toBe(false);
+    expect(capturedQueryOperandsEqual(
+      captureQueryOperand(new Date(1_234)),
+      captureQueryOperand(Timestamp.fromMillis(1_234)),
+    )).toBe(true);
   });
 });

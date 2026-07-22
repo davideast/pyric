@@ -24,6 +24,8 @@ import {
   buildSandboxShell,
 } from './state.js';
 import { FieldPath } from './field-values.js';
+import { toFirestoreFirebaseError } from './errors.js';
+import { assertQueryOperandOwner } from './sandbox/query-operand-equality.js';
 import type {
   CollectionReference,
   Query,
@@ -41,6 +43,7 @@ function fieldToString(field: string | FieldPath): string {
 
 export interface QueryConstraint {
   applySandbox(q: ChainQuery): ChainQuery;
+  validateSandboxOwner?(owner: object): void;
   /**
    * Internal — the filter representation for composite-filter
    * composition. `where()` populates it as a leaf; `or()` / `and()`
@@ -65,7 +68,13 @@ export function query<T = DocumentData>(
     for (const c of constraints) q = c.applySandbox(q);
     return q;
   };
-  const q = buildAt(sandboxDb(target));
+  let q: ChainQuery;
+  try {
+    for (const constraint of constraints) constraint.validateSandboxOwner?.(target);
+    q = buildAt(sandboxDb(target));
+  } catch (error) {
+    throw toFirestoreFirebaseError(error);
+  }
   const tagged = tagSandboxRef(
     q as unknown as Query<T>,
     target,
@@ -90,6 +99,7 @@ export function where(
   const sandboxFilter: ChainFilter = { kind: 'where', field: fieldPath, op, value };
   return {
     applySandbox: (q) => q.where(fieldPath, op, value),
+    validateSandboxOwner: (owner) => { assertQueryOperandOwner(value, owner); },
     _sandboxFilter: sandboxFilter,
   };
 }
@@ -140,6 +150,9 @@ function composite(
   const sandboxFilter: ChainFilter = { kind, filters: sandboxSubs };
   return {
     applySandbox: (q) => q.applyFilter(sandboxFilter),
+    validateSandboxOwner: (owner) => {
+      for (const filter of filters) filter.validateSandboxOwner?.(owner);
+    },
     _sandboxFilter: sandboxFilter,
   };
 }
@@ -231,6 +244,9 @@ export function startAt(...args: CursorArg[]): QueryConstraint {
   }
   return {
     applySandbox: (q) => q.startCursor(args, true),
+    validateSandboxOwner: (owner) => {
+      for (const value of args) assertQueryOperandOwner(value, owner);
+    },
   };
 }
 
@@ -247,6 +263,9 @@ export function startAfter(...args: CursorArg[]): QueryConstraint {
   }
   return {
     applySandbox: (q) => q.startCursor(args, false),
+    validateSandboxOwner: (owner) => {
+      for (const value of args) assertQueryOperandOwner(value, owner);
+    },
   };
 }
 
@@ -263,6 +282,9 @@ export function endAt(...args: CursorArg[]): QueryConstraint {
   }
   return {
     applySandbox: (q) => q.endCursor(args, true),
+    validateSandboxOwner: (owner) => {
+      for (const value of args) assertQueryOperandOwner(value, owner);
+    },
   };
 }
 
@@ -279,5 +301,8 @@ export function endBefore(...args: CursorArg[]): QueryConstraint {
   }
   return {
     applySandbox: (q) => q.endCursor(args, false),
+    validateSandboxOwner: (owner) => {
+      for (const value of args) assertQueryOperandOwner(value, owner);
+    },
   };
 }

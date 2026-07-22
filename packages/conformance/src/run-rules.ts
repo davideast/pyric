@@ -16,6 +16,8 @@
  *   PARITY_SA_BASE64 — base64-encoded service-account JSON holding only
  *   `firebaserules.rulesets.test`. The project the SA belongs to is the
  *   project the rules are tested against.
+ *   PARITY_SA_PATH — local path to the same JSON credential. The runner
+ *   converts it in-process so the secret never appears in a shell command.
  *
  * RUNNABLE-BUT-INERT WITHOUT CREDENTIALS:
  *   With PARITY_SA_BASE64 absent, this runner makes NO network calls. It
@@ -185,6 +187,11 @@ async function capture(scenarios: Scenario[]): Promise<void> {
 
 if (import.meta.main) {
   const scenarios = selectFirestoreScenarios(process.argv.slice(2));
+  if (!process.env.PARITY_SA_BASE64 && process.env.PARITY_SA_PATH) {
+    process.env.PARITY_SA_BASE64 = Buffer.from(
+      readFileSync(process.env.PARITY_SA_PATH),
+    ).toString('base64');
+  }
   // Same env-var contract as the parity harness (harness.ts hasParitySecret).
   // Checked inline so the inert path imports none of the heavy machinery.
   if (!process.env.PARITY_SA_BASE64) {

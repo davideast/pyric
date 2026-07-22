@@ -104,8 +104,10 @@ import {
   startAt,
   Timestamp,
   updateDoc,
+  vector,
   where,
   writeBatch,
+  type FirestoreDataConverter,
   type Firestore,
 } from 'firebase/firestore';
 import {
@@ -986,7 +988,61 @@ const probes: Probe[] = [
       const refA = query(c, where('x', '==', doc(db, 'query-equality/ref')));
       const refB = query(c, where('x', '==', doc(db, 'query-equality/ref')));
       const refChanged = query(c, where('x', '==', doc(db, 'query-equality/other')));
-      return {
+      const otherApp = initializeApp(
+        { ...config, projectId: `${config.projectId}-other` },
+        `${appName}-query-equality-other`,
+      );
+      const otherDb = getFirestore(otherApp);
+      let referenceOtherDatabaseRejected = false;
+      let referenceOtherDatabaseErrorCode: string | null = null;
+      try {
+        query(c, where('x', '==', doc(otherDb, 'query-equality/ref')));
+      } catch (error) {
+        referenceOtherDatabaseRejected = true;
+        referenceOtherDatabaseErrorCode = typeof (error as { code?: unknown })?.code === 'string'
+          ? (error as { code: string }).code
+          : null;
+      }
+      const vectorA = query(c, where('x', '==', vector([1, 2])));
+      const vectorB = query(c, where('x', '==', vector([1, 2])));
+      const vectorChanged = query(c, where('x', '==', vector([1, 3])));
+      const dateValue = query(c, where('x', '==', new Date(1_234)));
+      const negativeZero = query(c, where('x', '==', -0));
+      const positiveZero = query(c, where('x', '==', 0));
+      const converterA: FirestoreDataConverter<Record<string, unknown>> = {
+        toFirestore: (value) => value,
+        fromFirestore: (snapshot) => snapshot.data(),
+      };
+      const converterB = { ...converterA };
+      const convertedA1 = c.withConverter(converterA);
+      const convertedA2 = c.withConverter(converterA);
+      const convertedB = c.withConverter(converterB);
+      let getterCalls = 0;
+      const getterOperand = Object.defineProperty({}, 'value', {
+        enumerable: true,
+        get() { getterCalls += 1; return 1; },
+      });
+      const getterA = query(c, where('x', '==', getterOperand));
+      const getterB = query(c, where('x', '==', getterOperand));
+      const getterCallsAfterConstruction = getterCalls;
+      const getterQueriesEqual = queryEqual(getterA, getterB);
+      const getterCallsAfterEquality = getterCalls;
+      const constructionError = (value: unknown): { threw: boolean; code: string | null } => {
+        try {
+          query(c, where('x', '==', value));
+          return { threw: false, code: null };
+        } catch (error) {
+          return {
+            threw: true,
+            code: typeof (error as { code?: unknown })?.code === 'string'
+              ? (error as { code: string }).code
+              : null,
+          };
+        }
+      };
+      const undefinedValue = constructionError(undefined);
+      const bigintValue = constructionError(BigInt(1));
+      const result = {
         sameQueryBuiltTwice: queryEqual(q1, q2),
         differentValue: queryEqual(q1, q3),
         objectValueBuiltTwice: queryEqual(q4, q5),
@@ -1001,8 +1057,25 @@ const probes: Probe[] = [
         geoPointValueChanged: queryEqual(geoA, geoChanged),
         referenceValueBuiltTwice: queryEqual(refA, refB),
         referenceValueChanged: queryEqual(refA, refChanged),
+        referenceOtherDatabaseRejected,
+        referenceOtherDatabaseErrorCode,
+        vectorValueBuiltTwice: queryEqual(vectorA, vectorB),
+        vectorValueChanged: queryEqual(vectorA, vectorChanged),
+        dateEqualsEquivalentTimestamp: queryEqual(dateValue, timestampA),
+        negativeZeroEqualsPositiveZero: queryEqual(negativeZero, positiveZero),
+        sameConverterIdentity: queryEqual(convertedA1, convertedA2),
+        differentConverterIdentity: queryEqual(convertedA1, convertedB),
+        getterQueriesEqual,
+        getterCallsAfterConstruction,
+        getterCallsAfterEquality,
+        undefinedRejected: undefinedValue.threw,
+        undefinedErrorCode: undefinedValue.code,
+        bigintRejected: bigintValue.threw,
+        bigintErrorCode: bigintValue.code,
         identity: queryEqual(q1, q1),
       };
+      await deleteApp(otherApp);
+      return result;
     },
   },
   {

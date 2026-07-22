@@ -150,7 +150,12 @@ export function documentId(): FieldPath {
 }
 
 export class VectorValue {
-  private constructor(readonly _values: number[]) {}
+  private constructor(readonly _values: number[]) {
+    registerQueryValue(this, Object.freeze({
+      type: 'vector',
+      values: Object.freeze(_values.slice()),
+    }));
+  }
 
   static create(values: number[]): VectorValue {
     if (!values.every((value) => typeof value === 'number')) {
