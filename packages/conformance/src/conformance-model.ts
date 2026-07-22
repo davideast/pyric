@@ -23,6 +23,7 @@ import {
   deriveFirestoreRulesScorecard,
   type FirestoreRulesScorecard,
 } from './firestore-rules-scorecard.ts';
+import { loadAndValidateFirestoreAcceptanceEvidence } from './firestore-rules-acceptance-evidence.ts';
 import type { SurfaceDescriptor } from '../surfaces/types.ts';
 import type { CompatibilitySurfaceRegistry } from '../registry/types.ts';
 import coverageBaselineJson from '../baselines/coverage-baseline.json' with { type: 'json' };
@@ -264,6 +265,7 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
   if (!firestoreSnapshot || !firestoreCapability || !firestoreCoverage) {
     throw new Error('Firestore Rules scorecard inputs are missing from the central conformance model');
   }
+  loadAndValidateFirestoreAcceptanceEvidence(firestoreSnapshot.constructs);
   const firestoreScorecard = deriveFirestoreRulesScorecard({
     constructs: firestoreSnapshot.constructs,
     capabilities: firestoreCapability.constructs,

@@ -343,6 +343,31 @@ service cloud.firestore {
   });
 });
 
+describe('rules-language analyzer: Map.keys List-to-Set boundary', () => {
+  const rules = (expr: string) => `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /x/{id} { allow create: if ${expr}; }
+  }
+}`;
+
+  it('does not credit Set algebra directly on the List returned by Map.keys()', () => {
+    const res = analyzeFirestore(
+      rules("request.resource.data.m.keys().difference(['a'].toSet()).size() == 0"),
+    );
+    expect(res.ids).not.toContain('firestore.method.set.difference');
+    expect(res.unresolved.some((entry) => entry.what === 'method:difference')).toBe(true);
+  });
+
+  it('credits Set algebra after Map.keys().toSet()', () => {
+    const res = analyzeFirestore(
+      rules("request.resource.data.m.keys().toSet().difference(['a'].toSet()).size() == 0"),
+    );
+    expect(res.ids).toContain('firestore.method.set.difference');
+    expect(res.unresolved.some((entry) => entry.what === 'method:difference')).toBe(false);
+  });
+});
+
 describe('rules-language analyzer: &&/|| error-absorption attribution', () => {
   const rules = (expr: string) => `rules_version = '2';
 service cloud.firestore {

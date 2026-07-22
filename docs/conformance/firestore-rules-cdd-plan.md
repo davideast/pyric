@@ -24,7 +24,10 @@ verdicts to match the authored expectation. A missing or extra API result
 aborts at the wire adapter before positional normalization. The committed
 Firestore acceptance-evidence ledger preserves capture metadata and every
 expected/actual verdict; score computation binds it to the compact snapshot
-and current probe digest.
+and current probe digest. The gate also binds the captured expected verdict to
+the current canonical probe case, binds rejection/unprobeable diagnostics
+exactly, and runs on both the standalone score command and the central
+conformance-model projection path.
 
 | Final classification | Constructs | Interpretation |
 |---|---:|---|

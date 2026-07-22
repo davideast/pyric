@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LanguageConstruct } from '../rules-language/types.ts';
+import { resolveFirestoreConstructProbe } from './rules-language-capability.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const FIRESTORE_ACCEPTANCE_EVIDENCE_PATH = join(
@@ -32,10 +33,16 @@ export interface FirestoreAcceptanceEvidence {
   constructs: FirestoreAcceptanceEvidenceConstruct[];
 }
 
+interface CanonicalProbeFact {
+  expectedDecision?: 'ALLOW' | 'DENY';
+  unprobeableReason?: string;
+}
+
 /** Bind the compact snapshot claims to the committed, inspectable capture. */
 export function validateFirestoreAcceptanceEvidence(
   snapshot: readonly LanguageConstruct[],
   evidence: FirestoreAcceptanceEvidence,
+  canonicalProbe: (construct: LanguageConstruct) => CanonicalProbeFact,
 ): void {
   if (evidence.schema !== 'pyric.conformance.firestore-rules-acceptance-evidence.v1' ||
       evidence.engine !== 'firestore' || !evidence.projectId || Number.isNaN(Date.parse(evidence.capturedAt))) {
@@ -64,9 +71,21 @@ export function validateFirestoreAcceptanceEvidence(
     if (row.evaluationAgreement !== construct.probeEvaluationAgreement) {
       throw new Error(`Firestore acceptance evidence agreement mismatch for ${construct.id}`);
     }
+    if (row.probeNote !== construct.probeNote) {
+      throw new Error(`Firestore acceptance evidence probe note mismatch for ${construct.id}`);
+    }
+    if ((row.status === 'rejected' || row.status === 'unprobeable') && !row.probeNote) {
+      throw new Error(`Firestore acceptance evidence note is missing for ${construct.id}`);
+    }
+    const canonical = canonicalProbe(construct);
+    if (row.status === 'unprobeable' && row.probeNote !== canonical.unprobeableReason) {
+      throw new Error(`Firestore acceptance evidence unprobeable reason mismatch for ${construct.id}`);
+    }
     if (row.status === 'accepted') {
       if (!row.probeDigest || row.expectedDecision === undefined || row.actualDecision === undefined ||
-          row.evaluationAgreement !== (row.expectedDecision === row.actualDecision)) {
+          row.evaluationAgreement !== (row.expectedDecision === row.actualDecision) ||
+          row.expectedDecision !== canonical.expectedDecision ||
+          row.evaluationDetail !== `expected ${row.expectedDecision}, got ${row.actualDecision}`) {
         throw new Error(`Firestore acceptance evidence decisions are invalid for ${construct.id}`);
       }
     }
@@ -77,6 +96,13 @@ export function loadAndValidateFirestoreAcceptanceEvidence(
   snapshot: readonly LanguageConstruct[],
 ): FirestoreAcceptanceEvidence {
   const evidence = JSON.parse(readFileSync(FIRESTORE_ACCEPTANCE_EVIDENCE_PATH, 'utf8')) as FirestoreAcceptanceEvidence;
-  validateFirestoreAcceptanceEvidence(snapshot, evidence);
+  validateFirestoreAcceptanceEvidence(snapshot, evidence, (construct) => {
+    const probe = resolveFirestoreConstructProbe(construct);
+    if ('unprobeable' in probe) return { unprobeableReason: probe.unprobeable };
+    if (probe.cases.length !== 1 || !probe.cases[0]?.expectation) {
+      throw new Error(`Firestore canonical probe must define exactly one expectation for ${construct.id}`);
+    }
+    return { expectedDecision: probe.cases[0].expectation };
+  });
   return evidence;
 }

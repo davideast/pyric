@@ -324,7 +324,10 @@ async function probeFirestoreConstruct(
   if (decision === 'UNSUPPORTED') {
     throw new Error(`[firestore] production returned impossible UNSUPPORTED decision for "${c.id}"`);
   }
-  const expected = EXPECTS_DENY.has(c.id) ? 'DENY' : 'ALLOW';
+  const expected = req.cases[0]?.expectation;
+  if (!expected || req.cases.length !== 1) {
+    throw new Error(`[firestore] canonical probe for "${c.id}" must define exactly one expected decision`);
+  }
   const agree = decision === expected;
   if (!agree) {
     const rejectionReason = evaluationRejectionReason(result?.notes ?? []);
@@ -366,7 +369,10 @@ async function probeStorageConstruct(
   if (decision === 'UNSUPPORTED') {
     throw new Error(`[storage] production returned impossible UNSUPPORTED decision for "${c.id}"`);
   }
-  const expected = EXPECTS_DENY.has(c.id) ? 'DENY' : 'ALLOW';
+  const expected = req.cases[0]?.expectation;
+  if (!expected || req.cases.length !== 1) {
+    throw new Error(`[storage] canonical probe for "${c.id}" must define exactly one expected decision`);
+  }
   const agree = decision === expected;
   if (!agree) {
     const rejectionReason = evaluationRejectionReason(result?.notes ?? []);

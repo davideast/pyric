@@ -105,7 +105,7 @@ const FS_BINOP: Record<string, string> = {
 const FS_METHOD_RETURNS: Record<string, string> = {
   split: 'list', toUtf8: 'bytes', lower: 'string', upper: 'string', trim: 'string', replace: 'string',
   toSet: 'set', concat: 'list', removeAll: 'list', join: 'string',
-  keys: 'set', values: 'list', diff: 'mapdiff',
+  keys: 'list', values: 'list', diff: 'mapdiff',
   difference: 'set', union: 'set', intersection: 'set',
   addedKeys: 'set', removedKeys: 'set', changedKeys: 'set', affectedKeys: 'set', unchangedKeys: 'set',
   toBase64: 'string', toHexString: 'string',
@@ -408,7 +408,9 @@ function fsAttributeMethod(e: Extract<Expression, { type: 'methodCall' }>, out: 
     }
   }
   const candidates = fsMethodIndex().get(e.method);
-  if (candidates && candidates.length === 1) {
+  // A unique method name cannot override a known, incompatible receiver.
+  // The fallback exists only for genuinely unknown receiver types.
+  if (!recv && candidates && candidates.length === 1) {
     out.ids.add(`firestore.method.${candidates[0]}.${e.method}`);
     return;
   }

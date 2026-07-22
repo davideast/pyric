@@ -16,25 +16,53 @@ function evidence(): FirestoreAcceptanceEvidence {
     capturedAt: '2026-07-21T00:00:00.000Z', projectId: 'test', engine: 'firestore', total: 1,
     constructs: [{
       id: construct.id, kind: construct.kind, status: 'accepted', probeDigest: construct.probeDigest,
-      evaluationAgreement: true, expectedDecision: 'ALLOW', actualDecision: 'ALLOW',
+      evaluationAgreement: true, evaluationDetail: 'expected ALLOW, got ALLOW',
+      expectedDecision: 'ALLOW', actualDecision: 'ALLOW',
     }],
   };
 }
 
 describe('Firestore acceptance evidence', () => {
   it('accepts exact snapshot, digest, and verdict agreement', () => {
-    expect(() => validateFirestoreAcceptanceEvidence([construct], evidence())).not.toThrow();
+    expect(() => validateFirestoreAcceptanceEvidence(
+      [construct], evidence(), () => ({ expectedDecision: 'ALLOW' }),
+    )).not.toThrow();
   });
 
   it('rejects a boolean that contradicts the raw decisions', () => {
     const bad = evidence();
     bad.constructs[0]!.actualDecision = 'DENY';
-    expect(() => validateFirestoreAcceptanceEvidence([construct], bad)).toThrow('decisions are invalid');
+    expect(() => validateFirestoreAcceptanceEvidence(
+      [construct], bad, () => ({ expectedDecision: 'ALLOW' }),
+    )).toThrow('decisions are invalid');
   });
 
   it('rejects stale probe evidence', () => {
     const bad = evidence();
     bad.constructs[0]!.probeDigest = { algorithm: 'sha256', value: 'b'.repeat(64) };
-    expect(() => validateFirestoreAcceptanceEvidence([construct], bad)).toThrow('probe digest mismatch');
+    expect(() => validateFirestoreAcceptanceEvidence(
+      [construct], bad, () => ({ expectedDecision: 'ALLOW' }),
+    )).toThrow('probe digest mismatch');
+  });
+
+  it('rejects evidence captured against a stale canonical expectation', () => {
+    expect(() => validateFirestoreAcceptanceEvidence(
+      [construct], evidence(), () => ({ expectedDecision: 'DENY' }),
+    )).toThrow('decisions are invalid');
+  });
+
+  it('rejects a snapshot rejection note that differs from production evidence', () => {
+    const rejected: LanguageConstruct = {
+      ...construct, status: 'rejected', probeEvaluationAgreement: undefined,
+      probeNote: 'Function not found error: Name: [getAfter].',
+    };
+    const captured = evidence();
+    captured.constructs[0] = {
+      id: rejected.id, kind: rejected.kind, status: 'rejected', probeDigest: rejected.probeDigest,
+      probeNote: 'Property getAfter is undefined on object.',
+    };
+    expect(() => validateFirestoreAcceptanceEvidence(
+      [rejected], captured, () => ({ expectedDecision: 'ALLOW' }),
+    )).toThrow('probe note mismatch');
   });
 });
