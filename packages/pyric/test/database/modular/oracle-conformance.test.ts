@@ -265,7 +265,8 @@ describe('oracle conformance (rtdb-modular)', () => {
       const obs = load('rtdb-modular-write-return-validation.json');
       const { db } = setup();
       const result = await set(ref(db, 'write-return'), { value: 1 });
-      expect(result ?? null).toBe(obs.setResolution);
+      expect(obs.setResolution).toBeNull();
+      expect(result).toBeUndefined();
     });
 
     it('rtdb-modular#120 rejects overlapping updates synchronously and atomically', async () => {

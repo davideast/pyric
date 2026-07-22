@@ -17,15 +17,25 @@ import { buildSandboxSnapFromRaw } from './snapshots.js';
  */
 function subscribeWithLiveAuth(
   target: Target,
-  subscribe: (auth: AuthState) => Unsubscribe,
+  subscribe: (auth: AuthState, onCanceled: () => void) => Unsubscribe,
 ): Unsubscribe {
   let stopped = false;
-  let backendUnsubscribe = subscribe(authFor(target));
-  const sessionUnsubscribe = target.kind === 'sandbox-live'
+  let backendUnsubscribe: Unsubscribe = () => {};
+  let sessionUnsubscribe: Unsubscribe | undefined;
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    sessionUnsubscribe?.();
+    backendUnsubscribe();
+  };
+
+  backendUnsubscribe = subscribe(authFor(target), stop);
+  sessionUnsubscribe = target.kind === 'sandbox-live'
     ? target.onCurrentUserChanged?.(() => {
+      if (stopped) return;
       backendUnsubscribe();
       try {
-        backendUnsubscribe = subscribe(authFor(target));
+        backendUnsubscribe = subscribe(authFor(target), stop);
       } catch {
         // A denied live-auth reattach suspends delivery until the next Auth
         // transition instead of leaking events under the old identity. The
@@ -35,13 +45,6 @@ function subscribeWithLiveAuth(
       }
     })
     : undefined;
-
-  const stop = (): void => {
-    if (stopped) return;
-    stopped = true;
-    sessionUnsubscribe?.();
-    backendUnsubscribe();
-  };
   const release = target.kind === 'sandbox-live' ? target.own?.(stop) : undefined;
   return () => {
     release?.();
@@ -122,7 +125,14 @@ export function onValue(
       ? target.backend.adminOnValue(q.ref._path, deliver, q._spec)
       : subscribeWithLiveAuth(
         target,
-        (auth) => target.backend.onValue(auth, q.ref._path, deliver, q._spec, cancelCallback),
+        (auth, onCanceled) => target.backend.onValue(
+          auth,
+          q.ref._path,
+          deliver,
+          q._spec,
+          cancelCallback,
+          onCanceled,
+        ),
       );
   }
   const ref0 = r as DatabaseReference;
@@ -140,7 +150,14 @@ export function onValue(
     ? target.backend.adminOnValue(ref0._path, wrapper)
     : subscribeWithLiveAuth(
       target,
-      (auth) => target.backend.onValue(auth, ref0._path, wrapper, undefined, cancelCallback),
+      (auth, onCanceled) => target.backend.onValue(
+        auth,
+        ref0._path,
+        wrapper,
+        undefined,
+        cancelCallback,
+        onCanceled,
+      ),
     );
   const registration: ListenerRegistration = { unsubscribe: unsub };
   listenerRegistry.add(target, ref0._path, 'value', cb, registration);
@@ -360,7 +377,15 @@ function onChildEvent(
   };
   const unsub = subscribeWithLiveAuth(
     target,
-    (auth) => target.backend.onChild(auth, event, baseRef._path, wrapper, spec, cancelCallback),
+    (auth, onCanceled) => target.backend.onChild(
+      auth,
+      event,
+      baseRef._path,
+      wrapper,
+      spec,
+      cancelCallback,
+      onCanceled,
+    ),
   );
   const registration: ListenerRegistration = { unsubscribe: unsub };
   listenerRegistry.add(target, baseRef._path, event, cb, registration);

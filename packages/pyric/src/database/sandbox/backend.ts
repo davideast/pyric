@@ -78,6 +78,8 @@ export interface ValueListener {
   cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void;
   path: string;
   cancelCallback?: (error: Error) => void;
+  /** Stops the client-owned live-auth registration after terminal denial. */
+  onCanceled?: () => void;
   /**
    * If set, the listener is on a `query(ref, ...constraints)` rather
    * than a plain ref. The backend evaluates the spec each time the
@@ -138,6 +140,8 @@ export interface ChildListener {
   path: string;
   cb: (snap: { key: string; val: JsonValue; previousChildName: string | null }) => void;
   cancelCallback?: (error: Error) => void;
+  /** Stops the client-owned live-auth registration after terminal denial. */
+  onCanceled?: () => void;
   /**
    * If set, the listener is on a `query(ref, ...constraints)` rather than
    * a plain ref. Child events are then computed against the ordered,
@@ -481,6 +485,7 @@ export class RtdbBackend {
       });
       if (evaluation.check === 'allow') continue;
       this.valueListeners.delete(listener);
+      listener.onCanceled?.();
       listener.cancelCallback?.(listenerPermissionDenied(listener.path));
     }
     for (const listener of [...this.childListeners]) {
@@ -490,6 +495,7 @@ export class RtdbBackend {
       });
       if (evaluation.check === 'allow') continue;
       this.childListeners.delete(listener);
+      listener.onCanceled?.();
       listener.cancelCallback?.(listenerPermissionDenied(listener.path));
     }
   }
@@ -1001,6 +1007,7 @@ export class RtdbBackend {
     cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void,
     query?: QuerySpec,
     cancelCallback?: (error: Error) => void,
+    onCanceled?: () => void,
   ): () => void {
     // Rules check at subscribe time. A denied subscribe never gets
     // the initial fire — matches production where the listener errors
@@ -1027,7 +1034,10 @@ export class RtdbBackend {
         },
       });
       if (cancelCallback) {
-        queueMicrotask(() => cancelCallback(listenerPermissionDenied(path)));
+        queueMicrotask(() => {
+          onCanceled?.();
+          cancelCallback(listenerPermissionDenied(path));
+        });
         return () => {};
       }
       throw permissionDenied();
@@ -1037,7 +1047,7 @@ export class RtdbBackend {
       result: 'allow',
       evaluation,
       at,
-    }, cancelCallback);
+    }, cancelCallback, onCanceled);
   }
 
   /**
@@ -1086,6 +1096,7 @@ export class RtdbBackend {
       at: number;
     },
     cancelCallback?: (error: Error) => void,
+    onCanceled?: () => void,
   ): () => void {
     const { at } = provenance;
     const listenerId = this.nextListenerId();
@@ -1095,7 +1106,15 @@ export class RtdbBackend {
       request: query ? { query } : undefined,
       origin: provenance.origin,
     });
-    const listener: ValueListener = { id: listenerId, auth, cb, path, query, cancelCallback };
+    const listener: ValueListener = {
+      id: listenerId,
+      auth,
+      cb,
+      path,
+      query,
+      cancelCallback,
+      onCanceled,
+    };
     this.valueListeners.add(listener);
     this.emitListener('attach', listener, auth, {
       event: 'value',
@@ -1570,6 +1589,7 @@ export class RtdbBackend {
     cb: (snap: { key: string; val: JsonValue; previousChildName: string | null }) => void,
     spec?: QuerySpec,
     cancelCallback?: (error: Error) => void,
+    onCanceled?: () => void,
   ): () => void {
     const listenerId = this.nextListenerId();
     const at = Date.now();
@@ -1594,7 +1614,10 @@ export class RtdbBackend {
         },
       });
       if (cancelCallback) {
-        queueMicrotask(() => cancelCallback(listenerPermissionDenied(path)));
+        queueMicrotask(() => {
+          onCanceled?.();
+          cancelCallback(listenerPermissionDenied(path));
+        });
         return () => {};
       }
       throw permissionDenied();
@@ -1605,7 +1628,16 @@ export class RtdbBackend {
       origin: 'listener',
       detail: { event },
     });
-    const listener: ChildListener = { id: listenerId, auth, event, path, cb, spec, cancelCallback };
+    const listener: ChildListener = {
+      id: listenerId,
+      auth,
+      event,
+      path,
+      cb,
+      spec,
+      cancelCallback,
+      onCanceled,
+    };
     this.childListeners.add(listener);
     this.emitListener('attach', listener, auth, {
       event,
@@ -1977,7 +2009,7 @@ export class RtdbBackend {
    * public raw-data snapshot used by owner controls and Studio. */
   exportPersistenceState(): JsonValue {
     return {
-      __pyricRtdbPersistence: 1,
+      '.pyricRtdbPersistence': 1,
       data: this.tree.snapshot(),
       priorities: Object.fromEntries(this.priorities),
     } as JsonValue;
@@ -2161,7 +2193,7 @@ function decodePersistenceState(root: JsonValue): {
     const candidate = root as Record<string, JsonValue>;
     const encodedPriorities = candidate.priorities;
     if (
-      candidate.__pyricRtdbPersistence === 1
+      candidate['.pyricRtdbPersistence'] === 1
       && 'data' in candidate
       && encodedPriorities !== null
       && typeof encodedPriorities === 'object'

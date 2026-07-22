@@ -1,6 +1,31 @@
 import { defineRows } from './define-rows.ts';
 import type { CompatibilitySurfaceRegistry } from './types.ts';
 
+const listenerPermissionDenied = {
+  name: "Error",
+  code: "PERMISSION_DENIED",
+  message: "permission_denied at <path>: Client doesn't have permission to access the desired data.",
+};
+
+const deniedListenerCancellations = {
+  value: { synchronous: null, cancellations: [listenerPermissionDenied] },
+  child_added: { synchronous: null, cancellations: [listenerPermissionDenied] },
+  child_changed: { synchronous: null, cancellations: [listenerPermissionDenied] },
+  child_removed: { synchronous: null, cancellations: [listenerPermissionDenied] },
+  child_moved: { synchronous: null, cancellations: [listenerPermissionDenied] },
+};
+
+const revokedListenerCancellations = {
+  deliveryCounts: { value: 1, child_added: 1, child_changed: 0, child_removed: 0, child_moved: 0 },
+  cancellations: {
+    value: [listenerPermissionDenied],
+    child_added: [listenerPermissionDenied],
+    child_changed: [listenerPermissionDenied],
+    child_removed: [listenerPermissionDenied],
+    child_moved: [listenerPermissionDenied],
+  },
+};
+
 const row1 = defineRows({
   surface: "rtdb",
   defaults: {
@@ -1229,11 +1254,13 @@ export const rtdbRegistry = {
           rowRef: "M37h",
           surface: "rtdb-modular",
           featureKeys: ["runTransaction"],
-          behavior: "Concurrent contention retries the update function when another Database client writes after the transaction read and before commit, up to 25 attempts.",
-          status: "conforms",
-          evidence: "Oracle `rtdb-modular-concurrent-transforms` captures a retry across two clients; `unit:modular/cdd-climb-cases.ts` forces the conflict deterministically and observes arguments [0, 10] before committing 11.",
-          automation: "unit-backed",
+          behavior: "**Divergence:** two ordinary concurrent `runTransaction` calls are serialized by the in-process backend, so their update functions are not retried with Firebase's captured contention counts. Synchronous re-entrant conflicting writes do retry, up to 25 attempts.",
+          status: "diverged-documented",
+          evidence: "Oracle `rtdb-modular-concurrent-transforms` captures invocation counts [2, 3]; `unit:modular/cdd-climb-cases.ts` pins the sandbox's [1, 1] ordinary-concurrency boundary and separately covers its deterministic re-entrant retry seam.",
+          automation: "oracle-backed",
+          oracleObservations: ["rtdb-modular-concurrent-transforms"],
           conformanceTests: ["packages/pyric/test/database/modular/cdd-climb-cases.ts"],
+          conformanceDisposition: "pending-fix",
           rowNumber: 37,
         }),
         row5({
@@ -1615,6 +1642,13 @@ export const rtdbRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-child-previous-name"],
           conformanceTests: ["packages/pyric/test/database/modular/cdd-climb-cases.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-M75",
+            observation: "rtdb-modular-child-previous-name",
+            expect: { repeatCount: 2, initialAdded: [["a",null],["b","a"],["c","b"]], postMutationAdded: [["d","c"]], changed: [["b","a"],["c","b"]], removed: [["a",null]], moved: [["c",null]] },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Child listeners preserve captured predecessor values for replay, mutation, removal, and movement.",
+          }],
           rowNumber: 75,
         }),
         row5({
@@ -1630,6 +1664,13 @@ export const rtdbRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-listener-cancellation"],
           conformanceTests: ["packages/pyric/test/database/modular/cdd-climb-cases.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-M75A",
+            observation: "rtdb-modular-listener-cancellation",
+            expect: { repeatCount: 2, allowedControl: { ok: true }, denied: deniedListenerCancellations, revoked: revokedListenerCancellations, controlAfterRevocation: { ok: true } },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Denied and revoked value/child listeners deliver pinned cancellation shapes without mutating the control path.",
+          }],
         }),
         row5({
           rowRef: "M75b",
@@ -1655,8 +1696,27 @@ export const rtdbRegistry = {
           riskScore: 6,
           riskReasons: ["asserts listener semantics","asserts a specific listener fire count","asserts 1 specific value(s)"],
           automation: "oracle-backed",
-          oracleObservations: ["rtdb-modular-child-previous-name"],
+          oracleObservations: ["rtdb-modular-child-previous-name","rtdb-modular-childchanged-cofire-with-childmoved","rtdb-modular-onchildmoved-previouschildname-sequencing"],
           conformanceTests: ["packages/pyric/test/database/modular/cdd-climb-cases.ts","packages/pyric/test/database/modular/oracle-conformance.test.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-M75C",
+            observation: "rtdb-modular-child-previous-name",
+            expect: { moved: [["c",null]] },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Ordered movement preserves the captured predecessor alongside co-fire and multi-move sequencing evidence.",
+          }, {
+            finding: "RTDB-M75C-COFIRE",
+            observation: "rtdb-modular-childchanged-cofire-with-childmoved",
+            expect: { reorderChanged: 1, reorderMoved: 1, nonOrderChanged: 1, nonOrderMoved: 0, sameRankChanged: 1, sameRankMoved: 1 },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "child_changed and child_moved co-fire exactly where production captured them.",
+          }, {
+            finding: "RTDB-M75C-SEQUENCE",
+            observation: "rtdb-modular-onchildmoved-previouschildname-sequencing",
+            expect: { totalMoves: 3, prevNameSequence: ["k3","k2",null], movedKeySequence: ["k1","k1","k1"] },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Repeated ordered movement keeps the production predecessor-name sequence.",
+          }],
         }),
         row5({
           rowRef: "M75d",
@@ -1671,6 +1731,13 @@ export const rtdbRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-child-listener-only-once"],
           conformanceTests: ["packages/pyric/test/database/modular/cdd-climb-cases.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-M75D",
+            observation: "rtdb-modular-child-listener-only-once",
+            expect: { repeatCount: 2, added: [["c","b"],["b","a"],["a",null]], changed: [["a",null]], removed: [["b",null]], moved: [["a","c"]], cancellations: [] },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "ListenOptions onlyOnce preserves captured batch ordering and stops each child listener family.",
+          }],
         }),
         row5({
           rowRef: "M76",
@@ -1760,7 +1827,7 @@ export const rtdbRegistry = {
           featureKeys: ["onDisconnect","goOffline"],
           behavior: "**Local lifecycle contract:** disconnect queues are owned per Database client, drain on app deletion, clear without executing on sandbox reset, and are excluded from persisted RTDB snapshots",
           status: "conforms",
-          evidence: "`unit:database/on-disconnect.test.ts` covers independent clients, app deletion, reset clearing, and snapshot exclusion; these sandbox-owned boundaries have no production oracle assertion in this evidence set.",
+          evidence: "The explicit `rtdb-modular#M82` assertion set in `unit:database/on-disconnect.test.ts` covers independent clients, app deletion, reset clearing, and snapshot exclusion; these sandbox-owned boundaries have no production oracle equivalent.",
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/database/on-disconnect.test.ts"],
           rowNumber: 82,
@@ -1850,13 +1917,20 @@ export const rtdbRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-runtime-class-identity"],
           conformanceTests: ["packages/pyric/test/database/modular/oracle-conformance.test.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-M88",
+            observation: "rtdb-modular-runtime-class-identity",
+            expect: { repeatCount: 2, transactionResult: { constructorName: "TransactionResult", instanceOf: true, prototypeIsExportPrototype: true, prototypeKeys: ["constructor","toJSON"], toJSONType: "function", toJSON: { committed: true, snapshot: 1 } } },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "TransactionResult retains its runtime identity and captured toJSON contract.",
+          }],
           rowNumber: 88,
         }),
         row5({
           rowRef: "M89",
           surface: "rtdb-modular",
           featureKeys: ["setPriority","setWithPriority"],
-          behavior: "`setPriority` and `setWithPriority` validate, store, replace, preserve, and clear RTDB priority metadata with Firebase-compatible Promise and snapshot/export shapes.",
+          behavior: "`setPriority` and `setWithPriority` store, replace, preserve, and clear valid RTDB priority metadata with the captured snapshot/export shapes.",
           status: "conforms",
           evidence: "Oracle `rtdb-modular-priority-contract` captures round-trip/export shape, update/transaction preservation, plain-set clearing, and explicit clearing; replayed by `unit:modular/cdd-climb-cases.ts`.",
           risk: ["specific-field"],
@@ -1885,16 +1959,23 @@ export const rtdbRegistry = {
         row5({
           rowRef: "M91",
           surface: "rtdb-modular",
-          featureKeys: ["setPriority","onChildMoved","runTransaction","onDisconnect"],
-          behavior: "Priority changes participate in child movement/listener sequencing, transactions, updates, and disconnect writes without losing metadata.",
+          featureKeys: ["setPriority","onChildMoved","runTransaction"],
+          behavior: "Priority changes participate in child movement/listener sequencing, transactions, and updates without losing metadata.",
           status: "conforms",
-          evidence: "Oracle `rtdb-modular-priority-contract` captures priority movement and preservation through update/transaction; replayed by `unit:modular/cdd-climb-cases.ts` with disconnect execution covered by `unit:database/on-disconnect.test.ts`.",
+          evidence: "Oracle `rtdb-modular-priority-contract` captures priority movement and preservation through update/transaction; replayed by `unit:modular/cdd-climb-cases.ts`. Disconnect priority execution is owned separately by M83.",
           risk: ["listener","atomicity","specific-field"],
           riskScore: 5,
           riskReasons: ["asserts listener semantics","asserts transaction/batch atomicity","asserts a specific field/property value"],
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-priority-contract"],
           conformanceTests: ["packages/pyric/test/database/modular/cdd-climb-cases.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-M91",
+            observation: "rtdb-modular-priority-contract",
+            expect: { moved: [["b",null],["c","b"]], afterUpdate: 0, afterTransaction: 0 },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Priority movement and metadata preservation through update and transaction stay pinned to production.",
+          }],
           rowNumber: 91,
         }),
         row5({
@@ -2038,6 +2119,13 @@ export const rtdbRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-reference-shape-url"],
           conformanceTests: ["packages/pyric/test/database/modular/oracle-conformance.test.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-100",
+            observation: "rtdb-modular-reference-shape-url",
+            expect: { repeatCount: 2, nested: { key: "child", parentKey: "parent", rootKey: null, toString: { protocol: "https:", hostname: "digame-mas-default-rtdb.firebaseio.com", pathMatches: true }, childToStringMatches: true } },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Nested references retain Firebase key, parent, root, and URL shapes.",
+          }],
           aliases: ["rtdb#100"],
         }),
         row7({
@@ -2289,6 +2377,13 @@ export const rtdbRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-write-return-validation"],
           conformanceTests: ["packages/pyric/test/database/modular/oracle-conformance.test.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-120",
+            observation: "rtdb-modular-write-return-validation",
+            expect: { repeatCount: 2, overlapping: { timing: "synchronous-throw", name: "Error", code: null, message: "update failed: values argument contains a path /a that is ancestor of another path /a/b" }, afterRejected: { seed: true } },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Overlapping update paths fail synchronously and atomically preserve prior data.",
+          }],
           aliases: ["rtdb#120"],
         }),
       ],
@@ -2506,6 +2601,25 @@ export const rtdbRegistry = {
           riskReasons: ["asserts a specific field/property value","asserts listener semantics"],
           oracleObservations: ["rtdb-modular-onchildmoved-with-orderby","rtdb-modular-onchildmoved-previouschildname-sequencing","rtdb-modular-childchanged-cofire-with-childmoved"],
           conformanceTests: ["packages/pyric/test/database/modular/oracle-conformance.test.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-137-MOVE",
+            observation: "rtdb-modular-onchildmoved-with-orderby",
+            expect: { firedOnInitial: 0, firedOnMove: 1, noInitialReplay: true, firesOnReorder: true },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Ordered child movement fires once on reorder and never replays initially.",
+          }, {
+            finding: "RTDB-137-SEQUENCE",
+            observation: "rtdb-modular-onchildmoved-previouschildname-sequencing",
+            expect: { totalMoves: 3, prevNameSequence: ["k3","k2",null], movedKeySequence: ["k1","k1","k1"] },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Movement to end, middle, and front keeps the captured predecessor sequence.",
+          }, {
+            finding: "RTDB-137-COFIRE",
+            observation: "rtdb-modular-childchanged-cofire-with-childmoved",
+            expect: { reorderChanged: 1, reorderMoved: 1, nonOrderChanged: 1, nonOrderMoved: 0, sameRankChanged: 1, sameRankMoved: 1 },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "child_changed and child_moved co-fire exactly where production captured them.",
+          }],
           aliases: ["rtdb#137"],
         }),
       ],
@@ -2579,6 +2693,13 @@ export const rtdbRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-off-duplicate-registration"],
           conformanceTests: ["packages/pyric/test/database/modular/oracle-conformance.test.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-183",
+            observation: "rtdb-modular-off-duplicate-registration",
+            expect: { repeatCount: 2, afterInitial: [0,0], afterFirstWrite: [0,0,1,1], afterFirstOff: [0,0,1,1,2], afterSecondOff: [0,0,1,1,2], terminal: 3 },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Each duplicate off call removes one matching registration without orphaning the other.",
+          }],
           aliases: ["rtdb#183"],
         }),
       ],
@@ -2782,6 +2903,13 @@ export const rtdbRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-concurrent-transforms"],
           conformanceTests: ["packages/pyric/test/database/modular/cdd-climb-cases.ts"],
+          conformanceChecks: [{
+            finding: "RTDB-157",
+            observation: "rtdb-modular-concurrent-transforms",
+            expect: { repeatCount: 2, incrementTerminal: 5 },
+            probe: "packages/pyric/test/database/modular/oracle-conformance.test.ts",
+            guards: "Concurrent increment sentinels accumulate both deltas instead of losing one write.",
+          }],
           aliases: ["rtdb#157"],
         }),
       ],
@@ -2833,14 +2961,15 @@ export const rtdbRegistry = {
           rowRef: "161",
           surface: "rtdb-modular",
           behavior: "Concurrent contention — if another client writes between the read and write, the update fn is retried with the new current value (typically up to 25 retries by default)",
-          status: "conforms",
-          evidence: "Oracle `rtdb-modular-concurrent-transforms` uses two warm independent clients and captures both commits, terminal 2, and a retry; replayed deterministically by `unit:modular/cdd-climb-cases.ts`.",
+          status: "diverged-documented",
+          evidence: "Oracle `rtdb-modular-concurrent-transforms` captures callback counts [2, 3] across two clients; the synchronous in-process backend serializes the same ordinary calls with [1, 1], pinned by `unit:modular/cdd-climb-cases.ts`.",
           risk: ["listener"],
           riskScore: 2,
           riskReasons: ["asserts listener semantics"],
           automation: "oracle-backed",
           oracleObservations: ["rtdb-modular-concurrent-transforms"],
           conformanceTests: ["packages/pyric/test/database/modular/cdd-climb-cases.ts"],
+          conformanceDisposition: "pending-fix",
           aliases: ["rtdb#161"],
         }),
         row18({

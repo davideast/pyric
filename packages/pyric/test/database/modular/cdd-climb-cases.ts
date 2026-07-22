@@ -172,6 +172,58 @@ describe('RTDB CDD climb row cases', () => {
       cancellationObservation.controlAfterRevocation,
     );
     expect(cancellationObservation.repeatCount).toBe(2);
+
+    // A cancellation is terminal for the registration. Later Auth changes
+    // must not silently recreate a listener that Firebase has canceled.
+    const initiallyDeniedSandbox = initializeSandbox();
+    const initiallyDeniedDb = getDatabase(initiallyDeniedSandbox);
+    const initiallyDeniedWriter = getDatabase(
+      initiallyDeniedSandbox.withAuth({ uid: 'writer' }),
+    );
+    rtdbSandbox.setRules(initiallyDeniedDb, {
+      rules: { '.read': 'auth != null', '.write': 'true' },
+    });
+    const deniedValues: unknown[] = [];
+    const deniedErrors: Error[] = [];
+    onValue(
+      ref(initiallyDeniedDb, 'terminal-denial'),
+      (snapshot) => deniedValues.push(snapshot.val()),
+      (error) => deniedErrors.push(error),
+    );
+    await Promise.resolve();
+    initiallyDeniedSandbox.currentUser = { uid: 'later-user' };
+    await set(ref(initiallyDeniedWriter, 'terminal-denial'), 1);
+    expect({ deliveries: deniedValues, cancellations: deniedErrors.length }).toEqual({
+      deliveries: [],
+      cancellations: 1,
+    });
+
+    const revokedSandbox = initializeSandbox();
+    revokedSandbox.currentUser = { uid: 'initial-user' };
+    const revokedDb = getDatabase(revokedSandbox);
+    const revokedWriter = getDatabase(revokedSandbox.withAuth({ uid: 'writer' }));
+    rtdbSandbox.setRules(revokedDb, {
+      rules: { '.read': 'auth != null', '.write': 'true' },
+    });
+    const revokedValues: unknown[] = [];
+    const revokedErrors: Error[] = [];
+    onValue(
+      ref(revokedDb, 'terminal-revocation'),
+      (snapshot) => revokedValues.push(snapshot.val()),
+      (error) => revokedErrors.push(error),
+    );
+    rtdbSandbox.setRules(revokedDb, {
+      rules: { '.read': 'false', '.write': 'true' },
+    });
+    rtdbSandbox.setRules(revokedDb, {
+      rules: { '.read': 'auth != null', '.write': 'true' },
+    });
+    revokedSandbox.currentUser = { uid: 'later-user' };
+    await set(ref(revokedWriter, 'terminal-revocation'), 1);
+    expect({ deliveries: revokedValues, cancellations: revokedErrors.length }).toEqual({
+      deliveries: [null],
+      cancellations: 1,
+    });
   });
 
   it('rtdb-modular#96 leaves inactive canonical Firebase databases untagged', async () => {
@@ -363,9 +415,33 @@ describe('RTDB CDD climb row cases', () => {
     expect((await get(target)).val()).toBe(concurrentObservation.incrementTerminal);
   });
 
-  it('rtdb-modular#161 retries a transaction after a competing client write', async () => {
+  it('rtdb-modular#161 documents ordinary concurrent transaction serialization', async () => {
     const { first, second } = setup();
     const target = ref(first, 'contention/transaction');
+    await set(target, 0);
+    const calls = [0, 0];
+    const results = await Promise.all([
+      runTransaction(target, (current) => {
+        calls[0] += 1;
+        return ((current as number | null) ?? 0) + 1;
+      }),
+      runTransaction(ref(second, 'contention/transaction'), (current) => {
+        calls[1] += 1;
+        return ((current as number | null) ?? 0) + 1;
+      }),
+    ]);
+    expect(calls).toEqual([1, 1]);
+    expect(calls).not.toEqual(concurrentObservation.invocationCountsSorted);
+    expect(results.map((result) => result.committed)).toEqual(concurrentObservation.committed);
+    expect(results.map((result) => result.snapshot.val()).sort()).toEqual(
+      concurrentObservation.finalSnapshotsSorted,
+    );
+    expect((await get(target)).val()).toBe(concurrentObservation.transactionTerminal);
+  });
+
+  it('retries a transaction after a synchronous re-entrant conflicting write', async () => {
+    const { first, second } = setup();
+    const target = ref(first, 'contention/reentrant-transaction');
     await set(target, 0);
     const seen: unknown[] = [];
     let injected = false;
@@ -373,7 +449,7 @@ describe('RTDB CDD climb row cases', () => {
       seen.push(current);
       if (!injected) {
         injected = true;
-        void set(ref(second, 'contention/transaction'), 10);
+        void set(ref(second, 'contention/reentrant-transaction'), 10);
       }
       return ((current as number | null) ?? 0) + 1;
     });

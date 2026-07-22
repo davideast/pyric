@@ -522,8 +522,8 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
     },
     {
       name: 'rtdb-modular-concurrent-transforms',
-      matrixRow: 'rtdb-modular#157, rtdb-modular#161',
-      rowIds: ['rtdb-modular#157', 'rtdb-modular#161'],
+      matrixRow: 'rtdb-modular#M37h, rtdb-modular#157, rtdb-modular#161',
+      rowIds: ['rtdb-modular#M37h', 'rtdb-modular#157', 'rtdb-modular#161'],
       description:
         'Two-client concurrent increments and transactions preserve both updates, with transaction retry evidence and independent terminal reads.',
       observe: () => repeatStable(2, async (attempt) => {

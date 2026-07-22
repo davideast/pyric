@@ -55,7 +55,7 @@ describe('SandboxSnapshot.services — rtdb', () => {
     const snap = sandbox.snapshot();
     expect(snap.services).toHaveProperty('rtdb');
     expect(snap.services.rtdb).toEqual({
-      __pyricRtdbPersistence: 1,
+      '.pyricRtdbPersistence': 1,
       data: { rooms: { general: { name: 'General' } } },
       priorities: {},
     });
@@ -67,7 +67,7 @@ describe('SandboxSnapshot.services — rtdb', () => {
     const snap = sandbox.snapshot();
     expect(snap.services).toHaveProperty('rtdb');
     expect(snap.services.rtdb).toEqual({
-      __pyricRtdbPersistence: 1,
+      '.pyricRtdbPersistence': 1,
       data: {},
       priorities: {},
     });
@@ -233,7 +233,7 @@ describe('rtdb persistence — auto-flush on write', () => {
     }
     const { services } = deserializeFromBuckets(records);
     expect((services as { rtdb?: unknown }).rtdb).toEqual({
-      __pyricRtdbPersistence: 1,
+      '.pyricRtdbPersistence': 1,
       data: { rooms: { general: { name: 'General' } } },
       priorities: {},
     });
@@ -243,6 +243,17 @@ describe('rtdb persistence — auto-flush on write', () => {
 // ─── Restore fires listeners (notification design) ─────────────────────
 
 describe('rtdb persistence — restore notifies live listeners', () => {
+  it('does not mistake valid legacy user keys for the persistence envelope', () => {
+    const backend = new RtdbBackend();
+    const legacy = {
+      __pyricRtdbPersistence: 1,
+      data: { belongs: 'to the user' },
+      priorities: { also: 'user data' },
+    };
+    backend.restoreTree(legacy);
+    expect(backend.exportTree()).toEqual(legacy);
+  });
+
   it('restoreTree fires an attached onValue listener with the restored value', () => {
     const backend = new RtdbBackend();
     const fires: Array<{ val: unknown; exists: boolean }> = [];
