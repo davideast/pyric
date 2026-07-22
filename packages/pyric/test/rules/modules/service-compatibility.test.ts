@@ -521,6 +521,23 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.success, expression).toBe(false);
     }
   });
+  test('rejects heterogeneous method receivers in caller modules', () => {
+    const result = resolveModules(
+      makeStorageSource("import { broken } from './policy';", 'broken(request.auth != null)'),
+      {
+        modules: {
+          './policy': `
+            export function broken(flag) {
+              let value = flag ? ['owner'] : 'owner';
+              return value.keys().hasAll(['owner']);
+            }
+          `,
+        },
+      },
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+  });
   test('enforces receiver types on direct Firestore lookup results and propagated values', () => {
     const modules = [
       `export function broken() { return get(/databases/$(database)/documents/users/a).data.matches('x'); }`,

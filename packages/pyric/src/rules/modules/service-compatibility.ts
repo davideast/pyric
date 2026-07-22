@@ -48,10 +48,11 @@ const SERVICE_SCOPE_IDENTIFIERS: Readonly<Record<RulesServiceName, ReadonlySet<s
   'firebase.storage': new Set(['bucket']),
 };
 type AmbientProvenance = string[] | 'unknown-ambient' | null;
+type InferredReceiverType = RulesReceiverType | 'mixed';
 
 interface AnalysisContext {
   aliases: ReadonlyMap<string, AmbientProvenance>;
-  receiverTypes: ReadonlyMap<string, RulesReceiverType | null>;
+  receiverTypes: ReadonlyMap<string, InferredReceiverType | null>;
   functions: ReadonlyMap<string, FunctionDef>;
   service: RulesServiceName;
   stack: ReadonlySet<string>;
@@ -199,7 +200,7 @@ function ambientCollectionMethodIssue(
 function expressionReceiverType(
   expression: Expression,
   ctx: AnalysisContext,
-): RulesReceiverType | null {
+): InferredReceiverType | null {
   const ambientType = ambientReceiverType(ctx.service, ambientBindingPath(expression, ctx));
   if (ambientType) return ambientType;
   switch (expression.type) {
@@ -290,7 +291,8 @@ function expressionReceiverType(
     case 'ternary': {
       const consequent = expressionReceiverType(expression.consequent, ctx);
       const alternate = expressionReceiverType(expression.alternate, ctx);
-      return consequent && consequent === alternate ? consequent : null;
+      if (!consequent && !alternate) return null;
+      return consequent === alternate ? consequent : 'mixed';
     }
     case 'functionCall': {
       const fn = ctx.functions.get(expression.name);
@@ -300,7 +302,7 @@ function expressionReceiverType(
       }
       if (!fn || ctx.stack.has(fn.name)) return null;
       const aliases = new Map<string, AmbientProvenance>();
-      const receiverTypes = new Map<string, RulesReceiverType | null>();
+      const receiverTypes = new Map<string, InferredReceiverType | null>();
       fn.parameters.forEach((parameter, index) => {
         const arg = expression.args[index];
         aliases.set(parameter, arg ? ambientBindingPath(arg, ctx) : null);
@@ -394,7 +396,7 @@ function serviceIncompatibility(
         }
         if (called && !ctx.stack.has(called.name)) {
           const aliases = new Map<string, AmbientProvenance>();
-          const receiverTypes = new Map<string, RulesReceiverType | null>();
+          const receiverTypes = new Map<string, InferredReceiverType | null>();
           called.parameters.forEach((parameter, index) => {
             const arg = e.args[index];
             aliases.set(parameter, arg ? ambientBindingPath(arg, ctx) : null);
