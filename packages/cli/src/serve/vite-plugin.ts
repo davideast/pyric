@@ -45,6 +45,8 @@ import type { PyricRuntimeChipOption } from './runtime/chip-config.js';
 import {
   createViteSandboxGeneration,
   type ViteSandboxGeneration,
+  type ViteSandboxGenerationInput,
+  type ViteSandboxGenerationOptions,
 } from './vite-sandbox-generation.js';
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
@@ -166,12 +168,14 @@ export function pyric(options: PyricOptions = {}): Plugin {
   const moduleSwap = createViteModuleSwap(moduleContext);
   const { entries, cliRoot } = moduleContext;
   const workerRuntime = createViteWorkerRuntime();
-  const pageRuntime = createVitePageRuntime({
+  const studioEnabled = options.ui !== false;
+  const pageRuntimeInput = {
     options,
-    studioEnabled: options.ui !== false,
+    studioEnabled,
     initEntry: entries.init,
     workerRuntime,
-  });
+  };
+  const pageRuntime = createVitePageRuntime(pageRuntimeInput);
 
   // Normalize the public bridge shorthand once. The active generation owns the
   // bridge/session attachment and routes the peer through the SharedWorker.
@@ -216,23 +220,29 @@ export function pyric(options: PyricOptions = {}): Plugin {
       activeGeneration = null;
       await priorGeneration?.close();
 
-      const generation = await createViteSandboxGeneration({
+      const projectDir = options.root ?? server.config.root;
+      const uiEnabled = options.ui ?? true;
+      const functionsOptions = resolveFunctionsOptions(options.functions);
+      const ai = pageRuntime.ai();
+      const generationOptions: ViteSandboxGenerationOptions = {
+        rules: options.rules,
+        seed: options.seed,
+        persist: options.persist,
+        fresh: options.fresh,
+        capture: options.capture,
+        bridge: bridgeOpts,
+        ui: uiEnabled,
+        functions: functionsOptions,
+      };
+      const generationInput: ViteSandboxGenerationInput = {
         server,
-        projectDir: options.root ?? server.config.root,
+        projectDir,
         cliRoot,
         workerRuntime,
-        options: {
-          rules: options.rules,
-          seed: options.seed,
-          persist: options.persist,
-          fresh: options.fresh,
-          capture: options.capture,
-          bridge: bridgeOpts,
-          ui: options.ui ?? true,
-          functions: resolveFunctionsOptions(options.functions),
-        },
-        ai: pageRuntime.ai(),
-      });
+        options: generationOptions,
+        ai,
+      };
+      const generation = await createViteSandboxGeneration(generationInput);
       activeGeneration = generation;
     },
 

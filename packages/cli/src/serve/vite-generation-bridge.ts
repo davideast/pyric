@@ -3,6 +3,7 @@ import type { ViteDevServer } from 'vite';
 import type { FunctionsRtdbProject } from '../functions-rtdb/project.js';
 import type {
   BridgeHostAttachment,
+  BridgeHostOptions,
   BridgeMount,
   BridgeMountOptions,
 } from './bridge-mount.js';
@@ -24,14 +25,19 @@ export function createViteGenerationBridge(input: {
   const { server, options, functionsProject, functionsProjectId, createBridge } = input;
   if (!options && !functionsProject) return null;
   const serverOptions = server.config.server;
-  return createBridge({
-    ...(options ?? {}),
-    project: options?.project ?? functionsProjectId ?? undefined,
+  const project = options?.project ?? functionsProjectId ?? undefined;
+  const disableAuditLog = options?.disableAuditLog;
+  const boundHost = typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost';
+  const allowedHosts = resolveAllowedHosts(serverOptions.allowedHosts);
+  const bridgeOptions: BridgeMountOptions = {
+    project,
+    disableAuditLog,
     upgradeGuard: {
-      boundHost: typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
-      allowedHosts: resolveAllowedHosts(serverOptions.allowedHosts),
+      boundHost,
+      allowedHosts,
     },
-  });
+  };
+  return createBridge(bridgeOptions);
 }
 
 export function attachViteGenerationBridge(input: {
@@ -44,15 +50,17 @@ export function attachViteGenerationBridge(input: {
   const httpServer = server.httpServer as unknown as HttpServer;
   const host =
     (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
-  return bridge.attachHost({
+  const origin = (): { host: string; port: number } | null => {
+    const address = httpServer.address();
+    const port = address && typeof address === 'object' ? address.port : 0;
+    return port > 0 ? { host, port } : null;
+  };
+  const hostOptions: BridgeHostOptions = {
     servers: [httpServer],
     projectDir,
-    origin: () => {
-      const address = httpServer.address();
-      const port = address && typeof address === 'object' ? address.port : 0;
-      return port > 0 ? { host, port } : null;
-    },
+    origin,
     collision: server.config.logger,
     closeOnServerClose: false,
-  });
+  };
+  return bridge.attachHost(hostOptions);
 }

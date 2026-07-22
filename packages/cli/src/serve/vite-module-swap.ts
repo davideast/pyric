@@ -112,7 +112,8 @@ export function createViteModuleSwap(context: ViteModuleContext): ViteModuleSwap
       return node && isOurCode(importer) ? NODE_SHIM_PREFIX + node[2]! : null;
     },
     load(id) {
-      return id.startsWith(NODE_SHIM_PREFIX) ? shimFor(id.slice(NODE_SHIM_PREFIX.length)) : null;
+      if (!id.startsWith(NODE_SHIM_PREFIX)) return null;
+      return shimFor(id.slice(NODE_SHIM_PREFIX.length));
     },
   };
 }

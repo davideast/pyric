@@ -53,10 +53,12 @@ export function attachViteGenerationFunctions(input: {
   const { server, projectDir, cliRoot, bridge, resolved, registerModuleUrl, attach } = input;
   if (!resolved.project || !resolved.projectId || !bridge || !server.httpServer) return null;
   const builtChild = path.join(cliRoot, 'dist/functions-rtdb/child.js');
-  const childModuleUrl = (input.fileExists ?? existsSync)(builtChild) ? builtChild : undefined;
+  const fileExists = input.fileExists ?? existsSync;
+  const childModuleUrl = fileExists(builtChild) ? builtChild : undefined;
   const host =
     (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
-  return attach({
+  const registerUrl = registerModuleUrl();
+  const attachmentOptions: ViteFunctionsDevelopmentOptions = {
     cwd: projectDir,
     project: resolved.project,
     projectId: resolved.projectId,
@@ -69,7 +71,8 @@ export function attachViteGenerationFunctions(input: {
     logger: server.config.logger,
     bridge,
     baseEnv: process.env,
-    registerUrl: registerModuleUrl(),
-    ...(childModuleUrl ? { childModuleUrl } : {}),
-  });
+    registerUrl,
+    childModuleUrl,
+  };
+  return attach(attachmentOptions);
 }

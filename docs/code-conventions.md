@@ -88,6 +88,24 @@ Rule.
 - If a ternary needs to wrap, performs work in either branch, or introduces a
   second condition, replace it with explicit control flow.
 
+## 3c. Configuration assembly is explicit
+
+Configuration objects must be assembled declaratively. Do not use conditional
+object spreads, nested ternaries, or function calls hidden inside conditional
+properties. Compute meaningful values first, make presence decisions with
+explicit control flow, assign the finalized object to a descriptive variable,
+and then pass it across the boundary.
+
+Object spread is allowed for unconditional copying or extension of an already
+complete object. It must not encode whether a property or feature exists.
+
+If `undefined` and an absent property are equivalent, assign the named value
+directly. If they differ, use explicit branches. Do not use truthiness as a
+proxy for presence unless every falsy value intentionally means “absent.”
+
+The review test: can the reviewer point to separate lines that compute, decide,
+assemble, and invoke? If not, the expression is probably hiding too much.
+
 ## 4. Barrel-file policy
 
 The ratified rule is: the directory is the index, and aggregation is computed, not hand-maintained. Source barrels align to it with one carve-out.

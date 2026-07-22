@@ -134,27 +134,30 @@ export async function createViteSandboxGeneration(
     const rulesConfig = dependencies.resolveRulesConfig(cwd, options.rules, firebaseConfig);
 
     try {
-      await dependencies.prepareWorker(workerRuntime, viteWorkerEpochSalt(cwd, ai.engineWire));
+      const epochSalt = viteWorkerEpochSalt(cwd, ai.engineWire);
+      await dependencies.prepareWorker(workerRuntime, epochSalt);
     } catch (error) {
       server.config.logger.warn(
         `  ⚠ [pyric] SharedWorker bundle failed — using the in-page sandbox (single-tab, ephemeral): ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
-    const functions = await resolveViteGenerationFunctions({
+    const functionsInput = {
       projectDir: cwd,
       options: options.functions,
       discover: dependencies.discoverFunctionsProject,
       readFirebaseRc: dependencies.readFirebaseRc,
-    });
-    bridge = createViteGenerationBridge({
+    };
+    const functions = await resolveViteGenerationFunctions(functionsInput);
+    const bridgeInput = {
       server,
       projectDir: cwd,
       options: options.bridge,
       functionsProject: functions.project,
       functionsProjectId: functions.projectId,
       createBridge: dependencies.createBridge,
-    });
+    };
+    bridge = createViteGenerationBridge(bridgeInput);
     const serverOptions = server.config.server;
 
     let siteUiDir: string | undefined;
@@ -168,30 +171,37 @@ export async function createViteSandboxGeneration(
       }
     }
     const { sdkDir, epoch: workerVersion } = dependencies.workerStatus(workerRuntime);
+    const sdk = { dir: sdkDir, workerVersion: workerVersion ?? undefined };
+    const persistence = options.persist ? { fresh: options.fresh } : undefined;
+    const studio = options.ui ? { siteUiDir } : false;
+    const aiOptions = ai.engineWire ? { engine: ai.engineWire } : null;
+    const bridgeUrl = (): string | null => {
+      if (!bridge) return null;
+      const address = server.httpServer?.address();
+      const port = address && typeof address === 'object' ? address.port : 0;
+      const host = (typeof serverOptions.host === 'string' && serverOptions.host) || 'localhost';
+      if (port <= 0) return null;
+      return bridge.wsUrl({ host, port });
+    };
+    const sessionOptions: SandboxSessionOptions = {
+      projectDir: cwd,
+      firebaseConfig: rulesConfig,
+      sdk,
+      seedFile: options.seed,
+      persistence,
+      capture: options.capture,
+      studio,
+      bridgeUrl,
+      ai: aiOptions,
+      aiProxyUpstream: ai.proxyUpstream,
+      activity: (incident) => server.config.logger.warn(formatActivityWarning(incident)),
+      logger: {
+        info: (message) => server.config.logger.info(message),
+        note: (message) => server.config.logger.warn(message),
+      },
+    };
     try {
-      session = await dependencies.createSession({
-        projectDir: cwd,
-        firebaseConfig: rulesConfig,
-        sdk: { dir: sdkDir, workerVersion: workerVersion ?? undefined },
-        seedFile: options.seed,
-        persistence: options.persist ? { fresh: options.fresh } : undefined,
-        capture: options.capture,
-        studio: options.ui ? { siteUiDir } : false,
-        bridgeUrl: () => {
-          if (!bridge) return null;
-          const address = server.httpServer?.address();
-          const port = address && typeof address === 'object' ? address.port : 0;
-          const host = (typeof serverOptions.host === 'string' && serverOptions.host) || 'localhost';
-          return port > 0 ? bridge.wsUrl({ host, port }) : null;
-        },
-        ai: ai.engineWire ? { engine: ai.engineWire } : null,
-        aiProxyUpstream: ai.proxyUpstream,
-        activity: (incident) => server.config.logger.warn(formatActivityWarning(incident)),
-        logger: {
-          info: (message) => server.config.logger.info(message),
-          note: (message) => server.config.logger.warn(message),
-        },
-      });
+      session = await dependencies.createSession(sessionOptions);
     } catch (error) {
       await close();
       if (error instanceof SandboxSeedError) {
@@ -207,9 +217,14 @@ export async function createViteSandboxGeneration(
       server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
     }
 
-    listenerDisposers.push(attachViteGenerationMiddleware({ server, bridge, session }));
-    bridgeAttachment = attachViteGenerationBridge({ server, projectDir: cwd, bridge });
-    functionsAttachment = attachViteGenerationFunctions({
+    const middlewareInput = { server, bridge, session };
+    const disposeMiddleware = attachViteGenerationMiddleware(middlewareInput);
+    listenerDisposers.push(disposeMiddleware);
+
+    const bridgeAttachmentInput = { server, projectDir: cwd, bridge };
+    bridgeAttachment = attachViteGenerationBridge(bridgeAttachmentInput);
+
+    const functionsAttachmentInput = {
       server,
       projectDir: cwd,
       cliRoot,
@@ -218,8 +233,11 @@ export async function createViteSandboxGeneration(
       registerModuleUrl: dependencies.registerModuleUrl,
       fileExists: dependencies.fileExists,
       attach: dependencies.attachFunctions,
-    });
-    const stopRulesWatch = watchViteGenerationRules({ server, session });
+    };
+    functionsAttachment = attachViteGenerationFunctions(functionsAttachmentInput);
+
+    const rulesWatchInput = { server, session };
+    const stopRulesWatch = watchViteGenerationRules(rulesWatchInput);
     if (stopRulesWatch) listenerDisposers.push(stopRulesWatch);
 
     if (server.httpServer) {

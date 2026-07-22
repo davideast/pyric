@@ -35,7 +35,9 @@ export function attachViteGenerationMiddleware(input: {
         req.originalUrl ?? req.url ?? '/',
         `http://${req.headers.host ?? 'localhost'}`,
       );
-      Promise.resolve(bridge ? bridge.handler(req, res, url) : false)
+      let bridgeResult: boolean | Promise<boolean> = false;
+      if (bridge) bridgeResult = bridge.handler(req, res, url);
+      Promise.resolve(bridgeResult)
         .then((bridged) => {
           if (bridged) return true;
           return session.handle(req, res, url);
