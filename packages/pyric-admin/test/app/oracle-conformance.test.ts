@@ -20,8 +20,8 @@
  * AppStore), so each case resets it first via the test-only reset helper.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   initializeApp,
@@ -45,11 +45,18 @@ const NOT_APPLICABLE: Record<string, string> = {
     'prod-only: getDatabase() requires a configured databaseURL and throws database/invalid-argument without one. The pyric-admin sandbox has no notion of a databaseURL (getDatabase() resolves the default sandbox app directly), so this capture documents prod behavior only.',
 };
 
+// Instrumented completeness gate: `load(name)` records which behavior fields are
+// read so the completeness test can fail an observation that is only mentioned in
+// a comment or loaded but never asserted. See
+// `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
+const obsGate = createObservationGate({
+  dir: OBS_DIR,
+  match: (f) => f.startsWith('admin-app-'),
+  notApplicable: NOT_APPLICABLE,
+});
+
 function load(name: string): Record<string, unknown> {
-  const json = JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
-    behavior: Record<string, unknown>;
-  };
-  return json.behavior;
+  return obsGate.load(name);
 }
 
 /** Run `fn`, assert it threw with the given `.code`, and return the error so
@@ -250,14 +257,9 @@ describe('oracle conformance (admin app registry)', () => {
   // ── completeness: every admin-app observation is asserted or explicitly N/A ─
 
   it('every admin-app observation is covered (no silent gaps)', () => {
-    const all = readdirSync(OBS_DIR).filter(
-      (f) => f.startsWith('admin-app-') && f.endsWith('.json'),
-    );
-    expect(all.length).toBeGreaterThanOrEqual(11);
-    const source = readFileSync(import.meta.path, 'utf8');
-    const uncovered = all.filter(
-      (f) => !source.includes(f.replace('.json', '')) && !(f in NOT_APPLICABLE),
-    );
-    expect(uncovered).toEqual([]);
+    const r = obsGate.report();
+    expect(r.committed.length).toBeGreaterThanOrEqual(11);
+    expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
+    expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });
 });

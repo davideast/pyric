@@ -27,8 +27,8 @@
  * un-checked.
  */
 import { describe, it, expect } from 'bun:test';
-import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
 import { FirebaseError } from '../../src/app/index.js';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
@@ -85,11 +85,18 @@ const NOT_APPLICABLE: Record<string, string> = {
     "exercises the prod fallthrough (getFirestore() with no argument and no default Firebase App) — the app/no-app FirebaseError is a firebase-app concern of the prod path, not modeled by the sandbox target (which always takes an explicit Sandbox/ctx). Mirrors the auth suite's NOT_APPLICABLE for auth-bare-getauth-no-default-app.",
 };
 
+// Instrumented completeness gate: `load(name)` records which behavior fields are
+// read so the completeness test can fail an observation that is only mentioned in
+// a comment or loaded but never asserted. See
+// `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
+const obsGate = createObservationGate({
+  dir: OBS_DIR,
+  match: (f) => f.startsWith('firestore-'),
+  notApplicable: NOT_APPLICABLE,
+});
+
 function load(name: string): Record<string, unknown> {
-  const json = JSON.parse(readFileSync(join(OBS_DIR, name), 'utf8')) as {
-    behavior: Record<string, unknown>;
-  };
-  return json.behavior;
+  return obsGate.load(name);
 }
 
 /** Drain the microtask queue a few times so listener fan-out settles. The
@@ -1468,12 +1475,9 @@ describe('oracle conformance (firestore)', () => {
   // ── completeness: every observation is asserted or explicitly N/A ─────
 
   it('every firestore observation is covered (no silent gaps)', () => {
-    const all = readdirSync(OBS_DIR).filter((f) => f.startsWith('firestore-') && f.endsWith('.json'));
-    expect(all.length).toBeGreaterThanOrEqual(40);
-    const source = readFileSync(import.meta.path, 'utf8');
-    const uncovered = all.filter(
-      (f) => !source.includes(f.replace('.json', '')) && !(f in NOT_APPLICABLE),
-    );
-    expect(uncovered).toEqual([]);
+    const r = obsGate.report();
+    expect(r.committed.length).toBeGreaterThanOrEqual(40);
+    expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
+    expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });
 });

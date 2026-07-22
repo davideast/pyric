@@ -33,9 +33,9 @@
  * every row in the registry file.
  */
 import { afterAll, describe, expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { messagingRows } from '../../../../packages/conformance/registry/messaging.ts';
+import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 
 // Enable the mirror's climb-only implicit-app path for this file's lifetime,
 // then restore, so sibling files' flag-off contract tests (e.g. dispatch's
@@ -52,12 +52,39 @@ afterAll(() => {
  *  subdirectory. */
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'messaging-admin');
 
+/**
+ * Observations under `observations/messaging-admin/` that cannot be replayed
+ * against the in-process admin mirror, each with a written reason.
+ *
+ * Intentionally EMPTY: all ten committed `messaging-send-*` captures — the five
+ * accept-path resource-name shapes and the five `google.rpc` error envelopes —
+ * are driven against the mirror's `send`/`dryRun` below and their behavior
+ * fields asserted. Nothing here is a send-plane reality the mirror cannot
+ * exhibit. Type-only shapes such as messaging-admin#10 (`Message` union) have NO
+ * committed observation file and are closed by the tier-2 assignability census
+ * (see #440), so they never surface in this prefix gate. Add an entry here only
+ * for a committed capture that genuinely cannot be replayed in-process.
+ */
+const NOT_APPLICABLE_OBS: Record<string, string> = {};
+
+/**
+ * Instrumented observation gate: `obs(name)` returns the frozen `behavior` block
+ * wrapped so every field read is recorded, and `messagingObsGate.report()`
+ * enforces prefix completeness over `observations/messaging-admin/` — a filename
+ * in a comment or an unused `load()` no longer counts as asserted. See
+ * `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
+ */
+const messagingObsGate = createObservationGate({
+  dir: OBS_DIR,
+  // Committed admin captures use the `messaging-send-` prefix today; matching the
+  // broader stem also guards any future `messaging-admin-` capture.
+  match: (f) => f.startsWith('messaging-send-') || f.startsWith('messaging-admin-'),
+  notApplicable: NOT_APPLICABLE_OBS,
+});
+
 /** Load the frozen `behavior` block of a committed observation by name. */
 function obs(name: string): Record<string, any> {
-  const json = JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
-    behavior: Record<string, any>;
-  };
-  return json.behavior;
+  return messagingObsGate.load(name);
 }
 
 /** The FCM resource name shape returned by an accepted send / dryRun. */
@@ -355,6 +382,18 @@ describe('oracle conformance (messaging-admin send plane)', () => {
       await handler();
     });
   }
+
+  // ── completeness: every committed messaging-admin observation is meaningfully asserted ──
+  // cdd.md step 3 claims every `messaging-` prefixed observation is asserted or
+  // listed N/A. This gate makes that true over `observations/messaging-admin/`:
+  // each committed capture must have been loaded AND had a behavior field driven
+  // above (a comment mention or an unused load() does not count).
+  it('completeness: every observations/messaging-admin/ capture is asserted (prefix gate)', () => {
+    const r = messagingObsGate.report();
+    expect(r.committed.length).toBe(10);
+    expect(r.loadedButUnused).toEqual([]);
+    expect(r.uncovered).toEqual([]);
+  });
 
   // ── completeness: this suite owns EXACTLY the messaging-admin partition ──
   it('completeness: covers exactly the messaging-admin rows (partition gate)', () => {

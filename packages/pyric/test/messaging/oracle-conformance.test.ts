@@ -30,9 +30,9 @@
  * cover every row in the registry file.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { messagingRows } from '../../../../packages/conformance/registry/messaging.ts';
+import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeApp } from 'pyric/app';
 import { createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox } from 'pyric/sandbox';
@@ -52,12 +52,37 @@ afterAll(async () => {
  *  subdirectory. */
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'messaging');
 
+/**
+ * Observations under `observations/messaging/` that cannot be replayed against
+ * the in-process broker, each with a written reason.
+ *
+ * Intentionally EMPTY: all seven committed `messaging-web-*` captures — including
+ * the service-worker receive-plane ones (onBackgroundMessage, data-only
+ * background) — are driven against the sandbox broker below and their behavior
+ * fields asserted. Nothing here is a service-worker-only reality the broker
+ * cannot exhibit. Type-only shapes such as messaging#10 (`FcmOptions`) have NO
+ * committed observation file, so they are closed by the tier-2 assignability
+ * census (see #440) and never surface in this prefix gate. Add an entry here
+ * only for a committed capture that genuinely cannot be replayed in-process.
+ */
+const NOT_APPLICABLE_OBS: Record<string, string> = {};
+
+/**
+ * Instrumented observation gate: `obs(name)` returns the frozen `behavior` block
+ * wrapped so every field read is recorded, and `messagingObsGate.report()`
+ * enforces prefix completeness over `observations/messaging/` — a filename in a
+ * comment or an unused `load()` no longer counts as asserted. See
+ * `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
+ */
+const messagingObsGate = createObservationGate({
+  dir: OBS_DIR,
+  match: (f) => f.startsWith('messaging-'),
+  notApplicable: NOT_APPLICABLE_OBS,
+});
+
 /** Load the frozen `behavior` block of a committed observation by name. */
 function obs(name: string): Record<string, any> {
-  const json = JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
-    behavior: Record<string, any>;
-  };
-  return json.behavior;
+  return messagingObsGate.load(name);
 }
 
 /**
@@ -436,6 +461,18 @@ describe('oracle conformance (messaging client + sw)', () => {
       await handler();
     });
   }
+
+  // ── completeness: every committed messaging observation is meaningfully asserted ──
+  // cdd.md step 3 claims every `messaging-` prefixed observation is asserted or
+  // listed N/A. This gate makes that true over `observations/messaging/`: each
+  // committed capture must have been loaded AND had a behavior field driven above
+  // (a comment mention or an unused load() does not count).
+  it('completeness: every observations/messaging/ capture is asserted (prefix gate)', () => {
+    const r = messagingObsGate.report();
+    expect(r.committed.length).toBe(7);
+    expect(r.loadedButUnused).toEqual([]);
+    expect(r.uncovered).toEqual([]);
+  });
 
   // ── completeness: this suite owns EXACTLY the client + sw row partition ──
   it('completeness: covers exactly the messaging client + sw rows (partition gate)', () => {

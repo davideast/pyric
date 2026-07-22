@@ -20,8 +20,8 @@
  * so each case resets it first via getApps()/deleteApp().
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import 'fake-indexeddb/auto';
 import {
   initializeApp,
@@ -52,11 +52,18 @@ const OPTS = {
   appId: '1:0:web:0',
 };
 
+// Instrumented completeness gate: `load(name)` records which behavior fields are
+// read so the completeness test can fail an observation that is only mentioned in
+// a comment or loaded but never asserted. See
+// `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
+const obsGate = createObservationGate({
+  dir: OBS_DIR,
+  match: (f) => f.startsWith('app-registry-'),
+  notApplicable: NOT_APPLICABLE,
+});
+
 function load(name: string): Record<string, unknown> {
-  const json = JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
-    behavior: Record<string, unknown>;
-  };
-  return json.behavior;
+  return obsGate.load(name);
 }
 
 /** Run `fn`, assert it threw with the given `.code`, and return the error so
@@ -424,10 +431,9 @@ describe('oracle conformance (client app registry)', () => {
   // ── completeness: every app-registry observation is asserted or explicitly N/A ─
 
   it('every app-registry observation is covered (no silent gaps)', () => {
-    const all = readdirSync(OBS_DIR).filter((f) => f.startsWith('app-registry-') && f.endsWith('.json'));
-    expect(all.length).toBeGreaterThanOrEqual(14);
-    const source = readFileSync(import.meta.path, 'utf8');
-    const uncovered = all.filter((f) => !source.includes(f.replace('.json', '')) && !(f in NOT_APPLICABLE));
-    expect(uncovered).toEqual([]);
+    const r = obsGate.report();
+    expect(r.committed.length).toBeGreaterThanOrEqual(14);
+    expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
+    expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });
 });
