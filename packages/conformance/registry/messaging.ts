@@ -26,7 +26,9 @@ import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts'
  * its assertion set in the surface's conformance suite passes unweakened, and
  * both suites run un-gated in their packages' blocking test path. Rows that
  * replay cited `messaging-*` observation values are `oracle-backed`; export,
- * shape, and module-boundary witnesses are `unit-backed`. A future row added
+ * shape, and module-boundary witnesses are `unit-backed` and KEEP their climb
+ * risk (`unobserved` / `cited-not-replayed`) — flipping proves the assertion
+ * set passes, not that production behavior was observed. A future row added
  * without `flipped` is born unverified and carries a riskReason until its
  * assertion set lands and passes.
  */
@@ -63,25 +65,41 @@ const SUITE: Record<SurfacePlane, string> = {
 const UNOBSERVED_REASON =
   'Behavior stated from upstream typings/JSDoc only (firebase 12.13.0 / firebase-admin 13.10.0); no committed observation yet — a probe candidate before implementation.';
 const CITED_NOT_REPLAYED_REASON =
-  'Production observed and cited (see evidence), but not yet replayed offline against a sandbox; status stays unverified until the conformance suite replays it.';
+  'Production observed and cited (see evidence), but not yet replayed offline against a sandbox; the citation does not lock the claim until the conformance suite replays it.';
 
 const buildRow = defineRows({ surface: 'messaging' });
 
 function row(seed: RowSeed): CompatibilityRow {
   const { ref, observations = [], tests = [], flipped, ...rest } = seed;
   const observed = observations.length > 0;
-  // Climb risk applies only while a row is unverified: a flipped row's
-  // assertion set passes in the blocking test path, so 'cited-not-replayed'
-  // and 'unobserved' no longer describe it (the builder's zero-risk defaults
-  // are exactly the flipped state).
+  // Climb risk names the gap between what the row claims and what backs it:
+  // 'cited-not-replayed' (score 1) when a committed observation vouches for
+  // the behavior but the suite does not replay it, 'unobserved' (score 2)
+  // when the behavior is stated from upstream typings/JSDoc alone.
+  const climbRisk = {
+    risk: [observed ? 'cited-not-replayed' : 'unobserved'],
+    riskScore: observed ? 1 : 2,
+    riskReasons: [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
+  };
+  // A flip to 'oracle-backed' discharges the climb risk: the cited
+  // observations are replayed offline by the blocking conformance suite, so
+  // neither reason describes the row any more and the builder's zero-risk
+  // defaults are accurate. A flip to 'unit-backed' does NOT discharge it —
+  // the assertion set passes, but the behavior itself is still unobserved
+  // (or cited without replay), so the row keeps its climb risk. That
+  // residual risk is what the audit's evidence-tier worklist ratchets
+  // (see packages/conformance/src/ledger.ts, evidenceTierGapRows).
   const climb = flipped
-    ? { status: 'conforms' as const, automation: flipped, conformanceTests: [SUITE[seed.surface], ...tests] }
+    ? {
+        status: 'conforms' as const,
+        automation: flipped,
+        conformanceTests: [SUITE[seed.surface], ...tests],
+        ...(flipped === 'unit-backed' ? climbRisk : {}),
+      }
     : {
         status: 'unverified' as const,
         automation: 'unverified' as const,
-        risk: [observed ? 'cited-not-replayed' : 'unobserved'],
-        riskScore: observed ? 1 : 2,
-        riskReasons: [observed ? CITED_NOT_REPLAYED_REASON : UNOBSERVED_REASON],
+        ...climbRisk,
       };
   return buildRow({ ...rest, rowRef: String(ref), oracleObservations: observations, ...climb });
 }
