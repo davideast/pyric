@@ -35,16 +35,23 @@ import {
 import type { OpMessage, RtdbQuerySpec } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { lensRtdb } from './core.js';
+import { sameRtdbValue } from '../rtdb-value-equality.js';
 
 export function rtdbSnapToWire(snap: DataSnapshot): unknown {
   const entries: Array<{
     key: string;
     value: unknown;
     priority: string | number | null;
+    exportValue: unknown;
   }> = [];
   snap.forEach((child) => {
     if (child.key !== null) {
-      entries.push({ key: child.key, value: child.val(), priority: child.priority });
+      entries.push({
+        key: child.key,
+        value: child.val(),
+        priority: child.priority,
+        exportValue: child.exportVal(),
+      });
     }
   });
   return {
@@ -53,6 +60,7 @@ export function rtdbSnapToWire(snap: DataSnapshot): unknown {
     value: snap.val(),
     size: snap.size,
     priority: snap.priority,
+    exportValue: snap.exportVal(),
     entries,
   };
 }
@@ -72,22 +80,6 @@ export function rtdbTarget(
     toJSON: () => targetRef.toString(),
     toString: () => targetRef.toString(),
   };
-}
-
-function sameRtdbValue(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right) &&
-      left.length === right.length && left.every((value, index) => sameRtdbValue(value, right[index]));
-  }
-  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
-  const leftRecord = left as Record<string, unknown>;
-  const rightRecord = right as Record<string, unknown>;
-  const leftKeys = Object.keys(leftRecord).sort();
-  const rightKeys = Object.keys(rightRecord).sort();
-  return leftKeys.length === rightKeys.length && leftKeys.every(
-    (key, index) => key === rightKeys[index] && sameRtdbValue(leftRecord[key], rightRecord[key]),
-  );
 }
 
 function resolveRtdbSentinels(value: unknown): unknown {

@@ -7,31 +7,35 @@
  */
 import * as ip from 'pyric/database';
 import { getDatabase as pyricGetDatabase } from 'pyric/database';
+import { rtdbChild, rtdbGetDatabase, rtdbRef } from '../worker/client/rtdb-references.js';
 import {
-  rtdbChild,
-  rtdbConnectDatabaseEmulator,
   rtdbGet,
-  rtdbGetDatabase,
-  rtdbOff,
-  rtdbOnValue,
-  rtdbOnChildAdded,
-  rtdbOnChildChanged,
-  rtdbOnChildMoved,
-  rtdbOnChildRemoved,
-  rtdbOnDisconnect,
-  rtdbGoOffline,
-  rtdbGoOnline,
-  RtdbOnDisconnect,
   rtdbPush,
-  rtdbRef,
   rtdbRemove,
-  rtdbRunTransaction,
-  rtdbServerTimestamp,
   rtdbSet,
   rtdbSetPriority,
   rtdbSetWithPriority,
   rtdbUpdate,
-} from '../worker/client.js';
+} from '../worker/client/rtdb-operations.js';
+import {
+  rtdbOff,
+  rtdbOnChildAdded,
+  rtdbOnChildChanged,
+  rtdbOnChildMoved,
+  rtdbOnChildRemoved,
+  rtdbOnValue,
+} from '../worker/client/rtdb-listeners.js';
+import { rtdbRunTransaction } from '../worker/client/rtdb-transactions.js';
+import {
+  RtdbOnDisconnect,
+  rtdbGoOffline,
+  rtdbGoOnline,
+  rtdbOnDisconnect,
+} from '../worker/client/rtdb-connection-lifecycle.js';
+import {
+  rtdbConnectDatabaseEmulator,
+  rtdbServerTimestamp,
+} from '../worker/client/rtdb-controls.js';
 import { useWorker } from './worker-runtime.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
@@ -87,32 +91,42 @@ export const remove = (useWorker ? rtdbRemove : ip.remove) as typeof ip.remove;
 export const push = (useWorker ? rtdbPush : ip.push) as typeof ip.push;
 export const onValue = (
   useWorker
-    ? ((target: Parameters<typeof ip.onValue>[0], callback: Parameters<typeof ip.onValue>[1], ...rest: unknown[]) =>
-        rtdbOnValue(target as never, (snapshot) => callback(wrapWorkerSnapshot(snapshot)), ...rest as never[]))
+    ? ((
+        target: Parameters<typeof ip.onValue>[0],
+        callback: Parameters<typeof ip.onValue>[1],
+        cancelOrOptions?: Parameters<typeof ip.onValue>[2],
+        options?: Parameters<typeof ip.onValue>[3],
+      ) => rtdbOnValue(
+        target as never,
+        (snapshot) => callback(wrapWorkerSnapshot(snapshot)),
+        cancelOrOptions as never,
+        options,
+        callback,
+      ))
     : ip.onValue
 ) as typeof ip.onValue;
 export const onChildAdded = (
   useWorker
-    ? ((target: Parameters<typeof ip.onChildAdded>[0], callback: Parameters<typeof ip.onChildAdded>[1], ...rest: unknown[]) =>
-        rtdbOnChildAdded(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), ...rest as never[]))
+    ? ((target: Parameters<typeof ip.onChildAdded>[0], callback: Parameters<typeof ip.onChildAdded>[1], cancelOrOptions?: Parameters<typeof ip.onChildAdded>[2], options?: Parameters<typeof ip.onChildAdded>[3]) =>
+        rtdbOnChildAdded(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), cancelOrOptions as never, options, callback))
     : ip.onChildAdded
 ) as typeof ip.onChildAdded;
 export const onChildChanged = (
   useWorker
-    ? ((target: Parameters<typeof ip.onChildChanged>[0], callback: Parameters<typeof ip.onChildChanged>[1], ...rest: unknown[]) =>
-        rtdbOnChildChanged(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), ...rest as never[]))
+    ? ((target: Parameters<typeof ip.onChildChanged>[0], callback: Parameters<typeof ip.onChildChanged>[1], cancelOrOptions?: Parameters<typeof ip.onChildChanged>[2], options?: Parameters<typeof ip.onChildChanged>[3]) =>
+        rtdbOnChildChanged(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), cancelOrOptions as never, options, callback))
     : ip.onChildChanged
 ) as typeof ip.onChildChanged;
 export const onChildRemoved = (
   useWorker
-    ? ((target: Parameters<typeof ip.onChildRemoved>[0], callback: Parameters<typeof ip.onChildRemoved>[1], ...rest: unknown[]) =>
-        rtdbOnChildRemoved(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), ...rest as never[]))
+    ? ((target: Parameters<typeof ip.onChildRemoved>[0], callback: Parameters<typeof ip.onChildRemoved>[1], cancelOrOptions?: Parameters<typeof ip.onChildRemoved>[2], options?: Parameters<typeof ip.onChildRemoved>[3]) =>
+        rtdbOnChildRemoved(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), cancelOrOptions as never, options, callback))
     : ip.onChildRemoved
 ) as typeof ip.onChildRemoved;
 export const onChildMoved = (
   useWorker
-    ? ((target: Parameters<typeof ip.onChildMoved>[0], callback: Parameters<typeof ip.onChildMoved>[1], ...rest: unknown[]) =>
-        rtdbOnChildMoved(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), ...rest as never[]))
+    ? ((target: Parameters<typeof ip.onChildMoved>[0], callback: Parameters<typeof ip.onChildMoved>[1], cancelOrOptions?: Parameters<typeof ip.onChildMoved>[2], options?: Parameters<typeof ip.onChildMoved>[3]) =>
+        rtdbOnChildMoved(target as never, (snapshot, previous) => callback(wrapWorkerSnapshot(snapshot), previous), cancelOrOptions as never, options, callback))
     : ip.onChildMoved
 ) as typeof ip.onChildMoved;
 export const onDisconnect = (
@@ -122,6 +136,7 @@ export const OnDisconnect = (
   useWorker ? RtdbOnDisconnect : ip.OnDisconnect
 ) as typeof ip.OnDisconnect;
 export const off = (useWorker ? rtdbOff : ip.off) as typeof ip.off;
+export const increment = ip.increment;
 export const serverTimestamp = (
   useWorker ? rtdbServerTimestamp : ip.serverTimestamp
 ) as typeof ip.serverTimestamp;

@@ -11,6 +11,7 @@ import {
 import { loadObservation } from '../modular/cdd-replay-helpers.js';
 
 const valueIndexObservation = loadObservation('rtdb-modular-orderbyvalue-numeric');
+const childOnlyOnceObservation = loadObservation('rtdb-modular-child-listener-only-once');
 
 const row = (id: string, assertion: () => unknown | Promise<unknown>) => it(`rtdb-modular#${id}`, assertion);
 
@@ -105,8 +106,9 @@ describe('rtdb-modular CDD: query, normalization, and listener rows', () => {
   });
   row('M75c', () => assertChildEvent('moved'));
   row('M75d', async () => {
-    const { db } = setup(); const parent = api.ref(db, 'rows'); await api.set(parent, { a: 1, b: 2 }); const seen: string[] = [];
-    api.onChildAdded(parent, snap => seen.push(snap.key!), { onlyOnce: true }); await api.set(api.child(parent, 'c'), 3); expect(seen).toHaveLength(2); expect(seen).not.toContain('c');
+    const { db } = setup(); const parent = api.ref(db, 'rows'); await api.set(parent, { a: 1, b: 2, c: 3 }); const seen: Array<[string | null, string | null]> = [];
+    api.onChildAdded(parent, (snap, previous) => seen.push([snap.key, previous]), { onlyOnce: true }); await api.set(api.child(parent, 'd'), 4);
+    expect(seen).toEqual(childOnlyOnceObservation.added);
   });
   row('M76', async () => {
     const { db } = setup(); api.databaseSandbox.setRules(db, { rules: { '.read': true, '.write': true, item: { '.validate': 'newData.isNumber()' } } });

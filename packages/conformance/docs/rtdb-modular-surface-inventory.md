@@ -46,9 +46,20 @@ improve the score.
 Graduation was proven by the dedicated blocking suite in
 `packages/pyric/test/database/cdd`: all 184 registry rows have one row-keyed
 assertion set, and the isolated climb reported 184/184 live-green rows with no
-unmapped tests, unkeyed tests, regressions, or unguarded greens. The public
-database suites cover the in-process entry path, while the served-application
-integration suite exercises the unchanged `firebase/database` import shape
-through SharedWorker transport. The surface descriptor therefore drops the
-temporary `climb` marker after graduation; the row-keyed suite remains part of
-the blocking package test lane.
+unmapped tests, unkeyed tests, regressions, or unguarded greens. Those row
+assertions are the coverage map; the focused oracle-replay suites cited by each
+registry row remain the full behavior proof and stay blocking. The public
+database suites cover the in-process entry path. The worker integration suite
+covers the served entry implementation, the bundle gate checks its complete
+runtime export shape, and `app-multi-app.pw.ts` runs the unchanged
+`firebase/database` import through the real served module and SharedWorker.
+The surface descriptor therefore drops the temporary `climb` marker after
+graduation; all of those layers remain in blocking lanes.
+
+The committed census ratchet before this branch was stale: it recorded 35/44
+runtime exports and 8/15 types, while a fresh census at the branch fixed point
+already found 37/44 and 9/15. The implementation credit in this climb is
+therefore **+7 runtime exports and +6 types**, with the remaining +2/+1 in the
+baseline diff explicitly classified as stale-baseline correction. The terminal
+surface is 44/44 runtime and 15/15 types either way; the distinction prevents
+the PR from claiming work it did not perform.

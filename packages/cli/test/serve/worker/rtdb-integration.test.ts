@@ -16,7 +16,7 @@ import {
   query as buildRtdbQuery,
   startAt as rtdbStartAt,
 } from 'pyric/database';
-import * as client from '../../../src/serve/worker/client.js';
+import * as client from '../../../src/serve/worker/index.js';
 import { disconnectClient } from '../../../src/serve/worker/client/disconnect.js';
 import {
   connectClient,
@@ -116,6 +116,87 @@ describe('RTDB client↔host integration', () => {
 
     unsubscribeAdded();
     unsubscribeChanged();
+  });
+
+  it('validates ref and child paths before crossing the worker boundary', async () => {
+    const { db } = await connectClient();
+    const rtdb = client.rtdbGetDatabase(db);
+
+    expect(() => client.rtdbRef(rtdb, 'invalid.path')).toThrow('invalid path');
+    expect(() => client.rtdbChild(client.rtdbRef(rtdb), '')).toThrow('invalid path');
+    expect(() => client.rtdbChild(client.rtdbRef(rtdb), 'invalid#path')).toThrow('invalid path');
+  });
+
+  it('delivers the complete initial child_added batch for onlyOnce', async () => {
+    const { db } = await connectClient();
+    const rtdb = client.rtdbGetDatabase(db);
+    const rows = client.rtdbRef(rtdb, 'only-once-rows');
+    await client.rtdbSet(rows, { a: 1, b: 2 });
+
+    const seen: string[] = [];
+    client.rtdbOnChildAdded(rows, (snapshot) => seen.push(snapshot.key!), { onlyOnce: true });
+    await sleep();
+    await client.rtdbSet(client.rtdbChild(rows, 'c'), 3);
+    await sleep();
+
+    expect(seen).toEqual(['b', 'a']);
+    expect(seen).not.toContain('c');
+
+    const deliveredDespiteThrow: string[] = [];
+    client.rtdbOnChildAdded(rows, (snapshot) => {
+      deliveredDespiteThrow.push(snapshot.key!);
+      throw new Error('listener failure');
+    }, { onlyOnce: true });
+    await sleep();
+    expect(deliveredDespiteThrow).toEqual(['c', 'b', 'a']);
+  });
+
+  it('removes duplicate callbacks one registration at a time and scopes query off', async () => {
+    const { db } = await connectClient();
+    const rtdb = client.rtdbGetDatabase(db);
+    const target = client.rtdbRef(rtdb, 'off-semantics/value');
+    await client.rtdbSet(target, 0);
+    const values: unknown[] = [];
+    const callback = (snapshot: client.RtdbDataSnapshot) => values.push(snapshot.val());
+    client.rtdbOnValue(target, callback);
+    client.rtdbOnValue(target, callback);
+    await sleep();
+    await client.rtdbSet(target, 1);
+    await sleep();
+    client.rtdbOff(target, 'value', callback);
+    await client.rtdbSet(target, 2);
+    await sleep();
+    client.rtdbOff(target, 'value', callback);
+    await client.rtdbSet(target, 3);
+    await sleep();
+    expect(values).toEqual([0, 0, 1, 1, 2]);
+
+    const rows = client.rtdbRef(rtdb, 'off-semantics/rows');
+    await client.rtdbSet(rows, { a: { rank: 1 }, b: { rank: 2 } });
+    const ordered = buildRtdbQuery(rows as never, rtdbOrderByChild('rank'), rtdbLimitToFirst(2));
+    const reorderedEquivalent = buildRtdbQuery(rows as never, rtdbLimitToFirst(2), rtdbOrderByChild('rank'));
+    const defaultValues: unknown[] = [];
+    const orderedValues: unknown[] = [];
+    client.rtdbOnValue(rows, (snapshot) => defaultValues.push(snapshot.val()));
+    client.rtdbOnValue(ordered as never, (snapshot) => orderedValues.push(snapshot.val()));
+    await sleep();
+    client.rtdbOff(reorderedEquivalent as never);
+    await client.rtdbSet(client.rtdbChild(rows, 'c'), { rank: 3 });
+    await sleep();
+    expect(defaultValues).toHaveLength(2);
+    expect(orderedValues).toHaveLength(1);
+
+    const defaultQuery = buildRtdbQuery(rows as never);
+    client.rtdbOnValue(rows, (snapshot) => defaultValues.push(snapshot.val()));
+    await sleep();
+    client.rtdbOff(defaultQuery as never);
+    await client.rtdbSet(client.rtdbChild(rows, 'default-query-control'), true);
+    await sleep();
+    expect(defaultValues).toHaveLength(3);
+    client.rtdbOff(rows);
+    await client.rtdbSet(client.rtdbChild(rows, 'd'), { rank: 4 });
+    await sleep();
+    expect(defaultValues).toHaveLength(3);
   });
 
   it('executes RTDB queries, priority writes, transactions, and child movement through the worker', async () => {
@@ -347,6 +428,15 @@ describe('RTDB client↔host integration', () => {
     await database.setWithPriority(database.child(rows, 'second'), { rank: 2 }, 20);
     await database.setWithPriority(database.child(rows, 'first'), { rank: 1 }, 10);
 
+    expect((await database.get(rows)).exportVal()).toEqual({
+      first: { rank: 1, '.priority': 10 },
+      second: { rank: 2, '.priority': 20 },
+    });
+    expect((await database.get(rows)).toJSON()).toEqual({
+      first: { rank: 1, '.priority': 10 },
+      second: { rank: 2, '.priority': 20 },
+    });
+
     const priorityConstraint = database.orderByPriority();
     expect(priorityConstraint).toBeInstanceOf(database.QueryConstraint);
     const ordered = database.query(rows, priorityConstraint, database.limitToFirst(1));
@@ -358,10 +448,26 @@ describe('RTDB client↔host integration', () => {
 
     const counter = database.ref(db, 'served-api/counter');
     await database.set(counter, 1);
+    await database.set(counter, database.increment(2));
+    expect((await database.get(counter)).val()).toBe(3);
     const result = await database.runTransaction(counter, (current) => (current ?? 0) + 1);
     expect(result).toBeInstanceOf(database.TransactionResult);
     expect(result.committed).toBe(true);
-    expect(result.snapshot.val()).toBe(2);
+    expect(result.snapshot.val()).toBe(4);
+
+    const offTarget = database.ref(db, 'served-api/off');
+    const calls: string[] = [];
+    const kept = () => calls.push('kept');
+    const removedCallback = () => calls.push('removed');
+    database.onValue(offTarget, kept);
+    database.onValue(offTarget, removedCallback);
+    await sleep();
+    calls.length = 0;
+    database.off(offTarget, 'value', removedCallback);
+    await database.set(offTarget, true);
+    await sleep();
+    expect(calls).toEqual(['kept']);
+    database.off(offTarget);
 
     const removed: string[] = [];
     const unsubscribe = database.onChildRemoved(rows, (snapshot) => removed.push(snapshot.key!));

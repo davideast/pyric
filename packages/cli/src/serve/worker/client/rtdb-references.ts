@@ -1,8 +1,15 @@
-/** RTDB database handles, references, and query target routing. */
-import type { RtdbQuerySpec } from "../protocol.js";
-import { isDisconnectedPort } from "./core.js";
-import type { ClientDb, ClientPort, ClientRtdb, RtdbRefHandle } from "./handles.js";
-import { getFirestore } from "./connection.js";
+/** RTDB database handles, references, path validation, and query target routing. */
+import type { RtdbQuerySpec } from '../protocol.js';
+import { isDisconnectedPort } from './core.js';
+import { getFirestore } from './connection.js';
+import type { ClientDb, ClientPort, ClientRtdb, RtdbRefHandle } from './handles.js';
+
+export type RtdbQueryLike = {
+  readonly ref: RtdbRefHandle;
+  readonly _spec: RtdbQuerySpec;
+};
+
+export type RtdbTarget = RtdbRefHandle | RtdbQueryLike;
 
 export function rtdbGetDatabase(source?: ClientDb | string | URL, name?: string): ClientRtdb {
   if (source && typeof source === 'object' && 'port' in source) {
@@ -18,8 +25,7 @@ function normalizeRtdbPath(path?: string): string {
 }
 
 function rtdbKey(path: string): string | null {
-  const parts = path.split('/').filter(Boolean);
-  return parts.at(-1) ?? null;
+  return path.split('/').filter(Boolean).at(-1) ?? null;
 }
 
 export function makeRtdbRef(port: ClientPort, path: string): RtdbRefHandle {
@@ -32,43 +38,38 @@ export function makeRtdbRef(port: ClientPort, path: string): RtdbRefHandle {
     path: normalized,
     _path: normalized,
     key: rtdbKey(normalized),
-    get parent() {
-      return normalized === '/' ? null : makeRtdbRef(port, parentPath);
-    },
-    get root() {
-      return makeRtdbRef(port, '/');
-    },
+    get parent() { return normalized === '/' ? null : makeRtdbRef(port, parentPath); },
+    get root() { return makeRtdbRef(port, '/'); },
     isEqual(other) {
-      return other !== null && other.__kind === 'rtdb-ref' &&
-        other.port === port && other.path === normalized;
+      return other !== null && other.__kind === 'rtdb-ref'
+        && other.port === port && other.path === normalized;
     },
-    toJSON() {
-      return `worker://rtdb${normalized}`;
-    },
-    toString() {
-      return `worker://rtdb${normalized}`;
-    },
+    toJSON() { return `worker://rtdb${normalized}`; },
+    toString() { return `worker://rtdb${normalized}`; },
   };
   return self;
+}
+
+function validateRtdbPath(path: string, allowEmpty: boolean): void {
+  if ((!allowEmpty && path.length === 0) || /[.#$[\]]/.test(path)) {
+    throw new Error(
+      `child failed: path argument was an invalid path = "${path}". Paths must be non-empty strings and can't contain ".", "#", "$", "[", or "]"`,
+    );
+  }
 }
 
 export function rtdbRef(db: ClientRtdb, path?: string): RtdbRefHandle {
   if (isDisconnectedPort(db.port)) {
     throw new Error('FIREBASE FATAL ERROR: Cannot call ref on a deleted database. ');
   }
+  if (path !== undefined) validateRtdbPath(path, true);
   return makeRtdbRef(db.port, path ?? '/');
 }
 
 export function rtdbChild(parent: RtdbRefHandle, path: string): RtdbRefHandle {
+  validateRtdbPath(path, false);
   return makeRtdbRef(parent.port, `${parent.path}/${path}`);
 }
-
-export type RtdbQueryLike = {
-  readonly ref: RtdbRefHandle;
-  readonly _spec: RtdbQuerySpec;
-};
-
-export type RtdbTarget = RtdbRefHandle | RtdbQueryLike;
 
 export function isRtdbQuery(target: RtdbTarget): target is RtdbQueryLike {
   return 'ref' in target && '_spec' in target;

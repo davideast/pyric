@@ -16,6 +16,8 @@ import { loadObservation } from '../modular/cdd-replay-helpers.js';
 
 const abruptObservation = loadObservation('rtdb-modular-ondisconnect-abrupt-exit');
 const referenceObservation = loadObservation('rtdb-modular-reference-shape-url');
+const runtimeIdentityObservation = loadObservation('rtdb-modular-runtime-class-identity');
+const queryValidationObservation = loadObservation('rtdb-modular-query-construction-validation');
 
 const row = (id: string, assertion: () => unknown | Promise<unknown>) => it(`rtdb-modular#${id}`, assertion);
 
@@ -41,14 +43,26 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
     expect((await api.get(target)).val()).toBeNull(); api.goOffline(db); expect((await api.get(target)).val()).toBe(true);
   });
   row('M85', () => {
-    const { db } = setup(); expect(db).toBeInstanceOf(api.Database); expect(Object.getPrototypeOf(db)).toBe(api.Database.prototype);
+    const { db } = setup();
+    expect(runtimeIdentityObservation.database).toMatchObject({ constructorName: 'Database', instanceOf: true, prototypeIsExportPrototype: true });
+    expect([db.constructor.name, db instanceof api.Database, Object.getPrototypeOf(db)]).toEqual(['Database', true, api.Database.prototype]);
   });
-  row('M86', assertSnapshotShape);
+  row('M86', async () => {
+    await assertSnapshotShape(); const { db } = setup(); const snapshot = await api.get(api.ref(db));
+    expect(runtimeIdentityObservation.snapshot).toMatchObject({ constructorName: 'DataSnapshot', instanceOf: true, prototypeIsExportPrototype: true });
+    expect([snapshot.constructor.name, snapshot instanceof api.DataSnapshot, Object.getPrototypeOf(snapshot)]).toEqual(['DataSnapshot', true, api.DataSnapshot.prototype]);
+  });
   row('M87', () => {
     const constraints = [api.orderByKey(), api.startAt('a'), api.endAt('z'), api.limitToFirst(1)];
+    expect(runtimeIdentityObservation.queryConstraint).toMatchObject({ instanceOf: true, prototypeIsExportPrototype: false });
     expect(constraints.every(value => value instanceof api.QueryConstraint)).toBe(true);
+    expect(constraints.map(value => typeof (value as { _apply?: unknown })._apply)).toEqual(['function', 'function', 'function', 'function']);
   });
-  row('M88', () => assertTransaction('commit'));
+  row('M88', async () => {
+    await assertTransaction('commit'); const { db } = setup(); const result = await api.runTransaction(api.ref(db, 'identity'), () => 1);
+    expect(runtimeIdentityObservation.transactionResult).toMatchObject({ constructorName: 'TransactionResult', instanceOf: true, prototypeIsExportPrototype: true, toJSONType: 'function' });
+    expect([result.constructor.name, result instanceof api.TransactionResult, Object.getPrototypeOf(result), result.toJSON()]).toEqual(['TransactionResult', true, api.TransactionResult.prototype, { committed: true, snapshot: 1 }]);
+  });
   row('M89', assertPriority);
   row('M90', async () => {
     const { db } = setup(); const parent = api.ref(db, 'rows');
@@ -68,8 +82,12 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
   });
   row('M94', () => {
     const { db } = setup(); const target = api.ref(db, 'rows');
-    expect(() => api.limitToFirst(0)).toThrow(); expect(() => api.orderByChild('bad#path')).toThrow();
+    expect(queryValidationObservation).toMatchObject({ repeatCount: 2, contractDigest: 'd8e121139846b37dec3df876f9f26256af5b32459377dc4ecfac7a01c2a1f362' });
+    for (const invalid of [0, -1, 1.5, Number.NaN, Number.NEGATIVE_INFINITY, '1' as never]) expect(() => api.limitToFirst(invalid)).toThrow();
+    expect(() => api.limitToFirst(Number.POSITIVE_INFINITY)).not.toThrow();
+    for (const invalid of ['$key', '$priority', '$value', '', 'bad#path', 'bad.path']) expect(() => api.orderByChild(invalid)).toThrow();
     expect(() => api.query(target, api.orderByKey(), api.startAt({} as never))).toThrow();
+    expect(() => api.query(target, api.orderByPriority(), api.startAt(api.serverTimestamp() as never))).not.toThrow();
   });
 
   row('94', () => {
@@ -89,13 +107,14 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
     expect([(await api.get(api.ref(a, 'x'))).val(), (await api.get(api.ref(b, 'x'))).val()]).toEqual([1, 2]);
   });
   row('100', () => {
-    assertReferenceShape(); const { db } = setup(); expect(() => api.ref(db, 'bad#path')).toThrow();
+    assertReferenceShape(); const { db } = setup();
+    for (const path of ['bad.path', 'bad#path', 'bad$path', 'bad[path', 'bad]path']) expect(() => api.ref(db, path)).toThrow(/invalid path/);
   });
   row('101', () => { const { db } = setup(); const root = api.ref(db); expect([root.key, root.parent]).toEqual([null, null]); });
-  row('102', () => { const { db } = setup(); expect(api.child(api.ref(db, 'a'), 'b/c').key).toBe('c'); expect(() => api.child(api.ref(db), '')).toThrow(); });
+  row('102', () => { const { db } = setup(); const nested = api.child(api.ref(db, 'a'), 'b/c'); expect([nested.key, nested.parent?.key]).toEqual(['c', 'b']); for (const path of ['', 'bad#path', 'bad.path']) expect(() => api.child(api.ref(db), path)).toThrow(/invalid path/); });
   row('103', () => { const { db } = setup(); expect([api.ref(db).parent, api.ref(db, 'a/b').parent?.key]).toEqual([null, 'a']); });
   row('104', () => { const { db } = setup(); expect([api.ref(db).key, api.ref(db, 'a/b').key]).toEqual([null, 'b']); });
-  row('105', () => expect(() => api.get({} as never)).toThrow(TypeError));
+  row('105', () => { let error: unknown; try { void api.get({} as never); } catch (caught) { error = caught; } expect(error).toBeInstanceOf(TypeError); });
   row('106', assertSnapshotShape);
   row('107', async () => { const { db } = setup(); expect((await api.get(api.ref(db, 'missing'))).val()).toBeNull(); });
   row('108', async () => { const { db } = setup(); const target = api.ref(db, 'x'); expect((await api.get(target)).exists()).toBe(false); await api.set(target, 0); expect((await api.get(target)).exists()).toBe(true); });

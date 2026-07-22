@@ -237,7 +237,11 @@ export async function assertPriority(): Promise<void> {
   const { db } = setup();
   const target = ref(db, 'priority');
   await setWithPriority(target, { a: 1 }, 4);
-  expect((await get(target)).priority).toBe(4);
+  await setWithPriority(child(target, 'a'), 1, 2);
+  const prioritized = await get(target);
+  expect(prioritized.priority).toBe(4);
+  expect(prioritized.exportVal()).toEqual({ a: { '.value': 1, '.priority': 2 }, '.priority': 4 });
+  expect(prioritized.toJSON()).toEqual({ a: { '.value': 1, '.priority': 2 }, '.priority': 4 });
   await update(target, { b: 2 });
   expect((await get(target)).priority).toBe(4);
   await set(target, { c: 3 });

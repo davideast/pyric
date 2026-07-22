@@ -189,40 +189,51 @@ export {
   getSnapshot,
   // Sandbox-owned full reset (issue #359): Firestore + every registered service
   resetAll,
-  // RTDB shared-worker preview bridge. Aliased to avoid colliding with Storage
-  // `ref` and Firestore sentinels in this worker barrel.
-  rtdbGetDatabase,
-  rtdbRef,
-  rtdbChild,
+} from './client.js';
+
+// RTDB bridge families are exported directly from their owning modules. This
+// public package index is the sole aggregation point for the worker surface.
+export { rtdbGetDatabase, rtdbRef, rtdbChild } from './client/rtdb-references.js';
+export {
   rtdbGet,
   rtdbSet,
+  rtdbSetPriority,
+  rtdbSetWithPriority,
   rtdbUpdate,
   rtdbRemove,
   rtdbPush,
+} from './client/rtdb-operations.js';
+export {
   rtdbOnValue,
   rtdbOnChildAdded,
   rtdbOnChildChanged,
   rtdbOnChildMoved,
   rtdbOnChildRemoved,
+  rtdbOff,
+} from './client/rtdb-listeners.js';
+export { rtdbRunTransaction } from './client/rtdb-transactions.js';
+export {
   rtdbOnDisconnect,
   rtdbGoOffline,
   rtdbGoOnline,
   RtdbOnDisconnect,
-  rtdbOff,
+} from './client/rtdb-connection-lifecycle.js';
+export {
   rtdbServerTimestamp,
-  rtdbSetPriority,
-  rtdbSetWithPriority,
-  rtdbRunTransaction,
   rtdbConnectDatabaseEmulator,
+} from './client/rtdb-controls.js';
+export {
   adminReadRtdbState,
   adminSetRtdbValue,
   adminUpdateRtdbValue,
   adminDeleteRtdbValue,
   adminSubscribeRtdbValue,
-  type ClientRtdb,
-  type RtdbRefHandle,
-  type RtdbDataSnapshot,
-} from './client.js';
+} from './client/rtdb-admin.js';
+export type {
+  ClientRtdb,
+  RtdbRefHandle,
+  RtdbDataSnapshot,
+} from './client/handles.js';
 
 export type {
   AuthPersistenceMode,

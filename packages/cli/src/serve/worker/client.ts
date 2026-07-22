@@ -16,7 +16,6 @@
  *   - `firestore-writes` writes + `writeBatch` + `runTransaction`
  *   - `rules`           Firestore/RTDB rules deploy + status
  *   - `admin-firestore` admin-lens document ops
- *   - `rtdb`            RTDB modular subset
  *   - `studio`          event stream, confirm-policy, sandbox snapshot
  *   - `auth`            per-port auth surface
  *   - `storage`         worker-backed storage mirror
@@ -49,40 +48,6 @@ export * from './client/firestore-reads.js';
 export * from './client/firestore-writes.js';
 export * from './client/rules.js';
 export * from './client/admin-firestore.js';
-export { rtdbGetDatabase, rtdbRef, rtdbChild } from './client/rtdb-references.js';
-export {
-  rtdbGet,
-  rtdbSet,
-  rtdbSetPriority,
-  rtdbSetWithPriority,
-  rtdbUpdate,
-  rtdbRemove,
-  rtdbPush,
-} from './client/rtdb-operations.js';
-export {
-  rtdbOnValue,
-  rtdbOnChildAdded,
-  rtdbOnChildChanged,
-  rtdbOnChildRemoved,
-  rtdbOnChildMoved,
-  rtdbOff,
-} from './client/rtdb-listeners.js';
-export {
-  rtdbRunTransaction,
-  type RtdbTransactionOptions,
-  type RtdbTransactionResult,
-} from './client/rtdb-transactions.js';
-export {
-  RtdbOnDisconnect,
-  rtdbOnDisconnect,
-  rtdbGoOffline,
-  rtdbGoOnline,
-} from './client/rtdb-connection-lifecycle.js';
-export {
-  rtdbServerTimestamp,
-  rtdbConnectDatabaseEmulator,
-} from './client/rtdb-controls.js';
-export * from './client/rtdb-admin.js';
 export * from './client/studio.js';
 export * from './client/presence.js';
 export * from './client/auth.js';

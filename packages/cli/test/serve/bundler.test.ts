@@ -429,7 +429,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
       'getDatabase', 'ref', 'child', 'get', 'set', 'update', 'remove', 'push',
       'onValue', 'onChildAdded', 'onChildChanged', 'onChildRemoved', 'onChildMoved',
       'onDisconnect', 'OnDisconnect',
-      'goOffline', 'goOnline', 'off', 'serverTimestamp',
+      'goOffline', 'goOnline', 'off', 'serverTimestamp', 'increment',
       'connectDatabaseEmulator',
       'runTransaction', 'TransactionResult', 'query', 'QueryConstraint',
       'orderByChild', 'orderByKey', 'orderByPriority', 'orderByValue',

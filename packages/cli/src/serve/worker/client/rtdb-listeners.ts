@@ -1,51 +1,157 @@
-/** RTDB value/child listeners over the worker port. */
-import type { InboundMessage } from "../protocol.js";
+/** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
+import type { InboundMessage } from '../protocol.js';
+import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   _defaultLens,
   closeSubscription,
   nextSubId,
   openSnapshotSubscription,
   stampIssuer,
-} from "./core.js";
-import type { RtdbDataSnapshot, RtdbRefHandle, Unsubscribe } from "./handles.js";
-import { rtdbChild, targetParts, type RtdbTarget } from "./rtdb-references.js";
+} from './core.js';
+import type { ClientPort, RtdbDataSnapshot, Unsubscribe } from './handles.js';
+import {
+  isRtdbQuery,
+  rtdbChild,
+  targetParts,
+  type RtdbTarget,
+} from './rtdb-references.js';
 import {
   hydrateRtdbSnapshot,
   makeRtdbSnapshot,
   valueAt,
   type RtdbWireEntry,
-} from "./rtdb-snapshots.js";
+} from './rtdb-snapshots.js';
 
-export function rtdbOnValue(
+export type RtdbEventType =
+  | 'value'
+  | 'child_added'
+  | 'child_changed'
+  | 'child_removed'
+  | 'child_moved';
+
+interface ListenerRegistration {
+  readonly port: ClientPort;
+  readonly path: string;
+  readonly scope?: string;
+  readonly eventType: RtdbEventType;
+  readonly callback: object;
+  close(): void;
+}
+
+const registrations: ListenerRegistration[] = [];
+
+/** Drop client-side registration identity when the owning app port closes. */
+export function dropRtdbListenersForPort(port: ClientPort): void {
+  for (const registration of [...registrations]) {
+    if (registration.port === port) registration.close();
+  }
+}
+
+function targetScope(target: RtdbTarget): string {
+  if (!isRtdbQuery(target)) return 'default';
+  const spec = target._spec;
+  if (spec.orderBy === null && spec.bounds.length === 0 && spec.limit === null) return 'default';
+  const boundOrder: Record<(typeof spec.bounds)[number]['kind'], number> = {
+    startAt: 0,
+    startAfter: 0,
+    equalTo: 1,
+    endAt: 2,
+    endBefore: 2,
+  };
+  return JSON.stringify({
+    orderBy: spec.orderBy,
+    bounds: [...spec.bounds].sort((left, right) => boundOrder[left.kind] - boundOrder[right.kind]),
+    limit: spec.limit,
+  });
+}
+
+function removeRegistration(registration: ListenerRegistration): void {
+  const index = registrations.indexOf(registration);
+  if (index >= 0) registrations.splice(index, 1);
+}
+
+function openValueSubscription(
   target: RtdbTarget,
   next: (snap: RtdbDataSnapshot) => void,
   cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
   options?: { readonly onlyOnce?: boolean },
 ): Unsubscribe {
-  const { ref: r, query } = targetParts(target);
+  const { ref, query } = targetParts(target);
   const error = typeof cancelCallbackOrOptions === 'function' ? cancelCallbackOrOptions : undefined;
   const listenOptions = typeof cancelCallbackOrOptions === 'function'
     ? options
     : cancelCallbackOrOptions;
   const subId = nextSubId();
   const msg: InboundMessage = _defaultLens
-    ? { t: 'sub', subId, target: { service: 'rtdb', path: r.path, ...(query ? { query } : {}) }, actAs: _defaultLens }
-    : { t: 'sub', subId, target: { service: 'rtdb', path: r.path, ...(query ? { query } : {}) } };
+    ? { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, actAs: _defaultLens }
+    : { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) } };
   let fired = false;
-  const opened = openSnapshotSubscription(r.port, subId, {
-    port: r.port,
+  const opened = openSnapshotSubscription(ref.port, subId, {
+    port: ref.port,
     next: (wire) => {
       if (listenOptions?.onlyOnce && fired) return;
       fired = true;
-      if (listenOptions?.onlyOnce) closeSubscription(r.port, subId);
-      next(hydrateRtdbSnapshot(r, wire));
+      if (listenOptions?.onlyOnce) closeSubscription(ref.port, subId);
+      next(hydrateRtdbSnapshot(ref, wire));
     },
     error,
   }, stampIssuer(msg));
-  if (!opened && error) queueMicrotask(() => error(new Error('FIREBASE FATAL ERROR: Database has been deleted.')));
-  return () => {
-    closeSubscription(r.port, subId);
+  if (!opened && error) {
+    queueMicrotask(() => error(new Error('FIREBASE FATAL ERROR: Database has been deleted.')));
+  }
+  return () => closeSubscription(ref.port, subId);
+}
+
+function registerListener(
+  target: RtdbTarget,
+  eventType: RtdbEventType,
+  callback: object,
+  unsubscribe: Unsubscribe,
+): Unsubscribe {
+  const { ref } = targetParts(target);
+  let closed = false;
+  const registration: ListenerRegistration = {
+    port: ref.port,
+    path: ref.path,
+    scope: targetScope(target),
+    eventType,
+    callback,
+    close() {
+      if (closed) return;
+      closed = true;
+      removeRegistration(registration);
+      unsubscribe();
+    },
   };
+  registrations.push(registration);
+  return registration.close;
+}
+
+export function rtdbOnValue(
+  target: RtdbTarget,
+  next: (snap: RtdbDataSnapshot) => void,
+  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
+  options?: { readonly onlyOnce?: boolean },
+  registryCallback: object = next,
+): Unsubscribe {
+  const listenOptions = typeof cancelCallbackOrOptions === 'function'
+    ? options
+    : cancelCallbackOrOptions;
+  let unsubscribe: Unsubscribe = () => {};
+  const rawUnsubscribe = openValueSubscription(target, (snapshot) => {
+    try {
+      next(snapshot);
+    } finally {
+      if (listenOptions?.onlyOnce) queueMicrotask(() => unsubscribe());
+    }
+  }, cancelCallbackOrOptions, options);
+  unsubscribe = registerListener(
+    target,
+    'value',
+    registryCallback,
+    rawUnsubscribe,
+  );
+  return unsubscribe;
 }
 
 type ChildEventKind = 'added' | 'changed' | 'removed' | 'moved';
@@ -58,21 +164,6 @@ function directChildren(value: unknown): Record<string, unknown> {
   }
   if (value === null || typeof value !== 'object') return {};
   return value as Record<string, unknown>;
-}
-
-function sameRtdbValue(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right) &&
-      left.length === right.length && left.every((value, index) => sameRtdbValue(value, right[index]));
-  }
-  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
-  const leftRecord = left as Record<string, unknown>;
-  const rightRecord = right as Record<string, unknown>;
-  const leftKeys = Object.keys(leftRecord).sort();
-  const rightKeys = Object.keys(rightRecord).sort();
-  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) =>
-    key === rightKeys[index] && sameRtdbValue(leftRecord[key], rightRecord[key]));
 }
 
 function rtdbKeyCompare(left: string, right: string): number {
@@ -89,58 +180,65 @@ function rtdbKeyCompare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function rtdbOnChildEvent(
+function onChildEvent(
   target: RtdbTarget,
   kind: ChildEventKind,
   next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
   error?: (err: unknown) => void,
+  reverseInitial = false,
 ): Unsubscribe {
-  const { ref: r, query } = targetParts(target);
+  const { ref, query } = targetParts(target);
   let initialized = false;
   let previous: RtdbWireEntry[] = [];
-
-  return rtdbOnValue(target, (parent) => {
+  return openValueSubscription(target, (parent) => {
     const current: RtdbWireEntry[] = [];
     parent.forEach((childSnap) => {
       if (childSnap.key !== null) {
-        current.push({ key: childSnap.key, value: childSnap.val(), priority: childSnap.priority });
+        current.push({
+          key: childSnap.key,
+          value: childSnap.val(),
+          priority: childSnap.priority,
+          exportValue: childSnap.exportVal(),
+        });
       }
     });
-    // Plain snapshots produced by older hosts do not carry ordered entries.
     if (current.length === 0) {
       for (const key of Object.keys(directChildren(parent.val())).sort(rtdbKeyCompare)) {
         current.push({ key, value: directChildren(parent.val())[key] });
       }
     }
+    const emit = (entry: RtdbWireEntry, previousChildName: string | null): void => {
+      try {
+        next(makeRtdbSnapshot(
+          rtdbChild(ref, entry.key),
+          entry.value,
+          undefined,
+          entry.priority ?? null,
+          undefined,
+          entry.exportValue ?? entry.value,
+        ), previousChildName);
+      } catch {
+        // Firebase isolates listener exceptions from sibling deliveries.
+      }
+    };
     if (!initialized) {
       initialized = true;
       if (kind === 'added') {
-        for (let index = 0; index < current.length; index++) {
-          const entry = current[index]!;
-          next(
-            makeRtdbSnapshot(rtdbChild(r, entry.key), entry.value, undefined, entry.priority ?? null),
-            current[index - 1]?.key ?? null,
-          );
+        const indexes = current.map((_, index) => index);
+        if (reverseInitial) indexes.reverse();
+        for (const index of indexes) {
+          emit(current[index]!, current[index - 1]?.key ?? null);
         }
       }
       previous = current;
       return;
     }
-
     const previousByKey = new Map(previous.map((entry, index) => [entry.key, { entry, index }]));
     const currentByKey = new Map(current.map((entry, index) => [entry.key, { entry, index }]));
-    const emit = (entry: RtdbWireEntry, previousChildName: string | null): void => {
-      next(
-        makeRtdbSnapshot(rtdbChild(r, entry.key), entry.value, undefined, entry.priority ?? null),
-        previousChildName,
-      );
-    };
-
     if (kind === 'removed') {
       for (const prior of previous) {
         if (!currentByKey.has(prior.key)) {
-          const priorIndex = previousByKey.get(prior.key)!.index;
-          emit(prior, previous[priorIndex - 1]?.key ?? null);
+          emit(prior, previous[previousByKey.get(prior.key)!.index - 1]?.key ?? null);
         }
       }
     } else {
@@ -160,8 +258,6 @@ function rtdbOnChildEvent(
             if (orderBy.kind === 'value') return candidate.value;
             return valueAt(candidate.value, orderBy.path);
           };
-          // Production emits child_moved when the child's indexed value
-          // changes, even when its predecessor remains the same.
           if (!sameRtdbValue(indexed(prior.entry), indexed(entry))) {
             emit(entry, previousChildName);
           }
@@ -172,68 +268,80 @@ function rtdbOnChildEvent(
   }, error);
 }
 
-/** Derives direct-child additions from the existing parent value stream. */
-export function rtdbOnChildAdded(
-  r: RtdbTarget,
-  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
-  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
-  options?: { readonly onlyOnce?: boolean },
-): Unsubscribe {
-  return subscribeRtdbChild(r, 'added', next, cancelCallbackOrOptions, options);
-}
-
-/** Derives existing direct-child value changes from the parent value stream. */
-export function rtdbOnChildChanged(
-  r: RtdbTarget,
-  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
-  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
-  options?: { readonly onlyOnce?: boolean },
-): Unsubscribe {
-  return subscribeRtdbChild(r, 'changed', next, cancelCallbackOrOptions, options);
-}
-
-export function rtdbOnChildRemoved(
-  r: RtdbTarget,
-  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
-  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
-  options?: { readonly onlyOnce?: boolean },
-): Unsubscribe {
-  return subscribeRtdbChild(r, 'removed', next, cancelCallbackOrOptions, options);
-}
-
-export function rtdbOnChildMoved(
-  r: RtdbTarget,
-  next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
-  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
-  options?: { readonly onlyOnce?: boolean },
-): Unsubscribe {
-  return subscribeRtdbChild(r, 'moved', next, cancelCallbackOrOptions, options);
-}
-
-function subscribeRtdbChild(
+function subscribeChild(
   target: RtdbTarget,
   kind: ChildEventKind,
   next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
   cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
   options?: { readonly onlyOnce?: boolean },
+  registryCallback: object = next,
 ): Unsubscribe {
   const error = typeof cancelCallbackOrOptions === 'function' ? cancelCallbackOrOptions : undefined;
   const listenOptions = typeof cancelCallbackOrOptions === 'function'
     ? options
     : cancelCallbackOrOptions;
-  if (!listenOptions?.onlyOnce) return rtdbOnChildEvent(target, kind, next, error);
+  const eventType = `child_${kind}` as RtdbEventType;
+  if (!listenOptions?.onlyOnce) {
+    return registerListener(target, eventType, registryCallback, onChildEvent(target, kind, next, error));
+  }
   let stopped = false;
+  let stopScheduled = false;
   let unsubscribe: Unsubscribe = () => {};
-  unsubscribe = rtdbOnChildEvent(target, kind, (snapshot, previousChildName) => {
+  const rawUnsubscribe = onChildEvent(target, kind, (snapshot, previousChildName) => {
     if (stopped) return;
-    stopped = true;
-    unsubscribe();
-    next(snapshot, kind === 'removed' ? null : previousChildName);
-  }, error);
+    try {
+      next(snapshot, kind === 'removed' ? null : previousChildName);
+    } finally {
+      if (kind === 'added') {
+        if (!stopScheduled) {
+          stopScheduled = true;
+          queueMicrotask(() => { stopped = true; unsubscribe(); });
+        }
+      } else {
+        stopped = true;
+        unsubscribe();
+      }
+    }
+  }, error, kind === 'added');
+  unsubscribe = registerListener(target, eventType, registryCallback, rawUnsubscribe);
   return unsubscribe;
 }
-export function rtdbOff(_r: RtdbRefHandle, _eventType?: unknown, _callback?: unknown): void {
-  // Firebase's `off` is callback-specific. The worker bridge exposes unsubscribe
-  // functions from `onValue`; this no-op preserves common app code that calls it
-  // defensively during cleanup.
+
+type ChildCallback = (snap: RtdbDataSnapshot, previousChildName: string | null) => void;
+type CancelOrOptions = ((err: unknown) => void) | { readonly onlyOnce?: boolean };
+type ListenOptions = { readonly onlyOnce?: boolean };
+
+export function rtdbOnChildAdded(target: RtdbTarget, next: ChildCallback, cancel?: CancelOrOptions, options?: ListenOptions, identity: object = next): Unsubscribe {
+  return subscribeChild(target, 'added', next, cancel, options, identity);
+}
+
+export function rtdbOnChildChanged(target: RtdbTarget, next: ChildCallback, cancel?: CancelOrOptions, options?: ListenOptions, identity: object = next): Unsubscribe {
+  return subscribeChild(target, 'changed', next, cancel, options, identity);
+}
+
+export function rtdbOnChildRemoved(target: RtdbTarget, next: ChildCallback, cancel?: CancelOrOptions, options?: ListenOptions, identity: object = next): Unsubscribe {
+  return subscribeChild(target, 'removed', next, cancel, options, identity);
+}
+
+export function rtdbOnChildMoved(target: RtdbTarget, next: ChildCallback, cancel?: CancelOrOptions, options?: ListenOptions, identity: object = next): Unsubscribe {
+  return subscribeChild(target, 'moved', next, cancel, options, identity);
+}
+
+export function rtdbOff(target: RtdbTarget, eventType?: RtdbEventType, callback?: object): void {
+  const { ref } = targetParts(target);
+  const scope = targetScope(target);
+  const allViews = !isRtdbQuery(target);
+  const matches = (registration: ListenerRegistration): boolean =>
+    registration.port === ref.port
+      && registration.path === ref.path
+      && (allViews || registration.scope === scope)
+      && (eventType === undefined || registration.eventType === eventType)
+      && (callback === undefined || registration.callback === callback);
+  if (callback !== undefined && eventType !== undefined) {
+    registrations.find(matches)?.close();
+    return;
+  }
+  for (const registration of [...registrations]) {
+    if (matches(registration)) registration.close();
+  }
 }
