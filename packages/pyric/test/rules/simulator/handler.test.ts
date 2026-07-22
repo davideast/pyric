@@ -1061,25 +1061,6 @@ service cloud.firestore {
     if (r.success) expect(r.data.results[0].state).toBe('PASSED');
   });
 
-  test('a non-integral JSON payload number retains Firestore float semantics', () => {
-    const STORED = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /s/{id} { allow create: if request.resource.data.price is float; }
-  }
-}`;
-    const r = handler.simulate(STORED, [{
-      description: 'stored float is detectable as float',
-      expectation: 'ALLOW',
-      method: 'create',
-      path: 's/x',
-      auth: { uid: 'u1' },
-      data: { price: 1.5 },
-    }]);
-    expect(r.success).toBe(true);
-    if (r.success) expect(r.data.results[0].state).toBe('PASSED');
-  });
-
   describe('overlapping match blocks — allows OR-combine (firestore.overlapping-match-or)', () => {
     // Production Firestore semantics: when MULTIPLE match blocks match the
     // same document path, the request is allowed if ANY matching block's

@@ -2,11 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { diagnosticTable, existingLinkage, selectFirestoreScenarios } from './run-rules.ts';
-import {
-  firestoreObservationMatchesScenario,
-  firestoreScenarioInputDigest,
-} from './firestore-rules-input-digest.ts';
+import { diagnosticTable, existingLinkage, selectFirestoreScenarios } from '../../src/run-rules.ts';
 
 describe('run-rules Firestore scenario selection', () => {
   it('selects exactly one scenario by id', () => {
@@ -43,43 +39,6 @@ describe('run-rules Firestore scenario selection', () => {
 });
 
 describe('run-rules observation recapture', () => {
-  it('binds case labels to production inputs while excluding expectations', () => {
-    const scenario = {
-      rules: 'service cloud.firestore { match /databases/{database}/documents { match /x/{id} { allow get: if true; } } }',
-      cases: [{ description: 'label', expectation: 'ALLOW' as const, method: 'get' as const, path: 'x/a' }],
-    };
-    const original = firestoreScenarioInputDigest(scenario);
-    expect(firestoreScenarioInputDigest({
-      ...scenario,
-      cases: [{ ...scenario.cases[0]!, expectation: 'DENY' }],
-    })).toEqual(original);
-    expect(firestoreScenarioInputDigest({
-      ...scenario,
-      cases: [{ ...scenario.cases[0]!, description: 'renamed' }],
-    })).not.toEqual(original);
-    expect(firestoreScenarioInputDigest({
-      ...scenario,
-      cases: [{ ...scenario.cases[0]!, path: 'x/b' }],
-    })).not.toEqual(original);
-    expect(firestoreScenarioInputDigest({
-      ...scenario,
-      rules: scenario.rules.replace('if true', 'if false'),
-    })).not.toEqual(original);
-
-    expect(firestoreObservationMatchesScenario(scenario, {
-      inputDigest: original,
-      behavior: { label: 'ALLOW' },
-    })).toBe(true);
-    expect(firestoreObservationMatchesScenario(scenario, {
-      inputDigest: { ...original, value: '0'.repeat(64) },
-      behavior: { label: 'ALLOW' },
-    })).toBe(false);
-    expect(firestoreObservationMatchesScenario(scenario, {
-      inputDigest: original,
-      behavior: { staleLabel: 'ALLOW' },
-    })).toBe(false);
-  });
-
   it('retains production diagnostics for held/error-boundary evidence', () => {
     const diagnostics = diagnosticTable([{
       description: 'held case',

@@ -4,11 +4,9 @@
  * the regression rule (cdd.md Step 5.5 / Step 6) and the row-id boundary
  * matching that keeps `messaging#1` from being mistaken for `messaging#12`.
  *
- * Not part of the blocking `npm test` run (which globs the package suites, not
- * packages/conformance/). Run explicitly: `bun test packages/conformance/src/climb.test.ts`.
  */
 import { describe, expect, test } from 'bun:test';
-import { classifyRows, mentionsRow, parseJUnit, type RowInput, type TestCase } from './climb.ts';
+import { classifyRows, mentionsRow, parseJUnit, type RowInput, type TestCase } from '../../src/climb.ts';
 
 describe('mentionsRow — row-id boundary matching', () => {
   test('a row id matches its own name', () => {
