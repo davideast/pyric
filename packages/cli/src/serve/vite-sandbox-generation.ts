@@ -1,6 +1,4 @@
 import { existsSync } from 'node:fs';
-import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
-import path from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
 import { registerModuleUrl } from '../cli/dev-runner.js';
@@ -16,7 +14,6 @@ import {
   type BridgeMountOptions,
 } from './bridge-mount.js';
 import { resolveSiteUiDir } from './bundler.js';
-import { isAllowedHost } from './server.js';
 import {
   createSandboxSession,
   SandboxSeedError,
@@ -32,6 +29,16 @@ import type { ResolvedViteAiConfig } from './vite-ai-config.js';
 import { resolveViteRulesConfig } from './vite-rules-source.js';
 import type { ViteWorkerRuntime, ViteWorkerRuntimeStatus } from './vite-worker-runtime.js';
 import { viteWorkerEpochSalt } from './vite-ai-config.js';
+import {
+  attachViteGenerationBridge,
+  createViteGenerationBridge,
+} from './vite-generation-bridge.js';
+import {
+  attachViteGenerationFunctions,
+  resolveViteGenerationFunctions,
+} from './vite-generation-functions.js';
+import { attachViteGenerationMiddleware } from './vite-generation-middleware.js';
+import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
 
 export interface ViteSandboxGenerationOptions {
   rules: string | undefined;
@@ -134,29 +141,21 @@ export async function createViteSandboxGeneration(
       );
     }
 
-    const functionsOptions = typeof options.functions === 'object' ? options.functions : {};
-    const functionsProject = options.functions === false
-      ? null
-      : dependencies.discoverFunctionsProject(cwd);
-    const functionsProjectId = functionsProject
-      ? (process.env.PYRIC_PROJECT ?? (await dependencies.readFirebaseRc(cwd))?.projects?.default ?? 'demo-project')
-      : null;
+    const functions = await resolveViteGenerationFunctions({
+      projectDir: cwd,
+      options: options.functions,
+      discover: dependencies.discoverFunctionsProject,
+      readFirebaseRc: dependencies.readFirebaseRc,
+    });
+    bridge = createViteGenerationBridge({
+      server,
+      projectDir: cwd,
+      options: options.bridge,
+      functionsProject: functions.project,
+      functionsProjectId: functions.projectId,
+      createBridge: dependencies.createBridge,
+    });
     const serverOptions = server.config.server;
-    bridge = options.bridge || functionsProject
-      ? dependencies.createBridge({
-          ...(options.bridge ?? {}),
-          project: options.bridge?.project ?? functionsProjectId ?? undefined,
-          upgradeGuard: {
-            boundHost: typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
-            allowedHosts:
-              serverOptions.allowedHosts === true
-                ? true
-                : Array.isArray(serverOptions.allowedHosts)
-                  ? serverOptions.allowedHosts
-                  : [],
-          },
-        })
-      : null;
 
     let siteUiDir: string | undefined;
     if (options.ui) {
@@ -208,105 +207,20 @@ export async function createViteSandboxGeneration(
       server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
     }
 
-    const hostAllowed = (req: IncomingMessage): boolean => {
-      if (serverOptions.allowedHosts === true) return true;
-      const boundHost = typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost';
-      const extra = Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [];
-      return isAllowedHost(req.headers.host, boundHost, extra);
-    };
-    let middlewareActive = true;
-    listenerDisposers.push(() => { middlewareActive = false; });
-    server.middlewares.use(
-      '/__pyric',
-      (req: IncomingMessage & { originalUrl?: string }, res: ServerResponse, next: () => void) => {
-        if (!middlewareActive) {
-          next();
-          return;
-        }
-        if (!hostAllowed(req)) {
-          res.statusCode = 403;
-          res.end(`pyric: refused request for Host '${req.headers.host ?? ''}' (DNS-rebinding guard).`);
-          return;
-        }
-        const url = new URL(
-          req.originalUrl ?? req.url ?? '/',
-          `http://${req.headers.host ?? 'localhost'}`,
-        );
-        Promise.resolve(bridge ? bridge.handler(req, res, url) : false)
-          .then((bridged) => (bridged ? true : Promise.resolve(session!.handle(req, res, url))))
-          .then((handled) => {
-            if (!handled) next();
-          })
-          .catch((error: unknown) => {
-            if (!res.headersSent) res.statusCode = 500;
-            res.end(error instanceof Error ? error.message : String(error));
-          });
-      },
-    );
-
-    if (bridge && server.httpServer) {
-      const httpServer = server.httpServer as unknown as HttpServer;
-      const host = (typeof serverOptions.host === 'string' && serverOptions.host) || 'localhost';
-      bridgeAttachment = bridge.attachHost({
-        servers: [httpServer],
-        projectDir: cwd,
-        origin: () => {
-          const address = httpServer.address();
-          const port = address && typeof address === 'object' ? address.port : 0;
-          return port > 0 ? { host, port } : null;
-        },
-        collision: server.config.logger,
-        closeOnServerClose: false,
-      });
-    }
-
-    if (functionsProject && functionsProjectId && bridge && server.httpServer) {
-      const host = (typeof serverOptions.host === 'string' && serverOptions.host) || 'localhost';
-      const builtChild = path.join(cliRoot, 'dist/functions-rtdb/child.js');
-      const childModuleUrl = dependencies.fileExists(builtChild) ? builtChild : undefined;
-      functionsAttachment = dependencies.attachFunctions({
-        cwd,
-        project: functionsProject,
-        projectId: functionsProjectId,
-        instance: functionsOptions.instance,
-        region: functionsOptions.region,
-        watch: functionsOptions.watch,
-        host,
-        httpServer: server.httpServer as unknown as HttpServer,
-        watcher: server.watcher,
-        logger: server.config.logger,
-        bridge,
-        baseEnv: process.env,
-        registerUrl: dependencies.registerModuleUrl(),
-        ...(childModuleUrl ? { childModuleUrl } : {}),
-      });
-    }
-
-    const rulesFile = session.summary.rules.firestore.sourcePath;
-    if (rulesFile) {
-      let debounce: ReturnType<typeof setTimeout> | null = null;
-      server.watcher.add(rulesFile);
-      const onRulesChange = (file: string): void => {
-        if (path.resolve(file) !== path.resolve(rulesFile)) return;
-        if (debounce) clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          void session!.reloadFirestoreRules().then((result) => {
-            if (result.kind === 'reloaded') {
-              server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})`);
-            } else if (result.kind === 'rejected') {
-              server.config.logger.warn(
-                `  ⚠ [pyric] rules NOT reloaded (last-good stays live): ${result.error.message}`,
-              );
-            }
-          });
-        }, 150);
-      };
-      server.watcher.on('change', onRulesChange);
-      listenerDisposers.push(() => {
-        if (debounce) clearTimeout(debounce);
-        server.watcher.off('change', onRulesChange);
-      });
-    }
+    listenerDisposers.push(attachViteGenerationMiddleware({ server, bridge, session }));
+    bridgeAttachment = attachViteGenerationBridge({ server, projectDir: cwd, bridge });
+    functionsAttachment = attachViteGenerationFunctions({
+      server,
+      projectDir: cwd,
+      cliRoot,
+      bridge,
+      resolved: functions,
+      registerModuleUrl: dependencies.registerModuleUrl,
+      fileExists: dependencies.fileExists,
+      attach: dependencies.attachFunctions,
+    });
+    const stopRulesWatch = watchViteGenerationRules({ server, session });
+    if (stopRulesWatch) listenerDisposers.push(stopRulesWatch);
 
     if (server.httpServer) {
       const httpServer = server.httpServer;
