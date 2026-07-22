@@ -294,7 +294,7 @@ observations, assertions, and registry status agree.
 ```sh
 bun run packages/conformance/src/rules-language-coverage.ts
 bun run packages/conformance/src/rules-language-capability.ts
-bun test packages/conformance/src/rules-language.test.ts
+bun test packages/conformance/test/src/rules-language-analyzer.test.ts packages/conformance/test/src/rules-language-coverage.test.ts
 bun test packages/conformance/test/src/production-verification.test.ts
 bun test packages/pyric/test/rules/oracle-conformance.test.ts
 bun run compat:rules-score
