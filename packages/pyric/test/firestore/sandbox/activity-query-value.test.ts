@@ -26,7 +26,7 @@ describe('activity query operand identity', () => {
     expect(first).toEqual(second);
   });
 
-  it('never executes Proxy traps, including during an empty query', async () => {
+  it('keeps diagnostics trap-free while query construction rejects an opaque Proxy', () => {
     const fail = () => { throw new Error('diagnostics executed a Proxy trap'); };
     const operand = new Proxy({}, {
       get: fail,
@@ -41,17 +41,12 @@ describe('activity query operand identity', () => {
     expect(() => activityValue(operand)).not.toThrow();
     expect(() => activityValue(revoked.proxy)).not.toThrow();
 
-    const rules = `rules_version = '2'; service cloud.firestore {
-      match /databases/{database}/documents { match /{document=**} { allow read: if true; } }
-    }`;
     const env = new LocalEnvironment();
-    env.deployRules(rules);
     const db = new FirestoreImpl(env, { uid: 'alice' });
-    const result = await db.collection('empty').where('field', '==', operand).get();
-    expect(result.empty).toBe(true);
+    expect(() => db.collection('empty').where('field', '==', operand)).toThrow();
   });
 
-  it('never invokes getters while constructing filters or cursors', () => {
+  it('captures getters during construction but never re-observes them for equality', () => {
     let calls = 0;
     const operand = Object.defineProperty({}, 'computed', {
       get() { calls += 1; return 'value'; },
@@ -60,12 +55,20 @@ describe('activity query operand identity', () => {
     const env = new LocalEnvironment();
     const query = new FirestoreImpl(env, { uid: 'alice' }).collection('empty');
 
-    query.where('field', '==', operand);
-    query.applyFilter({ kind: 'where', field: 'field', op: '==', value: operand });
-    query.startCursor([operand], true);
-    query.endCursor([operand], false);
+    const whereQuery = query.where('field', '==', operand) as QueryImpl;
+    const filterQuery = query.applyFilter({
+      kind: 'where', field: 'field', op: '==', value: operand,
+    }) as QueryImpl;
+    const startQuery = query.startCursor([operand], true) as QueryImpl;
+    const endQuery = query.endCursor([operand], false) as QueryImpl;
 
-    expect(calls).toBe(0);
+    const constructionCalls = calls;
+    expect(constructionCalls).toBeGreaterThan(0);
+    expect(whereQuery.isStructurallyEqual(whereQuery)).toBe(true);
+    expect(filterQuery.isStructurallyEqual(filterQuery)).toBe(true);
+    expect(startQuery.isStructurallyEqual(startQuery)).toBe(true);
+    expect(endQuery.isStructurallyEqual(endQuery)).toBe(true);
+    expect(calls).toBe(constructionCalls);
   });
 
   it('keeps diagnostic tags distinct from arbitrary maps and arrays', () => {

@@ -35,6 +35,9 @@ export function reviveFirestoreNumbers(value: unknown): unknown {
   if (typeof value === 'number' && !Number.isInteger(value)) return new RulesFloat(value);
   if (Array.isArray(value)) return value.map(reviveFirestoreNumbers);
   if (isPlainObject(value)) {
+    if (value.__type === 'float' && typeof value.value === 'number') {
+      return new RulesFloat(value.value);
+    }
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => [key, reviveFirestoreNumbers(child)]),
     );

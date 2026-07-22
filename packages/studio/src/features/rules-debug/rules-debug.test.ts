@@ -30,7 +30,7 @@ import {
   getAdminFirestore,
   getFirestore as getRulesFirestore,
 } from 'pyric/sandbox/admin-firestore';
-import { getFirestore as getSandboxFirestore, doc, setDoc, collection, query, getDocs, SandboxError } from 'pyric/firestore';
+import { getFirestore as getSandboxFirestore, doc, setDoc, collection, query, getDocs } from 'pyric/firestore';
 import { getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
 import {
   selectDenials,
@@ -124,7 +124,9 @@ describe('rules-debug model: Firestore denial → rule → context', () => {
     try {
       await setDoc(doc(dbBob, 'notes/n1'), { text: 'hi', owner: 'alice' });
     } catch (e) {
-      threw = e instanceof SandboxError && e.code === 'permission-denied';
+      threw = e instanceof Error
+        && e.constructor.name === 'FirebaseError'
+        && (e as { code?: unknown }).code === 'permission-denied';
     }
     expect(threw).toBe(true);
 

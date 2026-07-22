@@ -222,6 +222,7 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "undefined-field-access",
@@ -329,10 +330,13 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "time-math-and-casts",
         "undefined-field-access"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#188"
+      ],
       "divergedByRows": []
     },
     "firestore.binding.request.resource.data": {
@@ -360,11 +364,13 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "time-math-and-casts",
         "undefined-field-access"
       ],
       "verifiedByRows": [
-        "firestore-rules#183"
+        "firestore-rules#183",
+        "firestore-rules#188"
       ],
       "divergedByRows": []
     },
@@ -455,10 +461,12 @@
         "globals-request-path-and-resource-id",
         "required-fields-and-mapdiff",
         "resource-document-identity",
-        "resource-missing-document"
+        "resource-missing-document",
+        "strict-boolean-control-flow"
       ],
       "verifiedByRows": [
-        "firestore-rules#184"
+        "firestore-rules#184",
+        "firestore-rules#188"
       ],
       "divergedByRows": []
     },
@@ -584,6 +592,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "undefined-field-access",
@@ -2116,6 +2125,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -2354,10 +2364,12 @@
         "required-fields-and-mapdiff",
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "time-math-and-casts"
       ],
       "verifiedByRows": [
-        "firestore-rules#163"
+        "firestore-rules#163",
+        "firestore-rules#188"
       ],
       "divergedByRows": []
     },
@@ -2377,10 +2389,12 @@
         "get-missing-doc",
         "int-float-and-division",
         "resource-document-identity",
+        "strict-boolean-control-flow",
         "undefined-field-access"
       ],
       "verifiedByRows": [
-        "firestore-rules#163"
+        "firestore-rules#163",
+        "firestore-rules#188"
       ],
       "divergedByRows": []
     },
@@ -2400,6 +2414,7 @@
         "path-constructor-and-bind",
         "prototype-chain-keys",
         "resource-document-identity",
+        "strict-boolean-control-flow",
         "string-literals-and-regex",
         "undefined-field-access"
       ],
@@ -2418,9 +2433,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "functions-verbs-and-recursive"
+        "functions-verbs-and-recursive",
+        "strict-boolean-control-flow"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#188"
+      ],
       "divergedByRows": []
     },
     "firestore.operator.in": {
@@ -2517,6 +2535,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "undefined-field-access",
@@ -2670,6 +2689,7 @@
         "range-slice-list-and-string",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "time-math-and-casts",
         "undefined-field-access"
       ],
@@ -2751,6 +2771,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "undefined-field-access",
@@ -2832,6 +2853,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "undefined-field-access",
@@ -2889,6 +2911,7 @@
         "resource-document-identity",
         "resource-missing-document",
         "set-algebra-difference-union-intersection",
+        "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
         "undefined-field-access",

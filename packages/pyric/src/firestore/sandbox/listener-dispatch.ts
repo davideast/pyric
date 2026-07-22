@@ -615,6 +615,31 @@ export class ListenerDispatch {
     // post-image equals its pre-image). Match findings section 5.
     const changes = snap.docChanges();
     if (changes.length === 0) {
+      if (record.options.includeMetadataChanges) {
+        // A write of the same value still changes pending-write metadata.
+        // Production delivers the pending echo and settled ack with empty
+        // default docChanges arrays when metadata changes were requested.
+        record.currentSnapshot = snap;
+        record.currentDocs = result.docs;
+        try {
+          record.callback(snap);
+        } catch {
+          /* swallow — see fireInitialSnapshot doc */
+        }
+        this.emitSnapshotDelivery({
+          listenerId: record.id,
+          target: { kind: 'query', collection },
+          auth: record.auth,
+          addedCount: 0,
+          modifiedCount: 0,
+          removedCount: 0,
+          size: result.docs.length,
+          sample: { docs: result.docs.map((d) => ({ path: d.path, data: d.data })) },
+          ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
+        });
+        this.scheduleQueryMetadataAck(record, collection, result.docs);
+        return;
+      }
       this.emitSnapshotSuppressed({
         listenerId: record.id,
         target: { kind: 'query', collection },

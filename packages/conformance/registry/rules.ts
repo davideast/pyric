@@ -318,6 +318,18 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-hierarchical-match-cascade"],
           constructs: ["firestore.semantic.hierarchical-match-cascade"],
         }),
+        row1({
+          rowRef: "188",
+          featureKeys: [],
+          behavior: "Strict boolean operands for `&&`, `||`, and ternary control flow, plus create-time `resource` / `request.resource` semantics",
+          status: "conforms",
+          evidence: "`oracle:rules-firestore-strict-boolean-control-flow` captures three direct non-boolean DENYs, three tautological error discriminators that still DENY, a boolean ALLOW control, create-time `resource == null` DENY, and incoming `request.resource.data` ALLOW; replayed verdict-for-verdict by `packages/pyric/test/rules/oracle-conformance.test.ts`.",
+          risk: ["rules-denial","specific-field"],
+          riskScore: 3,
+          riskReasons: ["asserts rules-denial behavior","asserts a specific field/property value"],
+          oracleObservations: ["rules-firestore-strict-boolean-control-flow"],
+          constructs: ["firestore.operator.and","firestore.operator.or","firestore.operator.ternary","firestore.binding.resource","firestore.binding.request.resource","firestore.binding.request.resource.data"],
+        }),
       ],
     },
     {
