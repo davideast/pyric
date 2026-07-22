@@ -40,53 +40,32 @@
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
 import type { Plugin, UserConfig, ConfigEnv } from 'vite';
 import type { Plugin as EsbuildPlugin } from 'esbuild';
 import {
   SDK_MODULES,
   defaultSdkEntries,
-  resolveSiteUiDir,
   pyricPackageRoot,
   NODE_BUILTIN_RE,
   NODE_BUILTIN_SHIMS,
 } from './bundler.js';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
-import { formatActivityWarning } from './activity-warning.js';
-import {
-  createBridgeMount,
-  type BridgeHostAttachment,
-  type BridgeMount,
-} from './bridge-mount.js';
-import { isAllowedHost } from './server.js';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
-import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
-import {
-  discoverFunctionsRtdbProject,
-  type FunctionsRtdbProject,
-} from '../functions-rtdb/project.js';
-import { registerModuleUrl } from '../cli/dev-runner.js';
-import {
-  attachViteFunctionsDevelopment,
-  type ViteFunctionsDevelopmentAttachment,
-} from './vite-functions-development.js';
 import {
   loadViteAiEnv,
   resolveViteAiConfig,
   viteWorkerEpochSalt,
   type PyricAiOptions,
 } from './vite-ai-config.js';
-import { resolveViteRulesConfig } from './vite-rules-source.js';
 import {
   PYRIC_RUNTIME_CHIP_META,
   runtimeChipMetaValue,
   type PyricRuntimeChipOption,
 } from './runtime/chip-config.js';
 import {
-  createSandboxSession,
-  SandboxSeedError,
-  type SandboxSession,
-} from './sandbox-session.js';
+  createViteSandboxGeneration,
+  type ViteSandboxGeneration,
+} from './vite-sandbox-generation.js';
 
 /**
  * Whether a `vite build` should run the firebase→pyric swap (produce a SANDBOX
@@ -297,17 +276,10 @@ export function pyric(options: PyricOptions = {}): Plugin {
   let initChunkRef: string | undefined;
   let initChunkFile: string | undefined;
 
-  // M3 bridge fold: normalize `bridge` once (true ⇒ `{}`, falsy ⇒ null). When
-  // on, the MCP mount is composed into the /__pyric middleware (createBridgeMount,
-  // shared with `pyric dev --bridge`) AND the page is forced onto the in-page
-  // sandbox path — the bridge peer is the in-page sandbox, never the SharedWorker,
-  // so multi-tab is disabled under bridge to keep agent + app on one backend.
+  // Normalize the public bridge shorthand once. The active generation owns the
+  // bridge/session attachment and routes the peer through the SharedWorker.
   const bridgeOpts = options.bridge === true ? {} : options.bridge || null;
-  let configuredSession: SandboxSession | null = null;
-  let configuredBridge: BridgeMount | null = null;
-  let configuredBridgeAttachment: BridgeHostAttachment | null = null;
-  let configuredFunctions: ViteFunctionsDevelopmentAttachment | null = null;
-  const configuredListenerDisposers: Array<() => void> = [];
+  let activeGeneration: ViteSandboxGeneration | null = null;
 
   // Plugin-level AI engine, normalized to the JSON-safe wire shape. Travels
   // to the worker host via the init payload (→ ctx.aiEngine) AND to the in-page
@@ -396,323 +368,39 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     async configureServer(server) {
-      const priorSession = configuredSession;
-      const priorBridge = configuredBridge;
-      const priorBridgeAttachment = configuredBridgeAttachment;
-      const priorFunctions = configuredFunctions;
-      configuredSession = null;
-      configuredBridge = null;
-      configuredBridgeAttachment = null;
-      configuredFunctions = null;
-      for (const dispose of configuredListenerDisposers.splice(0).reverse()) dispose();
-      await priorFunctions?.close();
-      await priorBridgeAttachment?.close();
-      await priorBridge?.close();
-      await priorSession?.close();
-      const cwd = options.root ?? server.config.root;
+      const priorGeneration = activeGeneration;
+      activeGeneration = null;
+      await priorGeneration?.close();
 
-      // Resolve the optional Firebase configuration before the shared session
-      // loads and prepares the project's rules.
-      let fbJson: FirebaseJson | null = null;
-      try {
-        fbJson = await readFirebaseJson(cwd);
-      } catch {
-        /* optional — serve without a firebase.json */
-      }
-      // Convention-first development source: an explicit option wins; otherwise
-      // an authored 2+modules file wins over firebase.json's generated deployment
-      // target. Projects without that convention retain the normal Firebase
-      // discovery path.
-      const config = resolveViteRulesConfig(cwd, options.rules, fbJson);
-
-      // ── M2 SharedWorker host: bundle it (cached per version) and serve it at
-      // /__pyric/sdk/worker.js. This is what flips runtime.ts to the worker path.
-      // On bundle failure, the collaborator stays unready and its HTML tag
-      // forces the in-page sandbox.
-      try {
-        await workerRuntime.prepare(viteWorkerEpochSalt(cwd, resolvedAi.engineWire));
-      } catch (e) {
-        server.config.logger.warn(
-          `  ⚠ [pyric] SharedWorker bundle failed — using the in-page sandbox (single-tab, ephemeral): ${e instanceof Error ? e.message : String(e)}`,
-        );
-      }
-
-      // ── Functions (RTDB triggers) — the `pyric dev` parity fold ───────────
-      // Discover the one supported Functions codebase from the same resolved
-      // firebase.json the rules used (project.ts reads it itself). Reuses the
-      // exact serve module, so absent `functions` → null (silently off) and a
-      // malformed config throws serve's own error text — which, thrown from an
-      // async configureServer, fails the dev start the same way serve's
-      // `return 2` aborts. The Functions child connects to the sandbox over the
-      // bridge WS, so a discovered codebase forces the bridge mount on (mirrors
-      // serve's `bridgeEnabledFor(..., functionsProject)`). `functions: false`
-      // is the off switch: discovery never runs, so neither does the mount.
-      const functionsOpts = typeof options.functions === 'object' ? options.functions : {};
-      let functionsProject: FunctionsRtdbProject | null = null;
-      if (options.functions !== false) {
-        try {
-          functionsProject = discoverFunctionsRtdbProject(cwd);
-        } catch (error) {
-          // Malformed functions config: fail the start with serve's exact message.
-          throw error instanceof Error ? error : new Error(String(error));
-        }
-      }
-      const functionsProjectId = functionsProject
-        ? (process.env.PYRIC_PROJECT ?? (await readFirebaseRc(cwd))?.projects?.default ?? 'demo-project')
-        : null;
-
-      // ── M3 MCP bridge (mirrors serve.ts:221–274) ─────────────────────────
-      // The mount is long-lived (one bridge per dev session); its MCP transport
-      // is rebuilt per request (stateless). Composed into the /__pyric middleware
-      // below (handler tier) + the server's WS upgrade. middlewareMode has no
-      // httpServer → HTTP routes still work, no WS peer.
-      // Guard the WS upgrade with the SAME allow rule Vite's own host check
-      // uses (host + allowedHosts, where `true` = opted into all hosts). Vite's
-      // upgrade path bypasses connect middleware, so this is the only guard on it.
-      const mount = bridgeOpts || functionsProject
-        ? createBridgeMount({
-            ...(bridgeOpts ?? {}),
-            // A functions-only session still needs a labeled bridge; prefer an
-            // explicit bridge project, else the resolved functions project id.
-            project: bridgeOpts?.project ?? functionsProjectId ?? undefined,
-            upgradeGuard: {
-              boundHost: typeof server.config.server.host === 'string' ? server.config.server.host : 'localhost',
-              allowedHosts:
-                server.config.server.allowedHosts === true
-                  ? true
-                  : Array.isArray(server.config.server.allowedHosts)
-                    ? server.config.server.allowedHosts
-                    : [],
-            },
-          })
-        : null;
-
-      // Pyric Studio: mount the disk-backed workspace/project routes that
-      // Studio's `local` mode talks to + serve the built Studio app at
-      // /__pyric/ui/. Mirrors `pyric dev --ui`; the unified Astro site is
-      // vendored in this package's dist (resolveSiteUiDir).
-      //
-      // ON BY DEFAULT, including under `bridge`: the bridge now routes agent
-      // tool-calls THROUGH the SharedWorker (see `connectBridgePeer`), so the
-      // app, Studio, and agent all observe the ONE sandbox. Explicit `ui: false`
-      // still wins.
-      const uiEnabled = options.ui ?? true;
-      let siteUiDir: string | undefined;
-      if (uiEnabled) {
-        siteUiDir = resolveSiteUiDir() ?? undefined;
-        if (!siteUiDir) {
-          server.config.logger.warn(
-            '[pyric] ui: built Astro site not found; /__pyric/ui/ will 404 ' +
-              '(run the full build, or reinstall @pyric/cli).',
-          );
-        }
-      }
-      const { sdkDir, epoch: workerVersion } = workerRuntime.status();
-      let session: SandboxSession;
-      try {
-        session = await createSandboxSession({
-          projectDir: cwd,
-          firebaseConfig: config,
-          sdk: { dir: sdkDir, workerVersion: workerVersion ?? undefined },
-          seedFile: options.seed,
-          persistence: options.persist ? { fresh: options.fresh } : undefined,
+      const generation = await createViteSandboxGeneration({
+        server,
+        projectDir: options.root ?? server.config.root,
+        cliRoot,
+        workerRuntime,
+        options: {
+          rules: options.rules,
+          seed: options.seed,
+          persist: options.persist,
+          fresh: options.fresh,
           capture: options.capture,
-          studio: uiEnabled ? { siteUiDir } : false,
-          bridgeUrl: () => {
-            if (!mount) return null;
-            const addr = server.httpServer?.address();
-            const port = addr && typeof addr === 'object' ? addr.port : 0;
-            const host = (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
-            return port > 0 ? mount.wsUrl({ host, port }) : null;
-          },
-          ai: resolvedAi.engineWire ? { engine: resolvedAi.engineWire } : null,
-          aiProxyUpstream: resolvedAi.proxyUpstream,
-          activity: (incident) => server.config.logger.warn(formatActivityWarning(incident)),
-          logger: {
-            info: (message) => server.config.logger.info(message),
-            note: (message) => server.config.logger.warn(message),
-          },
-        });
-      } catch (error) {
-        await mount?.close();
-        if (error instanceof SandboxSeedError) {
-          if (error.kind === 'read') {
-            throw new Error(`@pyric/cli/vite: failed to read seed ${error.path}: ${error.detail}`);
-          }
-          throw new Error('@pyric/cli/vite: seed must be a JSON object of "collection/doc" → fields');
-        }
-        throw error;
-      }
-      let bridgeAttachment: BridgeHostAttachment | null = null;
-      let functionsAttachment: ViteFunctionsDevelopmentAttachment | null = null;
-      configuredSession = session;
-      configuredBridge = mount;
-      try {
-        if (options.persist && options.fresh) {
-          server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
-        }
-
-      // DNS-rebinding guard for the /__pyric/* surface. Vite has its own host
-      // check, but a `configureServer` hook that doesn't return a function mounts
-      // BEFORE it (and the ordering differs across Vite 5/6/7), so guard here too
-      // — independent of Vite's internals. Reuses serve's `isAllowedHost`.
-      const srvOpts = server.config.server;
-      const hostAllowed = (req: IncomingMessage): boolean => {
-        if (srvOpts.allowedHosts === true) return true; // user opted into all hosts
-        const boundHost = typeof srvOpts.host === 'string' ? srvOpts.host : 'localhost';
-        const extra = Array.isArray(srvOpts.allowedHosts) ? srvOpts.allowedHosts : [];
-        return isAllowedHost(req.headers.host, boundHost, extra);
-      };
-
-      // Connect-middleware adapter (build `url` from originalUrl; next() when the
-      // namespace closure returns false; never rewrite route bodies).
-        let middlewareActive = true;
-        configuredListenerDisposers.push(() => { middlewareActive = false; });
-        server.middlewares.use('/__pyric', (req: IncomingMessage & { originalUrl?: string }, res: ServerResponse, next: () => void) => {
-          // Connect does not expose layer removal. Reconfiguration therefore
-          // deactivates the old generation so it yields to the newly appended
-          // middleware instead of answering through closed resources.
-          if (!middlewareActive) {
-            next();
-            return;
-          }
-          if (!hostAllowed(req)) {
-            res.statusCode = 403;
-            res.end(`pyric: refused request for Host '${req.headers.host ?? ''}' (DNS-rebinding guard).`);
-            return;
-          }
-          const url = new URL(req.originalUrl ?? req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-          // Bridge first (mirrors serve.ts): /__pyric/mcp + /__pyric/health must be
-          // handled by the mount, not 404 through the namespace. Falls through to the
-          // namespace when the mount returns false (every non-bridge route).
-          Promise.resolve(mount ? mount.handler(req, res, url) : false)
-            .then((bridged) => (bridged ? true : Promise.resolve(session.handle(req, res, url))))
-            .then((handled) => {
-              if (!handled) next();
-            })
-            .catch((err: unknown) => {
-              if (!res.headersSent) res.statusCode = 500;
-              res.end(err instanceof Error ? err.message : String(err));
-            });
-        });
-
-      // WS upgrade for the in-page sandbox peer (ws://…/__pyric/sandbox). The
-      // listener only fires once upgrades arrive (after listen), so adding it in
-      // configureServer is safe. middlewareMode has no httpServer → HTTP bridge
-      // routes still work, just no WS peer.
-      // Cast: Vite types `httpServer` as http.Server | http2.Http2SecureServer;
-      // attachUpgrade only needs `.on('upgrade')`, present on both. (serve passes
-      // a plain http.Server, so this widening is plugin-specific.)
-      if (mount && server.httpServer) {
-        const httpServer = server.httpServer as unknown as HttpServer;
-        const host =
-          (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
-        bridgeAttachment = mount.attachHost({
-          servers: [httpServer],
-          projectDir: cwd,
-          origin: () => {
-            const address = httpServer.address();
-            const port = address && typeof address === 'object' ? address.port : 0;
-            return port > 0 ? { host, port } : null;
-          },
-          collision: server.config.logger,
-          closeOnServerClose: false,
-        });
-        configuredBridgeAttachment = bridgeAttachment;
-      }
-
-      if (functionsProject && functionsProjectId && mount && server.httpServer) {
-        const host =
-          (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
-        const builtChild = path.join(cliRoot, 'dist/functions-rtdb/child.js');
-        const childModuleUrl = existsSync(builtChild) ? builtChild : undefined;
-        functionsAttachment = attachViteFunctionsDevelopment({
-            cwd,
-            project: functionsProject,
-            projectId: functionsProjectId,
-            instance: functionsOpts.instance,
-            region: functionsOpts.region,
-            watch: functionsOpts.watch,
-            host,
-            httpServer: server.httpServer as unknown as HttpServer,
-            watcher: server.watcher,
-            logger: server.config.logger,
-            bridge: mount,
-            baseEnv: process.env,
-            registerUrl: registerModuleUrl(),
-            ...(childModuleUrl ? { childModuleUrl } : {}),
-          });
-        configuredFunctions = functionsAttachment;
-      }
-
-      // Vite owns filesystem observation; the session owns read/prepare/hash,
-      // last-good replacement, live payload mutation, and SSE broadcast.
-      const rulesFile = session.summary.rules.firestore.sourcePath;
-      if (rulesFile) {
-        let debounce: ReturnType<typeof setTimeout> | null = null;
-        server.watcher.add(rulesFile);
-        const onRulesChange = (file: string): void => {
-          if (path.resolve(file) !== path.resolve(rulesFile)) return;
-          if (debounce) clearTimeout(debounce);
-          debounce = setTimeout(() => {
-            void session.reloadFirestoreRules().then((result) => {
-              if (result.kind === 'reloaded') {
-                server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})`);
-              } else if (result.kind === 'rejected') {
-                server.config.logger.warn(
-                  `  ⚠ [pyric] rules NOT reloaded (last-good stays live): ${result.error.message}`,
-                );
-              }
-            });
-          }, 150);
-        };
-        server.watcher.on('change', onRulesChange);
-        configuredListenerDisposers.push(() => {
-          if (debounce) clearTimeout(debounce);
-          server.watcher.off('change', onRulesChange);
-        });
-      }
-      if (server.httpServer) {
-        const httpServer = server.httpServer;
-        const onServerClose = (): void => {
-          void (async () => {
-            await functionsAttachment?.close();
-            await bridgeAttachment?.close();
-            await mount?.close();
-            await session.close();
-          })();
-        };
-        httpServer.once('close', onServerClose);
-        configuredListenerDisposers.push(() => httpServer.removeListener('close', onServerClose));
-      }
-      } catch (error) {
-        for (const dispose of configuredListenerDisposers.splice(0).reverse()) dispose();
-        if (configuredFunctions === functionsAttachment) configuredFunctions = null;
-        if (configuredBridgeAttachment === bridgeAttachment) configuredBridgeAttachment = null;
-        if (configuredBridge === mount) configuredBridge = null;
-        if (configuredSession === session) configuredSession = null;
-        await (functionsAttachment as ViteFunctionsDevelopmentAttachment | null)?.close();
-        await bridgeAttachment?.close();
-        await mount?.close();
-        await session.close();
-        throw error;
-      }
+          bridge: bridgeOpts,
+          ui: options.ui ?? true,
+          functions:
+            options.functions === false
+              ? false
+              : typeof options.functions === 'object'
+                ? options.functions
+                : {},
+        },
+        ai: resolvedAi,
+      });
+      activeGeneration = generation;
     },
 
     async closeBundle() {
-      const session = configuredSession;
-      const bridge = configuredBridge;
-      const bridgeAttachment = configuredBridgeAttachment;
-      const functionsAttachment = configuredFunctions;
-      configuredSession = null;
-      configuredBridge = null;
-      configuredBridgeAttachment = null;
-      configuredFunctions = null;
-      for (const dispose of configuredListenerDisposers.splice(0).reverse()) dispose();
-      await functionsAttachment?.close();
-      await bridgeAttachment?.close();
-      await bridge?.close();
-      await session?.close();
+      const generation = activeGeneration;
+      activeGeneration = null;
+      await generation?.close();
     },
 
     // Sandbox build only: emit the serve init entry as its own chunk. Emitted in
