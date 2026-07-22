@@ -45,6 +45,7 @@ import {
   query,
   where,
   orderBy,
+  documentId,
   or,
   and,
   startAt,
@@ -860,7 +861,11 @@ describe('oracle conformance (firestore)', () => {
     const obs = load('firestore-queryequal-structural.json');
 
     const db = freshDb();
-    seedDb(db, { 'c/x': { v: 1 } });
+    seedDb(db, {
+      'c/x': { v: 1 },
+      'c/a': { value: { score: 1 }, rank: 1 },
+      'c/b': { value: { score: 2 }, rank: 2 },
+    });
     const q1 = query(collection(db, 'c'), where('v', '==', 1));
     const q2 = query(collection(db, 'c'), where('v', '==', 1));
     const q3 = query(collection(db, 'c'), where('v', '==', 2));
@@ -963,11 +968,45 @@ describe('oracle conformance (firestore)', () => {
     const otherDatabaseResult = constructionError(doc(otherDb, 'query-equality/ref'));
     expect(otherDatabaseResult.threw).toBe(obs.referenceOtherDatabaseRejected as boolean);
     expect(otherDatabaseResult.code).toBe(obs.referenceOtherDatabaseErrorCode as string);
+    const foreignRef = doc(otherDb, 'query-equality/ref');
+    const nestedForeign = constructionError({ ref: foreignRef });
+    expect(nestedForeign.threw).toBe(obs.nestedReferenceOtherDatabaseRejected as boolean);
+    expect(nestedForeign.code).toBe(obs.nestedReferenceOtherDatabaseErrorCode as string);
+    const arrayForeign = constructionError([foreignRef]);
+    expect(arrayForeign.threw).toBe(obs.arrayReferenceOtherDatabaseRejected as boolean);
+    expect(arrayForeign.code).toBe(obs.arrayReferenceOtherDatabaseErrorCode as string);
+    const convertedForeign = constructionError(withConverter(foreignRef, converterA));
+    expect(convertedForeign.threw).toBe(obs.convertedReferenceOtherDatabaseRejected as boolean);
+    expect(convertedForeign.code).toBe(obs.convertedReferenceOtherDatabaseErrorCode as string);
+
+    const localRef = doc(db, 'query-equality/ref');
+    expect(queryEqual(
+      query(base, where('v', '==', localRef)),
+      query(base, where('v', '==', withConverter(localRef, converterA))),
+    )).toBe(obs.rawAndConvertedReferenceOperandsEqual as boolean);
+
+    const mutableOperand = { score: 1 };
+    const independentOperand = { score: 1 };
+    const frozenExecutionQuery = query(base, where('value', '==', mutableOperand));
+    const independentExecutionQuery = query(base, where('value', '==', independentOperand));
+    mutableOperand.score = 2;
+    expect(queryEqual(frozenExecutionQuery, independentExecutionQuery))
+      .toBe(obs.constructedQueriesRemainEqualAfterOperandMutation as boolean);
+    expect((await getDocs(frozenExecutionQuery)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.frozenExecutionIds as string[]);
+    expect((await getDocs(independentExecutionQuery)).docs.map((snapshot) => snapshot.id))
+      .toEqual(obs.independentExecutionIds as string[]);
+
+    const cursorRef = doc(db, 'c/a');
+    const cursorSnapshot = await getDoc(cursorRef);
+    const cursorBase = query(base, orderBy('rank'), orderBy(documentId()));
+    expect(queryEqual(
+      query(cursorBase, startAt(cursorSnapshot)),
+      query(cursorBase, startAt(1, cursorRef.id)),
+    )).toBe(obs.snapshotAndExplicitCursorEqual as boolean);
   });
 
-  it('firestore#117 snapshotEqual returns production identity booleans', async () => {
-    // Prod snapshotEqual is identity-based for these query snapshots:
-    // same-object → true, two separate fetches of the same data → false.
+  it('firestore#117 snapshotEqual distinguishes read identity from listener structure', async () => {
     const obs = load('firestore-snapshotequal-structural.json');
 
     const db = freshDb();
@@ -978,6 +1017,21 @@ describe('oracle conformance (firestore)', () => {
     expect(s1.size).toBe(obs.size as number);
     expect(snapshotEqual(s1, s1)).toBe(obs.identity as boolean);
     expect(snapshotEqual(s1, s2)).toBe(obs.twoFetchesSameData as boolean);
+
+    const firstListenerSnapshot = () => new Promise<QuerySnapshot>((resolve) => {
+      let unsubscribe = () => {};
+      unsubscribe = onSnapshot(q, (snapshot) => {
+        unsubscribe();
+        resolve(snapshot as QuerySnapshot);
+      });
+    });
+    const [listenerSnap1, listenerSnap2] = await Promise.all([
+      firstListenerSnapshot(),
+      firstListenerSnapshot(),
+    ]);
+    expect(listenerSnap1 !== listenerSnap2).toBe(obs.listenerSnapshotsDistinct as boolean);
+    expect(snapshotEqual(listenerSnap1, listenerSnap2))
+      .toBe(obs.simultaneousListenerSnapshotsEqual as boolean);
   });
 
   // ── completeness: every observation is asserted or explicitly N/A ─────

@@ -30,6 +30,7 @@ import {
   registerActivityValue,
 } from './sandbox/activity-value-registry.js';
 import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
+import { copyQueryValueRegistration } from './sandbox/query-value-registry.js';
 
 function registerDocumentValue<T extends object>(ref: T, path: string, owner: object): T {
   registerActivityValue(ref, boundedActivityIdentity('reference', path));
@@ -198,5 +199,7 @@ export function withConverter(
     return underlyingOf(source);
   }
   const underlying = underlyingOf(source) as { id?: string; path?: string };
-  return buildSandboxShell(underlying, target, converter);
+  const shell = buildSandboxShell(underlying, target, converter);
+  copyQueryValueRegistration(underlying, shell);
+  return shell;
 }

@@ -18,9 +18,17 @@ import {
   sandboxLiveRebuild,
   refToUnderlying,
   finalizeSandboxData,
+  converterOf,
+  underlyingOf,
   type Target,
 } from './state.js';
 import { firestoreValuesEqual } from './sandbox/value-equality.js';
+import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
+import {
+  captureQueryOperand,
+  capturedQueryOperandsEqual,
+  type CapturedQueryOperand,
+} from './sandbox/query-operand-equality.js';
 import type {
   DocumentSnapshot,
   QueryDocumentSnapshot,
@@ -35,6 +43,30 @@ interface DocumentSnapshotEqualityState {
 }
 
 const documentSnapshotEquality = new WeakMap<object, DocumentSnapshotEqualityState>();
+
+interface QuerySnapshotDocEqualityState {
+  readonly path: string;
+  readonly data: CapturedQueryOperand;
+}
+
+interface QuerySnapshotChangeEqualityState extends QuerySnapshotDocEqualityState {
+  readonly type: string;
+  readonly oldIndex: number;
+  readonly newIndex: number;
+}
+
+interface QuerySnapshotEqualityState {
+  readonly target: Target;
+  readonly query: object;
+  readonly converter: FirestoreDataConverter<unknown> | null;
+  readonly source: 'read' | 'listener';
+  readonly readIdentity?: object;
+  readonly metadata: { readonly fromCache: boolean; readonly hasPendingWrites: boolean };
+  readonly docs: readonly QuerySnapshotDocEqualityState[];
+  readonly changes: readonly QuerySnapshotChangeEqualityState[];
+}
+
+const querySnapshotEquality = new WeakMap<object, QuerySnapshotEqualityState>();
 
 function recordDocumentSnapshot(
   snapshot: object,
@@ -61,15 +93,93 @@ export function taggedSnapshotsEqual(left: object, right: object): boolean {
   if (left === right) return true;
   const a = documentSnapshotEquality.get(left);
   const b = documentSnapshotEquality.get(right);
-  // Distinct query snapshots intentionally remain unequal, matching the
-  // production observation. Document snapshots carry raw engine state below.
-  if (!a || !b) return false;
+  if (!a || !b) return querySnapshotsEqual(left, right);
   if (a.target !== b.target || a.path !== b.path || a.converter !== b.converter) return false;
   const aExists = snapshotExists(a.raw);
   const bExists = snapshotExists(b.raw);
   if (aExists !== bExists) return false;
   if (!aExists) return true;
   return firestoreValuesEqual(a.raw.data(), b.raw.data());
+}
+
+function querySnapshotsEqual(left: object, right: object): boolean {
+  const a = querySnapshotEquality.get(left);
+  const b = querySnapshotEquality.get(right);
+  if (!a || !b || a.target !== b.target || a.converter !== b.converter) return false;
+  // Separate one-shot reads carry distinct internal view snapshots in
+  // Firebase even when their documents match. Listener deliveries, however,
+  // are compared structurally.
+  if (a.source !== b.source) return false;
+  if (a.source === 'read') return a.readIdentity === b.readIdentity;
+  const leftQuery = underlyingOf(a.query) as { isStructurallyEqual?: (other: unknown) => boolean };
+  const rightQuery = underlyingOf(b.query);
+  if (!(leftQuery.isStructurallyEqual?.(rightQuery) ?? leftQuery === rightQuery)) return false;
+  if (a.metadata.fromCache !== b.metadata.fromCache
+    || a.metadata.hasPendingWrites !== b.metadata.hasPendingWrites) return false;
+  if (!querySnapshotDocsEqual(a.docs, b.docs) || a.changes.length !== b.changes.length) return false;
+  return a.changes.every((change, index) => {
+    const other = b.changes[index]!;
+    return change.type === other.type
+      && change.oldIndex === other.oldIndex
+      && change.newIndex === other.newIndex
+      && change.path === other.path
+      && capturedQueryOperandsEqual(change.data, other.data);
+  });
+}
+
+function querySnapshotDocsEqual(
+  left: readonly QuerySnapshotDocEqualityState[],
+  right: readonly QuerySnapshotDocEqualityState[],
+): boolean {
+  return left.length === right.length && left.every((doc, index) => {
+    const other = right[index]!;
+    return doc.path === other.path && capturedQueryOperandsEqual(doc.data, other.data);
+  });
+}
+
+/** Record the immutable equality state Firebase associates with a query
+ * snapshot. `rawSnapshot` keeps converter callbacks out of equality. */
+export function recordQuerySnapshot(
+  snapshot: object,
+  rawSnapshot: object,
+  target: Target,
+  query: object,
+  source: 'read' | 'listener',
+): void {
+  const raw = rawSnapshot as {
+    docs?: Array<{ ref?: { path?: string }; data?: () => unknown }>;
+    metadata?: { fromCache?: boolean; hasPendingWrites?: boolean };
+    docChanges?: () => Array<{
+      type?: string;
+      oldIndex?: number;
+      newIndex?: number;
+      doc?: { ref?: { path?: string }; data?: () => unknown };
+    }>;
+  };
+  const captureDoc = (doc: { ref?: { path?: string }; data?: () => unknown }) => ({
+    path: doc.ref?.path ?? '',
+    data: captureQueryOperand(doc.data?.(), target),
+  });
+  const docs = Object.freeze((raw.docs ?? []).map(captureDoc));
+  const changes = Object.freeze((raw.docChanges?.() ?? []).map((change) => ({
+    ...captureDoc(change.doc ?? {}),
+    type: change.type ?? '',
+    oldIndex: change.oldIndex ?? -1,
+    newIndex: change.newIndex ?? -1,
+  })));
+  querySnapshotEquality.set(snapshot, {
+    target,
+    query,
+    converter: converterOf(query) ?? null,
+    source,
+    ...(source === 'read' ? { readIdentity: {} } : {}),
+    metadata: Object.freeze({
+      fromCache: raw.metadata?.fromCache === true,
+      hasPendingWrites: raw.metadata?.hasPendingWrites === true,
+    }),
+    docs,
+    changes,
+  });
 }
 
 /**
@@ -201,7 +311,6 @@ export function wireSnapshotRefToUnderlying(
   target: Target,
 ): void {
   if (typeof snapRef.path !== 'string' || snapRef.path.length === 0) return;
-  if (refToUnderlying.has(snapRef as object)) return;
   const path = snapRef.path;
   try {
     // Build a concrete chainable doc to back the snap-ref via
@@ -209,8 +318,10 @@ export function wireSnapshotRefToUnderlying(
     // closure so subsequent ops on the snap ref re-resolve against
     // the *current* `sandbox.currentUser` (rather than re-using the
     // listener-time auth that was frozen into the chainable).
-    const full = sandboxDb(target).doc(path) as unknown as object;
-    refToUnderlying.set(snapRef as object, full);
+    const existing = refToUnderlying.get(snapRef as object);
+    const full = existing ?? sandboxDb(target).doc(path) as unknown as object;
+    if (existing === undefined) refToUnderlying.set(snapRef as object, full);
+    registerReferenceQueryValue(snapRef as object, path, target, full);
     if (target.kind === 'sandbox-live') {
       sandboxLiveRebuild.set(
         full,

@@ -23,7 +23,7 @@ export class Bytes {
     registerQueryValue(this, Object.freeze({
       type: 'bytes',
       values: Object.freeze(Array.from(bytes)),
-    }));
+    }), () => new Bytes(bytes.slice()));
   }
 
   static fromBase64String(base64: string): Bytes {
@@ -89,7 +89,7 @@ export class GeoPoint {
       type: 'geo-point',
       latitude: lat,
       longitude: lng,
-    }));
+    }), () => new GeoPoint(lat, lng));
   }
 
   get latitude(): number { return this.lat; }
@@ -154,7 +154,7 @@ export class VectorValue {
     registerQueryValue(this, Object.freeze({
       type: 'vector',
       values: Object.freeze(_values.slice()),
-    }));
+    }), () => new VectorValue(_values.slice()));
   }
 
   static create(values: number[]): VectorValue {

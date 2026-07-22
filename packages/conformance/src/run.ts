@@ -83,6 +83,7 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  documentId,
   endAt,
   endBefore,
   GeoPoint,
@@ -96,6 +97,7 @@ import {
   orderBy,
   query,
   queryEqual,
+  querySnapshotFromJSON,
   runTransaction,
   serverTimestamp,
   setDoc,
@@ -966,7 +968,12 @@ const probes: Probe[] = [
     rowIds: ['firestore#116'],
     description: 'queryEqual semantics — does prod compare structurally or by identity?',
     async observe() {
+      await signInAnonymously(auth);
       const c = collection(db, RUN_DOC('queryequal'));
+      const aRef = doc(c, 'a');
+      const bRef = doc(c, 'b');
+      await setDoc(aRef, { value: { score: 1 }, rank: 1 });
+      await setDoc(bRef, { value: { score: 2 }, rank: 2 });
       const q1 = query(c, where('x', '==', 1));
       const q2 = query(c, where('x', '==', 1));
       const q3 = query(c, where('x', '==', 2));
@@ -1017,16 +1024,6 @@ const probes: Probe[] = [
       const convertedA1 = c.withConverter(converterA);
       const convertedA2 = c.withConverter(converterA);
       const convertedB = c.withConverter(converterB);
-      let getterCalls = 0;
-      const getterOperand = Object.defineProperty({}, 'value', {
-        enumerable: true,
-        get() { getterCalls += 1; return 1; },
-      });
-      const getterA = query(c, where('x', '==', getterOperand));
-      const getterB = query(c, where('x', '==', getterOperand));
-      const getterCallsAfterConstruction = getterCalls;
-      const getterQueriesEqual = queryEqual(getterA, getterB);
-      const getterCallsAfterEquality = getterCalls;
       const constructionError = (value: unknown): { threw: boolean; code: string | null } => {
         try {
           query(c, where('x', '==', value));
@@ -1040,6 +1037,34 @@ const probes: Probe[] = [
           };
         }
       };
+      const localRef = doc(db, 'query-equality/ref');
+      const foreignRef = doc(otherDb, 'query-equality/ref');
+      const nestedForeignReference = constructionError({ ref: foreignRef });
+      const arrayForeignReference = constructionError([foreignRef]);
+      const convertedForeignReference = constructionError(foreignRef.withConverter(converterA));
+      const rawReferenceQuery = query(c, where('x', '==', localRef));
+      const convertedReferenceQuery = query(c, where('x', '==', localRef.withConverter(converterA)));
+      const mutableOperand = { score: 1 };
+      const independentOperand = { score: 1 };
+      const frozenExecutionQuery = query(c, where('value', '==', mutableOperand));
+      const independentExecutionQuery = query(c, where('value', '==', independentOperand));
+      mutableOperand.score = 2;
+      const frozenExecutionIds = (await getDocs(frozenExecutionQuery)).docs.map((snap) => snap.id);
+      const independentExecutionIds = (await getDocs(independentExecutionQuery)).docs.map((snap) => snap.id);
+      const cursorSnapshot = await getDoc(aRef);
+      const cursorBase = query(c, orderBy('rank'), orderBy(documentId()));
+      const snapshotCursor = query(cursorBase, startAt(cursorSnapshot));
+      const explicitCursor = query(cursorBase, startAt(1, aRef.id));
+      let getterCalls = 0;
+      const getterOperand = Object.defineProperty({}, 'value', {
+        enumerable: true,
+        get() { getterCalls += 1; return 1; },
+      });
+      const getterA = query(c, where('x', '==', getterOperand));
+      const getterB = query(c, where('x', '==', getterOperand));
+      const getterCallsAfterConstruction = getterCalls;
+      const getterQueriesEqual = queryEqual(getterA, getterB);
+      const getterCallsAfterEquality = getterCalls;
       const undefinedValue = constructionError(undefined);
       const bigintValue = constructionError(BigInt(1));
       const result = {
@@ -1059,6 +1084,20 @@ const probes: Probe[] = [
         referenceValueChanged: queryEqual(refA, refChanged),
         referenceOtherDatabaseRejected,
         referenceOtherDatabaseErrorCode,
+        nestedReferenceOtherDatabaseRejected: nestedForeignReference.threw,
+        nestedReferenceOtherDatabaseErrorCode: nestedForeignReference.code,
+        arrayReferenceOtherDatabaseRejected: arrayForeignReference.threw,
+        arrayReferenceOtherDatabaseErrorCode: arrayForeignReference.code,
+        convertedReferenceOtherDatabaseRejected: convertedForeignReference.threw,
+        convertedReferenceOtherDatabaseErrorCode: convertedForeignReference.code,
+        rawAndConvertedReferenceOperandsEqual: queryEqual(rawReferenceQuery, convertedReferenceQuery),
+        constructedQueriesRemainEqualAfterOperandMutation: queryEqual(
+          frozenExecutionQuery,
+          independentExecutionQuery,
+        ),
+        frozenExecutionIds,
+        independentExecutionIds,
+        snapshotAndExplicitCursorEqual: queryEqual(snapshotCursor, explicitCursor),
         vectorValueBuiltTwice: queryEqual(vectorA, vectorB),
         vectorValueChanged: queryEqual(vectorA, vectorChanged),
         dateEqualsEquivalentTimestamp: queryEqual(dateValue, timestampA),
@@ -1074,7 +1113,9 @@ const probes: Probe[] = [
         bigintErrorCode: bigintValue.code,
         identity: queryEqual(q1, q1),
       };
+      await Promise.all([deleteDoc(aRef), deleteDoc(bRef)]);
       await deleteApp(otherApp);
+      await dropCurrentUser();
       return result;
     },
   },
@@ -1090,9 +1131,31 @@ const probes: Probe[] = [
       const q = query(c, where('v', '==', 1));
       const snap1 = await getDocs(q);
       const snap2 = await getDocs(q);
+      const json = snap1.toJSON();
+      const fromJson1 = querySnapshotFromJSON(db, json);
+      const fromJson2 = querySnapshotFromJSON(db, json);
+      const firstListenerSnapshot = () => new Promise<typeof snap1>((resolve, reject) => {
+        let unsubscribe = () => {};
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          unsubscribe();
+          resolve(snapshot);
+        }, reject);
+      });
+      const [listenerSnap1, listenerSnap2] = await Promise.all([
+        firstListenerSnapshot(),
+        firstListenerSnapshot(),
+      ]);
       const result = {
         identity: snapshotEqual(snap1, snap1),
         twoFetchesSameData: snapshotEqual(snap1, snap2),
+        deserializedSnapshotsDistinct: fromJson1 !== fromJson2,
+        sameJsonSnapshotsEqual: snapshotEqual(fromJson1, fromJson2),
+        listenerSnapshotsDistinct: listenerSnap1 !== listenerSnap2,
+        simultaneousListenerSnapshotsEqual: snapshotEqual(listenerSnap1, listenerSnap2),
+        listenerMetadata: [listenerSnap1, listenerSnap2].map((snapshot) => ({
+          fromCache: snapshot.metadata.fromCache,
+          hasPendingWrites: snapshot.metadata.hasPendingWrites,
+        })),
         size: snap1.size,
       };
       await deleteDoc(doc(c, 'a'));

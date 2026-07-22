@@ -316,7 +316,7 @@ export class Timestamp {
       type: 'timestamp',
       seconds,
       nanoseconds,
-    }));
+    }), () => new Timestamp(seconds, nanoseconds));
   }
   static now(): Timestamp {
     return Timestamp.fromMillis(Date.now());

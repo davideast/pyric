@@ -84,21 +84,20 @@ export type QueryStatePatch = Partial<Pick<
   'clauses' | 'orders' | 'limitCount' | 'limitFromEnd' | 'start' | 'end'
 >>;
 
-function snapshotQueryValue(value: unknown): unknown { return value; }
-
 function snapshotFilter(
   filter: Filter | QueryFilter | ComparableQueryFilter,
   owner?: object,
 ): ComparableQueryFilter {
   if (filter.kind === 'where') {
+    const comparisonValue = 'comparisonValue' in filter
+      ? filter.comparisonValue
+      : captureQueryOperand(filter.value, owner);
     return Object.freeze({
       kind: 'where',
       field: filter.field,
       op: filter.op,
-      value: snapshotQueryValue(filter.value),
-      comparisonValue: 'comparisonValue' in filter
-        ? filter.comparisonValue
-        : captureQueryOperand(filter.value, owner),
+      value: comparisonValue.executionValue,
+      comparisonValue,
     });
   }
   return Object.freeze({
@@ -113,9 +112,10 @@ function snapshotCursor(
   fromSnapshot: boolean,
   owner?: object,
 ): ComparableCursor {
+  const comparisonValues = values.map((value) => captureQueryOperand(value, owner));
   return Object.freeze({
-    values: Object.freeze(values.map(snapshotQueryValue)),
-    comparisonValues: Object.freeze(values.map((value) => captureQueryOperand(value, owner))),
+    values: Object.freeze(comparisonValues.map((value) => value.executionValue)),
+    comparisonValues: Object.freeze(comparisonValues),
     inclusive,
     fromSnapshot,
   });
@@ -143,7 +143,6 @@ function queryFiltersEqual(
 function queryCursorsEqual(left?: ComparableCursor, right?: ComparableCursor): boolean {
   if (left === undefined || right === undefined) return left === right;
   return left.inclusive === right.inclusive
-    && left.fromSnapshot === right.fromSnapshot
     && left.comparisonValues.length === right.comparisonValues.length
     && left.comparisonValues.every((value, index) =>
       capturedQueryOperandsEqual(value, right.comparisonValues[index]!));
@@ -232,9 +231,7 @@ function cursorValuesFromSnapshot(
   // `__name__` clause), so a `startAt(snapshot)` with no explicit orderBy
   // is legal in prod: it positions on the document key. `__name__` reads
   // the snapshot's ref path; data fields read positionally.
-  return orders.map((o) =>
-    o.field === KEY_FIELD ? { path: snapshot.ref.path } : data[o.field],
-  );
+  return orders.map((o) => o.field === KEY_FIELD ? snapshot.ref : data[o.field]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -274,12 +271,16 @@ export class QueryImpl implements Query {
     this.limitFromEnd = state.limitFromEnd ?? false;
     this.start = state.start === undefined ? undefined : Object.freeze({
       ...state.start,
-      values: Object.freeze(state.start.values.map(snapshotQueryValue)),
+      values: Object.freeze(state.start.comparisonValues.map(
+        (value) => value.executionValue,
+      )),
       comparisonValues: state.start.comparisonValues,
     });
     this.end = state.end === undefined ? undefined : Object.freeze({
       ...state.end,
-      values: Object.freeze(state.end.values.map(snapshotQueryValue)),
+      values: Object.freeze(state.end.comparisonValues.map(
+        (value) => value.executionValue,
+      )),
       comparisonValues: state.end.comparisonValues,
     });
     this.bypassRules = state.bypassRules ?? false;
@@ -308,11 +309,15 @@ export class QueryImpl implements Query {
   }
 
   startCursor(values: unknown[], inclusive: boolean): Query {
-    return this.clone({ start: snapshotCursor(values, inclusive, false) });
+    return this.clone({
+      start: snapshotCursor(this.normalizeExplicitCursorValues(values), inclusive, false),
+    });
   }
 
   endCursor(values: unknown[], inclusive: boolean): Query {
-    return this.clone({ end: snapshotCursor(values, inclusive, false) });
+    return this.clone({
+      end: snapshotCursor(this.normalizeExplicitCursorValues(values), inclusive, false),
+    });
   }
 
   startCursorFromSnapshot(snapshot: DocumentSnapshot, inclusive: boolean): Query {
@@ -449,6 +454,27 @@ export class QueryImpl implements Query {
    */
   protected normalizedOrders(): OrderClause[] {
     return normalizedQueryOrders(this.executionSpec());
+  }
+
+  /** Normalize an explicit document-id cursor to the reference value that
+   * Firestore stores in its bound. This makes `startAt(snapshot)` and
+   * `startAt(...fieldValues, snapshot.id)` structurally identical while
+   * retaining Firebase's string-only validation for `documentId()` values. */
+  private normalizeExplicitCursorValues(values: readonly unknown[]): unknown[] {
+    // Only user-declared documentId() positions accept an explicit ID.
+    // The normalized implicit key order is not an extra public cursor slot.
+    const orders = this.orders;
+    return values.map((value, index) => {
+      if (orders[index]?.field !== KEY_FIELD) return value;
+      if (typeof value !== 'string') {
+        throw new FirestoreCompatError({
+          code: 'invalid-argument',
+          message: 'Expected a string for a document ID cursor value.',
+        });
+      }
+      const path = value.includes('/') ? value : `${this.collectionPath}/${value}`;
+      return this.documentRef(path);
+    });
   }
 
   private executionSpec(): QueryExecutionSpec {

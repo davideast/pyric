@@ -18,7 +18,7 @@ import {
   type SandboxTarget,
   type SandboxLiveTarget,
 } from './state.js';
-import { wrapSandboxDocSnap, tagSnapshotRefs } from './snapshots.js';
+import { wrapSandboxDocSnap, tagSnapshotRefs, recordQuerySnapshot } from './snapshots.js';
 import type {
   DocumentReference,
   Query,
@@ -56,7 +56,7 @@ export function onSnapshot(
 ): Unsubscribe {
   const target = targetOf(ref);
   const r = resolveSandboxListenable(target, ref);
-  const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target);
+  const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target, ref as object);
   const finalArgs = markSandboxLiveSnapshotArgs(wrappedArgs, target);
   const unsubscribe = finalArgs.length === 3
     ? r.onSnapshot(finalArgs[0], finalArgs[1], finalArgs[2])
@@ -158,6 +158,7 @@ function tagSandboxSnapshotArgs(
     | undefined,
   arg4: ((error: unknown) => void) | undefined,
   target: Target,
+  source: object,
 ): unknown[] {
   // Detect whether arg2 is the SnapshotListenOptions form. FS-B14 — an
   // observer is any object carrying at least one of `next` / `error` /
@@ -172,22 +173,22 @@ function tagSandboxSnapshotArgs(
     // (options, next | observer, error?)
     const next = arg3;
     if (typeof next === 'function') {
-      return [arg2, wrapNext(next as (snap: unknown) => void, target), arg4 ?? defaultSnapshotErrorHandler];
+      return [arg2, wrapNext(next as (snap: unknown) => void, target, source), arg4 ?? defaultSnapshotErrorHandler];
     }
     if (next && typeof next === 'object') {
-      return [arg2, wrapObserver(next as SnapshotObserver<unknown>, target)];
+      return [arg2, wrapObserver(next as SnapshotObserver<unknown>, target, source)];
     }
     return [arg2];
   }
   // (next | observer, error?)
   if (typeof arg2 === 'function') {
     return [
-      wrapNext(arg2 as (snap: unknown) => void, target),
+      wrapNext(arg2 as (snap: unknown) => void, target, source),
       (arg3 as ((error: unknown) => void) | undefined) ?? defaultSnapshotErrorHandler,
     ];
   }
   if (arg2 && typeof arg2 === 'object') {
-    return [wrapObserver(arg2 as SnapshotObserver<unknown>, target)];
+    return [wrapObserver(arg2 as SnapshotObserver<unknown>, target, source)];
   }
   return [arg2];
 }
@@ -229,7 +230,7 @@ function markSandboxLiveSnapshotArgs(args: unknown[], target: Target): unknown[]
   }, ...args];
 }
 
-function finalizeSandboxSnapshot(snap: unknown, target: Target): unknown {
+function finalizeSandboxSnapshot(snap: unknown, target: Target, source: object): unknown {
   if (!snap || typeof snap !== 'object') return snap;
   const s = snap as {
     data?: () => DocumentData | undefined;
@@ -240,6 +241,7 @@ function finalizeSandboxSnapshot(snap: unknown, target: Target): unknown {
   }
   if (Array.isArray(s.docs)) {
     for (const d of s.docs) wrapSandboxDocSnap(d as object);
+    recordQuerySnapshot(snap as object, snap as object, target, source, 'listener');
   }
   return snap;
 }
@@ -261,18 +263,20 @@ function defaultSnapshotErrorHandler(error: unknown): void {
 function wrapNext(
   next: (snap: unknown) => void,
   target: Target,
+  source: object,
 ): (snap: unknown) => void {
-  return (snap) => next(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target));
+  return (snap) => next(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source));
 }
 
 function wrapObserver(
   obs: SnapshotObserver<unknown>,
   target: Target,
+  source: object,
 ): SnapshotObserver<unknown> {
   return {
     ...obs,
     next: obs.next
-      ? (snap) => obs.next!(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target))
+      ? (snap) => obs.next!(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source))
       : undefined,
     // Surface an unobserved listener error instead of swallowing it.
     error: obs.error ?? defaultSnapshotErrorHandler,

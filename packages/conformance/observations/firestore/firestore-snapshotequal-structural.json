@@ -5,12 +5,26 @@
     "firestore#117"
   ],
   "description": "snapshotEqual semantics — does prod compare structurally or by identity across two fetches of the same query?",
-  "observedAt": "2026-05-17T23:36:47.593Z",
+  "observedAt": "2026-07-22T02:10:11.083Z",
   "fbSdkVersion": "12.13.0",
-  "projectId": "blockingfun",
+  "projectId": "digame-mas",
   "behavior": {
     "identity": true,
     "twoFetchesSameData": false,
+    "deserializedSnapshotsDistinct": true,
+    "sameJsonSnapshotsEqual": true,
+    "listenerSnapshotsDistinct": true,
+    "simultaneousListenerSnapshotsEqual": true,
+    "listenerMetadata": [
+      {
+        "fromCache": true,
+        "hasPendingWrites": false
+      },
+      {
+        "fromCache": true,
+        "hasPendingWrites": false
+      }
+    ],
     "size": 1
   }
 }

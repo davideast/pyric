@@ -6,12 +6,20 @@ import {
   getDoc,
   getDocs,
   getFirestore,
+  onSnapshot,
+  documentId,
+  orderBy,
   query,
   queryEqual,
   setDoc,
   snapshotEqual,
   where,
+  startAt,
   withConverter,
+  Bytes,
+  GeoPoint,
+  Timestamp,
+  vector,
 } from '../../src/firestore/index.js';
 
 function setup() {
@@ -53,6 +61,81 @@ describe('Firestore equality helpers', () => {
     expect(queryEqual(q1, q3)).toBe(false);
   });
 
+  it('freezes the executable operand at query construction', async () => {
+    const { db } = setup();
+    await setDoc(doc(db, 'items/a'), { value: { score: 1 } });
+    await setDoc(doc(db, 'items/b'), { value: { score: 2 } });
+    const firstOperand = { score: 1 };
+    const secondOperand = { score: 1 };
+    const first = query(collection(db, 'items'), where('value', '==', firstOperand));
+    const second = query(collection(db, 'items'), where('value', '==', secondOperand));
+
+    firstOperand.score = 2;
+
+    expect(queryEqual(first, second)).toBe(true);
+    expect((await getDocs(first)).docs.map((snap) => snap.id)).toEqual(['a']);
+    expect((await getDocs(second)).docs.map((snap) => snap.id)).toEqual(['a']);
+  });
+
+  it('executes captured Firestore scalar operands without losing their value type', async () => {
+    const { db } = setup();
+    const values = {
+      timestamp: Timestamp.fromMillis(1_234),
+      bytes: Bytes.fromUint8Array(new Uint8Array([1, 2])),
+      geo: new GeoPoint(10, 20),
+      vector: vector([1, 2]),
+    };
+    await setDoc(doc(db, 'items/a'), values);
+    for (const [field, value] of Object.entries(values)) {
+      const built = query(collection(db, 'items'), where(field, '==', value));
+      expect((await getDocs(built)).docs
+        .map((snapshot) => snapshot.id)).toEqual(['a']);
+    }
+  });
+
+  it('validates nested and converted reference owners and ignores operand converters', () => {
+    const { db } = setup();
+    const otherDb = getFirestore(initializeSandbox());
+    const local = doc(db, 'items/a');
+    const foreign = doc(otherDb, 'items/a');
+
+    expect(() => query(collection(db, 'items'), where('value', '==', { ref: foreign })))
+      .toThrow();
+    expect(() => query(collection(db, 'items'), where('value', '==', [foreign])))
+      .toThrow();
+    expect(() => query(
+      collection(db, 'items'),
+      where('value', '==', withConverter(foreign, converterA)),
+    )).toThrow();
+
+    expect(queryEqual(
+      query(collection(db, 'items'), where('value', '==', local)),
+      query(collection(db, 'items'), where('value', '==', withConverter(local, converterA))),
+    )).toBe(true);
+  });
+
+  it('compares snapshot and explicit cursors by their bound values', async () => {
+    const { db } = setup();
+    const ref = doc(db, 'items/a');
+    await setDoc(ref, { rank: 1 });
+    const snapshot = await getDoc(ref);
+    const base = collection(db, 'items');
+
+    const fromSnapshot = query(
+      base,
+      orderBy('rank'),
+      orderBy(documentId()),
+      startAt(snapshot),
+    );
+    const fromValues = query(
+      base,
+      orderBy('rank'),
+      orderBy(documentId()),
+      startAt(1, ref.id),
+    );
+    expect(queryEqual(fromSnapshot, fromValues)).toBe(true);
+  });
+
   it('queryEqual does not observe valid getter operands after query construction', () => {
     const { db } = setup();
     let getterCalls = 0;
@@ -66,6 +149,24 @@ describe('Firestore equality helpers', () => {
     expect(constructionCalls).toBe(2);
     expect(queryEqual(q1, q2)).toBe(true);
     expect(getterCalls).toBe(constructionCalls);
+  });
+
+  it('structurally compares distinct simultaneous listener snapshots', async () => {
+    const { db } = setup();
+    await setDoc(doc(db, 'items/a'), { value: 1 });
+    const source = query(collection(db, 'items'), where('value', '==', 1));
+    const firstSnapshot = () => new Promise<Parameters<typeof snapshotEqual>[0]>((resolve) => {
+      let unsubscribe = () => {};
+      unsubscribe = onSnapshot(source, (snapshot) => {
+        unsubscribe();
+        resolve(snapshot as Parameters<typeof snapshotEqual>[0]);
+      });
+    });
+
+    const [first, second] = await Promise.all([firstSnapshot(), firstSnapshot()]);
+
+    expect(first).not.toBe(second);
+    expect(snapshotEqual(first, second)).toBe(true);
   });
 
   it('recognizes query child snapshots and compares document snapshots structurally', async () => {
