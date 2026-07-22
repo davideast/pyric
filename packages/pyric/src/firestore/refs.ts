@@ -25,6 +25,18 @@ import type {
   Query,
   FirestoreDataConverter,
 } from './types.js';
+import {
+  boundedActivityIdentity,
+  registerActivityValue,
+} from './sandbox/activity-value-registry.js';
+import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
+import { copyQueryValueRegistration } from './sandbox/query-value-registry.js';
+
+function registerDocumentValue<T extends object>(ref: T, path: string, owner: object): T {
+  registerActivityValue(ref, boundedActivityIdentity('reference', path));
+  registerReferenceQueryValue(ref, path, owner);
+  return ref;
+}
 
 // ─── Path constructors ────────────────────────────────────────────────
 
@@ -49,7 +61,7 @@ export function doc<T = DocumentData>(
       target,
       (fresh) => fresh.doc(path) as unknown as object,
     );
-    return tagged as DocumentReference<T>;
+    return registerDocumentValue(tagged, path, target) as DocumentReference<T>;
   }
   const coll = asChainColl(underlyingOf(parent));
   const ref = pathSegments.length === 0
@@ -62,13 +74,14 @@ export function doc<T = DocumentData>(
     (fresh) => fresh.doc(absPath) as unknown as object,
   );
   if (conv) {
-    return buildSandboxShell(
+    const shell = buildSandboxShell(
       tagged as { id: string; path: string },
       target,
       conv,
-    ) as DocumentReference<T>;
+    );
+    return registerDocumentValue(shell, absPath, target) as DocumentReference<T>;
   }
-  return tagged as DocumentReference<T>;
+  return registerDocumentValue(tagged, absPath, target) as DocumentReference<T>;
 }
 
 /**
@@ -186,5 +199,7 @@ export function withConverter(
     return underlyingOf(source);
   }
   const underlying = underlyingOf(source) as { id?: string; path?: string };
-  return buildSandboxShell(underlying, target, converter);
+  const shell = buildSandboxShell(underlying, target, converter);
+  copyQueryValueRegistration(underlying, shell);
+  return shell;
 }

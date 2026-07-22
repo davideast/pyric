@@ -1,0 +1,1 @@
+{"rowId":"firestore-rules#164","conformanceDisposition":"probe-limitation","productionVerdict":"DENY","simulatorVerdict":"ALLOW","diagnosticFunction":"getAfter","reason":"simulator models documented post-write identity that this production endpoint cannot evaluate","issue":"#135"}

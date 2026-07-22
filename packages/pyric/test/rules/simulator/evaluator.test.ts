@@ -136,6 +136,15 @@ describe('Layer 1: Basics', () => {
     expect(evaluate(ternary(lit(true), lit('yes'), lit('no')), baseCtx())).toBe('yes');
     expect(evaluate(ternary(lit(false), lit('yes'), lit('no')), baseCtx())).toBe('no');
   });
+
+  test('firestore#138a requires boolean control-flow operands', () => {
+    expect(() => evaluate(binOp('&&', lit(1), lit(true)), baseCtx()))
+      .toThrow(/boolean/);
+    expect(() => evaluate(binOp('||', lit(0), lit(false)), baseCtx()))
+      .toThrow(/boolean/);
+    expect(() => evaluate(ternary(lit(1), lit('yes'), lit('no')), baseCtx()))
+      .toThrow(/boolean/);
+  });
 });
 
 // ═══ Layer 2: Member access, bracket access, in ═══

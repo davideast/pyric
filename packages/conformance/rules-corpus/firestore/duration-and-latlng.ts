@@ -24,6 +24,11 @@ service cloud.firestore {
         && duration.time(1, 0, 0, 0) > duration.value(0, 's')
         && duration.abs(duration.value(-5, 's')) > duration.value(0, 's');
     }
+    match /durationParts/{id} {
+      allow create: if request.auth != null
+        && duration.value(1500, 'ms').seconds() == 1
+        && duration.value(1500, 'ms').nanos() == 500000000;
+    }
   }
 }`,
   cases: [
@@ -42,6 +47,14 @@ service cloud.firestore {
       path: 'checkins/c2',
       auth: { uid: 'alice' },
       data: { lat: -100, lng: -122.08 },
+    },
+    {
+      description: 'duration seconds and nanos components ALLOW',
+      expectation: 'ALLOW',
+      method: 'create',
+      path: 'durationParts/d3',
+      auth: { uid: 'alice' },
+      data: {},
     },
   ],
   group: 'stress',

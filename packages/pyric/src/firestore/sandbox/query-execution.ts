@@ -485,7 +485,7 @@ export function executeQuery(
     if (spec.limitFromEnd) {
       if (spec.orders.length === 0) {
         throw new FirestoreCompatError({
-          code: 'invalid-argument',
+          code: 'unimplemented',
           message: 'limitToLast() queries require at least one orderBy clause.',
         });
       }

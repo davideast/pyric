@@ -39,7 +39,7 @@ import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { allCompatibilityRows, type CompatStatus, type Surface } from '../registry/index.ts';
+import { allCompatibilityRows, type CompatStatus, type ConformanceDisposition, type Surface } from '../registry/index.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { REPO_ROOT, repoRel } from './ledger.ts';
 
@@ -61,6 +61,7 @@ type RowVerdict = 'green' | 'red' | 'unmapped';
 interface RowResult {
   id: string;
   status: CompatStatus;
+  conformanceDisposition?: ConformanceDisposition;
   expectedGreen: boolean;
   verdict: RowVerdict;
   tests: number;
@@ -79,6 +80,7 @@ export interface TestCase {
 export interface RowInput {
   id: string;
   status: CompatStatus;
+  conformanceDisposition?: ConformanceDisposition;
 }
 
 interface SurfaceResult {
@@ -213,7 +215,16 @@ export function classifyRows(rows: RowInput[], testcases: TestCase[]): Classific
     const agg = perRow.get(r.id)!;
     const verdict: RowVerdict = agg.tests === 0 ? 'unmapped' : agg.failed > 0 ? 'red' : 'green';
     const eg = expectedGreen(r.status);
-    return { id: r.id, status: r.status, expectedGreen: eg, verdict, tests: agg.tests, failed: agg.failed, regressed: eg && verdict === 'red' };
+    return {
+      id: r.id,
+      status: r.status,
+      ...(r.conformanceDisposition ? { conformanceDisposition: r.conformanceDisposition } : {}),
+      expectedGreen: eg,
+      verdict,
+      tests: agg.tests,
+      failed: agg.failed,
+      regressed: eg && verdict === 'red',
+    };
   });
 
   return {
@@ -221,7 +232,11 @@ export function classifyRows(rows: RowInput[], testcases: TestCase[]): Classific
     greenRows: results.filter((r) => r.verdict === 'green').length,
     redRows: results.filter((r) => r.verdict === 'red').length,
     unmappedRows: results.filter((r) => r.verdict === 'unmapped').length,
-    flipCandidates: results.filter((r) => r.verdict === 'green' && !r.expectedGreen),
+    flipCandidates: results.filter((r) =>
+      r.verdict === 'green' &&
+      !r.expectedGreen &&
+      (!r.conformanceDisposition || r.conformanceDisposition === 'pending-fix')
+    ),
     regressions: results.filter((r) => r.regressed),
     unguarded: results.filter((r) => r.expectedGreen && r.verdict === 'unmapped'),
     unkeyedTests,

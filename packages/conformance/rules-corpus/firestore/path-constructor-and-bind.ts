@@ -49,7 +49,7 @@ service cloud.firestore {
       allow create: if request.auth != null
         && path('users/alice')[1] == 'alice';
     }
-    // path() idempotent on Path arg
+    // path() rejects an already-constructed Path argument
     match /pathIdempotentAllow/{id} {
       allow create: if request.auth != null
         && path(path('users/alice')) == path('users/alice');
@@ -119,8 +119,10 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'path() idempotent on Path arg ALLOW',
-      expectation: 'ALLOW',
+      // The description is the immutable production-observation join key. The
+      // captured verdict established that this expression is denied.
+      description: 'path() idempotent on Path arg DENY',
+      expectation: 'DENY',
       method: 'create',
       path: 'pathIdempotentAllow/d8',
       auth: { uid: 'alice' },

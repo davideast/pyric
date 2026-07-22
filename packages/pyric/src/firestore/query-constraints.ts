@@ -24,6 +24,9 @@ import {
   buildSandboxShell,
 } from './state.js';
 import { FieldPath } from './field-values.js';
+import { toFirestoreFirebaseError } from './errors.js';
+import { captureQueryOperand } from './sandbox/query-operand-equality.js';
+import { rawDocumentSnapshotForCursor } from './snapshots.js';
 import type {
   CollectionReference,
   Query,
@@ -41,6 +44,7 @@ function fieldToString(field: string | FieldPath): string {
 
 export interface QueryConstraint {
   applySandbox(q: ChainQuery): ChainQuery;
+  prepareSandbox?(owner: object): QueryConstraint;
   /**
    * Internal — the filter representation for composite-filter
    * composition. `where()` populates it as a leaf; `or()` / `and()`
@@ -60,12 +64,23 @@ export function query<T = DocumentData>(
   // For sandbox-live, the rebuild closure applies the same constraint chain
   // against a fresh identity-bound handle at operation time.
   const sourceRebuild = parentRebuild(source);
+  let prepared: QueryConstraint[];
+  let q: ChainQuery;
+  try {
+    prepared = constraints.map((constraint) => constraint.prepareSandbox?.(target) ?? constraint);
+  } catch (error) {
+    throw toFirestoreFirebaseError(error);
+  }
   const buildAt = (db: SandboxFirestore): ChainQuery => {
     let q = sourceRebuild(db) as ChainQuery;
-    for (const c of constraints) q = c.applySandbox(q);
+    for (const c of prepared) q = c.applySandbox(q);
     return q;
   };
-  const q = buildAt(sandboxDb(target));
+  try {
+    q = buildAt(sandboxDb(target));
+  } catch (error) {
+    throw toFirestoreFirebaseError(error);
+  }
   const tagged = tagSandboxRef(
     q as unknown as Query<T>,
     target,
@@ -86,10 +101,26 @@ export function where(
   op: WhereFilterOp,
   value: unknown,
 ): QueryConstraint {
-  const fieldPath = fieldToString(field);
+  return whereConstraint(fieldToString(field), op, value, false);
+}
+
+function whereConstraint(
+  fieldPath: string,
+  op: WhereFilterOp,
+  value: unknown,
+  prepared: boolean,
+): QueryConstraint {
   const sandboxFilter: ChainFilter = { kind: 'where', field: fieldPath, op, value };
   return {
     applySandbox: (q) => q.where(fieldPath, op, value),
+    prepareSandbox: prepared ? undefined : (owner) => {
+      const captured = captureQueryOperand(
+        value,
+        owner,
+        op === 'in' || op === 'not-in',
+      );
+      return whereConstraint(fieldPath, op, captured.executionValue, true);
+    },
     _sandboxFilter: sandboxFilter,
   };
 }
@@ -122,6 +153,7 @@ export function and(...filters: QueryConstraint[]): QueryConstraint {
 function composite(
   kind: 'and' | 'or',
   filters: QueryConstraint[],
+  prepared = false,
 ): QueryConstraint {
   if (filters.length === 0) {
     throw new TypeError(
@@ -140,6 +172,11 @@ function composite(
   const sandboxFilter: ChainFilter = { kind, filters: sandboxSubs };
   return {
     applySandbox: (q) => q.applyFilter(sandboxFilter),
+    prepareSandbox: prepared ? undefined : (owner) => composite(
+      kind,
+      filters.map((filter) => filter.prepareSandbox?.(owner) ?? filter),
+      true,
+    ),
     _sandboxFilter: sandboxFilter,
   };
 }
@@ -224,14 +261,9 @@ export function startAt(snapshot: DocumentSnapshot): QueryConstraint;
 export function startAt(...values: unknown[]): QueryConstraint;
 export function startAt(...args: CursorArg[]): QueryConstraint {
   if (isDocumentSnapshot(args)) {
-    const snap = args[0];
-    return {
-      applySandbox: (q) => q.startCursorFromSnapshot(snap as unknown as ChainDocSnap, true),
-    };
+    return snapshotCursorConstraint(args[0], true, true);
   }
-  return {
-    applySandbox: (q) => q.startCursor(args, true),
-  };
+  return cursorValuesConstraint(args, true, true);
 }
 
 /** Same as `startAt`, but EXCLUDES the document at the cursor — the
@@ -240,14 +272,9 @@ export function startAfter(snapshot: DocumentSnapshot): QueryConstraint;
 export function startAfter(...values: unknown[]): QueryConstraint;
 export function startAfter(...args: CursorArg[]): QueryConstraint {
   if (isDocumentSnapshot(args)) {
-    const snap = args[0];
-    return {
-      applySandbox: (q) => q.startCursorFromSnapshot(snap as unknown as ChainDocSnap, false),
-    };
+    return snapshotCursorConstraint(args[0], false, true);
   }
-  return {
-    applySandbox: (q) => q.startCursor(args, false),
-  };
+  return cursorValuesConstraint(args, false, true);
 }
 
 /** End the query at the document whose ordered field values match
@@ -256,14 +283,9 @@ export function endAt(snapshot: DocumentSnapshot): QueryConstraint;
 export function endAt(...values: unknown[]): QueryConstraint;
 export function endAt(...args: CursorArg[]): QueryConstraint {
   if (isDocumentSnapshot(args)) {
-    const snap = args[0];
-    return {
-      applySandbox: (q) => q.endCursorFromSnapshot(snap as unknown as ChainDocSnap, true),
-    };
+    return snapshotCursorConstraint(args[0], true, false);
   }
-  return {
-    applySandbox: (q) => q.endCursor(args, true),
-  };
+  return cursorValuesConstraint(args, true, false);
 }
 
 /** Same as `endAt`, but EXCLUDES the document at the cursor — the
@@ -272,12 +294,53 @@ export function endBefore(snapshot: DocumentSnapshot): QueryConstraint;
 export function endBefore(...values: unknown[]): QueryConstraint;
 export function endBefore(...args: CursorArg[]): QueryConstraint {
   if (isDocumentSnapshot(args)) {
-    const snap = args[0];
-    return {
-      applySandbox: (q) => q.endCursorFromSnapshot(snap as unknown as ChainDocSnap, false),
-    };
+    return snapshotCursorConstraint(args[0], false, false);
   }
+  return cursorValuesConstraint(args, false, false);
+}
+
+function snapshotCursorConstraint(
+  snapshot: DocumentSnapshot,
+  inclusive: boolean,
+  start: boolean,
+  prepared = false,
+): QueryConstraint {
   return {
-    applySandbox: (q) => q.endCursor(args, false),
+    applySandbox: (q) => start
+      ? q.startCursorFromSnapshot(snapshot as unknown as ChainDocSnap, inclusive)
+      : q.endCursorFromSnapshot(snapshot as unknown as ChainDocSnap, inclusive),
+    prepareSandbox: prepared ? undefined : () => {
+      const raw = rawDocumentSnapshotForCursor(snapshot as object);
+      const rawData = raw.data();
+      const capturedSnapshot = Object.freeze({
+        id: raw.id,
+        ref: raw.ref,
+        exists: rawData !== undefined,
+        // The raw snapshot is already a point-in-time Firestore value. Keep
+        // that exact value behind a side-effect-free closure so rebuilding a
+        // sandbox-live query never calls the public snapshot or converter.
+        data: () => rawData,
+      }) as unknown as DocumentSnapshot;
+      return snapshotCursorConstraint(capturedSnapshot, inclusive, start, true);
+    },
+  };
+}
+
+function cursorValuesConstraint(
+  values: readonly unknown[],
+  inclusive: boolean,
+  start: boolean,
+  prepared = false,
+): QueryConstraint {
+  return {
+    applySandbox: (q) => start
+      ? q.startCursor([...values], inclusive)
+      : q.endCursor([...values], inclusive),
+    prepareSandbox: prepared ? undefined : (owner) => cursorValuesConstraint(
+      values.map((value) => captureQueryOperand(value, owner).executionValue),
+      inclusive,
+      start,
+      true,
+    ),
   };
 }

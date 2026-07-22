@@ -4,15 +4,35 @@
   "rowIds": [
     "firestore-rules#172"
   ],
-  "description": "Firestore Rules Test API verdicts for corpus pack \"prototype-chain-keys\" (RULES-B7). `'toString' in map` must be false (own keys only) and `.constructor` access must error; JS prototype-chain leakage said true / returned Object.",
-  "observedAt": "2026-07-10T22:41:19.624Z",
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"prototype-chain-keys\" (RULES-B7). `'toString' in map` must be false (own keys only) and `.constructor` access must error; JS prototype-chain leakage said true / returned Object.",
+  "observedAt": "2026-07-21T23:43:06.508Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "d2e3f167ee525fc86ec076c856c98cbbc222b6f93fc97766bf8ff3b60dd0dd94"
+  },
   "behavior": {
     "'toString' in data (no such field) → DENY": "DENY",
     "no proto names leak into `in` → ALLOW": "ALLOW",
     "literal field named 'toString' IS a key → ALLOW": "ALLOW",
     ".constructor access (no such field) → DENY (error)": "DENY",
     "keys() lists own keys only → ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    ".constructor access (no such field) → DENY (error)": {
+      "notes": [
+        "Error: firestore.rules line [21], column [24]. Property constructor is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 21,
+          "column": 24,
+          "currentOffset": 817,
+          "endOffset": 823
+        }
+      }
+    }
   }
 }

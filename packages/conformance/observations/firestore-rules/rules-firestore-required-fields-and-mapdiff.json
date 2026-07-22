@@ -5,9 +5,13 @@
     "firestore-rules#178"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"required-fields-and-mapdiff\" (Coverage: List/Set + MapDiff required-fields idiom). Production must accept the keys().hasAll/hasOnly required-fields pattern and the diff().*Keys() MapDiff family used to gate field-level mutations.",
-  "observedAt": "2026-07-12T02:29:55.585Z",
+  "observedAt": "2026-07-21T23:43:06.761Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "d58c4ba3fe028b23b64e653033416ffa00f696076ddc4632b7a3e1cd4aa54308"
+  },
   "behavior": {
     "create with exact required fields, self-owned ALLOW": "ALLOW",
     "create missing a required field DENY": "DENY",

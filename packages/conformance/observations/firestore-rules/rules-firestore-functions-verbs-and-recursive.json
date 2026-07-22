@@ -5,9 +5,13 @@
     "firestore-rules#182"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"functions-verbs-and-recursive\" (Coverage: functions/let, granular verbs, ternary, recursive wildcard). Production must accept function declarations with let bindings, allow get/list/update/write verbs, the ternary operator, and a recursive {document=**} match.",
-  "observedAt": "2026-07-12T02:29:54.314Z",
+  "observedAt": "2026-07-21T23:43:04.988Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "61a4990286d672d8acab75f3192b4f3c93b3f1172ce85f238db48415eaa05393"
+  },
   "behavior": {
     "signed-in get ALLOW": "ALLOW",
     "anonymous get DENY": "DENY",
@@ -16,5 +20,35 @@
     "signed-in create covered by write grant ALLOW": "ALLOW",
     "recursive subtree read when signed-in ALLOW": "ALLOW",
     "recursive subtree read denied when anonymous DENY": "DENY"
+  },
+  "diagnostics": {
+    "anonymous get DENY": {
+      "notes": [
+        "Error: firestore.rules line [5], column [14]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 5,
+          "column": 14,
+          "currentOffset": 130,
+          "endOffset": 136
+        }
+      }
+    },
+    "recursive subtree read denied when anonymous DENY": {
+      "notes": [
+        "Error: firestore.rules line [5], column [14]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 5,
+          "column": 14,
+          "currentOffset": 130,
+          "endOffset": 136
+        }
+      }
+    }
   }
 }

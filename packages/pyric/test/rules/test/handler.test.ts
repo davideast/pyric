@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
+import { TestFirestoreRulesHandler, TestStorageRulesHandler } from '../../../src/rules/test/handler.js';
 import type { ProjectScope } from '../../../src/project-scope.js';
-import type { TestCase } from '../../../src/rules/test/spec.js';
+import type { StorageTestCase, TestCase } from '../../../src/rules/test/spec.js';
 
 const originalFetch = global.fetch;
 afterEach(() => { global.fetch = originalFetch; });
@@ -86,6 +86,19 @@ describe('TestFirestoreRulesHandler', () => {
     if (result.success) {
       expect(result.data.passed).toBe(0);
       expect(result.data.failed).toBe(2);
+    }
+  });
+
+  test.each([
+    ['missing', []],
+    ['extra', [{ state: 'SUCCESS' }, { state: 'SUCCESS' }]],
+  ])('fails closed when the wire response has %s result rows', async (_label, testResults) => {
+    mockTestApi({ testResults });
+    const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('FETCH_FAILED');
+      expect(result.error.message).toContain('for 1 test case(s)');
     }
   });
 
@@ -201,6 +214,27 @@ describe('TestFirestoreRulesHandler', () => {
     if (!result.success) {
       expect(result.error.code).toBe('RULES_ERROR');
       expect(result.error.message).toContain('Unexpected token');
+    }
+  });
+});
+
+describe('TestStorageRulesHandler wire result identity', () => {
+  const handler = new TestStorageRulesHandler();
+  const source = `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /{path=**} { allow read: if true; } } }`;
+  const testCase: StorageTestCase = {
+    description: 'storage probe', expectation: 'ALLOW', method: 'get', path: 'a.txt', auth: null,
+  };
+
+  test.each([
+    ['missing', []],
+    ['extra', [{ state: 'SUCCESS' }, { state: 'SUCCESS' }]],
+  ])('fails closed when the wire response has %s result rows', async (_label, testResults) => {
+    mockTestApi({ testResults });
+    const result = await handler.execute(MOCK_APP, source, [testCase]);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('FETCH_FAILED');
+      expect(result.error.message).toContain('for 1 test case(s)');
     }
   });
 });
