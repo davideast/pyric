@@ -7,6 +7,10 @@ import type {
   ListenOptions,
   QueryConstraintType,
   TransactionOptions,
+  Database,
+  DataSnapshot,
+  QueryConstraint,
+  TransactionResult,
 } from '../../src/database/index.js';
 
 type BothWays<Left, Right> =
@@ -37,11 +41,21 @@ describe('RTDB public type parity', () => {
 
     const iteratedToFirebase = (snapshot: IteratedDataSnapshot): FirebaseDatabase.IteratedDataSnapshot => snapshot;
     const firebaseToIterated = (snapshot: FirebaseDatabase.IteratedDataSnapshot): IteratedDataSnapshot => snapshot;
+    const databaseToFirebase = (database: Database): FirebaseDatabase.Database => database;
+    const snapshotToFirebase = (snapshot: DataSnapshot): FirebaseDatabase.DataSnapshot => snapshot;
+    const constraintToFirebase = (constraint: QueryConstraint): FirebaseDatabase.QueryConstraint => constraint;
+    const transactionToFirebase = (result: TransactionResult): FirebaseDatabase.TransactionResult => result;
 
     expect([emulator, event, listen, constraint, transaction]).toEqual([
       true, true, true, true, true,
     ]);
     expect(typeof iteratedToFirebase).toBe('function');
     expect(typeof firebaseToIterated).toBe('function');
+    expect([
+      databaseToFirebase,
+      snapshotToFirebase,
+      constraintToFirebase,
+      transactionToFirebase,
+    ].every((value) => typeof value === 'function')).toBe(true);
   });
 });

@@ -40,7 +40,6 @@ import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../../packages/conformance/src/observation-gate.ts';
 import { initializeSandbox } from 'pyric/sandbox';
-import './cdd-climb.test.js';
 import * as databaseModule from '../../../src/database/index.js';
 import {
   getDatabase,
@@ -715,9 +714,8 @@ describe('oracle conformance (rtdb-modular)', () => {
     // sequences [k3, k2, null] (null = moved to the front). No initial
     // replay (firedOnInitial 0).
     //
-    // The sandbox's onChildMoved never fires on reorder under an ordered
-    // query (unimplemented). Pin BOTH sides: prod's previousChildName
-    // sequence target and the sandbox's current no-fire (0 moves).
+    // Replay the captured movement sequence against the ordered sandbox
+    // query, including each previousChildName transition.
     const obs = load('rtdb-modular-onchildmoved-previouschildname-sequencing.json');
     // Prod target:
     expect(obs.firedOnInitial).toBe(0); // no initial replay — conforms in both

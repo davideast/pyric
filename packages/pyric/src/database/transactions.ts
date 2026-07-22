@@ -21,10 +21,15 @@ import { buildSandboxSnapFromRaw } from './snapshots.js';
  * `rtdb-modular-runtransaction-on-rules-denied-path.json`.
  */
 export class TransactionResult {
-  constructor(
-    readonly committed?: boolean,
-    readonly snapshot?: DataSnapshot,
-  ) {}
+  readonly committed: boolean;
+  readonly snapshot: DataSnapshot;
+
+  constructor(committed?: boolean, snapshot?: DataSnapshot) {
+    // The runtime constructor is directly callable like Firebase's emitted
+    // class, while ordinary API results always provide both required fields.
+    this.committed = committed as boolean;
+    this.snapshot = snapshot as DataSnapshot;
+  }
 
   toJSON(): { committed: boolean | undefined; snapshot: JsonValue | undefined } {
     return { committed: this.committed, snapshot: this.snapshot?.toJSON() };
@@ -71,9 +76,8 @@ export interface TransactionOptions {
  * confirms both branches commit and end at the same value; the
  * intermediate-fire difference isn't observable from a single client.
  *
- * Single-client sandbox doesn't model concurrency conflicts; the
- * documented "retry on conflict" path is degenerate (no other writer
- * exists to conflict with). The fn is invoked once.
+ * A synchronous overlapping write during the update callback invalidates the
+ * read and retries the callback. Writes to unrelated paths do not conflict.
  */
 export async function runTransaction<T>(
   r: DatabaseReference,

@@ -170,6 +170,7 @@ export class RtdbBackend {
   private readonly childListeners = new Set<ChildListener>();
   private readonly priorities = new Map<string, Exclude<Priority, null>>();
   private mutationVersion = 0;
+  private readonly mutationVersionsByPath = new Map<string, number>();
   private nextId = 0;
   private resetGeneration = 0;
 
@@ -272,14 +273,32 @@ export class RtdbBackend {
     if (priority !== null) this.priorities.set(joinPath(pathSegments(path)), priority);
   }
 
-  private removePrioritiesForDeletedWrites(writes: Array<{ path: string; value: JsonValue }>): void {
+  private applyPriorityEffectsForUpdate(writes: Array<{ path: string; value: JsonValue }>): void {
     for (const write of writes) {
-      if (write.value === null) this.clearPrioritiesAtOrBelow(write.path);
+      const priority = this.getPriority(write.path);
+      this.clearPrioritiesAtOrBelow(write.path);
+      // Firebase update() preserves priority on the exact updated node, but
+      // replacing that node's value discards priority metadata below it.
+      if (write.value !== null && priority !== null) {
+        this.priorities.set(joinPath(pathSegments(write.path)), priority);
+      }
     }
   }
 
-  private markMutation(): void {
+  private markMutation(paths: string | string[] = '/'): void {
     this.mutationVersion += 1;
+    for (const path of Array.isArray(paths) ? paths : [paths]) {
+      this.mutationVersionsByPath.set(joinPath(pathSegments(path)), this.mutationVersion);
+    }
+  }
+
+  private hasConflictingMutationSince(version: number, path: string): boolean {
+    const canonical = joinPath(pathSegments(path));
+    for (const [mutatedPath, mutatedVersion] of this.mutationVersionsByPath) {
+      if (mutatedVersion <= version) continue;
+      if (pathsOverlap(canonical, mutatedPath)) return true;
+    }
+    return false;
   }
 
   private emitOperation(
@@ -443,7 +462,7 @@ export class RtdbBackend {
       );
       this.tree.write(path, resolved);
     }
-    this.markMutation();
+    this.markMutation('/');
     this.notifyWrite();
   }
 
@@ -523,7 +542,7 @@ export class RtdbBackend {
     const priors = this.snapshotChildListenerParents();
     this.tree.write(path, resolved);
     this.replacePriority(path, resolved === null ? null : priority);
-    this.markMutation();
+    this.markMutation(path);
     this.fanOut([path]);
     this.fanOutChildren(priors);
     const after = this.tree.read(path);
@@ -559,8 +578,8 @@ export class RtdbBackend {
         detail: { admin: true, multiPath: true, paths: Object.keys(expanded) },
       });
       this.tree.multiUpdate(expanded);
-      this.removePrioritiesForDeletedWrites(Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value })));
-      this.markMutation();
+      this.applyPriorityEffectsForUpdate(Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value })));
+      this.markMutation(Object.keys(expanded));
       this.fanOut(Object.keys(expanded));
       this.fanOutChildren(priors);
       const after = this.tree.read(path);
@@ -592,11 +611,11 @@ export class RtdbBackend {
       detail: { admin: true, multiPath: false, keys: Object.keys(resolvedPatch) },
     });
     this.tree.shallowUpdate(path, resolvedPatch);
-    this.removePrioritiesForDeletedWrites(Object.entries(resolvedPatch).map(([key, value]) => ({
+    this.applyPriorityEffectsForUpdate(Object.entries(resolvedPatch).map(([key, value]) => ({
       path: joinPath([...pathSegments(path), ...pathSegments(key)]),
       value,
     })));
-    this.markMutation();
+    this.markMutation(touched);
     this.fanOut(touched);
     this.fanOutChildren(priors);
     const after = this.tree.read(path);
@@ -620,8 +639,8 @@ export class RtdbBackend {
     const priors = this.snapshotChildListenerParents();
     if (priority === null) this.priorities.delete(joinPath(pathSegments(path)));
     else this.priorities.set(joinPath(pathSegments(path)), priority);
-    this.markMutation();
-    this.fanOutChildren(priors);
+    this.markMutation(path);
+    this.fanOutChildren(priors, path);
     this.notifyWrite();
   }
 
@@ -715,7 +734,7 @@ export class RtdbBackend {
     const priors = this.snapshotChildListenerParents();
     this.tree.write(path, resolved);
     this.replacePriority(path, resolved === null ? null : priority);
-    this.markMutation();
+    this.markMutation(path);
     this.fanOut([path]);
     this.fanOutChildren(priors);
     // A write that pruned to nothing (`set(ref, null)` / `set(ref, {})`)
@@ -760,8 +779,8 @@ export class RtdbBackend {
     const priors = this.snapshotChildListenerParents();
     if (priority === null) this.priorities.delete(joinPath(pathSegments(path)));
     else this.priorities.set(joinPath(pathSegments(path)), priority);
-    this.markMutation();
-    this.fanOutChildren(priors);
+    this.markMutation(path);
+    this.fanOutChildren(priors, path);
     this.notifyWrite();
   }
 
@@ -872,8 +891,8 @@ export class RtdbBackend {
       const beforeRoot = this.tree.read(path);
       const priors = this.snapshotChildListenerParents();
       this.tree.multiUpdate(expanded);
-      this.removePrioritiesForDeletedWrites(Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value })));
-      this.markMutation();
+      this.applyPriorityEffectsForUpdate(Object.entries(expanded).map(([writePath, value]) => ({ path: writePath, value })));
+      this.markMutation(Object.keys(expanded));
       this.fanOut(Object.keys(expanded));
       this.fanOutChildren(priors);
       const afterRoot = this.tree.read(path);
@@ -936,11 +955,11 @@ export class RtdbBackend {
     const beforeRoot = this.tree.read(path);
     const priors = this.snapshotChildListenerParents();
     this.tree.shallowUpdate(path, resolvedPatch);
-    this.removePrioritiesForDeletedWrites(Object.entries(resolvedPatch).map(([key, value]) => ({
+    this.applyPriorityEffectsForUpdate(Object.entries(resolvedPatch).map(([key, value]) => ({
       path: joinPath([...pathSegments(path), ...pathSegments(key)]),
       value,
     })));
-    this.markMutation();
+    this.markMutation(touched);
     this.fanOut(touched);
     this.fanOutChildren(priors);
     const afterRoot = this.tree.read(path);
@@ -1355,7 +1374,7 @@ export class RtdbBackend {
       // matching RTDB optimistic contention semantics.
       const currentForFn = current === null ? null : coerceArrays(cloneJson(current)) as JsonValue;
       proposed = updateFn(currentForFn);
-      if (versionBeforeCallback === this.mutationVersion || proposed === undefined) {
+      if (!this.hasConflictingMutationSince(versionBeforeCallback, path) || proposed === undefined) {
         settled = true;
         break;
       }
@@ -1449,7 +1468,7 @@ export class RtdbBackend {
         after: resolved,
         detail: { committed: true },
       });
-      this.markMutation();
+      this.markMutation(path);
       this.notifyWrite();
       return { committed: true, val: resolved, key };
     }
@@ -1487,7 +1506,7 @@ export class RtdbBackend {
     const currentPriority = this.getPriority(path);
     this.tree.write(path, resolved);
     this.replacePriority(path, currentPriority);
-    this.markMutation();
+    this.markMutation(path);
     this.fanOut([path]);
     this.emitCommit(auth, 'transaction', path, {
       data: proposed,
@@ -1746,7 +1765,10 @@ export class RtdbBackend {
    *   - `child_changed` when a key's value transitions.
    *   - `child_removed` when a prior key is gone.
    */
-  private fanOutChildren(priorByParent: Map<string, Map<string, JsonValue>>): void {
+  private fanOutChildren(
+    priorByParent: Map<string, Map<string, JsonValue>>,
+    priorityChangedPath?: string,
+  ): void {
     if (this.childListeners.size === 0) return;
     // Group PLAIN-ref listeners by their canonical parent path so we only
     // do one diff per parent regardless of how many listeners are attached.
@@ -1755,7 +1777,7 @@ export class RtdbBackend {
     const byParent = new Map<string, ChildListener[]>();
     for (const listener of this.childListeners) {
       if (listener.spec) {
-        this.fanOutQueryChild(listener);
+        this.fanOutQueryChild(listener, priorityChangedPath);
         continue;
       }
       const canonical = joinPath(pathSegments(listener.path));
@@ -1828,7 +1850,7 @@ export class RtdbBackend {
    * `child_moved` emits when the active ordered value changes. The window is
    * always advanced so later add/change/remove/move diffs remain coherent.
    */
-  private fanOutQueryChild(listener: ChildListener): void {
+  private fanOutQueryChild(listener: ChildListener, priorityChangedPath?: string): void {
     const prior = listener.lastWindow ?? [];
     const next = executeQuery(
       this.tree.read(listener.path),
@@ -1863,6 +1885,32 @@ export class RtdbBackend {
         break;
       case 'child_moved':
         if (listener.spec?.orderBy && listener.spec.orderBy.kind !== 'key') {
+          const changedPriorityKey = listener.spec.orderBy.kind === 'priority'
+            ? directChildKey(listener.path, priorityChangedPath)
+            : null;
+          if (changedPriorityKey !== null) {
+            const priorIndex = prior.findIndex((row) => row.key === changedPriorityKey);
+            const nextIndex = next.findIndex((row) => row.key === changedPriorityKey);
+            if (priorIndex >= 0 && nextIndex >= 0 && priorIndex !== nextIndex) {
+              // Firebase's setPriority() event sequence names the siblings
+              // crossed by the reprioritized child, in their resulting
+              // relative order. The callback predecessor is computed with
+              // the reprioritized child omitted (captured by
+              // rtdb-modular-priority-contract).
+              const crossedKeys = new Set(
+                priorIndex > nextIndex
+                  ? prior.slice(nextIndex, priorIndex).map((row) => row.key)
+                  : prior.slice(priorIndex + 1, nextIndex + 1).map((row) => row.key),
+              );
+              const crossed = next.filter((row) => crossedKeys.has(row.key));
+              events = crossed.map((row) => ({
+                key: row.key,
+                val: row.value,
+                previousChildName: previousName(crossed, row.key),
+              }));
+              break;
+            }
+          }
           const priorRows = new Map(prior.map((row) => [row.key, row]));
           for (const row of next) {
             const priorRow = priorRows.get(row.key);
@@ -1913,8 +1961,8 @@ export class RtdbBackend {
 
   // ─── Persistence (PersistableService) ──────────────────────────────
   //
-  // The RTDB tree rides the sandbox persistence controller's `services`
-  // blob exactly like the auth user DB. `getDatabase(sandbox)` registers
+  // The RTDB value tree and priority metadata ride the sandbox persistence
+  // controller's `services` blob. `getDatabase(sandbox)` registers
   // these hooks once per sandbox (see modular.ts). Together they give RTDB
   // the same durability contract as Firestore/auth: worker death / browser
   // restart restores the whole tree instead of losing it.
@@ -1923,6 +1971,16 @@ export class RtdbBackend {
    *  snapshot. Defensive deep-copy (via `DataTree.snapshot`). */
   exportTree(): JsonValue {
     return this.tree.snapshot();
+  }
+
+  /** Persistence-only envelope. `exportTree()` intentionally remains the
+   * public raw-data snapshot used by owner controls and Studio. */
+  exportPersistenceState(): JsonValue {
+    return {
+      __pyricRtdbPersistence: 1,
+      data: this.tree.snapshot(),
+      priorities: Object.fromEntries(this.priorities),
+    } as JsonValue;
   }
 
   /**
@@ -1943,9 +2001,13 @@ export class RtdbBackend {
    */
   restoreTree(root: JsonValue): void {
     const priors = this.snapshotChildListenerParents();
-    this.tree.restore(root ?? {});
+    const persisted = decodePersistenceState(root);
+    this.tree.restore(persisted.data ?? {});
     this.priorities.clear();
-    this.markMutation();
+    for (const [path, priority] of Object.entries(persisted.priorities)) {
+      this.priorities.set(joinPath(pathSegments(path)), priority);
+    }
+    this.markMutation('/');
     this.fanOut(['/']);
     this.fanOutChildren(priors);
   }
@@ -2075,6 +2137,46 @@ function previousNameFromValues(
 ): string | null {
   const index = rows.findIndex((row) => row.key === key);
   return index > 0 ? rows[index - 1]!.key : null;
+}
+
+function directChildKey(parentPath: string, changedPath?: string): string | null {
+  if (changedPath === undefined) return null;
+  const parent = pathSegments(parentPath);
+  const changed = pathSegments(changedPath);
+  if (changed.length !== parent.length + 1) return null;
+  if (!parent.every((segment, index) => changed[index] === segment)) return null;
+  return changed[changed.length - 1] ?? null;
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  if (left === '/' || right === '/') return true;
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
+function decodePersistenceState(root: JsonValue): {
+  data: JsonValue;
+  priorities: Record<string, Exclude<Priority, null>>;
+} {
+  if (root !== null && typeof root === 'object' && !Array.isArray(root)) {
+    const candidate = root as Record<string, JsonValue>;
+    const encodedPriorities = candidate.priorities;
+    if (
+      candidate.__pyricRtdbPersistence === 1
+      && 'data' in candidate
+      && encodedPriorities !== null
+      && typeof encodedPriorities === 'object'
+      && !Array.isArray(encodedPriorities)
+    ) {
+      const priorities: Record<string, Exclude<Priority, null>> = {};
+      for (const [path, priority] of Object.entries(encodedPriorities)) {
+        if (typeof priority === 'string' || (typeof priority === 'number' && Number.isFinite(priority))) {
+          priorities[path] = priority;
+        }
+      }
+      return { data: candidate.data ?? null, priorities };
+    }
+  }
+  return { data: root, priorities: {} };
 }
 
 /** Compare two windowed result lists. Used to decide whether a query

@@ -27,9 +27,10 @@ function subscribeWithLiveAuth(
       try {
         backendUnsubscribe = subscribe(authFor(target));
       } catch {
-        // The public subset currently has no cancel callback overload. A
-        // denied identity therefore suspends delivery until this app's next
-        // Auth transition instead of leaking events under the old identity.
+        // A denied live-auth reattach suspends delivery until the next Auth
+        // transition instead of leaking events under the old identity. The
+        // backend reports ordinary registration/revocation denials through
+        // the listener's cancellation callback when one was supplied.
         backendUnsubscribe = () => {};
       }
     })
@@ -171,9 +172,10 @@ export function onValue(
 export function onChildAdded(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
-  cancelCallback?: (error: Error) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_added', cb, cancelCallback);
+  return subscribeChild(r, 'child_added', cb, cancelCallbackOrOptions, options);
 }
 
 /**
@@ -192,9 +194,10 @@ export function onChildAdded(
 export function onChildChanged(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
-  cancelCallback?: (error: Error) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_changed', cb, cancelCallback);
+  return subscribeChild(r, 'child_changed', cb, cancelCallbackOrOptions, options);
 }
 
 /**
@@ -215,9 +218,10 @@ export function onChildChanged(
 export function onChildRemoved(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
-  cancelCallback?: (error: Error) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_removed', cb, cancelCallback);
+  return subscribeChild(r, 'child_removed', cb, cancelCallbackOrOptions, options);
 }
 
 /**
@@ -236,12 +240,72 @@ export function onChildRemoved(
 export function onChildMoved(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
-  cancelCallback?: (error: Error) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
 ): Unsubscribe {
-  return onChildEvent(r, 'child_moved', cb, cancelCallback);
+  return subscribeChild(r, 'child_moved', cb, cancelCallbackOrOptions, options);
 }
 
 type ChildEvent = 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
+
+function subscribeChild(
+  r: DatabaseReference | Query,
+  event: ChildEvent,
+  cb: (snap: DataSnapshot, previousChildName: string | null) => void,
+  cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
+  options?: ListenOptions,
+): Unsubscribe {
+  const cancelCallback = typeof cancelCallbackOrOptions === 'function'
+    ? cancelCallbackOrOptions
+    : undefined;
+  const listenOptions = typeof cancelCallbackOrOptions === 'function'
+    ? options
+    : cancelCallbackOrOptions;
+  if (!listenOptions?.onlyOnce) return onChildEvent(r, event, cb, cancelCallback);
+
+  if (event === 'child_added') {
+    let attaching = true;
+    const initial: Array<[DataSnapshot, string | null]> = [];
+    let stopped = false;
+    let unsubscribe: Unsubscribe = () => {};
+    const wrapped = (snap: DataSnapshot, previousChildName: string | null): void => {
+      if (stopped) return;
+      if (attaching) {
+        initial.push([snap, previousChildName]);
+        return;
+      }
+      stopped = true;
+      unsubscribe();
+      cb(snap, previousChildName);
+    };
+    unsubscribe = onChildEvent(r, event, wrapped, cancelCallback);
+    attaching = false;
+    if (initial.length > 0) {
+      stopped = true;
+      unsubscribe();
+      // Firebase queues an existing child_added batch before its only-once
+      // detach takes effect and delivers that batch in reverse key order.
+      for (const [snap, previousChildName] of initial.reverse()) {
+        cb(snap, previousChildName);
+      }
+    }
+    return unsubscribe;
+  }
+
+  let unsubscribe: Unsubscribe | null = null;
+  let fired = false;
+  const once = (snap: DataSnapshot, previousChildName: string | null): void => {
+    if (fired) return;
+    fired = true;
+    unsubscribe?.();
+    cb(snap, event === 'child_removed' ? null : previousChildName);
+  };
+  unsubscribe = onChildEvent(r, event, once, cancelCallback);
+  // Initial child_added delivery is synchronous, before `unsubscribe` is
+  // assigned. Remove the registration after attachment in that case.
+  if (fired) unsubscribe();
+  return unsubscribe;
+}
 
 const listenerRegistry = new ListenerRegistry();
 

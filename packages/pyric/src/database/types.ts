@@ -15,13 +15,13 @@ export const CONSTRAINT_SYMBOL: unique symbol = Symbol('pyric/database/query-con
 /** Opaque RTDB handle. Routes via {@link TARGET_SYMBOL}. */
 export class Database {
   readonly [TARGET_SYMBOL]!: Target;
-  readonly app?: FirebaseApp;
+  readonly app: FirebaseApp;
   readonly type = 'database';
   readonly _instanceStarted = false;
 
   constructor(target?: Target, app?: FirebaseApp) {
     if (target) this[TARGET_SYMBOL] = target;
-    this.app = app;
+    this.app = app as FirebaseApp;
   }
 
   get _repo(): undefined { return undefined; }
@@ -94,9 +94,8 @@ export class DataSnapshot {
    */
   get size(): number { return dataSnapshotImplementations.get(this)?.size ?? 0; }
   /**
-   * The node's priority, or `null`. The sandbox does not model RTDB's
-   * priority values, so this is always `null`, matching
-   * the common case (no `.priority` set). Mirrors `api/Reference_impl.ts:312`.
+   * The node's persisted RTDB priority, or `null` when none is set. Mirrors
+   * `api/Reference_impl.ts:312`.
    */
   get priority(): string | number | null { return dataSnapshotImplementations.get(this)?.priority ?? null; }
   exists(): boolean { return dataSnapshotImplementations.get(this)?.exists() ?? false; }

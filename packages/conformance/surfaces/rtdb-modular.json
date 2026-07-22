@@ -24,7 +24,6 @@
   ],
   "coverage": true,
   "conformanceSuite": "packages/pyric/test/database/modular/oracle-conformance.test.ts",
-  "climb": true,
   "captureRigs": [
     "oracle-run"
   ],

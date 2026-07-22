@@ -25,7 +25,7 @@ export function getOrCreateBackend(sandbox: Sandbox): RtdbBackend {
     }
   });
   sandbox.registerPersistableService('rtdb', {
-    snapshot: () => capturedBackend.exportTree(),
+    snapshot: () => capturedBackend.exportPersistenceState(),
     restore: (data: unknown) => {
       capturedBackend.restoreTree(data as JsonValue);
     },

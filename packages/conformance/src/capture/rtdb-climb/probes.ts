@@ -49,6 +49,7 @@ export interface RtdbClimbContext {
 
 interface Client {
   db: DatabaseHandle;
+  authToken: string;
   close(): Promise<void>;
 }
 
@@ -85,6 +86,7 @@ async function createClient(ctx: RtdbClimbContext, suffix: string): Promise<Clie
   }
   return {
     db: getDatabase(app),
+    authToken: await auth.currentUser!.getIdToken(),
     async close() {
       if (auth.currentUser) await deleteUser(auth.currentUser).catch(() => undefined);
       await deleteApp(app);
@@ -170,10 +172,14 @@ async function pause(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitFor(label: string, predicate: () => boolean, timeoutMs = 8_000): Promise<void> {
+async function waitFor(
+  label: string,
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs = 15_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await pause(100);
   }
   throw new Error(`${label} timed out; the probe is inconclusive`);
@@ -212,7 +218,7 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
       rowIds: ['rtdb-modular#M75a'],
       description:
         'Cancellation callback timing and Firebase error shape for initially denied and subsequently revoked value/child listeners, with successful read controls and exact rules restoration.',
-      observe: () => repeatStable(1, async (attempt) => {
+      observe: () => repeatStable(2, async (attempt) => {
         const path = scenarioPath(ctx, 'listener-cancellation', attempt);
         const run = path.split('/')[1]!;
         const rulesUrl = `${ctx.config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(ctx.rtdbAdminToken)}`;
@@ -259,17 +265,33 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
           },
         });
         const client = await createClient(ctx, `listener-cancellation-${attempt}`);
+        const clientRead = (readPath: string) => fetch(
+          `${ctx.config.databaseURL}/${readPath}.json?auth=${encodeURIComponent(client.authToken)}`,
+        );
         const unsubs: Array<() => void> = [];
         try {
           await writeRules(rulesFor(false, false));
-          await pause(5_000);
+          await waitFor('listener cancellation allow rules readiness', async () => {
+            try {
+              const [control, revoked] = await Promise.all([
+                clientRead(`${path}/control`),
+                clientRead(`${path}/revoked`),
+              ]);
+              return control.ok && revoked.ok;
+            } catch {
+              return false;
+            }
+          });
           await set(ref(client.db, `${path}/control`), { ok: true });
           await set(ref(client.db, `${path}/denied`), { child: 1 });
           await set(ref(client.db, `${path}/revoked`), { child: 1 });
           const allowedControl = (await get(ref(client.db, `${path}/control`))).val();
 
           await writeRules(rulesFor(true, false));
-          await pause(5_000);
+          await waitFor('listener cancellation denied rules readiness', async () => {
+            const response = await clientRead(`${path}/denied`);
+            return response.status === 401 || response.status === 403;
+          });
           const registrars = [onValue, onChildAdded, onChildChanged, onChildRemoved, onChildMoved] as const;
           const names = ['value', 'child_added', 'child_changed', 'child_removed', 'child_moved'] as const;
           const denied: Record<string, unknown> = {};
@@ -307,7 +329,6 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
             ) as () => void);
           }
           await writeRules(rulesFor(true, true));
-          await pause(5_000);
           await waitFor('revoked listener cancellations', () =>
             Object.values(revokedCancellations).every((events) => events.length === 1));
           const controlAfterRevocation = (await get(ref(client.db, `${path}/control`))).val();
@@ -329,6 +350,58 @@ export function createRtdbClimbProbes(ctx: RtdbClimbContext): RtdbClimbProbe[] {
               }
             },
           ]);
+        }
+      }),
+    },
+    {
+      name: 'rtdb-modular-child-listener-only-once',
+      matrixRow: 'rtdb-modular#M75d',
+      rowIds: ['rtdb-modular#M75d'],
+      description:
+        'Child-listener options and cancellation-plus-options overloads stop after the first added, changed, removed, or moved delivery.',
+      observe: () => repeatStable(2, async (attempt) => {
+        const path = scenarioPath(ctx, 'child-listener-only-once', attempt);
+        const client = await createClient(ctx, `child-listener-only-once-${attempt}`);
+        const target = ref(client.db, path);
+        const added: Array<[string | null, string | null]> = [];
+        const changed: Array<[string | null, string | null]> = [];
+        const removed: Array<[string | null, string | null]> = [];
+        const moved: Array<[string | null, string | null]> = [];
+        const cancellations: Record<string, unknown>[] = [];
+        try {
+          await set(target, {
+            a: { rank: 1, value: 1 },
+            b: { rank: 2, value: 2 },
+            c: { rank: 3, value: 3 },
+          });
+          onChildAdded(target, (snap, previous) => { added.push([snap.key, previous]); }, { onlyOnce: true });
+          onChildChanged(
+            target,
+            (snap, previous) => { changed.push([snap.key, previous]); },
+            (error) => cancellations.push(errorShape(error)),
+            { onlyOnce: true },
+          );
+          onChildRemoved(target, ((snap: DataSnapshot, previous?: string | null) => {
+            removed.push([snap.key, previous ?? null]);
+          }) as (snap: DataSnapshot) => void, { onlyOnce: true });
+          onChildMoved(
+            query(target, orderByChild('rank')),
+            (snap, previous) => { moved.push([snap.key, previous]); },
+            { onlyOnce: true },
+          );
+          // Let the initial child_added replay settle before mutations so the
+          // capture distinguishes the initial batch from later additions.
+          await pause(250);
+          await update(child(target, 'a'), { value: 10, rank: 4 });
+          await update(child(target, 'a'), { value: 11, rank: 0 });
+          await remove(child(target, 'b'));
+          await remove(child(target, 'c'));
+          await set(child(target, 'd'), { rank: 5, value: 4 });
+          await pause(250);
+          return { added, changed, removed, moved, cancellations };
+        } finally {
+          off(target);
+          await cleanup([() => client.close(), () => adminRemove(ctx, path)]);
         }
       }),
     },

@@ -1,6 +1,6 @@
 # RTDB modular climb inventory
 
-Status: approved climb universe, 2026-07-21
+Status: behavior universe approved; CDD graduation held, 2026-07-22
 
 This inventory defines the `firebase/database` compatibility obligations for
 the RTDB modular CDD climb. The public export census remains authoritative for
@@ -42,3 +42,11 @@ unchanged served application running through both in-process and SharedWorker
 entry paths. Network transport selection and total loss of every local host may
 remain documented divergences; they may not be removed from the denominator to
 improve the score.
+
+The surface is not currently opted into the global `compat:climb` lane. Its
+legacy conformance tests predate the row-ID convention, so that reporter cannot
+yet prove one assertion set per row or reconcile its live-green count with the
+registry. The production observations and ordinary blocking suites remain
+authoritative for this score movement. Re-enable `climb: true` only after the
+existing behavioral tests are mapped to every row; descriptor-only assertions
+do not satisfy this boundary.
