@@ -16,7 +16,7 @@ import {
 import {
   computeCoverageReport,
   type ConstructCoverage,
-} from './rules-language-analyzer.ts';
+} from './rules-language-coverage.ts';
 import { loadAndValidateFirestoreAcceptanceEvidence } from './firestore-rules-acceptance-evidence.ts';
 
 export const FIRESTORE_SCORE_CLASSIFICATIONS = [

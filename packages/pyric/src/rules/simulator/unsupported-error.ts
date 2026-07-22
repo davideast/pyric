@@ -1,11 +1,5 @@
 import type { Expression } from '../grammar/FirestoreAST.js';
-
-export class EvalError extends Error {
-  constructor(message: string, public expr?: Expression) {
-    super(message);
-    this.name = 'EvalError';
-  }
-}
+import { EvalError } from './eval-error.js';
 
 /** A simulator capability gap, distinct from a production-style eval error. */
 export class UnsupportedError extends EvalError {

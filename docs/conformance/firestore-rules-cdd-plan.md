@@ -292,7 +292,7 @@ observations, assertions, and registry status agree.
 ## Verification commands
 
 ```sh
-bun run packages/conformance/src/rules-language-analyzer.ts
+bun run packages/conformance/src/rules-language-coverage.ts
 bun run packages/conformance/src/rules-language-capability.ts
 bun test packages/conformance/src/rules-language.test.ts
 bun test packages/conformance/test/src/production-verification.test.ts

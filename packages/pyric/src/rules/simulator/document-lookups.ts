@@ -1,5 +1,5 @@
 import type { SimulationContext, SimResource } from './evaluation-context.js';
-import { EvalError } from './evaluation-errors.js';
+import { EvalError } from './eval-error.js';
 import { Path } from './wrappers/path.js';
 
 export function normalizeDocumentPath(rawPath: string): string {

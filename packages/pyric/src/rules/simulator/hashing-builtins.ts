@@ -1,7 +1,8 @@
 import { Bytes } from './wrappers/bytes.js';
 import { md5 as md5Bytes } from 'js-md5';
 import { sha256 as sha256Bytes } from 'js-sha256';
-import { EvalError, UnsupportedError } from './evaluation-errors.js';
+import { EvalError } from './eval-error.js';
+import { UnsupportedError } from './unsupported-error.js';
 
 function coerceToBytes(arg: unknown): Bytes {
   if (arg instanceof Bytes) return arg;

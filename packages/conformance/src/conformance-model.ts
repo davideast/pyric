@@ -18,7 +18,7 @@ import {
 } from './conformance-verdicts.ts';
 import { surfaceContracts, surfaceDescriptors } from '../surfaces/load.ts';
 import type { CapabilityReport } from './rules-language-capability.ts';
-import type { CoverageReport } from './rules-language-analyzer.ts';
+import type { CoverageReport } from './rules-language-coverage.ts';
 import {
   deriveFirestoreRulesScorecard,
   type FirestoreScoreClassification,

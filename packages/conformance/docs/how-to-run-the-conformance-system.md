@@ -203,7 +203,7 @@ you want an ignored local JSON artifact. Runtime consumers call the same
 derivations in memory and never read these files.
 
 ```sh
-bun run packages/conformance/src/rules-language-analyzer.ts    # -> coverage-report.json
+bun run packages/conformance/src/rules-language-coverage.ts    # -> coverage-report.json
 bun run packages/conformance/src/rules-language-capability.ts  # -> capability-report.json
 bun run packages/conformance/src/rules-language-acceptance.ts  # -> acceptance-report.json (PRODUCTION probe, needs PARITY_SA_BASE64)
 bun run compat:rules-score                                   # canonical Firestore score + exact baseline gate
@@ -1028,7 +1028,7 @@ Documented so nobody has to rediscover them:
   `compat:conformance`; the gate derives fresh evidence on every run:
 
   ```sh
-  bun run packages/conformance/src/rules-language-analyzer.ts
+  bun run packages/conformance/src/rules-language-coverage.ts
   bun run packages/conformance/src/rules-language-capability.ts
   # Inspect the ignored outputs locally; do not git-add them.
   ```

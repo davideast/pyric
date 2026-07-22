@@ -1,11 +1,3 @@
-/**
- * Tests for the rules-language snapshots, loader, and analyzer (issue #185
- * steps 1-2). Covers:
- *   - the loader's validations (the shipped snapshots pass; malformed inputs
- *     fail through the same code path),
- *   - analyzer determinism on two fixture rulesets,
- *   - that every corpus scenario analyzes without error.
- */
 import { describe, expect, it } from 'bun:test';
 import { loadSnapshot } from '../../rules-language/load.ts';
 import {
@@ -13,30 +5,10 @@ import {
   analyzeFirestore,
   analyzeRtdb,
   analyzeStorage,
-  computeCoverageReport,
 } from '../../src/rules-language-analyzer.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { ALL_RULES_RTDB_SCENARIOS } from '../../rules-corpus/rtdb/index.ts';
-
-describe('rules-language production verdicts', () => {
-  it('counts rejection-parity identity constructs after their divergence is resolved', async () => {
-    const report = await computeCoverageReport();
-    const firestore = report.engines.find((engine) => engine.engine === 'firestore');
-
-    expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.id')?.verdict).toBe('verified');
-    expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.__name__')?.verdict).toBe('verified');
-    expect(firestore?.verifiedConstructs).toBe(129);
-  });
-
-  it('restores RTDB validate scope only after the ancestor case conforms', async () => {
-    const report = await computeCoverageReport();
-    const rtdb = report.engines.find((engine) => engine.engine === 'rtdb');
-
-    expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.semantic.validate-non-cascade')?.verdict).toBe('verified');
-    expect(rtdb?.verifiedConstructs).toBe(55);
-  });
-});
 
 describe('rules-language analyzer', () => {
   const FS_FIXTURE = `rules_version = '2';

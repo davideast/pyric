@@ -22,14 +22,17 @@ import { Timestamp } from './wrappers/timestamp.js';
 import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
-import { EvalError, UnsupportedError } from './evaluation-errors.js';
+import { EvalError } from './eval-error.js';
+import { UnsupportedError } from './unsupported-error.js';
 
-export { EvalError, UnsupportedError } from './evaluation-errors.js';
+export { EvalError } from './eval-error.js';
+export { UnsupportedError } from './unsupported-error.js';
 
 // ═══ Simulation Context ═══
 
-export type { SimAuth, SimRequest, SimResource, SimulationContext, ExprTraceEntry } from './evaluation-context.js';
-export { TraceRecorder } from './evaluation-context.js';
+export type { SimAuth, SimRequest, SimResource, SimulationContext } from './evaluation-context.js';
+export type { ExprTraceEntry } from './trace-recorder.js';
+export { TraceRecorder } from './trace-recorder.js';
 import type { SimulationContext } from './evaluation-context.js';
 import { evaluateFunctionCall, evaluateMethodCall } from './evaluation-builtins.js';
 

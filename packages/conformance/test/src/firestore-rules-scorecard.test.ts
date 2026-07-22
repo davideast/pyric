@@ -5,7 +5,7 @@ import { loadSnapshot } from '../../rules-language/load.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
 import type { LanguageConstruct } from '../../rules-language/types.ts';
 import type { ConstructCapability } from '../../src/rules-language-capability.ts';
-import type { ConstructCoverage } from '../../src/rules-language-analyzer.ts';
+import type { ConstructCoverage } from '../../src/rules-language-coverage.ts';
 import {
   computeFirestoreRulesScorecard,
   deriveFirestoreRulesScorecard,
