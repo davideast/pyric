@@ -17,7 +17,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1107);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1114);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
@@ -221,7 +221,10 @@ describe('multi-axis conformance model', () => {
     expect(result.surface).toBe('messaging');
     expect(result.claims.map(({ id }) => id)).toEqual([
       'messaging:runtime:getToken',
+      'messaging#19',
       'messaging#2',
+      'messaging#20',
+      'messaging#21',
       'messaging#7',
     ]);
   });
@@ -229,7 +232,12 @@ describe('multi-axis conformance model', () => {
   it('does not contaminate features with unrelated family-row divergences', () => {
     expect(one('firestore/and').claims.map(({ id }) => id)).not.toContain('firestore#61');
     expect(one('storage/getMetadata').claims.map(({ id }) => id)).not.toContain('storage#86');
-    expect(one('messaging-admin/send').claims.map(({ id }) => id)).toEqual(['messaging-admin#4']);
+    expect(one('messaging-admin/send').claims.map(({ id }) => id)).toEqual([
+      'messaging-admin#4',
+      'messaging-admin#40',
+      'messaging-admin#41',
+      'messaging-admin#42',
+    ]);
   });
 
   it('cannot silently drop a feature-bearing divergence from the query model', () => {
