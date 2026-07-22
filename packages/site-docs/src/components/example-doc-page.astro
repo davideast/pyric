@@ -22,7 +22,7 @@ const { definition } = pyricExample(id);
   {definition.renderer === 'chess' ? (
     <section class="example-rules">
       <h2>Security Rules</h2>
-      <p>The board executes this authored <code>2+modules</code> source. Pyric resolves the Standard Library imports before the sandbox evaluates each move.</p>
+      <p>The board uses the modular Rules below. Pyric resolves the Standard Library imports into ordinary version 2 Rules before the sandbox evaluates each move.</p>
       <ChessSourceExplorer client:visible />
     </section>
   ) : null}
