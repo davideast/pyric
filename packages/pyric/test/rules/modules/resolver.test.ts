@@ -110,6 +110,19 @@ describe('resolveModules', () => {
     }
   });
 
+  test('resolves the conventional stdlib path alias', () => {
+    const result = resolveModules(makeSource("import { isAuthenticated } from './stdlib/auth.rules';"));
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+    if (result.success) expect(result.data.bundledModules).toEqual(['./stdlib/auth.rules']);
+  });
+  test('lets an explicit module override the conventional stdlib path alias', () => {
+    const result = resolveModules(
+      makeSource("import { callerPolicy } from './stdlib/auth.rules';"),
+      { modules: { './stdlib/auth.rules': 'export function callerPolicy() { return true; }' } },
+    );
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+    if (result.success) expect(result.data.bundledModules).toEqual([]);
+  });
   test('resolves multiple modules', () => {
     const result = resolveModules(makeSource(
       "import { isOwner } from 'auth';\nimport { hasRequired } from 'validation';"
