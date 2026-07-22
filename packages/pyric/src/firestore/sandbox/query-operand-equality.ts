@@ -6,6 +6,8 @@ import {
 } from './query-value-registry.js';
 import { firestoreValuesEqual } from './value-equality.js';
 import { FirestoreCompatError } from './firestore-compat-error.js';
+import { activityValue } from './activity-query-value.js';
+import { registerActivityValue } from './activity-value-registry.js';
 
 export type CapturedQueryOperand = {
   readonly kind: 'canonical';
@@ -88,12 +90,14 @@ function canonicalize(
   try {
     if (Array.isArray(value)) {
       const entries = value.map((entry) => canonicalize(entry, ancestors, owner));
+      const execution = entries.map((entry) => entry.execution);
+      registerActivityValue(execution, activityValue(value));
       return {
         comparison: {
           type: 'array',
           values: entries.map((entry) => entry.comparison),
         },
-        execution: entries.map((entry) => entry.execution),
+        execution,
       };
     }
 
@@ -107,14 +111,16 @@ function canonicalize(
           owner,
         ),
       }));
+    const execution = Object.fromEntries(
+      entries.map(({ key, captured }) => [key, captured.execution]),
+    );
+    registerActivityValue(execution, activityValue(value));
     return {
       comparison: {
         type: 'map',
         entries: entries.map(({ key, captured }) => [key, captured.comparison]),
       },
-      execution: Object.fromEntries(
-        entries.map(({ key, captured }) => [key, captured.execution]),
-      ),
+      execution,
     };
   } finally {
     ancestors.delete(value);
