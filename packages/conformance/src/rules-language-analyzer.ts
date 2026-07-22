@@ -69,6 +69,7 @@ import {
   type ProductionVerdict,
 } from './production-verification.ts';
 import { assertFirestoreRulesOracleReplay } from './firestore-rules-oracle-replay.ts';
+import { loadRulesLanguageScenarios } from './rules-language-scenarios.ts';
 
 // ── Result shape ──────────────────────────────────────────────────────
 
@@ -754,75 +755,6 @@ export function analyze(engine: RulesEngine, source: string): AnalyzeResult {
 // Computed coverage report (issue #185, step 2 exit criterion)
 // ════════════════════════════════════════════════════════════════════
 
-/** One scenario's shape, normalized across the three corpora. */
-export interface Scenario {
-  id: string;
-  rules: string;
-}
-
-/** Load every corpus scenario for an engine plus its observation-twin ids. */
-async function loadScenarios(
-  engine: RulesEngine,
-): Promise<{ scenarios: Scenario[]; twinIds: Set<string> }> {
-  const { readFileSync, readdirSync } = await import('node:fs');
-  const { join, dirname } = await import('node:path');
-  const { fileURLToPath } = await import('node:url');
-  const here = dirname(fileURLToPath(import.meta.url));
-  // The rules capture runners write to the engine's NATIVE conformance surface
-  // dir: rules twins land in `observations/<engine>-rules/`, not
-  // `observations/<engine>/` (which holds the SDK-surface twins). This now holds
-  // for all three engines — RTDB rules twins moved to `observations/rtdb-rules/`
-  // when the rtdb-rules surface was admitted. Read from the same dir the runner
-  // wrote to, or every twin is invisible and verified coverage reads 0.
-  const OBS_SURFACE_DIR: Record<RulesEngine, string> = {
-    firestore: 'firestore-rules',
-    storage: 'storage-rules',
-    rtdb: 'rtdb-rules',
-  };
-  const obsDir = join(here, '..', 'observations', OBS_SURFACE_DIR[engine]);
-  let obsFiles: string[] = [];
-  try {
-    obsFiles = readdirSync(obsDir);
-  } catch {
-    obsFiles = [];
-  }
-  const prefix = `rules-${engine}-`;
-  const candidateTwinIds = new Set(
-    obsFiles
-      .filter((f) => f.startsWith(prefix) && f.endsWith('.json'))
-      .map((f) => f.slice(prefix.length, -'.json'.length)),
-  );
-
-  let scenarios: Scenario[];
-  const twinIds = new Set<string>();
-  if (engine === 'firestore') {
-    const { ALL_RULES_FIRESTORE_SCENARIOS } = await import('../rules-corpus/firestore/index.ts');
-    const { firestoreObservationMatchesScenario } = await import('./firestore-rules-input-digest.ts');
-    scenarios = ALL_RULES_FIRESTORE_SCENARIOS.map((p) => ({ id: p.id, rules: p.rules }));
-    const scenariosById = new Map(ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => [scenario.id, scenario]));
-    for (const id of candidateTwinIds) {
-      const scenario = scenariosById.get(id);
-      if (!scenario) continue;
-      const observation = JSON.parse(
-        readFileSync(join(obsDir, `${prefix}${id}.json`), 'utf8'),
-      ) as {
-        inputDigest?: { algorithm?: unknown; value?: unknown };
-        behavior?: Record<string, unknown>;
-      };
-      if (firestoreObservationMatchesScenario(scenario, observation)) twinIds.add(id);
-    }
-  } else if (engine === 'storage') {
-    const { ALL_RULES_STORAGE_SCENARIOS } = await import('../rules-corpus/storage/index.ts');
-    scenarios = ALL_RULES_STORAGE_SCENARIOS.map((p) => ({ id: p.id, rules: p.rules }));
-    for (const id of candidateTwinIds) twinIds.add(id);
-  } else {
-    const { ALL_RULES_RTDB_SCENARIOS } = await import('../rules-corpus/rtdb/index.ts');
-    scenarios = ALL_RULES_RTDB_SCENARIOS.map((p) => ({ id: p.id, rules: p.rules }));
-    for (const id of candidateTwinIds) twinIds.add(id);
-  }
-  return { scenarios, twinIds };
-}
-
 export interface ConstructCoverage {
   id: string;
   kind: string;
@@ -883,7 +815,7 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
   const scopes = indexConstructScopes(surfaceRegistries);
   for (const engine of RULES_ENGINES) {
     const snapshot = loadSnapshot(engine);
-    const { scenarios, twinIds } = await loadScenarios(engine);
+    const { scenarios, twinIds } = loadRulesLanguageScenarios(engine);
     const cov = new Map<string, ConstructCoverage>();
     for (const c of snapshot.constructs) {
       cov.set(c.id, {
