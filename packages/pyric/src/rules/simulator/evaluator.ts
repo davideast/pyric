@@ -25,6 +25,15 @@ import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
 import { md5 as md5Bytes } from 'js-md5';
 import { sha256 as sha256Bytes } from 'js-sha256';
+import { EvalError, UnsupportedError } from './evaluation-errors.js';
+import {
+  makeGetResource,
+  normalizeDocumentPath,
+  resolveExists,
+  resolveGet,
+} from './document-lookups.js';
+
+export { EvalError, UnsupportedError } from './evaluation-errors.js';
 
 // ═══ Simulation Context ═══
 
@@ -140,30 +149,6 @@ export interface SimulationContext {
    *  attaches a fresh recorder per allow-rule evaluation so each
    *  `RuleEvaluation.expressionTrace` is independent. */
   trace?: TraceRecorder;
-}
-
-// ═══ Evaluation errors ═══
-
-export class EvalError extends Error {
-  constructor(message: string, public expr?: Expression) {
-    super(message);
-    this.name = 'EvalError';
-  }
-}
-
-/**
- * Thrown when the simulator encounters a feature it doesn't yet implement
- * (an unknown built-in function, namespace method, or method on a wrapper
- * type we haven't added). Distinct from EvalError so the handler can map it
- * to TestResult.state = 'UNSUPPORTED' instead of a silent DENY — that way
- * agents see "sim abstained" rather than "your rule is wrong" when the gap
- * is on our side. See REBUILD_PLAN.md Item 0.A.
- */
-export class UnsupportedError extends EvalError {
-  constructor(message: string, expr?: Expression) {
-    super(message, expr);
-    this.name = 'UnsupportedError';
-  }
 }
 
 // ═══ Expression trace ═══
@@ -859,9 +844,9 @@ function evaluateFunctionCall(
         if (ctx.afterState === null) {
           throw new EvalError(`getAfter() of non-existent document '${pathStr}' (guard with existsAfter() first)`);
         }
-        return makeGetResource(normalizePath(pathStr, ctx), ctx.afterState);
+        return makeGetResource(normalizeDocumentPath(pathStr), ctx.afterState);
       }
-      const normalized = normalizePath(pathStr, ctx);
+      const normalized = normalizeDocumentPath(pathStr);
       if (ctx.batchProjection?.has(normalized)) {
         const projected = ctx.batchProjection.get(normalized)!;
         if (projected === null) {
@@ -881,7 +866,7 @@ function evaluateFunctionCall(
       if (pathStr === ctx.afterStatePath.toString()) {
         return ctx.existsAfter;
       }
-      const normalized = normalizePath(pathStr, ctx);
+      const normalized = normalizeDocumentPath(pathStr);
       if (ctx.batchProjection?.has(normalized)) {
         return ctx.batchProjection.get(normalized) !== null;
       }
@@ -1400,63 +1385,4 @@ function evaluateDurationMethod(method: string, args: unknown[]): unknown {
     }
   }
   throw new UnsupportedError(`Unknown duration method '${method}'`);
-}
-
-// ═══ get()/exists() mock resolution ═══
-
-function normalizePath(rawPath: string, ctx: SimulationContext): string {
-  // Path format: /databases/(default)/documents/collection/docId
-  // or /databases/$(database)/documents/collection/docId
-  return rawPath
-    .replace(/\$\(database\)/g, '(default)')
-    .replace(/^\/databases\/\(default\)\/documents\//, '');
-}
-
-/**
- * Build the resource value a REAL document lookup returns. Serializable
- * Rules Test API function mocks are handled separately in resolveGet: their
- * result carries data only and production does not synthesize identity.
- */
-function makeGetResource(relPath: string, data: Record<string, unknown>): SimResource {
-  const segs = relPath.split('/').filter(Boolean);
-  const id = segs.length > 0 ? segs[segs.length - 1] : '';
-  const fullSegs = ['databases', '(default)', 'documents', ...segs];
-  return { data, id, __name__: new Path(fullSegs) };
-}
-
-function resolveGet(rawPath: string, ctx: SimulationContext): SimResource {
-  const path = normalizePath(rawPath, ctx);
-  let doc = ctx.mockDocuments.get(path);
-  if (!doc && ctx.getDoc) {
-    const faulted = ctx.getDoc(path);
-    if (faulted) {
-      ctx.mockDocuments.set(path, faulted); // memoize for repeat reads in this eval
-      doc = faulted;
-    }
-  }
-  if (doc) {
-    return ctx.identitylessFunctionMocks?.has(path)
-      ? { data: doc }
-      : makeGetResource(path, doc);
-  }
-  // RULES-B8: get() of a missing document is a runtime ERROR in production
-  // (it performs a real read; a non-existent doc denies the request), NOT
-  // the silent null this used to return. The safe pattern is
-  // `exists(path) && get(path).data...` — the false exists() absorbs this
-  // error commutatively (RULES-B3). Throwing here makes that guard behave
-  // exactly as prod, and makes an UNguarded get() of a missing doc DENY.
-  throw new EvalError(`get() of non-existent document '${path}' (guard with exists() first)`);
-}
-
-function resolveExists(rawPath: string, ctx: SimulationContext): boolean {
-  const path = normalizePath(rawPath, ctx);
-  if (ctx.mockDocuments.has(path)) return true;
-  if (ctx.getDoc) {
-    const faulted = ctx.getDoc(path);
-    if (faulted) {
-      ctx.mockDocuments.set(path, faulted); // memoize so a later get() is consistent
-      return true;
-    }
-  }
-  return false;
 }
