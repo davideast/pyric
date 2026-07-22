@@ -215,7 +215,7 @@ describe('RTDB worker listeners', () => {
 
     await client.rtdbRemove(client.rtdbChild(scores, 'grace'));
     await sleep();
-    expect(removed).toEqual([{ key: 'grace', value: { score: 9 }, previous: 'ada' }]);
+    expect(removed).toEqual([{ key: 'grace', value: { score: 9 }, previous: null }]);
 
     stopValue();
     stopMoved();

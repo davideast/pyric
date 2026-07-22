@@ -76,6 +76,9 @@ describe('RTDB served-entry integration', () => {
     const db = database.getDatabase(app);
     expect(db).toBeInstanceOf(database.Database);
     const rows = database.ref(db, 'served-api/rows');
+    const disconnectHandle = database.onDisconnect(rows);
+    expect(Object.keys(disconnectHandle).sort()).toEqual(['_path', '_repo']);
+    expect(disconnectHandle).toBeInstanceOf(database.OnDisconnect);
     await database.setWithPriority(database.child(rows, 'second'), { rank: 2 }, 20);
     await database.setWithPriority(database.child(rows, 'first'), { rank: 1 }, 10);
 

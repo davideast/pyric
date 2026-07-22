@@ -409,7 +409,7 @@ function onChildEvent(
     const childRef = child(baseRef, raw.key);
     const snap = buildSandboxSnapFromRaw(target, childRef, raw.val);
     try {
-      cb(snap, raw.previousChildName);
+      cb(snap, event === 'child_removed' ? null : raw.previousChildName);
     } catch {
       // Listener throws are swallowed — match `firebase/database`'s
       // behavior where one observer's exception doesn't block others.

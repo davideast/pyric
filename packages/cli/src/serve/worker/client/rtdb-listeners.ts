@@ -228,7 +228,7 @@ function onChildEvent(
     if (kind === 'removed') {
       for (const prior of previous) {
         if (!currentByKey.has(prior.key)) {
-          emit(prior, previous[previousByKey.get(prior.key)!.index - 1]?.key ?? null);
+          emit(prior, null);
         }
       }
     } else {

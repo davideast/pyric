@@ -14,6 +14,17 @@ describe('RTDB worker connection lifecycle', () => {
   });
   afterEach(() => restoreSW());
 
+  it('rtdb-modular#M77 exposes the captured onDisconnect handle shape', async () => {
+    const { db } = connectClientToHost(await makeHostCtx(), 'worker://disconnect-shape');
+    const target = client.rtdbRef(client.rtdbGetDatabase(db), 'disconnect-shape');
+    const handle = client.rtdbOnDisconnect(target);
+
+    expect(Object.keys(handle).sort()).toEqual(['_path', '_repo']);
+    expect(Object.getOwnPropertyNames(Object.getPrototypeOf(handle)).sort()).toEqual([
+      'cancel', 'constructor', 'remove', 'set', 'setWithPriority', 'update',
+    ]);
+  });
+
   it('goOffline drains a writer port onDisconnect queue once while an independent port observes', async () => {
     const ctx = await makeHostCtx();
     const { db: writerClient, hostPort: writerHostPort } = connectClientToHost(

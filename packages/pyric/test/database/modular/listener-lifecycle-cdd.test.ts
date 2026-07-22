@@ -260,6 +260,8 @@ describe('RTDB CDD listener lifecycle cases', () => {
     });
     expect(plainPriorityAdded).toEqual(childPreviousObservation.plainPriorityAdded);
     expect((await get(target)).val()).toEqual(childPreviousObservation.terminal);
+    await remove(ref(first, 'previous/d'));
+    expect(removed.at(-1)).toEqual(['d', null]);
   });
 
   it('rtdb-modular#M75b keeps child events inside the query window', async () => {
