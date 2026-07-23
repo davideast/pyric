@@ -10,6 +10,7 @@ import {
   GoogleAuthProvider,
   sandbox as authSandbox,
 } from 'pyric/auth';
+import { child, getDatabase, ref } from 'pyric/database';
 import { ServeAuthHelper } from '../../src/serve/entries/auth-helper-core.js';
 
 /** Mirror served in-page wiring: mint via createSignInCredential. */
@@ -50,7 +51,7 @@ function wire() {
   // (covered in test/serve/worker/auth.test.ts).
   authSandbox.delegateProviderEnforcement(auth, true);
   const helper = helperForLocalAuth(auth);
-  return { auth, helper };
+  return { auth, helper, sandbox };
 }
 
 function expectGoogleProviderMetadata(
@@ -105,7 +106,7 @@ describe('ServeAuthHelper', () => {
   });
 
   it('add → popup resolves, signs in, claims land in the token', async () => {
-    const { auth, helper } = wire();
+    const { auth, helper, sandbox } = wire();
     const p = signInWithPopup(auth, new GoogleAuthProvider());
     expect(helper.snapshot().request?.providerId).toBe('google.com');
     helper.add({ email: 'new@example.com', displayName: 'New', customClaims: { role: 'admin' } });
@@ -127,6 +128,21 @@ describe('ServeAuthHelper', () => {
     expect(created?.customClaims).toEqual({ role: 'admin' });
     expect(created?.providerId).toBe('google.com');
     expect(created?.providerUserInfo.map((p) => p.providerId)).toEqual(['google.com']);
+    expect(() => child(ref(getDatabase(sandbox), 'users'), cred.user.uid)).not.toThrow();
+  });
+
+  it('default worker mint produces a UID that is safe in an RTDB child path', async () => {
+    const sandbox = initializeSandbox();
+    const helper = new ServeAuthHelper({ list: () => [] });
+    const pending = helper.resolver().openPopup({
+      providerId: 'google.com',
+      authType: 'signIn',
+    });
+
+    helper.add({ email: 'dceast@gmail.com' });
+
+    const credential = await pending;
+    expect(() => child(ref(getDatabase(sandbox), 'users'), credential.user.uid)).not.toThrow();
   });
 
   it('created identity appears in the picker and is pickable next time with Google metadata', async () => {

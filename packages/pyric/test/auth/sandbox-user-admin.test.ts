@@ -26,6 +26,14 @@ function freshAuth(): Auth {
   return getAuth(initializeSandbox());
 }
 
+function expectGeneratedProviderUid(uid: string): void {
+  expect(uid).toStartWith('provider-');
+  expect(uid).not.toContain('@');
+  for (const reservedRtdbCharacter of ['.', '#', '$', '[', ']', '/']) {
+    expect(uid).not.toContain(reservedRtdbCharacter);
+  }
+}
+
 function mockUser(uid: string, email: string | null = null): User {
   return {
     uid,
@@ -209,13 +217,13 @@ describe('sandbox.createSignInCredential (A2)', () => {
     );
   });
 
-  it('{spec} creates the identity with the default uid and no password', () => {
+  it('{spec} creates the identity with an opaque RTDB-safe uid and no password', () => {
     const auth = freshAuth();
     const cred = authSandbox.createSignInCredential(auth, {
       providerId: 'google.com',
       spec: { email: 'new@x.com', displayName: 'New', customClaims: { plan: 'pro' } },
     });
-    expect(cred.user.uid).toBe('google.com:new@x.com');
+    expectGeneratedProviderUid(cred.user.uid);
     const id = authSandbox.listIdentities(auth).find((i) => i.uid === cred.user.uid);
     expect(id!.providerUserInfo).toEqual([{ providerId: 'google.com' }]);
     expect(id!.customClaims).toEqual({ plan: 'pro' });
@@ -260,8 +268,9 @@ describe('sandbox.createSignInCredential (A2)', () => {
       openRedirect: async () => cred,
     });
     const result = await signInWithPopup(auth, new GoogleAuthProvider());
-    expect(result.user.uid).toBe('google.com:flow@x.com');
-    expect(auth.currentUser?.uid).toBe('google.com:flow@x.com');
+    expectGeneratedProviderUid(result.user.uid);
+    expect(result.user.uid).toBe(cred.user.uid);
+    expect(auth.currentUser?.uid).toBe(cred.user.uid);
   });
 });
 

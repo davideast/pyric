@@ -101,7 +101,7 @@ export interface ProviderUserInfo {
  *  — mirrors the emulator's add-user form (`customAttributes` →
  *  `customClaims`). */
 export interface SignInIdentitySpec {
-  /** Defaults to `'<providerId>:<email>'`. */
+  /** Defaults to an opaque generated uid. */
   uid?: string;
   email: string;
   displayName?: string;
