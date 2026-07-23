@@ -48,8 +48,11 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
     // encoded traversal cannot cross from Studio into docs or static assets.
     // Connect preserves that target in `originalUrl` after stripping a mount
     // prefix from `url`.
-    const rawPathname =
-      (req.originalUrl ?? req.url ?? url.pathname).split('?', 1)[0] ?? url.pathname;
+    const rawRequestTarget = req.originalUrl ?? req.url ?? url.pathname;
+    const queryStart = rawRequestTarget.indexOf('?');
+    const rawPathname = queryStart === -1
+      ? rawRequestTarget
+      : rawRequestTarget.slice(0, queryStart);
     if (rawPathname !== '/__pyric/ui' && !rawPathname.startsWith('/__pyric/ui/')) {
       return false;
     }
