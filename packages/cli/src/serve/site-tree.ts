@@ -13,6 +13,10 @@ interface StudioRoutesManifest {
   routes: string[];
 }
 
+interface RequestWithOriginalUrl extends IncomingMessage {
+  originalUrl?: string;
+}
+
 function studioRoutesFromSite(root: string): ReadonlySet<string> {
   const manifestPath = join(root, 'studio-routes.json');
   const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as StudioRoutesManifest;
@@ -20,6 +24,26 @@ function studioRoutesFromSite(root: string): ReadonlySet<string> {
     throw new Error(`pyric: invalid Studio route manifest at ${manifestPath}`);
   }
   return new Set(parsed.routes);
+}
+
+function rawRequestPathname(request: RequestWithOriginalUrl, parsedUrl: URL): string {
+  let requestTarget = request.originalUrl;
+
+  if (requestTarget === undefined) {
+    requestTarget = request.url;
+  }
+
+  if (requestTarget === undefined) {
+    return parsedUrl.pathname;
+  }
+
+  const queryStringStart = requestTarget.indexOf('?');
+
+  if (queryStringStart === -1) {
+    return requestTarget;
+  }
+
+  return requestTarget.slice(0, queryStringStart);
 }
 
 function withWorkerVersion(html: string, workerVersion: string | undefined): string {
@@ -39,7 +63,7 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
   const studioRoutes = studioRoutesFromSite(root);
 
   return (
-    req: IncomingMessage & { originalUrl?: string },
+    req: RequestWithOriginalUrl,
     res: ServerResponse,
     url: URL,
   ): boolean => {
@@ -48,11 +72,7 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
     // encoded traversal cannot cross from Studio into docs or static assets.
     // Connect preserves that target in `originalUrl` after stripping a mount
     // prefix from `url`.
-    const rawRequestTarget = req.originalUrl ?? req.url ?? url.pathname;
-    const queryStart = rawRequestTarget.indexOf('?');
-    const rawPathname = queryStart === -1
-      ? rawRequestTarget
-      : rawRequestTarget.slice(0, queryStart);
+    const rawPathname = rawRequestPathname(req, url);
     if (rawPathname !== '/__pyric/ui' && !rawPathname.startsWith('/__pyric/ui/')) {
       return false;
     }

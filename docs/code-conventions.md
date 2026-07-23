@@ -77,7 +77,7 @@ The God-object rule. A single class longer than 400 lines is a design smell, not
 - Authored pages link each other by relative `.md` path; the site's remark
   plugin resolves those to routes and fails the build on a broken link.
 
-## 3b. Conditional expressions stay simple
+## 3b. Conditional and fallback logic states its policy
 
 Rule.
 
@@ -87,6 +87,17 @@ Rule.
   and both outcomes are short, simple values.
 - If a ternary needs to wrap, performs work in either branch, or introduces a
   second condition, replace it with explicit control flow.
+- Nullish-coalescing and logical-operator chains may express one obvious default.
+  They must not encode precedence among values with different semantic roles.
+- When fallback order is part of the behaviour, write one explicit branch per
+  fallback and give each value a domain-specific name.
+- Do not select a fallback and transform it in the same expression. Select the
+  value first, then validate or transform it in a separate statement or named
+  helper.
+
+The review test: can a reader identify every fallback, its precedence, and the
+reason for it without mentally evaluating operators? If not, replace the
+shorthand with explicit control flow.
 
 ## 3c. Configuration assembly is explicit
 
