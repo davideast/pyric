@@ -73,8 +73,8 @@ const row4 = defineRows({
 const row5 = defineRows({
   surface: "rtdb",
   defaults: {
-    section: "Modular SDK surface (Phase 3)",
-    api: "Modular SDK surface (Phase 3)",
+    section: "Public API",
+    api: "Public API",
   },
 });
 
@@ -82,8 +82,8 @@ const row6 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["getDatabase"],
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     conformanceTests: cddLifecycleTests,
   },
 });
@@ -91,8 +91,8 @@ const row6 = defineRows({
 const row7 = defineRows({
   surface: "rtdb",
   defaults: {
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     conformanceTests: cddLifecycleTests,
   },
 });
@@ -101,8 +101,8 @@ const row8 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["get"],
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     status: "conforms",
     automation: "oracle-backed",
     conformanceTests: cddLifecycleTests,
@@ -113,8 +113,8 @@ const row9 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["set"],
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     conformanceTests: cddPublicOperationTests,
   },
 });
@@ -123,8 +123,8 @@ const row10 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["update"],
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     conformanceTests: cddPublicOperationTests,
   },
 });
@@ -133,8 +133,8 @@ const row11 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["remove"],
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     status: "conforms",
     automation: "oracle-backed",
     conformanceTests: cddPublicOperationTests,
@@ -145,8 +145,8 @@ const row12 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["push"],
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     status: "conforms",
     automation: "oracle-backed",
     conformanceTests: cddPublicOperationTests,
@@ -157,8 +157,8 @@ const row13 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["onValue"],
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     conformanceTests: cddPublicOperationTests,
   },
 });
@@ -166,8 +166,8 @@ const row13 = defineRows({
 const row14 = defineRows({
   surface: "rtdb",
   defaults: {
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     automation: "oracle-backed",
     conformanceTests: cddPublicOperationTests,
   },
@@ -177,7 +177,7 @@ const row15 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["off"],
-    section: "Modular SDK surface",
+    section: "Public API",
     conformanceTests: cddPublicOperationTests,
   },
 });
@@ -185,8 +185,8 @@ const row15 = defineRows({
 const row16 = defineRows({
   surface: "rtdb",
   defaults: {
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     status: "conforms",
     automation: "oracle-backed",
     conformanceTests: cddPublicOperationTests,
@@ -196,8 +196,8 @@ const row16 = defineRows({
 const row17 = defineRows({
   surface: "rtdb",
   defaults: {
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     conformanceTests: cddPublicOperationTests,
   },
 });
@@ -206,8 +206,8 @@ const row18 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["runTransaction"],
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     conformanceTests: cddPublicOperationTests,
   },
 });
@@ -215,8 +215,8 @@ const row18 = defineRows({
 const row19 = defineRows({
   surface: "rtdb",
   defaults: {
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     status: "diverged-documented",
     statusNote: "logical disconnect lifecycle is modeled, but the in-memory data plane itself remains available",
     evidence: "`unit:database/on-disconnect.test.ts` + `unit:modular/fruit-aliases.test.ts`",
@@ -229,8 +229,8 @@ const row20 = defineRows({
   surface: "rtdb",
   defaults: {
     featureKeys: ["connectDatabaseEmulator"],
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     status: "unsupported",
     evidence: "Phase 3",
     automation: "unsupported",
@@ -241,8 +241,8 @@ const row20 = defineRows({
 const row21 = defineRows({
   surface: "rtdb",
   defaults: {
-    section: "Modular SDK surface",
-    api: "Modular SDK surface",
+    section: "Public API",
+    api: "Public API",
     status: "diverged-documented",
     evidence: "`unit:modular/fruit-aliases.test.ts`",
     automation: "unit-backed",
@@ -258,6 +258,7 @@ export const rtdbRegistry = {
     { kind: 'markdown', markdown: "# `pyric/database` compatibility matrix\n\n## Status legend\n\n| Status | Meaning |\n|---|---|\n| ✓ | **Conforming** — observable behavior matches Firebase, locked by a passing probe |\n| ⚠ | **Diverged (documented)** — intentional difference with a written reason |\n| ✗ | **Bug** — should match Firebase but does not |\n| — | **Not implemented yet** — pending, or intentionally outside the mirror |\n| ? | **Unverified** — not yet backed by sufficient evidence |\n" },
     {
       kind: 'table',
+      publishInCompatibilityDocs: false,
       prefix: "## Archived production-toolkit observations\n\nThese unsupported tombstones preserve immutable oracle `rowIds` for the removed host, REST, data, crawl, generation, and deployment toolkit. They are historical evidence, not current API claims.\n",
       rows: [
         row1({
@@ -392,6 +393,7 @@ export const rtdbRegistry = {
     },
     {
       kind: 'table',
+      publishInCompatibilityDocs: false,
       prefix: "## `simulateRtdbRules(compiled, input)` — in-process rule evaluator\n",
       rows: [
         row2({
@@ -507,6 +509,7 @@ export const rtdbRegistry = {
     },
     {
       kind: 'table',
+      publishInCompatibilityDocs: false,
       prefix: "## Constraint authoring surface (`atoms` / `policies` / `compose` / `ruleset`)\n",
       rows: [
         row3({
@@ -548,6 +551,7 @@ export const rtdbRegistry = {
     },
     {
       kind: 'table',
+      publishInCompatibilityDocs: false,
       prefix: "## Compiled RTDB rules tree ↔ rules JSON\n",
       rows: [
         row4({
@@ -584,7 +588,7 @@ export const rtdbRegistry = {
     },
     {
       kind: 'table',
-      prefix: "## Modular SDK surface\n\n`pyric/database` is the sandbox-only mirror of `firebase/database`'s\ntree-shakable free-function shape (`getDatabase`, `ref`, `child`, `get`,\n`set`, `update`, `remove`, `push`, listeners, queries, transactions, and\nsentinels). Package resolution selects production or sandbox before either\nmodule loads; this mirror has no production target or runtime dependency on\n`firebase/database`.\n\nTwo sandbox identity modes are selected by the value passed to\n`getDatabase`:\n\n- **Sandbox** — `getDatabase(ctx: SandboxContext)`. Frozen identity baked into\n  the handle at construction.\n- **Sandbox-live** — `getDatabase(sandbox: Sandbox)`. Identity read per\n  operation from `sandbox.currentUser`.\n\nThe public implementation is split by API family under `packages/pyric/src/database/`; the\nin-process backend lives in `packages/pyric/src/database/sandbox/`. Rows below\nare scoped to the modular mirror. The pure rules-engine rows above are internal\ntooling coverage and are not exports of `pyric/database`.\n",
+      prefix: "## Public API\n\n`pyric/database` mirrors the public `firebase/database` API in the Pyric sandbox. The rows below compare its observable behaviour with Firebase.\n",
       rows: [
         row5({
           rowRef: "M1",
@@ -613,6 +617,7 @@ export const rtdbRegistry = {
           rowRef: "M3",
           surface: "rtdb-modular",
           featureKeys: ["getDatabase"],
+          publishInCompatibilityDocs: false,
           behavior: "An in-module production target is intentionally absent; direct calls with a real `FirebaseApp` reject with package-resolution guidance",
           status: "unsupported",
           evidence: "`unit:modular.test.ts`; production remains the responsibility of the unchanged `firebase/database` package",
@@ -2704,7 +2709,7 @@ export const rtdbRegistry = {
         row15({
           rowRef: "138",
           surface: "rtdb-modular",
-          api: "Modular SDK surface",
+          api: "Public API",
           behavior: "`off(ref)` removes ALL listeners at that ref (any event type, any callback)",
           status: "conforms",
           evidence: "oracle: `packages/conformance/observations/rtdb-modular/rtdb-modular-off-stops-child-fires.json` — after `off(ref)` with no eventType, a subsequent write produced `postOffFires: 0` against an `onChildAdded` registration.",
@@ -2718,7 +2723,7 @@ export const rtdbRegistry = {
         row15({
           rowRef: "139",
           surface: "rtdb-modular",
-          api: "Modular SDK surface",
+          api: "Public API",
           behavior: "`off(ref, 'value')` removes only `value` listeners at that ref",
           status: "conforms",
           evidence: "Sandbox aligned (M48); oracle: `packages/conformance/observations/rtdb/rtdb-off-eventtype-precision.json` — registered TWO `value` listeners + one `child_added` at the same ref; after `off(ref, 'value')` (no callback), `valueListenersStopped: true` (neither value cb fired on subsequent writes) AND `childListenerStillFiringAfterOffValue: true` (the child listener kept firing). `offValueClearsAllValueListeners: true` confirms the no-callback variant removes ALL value listeners at the ref.",
@@ -2732,7 +2737,7 @@ export const rtdbRegistry = {
         row15({
           rowRef: "140",
           surface: "rtdb-modular",
-          api: "Modular SDK surface",
+          api: "Public API",
           behavior: "`off(ref, 'value', cb)` removes only the specific callback",
           status: "conforms",
           evidence: "Sandbox aligned (M48); adjacent to #141 — the upstream `off` with the cb argument removes only the matching callback. Same probe (`rtdb-onvalue-unsub-equivalence.json` Case 2) confirms `off(ref, 'value', cb)` stops only that callback.",
@@ -2743,7 +2748,7 @@ export const rtdbRegistry = {
         row15({
           rowRef: "141",
           surface: "rtdb-modular",
-          api: "Modular SDK surface",
+          api: "Public API",
           behavior: "The returned unsubscribe function from `onValue(ref, cb)` is equivalent to `off(ref, 'value', cb)`",
           status: "conforms",
           evidence: "Sandbox aligned (M48); oracle: `packages/conformance/observations/rtdb/rtdb-onvalue-unsub-equivalence.json` — `unsubReturnType: 'function'`, `unsubReturnedFnStopsListener: true` (the captured return value halted fires on write), `offRefValueCbStopsListener: true` (the same effect via `off(ref, 'value', cb)`), `bothFormsEquivalent: true`.",
@@ -3084,6 +3089,7 @@ export const rtdbRegistry = {
     },
     {
       kind: 'table',
+      publishInCompatibilityDocs: false,
       prefix: "### `connectDatabaseEmulator` — emulator hook\n",
       rows: [
         row20({

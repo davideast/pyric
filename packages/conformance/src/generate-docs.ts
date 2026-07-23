@@ -400,17 +400,35 @@ function rewriteLegend(markdown: string, present: ReadonlySet<CompatStatus>): st
   return out.join('\n');
 }
 
-/** All of a surface's blocks with presentation derived from its own rows:
+/** The reader-facing subset of a registry. Internal and historical entries
+ * remain in the canonical ledger but do not become public compatibility
+ * claims, gap entries, or documentation links. */
+function publishedBlocks(surface: CompatibilitySurfaceRegistry): CompatibilitySurfaceRegistry['blocks'] {
+  const blocks: CompatibilitySurfaceRegistry['blocks'] = [];
+  for (const block of surface.blocks) {
+    if (block.kind === 'markdown') {
+      blocks.push(block);
+      continue;
+    }
+    if (block.publishInCompatibilityDocs === false) continue;
+    const rows = block.rows.filter((row) => row.publishInCompatibilityDocs !== false);
+    if (rows.length > 0) blocks.push({ ...block, rows });
+  }
+  return blocks;
+}
+
+/** All of a surface's published blocks with presentation derived from its own rows:
  * the score block (coverage figure + to-scale meters) lands under the first
  * heading, and every status legend keys only the statuses this surface
  * actually uses. */
 function scoredBlocks(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection) {
+  const blocks = publishedBlocks(surface);
   const present: ReadonlySet<CompatStatus> = new Set(
-    surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows.map((row) => row.status) : [])),
+    blocks.flatMap((block) => (block.kind === 'table' ? block.rows.map((row) => row.status) : [])),
   );
   const score = scoreBlock(surface, projection);
   let scorePlaced = score === null;
-  return surface.blocks.map((block) => {
+  return blocks.map((block) => {
     if (block.kind !== 'markdown') return block;
     let markdown = rewriteLegend(block.markdown, present);
     if (!scorePlaced) {

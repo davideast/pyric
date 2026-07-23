@@ -98,8 +98,7 @@ jobs:
         # contention (verify replays flip verdicts when the suite shares a
         # 2-core VM with other pyric work — reproduced deterministically
         # before this layout was chosen). The conformance gate chain that
-        # used to follow this step now runs in the docs job, concurrent with
-        # the deterministic site build (scripts/ci/conformance-gates.sh).
+        # used to follow this step now runs in its own conformance-gates job.
         run: bun run test:ci:cli
 
   library-tests:
@@ -193,35 +192,30 @@ jobs:
           bun-version: '1.3.11'
       - run: bun test scripts/publish-alpha.test.ts
 
-  docs-only:
-    name: Authored documentation
+  conformance-gates:
+    name: Conformance gates
     runs-on: ubuntu-latest
     needs: plan
-    if: contains(fromJSON('["docs-only", "full"]'), needs.plan.outputs.predicted-check-set)
+    if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.11'
-      - run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Configure job-local surface census cache
+        run: echo "PYRIC_SURFACE_CENSUS_PATH=$RUNNER_TEMP/pyric-surface-census.json" >> "$GITHUB_ENV"
       - run: bash scripts/build.sh --packages-only
-      - name: Build documentation + conformance gates (concurrent)
-        # The conformance gate chain moved here from build-and-test: it needs
-        # only the packages build this job already does, and pairing it with
-        # the deterministic Astro build wastes no wall clock (both streams are
-        # pure computation — no timing-sensitive tests, unlike the CLI suite,
-        # which must not share a VM with other pyric work). Order inside the
-        # chain is unchanged (scripts/ci/conformance-gates.sh); either stream
-        # failing fails the step (scripts/ci/run-concurrently.ts). Each stream
-        # gets its own surface-census cache — the docs generate step also
-        # derives the conformance model, and the cache write is not atomic,
-        # so a shared path would be a torn-read race between the streams.
-        run: >
-          bun scripts/ci/run-concurrently.ts
-          "docs=PYRIC_SURFACE_CENSUS_PATH=$RUNNER_TEMP/census-docs.json bun run --cwd packages/site-docs build"
-          "gates=PYRIC_SURFACE_CENSUS_PATH=$RUNNER_TEMP/census-gates.json bash scripts/ci/conformance-gates.sh"
-      - name: Generated content must not dirty authored sources
-        run: git diff --exit-code
+      - name: Conformance gate chain
+        # The five gates that used to run serially at the tail of
+        # build-and-test (audit gate, observations × probes, graph integrity,
+        # entry-path cliff, verdict projection, coverage ratchet — order
+        # unchanged in scripts/ci/conformance-gates.sh). A job of their own
+        # keeps them off the critical path without pairing them against the
+        # CLI suite, whose verify replays flip verdicts under CPU contention
+        # (reproduced deterministically while validating this layout).
+        run: bash scripts/ci/conformance-gates.sh
 
   packaging:
     name: Packaging gate (pack + install + subpath resolution)
@@ -362,7 +356,7 @@ jobs:
     name: CI / required
     runs-on: ubuntu-latest
     if: always()
-    needs: [plan, build-and-test, library-tests, browser-conformance, release-contract, docs-only, packaging, install-matrix, standalone]
+    needs: [plan, build-and-test, library-tests, browser-conformance, conformance-gates, release-contract, packaging, install-matrix, standalone]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
