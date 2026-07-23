@@ -175,6 +175,14 @@ export class ServeAuthHelper {
     if (request.kind === 'pick') {
       return bareCredential(request.identity, request.providerId);
     }
+    // Same-email add resolves to the existing identity (Google-style account
+    // reuse) — mirrors `createSignInCredential`'s in-page policy, and keeps a
+    // repeated add idempotent instead of seeding a second account whose email
+    // mapping orphans the first.
+    const existing = this.findIdentityByEmail(request.spec.email);
+    if (existing) {
+      return bareCredential(existing, request.providerId);
+    }
     const identity: HelperIdentity = {
       uid: `${request.providerId}:${request.spec.email}`,
       email: request.spec.email,
@@ -184,6 +192,27 @@ export class ServeAuthHelper {
     await Promise.resolve(this.directory.add?.(identity));
     return bareCredential(identity, request.providerId);
   }
+
+  private findIdentityByEmail(email: string): HelperIdentity | undefined {
+    const normalized = email.toLowerCase();
+    return this.identities.find(
+      (identity) => identity.email?.toLowerCase() === normalized,
+    );
+  }
+}
+
+/**
+ * Recover the original custom claims from a helper credential's token claims.
+ * `bareCredential` (and the in-page backend mint) seed `sub` and the
+ * synthesized `firebase` envelope alongside the custom claims; neither is a
+ * custom claim, and seeding them back into the worker would persist
+ * synthesized metadata as user data.
+ */
+export function customClaimsFromTokenClaims(
+  claims: Record<string, unknown>,
+): Record<string, unknown> {
+  const { sub: _sub, firebase: _firebase, ...customClaims } = claims;
+  return customClaims;
 }
 
 /** Bare helper User — worker path discards this in favor of `acceptIdentity`. */
