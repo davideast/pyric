@@ -120,7 +120,29 @@ describe('sandbox backend — createCustomToken / verifyIdToken roundtrip', () =
     const badToken = `${SANDBOX_TOKEN_PREFIX}:alice:not-json`;
     await expect(auth.verifyIdToken(badToken)).rejects.toThrow(/JSON/);
   });
+
+  it('verifies client ID tokens minted with sandbox-id-token prefix', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(initializeApp({ sandbox }));
+    const clientClaims = { sub: 'bob', role: 'editor', firebase: { sign_in_provider: 'google.com' } };
+    const clientToken = `sandbox-id-token-bob-1:${JSON.stringify(clientClaims)}`;
+    const decoded = await auth.verifyIdToken(clientToken);
+    expect(decoded.uid).toBe('bob');
+    expect(decoded.sub).toBe('bob');
+    expect(decoded.role).toBe('editor');
+    expect(decoded.firebase.sign_in_provider).toBe('google.com');
+    expect(decoded.iss).toBe('https://sandbox.pyric.dev');
+    expect(decoded.aud).toBe('pyric-sandbox');
+  });
+
+  it('rejects client ID tokens with malformed claim JSON', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(initializeApp({ sandbox }));
+    const badToken = 'sandbox-id-token-bob-1:not-json';
+    await expect(auth.verifyIdToken(badToken)).rejects.toThrow(/JSON/);
+  });
 });
+
 
 describe('sandbox backend — user CRUD', () => {
   it('createUser stores by uid; getUser retrieves it', async () => {
@@ -315,8 +337,9 @@ describe('sandbox backend — explicitly-not-implemented surface', () => {
   it('tenantManager getter throws the not-implemented message', () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(initializeApp({ sandbox }));
-    expect(() => auth.tenantManager()).toThrow(
+    expect(() => (auth as Record<string, unknown>)['tenantManager']).toThrow(
       /not implemented in pyric-admin\/auth sandbox backend/,
     );
   });
 });
+

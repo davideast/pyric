@@ -20,6 +20,8 @@ packages/cli/build/
 ignored/
 
 # Editor and tool state.
+.jules/
+.jules.json
 .firebase/
 firebase-debug.log*
 packages/conformance/src/capture/functions-rtdb/fixture/runtime.cjs
