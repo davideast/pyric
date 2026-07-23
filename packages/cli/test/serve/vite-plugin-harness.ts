@@ -98,11 +98,17 @@ export async function bootPlugin(
 
 export async function callPyric(
   handler: PyricMiddleware,
-  options: { method?: string; path: string; host?: string; headers?: Record<string, string> },
+  options: {
+    method?: string;
+    path: string;
+    mountedPath?: string;
+    host?: string;
+    headers?: Record<string, string>;
+  },
 ): Promise<{ statusCode: number; headers: Record<string, unknown>; body: string; nexted: boolean }> {
   const request: PyricReq = {
     method: options.method ?? 'GET',
-    url: options.path,
+    url: options.mountedPath ?? options.path,
     originalUrl: options.path,
     headers: { host: options.host ?? 'localhost', ...(options.headers ?? {}) },
   };

@@ -13,6 +13,13 @@ interface StudioRoutesManifest {
   routes: string[];
 }
 
+interface RequestWithOriginalUrl extends IncomingMessage {
+  originalUrl?: string;
+}
+
+const SITE_TREE_MOUNT_PATH = '/__pyric/ui';
+const SITE_TREE_DESCENDANT_PREFIX = `${SITE_TREE_MOUNT_PATH}/`;
+
 function studioRoutesFromSite(root: string): ReadonlySet<string> {
   const manifestPath = join(root, 'studio-routes.json');
   const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as StudioRoutesManifest;
@@ -20,6 +27,34 @@ function studioRoutesFromSite(root: string): ReadonlySet<string> {
     throw new Error(`pyric: invalid Studio route manifest at ${manifestPath}`);
   }
   return new Set(parsed.routes);
+}
+
+function rawRequestPathname(request: RequestWithOriginalUrl, parsedUrl: URL): string {
+  let requestTarget = request.originalUrl;
+
+  if (requestTarget === undefined) {
+    requestTarget = request.url;
+  }
+
+  if (requestTarget === undefined) {
+    return parsedUrl.pathname;
+  }
+
+  const queryStringStart = requestTarget.indexOf('?');
+
+  if (queryStringStart === -1) {
+    return requestTarget;
+  }
+
+  return requestTarget.slice(0, queryStringStart);
+}
+
+function isSiteTreePath(pathname: string): boolean {
+  if (pathname === SITE_TREE_MOUNT_PATH) {
+    return true;
+  }
+
+  return pathname.startsWith(SITE_TREE_DESCENDANT_PREFIX);
 }
 
 function withWorkerVersion(html: string, workerVersion: string | undefined): string {
@@ -38,21 +73,32 @@ function withWorkerVersion(html: string, workerVersion: string | undefined): str
 export function createSiteTreeHandler(root: string, workerVersion?: string) {
   const studioRoutes = studioRoutesFromSite(root);
 
-  return (req: IncomingMessage, res: ServerResponse, url: URL): boolean => {
+  return (
+    req: RequestWithOriginalUrl,
+    res: ServerResponse,
+    url: URL,
+  ): boolean => {
     // URL parsing normalizes encoded dot segments before `url.pathname`
     // reaches us. Route and validate against the raw request target so an
     // encoded traversal cannot cross from Studio into docs or static assets.
-    const rawPathname = (req.url ?? url.pathname).split('?', 1)[0] ?? url.pathname;
-    if (rawPathname !== '/__pyric/ui' && !rawPathname.startsWith('/__pyric/ui/')) {
+    // Connect preserves that target in `originalUrl` after stripping a mount
+    // prefix from `url`.
+    const rawPathname = rawRequestPathname(req, url);
+    if (!isSiteTreePath(rawPathname)) {
       return false;
     }
-    if (rawPathname === '/__pyric/ui') {
-      res.writeHead(301, { location: '/__pyric/ui/' }).end();
+    if (rawPathname === SITE_TREE_MOUNT_PATH) {
+      res.writeHead(301, { location: SITE_TREE_DESCENDANT_PREFIX }).end();
       return true;
     }
 
-    const rel = rawPathname.slice('/__pyric/ui'.length) || '/';
-    const decodedRel = decodeStaticPathname(rel);
+    let relativePath = rawPathname.slice(SITE_TREE_MOUNT_PATH.length);
+
+    if (relativePath === '') {
+      relativePath = '/';
+    }
+
+    const decodedRel = decodeStaticPathname(relativePath);
     if (decodedRel === null || decodedRel.includes('\\')) {
       res.writeHead(404).end('not found');
       return true;
@@ -62,8 +108,8 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
       res.writeHead(404).end('not found');
       return true;
     }
-    if (!rel.endsWith('/') && !extname(rel)) {
-      const dir = resolveStaticPath(root, rel);
+    if (!relativePath.endsWith('/') && !extname(relativePath)) {
+      const dir = resolveStaticPath(root, relativePath);
       if (dir && existsSync(dir) && statSync(dir).isDirectory()) {
         res.writeHead(301, { location: `${rawPathname}/` }).end();
         return true;
@@ -72,7 +118,7 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
 
     const first = decodedSegments[0];
     const studioRequest = first === undefined || studioRoutes.has(first);
-    let file = resolveStaticFile(root, rel);
+    let file = resolveStaticFile(root, relativePath);
     // Storage object names commonly contain extensions (logo.png), while the
     // other Studio routes reserve extension-bearing misses for static assets.
     const allowsDottedState = first === 'storage';

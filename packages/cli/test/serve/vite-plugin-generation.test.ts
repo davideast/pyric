@@ -289,6 +289,18 @@ describe('ui: Pyric Studio mount (parity with dev --ui)', () => {
     expect(index.body.toLowerCase()).toContain('<!doctype html');
   });
 
+  it.skipIf(!studioBuilt)('serves Studio after Connect strips the /__pyric mount prefix', async () => {
+    const tmp = mkTmp('pyric-vite-ui-mounted-');
+    const handler = await bootPlugin({ ui: true }, tmp);
+    const index = await callPyric(handler, {
+      path: '/__pyric/ui/',
+      mountedPath: '/ui/',
+    });
+    expect(index.nexted).toBe(false);
+    expect(index.statusCode).toBe(200);
+    expect(String(index.headers['content-type'])).toContain('text/html');
+  });
+
   // The workspace/project routes mount whenever `ui` is on (they need only the
   // disk-backed stores, not the built assets), so this runs regardless of the build.
   it('ui:true → mounts the Studio local-mode workspace route (handled, not passed through)', async () => {
