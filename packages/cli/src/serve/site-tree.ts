@@ -38,11 +38,18 @@ function withWorkerVersion(html: string, workerVersion: string | undefined): str
 export function createSiteTreeHandler(root: string, workerVersion?: string) {
   const studioRoutes = studioRoutesFromSite(root);
 
-  return (req: IncomingMessage, res: ServerResponse, url: URL): boolean => {
+  return (
+    req: IncomingMessage & { originalUrl?: string },
+    res: ServerResponse,
+    url: URL,
+  ): boolean => {
     // URL parsing normalizes encoded dot segments before `url.pathname`
     // reaches us. Route and validate against the raw request target so an
     // encoded traversal cannot cross from Studio into docs or static assets.
-    const rawPathname = (req.url ?? url.pathname).split('?', 1)[0] ?? url.pathname;
+    // Connect preserves that target in `originalUrl` after stripping a mount
+    // prefix from `url`.
+    const rawPathname =
+      (req.originalUrl ?? req.url ?? url.pathname).split('?', 1)[0] ?? url.pathname;
     if (rawPathname !== '/__pyric/ui' && !rawPathname.startsWith('/__pyric/ui/')) {
       return false;
     }
