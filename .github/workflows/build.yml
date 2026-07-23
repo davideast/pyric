@@ -119,16 +119,34 @@ jobs:
       - name: Build workspace packages (embedded apps omitted)
         run: bash scripts/build.sh --packages-only
 
-      - name: Run library, UI, Studio, and conformance tests (concurrent)
-        # The conformance suite alone is ~half this step's serial time; running
-        # it against the rest of the chain caps the step near the longer of the
-        # two streams. test:ci:libraries stays the canonical serial form for
-        # local runs and the release gates; run-concurrently.test.ts pins
+      - name: Run library, UI, and Studio tests
+        # The conformance suite (half this step's former serial time) runs in
+        # its own conformance-suite job. In-job concurrency was measured first
+        # and rejected: on a 2-core runner two CPU-bound streams saved 16s and
+        # starved the conformance model's 60s beforeAll budget into a timeout.
+        # test:ci:libraries stays the canonical serial form for local runs and
+        # the release gates; scripts/ci/library-split.test.ts pins
         # core = libraries minus conformance so the split cannot drift.
-        run: >
-          bun scripts/ci/run-concurrently.ts
-          "conformance=bun test --cwd packages/conformance"
-          "libraries=bun run test:ci:libraries:core"
+        run: bun run test:ci:libraries:core
+
+  conformance-suite:
+    name: Conformance suite
+    runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.check-set == 'full'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - run: bash scripts/build.sh --packages-only
+      - name: Run conformance tests
+        # Split out of library-tests so both halves run on their own machine;
+        # deriving the conformance model is CPU-heavy and its tests carry 60s
+        # beforeAll budgets that CPU contention can starve.
+        run: bun test --cwd packages/conformance
 
   browser-conformance:
     name: Served app + SharedWorker conformance
@@ -356,7 +374,7 @@ jobs:
     name: CI / required
     runs-on: ubuntu-latest
     if: always()
-    needs: [plan, build-and-test, library-tests, browser-conformance, conformance-gates, release-contract, packaging, install-matrix, standalone]
+    needs: [plan, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, release-contract, packaging, install-matrix, standalone]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
