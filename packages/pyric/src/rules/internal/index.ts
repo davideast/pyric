@@ -141,6 +141,7 @@ export type {
   FirestoreRulesToolDeps,
   FirestoreSimulatorToolDeps,
 } from '../tools.js';
+export { createFirestoreSimulatorTools } from '../simulator.js';
 
 // ─── Stdlib reference (browser-safe — pure data) ─────────────────────
 // Module-organized reference an agent can call before writing rules.

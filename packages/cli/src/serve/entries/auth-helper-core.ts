@@ -184,7 +184,7 @@ export class ServeAuthHelper {
       return bareCredential(existing, request.providerId);
     }
     const identity: HelperIdentity = {
-      uid: `${request.providerId}:${request.spec.email}`,
+      uid: mintProviderUid(),
       email: request.spec.email,
       displayName: request.spec.displayName ?? null,
       customClaims: request.spec.customClaims ?? {},
@@ -213,6 +213,11 @@ export function customClaimsFromTokenClaims(
 ): Record<string, unknown> {
   const { sub: _sub, firebase: _firebase, ...customClaims } = claims;
   return customClaims;
+}
+
+/** Provider UIDs are opaque Firebase identifiers, not encoded credentials. */
+function mintProviderUid(): string {
+  return `provider-${globalThis.crypto.randomUUID()}`;
 }
 
 /** Bare helper User — worker path discards this in favor of `acceptIdentity`. */
