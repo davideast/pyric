@@ -94,10 +94,20 @@ Rule.
 - Do not select a fallback and transform it in the same expression. Select the
   value first, then validate or transform it in a separate statement or named
   helper.
+- Keep a condition inline when it expresses one obvious fact. Extract a
+  positively named predicate when a compound or negated condition encodes a
+  domain boundary, policy, eligibility rule, or state classification.
+- The call site states the decision. The predicate contains the boolean
+  mechanics and uses domain vocabulary rather than a generic name such as
+  `isValid`.
 
 The review test: can a reader identify every fallback, its precedence, and the
 reason for it without mentally evaluating operators? If not, replace the
 shorthand with explicit control flow.
+
+The condition review test: can the condition be stated as one domain question?
+If it can, the call site should ask that question through a named predicate
+rather than restating its boolean algebra.
 
 ## 3c. Configuration assembly is explicit
 
