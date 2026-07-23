@@ -1,4 +1,5 @@
 import { FirebaseAuthService } from '@/services/auth-service';
+import { createProvisioner } from '@/services/provisioning';
 import { ConversationService } from '@/services/conversation-service';
 import { MessageService } from '@/services/message-service';
 import { UserService } from '@/services/user-service';
@@ -42,29 +43,27 @@ export const createFirebaseChatGateway = (): ChatPageServices => {
   const users = new UserService();
   const presence = new PresenceService();
   const notifications = new NotificationService();
-  const provisioned = new Set<string>();
-
-  const provision = async (user: AuthUser): Promise<void> => {
-    if (provisioned.has(user.uid)) return;
-    provisioned.add(user.uid);
-    try {
-      await users.provision(user);
-      await presence.goOnline(user);
-    } catch (error) {
-      provisioned.delete(user.uid);
-      throw error;
-    }
-  };
+  const provision = createProvisioner(async (user: AuthUser) => {
+    await users.provision(user);
+    await presence.goOnline(user);
+  });
 
   return {
     auth: {
       currentUser: () => toUiUser(auth.currentUser()),
+      // Auth state reports the signed-in user as soon as Firebase does; a
+      // provisioning failure must not masquerade as "signed out". The signIn
+      // path awaits the same shared attempt, so its failure surfaces in the
+      // sign-in error UI rather than only here.
       observe: (callback) => auth.observe((user) => {
         if (!user) {
           callback(null);
           return;
         }
-        void provision(user).then(() => callback(toUiUser(user))).catch(() => callback(null));
+        callback(toUiUser(user));
+        provision(user).catch((error: unknown) => {
+          console.error('Post-sign-in provisioning failed; the user profile or presence may be missing.', error);
+        });
       }),
       signIn: async () => {
         const signedIn = await auth.signIn();
