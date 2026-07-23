@@ -197,10 +197,21 @@ export function pyric(options: PyricOptions = {}): Plugin {
     enforce: 'pre',
 
     config(config, env) {
-      return {
-        ...moduleSwap.config(),
-        ...pageRuntime.config(config, env),
-      } as UserConfig;
+      const moduleConfig = moduleSwap.config();
+      const pageConfig = pageRuntime.config(config, env);
+      const serverWatchConfig: UserConfig = {
+        server: {
+          watch: {
+            ignored: ['**/.pyric/**'],
+          },
+        },
+      };
+      const finalizedConfig: UserConfig = {
+        ...moduleConfig,
+        ...pageConfig,
+        ...serverWatchConfig,
+      };
+      return finalizedConfig;
     },
 
     configResolved(resolved) {
