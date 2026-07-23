@@ -1009,7 +1009,7 @@ export const authRegistry = {
           api: "User` methods",
           behavior: "`user.getIdToken(true)` (forceRefresh) returns a NEW token; subsequent `getIdToken(false)` returns the cached new token",
           status: "conforms",
-          evidence: "`unit:sandbox-token-refresh.test.ts` — was ⚠ (documented divergence); aligned to prod in commit — sandbox now mints a fresh token on forceRefresh and fires `onIdTokenChanged`. Oracle: `packages/conformance/observations/auth/auth-getidtoken-force-refresh.json` defines the target shape (`forceRefreshReturnedDifferentString: true`, `token1EqualsToken2: true` against blockingfun — the refreshed token is cached, so a subsequent non-forced read returns it, not yet another fresh one). Sandbox tokens stay `sandbox-id-token-<uid>-<hash>` strings; prod's are real JWTs.",
+          evidence: "`unit:sandbox-token-refresh.test.ts` — was ⚠ (documented divergence); aligned to prod in commit — sandbox now mints a fresh token on forceRefresh and fires `onIdTokenChanged`. Oracle: `packages/conformance/observations/auth/auth-getidtoken-force-refresh.json` defines the target shape (`forceRefreshReturnedDifferentString: true`, `token1EqualsToken2: true` against blockingfun — the refreshed token is cached, so a subsequent non-forced read returns it, not yet another fresh one). Sandbox tokens stay `sandbox-id-token-<uid>-<serial>:<json>` strings; prod's are real JWTs.",
           risk: ["specific-value","specific-field","listener"],
           riskScore: 5,
           riskReasons: ["asserts 1 specific value(s)","asserts a specific field/property value","asserts listener semantics"],

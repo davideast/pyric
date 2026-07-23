@@ -224,6 +224,12 @@ function mintProviderUid(): string {
 function bareCredential(identity: HelperIdentity, providerId: string): UserCredential {
   const issuedAtTime = new Date().toISOString();
   const expirationTime = new Date(Date.now() + 3600_000).toISOString();
+  const claims: Record<string, unknown> = {
+    sub: identity.uid,
+    ...identity.customClaims,
+    firebase: { sign_in_provider: providerId },
+  };
+  const token = `sandbox-id-token-${identity.uid}-0:${JSON.stringify(claims)}`;
   const user: User = {
     uid: identity.uid,
     email: identity.email,
@@ -243,14 +249,10 @@ function bareCredential(identity: HelperIdentity, providerId: string): UserCrede
         providerId,
       },
     ],
-    getIdToken: async () => `pyric-serve-${identity.uid}`,
+    getIdToken: async () => token,
     getIdTokenResult: async () => ({
-      token: `pyric-serve-${identity.uid}`,
-      claims: {
-        sub: identity.uid,
-        ...identity.customClaims,
-        firebase: { sign_in_provider: providerId },
-      },
+      token,
+      claims,
       signInProvider: providerId,
       expirationTime,
       issuedAtTime,
