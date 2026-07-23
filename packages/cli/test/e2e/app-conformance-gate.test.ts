@@ -24,16 +24,9 @@ const standaloneJobEnd = workflow.indexOf('\n  required:', standaloneJobStart);
 const standaloneJob = workflow.slice(standaloneJobStart, standaloneJobEnd);
 
 describe('served app conformance merge gate', () => {
-  test('required CI splits CLI and library tests; the docs build runs as its own job', () => {
+  test('required CI splits CLI and library tests without a standalone docs job', () => {
     expect(workflow).not.toContain('\n  documentation:');
-    // The test lanes only need package artifacts (--packages-only below), but the
-    // documentation build itself must be selected for BOTH docs-only and
-    // full runs — a full PR must not be able to break `site-docs build`
-    // undetected (regression: the selector originally gated it to
-    // docs-only, so full runs skipped the docs build entirely).
-    expect(workflow).toContain(
-      `contains(fromJSON('["docs-only", "full"]'), needs.plan.outputs.predicted-check-set)`,
-    );
+    expect(workflow).not.toContain('\n  docs-only:');
     expect(mainJobStart).toBeGreaterThanOrEqual(0);
     expect(mainJobEnd).toBeGreaterThan(mainJobStart);
     expect(mainJob).toContain('bash scripts/build.sh --packages-only');
