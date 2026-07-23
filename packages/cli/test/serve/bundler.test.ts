@@ -476,6 +476,10 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
     // Browser-standalone: no bare firebase/* or node: specifiers survive.
     expect(src).not.toMatch(/from\s*["']firebase\//);
     expect(src).not.toMatch(/from\s*["']node:/);
+    // Browser tool dispatch uses the in-memory modules resolver. Pulling the
+    // disk-backed resolver into this graph makes Vite request an `fs` shim and
+    // can fail at module evaluation before the worker connects.
+    expect(src).not.toContain('readFileSync');
     // Provenance banner + the connect wiring that makes it a SharedWorker host.
     expect(src).toContain('NOT the real Firebase SDK');
     expect(src).toContain('onconnect');

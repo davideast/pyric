@@ -15,7 +15,7 @@
  * pinned by `test/bridge/tool-parity.test.ts`.
  */
 
-import { createFirestoreSimulatorTools } from 'pyric/rules/internal/node';
+import { createFirestoreSimulatorTools } from 'pyric/rules/internal';
 import {
   createFirestoreDataTools,
   createFirestoreInspectTools,

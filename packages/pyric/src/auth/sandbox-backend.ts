@@ -1350,7 +1350,7 @@ export class SandboxBackend {
    *     "add account"). If `spec.email` already belongs to a stored
    *     user, that identity is reused and the provider linked
    *     (Google-style same-email account reuse); otherwise a fresh
-   *     record is created with uid `spec.uid ?? '<providerId>:<email>'`
+   *     record is created with the supplied uid or an opaque generated uid
    *     and NO password (provider identities can't sign in via
    *     `signInWithEmailAndPassword`).
    *
@@ -1382,7 +1382,7 @@ export class SandboxBackend {
         stored = byEmail;
       } else {
         stored = this.makeStored({
-          uid: spec.uid ?? `${providerId}:${spec.email}`,
+          uid: spec.uid ?? mintProviderUid(),
           email: spec.email,
           displayName: spec.displayName ?? null,
           customClaims: spec.customClaims ?? {},
@@ -2252,6 +2252,11 @@ export class SandboxBackend {
     }
     return stored;
   }
+}
+
+/** Provider UIDs are opaque Firebase identifiers, not encoded credentials. */
+function mintProviderUid(): string {
+  return `provider-${globalThis.crypto.randomUUID()}`;
 }
 
 /** Re-exported from {@link ./auth-errors.ts} so consumers importing
