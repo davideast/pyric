@@ -11,7 +11,11 @@ import {
   sandbox as authSandbox,
 } from 'pyric/auth';
 import { child, getDatabase, ref } from 'pyric/database';
-import { ServeAuthHelper } from '../../src/serve/entries/auth-helper-core.js';
+import {
+  customClaimsFromTokenClaims,
+  ServeAuthHelper,
+  type HelperIdentity,
+} from '../../src/serve/entries/auth-helper-core.js';
 
 /** Mirror served in-page wiring: mint via createSignInCredential. */
 function helperForLocalAuth(auth: ReturnType<typeof getAuth>): ServeAuthHelper {
@@ -90,6 +94,40 @@ describe('ServeAuthHelper', () => {
     });
     const cred = await pending;
     expect((await cred.user.getIdTokenResult()).signInProvider).toBe('google.com');
+  });
+
+  it('worker-path add with an existing email reuses that identity instead of seeding a duplicate', async () => {
+    const existing: HelperIdentity = {
+      uid: 'google.com:worker@example.com',
+      email: 'worker@example.com',
+      displayName: 'Worker User',
+      customClaims: { role: 'reviewer' },
+    };
+    const added: HelperIdentity[] = [];
+    const helper = new ServeAuthHelper({
+      list: () => [existing],
+      add: (identity) => { added.push(identity); },
+    });
+    const pending = helper.resolver().openPopup({
+      providerId: 'google.com',
+      authType: 'signIn',
+    });
+
+    helper.add({ email: 'Worker@Example.com', displayName: 'Renamed' });
+
+    const cred = await pending;
+    expect(cred.user.uid).toBe(existing.uid);
+    expect(cred.user.email).toBe('worker@example.com');
+    expect(added).toEqual([]); // no second account for the same email
+  });
+
+  it('customClaimsFromTokenClaims strips the synthesized sub and firebase entries only', () => {
+    expect(customClaimsFromTokenClaims({
+      sub: 'uid-1',
+      firebase: { sign_in_provider: 'google.com' },
+      role: 'admin',
+      plan: 'pro',
+    })).toEqual({ role: 'admin', plan: 'pro' });
   });
 
   it('non-delegated (in-page fallback): a disabled google.com popup throws operation-not-allowed', async () => {
