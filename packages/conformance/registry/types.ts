@@ -52,6 +52,9 @@ export interface CompatibilityRow {
    * participate in developer feature queries. Required when neither
    * featureKeys nor rules constructs provide an identity. */
   queryable?: false;
+  /** Keeps an internal or historical ledger row out of the reader-facing
+   * compatibility reference without deleting its evidence or stable id. */
+  publishInCompatibilityDocs?: false;
   rowRef: string;
   rowNumber: number | null;
   section: string;
@@ -106,6 +109,9 @@ export interface CompatibilityTableBlock {
   kind: 'table';
   prefix: string;
   rows: CompatibilityRow[];
+  /** Keeps an internal or historical ledger section out of the reader-facing
+   * compatibility reference without deleting its rows. */
+  publishInCompatibilityDocs?: false;
 }
 
 export type CompatibilityDocBlock = MarkdownBlock | CompatibilityTableBlock;

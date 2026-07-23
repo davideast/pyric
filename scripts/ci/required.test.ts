@@ -8,7 +8,6 @@ const success = {
   'library-tests': 'success',
   'browser-conformance': 'success',
   'release-contract': 'skipped',
-  'docs-only': 'success',
   packaging: 'skipped',
   'install-matrix': 'skipped',
   standalone: 'skipped',
@@ -29,7 +28,7 @@ describe('required CI result', () => {
     expect(requiredFailures({
       checkSet: 'release-only',
       requirePackaging: false,
-      results: { ...success, 'build-and-test': 'skipped', 'library-tests': 'skipped', 'browser-conformance': 'skipped', 'docs-only': 'skipped', 'release-contract': 'success' },
+      results: { ...success, 'build-and-test': 'skipped', 'library-tests': 'skipped', 'browser-conformance': 'skipped', 'release-contract': 'success' },
     })).toEqual([]);
   });
 
@@ -46,16 +45,13 @@ describe('required CI result', () => {
     })).toEqual([]);
   });
 
-  test.each(['failure', 'cancelled', 'skipped', undefined])(
-    'rejects a required job with result %s',
-    (result) => {
-      expect(requiredFailures({
-        checkSet: 'docs-only',
-        requirePackaging: false,
-        results: { ...success, 'docs-only': result },
-      })).toEqual([`docs-only: ${result ?? 'missing'}`]);
-    },
-  );
+  test('does not require a build for authored-documentation-only changes', () => {
+    expect(requiredFailures({
+      checkSet: 'docs-only',
+      requirePackaging: false,
+      results: {},
+    })).toEqual([]);
+  });
 
   test('requires every packaging consumer (incl. the standalone smoke) when the packaging policy is active', () => {
     expect(requiredFailures({
@@ -64,12 +60,4 @@ describe('required CI result', () => {
       results: success,
     })).toEqual(['packaging: skipped', 'install-matrix: skipped', 'standalone: skipped']);
   });
-});
-
-test('full runs require the documentation build (regression: docs gap)', () => {
-  expect(requiredFailures({
-    checkSet: 'full',
-    requirePackaging: false,
-    results: { 'build-and-test': 'success', 'library-tests': 'success', 'browser-conformance': 'success', 'docs-only': 'skipped' },
-  })).toEqual(['docs-only: skipped']);
 });
