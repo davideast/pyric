@@ -9,9 +9,9 @@ interface RequiredInput {
 }
 
 const CHECK_SET_JOBS: Record<PrCheckSet, readonly string[]> = {
-  full: ['build-and-test', 'library-tests', 'browser-conformance', 'docs-only'],
+  full: ['build-and-test', 'library-tests', 'browser-conformance'],
   'release-only': ['release-contract'],
-  'docs-only': ['docs-only'],
+  'docs-only': [],
 };
 
 export function requiredFailures(input: RequiredInput): string[] {

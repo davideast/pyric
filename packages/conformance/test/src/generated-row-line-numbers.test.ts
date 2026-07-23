@@ -28,12 +28,19 @@ function firstTableSurface(): CompatibilitySurfaceRegistry {
   return surface;
 }
 
+function publishedRows(surface: CompatibilitySurfaceRegistry) {
+  return surface.blocks.flatMap((block) => {
+    if (block.kind !== 'table' || block.publishInCompatibilityDocs === false) return [];
+    return block.rows.filter((row) => row.publishInCompatibilityDocs !== false);
+  });
+}
+
 describe('generatedRowLineNumbers ↔ rendered projection coupling', () => {
   it('every keyed row identity resolves to its own rendered table row', () => {
     for (const surface of projection.registries) {
       const lines = renderSurfaceMarkdown(surface, projection).split('\n');
       const rowLines = generatedRowLineNumbers(surface, projection);
-      const tableRows = surface.blocks.flatMap((b) => (b.kind === 'table' ? b.rows : []));
+      const tableRows = publishedRows(surface);
       for (const row of tableRows) {
         const line = rowLines.get(row.id);
         expect(line, `no line number keyed for ${row.id}`).toBeDefined();
@@ -42,6 +49,14 @@ describe('generatedRowLineNumbers ↔ rendered projection coupling', () => {
         // Resolves to a markdown table data row, and to the right one.
         expect(rendered!.startsWith('| ')).toBe(true);
         expect(rendered!.endsWith(rowRefCell(row.rowRef))).toBe(true);
+      }
+      const unpublishedRows = surface.blocks.flatMap((block) => {
+        if (block.kind !== 'table') return [];
+        if (block.publishInCompatibilityDocs === false) return block.rows;
+        return block.rows.filter((row) => row.publishInCompatibilityDocs === false);
+      });
+      for (const row of unpublishedRows) {
+        expect(rowLines.has(row.id), `${row.id} should not have a published documentation link`).toBe(false);
       }
     }
   });
@@ -72,7 +87,7 @@ describe('generatedRowLineNumbers ↔ rendered projection coupling', () => {
     const baseline = generatedRowLineNumbers(surface, projection);
     const afterEdit = generatedRowLineNumbers(shifted, projection);
     const lines = renderSurfaceMarkdown(shifted, projection).split('\n');
-    const tableRows = shifted.blocks.flatMap((b) => (b.kind === 'table' ? b.rows : []));
+    const tableRows = publishedRows(shifted);
 
     let anyShifted = false;
     for (const row of tableRows) {
@@ -85,5 +100,23 @@ describe('generatedRowLineNumbers ↔ rendered projection coupling', () => {
       if (before !== undefined && after! !== before) anyShifted = true;
     }
     expect(anyShifted, 'inserting a line should move the derived line numbers').toBe(true);
+  });
+
+  it('publishes the RTDB compatibility page as a concise public API reference', () => {
+    const surface = projection.registries.find(({ surface }) => surface === 'rtdb');
+    if (!surface) throw new Error('expected the RTDB compatibility registry');
+    const markdown = renderSurfaceMarkdown(surface, projection);
+
+    expect(markdown).toContain('## Public API');
+    expect(markdown).toContain('mirrors the public `firebase/database` API');
+    expect(markdown).not.toContain('## Modular SDK surface');
+    expect(markdown).not.toContain('Archived production-toolkit observations');
+    expect(markdown).not.toContain('simulateRtdbRules(compiled, input)');
+    expect(markdown).not.toContain('Constraint authoring surface');
+    expect(markdown).not.toContain('Compiled RTDB rules tree');
+    expect(markdown).not.toContain('An in-module production target is intentionally absent');
+    expect(markdown).not.toContain('A production target is intentionally absent');
+    expect(markdown).not.toContain('| — | **Not implemented yet**');
+    expect(markdown).not.toContain('packages/pyric/src/database');
   });
 });

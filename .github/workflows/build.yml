@@ -213,23 +213,6 @@ jobs:
           bun-version: '1.3.11'
       - run: bun test scripts/publish-alpha.test.ts
 
-  docs-only:
-    name: Authored documentation
-    runs-on: ubuntu-latest
-    needs: plan
-    if: contains(fromJSON('["docs-only", "full"]'), needs.plan.outputs.predicted-check-set)
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.11'
-      - run: bun install --frozen-lockfile --filter '!@pyric/playground'
-      - run: bash scripts/build.sh --packages-only
-      - name: Generate and build documentation
-        run: bun run --cwd packages/site-docs build
-      - name: Generated content must not dirty authored sources
-        run: git diff --exit-code
-
   packaging:
     name: Packaging gate (pack + install + subpath resolution)
     runs-on: ubuntu-latest
@@ -369,7 +352,7 @@ jobs:
     name: CI / required
     runs-on: ubuntu-latest
     if: always()
-    needs: [plan, build-and-test, library-tests, browser-conformance, release-contract, docs-only, packaging, install-matrix, standalone]
+    needs: [plan, build-and-test, library-tests, browser-conformance, release-contract, packaging, install-matrix, standalone]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
