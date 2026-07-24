@@ -39,8 +39,6 @@
  * to the in-page sandbox (single-tab, ephemeral).
  */
 import type { Plugin, UserConfig } from 'vite';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
 import type { PyricAiOptions } from './vite-ai-config.js';
 import type { PyricRuntimeChipOption } from './runtime/chip-config.js';
@@ -160,29 +158,6 @@ function resolveFunctionsOptions(
 }
 
 /**
- * Resolves the Firebase project root directory from Vite's server root. In
- * split-directory or full-stack monorepo layouts where Vite operates inside a
- * subdirectory (e.g. `/web` or `/frontend`) while hosting and security rules
- * configuration (`firebase.json`) resides in an ancestor workspace directory,
- * this ascends to locate the authoritative configuration root.
- */
-function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): string {
-  const hasExplicitRoot = explicitRoot !== undefined && explicitRoot.length > 0;
-  if (hasExplicitRoot) return explicitRoot as string;
-  let current = resolve(defaultRoot);
-  while (true) {
-    const candidateConfig = join(current, 'firebase.json');
-    const configExists = existsSync(candidateConfig);
-    if (configExists) return current;
-    const parent = dirname(current);
-    const isRootOfFilesystem = parent === current;
-    if (isRootOfFilesystem) break;
-    current = parent;
-  }
-  return defaultRoot;
-}
-
-/**
  * The dev-only Vite plugin. Add to `vite.config`:
  *
  *   import { pyric } from '@pyric/cli/vite';
@@ -256,7 +231,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       activeGeneration = null;
       await priorGeneration?.close();
 
-      const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
+      const projectDir = options.root ?? server.config.root;
       const uiEnabled = options.ui ?? true;
       const functionsOptions = resolveFunctionsOptions(options.functions);
       const ai = pageRuntime.ai();

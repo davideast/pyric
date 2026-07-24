@@ -29,12 +29,14 @@ import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
 import { setRules as workerSetRules } from '@pyric/cli/serve/worker';
 import type {
   EventProvenance,
+  LocalSandbox,
   RequestEvent,
   SandboxEvent,
   SandboxOperationEvent,
   SandboxSnapshot,
 } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
+import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { foldSessionEventLog } from '../events/fold.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
@@ -617,26 +619,45 @@ export function useStudioBranches(): StudioBranches {
 }
 
 /**
- * The deployed Firestore rules text the denial inspector traces against,
+ * The deployed security rules text the denial inspector traces against,
  * dev-seed first. In served mode the rules the server deployed ride
  * `/__pyric/init.json` (the page init payload), so a one-shot same-origin fetch
  * reads them without a worker round-trip. Empty until resolved (the inspector
  * still shows the denial's path/method/auth; the trace fills in once present).
+ * Supports Firestore, Realtime Database (`databaseRules`), and Storage.
  */
-export function useStudioRulesSource(): string {
+export function useStudioRulesSource(service: string = 'firestore'): string {
   const seed = useDevSeed();
   const seedReady = seed.status === 'ready';
-  const [servedRules, setServedRules] = useState('');
+  const [servedRules, setServedRules] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (seedReady) return;
     let alive = true;
     fetch('/__pyric/init.json')
       .then((r) => (r.ok ? r.json() : null))
-      .then((payload: { rules?: string | null } | null) => {
-        if (alive && payload && typeof payload.rules === 'string') {
-          setServedRules(payload.rules);
+      .then((payload: { rules?: string | null; databaseRules?: unknown | null; storageRules?: string | null } | null) => {
+        const isInvalidPayload = !alive || !payload || typeof payload !== 'object';
+        if (isInvalidPayload) return;
+        const resolved: Record<string, string> = {};
+        const hasFirestore = typeof payload.rules === 'string';
+        if (hasFirestore) {
+          resolved.firestore = payload.rules as string;
         }
+        const hasDatabase = payload.databaseRules !== undefined && payload.databaseRules !== null;
+        if (hasDatabase) {
+          const isStringRule = typeof payload.databaseRules === 'string';
+          if (isStringRule) {
+            resolved.rtdb = payload.databaseRules as string;
+          } else {
+            resolved.rtdb = JSON.stringify(payload.databaseRules, null, 2);
+          }
+        }
+        const hasStorage = typeof payload.storageRules === 'string';
+        if (hasStorage) {
+          resolved.storage = payload.storageRules as string;
+        }
+        setServedRules(resolved);
       })
       .catch(() => {
         /* best-effort: no text, the inspector still renders the denial. */
@@ -647,11 +668,25 @@ export function useStudioRulesSource(): string {
   }, [seedReady]);
 
   return useMemo<string>(() => {
-    if (seed.status !== 'ready') return servedRules;
+    const isOfflineSeed = seed.status === 'ready';
+    const normalizedService = service === 'database' ? 'rtdb' : service;
+    if (!isOfflineSeed) {
+      const source = servedRules[normalizedService];
+      if (source !== undefined) return source;
+      return '';
+    }
     try {
+      const isRtdb = normalizedService === 'rtdb';
+      if (isRtdb) {
+        const active = getActiveDatabaseRules(seed.handles.sandbox as unknown as LocalSandbox);
+        if (active !== undefined && active !== null) {
+          return JSON.stringify(active, null, 2);
+        }
+        return '';
+      }
       return getInternalEnv(seed.handles.sandbox).getRules();
     } catch {
       return '';
     }
-  }, [seed, servedRules]);
+  }, [seed, servedRules, service]);
 }

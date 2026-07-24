@@ -19,7 +19,6 @@ import {
   loadRtdbRulesDocument,
   type LoadRtdbRulesDocumentResult,
 } from '../rtdb/load-rules-document.js';
-import { stripJsonComments } from '../rtdb/rules-json.js';
 
 export interface DatabaseRulesDeps {
   readFile?: typeof readFile;
@@ -54,7 +53,7 @@ function defaultReadStdin(): Promise<string> {
 }
 
 function parseRulesJson(raw: string): CompiledRtdbRules {
-  return compileRtdbRules(JSON.parse(stripJsonComments(raw)));
+  return compileRtdbRules(JSON.parse(raw));
 }
 
 function collectFindings(node: RtdbNode, kind: 'errors' | 'warnings'): RuleFinding[] {
@@ -216,8 +215,7 @@ export async function runDatabaseRulesSimulate(
       rulesJson = payload.rulesJson ?? payload.rules;
     } else if (payload.rulesPath) {
       try {
-        const rawContent = await readFileFn(resolvePath(deps.cwd ?? process.cwd(), payload.rulesPath), 'utf-8');
-        rulesJson = JSON.parse(stripJsonComments(rawContent));
+        rulesJson = JSON.parse(await readFileFn(resolvePath(deps.cwd ?? process.cwd(), payload.rulesPath), 'utf-8'));
       } catch (e) {
         err.write(`pyric database rules simulate: ${e instanceof Error ? e.message : String(e)}\n`);
         return 1;
@@ -229,7 +227,7 @@ export async function runDatabaseRulesSimulate(
         return 1;
       }
       try {
-        rulesJson = JSON.parse(stripJsonComments(file.raw));
+        rulesJson = JSON.parse(file.raw);
       } catch (e) {
         err.write(`pyric database rules simulate: ${e instanceof Error ? e.message : String(e)}\n`);
         return 2;
@@ -249,7 +247,7 @@ export async function runDatabaseRulesSimulate(
       return 1;
     }
     try {
-      rulesJson = JSON.parse(stripJsonComments(file.raw));
+      rulesJson = JSON.parse(file.raw);
     } catch (e) {
       err.write(`pyric database rules simulate: ${e instanceof Error ? e.message : String(e)}\n`);
       return 2;

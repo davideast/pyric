@@ -32,14 +32,12 @@ export function rerunSupport(denial: Denial): ServiceRerunSupport {
     case 'rtdb':
       return {
         impersonate: {
-          kind: 'pending',
-          tool: 'rtdb_simulate_access',
-          hint: 'RTDB re-runs through the local rules simulator as this user once the Studio worker exposes rtdb_simulate_access. This is a simulation, not a live re-issue — RTDB has no live local enforcement path.',
+          kind: 'live',
+          tool: 'rtdb_simulate_access replay',
         },
         editedRuleset: {
-          kind: 'pending',
-          tool: 'RulesEvaluator.setRules + rtdb_simulate_access',
-          hint: 'Editing the RTDB ruleset re-simulates the write once the worker exposes the RTDB simulator. Note: there is no whole-ruleset RTDB linter yet (rtdb_build_expression lints a single expression).',
+          kind: 'live',
+          tool: 'fork + rtdb_simulate_access',
         },
       };
     case 'storage':

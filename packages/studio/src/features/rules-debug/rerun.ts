@@ -44,6 +44,8 @@ import {
   getDocs,
   query,
 } from 'pyric/firestore';
+import { setRules as setRtdbRules, getActiveRules, snapshotState, stripJsonComments, type RtdbRulesJson } from 'pyric/sandbox/database';
+import { rtdbRules, type RtdbCase } from 'pyric/rules';
 import { lintFirestoreRules, type LintWarning } from 'pyric/rules/internal';
 import type { Denial } from './model.js';
 
@@ -86,7 +88,21 @@ export interface RulesetLint {
  * call from the UI to annotate the editor live, and called by
  * {@link rerunAgainstRules} before it forks.
  */
-export function lintEditedRuleset(rules: string): RulesetLint {
+export function lintEditedRuleset(rules: string, service: string = 'firestore'): RulesetLint {
+  const isRtdb = service === 'rtdb';
+  if (isRtdb) {
+    try {
+      JSON.parse(stripJsonComments(rules));
+      return { parseable: true, findings: [] };
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      return {
+        parseable: false,
+        parseError: `Invalid RTDB rules JSON: ${err}`,
+        findings: [],
+      };
+    }
+  }
   const result = lintFirestoreRules(rules);
   const findings: RulesetLintFinding[] = result.warnings.map((w) => ({
     rule: w.rule,
@@ -139,12 +155,14 @@ export async function rerunAgainstRules(
   editedRules: string,
   live: LocalSandbox | SandboxSnapshot,
 ): Promise<EditedRulesetRerun> {
-  // Lint first (firestore_lint_rules). A parse failure is the only hard blocker
+  // Lint first (firestore_lint_rules / JSON syntax for RTDB). A parse failure is the only hard blocker
   // — an unparseable ruleset can't be forked/simulated — so short-circuit and
   // report it rather than throwing an opaque fork error. Non-parse findings
   // (including security-level lints) are surfaced but do not block the run.
-  const lint = lintEditedRuleset(editedRules);
-  if (!lint.parseable) {
+  const isRtdb = denial.service === 'rtdb' || denial.rules?.engine === 'rtdb';
+  const lint = lintEditedRuleset(editedRules, denial.service);
+  const isUnparseable = !lint.parseable;
+  if (isUnparseable) {
     return {
       result: {
         outcome: 'error',
@@ -154,6 +172,22 @@ export async function rerunAgainstRules(
       diff: [],
       lint,
     };
+  }
+
+  if (isRtdb) {
+    const branch = fork(snapshot, '');
+    try {
+      const hasServices = snapshot.services !== undefined && Object.keys(snapshot.services).length > 0;
+      if (hasServices) {
+        branch.sandbox.loadSnapshot(snapshot);
+      }
+      const parsedRules = JSON.parse(editedRules) as RtdbRulesJson;
+      setRtdbRules(branch.sandbox as unknown as LocalSandbox, parsedRules);
+      const result = await issueOp(branch.sandbox, denial);
+      return { result, diff: [], lint };
+    } finally {
+      discard(branch);
+    }
   }
 
   const branch = fork(snapshot, editedRules);
@@ -180,6 +214,60 @@ export async function rerunAgainstRules(
  * the fresh denial reasons; any other throw is `{ outcome: 'error' }`.
  */
 export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunResult> {
+  const isRtdb = denial.service === 'rtdb' || denial.rules?.engine === 'rtdb';
+  if (isRtdb) {
+    const localSandbox = sandbox as unknown as LocalSandbox;
+    const rules = getActiveRules(localSandbox);
+    const hasNoRules = rules === undefined || rules === null;
+    if (hasNoRules) {
+      return {
+        outcome: 'error',
+        code: 'NO_ACTIVE_RULES',
+        message: 'No RTDB rules are loaded in the local sandbox.',
+      };
+    }
+    const state = snapshotState(localSandbox);
+    const isRecordState = state !== null && typeof state === 'object' && !Array.isArray(state);
+    const data = isRecordState ? (state as Record<string, unknown>) : {};
+    const isReadMethod = denial.method === 'get' || denial.method === 'list' || denial.method === 'listen';
+    const operation = isReadMethod ? 'read' : 'write';
+    const uid = denial.auth?.uid;
+    const auth = uid !== undefined
+      ? { uid, token: ((denial.auth as Record<string, unknown>)?.token ?? (denial.auth as Record<string, unknown>)?.claims ?? {}) as Record<string, unknown> }
+      : null;
+    const oneCase: RtdbCase = {
+      expectation: 'ALLOW',
+      operation,
+      path: denial.path,
+      auth,
+      data,
+      ...(denial.resourceData !== undefined ? { newData: denial.resourceData } : {}),
+    };
+    const result = rtdbRules(rules).simulate([oneCase]).cases[0];
+    const isAllowed = result.decision === 'ALLOW';
+    const isUnsupported = result.decision === 'UNSUPPORTED' || result.unsupported;
+    if (isUnsupported) {
+      return {
+        outcome: 'error',
+        code: 'unsupported',
+        message: result.reason || 'Simulation hit an unmodelled RTDB feature.',
+      };
+    }
+    if (isAllowed) {
+      return { outcome: 'allow' };
+    }
+    const reasons = [
+      result.reason,
+      result.matchedPath ? `path: ${result.matchedPath}` : '',
+      result.matchedRule ? `rule: ${result.matchedRule}` : '',
+    ].filter(Boolean);
+    return {
+      outcome: 'deny',
+      code: 'PERMISSION_DENIED',
+      message: result.reason || 'PERMISSION_DENIED: Permission denied',
+      reasons,
+    };
+  }
   const db = getSandboxFirestore(sandbox.withAuth(denial.auth as AuthState));
   const resourceData = documentData(denial.resourceData);
   try {

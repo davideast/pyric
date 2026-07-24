@@ -50,6 +50,7 @@ import {
   lintEditedRuleset,
   type ImpersonationClient,
 } from './rerun.js';
+import { findRtdbRuleLine } from './RulesDebug.js';
 
 const OWNER_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -259,6 +260,37 @@ describe('rules-debug model: RTDB denial → rule node → bindings', () => {
   });
 });
 
+describe('rules-debug: RTDB source line resolution (findRtdbRuleLine)', () => {
+  const SAMPLE_RTDB_JSON = `{
+  "rules": {
+    "rooms": {
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+    "public": {
+      ".read": true,
+      ".write": false
+    }
+  }
+}`;
+
+  it('locates a unique rule expression and phase line number in database.rules.json', () => {
+    const line = findRtdbRuleLine(SAMPLE_RTDB_JSON, 'read', 'auth != null', 'rooms/r1');
+    expect(line).toBe(5);
+  });
+
+  it('disambiguates identical rules using preceding path segment context', () => {
+    // Both rooms/$roomId and public have ".write": false on lines 6 and 11
+    const lineRooms = findRtdbRuleLine(SAMPLE_RTDB_JSON, 'write', 'false', 'rooms/r1');
+    expect(lineRooms).toBe(6);
+
+    const linePublic = findRtdbRuleLine(SAMPLE_RTDB_JSON, 'write', 'false', 'public/data');
+    expect(linePublic).toBe(11);
+  });
+});
+
 describe('rules-debug re-run: capability grading per service (rerunSupport)', () => {
   it('Firestore: both re-run paths are live', () => {
     const d: Denial = {
@@ -271,7 +303,7 @@ describe('rules-debug re-run: capability grading per service (rerunSupport)', ()
     expect(support.editedRuleset.kind).toBe('live');
   });
 
-  it('RTDB: both re-run paths are pending, naming rtdb_simulate_access', () => {
+  it('RTDB: both re-run paths are live', () => {
     const d: Denial = {
       result: 'deny',
       id: 'r1', at: 0, method: 'set', path: 'rooms/r1', service: 'rtdb',
@@ -279,11 +311,8 @@ describe('rules-debug re-run: capability grading per service (rerunSupport)', ()
       auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
     };
     const support = rerunSupport(d);
-    expect(support.impersonate.kind).toBe('pending');
-    expect(support.editedRuleset.kind).toBe('pending');
-    if (support.impersonate.kind === 'pending') {
-      expect(support.impersonate.tool).toBe('rtdb_simulate_access');
-    }
+    expect(support.impersonate.kind).toBe('live');
+    expect(support.editedRuleset.kind).toBe('live');
   });
 
   it('Storage: both re-run paths are absent, naming storage_simulate_rules', () => {
@@ -390,6 +419,48 @@ describe('rules-debug re-run: edited ruleset (lint + fork + diff)', () => {
     const lint = lintEditedRuleset(RECURSIVE_OPEN_RULES);
     expect(lint.parseable).toBe(true);
     expect(lint.findings.some((f) => f.severity === 'error')).toBe(true);
+  });
+});
+
+describe('rules-debug re-run: RTDB edited ruleset simulation', () => {
+  it('re-running a denied RTDB write against permissive JSON rules ALLOWS', async () => {
+    const sandbox = initializeSandbox();
+    const adminDb = getDatabase(sandbox);
+    rtdbSandbox.setRules(adminDb, {
+      rules: {
+        rooms: { '.write': false },
+      },
+    });
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+    const dbBob = getDatabase(sandbox.withAuth({ uid: 'bob' }));
+    try {
+      await set(ref(dbBob, '/rooms/r1/messages/m1'), { text: 'hi' });
+    } catch { /* expected */ }
+    const denials = selectDenials(events);
+    const denial = denials.find((x) => x.service === 'rtdb')!;
+    expect(denial).toBeDefined();
+
+    const permissiveJson = JSON.stringify({ rules: { '.read': true, '.write': true } });
+    const rerun = await rerunAgainstRules(sandbox.snapshot(), denial, permissiveJson, sandbox);
+    expect(rerun.result.outcome).toBe('allow');
+    expect(rerun.lint.parseable).toBe(true);
+  });
+
+  it('re-running against invalid RTDB rules JSON returns lint-parse-error', async () => {
+    const sandbox = initializeSandbox();
+    const d: Denial = {
+      result: 'deny',
+      id: 'r1', at: 0, method: 'set', path: 'rooms/r1', service: 'rtdb',
+      rules: { engine: 'rtdb' },
+      auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
+    };
+    const rerun = await rerunAgainstRules(sandbox.snapshot(), d, '{ invalid json', sandbox);
+    expect(rerun.result.outcome).toBe('error');
+    if (rerun.result.outcome === 'error') {
+      expect(rerun.result.code).toBe('lint-parse-error');
+    }
+    expect(rerun.lint.parseable).toBe(false);
   });
 });
 

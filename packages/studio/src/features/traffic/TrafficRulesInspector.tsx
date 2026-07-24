@@ -49,8 +49,9 @@ export function TrafficRulesInspector({
 }) {
   const ops = useStudioRuleEvaluations();
   const getSnapshot = useStudioSnapshot();
-  const rulesSource = useStudioRulesSource();
   const op = ops.find((d) => d.id === eventId);
+  const targetService = op?.service ?? 'firestore';
+  const rulesSource = useStudioRulesSource(targetService);
 
   // The "what if" buffer. Keyed per op by the parent (`key={eventId}`), so
   // switching ops resets it; prefilled from the live rules once they resolve
