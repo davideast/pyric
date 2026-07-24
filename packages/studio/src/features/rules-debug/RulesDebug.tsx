@@ -284,8 +284,10 @@ function RuleDetail({
   exp: RuleExplanation;
   rulesSource?: string;
 }) {
-  if (exp.engine === 'rtdb') return <RtdbRuleDetail denial={denial} exp={exp} />;
-  if (exp.engine === 'storage') return <StorageRuleDetail exp={exp} />;
+  const isRtdb = exp.engine === 'rtdb';
+  const isStorage = exp.engine === 'storage';
+  if (isRtdb) return <RtdbRuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />;
+  if (isStorage) return <StorageRuleDetail exp={exp} />;
   return <FirestoreRuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />;
 }
 
@@ -487,19 +489,123 @@ function ValueTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
   );
 }
 
+/**
+ * Resolves the 1-indexed source code line in `database.rules.json` that corresponds
+ * to an evaluated Realtime Database access verdict. Matches the rule expression
+ * and phase directive, using preceding path segment hits to break ties when
+ * multiple paths declare identical boolean or common expressions.
+ */
+export function findRtdbRuleLine(
+  rulesSource?: string,
+  phase?: string,
+  matchedRule?: string,
+  matchedPath?: string,
+): number | undefined {
+  const isMissingSource = !rulesSource || !matchedRule;
+  if (isMissingSource) return undefined;
+
+  const lines = rulesSource.split(/\r?\n/);
+  const hasPhase = phase !== undefined && phase.length > 0;
+  let targetDirective: string | null;
+  if (hasPhase) {
+    targetDirective = `".${phase}"`;
+  } else {
+    targetDirective = null;
+  }
+
+  const candidates: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const hasExpression = line.includes(matchedRule);
+    if (!hasExpression) continue;
+    const hasDirective = targetDirective === null || line.includes(targetDirective);
+    if (!hasDirective) continue;
+    candidates.push(i + 1);
+  }
+
+  const hasSingleMatch = candidates.length === 1;
+  if (hasSingleMatch) return candidates[0];
+  if (candidates.length === 0) return undefined;
+
+  const pathSegments = (matchedPath ?? '').split('/').filter(Boolean);
+  if (pathSegments.length === 0) return candidates[0];
+
+  let bestLine = candidates[0];
+  let bestScore = -1;
+
+  for (const candidateLine of candidates) {
+    let score = 0;
+    const zeroIndexedPrevLine = candidateLine - 2;
+    const searchWindowLimit = Math.max(0, zeroIndexedPrevLine - 30);
+    for (let j = zeroIndexedPrevLine; j >= searchWindowLimit; j--) {
+      const lineText = lines[j];
+      for (const segment of pathSegments) {
+        if (lineText.includes(`"${segment}"`)) {
+          score++;
+        }
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = candidateLine;
+    }
+  }
+
+  return bestLine;
+}
+
 /** RTDB: WHICH node in the cascade denied (`.write` vs `.validate`, at which
  *  rule-tree path), its raw rule text, and the `$variable` bindings —
- *  `SimulateHandler`'s verdict, not a re-derivation. */
-function RtdbRuleDetail({ denial, exp }: { denial: Denial; exp: RuleExplanation }) {
+ *  `SimulateHandler`'s verdict, not a re-derivation. When `rulesSource` is
+ *  present, mounts CodeMirror to highlight the deciding 1-indexed source line. */
+function RtdbRuleDetail({
+  denial,
+  exp,
+  rulesSource,
+}: {
+  denial: Denial;
+  exp: RuleExplanation;
+  rulesSource?: string;
+}) {
+  const line = findRtdbRuleLine(rulesSource, exp.phase, exp.ruleExpression, denial.rules?.matchedPath);
+  const isAllowed = denial.result === 'allow';
+  const hasSource = rulesSource !== undefined && rulesSource.trim().length > 0;
+  let ruleNodeLabel: string;
+  if (exp.implicitDeny || !exp.ruleNode) {
+    ruleNodeLabel = 'rule node';
+  } else if (line !== undefined) {
+    ruleNodeLabel = `rule node — ${exp.ruleNode} · line ${line}`;
+  } else {
+    ruleNodeLabel = `rule node — ${exp.ruleNode}`;
+  }
+
+  let ariaLabelText: string;
+  if (isAllowed) {
+    ariaLabelText = 'Deployed database.rules.json — the allowing rule is marked';
+  } else {
+    ariaLabelText = 'Deployed database.rules.json — the denying rule is marked';
+  }
+
   return (
     <>
-      <Field label={exp.implicitDeny ? 'rule node' : `rule node — ${exp.ruleNode}`}>
-        <code className="font-mono text-xs text-soft-white">
-          {exp.phase ? `.${exp.phase}` : '(no matching rule)'}
-          {denial.rules?.matchedPath ? ` at ${denial.rules.matchedPath}` : ''}
-        </code>
+      <Field label={ruleNodeLabel}>
+        {hasSource ? (
+          <LazyRulesCodeEditor
+            value={rulesSource}
+            readOnly
+            markLine={line}
+            markKind={isAllowed ? 'allow' : 'deny'}
+            minHeightRem={12}
+            ariaLabel={ariaLabelText}
+          />
+        ) : (
+          <code className="font-mono text-xs text-soft-white">
+            {exp.phase ? `.${exp.phase}` : '(no matching rule)'}
+            {denial.rules?.matchedPath ? ` at ${denial.rules.matchedPath}` : ''}
+          </code>
+        )}
       </Field>
-      {exp.ruleExpression ? (
+      {!hasSource && exp.ruleExpression ? (
         <Field label="rule expression">
           <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs text-slate-gray">
             {exp.ruleExpression}
