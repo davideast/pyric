@@ -43,6 +43,15 @@ export function applicationDefault(): never {
   );
 }
 
+/**
+ * Link-compatible mirror of `firebase-admin/app`'s `cert(serviceAccountPathOrObject)`.
+ * Returns an inert sandbox credential token so unchanged application setup code
+ * can assign `appOptions.credential = cert(...)` under `@pyric/cli/register`.
+ */
+export function cert(serviceAccountPathOrObject: unknown): object {
+  return { [Symbol.for('pyric.admin.credential')]: 'cert' };
+}
+
 /** Local error with the observable firebase-admin app-error shape. */
 class FirebaseAppError extends Error {
   readonly code: string;
@@ -94,28 +103,25 @@ function alreadyExists(name: string, code: 'duplicate-app' | 'invalid-app-option
  * without Pyric activation instead of passing production options here.
  */
 export function initializeApp(
-  config?: InitializeAdminAppConfig,
+  config?: InitializeAdminAppConfig | Record<string, unknown>,
   name: string = DEFAULT_APP_NAME,
 ): PyricAdminApp {
   validateAppName(name);
   const existing = appRegistry.get(name);
 
-  if (config === undefined) {
+  const isBareOrAmbientConfig = config === undefined || !isSandboxConfig(config);
+  if (isBareOrAmbientConfig) {
     if (existing !== undefined) {
-      if (ambientApps.has(existing)) return existing;
+      const isExistingAmbient = ambientApps.has(existing);
+      if (isExistingAmbient) {
+        return existing;
+      }
       throw alreadyExists(name, 'invalid-app-options');
     }
     const app = initializeAmbientApp(name);
     appRegistry.set(name, app);
     ambientApps.add(app);
     return app;
-  }
-
-  if (!isSandboxConfig(config)) {
-    throw new TypeError(
-      'pyric-admin/app is a sandbox-only mirror. Production applications must ' +
-        'load firebase-admin/app without Pyric activation.',
-    );
   }
 
   if (existing !== undefined) {
@@ -208,7 +214,10 @@ function initializeAmbientApp(name: string): PyricAdminApp {
 
 function parsePyricSandboxEnv(env: string): RemoteSandboxFactoryOptions {
   const value = env.trim();
-  if (value === 'remote') return {};
+  const isRemoteOrBoolean = value === 'remote' || value === '1' || value === 'true';
+  if (isRemoteOrBoolean) {
+    return {};
+  }
   if (value.startsWith('remote:')) {
     const url = value.slice('remote:'.length).trim();
     if (url === '') {
@@ -222,11 +231,11 @@ function parsePyricSandboxEnv(env: string): RemoteSandboxFactoryOptions {
   }
   throw new Error(
     `pyric-admin: unrecognized PYRIC_SANDBOX value "${env}". Supported ` +
-      'values: "remote" (auto-discover the running `pyric dev`) or "remote:<url>".',
+      'values: "1", "true", "remote" (auto-discover the running `pyric dev`), or "remote:<url>".',
   );
 }
 
-function isSandboxConfig(config: InitializeAdminAppConfig): config is { sandbox: Sandbox } {
+function isSandboxConfig(config: unknown): config is { sandbox: Sandbox } {
   return typeof config === 'object' && config !== null && 'sandbox' in config;
 }
 

@@ -159,6 +159,13 @@ export class DataTree {
    */
   read(path: string): JsonValue {
     const segs = pathSegments(path);
+    const isInfoSystemPath = segs.length > 0 && segs[0] === '.info';
+    if (isInfoSystemPath) {
+      if (segs.length === 1) return { connected: true, serverTimeOffset: 0 };
+      if (segs[1] === 'connected') return true;
+      if (segs[1] === 'serverTimeOffset') return 0;
+      return null;
+    }
     let node: JsonValue = this.root;
     for (const seg of segs) {
       if (node === null || typeof node !== 'object' || Array.isArray(node)) {

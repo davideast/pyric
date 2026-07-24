@@ -204,6 +204,15 @@ export function getStorage(app?: StorageApp): Storage {
   );
 }
 
+/**
+ * Link-compatible mirror of `firebase-admin/storage`'s `getDownloadURL(file)`.
+ * Returns a deterministic sandbox storage stub URL from `file.getSignedUrl()`.
+ */
+export async function getDownloadURL(file: File): Promise<string> {
+  const [url] = await file.getSignedUrl({ action: 'read', expires: '2099-01-01' });
+  return url;
+}
+
 // ─── Sandbox path ───────────────────────────────────────────────────────
 
 /**

@@ -57,7 +57,10 @@ export function refFromURL(db: Database, url: string): DatabaseReference {
 }
 
 function validateReferencePath(path: string, allowEmpty: boolean): void {
-  if ((!allowEmpty && path.length === 0) || /[.#$[\]]/.test(path)) {
+  const normalized = path.replace(/^\/*\.info(\/|$)/, '/');
+  const isInvalidLength = !allowEmpty && path.length === 0;
+  const containsForbiddenChars = /[.#$[\]]/.test(normalized);
+  if (isInvalidLength || containsForbiddenChars) {
     throw new Error(
       `child failed: path argument was an invalid path = "${path}". Paths must be non-empty strings and can't contain ".", "#", "$", "[", or "]"`,
     );
