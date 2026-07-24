@@ -15,8 +15,6 @@ export {
   toDenial,
   explainDenial,
   denialSeverity,
-  rerunSupport,
-  shouldOfferImpersonation,
   projectTraceSteps,
   ruleVariables,
   type TraceStep,
@@ -27,8 +25,6 @@ export {
   type RuleEngine,
   type RulePhase,
   type DenialSeverity,
-  type RerunSupport,
-  type ServiceRerunSupport,
 } from './model.js';
 export {
   rerunAgainstRules,

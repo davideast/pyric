@@ -30,8 +30,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { fork, discard } from 'pyric/sandbox';
-import type { RequestEvent, SandboxEvent, SandboxSnapshot } from 'pyric/sandbox';
+import type { RequestEvent, SandboxEvent } from 'pyric/sandbox';
 import {
   DenialInspector,
   useDenialTrace,
@@ -44,16 +43,7 @@ import { useDataNav } from '../data/navigation.js';
 import {
   useStudioEvents,
   useStudioRulesSource,
-  useStudioDenials,
-  useStudioSnapshot,
 } from '../../shell/studio-data.js';
-import {
-  rerunAgainstRules,
-  issueOp,
-  type RerunResult,
-  type EditedRulesetRerun,
-} from '../rules-debug/rerun.js';
-import type { Denial as ModelDenial } from '../rules-debug/model.js';
 // NOTE: the AI assists (Explain this denial / Suggest a fix) were removed from
 // this surface in the design pass. They were bolted on as orphan buttons at the
 // end of the page with no real states. The engine (ai/useAssist, ai/explain,
@@ -114,18 +104,11 @@ function InspectedDenial({
   op,
   rulesSource,
   cluster,
-  modelDenial,
-  getSnapshot,
   onSelectCluster,
 }: {
   op: DeniedOp;
   rulesSource: string;
   cluster: DeniedOp[];
-  /** The rules-debug model of this op (from `selectDenials`), the input the
-   *  re-run engine wants. Absent only if the projection missed it. */
-  modelDenial: ModelDenial | undefined;
-  /** Current sandbox snapshot getter (dev-seed or live worker) to fork from. */
-  getSnapshot: () => Promise<SandboxSnapshot | null>;
   onSelectCluster(id: string): void;
 }) {
   const trace = useDenialTrace(op.request, rulesSource);
@@ -175,170 +158,16 @@ function InspectedDenial({
     [cluster, rulesSource],
   );
 
-  // Re-run state. Scoped to this op: the parent re-keys InspectedDenial on
-  // `op.id`, so a denial switch resets these cleanly.
-  const [asResult, setAsResult] = useState<RerunResult | 'pending' | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editedRules, setEditedRules] = useState(rulesSource);
-  const [editResult, setEditResult] = useState<EditedRulesetRerun | 'pending' | null>(null);
-
-  // Both re-runs happen on a THROWAWAY fork of the current snapshot, so neither
-  // mutates the live sandbox: (1) re-issue as the attempting user under the
-  // CURRENT rules (reproduce + fresh decision), (2) re-issue under EDITED rules
-  // and diff what the now-allowed write changed.
-  async function runAsUser() {
-    if (!modelDenial) return;
-    setAsResult('pending');
-    const snap = await getSnapshot();
-    if (!snap) {
-      setAsResult({ outcome: 'error', code: 'no-backend', message: 'No sandbox snapshot to re-run against.' });
-      return;
-    }
-    const branch = fork(snap, rulesSource);
-    try {
-      setAsResult(await issueOp(branch.sandbox, modelDenial));
-    } finally {
-      discard(branch);
-    }
-  }
-
-  async function runEdited() {
-    if (!modelDenial) return;
-    setEditResult('pending');
-    const snap = await getSnapshot();
-    if (!snap) {
-      setEditResult({
-        result: { outcome: 'error', code: 'no-backend', message: 'No sandbox snapshot to re-run against.' },
-        diff: [],
-        lint: { parseable: true, findings: [] },
-      });
-      return;
-    }
-    setEditResult(await rerunAgainstRules(snap, modelDenial, editedRules, snap));
-  }
-
   return (
-    <>
-      <DenialInspector
-        denial={denial}
-        cluster={clusterDenials}
-        className="rules__inspector"
-        onRerunAs={() => {
-          void runAsUser();
-        }}
-        onTestEditedRule={() => {
-          // Prefill the editor with the live rules the first time it opens (the
-          // served-mode rules source loads async, after this component's initial
-          // state), so you edit from the current ruleset rather than a blank box.
-          setEditedRules((prev) => (prev.trim() ? prev : rulesSource));
-          setEditOpen((open) => !open);
-        }}
-        onSelectCluster={(d) => {
-          const id = (d as unknown as { __id?: string }).__id;
-          if (id) onSelectCluster(id);
-        }}
-      />
-
-      {asResult ? (
-        <div className="rules__rerun" data-pyric-ui="rules-rerun-as">
-          <span className="rules__rerun-label">
-            Re-run as {op.request.auth?.uid ?? 'the attempting user'}
-          </span>
-          {asResult === 'pending' ? (
-            <span className="rules__rerun-pending">Running…</span>
-          ) : (
-            <RerunOutcome result={asResult} />
-          )}
-        </div>
-      ) : null}
-
-      {editOpen ? (
-        <div className="rules__rerun" data-pyric-ui="rules-rerun-edit">
-          <span className="rules__rerun-label">Test against an edited rule</span>
-          <textarea
-            className="rules__rerun-editor"
-            value={editedRules}
-            spellCheck={false}
-            onChange={(e) => setEditedRules(e.target.value)}
-          />
-          <button
-            type="button"
-            className="rules__rerun-run"
-            onClick={() => void runEdited()}
-            disabled={editResult === 'pending'}
-          >
-            {editResult === 'pending' ? 'Running…' : 'Run against these rules'}
-          </button>
-          {editResult && editResult !== 'pending' ? (
-            <>
-              <RerunOutcome result={editResult.result} />
-              {editResult.diff.length > 0 ? <RerunDiff diff={editResult.diff} /> : null}
-            </>
-          ) : null}
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-/** One re-run outcome line: allow / deny / error. */
-function RerunOutcome({ result }: { result: RerunResult }) {
-  if (result.outcome === 'allow') {
-    return (
-      <p className="rules__rerun-outcome" data-pyric-outcome="allow">
-        allow: the op is now permitted.
-      </p>
-    );
-  }
-  if (result.outcome === 'deny') {
-    return (
-      <p className="rules__rerun-outcome" data-pyric-outcome="deny">
-        deny: {result.message}
-      </p>
-    );
-  }
-  return (
-    <p className="rules__rerun-outcome" data-pyric-outcome="error">
-      {result.code}: {result.message}
-    </p>
-  );
-}
-
-type DiffRow = { path: string; field?: string; before: unknown; after: unknown };
-
-function toDiffRow(dv: EditedRulesetRerun['diff'][number]): DiffRow {
-  if (dv.kind === 'autoid-alias') {
-    return { path: dv.originalPath, before: dv.originalPath, after: dv.replayedPath };
-  }
-  return {
-    path: dv.path,
-    ...('field' in dv && dv.field ? { field: dv.field } : {}),
-    before: dv.before,
-    after: dv.after,
-  };
-}
-
-/** What the now-allowed write changed (branch vs live), compact. */
-function RerunDiff({ diff }: { diff: EditedRulesetRerun['diff'] }) {
-  return (
-    <div className="rules__rerun-diff" data-pyric-ui="rules-rerun-diff">
-      <span className="rules__rerun-difflabel">what the now-allowed write changed</span>
-      {diff.map((dv, i) => {
-        const row = toDiffRow(dv);
-        const field = row.field ? `.${row.field}` : '';
-        return (
-          <div key={`${row.path}-${i}`} className="rules__rerun-diffrow">
-            <span className="rules__rerun-diffpath">
-              {row.path}
-              {field}
-            </span>
-            <span className="rules__rerun-diffval">
-              {JSON.stringify(row.before)} → {JSON.stringify(row.after)}
-            </span>
-          </div>
-        );
-      })}
-    </div>
+    <DenialInspector
+      denial={denial}
+      cluster={clusterDenials}
+      className="rules__inspector"
+      onSelectCluster={(d) => {
+        const id = (d as unknown as { __id?: string }).__id;
+        if (id) onSelectCluster(id);
+      }}
+    />
   );
 }
 
@@ -346,8 +175,6 @@ export function RulesSurface() {
   const seed = useDevSeed();
   const events = useStudioEvents();
   const rulesSource = useStudioRulesSource();
-  const modelDenials = useStudioDenials();
-  const getSnapshot = useStudioSnapshot();
   const nav = useDataNav();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -407,8 +234,6 @@ export function RulesSurface() {
         op={selected}
         rulesSource={rulesSource}
         cluster={cluster}
-        modelDenial={modelDenials.find((d) => d.id === selected.id)}
-        getSnapshot={getSnapshot}
         onSelectCluster={setSelectedId}
       />
     </section>

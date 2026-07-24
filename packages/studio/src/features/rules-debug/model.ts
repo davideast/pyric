@@ -384,12 +384,6 @@ function explainStorage(
   };
 }
 
-export {
-  rerunSupport,
-  type RerunSupport,
-  type ServiceRerunSupport,
-} from './rerun-support.js';
-
 /**
  * Severity ramp for a denial, mapping to the `--color-severity-*` token roles.
  * `unsupported` is the loudest (the sandbox couldn't even decide); a genuine
@@ -404,18 +398,6 @@ export function denialSeverity(denial: Denial): DenialSeverity {
   if (denial.origin === 'listener') return 'low';
   if (explainDenial(denial).implicitDeny) return 'medium';
   return 'high';
-}
-
-/**
- * Whether to offer the "re-run as the attempting user" (impersonation) row for
- * a denial. Only when the op ran as a CONCRETE user: an unauthenticated denial
- * (`request.auth == null`) has no user to impersonate — re-running as the same
- * (absent) identity isn't impersonation — so the row is dropped entirely rather
- * than shown as a disabled "no user" button. A future "run as a DIFFERENT user"
- * picker is the real impersonation design (see `SPEC.md`).
- */
-export function shouldOfferImpersonation(denial: Denial): boolean {
-  return !!denial.auth?.uid;
 }
 
 // ─── "Show the work": the sub-expression evaluation trace ───────────────────

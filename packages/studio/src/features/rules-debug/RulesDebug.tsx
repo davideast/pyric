@@ -31,18 +31,14 @@ import { truncateVectorsForDisplay } from '@pyric/ui/firestore';
 import {
   explainDenial,
   denialSeverity,
-  rerunSupport,
-  shouldOfferImpersonation,
   projectTraceSteps,
   ruleVariables,
   type Denial,
   type DenialSeverity,
   type RuleExplanation,
-  type RerunSupport,
   type TraceStep,
   type RuleVariable,
 } from './model.js';
-import type { RerunResult } from './rerun.js';
 import { LazyRulesCodeEditor } from './LazyRulesCodeEditor.js';
 
 const SEVERITY_DOT: Record<DenialSeverity, string> = {
@@ -57,8 +53,6 @@ export interface RulesDebugProps {
   /** The DEPLOYED ruleset source, for the read-only "what happened" view (shown
    *  with the denying line marked). */
   rulesSource?: string;
-  /** Re-run the selected denial AS the attempting user (impersonation, live). */
-  onRerunAsUser?: (denial: Denial) => Promise<RerunResult>;
   /** Shown when there are no denials yet (backend-aware copy from the pane). */
   emptyState?: ReactNode;
 }
@@ -66,7 +60,6 @@ export interface RulesDebugProps {
 export function RulesDebug({
   denials,
   rulesSource,
-  onRerunAsUser,
   emptyState,
 }: RulesDebugProps) {
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -93,7 +86,6 @@ export function RulesDebug({
         <DenialDetail
           denial={selected}
           rulesSource={rulesSource}
-          onRerunAsUser={onRerunAsUser}
         />
       ) : null}
     </div>
@@ -171,11 +163,9 @@ function DenialList({
 export function DenialDetail({
   denial,
   rulesSource,
-  onRerunAsUser,
 }: {
   denial: Denial;
   rulesSource?: string;
-  onRerunAsUser?: (denial: Denial) => Promise<RerunResult>;
 }) {
   const exp = explainDenial(denial);
   return (
@@ -237,15 +227,6 @@ export function DenialDetail({
       {/* What the rule saw: request/resource variables, inspectable + honest
           about anything not captured for this denial. */}
       <VariablesInspector denial={denial} />
-
-      {/* Re-run actions (omitted when there is no rules evaluation to
-          reproduce — a re-run verdict would contradict the row's claim). */}
-      {!exp.noEvaluation ? (
-        <RerunPanel
-          denial={denial}
-          onRerunAsUser={onRerunAsUser}
-        />
-      ) : null}
     </div>
   );
 }
@@ -632,124 +613,5 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       </span>
       {children}
     </div>
-  );
-}
-
-// ─── Re-run panel (both paths, capability-gated per service) ──────────────
-
-function RerunPanel({
-  denial,
-  onRerunAsUser,
-}: {
-  denial: Denial;
-  onRerunAsUser?: (denial: Denial) => Promise<RerunResult>;
-}) {
-  const [asUser, setAsUser] = useState<RerunResult | 'pending' | null>(null);
-
-  const support = rerunSupport(denial);
-  const canImpersonate =
-    support.impersonate.kind === 'live' && !!onRerunAsUser && !!denial.auth?.uid;
-
-  async function runAsUser() {
-    if (!onRerunAsUser) return;
-    setAsUser('pending');
-    try {
-      setAsUser(await onRerunAsUser(denial));
-    } catch (e) {
-      setAsUser({ outcome: 'error', code: 'unknown', message: String(e) });
-    }
-  }
-
-  if (!shouldOfferImpersonation(denial)) {
-    return null;
-  }
-
-  return (
-    <section
-      data-pyric-ui="rerun-panel"
-      className="mt-1 flex flex-col gap-4 border-t border-border pt-4"
-    >
-      {/* Re-run as the attempting user. Only meaningful when there IS a user. */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-medium text-soft-white">
-            Re-run as the attempting user
-          </span>
-          <button
-            type="button"
-            disabled={!canImpersonate || asUser === 'pending'}
-            onClick={runAsUser}
-            className="rounded-md border border-primary/40 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:border-border disabled:text-slate-gray"
-          >
-            {asUser === 'pending'
-              ? 'Running…'
-              : support.impersonate.kind === 'live'
-                ? `Impersonate ${denial.auth?.uid ?? ''}`
-                : 'Impersonation not available'}
-          </button>
-        </div>
-        <RerunHint support={support.impersonate} haveCallback={!!onRerunAsUser} />
-        {asUser && asUser !== 'pending' ? <ResultLine result={asUser} /> : null}
-      </div>
-    </section>
-  );
-}
-
-/** Renders the capability gate for one re-run path: nothing when it's `live`
- *  and wired, the standard "needs the live backend" hint when it's `live` but
- *  the host hasn't supplied a callback yet, and the mechanical-tool-naming
- *  hint when the service's tooling itself doesn't back this path yet. */
-function RerunHint({ support, haveCallback }: { support: RerunSupport; haveCallback: boolean }) {
-  if (support.kind === 'pending' || support.kind === 'absent') {
-    const tool = support.kind === 'pending' ? support.tool : support.missingTool;
-    return (
-      <p
-        data-pyric-ui="rerun-hint-gated"
-        className="rounded-md border border-border bg-content-bg px-3 py-2 text-xs text-slate-gray"
-      >
-        {support.hint}{' '}
-        <code className="font-mono text-[0.7rem] text-warning">{tool}</code>
-      </p>
-    );
-  }
-  if (!haveCallback) {
-    return (
-      <p className="rounded-md border border-border bg-content-bg px-3 py-2 text-xs text-slate-gray">
-        Wired to the live sandbox once the local backend is reachable. The
-        denial, rule, and context above are already live.
-      </p>
-    );
-  }
-  return null;
-}
-
-function ResultLine({ result }: { result: RerunResult }) {
-  if (result.outcome === 'allow') {
-    return (
-      <p className="flex items-center gap-2 text-xs">
-        <Badge kind="allow" className="rounded bg-primary/15 px-2 py-0.5 font-semibold uppercase text-primary">
-          allow
-        </Badge>
-        <span className="text-slate-gray">The re-run is permitted under these rules.</span>
-      </p>
-    );
-  }
-  if (result.outcome === 'deny') {
-    return (
-      <p className="flex items-center gap-2 text-xs">
-        <Badge kind="deny" className="rounded bg-danger/15 px-2 py-0.5 font-semibold uppercase text-danger">
-          deny
-        </Badge>
-        <span className="text-slate-gray">Denied under these rules: {result.message}</span>
-      </p>
-    );
-  }
-  return (
-    <p className="flex items-center gap-2 text-xs">
-      <Badge kind="error" className="rounded bg-warning/15 px-2 py-0.5 font-semibold uppercase text-warning">
-        {result.code}
-      </Badge>
-      <span className="text-slate-gray">{result.message}</span>
-    </p>
   );
 }

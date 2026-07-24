@@ -24,19 +24,15 @@
 import { useEnvironment, type EnvironmentStatus } from '../../shell/environment.js';
 import { RulesDebug } from './RulesDebug.js';
 import type { Denial } from './model.js';
-import type { RerunResult } from './rerun.js';
 
 export interface RulesDebugPaneProps {
   /** Denied ops to render (from `selectDenials`). Defaults to none until the
    *  shell's live event feed is wired (T3). */
   denials?: readonly Denial[];
-  /** Live impersonation re-run, when the worker client is available. */
-  onRerunAsUser?: (denial: Denial) => Promise<RerunResult>;
 }
 
 export function RulesDebugPane({
   denials = [],
-  onRerunAsUser,
 }: RulesDebugPaneProps) {
   const { status } = useEnvironment();
 
@@ -44,7 +40,6 @@ export function RulesDebugPane({
     <div className="mx-auto flex h-full w-full max-w-5xl flex-col">
       <RulesDebug
         denials={denials}
-        onRerunAsUser={onRerunAsUser}
         emptyState={<RulesEmpty status={status} />}
       />
     </div>
@@ -65,8 +60,8 @@ function RulesEmpty({ status }: { status: EnvironmentStatus }) {
       ) : null}
       <p className="max-w-md text-sm leading-relaxed text-slate-gray">
         {backendLive
-          ? 'No denied operations yet. When a request is rejected by rules, it shows up here with the rule that denied it, the request.auth context, and one-click impersonation re-runs.'
-          : 'Rules-failure debugging mounts here. Denied operations stream in once the local sandbox backend is reachable; then each one shows the denying rule, request.auth, and live impersonation re-run controls.'}
+          ? 'No denied operations yet. When a request is rejected by rules, it shows up here with the rule that denied it and the request.auth context.'
+          : 'Rules-failure debugging mounts here. Denied operations stream in once the local sandbox backend is reachable; then each one shows the denying rule and request.auth context.'}
       </p>
     </div>
   );
