@@ -14,6 +14,7 @@ import type { Firestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 
+import { stripJsonComments } from '../../../rtdb/rules-json.js';
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import { ensureRtdb } from './core.js';
@@ -21,7 +22,7 @@ import { ensureRtdb } from './core.js';
 function normalizeDatabaseRules(source: unknown): { rules: Record<string, unknown> } | null {
   if (source === null) return null;
   if (typeof source === 'string') {
-    return JSON.parse(source) as { rules: Record<string, unknown> };
+    return JSON.parse(stripJsonComments(source)) as { rules: Record<string, unknown> };
   }
   if (typeof source === 'object' && source !== null) {
     return source as { rules: Record<string, unknown> };

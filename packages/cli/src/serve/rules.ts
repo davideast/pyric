@@ -16,7 +16,7 @@ import { isAbsolute, join } from 'node:path';
 import { lintFirestoreRules, resolveModulesBrowser } from 'pyric/rules/internal';
 import { parseStorageRules } from 'pyric/storage';
 import type { FirebaseJson } from '../cli/firebase-json.js';
-import { parseRtdbRulesJson } from '../rtdb/rules-json.js';
+import { parseRtdbRulesJson, stripJsonComments } from '../rtdb/rules-json.js';
 
 export interface LoadedRules {
   /** Plain-v2 source ready for the sandbox, or null when the project has no
@@ -186,7 +186,7 @@ export async function loadProjectDatabaseRules(
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(stripJsonComments(raw));
   } catch (e) {
     throw new Error(`pyric dev: ${path} failed to parse as RTDB rules JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
