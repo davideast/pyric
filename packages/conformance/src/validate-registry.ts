@@ -17,6 +17,7 @@ import { expectedFailures as entryPathExpectedFailures } from '../entry-path/exp
 import { listEntryPathProgramFiles } from '../entry-path/load.ts';
 import { deriveConformanceModel } from './conformance-model.ts';
 import { normalizeFeature } from './can-i-use-query.ts';
+import { formatRowEvidence } from './generate-docs.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -74,6 +75,9 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
   const ids = new Map<string, number>();
   const observationNames = new Set(input.observations.map((obs) => obs.name));
   const observationByName = new Map(input.observations.map((obs) => [obs.name, obs]));
+  const observationPaths = Object.fromEntries(
+    input.observations.map((obs) => [obs.name, `packages/conformance/observations/${obs.surfaceDir}/${obs.file}`]),
+  );
 
   for (const row of input.rows) {
     ids.set(row.id, (ids.get(row.id) ?? 0) + 1);
@@ -134,6 +138,12 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     for (const observation of citedObservations) {
       const obs = observationByName.get(observation);
       if (obs && !obs.rowIds.includes(row.id)) problems.push(`${observation}.json: cited by ${row.id} but rowIds does not list it`);
+    }
+
+    try {
+      formatRowEvidence(row, observationPaths);
+    } catch (err) {
+      problems.push((err as Error).message);
     }
   }
 

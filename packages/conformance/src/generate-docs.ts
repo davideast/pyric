@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from '../registry/index.ts';
@@ -234,9 +234,186 @@ function apiParts(row: CompatibilityRow): { name: string; category: string } {
   return { name: raw.slice(0, at).trim(), category: raw.slice(at + 3).trim() };
 }
 
-function renderRow(row: CompatibilityRow): string {
+const testContentCache = new Map<string, string[]>();
+
+/**
+ * Retrieve and cache test file lines from disk to avoid redundant file I/O
+ * during link validation and line discovery.
+ */
+function getTestLines(testPath: string): string[] | undefined {
+  const cachedLines = testContentCache.get(testPath);
+  if (cachedLines) return cachedLines;
+
+  const absolutePath = join(REPO_ROOT, testPath);
+  const fileExists = existsSync(absolutePath);
+  if (!fileExists) return undefined;
+
+  try {
+    const rawContent = readFileSync(absolutePath, 'utf8');
+    const fileLines = rawContent.split('\n');
+    testContentCache.set(testPath, fileLines);
+    return fileLines;
+  } catch {
+    return undefined;
+  }
+}
+
+const IGNORED_API_WORDS = new Set(['and', 'with', 'the', 'for', 'from', 'returns', 'fails', 'when', 'true', 'false', 'that']);
+
+/**
+ * Extract meaningful code symbol names from authored markdown API descriptions.
+ * Avoids complex or brittle regular expressions by splitting on non-alphanumeric boundaries
+ * and excluding common grammatical English words and short punctuation tokens.
+ */
+function extractSymbolTokens(text: string): string[] {
+  const identifierCandidates = text.split(/[^a-zA-Z0-9_-]+/);
+  return identifierCandidates.filter((candidate) => {
+    const isSufficientLength = candidate.trim().length > 3;
+    const isDomainWord = !IGNORED_API_WORDS.has(candidate.toLowerCase());
+    return isSufficientLength && isDomainWord;
+  });
+}
+
+/**
+ * Discover the precise line number in a test suite corresponding to a compatibility row.
+ * Prioritizes exact metadata citations (observation IDs, row references) before falling back
+ * to code symbol usage in test descriptions and assertions.
+ */
+export function findTestLineNumber(row: CompatibilityRow, testPath: string): number | null {
+  const fileLines = getTestLines(testPath);
+  if (!fileLines) return null;
+
+  // Phase 1: Search for exact metadata matches (observation IDs, row identifiers, constructs)
+  for (let lineIndex = 0; lineIndex < fileLines.length; lineIndex++) {
+    const lineContent = fileLines[lineIndex]!;
+    const matchesObservation = row.oracleObservations.some((observationId) => lineContent.includes(observationId));
+    const matchesRowId = lineContent.includes(row.id);
+    const matchesRowAlias = row.aliases.some((rowAlias) => lineContent.includes(rowAlias));
+    const matchesConstruct = Boolean(row.constructs?.some((constructId) => lineContent.includes(constructId)));
+
+    const isExactMetadataMatch = matchesObservation || matchesRowId || matchesRowAlias || matchesConstruct;
+    if (isExactMetadataMatch) {
+      const oneIndexedLineNumber = lineIndex + 1;
+      return oneIndexedLineNumber;
+    }
+  }
+
+  // Phase 2: Search for explicit feature key symbol usages in code or test descriptions
+  const featureKeys = row.featureKeys.filter((featureKey) => featureKey.trim().length > 2);
+  if (featureKeys.length > 0) {
+    for (let lineIndex = 0; lineIndex < fileLines.length; lineIndex++) {
+      const lineContent = fileLines[lineIndex]!;
+      const matchesFeatureKey = featureKeys.some((featureKey) => lineContent.includes(featureKey));
+      if (matchesFeatureKey) {
+        const oneIndexedLineNumber = lineIndex + 1;
+        return oneIndexedLineNumber;
+      }
+    }
+  }
+
+  // Phase 3: Search for primary API domain identifiers across the test file
+  const symbolTokens = extractSymbolTokens(row.api);
+  if (symbolTokens.length > 0) {
+    for (let lineIndex = 0; lineIndex < fileLines.length; lineIndex++) {
+      const lineContent = fileLines[lineIndex]!;
+      const matchesSymbol = symbolTokens.some((symbolToken) => lineContent.includes(symbolToken));
+      if (matchesSymbol) {
+        const oneIndexedLineNumber = lineIndex + 1;
+        return oneIndexedLineNumber;
+      }
+    }
+  }
+
+  const defaultTopLineNumber = 1;
+  return defaultTopLineNumber;
+}
+
+export function formatRowEvidence(
+  row: CompatibilityRow,
+  observationPaths?: Readonly<Record<string, string>>,
+): string {
+  const resolvedObservationPaths = observationPaths ?? {};
+  let formattedEvidence = row.evidence;
+  const unlinkedObservations = new Set(row.oracleObservations);
+  const unlinkedTests = new Set(row.conformanceTests);
+
+  formattedEvidence = formattedEvidence.replace(/`([^`]+)`/g, (originalMatch, token: string) => {
+    for (const observationId of unlinkedObservations) {
+      const isExactObservationMatch = token.includes(observationId);
+      const tokenWithoutExtension = token.endsWith('.json') ? token.slice(0, -5) : token;
+      const isSuffixMatch = tokenWithoutExtension.endsWith(observationId);
+      const matchesObservationToken = isExactObservationMatch || isSuffixMatch;
+
+      if (matchesObservationToken) {
+        unlinkedObservations.delete(observationId);
+        const relativePath = resolvedObservationPaths[observationId];
+        const isPathValid = relativePath && existsSync(join(REPO_ROOT, relativePath));
+        if (!isPathValid) {
+          throw new Error(`Row ${row.id}: generated link targets untracked observation '${observationId}'`);
+        }
+        return `[${originalMatch}](https://github.com/davideast/pyric/blob/main/${relativePath})`;
+      }
+    }
+
+    for (const testPath of unlinkedTests) {
+      const colonIndex = token.indexOf(':');
+      const hasNamespacePrefix = colonIndex !== -1;
+      const targetFilename = hasNamespacePrefix ? token.slice(colonIndex + 1).trim() : token.trim();
+      
+      const testFileBasename = testPath.split('/').pop()!;
+      const matchesFullPathSuffix = testPath.endsWith(targetFilename);
+      const matchesBasenameSuffix = targetFilename.endsWith(testFileBasename);
+      const matchesTestFileToken = matchesFullPathSuffix || matchesBasenameSuffix;
+
+      if (matchesTestFileToken) {
+        unlinkedTests.delete(testPath);
+        const absolutePath = join(REPO_ROOT, testPath);
+        const fileExists = existsSync(absolutePath);
+        if (!fileExists) {
+          throw new Error(`Row ${row.id}: generated link targets untracked test file '${testPath}'`);
+        }
+        const targetLineNumber = findTestLineNumber(row, testPath);
+        const lineHashSuffix = targetLineNumber !== null ? `#L${targetLineNumber}` : '';
+        return `[${originalMatch}](https://github.com/davideast/pyric/blob/main/${testPath}${lineHashSuffix})`;
+      }
+    }
+
+    return originalMatch;
+  });
+
+  const trailingLinks: string[] = [];
+  for (const observationId of unlinkedObservations) {
+    const relativePath = resolvedObservationPaths[observationId];
+    const isPathValid = relativePath && existsSync(join(REPO_ROOT, relativePath));
+    if (!isPathValid) {
+      throw new Error(`Row ${row.id}: generated link targets untracked observation '${observationId}'`);
+    }
+    trailingLinks.push(`[\`${observationId}\`](https://github.com/davideast/pyric/blob/main/${relativePath})`);
+  }
+
+  for (const testPath of unlinkedTests) {
+    const absolutePath = join(REPO_ROOT, testPath);
+    const fileExists = existsSync(absolutePath);
+    if (!fileExists) {
+      throw new Error(`Row ${row.id}: generated link targets untracked test file '${testPath}'`);
+    }
+    const targetLineNumber = findTestLineNumber(row, testPath);
+    const lineHashSuffix = targetLineNumber !== null ? `#L${targetLineNumber}` : '';
+    const testFileBasename = testPath.split('/').pop()!;
+    trailingLinks.push(`[\`${testFileBasename}\`](https://github.com/davideast/pyric/blob/main/${testPath}${lineHashSuffix})`);
+  }
+
+  const hasTrailingLinks = trailingLinks.length > 0;
+  if (hasTrailingLinks) {
+    formattedEvidence += ` (Structured evidence: ${trailingLinks.join(', ')})`;
+  }
+
+  return formattedEvidence;
+}
+
+function renderRow(row: CompatibilityRow, observationPaths?: Readonly<Record<string, string>>): string {
   const { name, category } = apiParts(row);
-  return `| ${escapeCell(name)} | ${escapeCell(category)} | ${escapeCell(row.behavior)} | ${escapeCell(renderStatus(row))} | ${escapeCell(row.evidence)} | ${escapeCell(row.rowRef)} |`;
+  return `| ${escapeCell(name)} | ${escapeCell(category)} | ${escapeCell(row.behavior)} | ${escapeCell(renderStatus(row))} | ${escapeCell(formatRowEvidence(row, observationPaths))} | ${escapeCell(row.rowRef)} |`;
 }
 
 const GAP_SECTIONS: Array<{ status: Exclude<CompatStatus, 'conforms'>; title: string; intro: string }> = [
@@ -269,7 +446,13 @@ const GAP_STATUS_KEYS: Record<string, { key: string; label: string }> = {
   unverified: { key: 'unverified', label: 'Unverified' },
 };
 
-export function consolidatedGapSections(rows: CompatibilityRow[]): string {
+export function renderInlineEvidenceHtml(markdown: string): string {
+  return escapeHtml(markdown)
+    .replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>')
+    .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+
+export function consolidatedGapSections(rows: CompatibilityRow[], observationPaths?: Readonly<Record<string, string>>): string {
   const sections = GAP_SECTIONS.flatMap(({ status, title, intro }) => {
     const matches = rows.filter((row) => row.status === status);
     if (matches.length === 0) return [];
@@ -282,9 +465,10 @@ export function consolidatedGapSections(rows: CompatibilityRow[]): string {
       const main = '<span class="compat-main">' +
         (name === '' ? '' : `<code class="compat-api">${escapeHtml(name)}</code>`) +
         `<span class="compat-sub"><span class="compat-behavior">${escapeHtml(row.behavior).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>')}</span></span></span>`;
-      const evidence = row.evidence.trim() === ''
+      const evidenceStr = row.evidence.trim() === '' ? '' : formatRowEvidence(row, observationPaths);
+      const evidence = evidenceStr === ''
         ? ''
-        : `<div class="compat-evidence"><div class="compat-note">${escapeHtml(row.evidence).replace(/\u0060([^\u0060]+)\u0060/g, '<code>$1</code>')}</div></div>`;
+        : `<div class="compat-evidence"><div class="compat-note">${renderInlineEvidenceHtml(evidenceStr)}</div></div>`;
       return evidence === ''
         ? `<div class="compat-row" data-status="${meta.key}"><div class="compat-line">${dot}${main}</div></div>`
         : `<details class="compat-row" data-status="${meta.key}"><summary class="compat-line">${dot}${main}</summary>\n${evidence}</details>`;
@@ -478,13 +662,13 @@ function renderSurfaceLines(
     emit('| API | Category | Behavior | Status | Probe | # |');
     emit('|---|---|---|---|---|---|');
     for (const row of block.rows) {
-      emit(renderRow(row));
+      emit(renderRow(row, projection.observationPaths));
       rowLines.set(row.id, lines.length);
     }
     const next = blocks[index + 1];
     if (next?.kind === 'table' || (next?.kind === 'markdown' && !next.markdown.startsWith('\n'))) emit('');
   }
-  const gaps = consolidatedGapSections(rows);
+  const gaps = consolidatedGapSections(rows, projection.observationPaths);
   if (gaps) { emit(''); emit(gaps); }
   const dispositions = dispositionSection(surface, projection);
   if (dispositions) { emit(''); emit(dispositions); }
