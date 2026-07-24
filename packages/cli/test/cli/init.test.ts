@@ -184,6 +184,31 @@ describe('pyric init v2 — web template ↔ example dogfood stay in sync', () =
   });
 });
 
+describe('pyric init v2 — nextjs template ↔ example dogfood stay in sync', () => {
+  const EXAMPLE_DIR = fileURLToPath(new URL('../../../../examples/nextjs-sandbox-app', import.meta.url));
+  const SYNCED = [
+    'next.config.mjs',
+    'tsconfig.json',
+    'firebase.json',
+    'firestore.indexes.json',
+    'firestore.rules',
+    '.gitignore',
+    'src/app/layout.tsx',
+    'src/app/page.tsx',
+    'src/app/api/status/route.ts',
+  ];
+
+  it('scaffolded nextjs files are byte-identical to examples/nextjs-sandbox-app', async () => {
+    const dir = tmp();
+    await runInit(args([], { template: 'nextjs', name: 'nextjs-sandbox-app' }), capture().deps(dir));
+    for (const f of SYNCED) {
+      const scaffolded = readFileSync(join(dir, f), 'utf8');
+      const example = readFileSync(join(EXAMPLE_DIR, f), 'utf8');
+      expect([f, scaffolded]).toEqual([f, example]);
+    }
+  });
+});
+
 describe('pyric init v2 — static template (serve-era, no bundler)', () => {
   it('scaffolds the static public/ app served by pyric dev', async () => {
     const dir = tmp();
@@ -342,7 +367,7 @@ describe('pyric init v2 — CLI surface', () => {
 });
 
 describe('pyric init v2 — production handoff', () => {
-  for (const template of ['web', 'node', 'static', 'chat'] as const) {
+  for (const template of ['web', 'node', 'static', 'chat', 'nextjs'] as const) {
     it(`${template} delegates production deployment to firebase-tools`, async () => {
       const dir = tmp();
       expect(

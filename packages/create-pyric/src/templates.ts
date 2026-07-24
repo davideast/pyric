@@ -19,8 +19,9 @@
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { NEXTJS_TEMPLATE } from './template-nextjs.js';
 
-export const TEMPLATE_NAMES = ['web', 'node', 'static', 'chat'] as const;
+export const TEMPLATE_NAMES = ['web', 'node', 'static', 'chat', 'nextjs'] as const;
 export type TemplateName = (typeof TEMPLATE_NAMES)[number];
 
 export function isTemplateName(value: string): value is TemplateName {
@@ -792,4 +793,5 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
       'npm run typecheck',
     ],
   },
+  nextjs: NEXTJS_TEMPLATE,
 };

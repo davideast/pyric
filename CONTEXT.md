@@ -96,6 +96,7 @@ map those canonical imports to the sandbox mirrors without changing source.
 - `@pyric/cli/bridge/client`
 - `@pyric/cli/discover`
 - `@pyric/cli/vite`
+- `@pyric/cli/next`
 - `@pyric/cli/serve/worker`
 - `@pyric/cli/remote`
 - `@pyric/cli/register`

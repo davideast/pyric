@@ -6,6 +6,7 @@
  * still lack a worker protocol fail loudly. In in-page fallback mode, the entry
  * delegates to `pyric/storage` against the page sandbox.
  */
+import './init.js';
 import * as ip from 'pyric/storage';
 import {
   getStorage as pyricGetStorage,

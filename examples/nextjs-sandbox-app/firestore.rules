@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Owner-based security rules from line 1 — Pyric deploys and hot-reloads
+    // this configuration into the local sandbox environment. These deploy as-is
+    // to production Firebase instances.
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if request.auth != null
+                            && resource.data.uid == request.auth.uid;
+    }
+
+    // Default deny — require explicit authorization rules per collection.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

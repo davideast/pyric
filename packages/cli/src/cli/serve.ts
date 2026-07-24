@@ -570,7 +570,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
 
   const json = Boolean(parsed.flags.get('json'));
 
-  const uiOn = Boolean(parsed.flags.get('ui'));
+  const explicitUi = Boolean(parsed.flags.get('ui'));
+  const uiOn = !parsed.flags.get('no-ui');
 
   // Resolve the child plan BEFORE the server starts: a planned child implies
   // the bridge (see bridgeEnabledFor) — the child's injected PYRIC_SANDBOX
@@ -661,8 +662,9 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     env: process.env,
   });
   if (opened) {
-    // With --ui, open Studio directly; the served page is still available.
-    void openBrowser(runtime.uiUrl ?? runtime.handle.url);
+    // When explicit --ui is passed, open Studio directly; otherwise open the served page.
+    const targetUrl = explicitUi && runtime.uiUrl !== null ? runtime.uiUrl : runtime.handle.url;
+    void openBrowser(targetUrl);
   }
 
   let devChild: DevChildHandle | null = null;
@@ -886,7 +888,8 @@ export function scanForInlinedFirebase(dir: string): string[] {
       if (st.isDirectory()) {
         // The pyric namespace itself never lands in hosting.public, but a
         // node_modules inside a served dir would be a scan-cost trap.
-        if (name === 'node_modules') continue;
+        // Dot-directories (.next, .git, .pyric) are internal caches and must be ignored.
+        if (name === 'node_modules' || name.startsWith('.')) continue;
         walk(p, r, depth + 1);
       } else if (/\.(js|mjs)$/.test(name)) {
         scanned++;

@@ -13,25 +13,35 @@ Pyric adds a development-only resolution layer to a Firebase application. During
 
 ## Start a new application
 
-Create a Vite application with canonical Firebase imports, Firestore rules, and the Pyric plugin already configured:
+Create a new Vite or Next.js application with canonical Firebase imports, Firestore rules, and Pyric already configured:
+
 ```bash
+# Start a Vite application
 npm create pyric my-app
+
+# Or start a Next.js application
+npm create pyric my-app -- --template nextjs
+
 cd my-app
 npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite. The application and Pyric Studio use the same local backend. Studio is mounted at `/__pyric/ui/` on that origin.
+Open the local URL printed by the development server. The application and Pyric Studio use the exact same local backend. Studio is mounted at `/__pyric/ui/` on that origin.
 
 Pyric also adds a small, collapsed runtime chip in the bottom-right corner. It stays quiet while the sandbox is healthy and signals when there is an error to inspect or a newer worker to activate. [Resolve runtime errors and stale workers](../observe/resolve-runtime-status.md) covers both actions.
 
-## Add Pyric to an existing Vite application
+## Add Pyric to an existing application
 
-Install the development plugin:
+Install the CLI and development plugins as a development dependency:
+
 ```bash
 npm install --save-dev @pyric/cli
 ```
+
+### Vite
 Add it to the Vite configuration:
+
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
@@ -41,11 +51,30 @@ export default defineConfig({
   plugins: [pyric()],
 });
 ```
+
+### Next.js
+
+Update the Next.js configuration in `next.config.mjs`:
+
+```ts
+import { fileURLToPath } from 'node:url';
+import { withPyric } from '@pyric/cli/next';
+
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Existing config
+};
+
+export default withPyric(nextConfig);
+```
+
 Start the normal development server:
+
 ```bash
 npm run dev
 ```
-No application imports change. Continue using `firebase/app`, `firebase/auth`, `firebase/firestore`, and the other supported Firebase entry points. The plugin uses an explicit `rules` option first, then discovers `firestore.modules.rules`, the path in `firebase.json`, or `firestore.rules`, in that order.
+
+No application imports change. Continue using `firebase/app`, `firebase/auth`, `firebase/firestore`, and the other supported Firebase entry points. Pyric uses an explicit rules configuration first, then discovers `firestore.modules.rules`, the path in `firebase.json`, or `firestore.rules`, in that order.
 
 ## Use a static application or Node process
 
