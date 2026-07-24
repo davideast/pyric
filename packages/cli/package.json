@@ -69,6 +69,10 @@
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
     },
+    "./next": {
+      "types": "./dist/next/index.d.ts",
+      "import": "./dist/next/index.js"
+    },
     "./serve/worker": {
       "types": "./dist/serve/worker/index.d.ts",
       "import": "./dist/serve/worker/index.js"

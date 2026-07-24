@@ -34,6 +34,7 @@
     "./bridge/client",
     "./discover",
     "./vite",
+    "./next",
     "./serve/worker",
     "./remote",
     "./register"
