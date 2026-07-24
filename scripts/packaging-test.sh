@@ -590,6 +590,23 @@ test -f "$CREATE_OUT/package.json"
 grep -q '"dev": "vite"' "$CREATE_OUT/package.json"
 echo "  ✓ create-pyric scaffolds Vite + @pyric/cli/vite"
 
+# create-pyric nextjs smoke: scaffold a Next.js app into a fresh directory and
+# assert load-bearing configuration and wrapper imports exist.
+echo "▸ create-pyric nextjs smoke"
+CREATE_NEXTJS_OUT="$WORK/create-nextjs-smoke-app"
+rm -rf "$CREATE_NEXTJS_OUT"
+"$CREATE_PYRIC_BIN" "$CREATE_NEXTJS_OUT" --template nextjs --name packed-nextjs
+test -f "$CREATE_NEXTJS_OUT/next.config.mjs"
+grep -q "@pyric/cli/next" "$CREATE_NEXTJS_OUT/next.config.mjs"
+grep -q "withPyric(nextConfig)" "$CREATE_NEXTJS_OUT/next.config.mjs"
+test -f "$CREATE_NEXTJS_OUT/package.json"
+grep -q '"dev": "pyric dev -- next dev"' "$CREATE_NEXTJS_OUT/package.json"
+grep -q '"name": "packed-nextjs"' "$CREATE_NEXTJS_OUT/package.json"
+grep -q '# packed-nextjs' "$CREATE_NEXTJS_OUT/README.md"
+test -f "$CREATE_NEXTJS_OUT/src/app/page.tsx"
+test -f "$CREATE_NEXTJS_OUT/src/app/api/status/route.ts"
+echo "  ✓ create-pyric scaffolds Next.js + @pyric/cli/next"
+
 # Named chat smoke: prove the packaged asset tree is available to the installed
 # bin and stays free of repo/install artifacts and internal package paths.
 echo "▸ create-pyric chat smoke"

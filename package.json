@@ -5,6 +5,7 @@
     "packages/*",
     "examples/admin-playground",
     "examples/vite-sandbox-app",
+    "examples/nextjs-sandbox-app",
     "packages/create-pyric/templates/chat",
     "packages/create-pyric/templates/chat/functions"
   ],

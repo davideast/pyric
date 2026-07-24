@@ -1,0 +1,30 @@
+{
+  "name": "nextjs-sandbox-app",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Reference example: a Next.js app wrapped with @pyric/cli/next — `pyric dev -- next dev` runs against the local sandbox, `next build` ships real Firebase. This is the shape `pyric init --template nextjs` scaffolds.",
+  "scripts": {
+    "dev": "pyric dev -- next dev",
+    "dev:direct": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "firebase": "^12.12.0",
+    "firebase-admin": "^13.0.0",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@pyric/cli": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "pyric": "workspace:*",
+    "pyric-admin": "workspace:*",
+    "typescript": "^5.7.0"
+  }
+}

@@ -53,6 +53,12 @@ describe('parseCreateArgs', () => {
     expect(args.positional).toEqual(['my-chat']);
     expect(args.flags.get('template')).toBe('chat');
   });
+
+  it('accepts nextjs as a named template value', () => {
+    const args = parseCreateArgs(['my-next-app', '--template', 'nextjs']);
+    expect(args.positional).toEqual(['my-next-app']);
+    expect(args.flags.get('template')).toBe('nextjs');
+  });
 });
 
 describe('runScaffold', () => {
@@ -104,6 +110,35 @@ describe('runScaffold', () => {
     expect(vite?.[1]).toContain("from '@pyric/cli/vite'");
     expect(vite?.[1]).toContain('pyric()');
     expect(io.getOut()).toContain('create-pyric: scaffolded web');
+  });
+
+  it('writes the nextjs scaffold when selected', async () => {
+    const io = bufferIo();
+    const writeFn = mock(async () => undefined);
+    const mkdirFn = mock(async () => undefined);
+    const code = await runScaffold(
+      {
+        dir: 'nextjs-demo',
+        template: 'nextjs',
+        commandLabel: 'create-pyric',
+        effectiveTemplate: applyDepsMode(TEMPLATES.nextjs, 'npm', { version: null }),
+      },
+      {
+        ...io,
+        cwd: '/tmp',
+        writeFile: writeFn as never,
+        mkdir: mkdirFn as never,
+        exists: async () => false,
+      },
+    );
+    expect(code).toBe(0);
+    const paths = writeFn.mock.calls.map((c) => c[0] as string);
+    expect(paths).toContain('/tmp/nextjs-demo/package.json');
+    expect(paths).toContain('/tmp/nextjs-demo/next.config.mjs');
+    const nextConfig = writeFn.mock.calls.find((c) => String(c[0]).endsWith('next.config.mjs'));
+    expect(nextConfig?.[1]).toContain("from '@pyric/cli/next'");
+    expect(nextConfig?.[1]).toContain('withPyric(');
+    expect(io.getOut()).toContain('create-pyric: scaffolded nextjs');
   });
 
   it('scaffolds into cwd when dir is omitted', async () => {
