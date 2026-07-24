@@ -29,12 +29,14 @@ describe('served app conformance merge gate', () => {
     expect(workflow).not.toContain('\n  docs-only:');
     expect(mainJobStart).toBeGreaterThanOrEqual(0);
     expect(mainJobEnd).toBeGreaterThan(mainJobStart);
-    expect(mainJob).toContain('bash scripts/build.sh --packages-only');
+    expect(mainJob).toContain('uses: ./.github/actions/restore-dist');
+    expect(mainJob).toContain('flavor: packages');
     expect(mainJob).toContain('bun run test:ci:cli');
     expect(mainJob).not.toContain('bun run test:ci:libraries');
     expect(libraryJobStart).toBeGreaterThanOrEqual(0);
     expect(libraryJobEnd).toBeGreaterThan(libraryJobStart);
-    expect(libraryJob).toContain('bash scripts/build.sh --packages-only');
+    expect(libraryJob).toContain('uses: ./.github/actions/restore-dist');
+    expect(libraryJob).toContain('flavor: packages');
     expect(libraryJob).toContain('bun run test:ci:libraries');
     expect(libraryJob).not.toContain('bun run test:ci:cli');
     const complete = rootPackage.scripts?.test?.split(' && ') ?? [];
@@ -68,9 +70,12 @@ describe('served app conformance merge gate', () => {
     expect(browserJob).toContain('bun run --cwd packages/cli test:app-conformance');
     expect(browserJob).toContain('bun run --cwd packages/cli test:site-cli');
     expect(browserJob).toContain('bun run --cwd packages/cli test:site-static');
-    expect(browserJob).toContain('bash scripts/build.sh');
-    expect(browserJob).toContain('bash scripts/build-site.sh');
-    const build = browserJob.indexOf('bash scripts/build.sh');
+    // The full build + composed public site now arrive through the
+    // content-keyed restore-dist composite (site flavor); the composite runs
+    // scripts/build.sh and scripts/build-site.sh itself on a cache miss.
+    expect(browserJob).toContain('uses: ./.github/actions/restore-dist');
+    expect(browserJob).toContain('flavor: site');
+    const build = browserJob.indexOf('uses: ./.github/actions/restore-dist');
     const cache = browserJob.indexOf('Cache Playwright Chromium');
     const browser = browserJob.indexOf('bunx playwright install chromium');
     const proof = browserJob.indexOf('bun run --cwd packages/cli test:app-conformance');
@@ -82,9 +87,10 @@ describe('served app conformance merge gate', () => {
   test('standalone CI embeds the Astro site before compiling the binary', () => {
     expect(standaloneJobStart).toBeGreaterThanOrEqual(0);
     expect(standaloneJobEnd).toBeGreaterThan(standaloneJobStart);
-    expect(standaloneJob).toContain('bash scripts/build.sh');
-    expect(standaloneJob).not.toContain('bash scripts/build.sh --packages-only');
-    expect(standaloneJob.indexOf('bash scripts/build.sh')).toBeLessThan(
+    expect(standaloneJob).toContain('uses: ./.github/actions/restore-dist');
+    expect(standaloneJob).toContain('flavor: site');
+    expect(standaloneJob).not.toContain('flavor: packages');
+    expect(standaloneJob.indexOf('uses: ./.github/actions/restore-dist')).toBeLessThan(
       standaloneJob.indexOf('bun run --cwd packages/cli compile host'),
     );
   });

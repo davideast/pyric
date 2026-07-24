@@ -80,11 +80,13 @@ jobs:
         run: bun run packages/conformance/src/check-observation-versions.ts
 
       - name: Build packages (site omitted)
-        # scripts/build.sh handles the cycle-tolerant bootstrap pass
-        # (declaration stubs for every package) then the strict
-        # topological build. Same script `npm run build` runs locally;
-        # CI and local can't drift.
-        run: bash scripts/build.sh --packages-only
+        # Content-keyed: restores the previous build when no build input
+        # changed (scripts/ci/build-input-key.sh), otherwise runs
+        # scripts/build.sh --packages-only — the same script `npm run build`
+        # runs locally, so CI and local can't drift.
+        uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
 
       - name: Agent tool exposure contract
         # Every tool visible through the default MCP bridge, Playground agent,
@@ -117,7 +119,9 @@ jobs:
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
       - name: Build workspace packages (embedded apps omitted)
-        run: bash scripts/build.sh --packages-only
+        uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
 
       - name: Run library, UI, and Studio tests
         # The conformance suite (half this step's former serial time) runs in
@@ -141,7 +145,9 @@ jobs:
           bun-version: '1.3.11'
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
-      - run: bash scripts/build.sh --packages-only
+      - uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
       - name: Run conformance tests
         # Split out of library-tests so both halves run on their own machine;
         # deriving the conformance model is CPU-heavy and its tests carry 60s
@@ -163,11 +169,14 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
-      - name: Build packages and unified Astro site
-        run: bash scripts/build.sh
-
-      - name: Compose public static site
-        run: bash scripts/build-site.sh
+      - name: Build packages, unified Astro site, and composed public site
+        # Content-keyed like the packages flavor, over the full build's inputs
+        # (which add the site sources and compose scripts). A hit restores the
+        # embedded site and dist/site; a miss runs scripts/build.sh and
+        # scripts/build-site.sh exactly as before.
+        uses: ./.github/actions/restore-dist
+        with:
+          flavor: site
 
       - name: Cache Playwright Chromium
         id: playwright-cache
@@ -224,7 +233,9 @@ jobs:
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
       - name: Configure job-local surface census cache
         run: echo "PYRIC_SURFACE_CENSUS_PATH=$RUNNER_TEMP/pyric-surface-census.json" >> "$GITHUB_ENV"
-      - run: bash scripts/build.sh --packages-only
+      - uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
       - name: Conformance gate chain
         # The five gates that used to run serially at the tail of
         # build-and-test (audit gate, observations × probes, graph integrity,
@@ -359,7 +370,11 @@ jobs:
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
       - name: Build packages and unified Astro site
-        run: bash scripts/build.sh
+        # The standalone binary embeds the full build; the composed dist/site
+        # the site flavor also restores is unused here and harmless.
+        uses: ./.github/actions/restore-dist
+        with:
+          flavor: site
 
       - name: Compile the host-target standalone binary
         run: bun run --cwd packages/cli compile host

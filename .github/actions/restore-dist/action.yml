@@ -1,0 +1,79 @@
+name: Restore or build workspace dist
+description: >
+  Content-keyed cache of the workspace build. When the build inputs
+  (scripts/ci/build-input-key.sh) are unchanged, restores dist/ and the
+  gitignored generated sources instead of rebuilding; otherwise runs the build
+  and saves the result immediately, before any test can mutate it. Exact-match
+  only — no restore-keys, because a near-miss restore would run tests against
+  stale artifacts (fail-closed, same posture as scripts/ci/required.ts).
+inputs:
+  flavor:
+    description: >
+      "packages" for `scripts/build.sh --packages-only`; "site" for the full
+      build plus the composed public site (scripts/build-site.sh).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Compute build-input keys
+      id: key
+      shell: bash
+      run: bash scripts/ci/build-input-key.sh >> "$GITHUB_OUTPUT"
+
+    - name: Restore built packages
+      if: inputs.flavor == 'packages'
+      id: restore-packages
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          packages/*/dist
+          packages/cli/src/assurance/.generated
+          packages/cli/src/conformance/.generated
+          packages/cli/src/cli/service-commands.generated.ts
+        key: dist-packages-${{ runner.os }}-${{ steps.key.outputs.packages-key }}
+
+    - name: Restore built packages and site
+      if: inputs.flavor == 'site'
+      id: restore-site
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          packages/*/dist
+          packages/cli/src/assurance/.generated
+          packages/cli/src/conformance/.generated
+          packages/cli/src/cli/service-commands.generated.ts
+          dist/site
+        key: dist-site-${{ runner.os }}-${{ steps.key.outputs.site-key }}
+
+    - name: Build packages (site omitted)
+      if: inputs.flavor == 'packages' && steps.restore-packages.outputs.cache-hit != 'true'
+      shell: bash
+      run: bash scripts/build.sh --packages-only
+
+    - name: Build packages and compose the public site
+      if: inputs.flavor == 'site' && steps.restore-site.outputs.cache-hit != 'true'
+      shell: bash
+      run: bash scripts/build.sh && bash scripts/build-site.sh
+
+    - name: Save built packages
+      if: inputs.flavor == 'packages' && steps.restore-packages.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          packages/*/dist
+          packages/cli/src/assurance/.generated
+          packages/cli/src/conformance/.generated
+          packages/cli/src/cli/service-commands.generated.ts
+        key: dist-packages-${{ runner.os }}-${{ steps.key.outputs.packages-key }}
+
+    - name: Save built packages and site
+      if: inputs.flavor == 'site' && steps.restore-site.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          packages/*/dist
+          packages/cli/src/assurance/.generated
+          packages/cli/src/conformance/.generated
+          packages/cli/src/cli/service-commands.generated.ts
+          dist/site
+        key: dist-site-${{ runner.os }}-${{ steps.key.outputs.site-key }}
