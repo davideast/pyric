@@ -3,7 +3,7 @@ title: "How firebase/* imports resolve locally and in production"
 navLabel: "How the swap works"
 group: "Get started"
 section: ""
-order: 20
+order: 40
 description: "Follow one import from your source to the local sandbox in development and to real Firebase in a production build."
 ---
 

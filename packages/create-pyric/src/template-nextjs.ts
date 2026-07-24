@@ -3,11 +3,25 @@
  */
 import type { ScaffoldTemplate } from './templates.js';
 
-const NEXTJS_CONFIG_MJS = `import { withPyric } from '@pyric/cli/next';
+const NEXTJS_CONFIG_MJS = `import { fileURLToPath } from 'node:url';
+import { withPyric } from '@pyric/cli/next';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  outputFileTracingRoot: fileURLToPath(new URL('.', import.meta.url)),
+  allowedDevOrigins: [
+    'localhost',
+    '127.0.0.1',
+    'localhost:3000',
+    '127.0.0.1:3000',
+    'localhost:4000',
+    '127.0.0.1:4000',
+    'localhost:4288',
+    '127.0.0.1:4288',
+    'localhost:4289',
+    '127.0.0.1:4289',
+  ],
 };
 
 // Under development mode (\`pyric dev -- next dev\`), withPyric maps client-side
@@ -184,12 +198,28 @@ function resolveRuntimeEnvironment(): string {
   return 'production';
 }
 
+async function fetchPostsSnapshot(db: FirebaseFirestore.Firestore, maxRetries = 6, delayMs = 500): Promise<FirebaseFirestore.QuerySnapshot> {
+  let attempts = 0;
+  for (;;) {
+    try {
+      attempts += 1;
+      const snapshot = await db.collection('posts').get();
+      return snapshot;
+    } catch (error) {
+      if (attempts >= maxRetries) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 export async function GET(): Promise<NextResponse> {
   const app = getAdminApp();
   const db = getFirestore(app);
-  
+
   try {
-    const postsSnapshot = await db.collection('posts').get();
+    const postsSnapshot = await fetchPostsSnapshot(db);
     const documentCount = postsSnapshot.size;
     const runtimeTarget = resolveRuntimeEnvironment();
 
@@ -306,28 +336,29 @@ export default function HomePage(): React.JSX.Element {
         currentPosts.push(postEntry);
       }
       setPostsList(currentPosts);
-    });
 
-    fetch('/api/status')
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(\`Server returned HTTP \${response.status}\`);
-        }
-        const payload = (await response.json()) as ServerStatusResponse;
-        return payload;
-      })
-      .then((payload) => {
-        if (payload.status === 'ok' && payload.environment !== undefined && payload.count !== undefined) {
-          setBackendApiStatusText(\`Server-Side Admin API Runtime: \${payload.environment} (\${payload.count} database records)\`);
-        } else {
-          const failureDetail = payload.details !== undefined ? payload.details : 'Unknown error';
-          setBackendApiStatusText(\`Server-Side Admin API reported an error: \${failureDetail}\`);
-        }
-      })
-      .catch((err: unknown) => {
-        const failureDetail = err instanceof Error ? err.message : String(err);
-        setBackendApiStatusText(\`Server-Side Admin API unavailable (\${failureDetail})\`);
-      });
+      fetch('/api/status')
+        .then(async (response) => {
+          const payload = (await response.json().catch(() => ({ status: 'error', details: \`HTTP \${response.status}\` }))) as ServerStatusResponse;
+          if (!response.ok) {
+            const failureDetail = payload.details !== undefined ? payload.details : \`HTTP \${response.status}\`;
+            throw new Error(failureDetail);
+          }
+          return payload;
+        })
+        .then((payload) => {
+          if (payload.status === 'ok' && payload.environment !== undefined && payload.count !== undefined) {
+            setBackendApiStatusText(\`Server-Side Admin API Runtime: \${payload.environment} (\${payload.count} database records)\`);
+          } else {
+            const failureDetail = payload.details !== undefined ? payload.details : 'Unknown error';
+            setBackendApiStatusText(\`Server-Side Admin API reported an error: \${failureDetail}\`);
+          }
+        })
+        .catch((err: unknown) => {
+          const failureDetail = err instanceof Error ? err.message : String(err);
+          setBackendApiStatusText(\`Server-Side Admin API unavailable (\${failureDetail})\`);
+        });
+    });
 
     return () => {
       unsubscribeAuth();

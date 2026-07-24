@@ -9,6 +9,7 @@
     "dev:direct": "next dev",
     "build": "next build",
     "start": "next start",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@pyric/cli": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

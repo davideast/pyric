@@ -26,12 +26,17 @@ describe('installPyricRuntimeChip', () => {
     expect(mount.mock.calls[0]?.[0]).toMatchObject({ runtime, initiallyOpen: true });
   });
 
-  it('does not mount without opt-in metadata or when explicitly off', () => {
-    for (const content of [undefined, 'off']) {
-      const { dom, runtime, mount } = setup(content);
-      expect(installPyricRuntimeChip({ runtime, document: dom.window.document, mount })).toBeNull();
-      expect(mount).not.toHaveBeenCalled();
-    }
+  it('does not mount when explicitly configured off via metadata', () => {
+    const { dom, runtime, mount } = setup('off');
+    expect(installPyricRuntimeChip({ runtime, document: dom.window.document, mount })).toBeNull();
+    expect(mount).not.toHaveBeenCalled();
+  });
+
+  it('mounts by default when metadata is omitted (e.g. in Next.js app bundles)', () => {
+    const { dom, runtime, mount, mounted } = setup(undefined);
+    const installed = installPyricRuntimeChip({ runtime, document: dom.window.document, mount });
+    expect(installed).toBe(mounted);
+    expect(mount).toHaveBeenCalledTimes(1);
   });
 
   it('does not duplicate an existing runtime chip host', () => {

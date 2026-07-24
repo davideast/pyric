@@ -93,28 +93,29 @@ export default function HomePage(): React.JSX.Element {
         currentPosts.push(postEntry);
       }
       setPostsList(currentPosts);
-    });
 
-    fetch('/api/status')
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Server returned HTTP ${response.status}`);
-        }
-        const payload = (await response.json()) as ServerStatusResponse;
-        return payload;
-      })
-      .then((payload) => {
-        if (payload.status === 'ok' && payload.environment !== undefined && payload.count !== undefined) {
-          setBackendApiStatusText(`Server-Side Admin API Runtime: ${payload.environment} (${payload.count} database records)`);
-        } else {
-          const failureDetail = payload.details !== undefined ? payload.details : 'Unknown error';
-          setBackendApiStatusText(`Server-Side Admin API reported an error: ${failureDetail}`);
-        }
-      })
-      .catch((err: unknown) => {
-        const failureDetail = err instanceof Error ? err.message : String(err);
-        setBackendApiStatusText(`Server-Side Admin API unavailable (${failureDetail})`);
-      });
+      fetch('/api/status')
+        .then(async (response) => {
+          const payload = (await response.json().catch(() => ({ status: 'error', details: `HTTP ${response.status}` }))) as ServerStatusResponse;
+          if (!response.ok) {
+            const failureDetail = payload.details !== undefined ? payload.details : `HTTP ${response.status}`;
+            throw new Error(failureDetail);
+          }
+          return payload;
+        })
+        .then((payload) => {
+          if (payload.status === 'ok' && payload.environment !== undefined && payload.count !== undefined) {
+            setBackendApiStatusText(`Server-Side Admin API Runtime: ${payload.environment} (${payload.count} database records)`);
+          } else {
+            const failureDetail = payload.details !== undefined ? payload.details : 'Unknown error';
+            setBackendApiStatusText(`Server-Side Admin API reported an error: ${failureDetail}`);
+          }
+        })
+        .catch((err: unknown) => {
+          const failureDetail = err instanceof Error ? err.message : String(err);
+          setBackendApiStatusText(`Server-Side Admin API unavailable (${failureDetail})`);
+        });
+    });
 
     return () => {
       unsubscribeAuth();

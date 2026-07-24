@@ -12,7 +12,7 @@ describe('Pyric runtime chip configuration', () => {
     expect(runtimeChipMetaValue({ initiallyOpen: true })).toBe('expanded');
   });
 
-  it('reads only known plugin-authored metadata values', () => {
+  it('reads plugin-authored metadata values or defaults to collapsed when meta tag is omitted', () => {
     const documentWith = (content: string | null, studio = 'on') => ({
       querySelector: () => content === null ? null : {
         getAttribute: (name: string) => name === 'content' ? content : studio,
@@ -21,7 +21,7 @@ describe('Pyric runtime chip configuration', () => {
     expect(readPyricRuntimeChipConfig(documentWith('collapsed'))).toEqual({ initiallyOpen: false, studioEnabled: true });
     expect(readPyricRuntimeChipConfig(documentWith('expanded', 'off'))).toEqual({ initiallyOpen: true, studioEnabled: false });
     expect(readPyricRuntimeChipConfig(documentWith('off'))).toBeNull();
-    expect(readPyricRuntimeChipConfig(documentWith('unexpected'))).toBeNull();
-    expect(readPyricRuntimeChipConfig(documentWith(null))).toBeNull();
+    expect(readPyricRuntimeChipConfig(documentWith('unexpected'))).toEqual({ initiallyOpen: false, studioEnabled: true });
+    expect(readPyricRuntimeChipConfig(documentWith(null))).toEqual({ initiallyOpen: false, studioEnabled: true });
   });
 });

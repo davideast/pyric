@@ -17,26 +17,38 @@ function assembleTurbopackAliases(existingTurbo: Record<string, any> | undefined
  */
 export function augmentTurbopackConfig(config: NextConfigObject): NextConfigObject {
   const updatedConfig: NextConfigObject = Object.assign({}, config);
-
-  const hasTopLevelTurbo = typeof updatedConfig.turbo === 'object' && updatedConfig.turbo !== null;
+  const hasModernTurbopack = typeof updatedConfig.turbopack === 'object' && updatedConfig.turbopack !== null;
+  const hasLegacyTopLevelTurbo = typeof updatedConfig.turbo === 'object' && updatedConfig.turbo !== null;
   const hasExperimentalTurbo =
     typeof updatedConfig.experimental === 'object' &&
     updatedConfig.experimental !== null &&
     typeof updatedConfig.experimental.turbo === 'object' &&
     updatedConfig.experimental.turbo !== null;
 
-  const shouldConfigureTopLevel = hasTopLevelTurbo || !hasExperimentalTurbo;
-  if (shouldConfigureTopLevel) {
+  const shouldDefaultToModernTurbopack =
+    !hasModernTurbopack && !hasLegacyTopLevelTurbo && !hasExperimentalTurbo;
+
+  if (hasModernTurbopack || shouldDefaultToModernTurbopack) {
+    const currentTurbopack = updatedConfig.turbopack;
+    updatedConfig.turbopack = assembleTurbopackAliases(currentTurbopack);
+  }
+
+  if (hasLegacyTopLevelTurbo) {
     const currentTurbo = updatedConfig.turbo;
     updatedConfig.turbo = assembleTurbopackAliases(currentTurbo);
   }
 
   if (hasExperimentalTurbo) {
-    const experimentalSection = Object.assign({}, updatedConfig.experimental);
-    const currentTurbo = experimentalSection.turbo;
-    experimentalSection.turbo = assembleTurbopackAliases(currentTurbo);
-    updatedConfig.experimental = experimentalSection;
+    const existingExperimental =
+      typeof updatedConfig.experimental === 'object' && updatedConfig.experimental !== null
+        ? Object.assign({}, updatedConfig.experimental)
+        : {};
+    const currentTurbo = existingExperimental.turbo;
+    existingExperimental.turbo = assembleTurbopackAliases(currentTurbo);
+    updatedConfig.experimental = existingExperimental;
   }
 
   return updatedConfig;
 }
+
+

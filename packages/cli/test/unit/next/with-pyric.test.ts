@@ -103,14 +103,19 @@ describe('withPyric Next.js configuration wrapper', () => {
     expect(clientResult.resolve.alias['firebase/firestore']).toContain('/entries/firestore.');
     expect(clientResult.resolve.fallback.fs).toBe(false);
     expect(clientResult.resolve.fallback.path).toBe(false);
+    expect(clientResult.experiments.topLevelAwait).toBe(true);
+    expect(clientResult.output.environment.asyncFunction).toBe(true);
   });
 
   it('configures Turbopack aliases for client SDKs', () => {
     const res = withPyric({
+      turbopack: { resolveAlias: { modern: 'alias' } },
       turbo: { resolveAlias: { existing: 'alias' } },
       experimental: { turbo: { resolveAlias: { legacy: 'alias' } } },
     }) as Record<string, any>;
 
+    expect(res.turbopack.resolveAlias.modern).toBe('alias');
+    expect(res.turbopack.resolveAlias['firebase/app']).toContain('/entries/app.');
     expect(res.turbo.resolveAlias.existing).toBe('alias');
     expect(res.turbo.resolveAlias['firebase/app']).toContain('/entries/app.');
     expect(res.experimental.turbo.resolveAlias.legacy).toBe('alias');

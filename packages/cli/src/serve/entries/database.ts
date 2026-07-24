@@ -5,6 +5,7 @@
  * and the Playground. This entry gives served apps the same common modular SDK
  * surface while the in-page fallback delegates to `pyric/database`.
  */
+import './init.js';
 import * as ip from 'pyric/database';
 import { getDatabase as pyricGetDatabase } from 'pyric/database';
 import { queryIdentifier } from 'pyric/database/internal';

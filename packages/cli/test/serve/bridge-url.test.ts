@@ -31,4 +31,10 @@ describe('toPageOriginWsUrl', () => {
       'ws://localhost:5173/__pyric/sandbox',
     );
   });
+
+  it('preserves the bridge server port when page runs on a different explicit port (two-server dev architecture)', () => {
+    expect(toPageOriginWsUrl('ws://localhost:4288/__pyric/sandbox', loc('http://127.0.0.1:4289/'))).toBe(
+      'ws://127.0.0.1:4288/__pyric/sandbox',
+    );
+  });
 });

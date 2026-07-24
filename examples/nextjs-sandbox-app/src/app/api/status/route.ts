@@ -19,12 +19,28 @@ function resolveRuntimeEnvironment(): string {
   return 'production';
 }
 
+async function fetchPostsSnapshot(db: FirebaseFirestore.Firestore, maxRetries = 6, delayMs = 500): Promise<FirebaseFirestore.QuerySnapshot> {
+  let attempts = 0;
+  for (;;) {
+    try {
+      attempts += 1;
+      const snapshot = await db.collection('posts').get();
+      return snapshot;
+    } catch (error) {
+      if (attempts >= maxRetries) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 export async function GET(): Promise<NextResponse> {
   const app = getAdminApp();
   const db = getFirestore(app);
-  
+
   try {
-    const postsSnapshot = await db.collection('posts').get();
+    const postsSnapshot = await fetchPostsSnapshot(db);
     const documentCount = postsSnapshot.size;
     const runtimeTarget = resolveRuntimeEnvironment();
 

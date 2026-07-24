@@ -13,6 +13,7 @@
  * in or seeds a user. Email/password + anonymous also go straight to the
  * worker. The COMPLETE surface is exported on both paths (import-time parity).
  */
+import './init.js';
 import * as ipAuth from 'pyric/auth';
 import { getAuth as pyricGetAuth, setPersistence as pyricSetPersistence } from 'pyric/auth';
 import * as wcRaw from '../worker/client.js';

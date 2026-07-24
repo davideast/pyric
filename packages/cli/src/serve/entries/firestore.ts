@@ -13,6 +13,7 @@
  *
  * Browser-bundled by `../bundler.ts`; never imported by node-side code.
  */
+import './init.js';
 import * as ip from 'pyric/firestore';
 import { getFirestore as pyricGetFirestore } from 'pyric/firestore';
 import * as wcRaw from '../worker/client.js';

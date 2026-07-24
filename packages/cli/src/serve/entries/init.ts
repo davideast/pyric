@@ -53,7 +53,10 @@ const helper = workerAuth
 const resolver = helper.resolver();
 installServeAuthResolver(resolver);
 if (localAuth) authSandbox.setAuthFlowResolver(localAuth, resolver);
-mountAuthHelperDialog(helper);
-installPyricRuntimeChip({ runtime: getPyricRuntimeStatus(), document });
+
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  mountAuthHelperDialog(helper);
+  installPyricRuntimeChip({ runtime: getPyricRuntimeStatus(), document });
+}
 
 export {};

@@ -490,4 +490,18 @@ describe('scanForInlinedFirebase', () => {
     );
     expect(scanForInlinedFirebase(dir)).toEqual([]);
   });
+
+  it('ignores hidden frameworks and build cache directories like .next and .git', async () => {
+    const { scanForInlinedFirebase } = await import('./serve.js');
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-inline-ignore-'));
+    mkdirSync(join(dir, '.next'));
+    writeFileSync(
+      join(dir, '.next', 'bundle.js'),
+      'fetch("https://identitytoolkit.googleapis.com/v1/projects?key="+k)',
+    );
+    expect(scanForInlinedFirebase(dir)).toEqual([]);
+  });
 });

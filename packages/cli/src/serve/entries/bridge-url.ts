@@ -22,9 +22,16 @@ export function toPageOriginWsUrl(
   loc: { href: string; protocol: string; host: string },
 ): string {
   try {
-    const path = new URL(raw, loc.href).pathname;
+    const rawUrl = new URL(raw, loc.href);
+    const locUrl = new URL(loc.href);
     const scheme = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${scheme}//${loc.host}${path}`;
+
+    const hasExplicitLocPort = locUrl.port.length > 0;
+    const hasExplicitRawPort = rawUrl.port.length > 0;
+    const shouldPreserveRawPort = hasExplicitLocPort && hasExplicitRawPort;
+    const hostTarget = shouldPreserveRawPort ? `${locUrl.hostname}:${rawUrl.port}` : locUrl.host;
+
+    return `${scheme}//${hostTarget}${rawUrl.pathname}`;
   } catch {
     return raw;
   }
