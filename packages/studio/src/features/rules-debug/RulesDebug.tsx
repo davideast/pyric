@@ -42,7 +42,7 @@ import {
   type TraceStep,
   type RuleVariable,
 } from './model.js';
-import type { EditedRulesetRerun, RerunResult } from './rerun.js';
+import type { RerunResult } from './rerun.js';
 import { LazyRulesCodeEditor } from './LazyRulesCodeEditor.js';
 
 const SEVERITY_DOT: Record<DenialSeverity, string> = {
@@ -54,29 +54,19 @@ const SEVERITY_DOT: Record<DenialSeverity, string> = {
 export interface RulesDebugProps {
   /** Denied ops, newest first (from `selectDenials(events)`). */
   denials: readonly Denial[];
-  /** Currently-edited ruleset for the "what if" re-run (controlled by the host).
-   *  When absent, the edited-ruleset panel offers to start from the live rules. */
-  editedRules?: string;
   /** The DEPLOYED ruleset source, for the read-only "what happened" view (shown
-   *  with the denying line marked). Independent of `editedRules` so edits don't
-   *  rewrite the record of what actually ran. */
+   *  with the denying line marked). */
   rulesSource?: string;
-  onEditedRulesChange?: (rules: string) => void;
   /** Re-run the selected denial AS the attempting user (impersonation, live). */
   onRerunAsUser?: (denial: Denial) => Promise<RerunResult>;
-  /** Re-run the selected denial against `editedRules` (fork + lint + diff). */
-  onRerunAgainstRules?: (denial: Denial, rules: string) => Promise<EditedRulesetRerun>;
   /** Shown when there are no denials yet (backend-aware copy from the pane). */
   emptyState?: ReactNode;
 }
 
 export function RulesDebug({
   denials,
-  editedRules,
   rulesSource,
-  onEditedRulesChange,
   onRerunAsUser,
-  onRerunAgainstRules,
   emptyState,
 }: RulesDebugProps) {
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -102,11 +92,8 @@ export function RulesDebug({
       {selected ? (
         <DenialDetail
           denial={selected}
-          editedRules={editedRules}
           rulesSource={rulesSource}
-          onEditedRulesChange={onEditedRulesChange}
           onRerunAsUser={onRerunAsUser}
-          onRerunAgainstRules={onRerunAgainstRules}
         />
       ) : null}
     </div>
@@ -183,18 +170,12 @@ function DenialList({
  */
 export function DenialDetail({
   denial,
-  editedRules,
   rulesSource,
-  onEditedRulesChange,
   onRerunAsUser,
-  onRerunAgainstRules,
 }: {
   denial: Denial;
-  editedRules?: string;
   rulesSource?: string;
-  onEditedRulesChange?: (rules: string) => void;
   onRerunAsUser?: (denial: Denial) => Promise<RerunResult>;
-  onRerunAgainstRules?: (denial: Denial, rules: string) => Promise<EditedRulesetRerun>;
 }) {
   const exp = explainDenial(denial);
   return (
@@ -262,10 +243,7 @@ export function DenialDetail({
       {!exp.noEvaluation ? (
         <RerunPanel
           denial={denial}
-          editedRules={editedRules}
-          onEditedRulesChange={onEditedRulesChange}
           onRerunAsUser={onRerunAsUser}
-          onRerunAgainstRules={onRerunAgainstRules}
         />
       ) : null}
     </div>
@@ -661,24 +639,16 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function RerunPanel({
   denial,
-  editedRules,
-  onEditedRulesChange,
   onRerunAsUser,
-  onRerunAgainstRules,
 }: {
   denial: Denial;
-  editedRules?: string;
-  onEditedRulesChange?: (rules: string) => void;
   onRerunAsUser?: (denial: Denial) => Promise<RerunResult>;
-  onRerunAgainstRules?: (denial: Denial, rules: string) => Promise<EditedRulesetRerun>;
 }) {
   const [asUser, setAsUser] = useState<RerunResult | 'pending' | null>(null);
-  const [edited, setEdited] = useState<EditedRulesetRerun | 'pending' | null>(null);
 
   const support = rerunSupport(denial);
   const canImpersonate =
     support.impersonate.kind === 'live' && !!onRerunAsUser && !!denial.auth?.uid;
-  const canEdited = support.editedRuleset.kind === 'live' && !!onRerunAgainstRules;
 
   async function runAsUser() {
     if (!onRerunAsUser) return;
@@ -690,18 +660,8 @@ function RerunPanel({
     }
   }
 
-  async function runEdited() {
-    if (!onRerunAgainstRules) return;
-    setEdited('pending');
-    try {
-      setEdited(await onRerunAgainstRules(denial, editedRules ?? ''));
-    } catch (e) {
-      setEdited({
-        result: { outcome: 'error', code: 'unknown', message: String(e) },
-        diff: [],
-        lint: { parseable: true, findings: [] },
-      });
-    }
+  if (!shouldOfferImpersonation(denial)) {
+    return null;
   }
 
   return (
@@ -709,71 +669,27 @@ function RerunPanel({
       data-pyric-ui="rerun-panel"
       className="mt-1 flex flex-col gap-4 border-t border-border pt-4"
     >
-      {/* Path 1: re-run as the attempting user. Only meaningful when there IS a
-          user: for an unauthenticated denial (request.auth == null) there is no
-          different identity to run as, so the row is dropped entirely rather
-          than shown disabled — re-running as the SAME (absent) user isn't
-          impersonation. A future "run as a DIFFERENT user" picker is the real
-          impersonation design (see SPEC.md). */}
-      {shouldOfferImpersonation(denial) ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-soft-white">
-              Re-run as the attempting user
-            </span>
-            <button
-              type="button"
-              disabled={!canImpersonate || asUser === 'pending'}
-              onClick={runAsUser}
-              className="rounded-md border border-primary/40 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:border-border disabled:text-slate-gray"
-            >
-              {asUser === 'pending'
-                ? 'Running…'
-                : support.impersonate.kind === 'live'
-                  ? `Impersonate ${denial.auth?.uid ?? ''}`
-                  : 'Impersonation not available'}
-            </button>
-          </div>
-          <RerunHint support={support.impersonate} haveCallback={!!onRerunAsUser} />
-          {asUser && asUser !== 'pending' ? <ResultLine result={asUser} /> : null}
-        </div>
-      ) : null}
-
-      {/* Path 2: re-run against an edited ruleset (lint + fork + diff). */}
+      {/* Re-run as the attempting user. Only meaningful when there IS a user. */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm font-medium text-soft-white">
-            Re-run against an edited ruleset
+            Re-run as the attempting user
           </span>
           <button
             type="button"
-            disabled={!canEdited || edited === 'pending'}
-            onClick={runEdited}
+            disabled={!canImpersonate || asUser === 'pending'}
+            onClick={runAsUser}
             className="rounded-md border border-primary/40 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:border-border disabled:text-slate-gray"
           >
-            {edited === 'pending' ? 'Linting + forking…' : 'Lint, then test on a branch'}
+            {asUser === 'pending'
+              ? 'Running…'
+              : support.impersonate.kind === 'live'
+                ? `Impersonate ${denial.auth?.uid ?? ''}`
+                : 'Impersonation not available'}
           </button>
         </div>
-        {onEditedRulesChange && support.editedRuleset.kind === 'live' ? (
-          <LazyRulesCodeEditor
-            value={editedRules ?? ''}
-            onChange={onEditedRulesChange}
-            markLine={denial.evaluatedRule?.line}
-            markKind={denial.result === 'allow' ? 'allow' : 'deny'}
-            minHeightRem={14}
-            ariaLabel="Edited firestore.rules to test the op against"
-          />
-        ) : null}
-        <RerunHint support={support.editedRuleset} haveCallback={!!onRerunAgainstRules} />
-        {edited && edited !== 'pending' ? (
-          <>
-            {edited.lint.findings.length > 0 || !edited.lint.parseable ? (
-              <LintFindings lint={edited.lint} />
-            ) : null}
-            <ResultLine result={edited.result} />
-            {edited.diff.length > 0 ? <DiffView diff={edited.diff} /> : null}
-          </>
-        ) : null}
+        <RerunHint support={support.impersonate} haveCallback={!!onRerunAsUser} />
+        {asUser && asUser !== 'pending' ? <ResultLine result={asUser} /> : null}
       </div>
     </section>
   );
@@ -782,8 +698,7 @@ function RerunPanel({
 /** Renders the capability gate for one re-run path: nothing when it's `live`
  *  and wired, the standard "needs the live backend" hint when it's `live` but
  *  the host hasn't supplied a callback yet, and the mechanical-tool-naming
- *  hint when the service's tooling itself doesn't back this path yet
- *  (`pending`/`absent` — see `SPEC.md`). */
+ *  hint when the service's tooling itself doesn't back this path yet. */
 function RerunHint({ support, haveCallback }: { support: RerunSupport; haveCallback: boolean }) {
   if (support.kind === 'pending' || support.kind === 'absent') {
     const tool = support.kind === 'pending' ? support.tool : support.missingTool;
@@ -806,31 +721,6 @@ function RerunHint({ support, haveCallback }: { support: RerunSupport; haveCallb
     );
   }
   return null;
-}
-
-function LintFindings({ lint }: { lint: EditedRulesetRerun['lint'] }) {
-  return (
-    <div
-      data-pyric-ui="rerun-lint"
-      className="flex flex-col gap-1 rounded-md border border-border bg-content-bg p-3"
-    >
-      <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-slate-gray">
-        lint (firestore_lint_rules)
-      </span>
-      {!lint.parseable ? (
-        <p className="font-mono text-xs text-danger">{lint.parseError}</p>
-      ) : (
-        lint.findings.map((f, i) => (
-          <p key={`${f.rule}-${i}`} className="font-mono text-xs">
-            <span className={f.severity === 'error' ? 'text-danger' : 'text-warning'}>
-              {f.rule}
-            </span>
-            <span className="text-slate-gray"> — {f.message}</span>
-          </p>
-        ))
-      )}
-    </div>
-  );
 }
 
 function ResultLine({ result }: { result: RerunResult }) {
@@ -861,72 +751,5 @@ function ResultLine({ result }: { result: RerunResult }) {
       </Badge>
       <span className="text-slate-gray">{result.message}</span>
     </p>
-  );
-}
-
-// ─── Diff view (branch vs live) ────────────────────────────────────────────
-
-/** Uniform render shape over the `Divergence` union. A branch-vs-live diff only
- *  produces `real-divergence` (the branches primitive's documented behaviour),
- *  but the engine's `Divergence` type also includes replay-only variants
- *  (`autoid-alias`): this flattens every case to `{ path, field?, before, after }`
- *  so the view is total over the union. */
-type DiffRow = { path: string; field?: string; before: unknown; after: unknown };
-
-function toDiffRow(dv: EditedRulesetRerun['diff'][number]): DiffRow {
-  if (dv.kind === 'autoid-alias') {
-    return { path: dv.originalPath, before: dv.originalPath, after: dv.replayedPath };
-  }
-  return {
-    path: dv.path,
-    ...('field' in dv && dv.field ? { field: dv.field } : {}),
-    before: dv.before,
-    after: dv.after,
-  };
-}
-
-function DiffView({ diff }: { diff: EditedRulesetRerun['diff'] }) {
-  return (
-    <div
-      data-pyric-ui="rules-debug-diff"
-      className="flex flex-col gap-1 rounded-md border border-border bg-content-bg p-3"
-    >
-      <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-slate-gray">
-        what the re-run changed (branch vs live)
-      </span>
-      {diff.map((raw, i) => {
-        const dv = toDiffRow(raw);
-        const field = dv.field ? `.${dv.field}` : '';
-        const added = dv.before === undefined && dv.after !== undefined;
-        const removed = dv.before !== undefined && dv.after === undefined;
-        return (
-          <div key={`${dv.path}-${i}`} className="font-mono text-xs">
-            <span
-              className={
-                added
-                  ? 'text-diff-add'
-                  : removed
-                    ? 'text-diff-remove'
-                    : 'text-warning'
-              }
-            >
-              {added ? '+ ' : removed ? '- ' : '~ '}
-              {dv.path}
-              {field}
-            </span>
-            {!added ? (
-              <span className="ml-2 text-slate-gray">
-                {JSON.stringify(truncateVectorsForDisplay(dv.before))}
-              </span>
-            ) : null}
-            {!removed ? (
-              <span className="ml-2 text-soft-white">
-                → {JSON.stringify(truncateVectorsForDisplay(dv.after))}
-              </span>
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
   );
 }
