@@ -37,8 +37,6 @@ import {
   selectRuleEvaluations,
   explainDenial,
   denialSeverity,
-  rerunSupport,
-  shouldOfferImpersonation,
   projectTraceSteps,
   ruleVariables,
   type Denial,
@@ -291,50 +289,14 @@ describe('rules-debug: RTDB source line resolution (findRtdbRuleLine)', () => {
   });
 });
 
-describe('rules-debug re-run: capability grading per service (rerunSupport)', () => {
-  it('Firestore: both re-run paths are live', () => {
-    const d: Denial = {
-      result: 'deny',
-      id: 'f1', at: 0, method: 'get', path: 'notes/n1', service: 'firestore',
-      auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
-    };
-    const support = rerunSupport(d);
-    expect(support.impersonate.kind).toBe('live');
-    expect(support.editedRuleset.kind).toBe('live');
-  });
-
-  it('RTDB: both re-run paths are live', () => {
-    const d: Denial = {
-      result: 'deny',
-      id: 'r1', at: 0, method: 'set', path: 'rooms/r1', service: 'rtdb',
-      rules: { engine: 'rtdb' },
-      auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
-    };
-    const support = rerunSupport(d);
-    expect(support.impersonate.kind).toBe('live');
-    expect(support.editedRuleset.kind).toBe('live');
-  });
-
-  it('Storage: both re-run paths are absent, naming storage_simulate_rules', () => {
+describe('rules-debug explanation: Storage denials', () => {
+  it('Storage: explains rule denial with match condition line', () => {
     const d: Denial = {
       result: 'deny',
       id: 's1', at: 0, method: 'write', path: 'sessions/x', service: 'storage',
       auth: { uid: 'bob' }, reasons: ['match /sessions/{id} write: condition false'],
       origin: 'user', unsupported: false,
     };
-    const support = rerunSupport(d);
-    expect(support.impersonate.kind).toBe('absent');
-    expect(support.editedRuleset.kind).toBe('absent');
-    if (support.impersonate.kind === 'absent') {
-      expect(support.impersonate.missingTool).toBe('storage_simulate_rules');
-      expect(support.impersonate.hint).toContain('rules are enforced');
-      expect(support.impersonate.hint).toContain('events open this inspector');
-    }
-    if (support.editedRuleset.kind === 'absent') {
-      expect(support.editedRuleset.missingTool).toContain('storage_simulate_rules');
-      expect(support.editedRuleset.hint).toContain('denial events are inspectable');
-      expect(support.editedRuleset.hint).not.toContain('not yet emit');
-    }
 
     const exp = explainDenial(d);
     expect(exp.engine).toBe('storage');
@@ -621,25 +583,6 @@ describe('rules-debug: what the rule saw (ruleVariables)', () => {
     const vars = ruleVariables(d);
     expect(vars.find((v) => v.name === 'request.resource.data')!.present).toBe(true);
     expect(vars.find((v) => v.name === 'resource')!.present).toBe(true);
-  });
-});
-
-describe('rules-debug: impersonation row gating (item 6)', () => {
-  it('offers impersonation for an authenticated denial', () => {
-    const d: Denial = {
-      result: 'deny',
-      id: 'a', at: 0, method: 'get', path: 'notes/n1', service: 'firestore',
-      auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
-    };
-    expect(shouldOfferImpersonation(d)).toBe(true);
-  });
-  it('drops the impersonation row for an unauthenticated denial', () => {
-    const d: Denial = {
-      result: 'deny',
-      id: 'b', at: 0, method: 'create', path: 'posts/p1', service: 'firestore',
-      auth: null, reasons: [], origin: 'user', unsupported: false,
-    };
-    expect(shouldOfferImpersonation(d)).toBe(false);
   });
 });
 

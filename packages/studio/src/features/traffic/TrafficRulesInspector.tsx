@@ -23,16 +23,9 @@
  * "not in this session's traffic" state instead of crashing.
  */
 
-import { fork, discard } from 'pyric/sandbox';
-import {
-  DenialDetail,
-  issueOp,
-  type Denial,
-  type RerunResult,
-} from '../rules-debug/index.js';
+import { DenialDetail } from '../rules-debug/index.js';
 import {
   useStudioRuleEvaluations,
-  useStudioSnapshot,
   useStudioRulesSource,
 } from '../../shell/studio-data.js';
 
@@ -45,7 +38,6 @@ export function TrafficRulesInspector({
   onClose: () => void;
 }) {
   const ops = useStudioRuleEvaluations();
-  const getSnapshot = useStudioSnapshot();
   const op = ops.find((d) => d.id === eventId);
   const targetService = op?.service ?? 'firestore';
   const rulesSource = useStudioRulesSource(targetService);
@@ -67,26 +59,6 @@ export function TrafficRulesInspector({
     );
   }
 
-  // Re-run as the attempting user: reproduce on a throwaway fork of the
-  // CURRENT snapshot under the CURRENT rules (same-decision check). Honest
-  // about the no-backend case rather than guessing.
-  const onRerunAsUser = async (d: Denial): Promise<RerunResult> => {
-    const snap = await getSnapshot();
-    if (!snap) {
-      return {
-        outcome: 'error',
-        code: 'no-backend',
-        message: 'No sandbox snapshot to re-run against.',
-      };
-    }
-    const branch = fork(snap, rulesSource);
-    try {
-      return await issueOp(branch.sandbox, d);
-    } finally {
-      discard(branch);
-    }
-  };
-
   return (
     <div
       data-pyric-ui="traffic-rules-inspector"
@@ -106,7 +78,6 @@ export function TrafficRulesInspector({
       <DenialDetail
         denial={op}
         rulesSource={rulesSource}
-        onRerunAsUser={onRerunAsUser}
       />
     </div>
   );
