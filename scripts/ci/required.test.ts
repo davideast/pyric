@@ -6,7 +6,9 @@ import { requiredFailures } from './required.ts';
 const success = {
   'build-and-test': 'success',
   'library-tests': 'success',
+  'conformance-suite': 'success',
   'browser-conformance': 'success',
+  'conformance-gates': 'success',
   'release-contract': 'skipped',
   packaging: 'skipped',
   'install-matrix': 'skipped',
@@ -28,8 +30,16 @@ describe('required CI result', () => {
     expect(requiredFailures({
       checkSet: 'release-only',
       requirePackaging: false,
-      results: { ...success, 'build-and-test': 'skipped', 'library-tests': 'skipped', 'browser-conformance': 'skipped', 'release-contract': 'success' },
+      results: { ...success, 'build-and-test': 'skipped', 'library-tests': 'skipped', 'conformance-suite': 'skipped', 'browser-conformance': 'skipped', 'conformance-gates': 'skipped', 'release-contract': 'success' },
     })).toEqual([]);
+  });
+
+  test('rejects a skipped conformance-gates job on the full check set', () => {
+    expect(requiredFailures({
+      checkSet: 'full',
+      requirePackaging: false,
+      results: { ...success, 'conformance-gates': 'skipped' },
+    })).toEqual(['conformance-gates: skipped']);
   });
 
   test('ignores a missing or failed independent Playground result', () => {

@@ -79,9 +79,6 @@ jobs:
         # the COMPAT matrices cite (INF-3/INF-4). Cheap, deterministic.
         run: bun run packages/conformance/src/check-observation-versions.ts
 
-      - name: Configure job-local surface census cache
-        run: echo "PYRIC_SURFACE_CENSUS_PATH=$RUNNER_TEMP/pyric-surface-census.json" >> "$GITHUB_ENV"
-
       - name: Build packages (site omitted)
         # scripts/build.sh handles the cycle-tolerant bootstrap pass
         # (declaration stubs for every package) then the strict
@@ -97,41 +94,12 @@ jobs:
         run: bun run tool:parity:check
 
       - name: Run CLI tests
-        # The other workspace suites run concurrently in library-tests.
+        # Deliberately unpaired: the CLI suite is load-sensitive under CPU
+        # contention (verify replays flip verdicts when the suite shares a
+        # 2-core VM with other pyric work — reproduced deterministically
+        # before this layout was chosen). The conformance gate chain that
+        # used to follow this step now runs in its own conformance-gates job.
         run: bun run test:ci:cli
-
-      - name: Oracle audit gate (no NEW uncited ✓ COMPAT rows)
-        # Runs the shared conformance model after workspace packages exist and
-        # ratchets its high-risk unprobed-✓ worklist against audit-baseline.json.
-        # Existing debt is tolerated; a new uncited conforming row is not.
-        run: bun run packages/conformance/src/audit-gate.ts
-
-      - name: Oracle conformance gate (observations × probes)
-        # Loads every observations/*.json, protects their captured values, then
-        # replays each registered conformance probe against the local shim and
-        # the frozen record — it contacts nothing live. A contradiction between
-        # the shim and the committed observation fails the build. Live
-        # re-capture is a separate scheduled lane (oracle-recapture.yml).
-        run: bun run packages/conformance/src/check-observations.ts
-
-      - name: Conformance graph integrity
-        # Validates the registry and ratchets unmapped surface gaps without
-        # comparing disposable generated documentation.
-        run: bun run --cwd packages/conformance typecheck && bun run compat:validate && bun run compat:census-gate
-
-      - name: Entry-path conformance gate (CLIFF, not a ratchet)
-        # Runs one canonical initialization program per supported service. Each
-        # must pass or cite a real, currently-existing expected failure.
-        run: bun run compat:entry-path
-
-      - name: Runtime conformance verdict projection
-        # Re-derives the model and checks the ignored build-time CLI projection.
-        run: bun run compat:conformance:check
-
-      - name: Compat coverage gate (surface + behavior %, regression-only)
-        # Publishes current trust numbers and fails only when their evidence
-        # regresses against the committed baseline.
-        run: set -o pipefail; bun run compat:coverage | tee -a "$GITHUB_STEP_SUMMARY"
 
   library-tests:
     name: Run library + UI tests
@@ -151,8 +119,34 @@ jobs:
       - name: Build workspace packages (embedded apps omitted)
         run: bash scripts/build.sh --packages-only
 
-      - name: Run library, UI, Studio, and conformance tests
-        run: bun run test:ci:libraries
+      - name: Run library, UI, and Studio tests
+        # The conformance suite (half this step's former serial time) runs in
+        # its own conformance-suite job. In-job concurrency was measured first
+        # and rejected: on a 2-core runner two CPU-bound streams saved 16s and
+        # starved the conformance model's 60s beforeAll budget into a timeout.
+        # test:ci:libraries stays the canonical serial form for local runs and
+        # the release gates; scripts/ci/library-split.test.ts pins
+        # core = libraries minus conformance so the split cannot drift.
+        run: bun run test:ci:libraries:core
+
+  conformance-suite:
+    name: Conformance suite
+    runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.check-set == 'full'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - run: bash scripts/build.sh --packages-only
+      - name: Run conformance tests
+        # Split out of library-tests so both halves run on their own machine;
+        # deriving the conformance model is CPU-heavy and its tests carry 60s
+        # beforeAll budgets that CPU contention can starve.
+        run: bun test --cwd packages/conformance
 
   browser-conformance:
     name: Served app + SharedWorker conformance
@@ -186,8 +180,11 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: bunx playwright install chromium
 
-      - name: Install Chromium system dependencies
-        run: bunx playwright install-deps chromium
+      # `playwright install-deps chromium` (23s of apt on every run) is
+      # intentionally absent: the ubuntu-latest image ships Chrome's shared
+      # library set, so the bundled Chromium launches without it. If a runner
+      # image update ever drops a library, the browser-launch failure here is
+      # loud and the step comes back with an apt cache.
 
       - name: Served app + SharedWorker conformance
         # Runs the canonical firebase/* swap through pyric dev, including named
@@ -212,6 +209,31 @@ jobs:
         with:
           bun-version: '1.3.11'
       - run: bun test scripts/publish-alpha.test.ts
+
+  conformance-gates:
+    name: Conformance gates
+    runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.check-set == 'full'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Configure job-local surface census cache
+        run: echo "PYRIC_SURFACE_CENSUS_PATH=$RUNNER_TEMP/pyric-surface-census.json" >> "$GITHUB_ENV"
+      - run: bash scripts/build.sh --packages-only
+      - name: Conformance gate chain
+        # The five gates that used to run serially at the tail of
+        # build-and-test (audit gate, observations × probes, graph integrity,
+        # entry-path cliff, verdict projection, coverage ratchet — order
+        # unchanged in scripts/ci/conformance-gates.sh). A job of their own
+        # keeps them off the critical path without pairing them against the
+        # CLI suite, whose verify replays flip verdicts under CPU contention
+        # (reproduced deterministically while validating this layout).
+        run: bash scripts/ci/conformance-gates.sh
 
   packaging:
     name: Packaging gate (pack + install + subpath resolution)
@@ -352,7 +374,7 @@ jobs:
     name: CI / required
     runs-on: ubuntu-latest
     if: always()
-    needs: [plan, build-and-test, library-tests, browser-conformance, release-contract, packaging, install-matrix, standalone]
+    needs: [plan, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, release-contract, packaging, install-matrix, standalone]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

@@ -61,7 +61,10 @@ describe('served app conformance merge gate', () => {
     expect(browserJobEnd).toBeGreaterThan(browserJobStart);
     expect(browserJob).toContain('Cache Playwright Chromium');
     expect(browserJob).toContain('bunx playwright install chromium');
-    expect(browserJob).toContain('bunx playwright install-deps chromium');
+    // The apt dependency step is deliberately absent: the runner image already
+    // carries Chrome's shared-library set, and reinstalling it cost 23s per
+    // run. Pin the absence so it cannot silently return.
+    expect(browserJob).not.toContain('bunx playwright install-deps chromium');
     expect(browserJob).toContain('bun run --cwd packages/cli test:app-conformance');
     expect(browserJob).toContain('bun run --cwd packages/cli test:site-cli');
     expect(browserJob).toContain('bun run --cwd packages/cli test:site-static');
@@ -70,12 +73,10 @@ describe('served app conformance merge gate', () => {
     const build = browserJob.indexOf('bash scripts/build.sh');
     const cache = browserJob.indexOf('Cache Playwright Chromium');
     const browser = browserJob.indexOf('bunx playwright install chromium');
-    const dependencies = browserJob.indexOf('bunx playwright install-deps chromium');
     const proof = browserJob.indexOf('bun run --cwd packages/cli test:app-conformance');
     expect(build).toBeLessThan(cache);
     expect(cache).toBeLessThan(browser);
-    expect(browser).toBeLessThan(dependencies);
-    expect(dependencies).toBeLessThan(proof);
+    expect(browser).toBeLessThan(proof);
   });
 
   test('standalone CI embeds the Astro site before compiling the binary', () => {
