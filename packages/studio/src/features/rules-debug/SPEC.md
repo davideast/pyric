@@ -169,11 +169,7 @@ raw `matchedRule` expression are surfaced verbatim.
 path, the raw rule expression (`matchedRule`), `$variable` bindings, the data
 evaluated (proposed write / existing value), `request.auth`.
 
-**Re-runs**: both **pending** — the pure `SimulateHandler` is the mechanical
-substrate, but the Studio worker does not yet expose a denial re-run operation.
-There is also no whole-ruleset RTDB linter yet, so the edited-ruleset re-run
-must name that gap. Re-running is honestly a simulation, never framed as a
-production operation.
+**Re-runs**: both **live** — the pure `SimulateHandler` (`rtdbRules(rules).simulate`) is the mechanical substrate. Impersonated re-runs execute against active sandbox rules via `issueOp`, while edited-ruleset re-runs validate JSON syntax and re-simulate over an in-memory branch (`fork + setRules + simulate`). Re-running is honestly a simulation, never framed as a live inline enforcement gate.
 
 ### Storage
 
