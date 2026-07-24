@@ -17,19 +17,27 @@ interface RuntimeChipDocument {
   querySelector(selector: string): { getAttribute(name: string): string | null } | null;
 }
 
+function hasBundlerRuntimeChipConfig(): boolean {
+  return typeof process !== 'undefined' && typeof process.env !== 'undefined' && typeof process.env.PYRIC_RUNTIME_CHIP === 'string';
+}
+
 /** Read plugin-authored values from DOM metadata or bundler environment variables, defaulting to collapsed UI when omitted. */
 export function readPyricRuntimeChipConfig(
   documentLike: RuntimeChipDocument,
 ): PyricRuntimeChipConfig | null {
   const meta = documentLike.querySelector(`meta[name="${PYRIC_RUNTIME_CHIP_META}"]`);
-  let value = meta !== null ? meta.getAttribute('content') : null;
-  if (value === null && typeof process !== 'undefined' && typeof process.env !== 'undefined' && typeof process.env.PYRIC_RUNTIME_CHIP === 'string') {
-    value = process.env.PYRIC_RUNTIME_CHIP;
+  const hasMetaTag = meta !== null;
+  let value = hasMetaTag ? meta.getAttribute('content') : null;
+
+  const shouldFallbackToEnv = !hasMetaTag && hasBundlerRuntimeChipConfig();
+  if (shouldFallbackToEnv) {
+    value = process.env.PYRIC_RUNTIME_CHIP as string;
   }
   if (value === 'off') {
     return null;
   }
-  const studioEnabled = meta === null || meta.getAttribute('data-studio') !== 'off';
+
+  const studioEnabled = !hasMetaTag || meta.getAttribute('data-studio') !== 'off';
   const initiallyOpen = value === 'expanded';
   return { initiallyOpen, studioEnabled };
 }
