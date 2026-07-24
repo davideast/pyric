@@ -1,5 +1,4 @@
 /** Served `firebase/app`: the exact Pyric client registry over the page runtime. */
-import './init.js';
 import { bindAppRegistrySandbox } from 'pyric/app/internal';
 import { sandbox } from './app-backend.js';
 
