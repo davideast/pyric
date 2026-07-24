@@ -17,12 +17,15 @@ interface RuntimeChipDocument {
   querySelector(selector: string): { getAttribute(name: string): string | null } | null;
 }
 
-/** Read plugin-authored values or default to collapsed UI when meta tag is omitted (e.g. Next.js workflows). */
+/** Read plugin-authored values from DOM metadata or bundler environment variables, defaulting to collapsed UI when omitted. */
 export function readPyricRuntimeChipConfig(
   documentLike: RuntimeChipDocument,
 ): PyricRuntimeChipConfig | null {
   const meta = documentLike.querySelector(`meta[name="${PYRIC_RUNTIME_CHIP_META}"]`);
-  const value = meta !== null ? meta.getAttribute('content') : null;
+  let value = meta !== null ? meta.getAttribute('content') : null;
+  if (value === null && typeof process !== 'undefined' && typeof process.env !== 'undefined' && typeof process.env.PYRIC_RUNTIME_CHIP === 'string') {
+    value = process.env.PYRIC_RUNTIME_CHIP;
+  }
   if (value === 'off') {
     return null;
   }

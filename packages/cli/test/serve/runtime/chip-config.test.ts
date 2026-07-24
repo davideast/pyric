@@ -24,4 +24,16 @@ describe('Pyric runtime chip configuration', () => {
     expect(readPyricRuntimeChipConfig(documentWith('unexpected'))).toEqual({ initiallyOpen: false, studioEnabled: true });
     expect(readPyricRuntimeChipConfig(documentWith(null))).toEqual({ initiallyOpen: false, studioEnabled: true });
   });
+
+  it('reads environment variables (from Next.js or bundlers) when meta tag is absent', () => {
+    const emptyDoc = { querySelector: () => null };
+    process.env.PYRIC_RUNTIME_CHIP = 'off';
+    expect(readPyricRuntimeChipConfig(emptyDoc)).toBeNull();
+
+    process.env.PYRIC_RUNTIME_CHIP = 'expanded';
+    expect(readPyricRuntimeChipConfig(emptyDoc)).toEqual({ initiallyOpen: true, studioEnabled: true });
+
+    delete process.env.PYRIC_RUNTIME_CHIP;
+    expect(readPyricRuntimeChipConfig(emptyDoc)).toEqual({ initiallyOpen: false, studioEnabled: true });
+  });
 });

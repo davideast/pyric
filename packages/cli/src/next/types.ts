@@ -2,6 +2,9 @@
  * Public configuration types for the `@pyric/cli/next` integration.
  */
 
+import type { PyricRuntimeChipOption } from '../serve/runtime/chip-config.js';
+export type { PyricRuntimeChipOption };
+
 export interface PyricNextOptions {
   /**
    * Guard against starting Next.js dev server directly (`next dev`) without
@@ -26,6 +29,12 @@ export interface PyricNextOptions {
    * traffic to the local Pyric dev server. Default `true`.
    */
   rewrites?: boolean;
+  /**
+   * Display the floating Pyric runtime chip in browser client pages during
+   * local development. On by default. Pass `false` to hide it, or
+   * `{ initiallyOpen: true }` when actively debugging runtime errors.
+   */
+  runtimeChip?: PyricRuntimeChipOption;
 }
 
 export type NextConfigObject = Record<string, any>;

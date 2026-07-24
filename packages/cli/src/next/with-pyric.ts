@@ -7,6 +7,7 @@ import { augmentServerExternalPackages } from './server-external-packages.js';
 import { augmentWebpackConfig } from './webpack-config.js';
 import { augmentTurbopackConfig } from './turbopack-config.js';
 import { augmentDevRewrites } from './dev-rewrites.js';
+import { augmentRuntimeEnv } from './runtime-env.js';
 
 function isFunctionConfig(config: NextConfig): config is NextConfigFunction {
   return typeof config === 'function';
@@ -17,6 +18,7 @@ function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOpt
   enhancedConfig = augmentWebpackConfig(enhancedConfig);
   enhancedConfig = augmentTurbopackConfig(enhancedConfig);
   enhancedConfig = augmentDevRewrites(enhancedConfig, options);
+  enhancedConfig = augmentRuntimeEnv(enhancedConfig, options);
   return enhancedConfig;
 }
 

@@ -75,3 +75,20 @@ export async function GET() {
 ```
 
 When `pyric dev` supervises your Next.js process, server components and API routes automatically resolve Firebase Admin calls over the WebSocket bridge to your open browser tab.
+
+## Configure or disable the runtime chip
+
+Pass explicit options to `withPyric` to disable or expand the floating browser status chip during local development:
+
+```js
+// next.config.mjs
+import { withPyric } from '@pyric/cli/next';
+
+const nextConfig = {};
+
+export default withPyric(nextConfig, {
+  runtimeChip: false, // Pass { initiallyOpen: true } to launch expanded
+});
+```
+
+`withPyric` propagates your chip preference down to client runtime bundles automatically during local builds. No HTML transformations or layout component edits are required.

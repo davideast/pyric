@@ -175,4 +175,12 @@ describe('withPyric Next.js configuration wrapper', () => {
     expect(evalResult.phase).toBe('phase-develop');
     expect(evalResult.serverExternalPackages).toContain('firebase');
   });
+
+  it('configures PYRIC_RUNTIME_CHIP environment variables when runtimeChip option is passed', () => {
+    const resOff = withPyric({}, { runtimeChip: false }) as Record<string, any>;
+    expect(resOff.env?.PYRIC_RUNTIME_CHIP).toBe('off');
+
+    const resOpen = withPyric({}, { runtimeChip: { initiallyOpen: true } }) as Record<string, any>;
+    expect(resOpen.env?.PYRIC_RUNTIME_CHIP).toBe('expanded');
+  });
 });
