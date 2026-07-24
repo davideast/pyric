@@ -100,6 +100,7 @@ export interface ConformanceModel {
     census: readonly SurfaceCensus[];
     coverageBaseline: CoverageBaseline;
     rows: readonly CompatibilityRow[];
+    observationPaths: Readonly<Record<string, string>>;
   };
   evidence: {
     observations: readonly Observation[];
@@ -515,6 +516,10 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
     featureKey(support.surface, support.feature),
     support.claims.map(({ id }) => id),
   ])) as FeatureIndex;
+  const observations = loadObservations();
+  const observationPaths: Record<string, string> = Object.fromEntries(
+    observations.map((obs) => [obs.name, `packages/conformance/observations/${obs.surfaceDir}/${obs.file}`]),
+  );
   return {
     supports,
     importEvidence: [...importEvidenceByPath.values()].sort((a, b) => a.importPath.localeCompare(b.importPath)),
@@ -533,9 +538,10 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
       census,
       coverageBaseline: coverageBaselineJson as CoverageBaseline,
       rows: rows(),
+      observationPaths,
     },
     evidence: {
-      observations: loadObservations(),
+      observations,
       observationExceptions,
     },
   };
