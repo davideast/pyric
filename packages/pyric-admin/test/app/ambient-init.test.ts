@@ -26,6 +26,7 @@ import {
 } from 'pyric/sandbox';
 
 import {
+  cert,
   deleteApp,
   getApps,
   initializeApp,
@@ -221,5 +222,32 @@ describe('ambient init — production guard', () => {
     process.env.NODE_ENV = 'development';
     const app = initializeApp();
     expect(isSandboxAdminApp(app)).toBe(true);
+  });
+
+  it('cert returns an inert credential object', () => {
+    expect(cert({ projectId: 'demo' })).toEqual({
+      [Symbol.for('pyric.admin.credential')]: 'cert',
+    });
+  });
+
+  it('initializeApp with production options falls back to ambient sandbox initialization when PYRIC_SANDBOX is set', () => {
+    const { handle } = installFakeFactory();
+    process.env.PYRIC_SANDBOX = 'remote';
+    const app = initializeApp({
+      projectId: 'demo',
+      credential: cert({ projectId: 'demo' }),
+    });
+    expect(isSandboxAdminApp(app)).toBe(true);
+    if (isSandboxAdminApp(app)) expect(app.sandbox).toBe(handle);
+  });
+
+  it('accepts 1 and true as valid PYRIC_SANDBOX activator strings', () => {
+    const { handle } = installFakeFactory();
+    for (const val of ['1', 'true']) {
+      process.env.PYRIC_SANDBOX = val;
+      const app = initializeApp(undefined, `test-app-${val}`);
+      expect(isSandboxAdminApp(app)).toBe(true);
+      if (isSandboxAdminApp(app)) expect(app.sandbox).toBe(handle);
+    }
   });
 });

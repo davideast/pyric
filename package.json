@@ -58,6 +58,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.3",
+    "@google/jules-cli": "https://firebasestorage.googleapis.com/v0/b/alpha-note-274ac.appspot.com/o/jules%2Flatest.tgz?alt=media",
     "@types/bun": "latest",
     "bun-types": "latest",
     "firebase": "^12.12.0",

@@ -78,85 +78,19 @@ import {
   type PyricAdminApp,
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import type {
+  Auth,
+  CreateRequest,
+  DecodedIdToken,
+  ListUsersResult,
+  UpdateRequest,
+  UserRecord,
+} from './types.js';
+import { SANDBOX_TOKEN_PREFIX } from './token-decoders.js';
+import { verifySandboxIdToken } from './verify-token.js';
 
-export interface CreateRequest {
-  uid?: string;
-  email?: string;
-  emailVerified?: boolean;
-  displayName?: string | null;
-  photoURL?: string | null;
-  phoneNumber?: string | null;
-  disabled?: boolean;
-  password?: string;
-}
-
-export interface UpdateRequest extends Omit<CreateRequest, 'uid'> {
-  multiFactor?: unknown;
-  providerToLink?: unknown;
-  providersToUnlink?: unknown;
-}
-
-export interface DecodedIdToken extends Record<string, unknown> {
-  aud: string;
-  auth_time: number;
-  exp: number;
-  firebase: { identities: Record<string, unknown>; sign_in_provider: string };
-  iat: number;
-  iss: string;
-  sub: string;
-  uid: string;
-}
-
-export interface UserMetadata {
-  creationTime: string;
-  lastSignInTime: string;
-  toJSON(): Record<string, unknown>;
-}
-
-export interface UserInfo {
-  providerId: string;
-  uid: string;
-  displayName?: string;
-  email?: string;
-  photoURL?: string;
-  phoneNumber?: string;
-  toJSON(): Record<string, unknown>;
-}
-
-export interface UserRecord {
-  readonly uid: string;
-  readonly email?: string;
-  readonly emailVerified: boolean;
-  readonly displayName?: string;
-  readonly photoURL?: string;
-  readonly phoneNumber?: string;
-  readonly disabled: boolean;
-  readonly metadata: UserMetadata;
-  readonly providerData: UserInfo[];
-  readonly customClaims?: Record<string, unknown>;
-  readonly tenantId: string | null;
-  toJSON(): Record<string, unknown>;
-}
-
-export interface ListUsersResult {
-  users: UserRecord[];
-  pageToken?: string;
-}
-
-/** Sandbox Auth interface intentionally limited to implemented behavior. */
-export interface Auth {
-  readonly app: PyricAdminApp;
-  createCustomToken(uid: string, developerClaims?: object): Promise<string>;
-  verifyIdToken(idToken: string, checkRevoked?: boolean): Promise<DecodedIdToken>;
-  createUser(properties: CreateRequest): Promise<UserRecord>;
-  getUser(uid: string): Promise<UserRecord>;
-  getUserByEmail(email: string): Promise<UserRecord>;
-  deleteUser(uid: string): Promise<void>;
-  setCustomUserClaims(uid: string, customUserClaims: object | null): Promise<void>;
-  updateUser(uid: string, properties: UpdateRequest): Promise<UserRecord>;
-  listUsers(maxResults?: number, pageToken?: string): Promise<ListUsersResult>;
-  [key: string]: unknown;
-}
+export * from './types.js';
+export { SANDBOX_TOKEN_PREFIX } from './token-decoders.js';
 
 // ─── Sandbox backend ────────────────────────────────────────────────────
 
@@ -183,7 +117,7 @@ class AuthStore {
    * collision resistance — it needs a stable, debuggable identifier
    * that doesn't collide *within one sandbox session*. A counter plus
    * a constant prefix is enough; padding keeps the visual width
- * roughly consistent with Firebase Auth uids.
+   * roughly consistent with Firebase Auth uids.
    */
   mintUid(): string {
     const n = String(this.nextAutoUid++).padStart(20, '0');
@@ -239,102 +173,15 @@ function storeFor(sandbox: Sandbox): AuthStore {
 }
 
 /**
- * Token format minted by `createCustomToken` and parsed by
- * `verifyIdToken`. Exported as a constant so tests can lock the shape.
- *
- * Layout: `pyric-sandbox-custom:${uid}:${jsonClaims}`
- *
- * - The prefix lets `verifyIdToken` reject foreign tokens with a clear
- *   "not a sandbox token" error rather than NaN'ing out.
- * - `uid` is colon-free per the auto-uid format above.
- * - `jsonClaims` is the JSON-stringified developer claims (or `{}` when
- *   none were provided). Round-trips losslessly through `JSON.parse`.
- *
- * NOT a JWT. NOT signed. Do not use this token format to talk to any
- * real Firebase service — it only round-trips through this same
- * sandbox backend.
- */
-export const SANDBOX_TOKEN_PREFIX = 'pyric-sandbox-custom';
-
-/**
  * Mint a deterministic sandbox token (the {@link SANDBOX_TOKEN_PREFIX}
  * format). Stateless — shared verbatim by the local and remote sandbox
  * arms, so a token minted against either round-trips through
- * {@link verifySandboxIdToken} on the other.
+ * verifySandboxIdToken on the other.
  */
 function mintSandboxCustomToken(uid: string, developerClaims?: object): Promise<string> {
   const claims = developerClaims ?? {};
   const token = `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims)}`;
   return Promise.resolve(token);
-}
-
-/**
- * Parse a token minted by {@link mintSandboxCustomToken}. Returns a
- * `DecodedIdToken`-shaped object — every required field is filled with a
- * sandbox-appropriate placeholder (`iss`/`aud` = `pyric-sandbox`, time
- * fields = now), and the developer claims are spread onto the result so
- * `decoded.role` etc. retain the familiar Firebase Admin shape.
- *
- * Throws on any token that doesn't match the
- * `${SANDBOX_TOKEN_PREFIX}:${uid}:${json}` shape — including real JWTs
- * that another verifier would parse. The sandbox backends are
- * intentionally not drop-ins for production token verification.
- */
-function verifySandboxIdToken(idToken: string): Promise<DecodedIdToken> {
-  if (typeof idToken !== 'string' || !idToken.startsWith(`${SANDBOX_TOKEN_PREFIX}:`)) {
-    return Promise.reject(
-      new Error(
-        'pyric-admin/auth: verifyIdToken on the sandbox backend only ' +
-          'accepts tokens minted by this sandbox\'s createCustomToken. ' +
-          `Token prefix must be "${SANDBOX_TOKEN_PREFIX}:".`,
-      ),
-    );
-  }
-  // The token is `prefix:uid:json`. Split on the first two colons
-  // only — the JSON payload may itself contain colons (e.g. inside
-  // a string value) so `split(':')` with no limit would corrupt it.
-  const firstColon = idToken.indexOf(':');
-  const secondColon = idToken.indexOf(':', firstColon + 1);
-  if (secondColon < 0) {
-    return Promise.reject(
-      new Error(
-        `pyric-admin/auth: verifyIdToken received a malformed sandbox token (missing claims segment): ${idToken}`,
-      ),
-    );
-  }
-  const uid = idToken.slice(firstColon + 1, secondColon);
-  const jsonClaims = idToken.slice(secondColon + 1);
-  let claims: Record<string, unknown>;
-  try {
-    claims = JSON.parse(jsonClaims) as Record<string, unknown>;
-  } catch (e) {
-    return Promise.reject(
-      new Error(
-        `pyric-admin/auth: verifyIdToken failed to parse sandbox token claims as JSON: ${(e as Error).message}`,
-      ),
-    );
-  }
-  const nowSec = Math.floor(Date.now() / 1000);
-  // `DecodedIdToken` requires `aud`/`iss`/`sub`/`uid`/`auth_time`/
-  // `exp`/`iat`/`firebase` to be present; the sandbox fills them
-  // with placeholders so consumers that read them get sensible
-  // values rather than `undefined`. Developer claims are spread on
-  // top so they shadow nothing critical.
-  const decoded: DecodedIdToken = {
-    aud: 'pyric-sandbox',
-    auth_time: nowSec,
-    exp: nowSec + 3600,
-    firebase: {
-      identities: {},
-      sign_in_provider: 'custom',
-    },
-    iat: nowSec,
-    iss: 'pyric-sandbox',
-    sub: uid,
-    uid,
-    ...claims,
-  };
-  return Promise.resolve(decoded);
 }
 
 /**

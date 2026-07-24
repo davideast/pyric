@@ -84,6 +84,16 @@ import {
   type PyricAdminApp,
 } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import { increment, serverTimestamp } from 'pyric/database';
+
+/** Mirror of `firebase-admin/database`'s `ServerValue` constant and sentinel constructors. */
+export const ServerValue: {
+  readonly TIMESTAMP: object;
+  readonly increment: (delta: number) => object;
+} = {
+  TIMESTAMP: serverTimestamp(),
+  increment: (delta: number) => increment(delta),
+};
 
 /** Mirror-owned structural types for the implemented admin RTDB surface. */
 export type EventType = 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
