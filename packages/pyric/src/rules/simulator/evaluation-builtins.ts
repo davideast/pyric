@@ -43,17 +43,6 @@ function rulesFloatBuiltin(v: unknown): RulesFloat {
   throw new EvalError(`float() cannot convert ${typeof v} to a float`);
 }
 
-/** `bool(x)` — pass a bool through; parse only the exact strings 'true'/'false'. */
-function rulesBool(v: unknown): boolean {
-  if (typeof v === 'boolean') return v;
-  if (typeof v === 'string') {
-    if (v === 'true') return true;
-    if (v === 'false') return false;
-    throw new EvalError(`bool() cannot convert string '${v}' to a boolean`);
-  }
-  throw new EvalError(`bool() cannot convert ${typeof v} to a boolean`);
-}
-
 // ═══ Function calls ═══
 
 export function evaluateFunctionCall(
@@ -127,7 +116,6 @@ export function evaluateFunctionCall(
     case 'string': return String(evaluate(args[0], ctx, scope));
     case 'int': return rulesInt(evaluate(args[0], ctx, scope));
     case 'float': return rulesFloatBuiltin(evaluate(args[0], ctx, scope));
-    case 'bool': return rulesBool(evaluate(args[0], ctx, scope));
     case 'path': {
       // Item 5.4 — `path('users/alice')` returns a Path wrapper. Production
       // accepts only strings; passing an existing Path is a type error.
@@ -284,10 +272,6 @@ export function evaluateMethodCall(
       case 'keys': return Object.keys(map);
       case 'values': return Object.values(map);
       case 'size': return Object.keys(map).length;
-      // RULES-B7: key checks use OWN keys only (no prototype-chain leak).
-      case 'hasAll': return (argValues[0] as string[]).every(k => Object.hasOwn(map, k));
-      case 'hasAny': return (argValues[0] as string[]).some(k => Object.hasOwn(map, k));
-      case 'hasOnly': return Object.keys(map).every(k => (argValues[0] as string[]).includes(k));
       case 'diff': {
         const other = argValues[0] as Record<string, unknown>;
         return new MapDiff(other, map);
@@ -490,10 +474,6 @@ function evaluateMathMethod(method: string, args: unknown[]): unknown {
     case 'round': return Math.round(args[0] as number);
     case 'sqrt': return Math.sqrt(args[0] as number);
     case 'pow': return Math.pow(args[0] as number, args[1] as number);
-    case 'isInfinite': {
-      const n = args[0] as number;
-      return Number.isFinite(n) === false && Number.isNaN(n) === false;
-    }
     case 'isNaN': return Number.isNaN(args[0] as number);
   }
   throw new UnsupportedError(`Unknown math method '${method}'`);

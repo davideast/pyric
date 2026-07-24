@@ -75,7 +75,7 @@ const HALLUCINATED_METHODS: Record<string, string> = {
  * JavaScript globals or constructors that don't exist as identifiers in
  * Firestore rules. CEL has no module system and a tiny global namespace
  * (just `request`, `resource`, custom functions, and a handful of
- * built-in casts: `string`, `int`, `float`, `bool`, `timestamp`).
+ * built-in casts: `string`, `int`, `float`, `timestamp`).
  */
 const HALLUCINATED_GLOBALS: Record<string, string> = {
   Object:     'No `Object` in rules — use `data.keys()` / `data.values()` directly',
@@ -85,7 +85,8 @@ const HALLUCINATED_GLOBALS: Record<string, string> = {
   Date:       'No `Date` in rules — use `request.time` (a Timestamp)',
   String:     'Use lowercase `string(x)` for casting',
   Number:     'Use lowercase `int(x)` or `float(x)` for casting',
-  Boolean:    'Use lowercase `bool(x)` for casting',
+  Boolean:    'Use direct comparison or validation instead of boolean casting',
+  bool:       'No `bool()` cast in rules — boolean casting is not supported in production Firestore rules.',
   parseInt:   'Use `int(x)` instead',
   parseFloat: 'Use `float(x)` instead',
   isNaN:      'No equivalent in rules',
@@ -93,6 +94,9 @@ const HALLUCINATED_GLOBALS: Record<string, string> = {
   Promise:    'Rules are synchronous — no Promise support',
   undefined:  '`undefined` does not exist in rules — use `null`',
 };
+
+const VALID_MATH_METHODS = new Set(['abs', 'ceil', 'floor', 'round', 'sqrt', 'pow', 'isNaN']);
+
 
 /**
  * Wrong properties accessed on the well-known top-level rule objects.
@@ -227,7 +231,7 @@ function walkExpr(
  * distinct (rule, key, location) tuple — duplicate identical patterns
  * within the same rule are de-duplicated.
  */
-export function checkHallucinations(ast: FirestoreRules): LintWarning[] {
+export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?: boolean } = {}): LintWarning[] {
   const warnings: LintWarning[] = [];
   const seen = new Set<string>();
 
@@ -239,6 +243,16 @@ export function checkHallucinations(ast: FirestoreRules): LintWarning[] {
   }
 
   walkAllExpressions(ast.service.match, (expr, loc) => {
+    if (!options.allowDebug && expr.type === 'functionCall' && expr.name === 'debug') {
+      emit('HALLUCINATED_GLOBAL', 'debug', loc, {
+        rule: 'HALLUCINATED_GLOBAL',
+        severity: 'error',
+        message: '`debug()` helper is only permitted in local testing environments; remove it before deployment.',
+        location: loc,
+        fix: 'Remove debug() wrapper around the expression.',
+      });
+    }
+
     // HALLUCINATED_METHOD — obj.someJsMethod(...)
     if (expr.type === 'methodCall' && HALLUCINATED_METHODS[expr.method]) {
       emit('HALLUCINATED_METHOD', expr.method, loc, {
@@ -248,6 +262,30 @@ export function checkHallucinations(ast: FirestoreRules): LintWarning[] {
         location: loc,
         fix: HALLUCINATED_METHODS[expr.method],
       });
+    }
+
+    if (expr.type === 'methodCall' && expr.object.type === 'identifier' && expr.object.name === 'math' && !VALID_MATH_METHODS.has(expr.method)) {
+      emit('HALLUCINATED_METHOD', `math.${expr.method}`, loc, {
+        rule: 'HALLUCINATED_METHOD',
+        severity: 'error',
+        message: `\`math.${expr.method}()\` does not exist in production Firestore security rules.`,
+        location: loc,
+        fix: 'Use supported math namespace functions: abs, ceil, floor, round, sqrt, pow, isNaN.',
+      });
+    }
+
+    if (expr.type === 'methodCall' && (expr.method === 'hasAll' || expr.method === 'hasAny' || expr.method === 'hasOnly')) {
+      const isKnownMap = expr.object.type === 'mapLiteral' ||
+        (expr.object.type === 'memberAccess' && expr.object.property === 'data');
+      if (isKnownMap) {
+        emit('HALLUCINATED_METHOD', `map.${expr.method}`, loc, {
+          rule: 'HALLUCINATED_METHOD',
+          severity: 'error',
+          message: `\`.${expr.method}()\` cannot be called directly on a map in Firestore rules — call it on \`.keys()\` instead.`,
+          location: loc,
+          fix: `Insert \`.keys()\`: e.g. \`data.keys().${expr.method}(...)\`.`,
+        });
+      }
     }
 
     // HALLUCINATED_GLOBAL — Object.keys(...), JSON.parse(...), Math.max(...)

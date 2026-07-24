@@ -177,7 +177,7 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
   const scenarioByObservation = new Map(
     ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => [observationName(scenario), scenario]),
   );
-  const firestoreRows = allCompatibilityRows.filter(({ surface }) => surface === 'firestore-rules');
+  const firestoreRows = allCompatibilityRows.filter(({ surface, automation }) => surface === 'firestore-rules' && automation === 'oracle-backed');
   const rowStatus = new Map(firestoreRows.map((row) => [row.id, row]));
   const files = readdirSync(OBS_DIR)
     .filter((file) => file.startsWith(RULES_FIRESTORE_OBSERVATION_PREFIX) && file.endsWith('.json'))

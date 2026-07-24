@@ -661,9 +661,9 @@ describe('RULES-B7: prototype keys do not leak', () => {
     expect(() => evaluate(expr, ctx)).toThrow(/No field 'constructor'/);
   });
 
-  test("data.hasAll(['toString']) → false (inherited key not owned)", () => {
+  test("data.keys().hasAll(['toString']) → false (inherited key not owned)", () => {
     const ctx = baseCtx({ resource: mkRes({ name: 'x' }) });
-    const expr = methodCall(member(id('resource'), 'data'), 'hasAll', [listLit([lit('toString')])]);
+    const expr = methodCall(methodCall(member(id('resource'), 'data'), 'keys', []), 'hasAll', [listLit([lit('toString')])]);
     expect(evaluate(expr, ctx)).toBe(false);
   });
 
@@ -901,14 +901,9 @@ describe('RULES-B6 remainder: strict int()/bool()/float() parsing', () => {
     expect(evaluate(call('int', [lit(true)]), baseCtx())).toBe(1);
     expect(evaluate(call('int', [lit(false)]), baseCtx())).toBe(0);
   });
-  test("bool('false') == false (NOT JS Boolean('false') === true)", () => {
-    expect(evaluate(call('bool', [lit('false')]), baseCtx())).toBe(false);
-  });
-  test("bool('true') == true", () => {
-    expect(evaluate(call('bool', [lit('true')]), baseCtx())).toBe(true);
-  });
-  test("bool('yes') ERRORS (only 'true'/'false' are valid)", () => {
-    expect(() => evaluate(call('bool', [lit('yes')]), baseCtx())).toThrow(/cannot convert/);
+  test("bool() is an unsupported function in production Firestore rules", () => {
+    expect(() => evaluate(call('bool', [lit('false')]), baseCtx())).toThrow(/Unknown function: bool/);
+    expect(() => evaluate(call('bool', [lit('true')]), baseCtx())).toThrow(/Unknown function: bool/);
   });
   test('float("1.5") is a float-typed value', () => {
     expect(evaluate(isType(call('float', [lit('1.5')]), 'float'), baseCtx())).toBe(true);

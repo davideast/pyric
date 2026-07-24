@@ -1,4 +1,5 @@
 import type { DocStore, DocumentData } from './local-state.js';
+import { applyMerge } from './field-merge.js';
 import type {
   SimulateFirestoreRulesHandler,
   TestCase,
@@ -115,10 +116,24 @@ export class WriteRuntime {
     const projection = new Map<string, DocumentData | null>();
     for (const testCase of testCases) {
       if (testCase.method === 'get' || testCase.method === 'list') continue;
-      projection.set(
-        testCase.path,
-        testCase.method === 'delete' ? null : (testCase.data ?? {}),
-      );
+      if (testCase.method === 'delete') {
+        projection.set(testCase.path, null);
+        continue;
+      }
+      const prior = projection.has(testCase.path)
+        ? projection.get(testCase.path)!
+        : (this.state.get(testCase.path) ?? null);
+      if (testCase.method === 'update') {
+        // Updates on non-existent documents project to null so existsAfter() evaluates to false.
+        if (prior === null) {
+          projection.set(testCase.path, null);
+        } else {
+          projection.set(testCase.path, applyMerge(prior, testCase.data ?? {}));
+        }
+      } else {
+        // create or set operation
+        projection.set(testCase.path, applyMerge(prior ?? {}, testCase.data ?? {}));
+      }
     }
     return projection;
   }
