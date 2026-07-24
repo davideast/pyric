@@ -21,11 +21,10 @@
  * change here.
  */
 
-import { useState } from 'react';
 import { useEnvironment, type EnvironmentStatus } from '../../shell/environment.js';
 import { RulesDebug } from './RulesDebug.js';
 import type { Denial } from './model.js';
-import type { EditedRulesetRerun, RerunResult } from './rerun.js';
+import type { RerunResult } from './rerun.js';
 
 export interface RulesDebugPaneProps {
   /** Denied ops to render (from `selectDenials`). Defaults to none until the
@@ -33,26 +32,19 @@ export interface RulesDebugPaneProps {
   denials?: readonly Denial[];
   /** Live impersonation re-run, when the worker client is available. */
   onRerunAsUser?: (denial: Denial) => Promise<RerunResult>;
-  /** Live edited-ruleset re-run (fork + diff), when a snapshot is available. */
-  onRerunAgainstRules?: (denial: Denial, rules: string) => Promise<EditedRulesetRerun>;
 }
 
 export function RulesDebugPane({
   denials = [],
   onRerunAsUser,
-  onRerunAgainstRules,
 }: RulesDebugPaneProps) {
   const { status } = useEnvironment();
-  const [editedRules, setEditedRules] = useState('');
 
   return (
     <div className="mx-auto flex h-full w-full max-w-5xl flex-col">
       <RulesDebug
         denials={denials}
-        editedRules={editedRules}
-        onEditedRulesChange={onRerunAgainstRules ? setEditedRules : undefined}
         onRerunAsUser={onRerunAsUser}
-        onRerunAgainstRules={onRerunAgainstRules}
         emptyState={<RulesEmpty status={status} />}
       />
     </div>
@@ -73,8 +65,8 @@ function RulesEmpty({ status }: { status: EnvironmentStatus }) {
       ) : null}
       <p className="max-w-md text-sm leading-relaxed text-slate-gray">
         {backendLive
-          ? 'No denied operations yet. When a request is rejected by rules, it shows up here with the rule that denied it, the request.auth context, and one-click re-runs as the user or against an edited ruleset.'
-          : 'Rules-failure debugging mounts here. Denied operations stream in once the local sandbox backend is reachable (T3); then each one shows the denying rule, request.auth, and the two re-run paths.'}
+          ? 'No denied operations yet. When a request is rejected by rules, it shows up here with the rule that denied it, the request.auth context, and one-click impersonation re-runs.'
+          : 'Rules-failure debugging mounts here. Denied operations stream in once the local sandbox backend is reachable; then each one shows the denying rule, request.auth, and live impersonation re-run controls.'}
       </p>
     </div>
   );

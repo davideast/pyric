@@ -23,14 +23,11 @@
  * "not in this session's traffic" state instead of crashing.
  */
 
-import { useState } from 'react';
 import { fork, discard } from 'pyric/sandbox';
 import {
   DenialDetail,
   issueOp,
-  rerunAgainstRules,
   type Denial,
-  type EditedRulesetRerun,
   type RerunResult,
 } from '../rules-debug/index.js';
 import {
@@ -52,12 +49,6 @@ export function TrafficRulesInspector({
   const op = ops.find((d) => d.id === eventId);
   const targetService = op?.service ?? 'firestore';
   const rulesSource = useStudioRulesSource(targetService);
-
-  // The "what if" buffer. Keyed per op by the parent (`key={eventId}`), so
-  // switching ops resets it; prefilled from the live rules once they resolve
-  // (served mode loads them async).
-  const [editedRules, setEditedRules] = useState('');
-  const effectiveEditedRules = editedRules || rulesSource;
 
   if (!op) {
     return (
@@ -96,27 +87,6 @@ export function TrafficRulesInspector({
     }
   };
 
-  // Re-run against an edited ruleset: lint → fork → re-issue → diff
-  // (rules-debug's rerunAgainstRules; the fork is discarded either way).
-  const onRerunAgainstRules = async (
-    d: Denial,
-    rules: string,
-  ): Promise<EditedRulesetRerun> => {
-    const snap = await getSnapshot();
-    if (!snap) {
-      return {
-        result: {
-          outcome: 'error',
-          code: 'no-backend',
-          message: 'No sandbox snapshot to re-run against.',
-        },
-        diff: [],
-        lint: { parseable: true, findings: [] },
-      };
-    }
-    return rerunAgainstRules(snap, d, rules, snap);
-  };
-
   return (
     <div
       data-pyric-ui="traffic-rules-inspector"
@@ -135,11 +105,8 @@ export function TrafficRulesInspector({
       </div>
       <DenialDetail
         denial={op}
-        editedRules={effectiveEditedRules}
         rulesSource={rulesSource}
-        onEditedRulesChange={setEditedRules}
         onRerunAsUser={onRerunAsUser}
-        onRerunAgainstRules={onRerunAgainstRules}
       />
     </div>
   );
