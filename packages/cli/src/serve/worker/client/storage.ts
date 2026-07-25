@@ -260,3 +260,6 @@ export async function deleteObject(reference: ClientStorageReference): Promise<v
     t: 'op', id: nextId(), method: 'storage.deleteObject', path: reference.fullPath,
   });
 }
+
+export { uploadBytesResumable } from './resumable.js';
+export type { ClientUploadTask, ClientUploadTaskSnapshot } from './resumable.js';

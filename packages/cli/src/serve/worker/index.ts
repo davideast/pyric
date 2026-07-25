@@ -168,11 +168,14 @@ export {
   // Storage byte ops (worker-mode uploads/reads via the base64 protocol)
   uploadBytes,
   uploadString,
+  uploadBytesResumable,
   getBytes,
   deleteObject,
   type ClientFirebaseStorage,
   type ClientStorageReference,
   type ClientSettableMetadata,
+  type ClientUploadTask,
+  type ClientUploadTaskSnapshot,
   // Event stream (Pyric Studio keystone — onEvent/history over the port)
   subscribeEvents,
   eventHistory,

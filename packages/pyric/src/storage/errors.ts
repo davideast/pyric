@@ -33,7 +33,8 @@ export type StorageErrorCode =
   | 'unauthorized'
   | 'invalid-root-operation'
   | 'invalid-format'
-  | 'invalid-argument';
+  | 'invalid-argument'
+  | 'canceled';
 
 /** Prefix an unprefixed code with `storage/` — matches upstream. */
 export function prependCode(code: StorageErrorCode): `storage/${StorageErrorCode}` {
@@ -92,4 +93,8 @@ export function invalidRootOperation(op: string): StorageError {
 
 export function invalidFormat(format: string, message: string): StorageError {
   return new StorageError('invalid-format', `string does not match format "${format}": ${message}`);
+}
+
+export function uploadCanceled(): StorageError {
+  return new StorageError('canceled', 'User canceled the upload/download.');
 }

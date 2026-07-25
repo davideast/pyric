@@ -46,7 +46,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'setProviderConfig', 'setRules', 'signInAnonymously',
   'signInWithEmailAndPassword', 'signOut', 'startAfter', 'startAt', 'startPresence',
   'subscribeEvents', 'subscribePresence',
-  'sum', 'switchWorkerBranch', 'updateDoc', 'uploadBytes', 'uploadString', 'where', 'workerNameForEpoch',
+  'sum', 'switchWorkerBranch', 'updateDoc', 'uploadBytes', 'uploadString', 'uploadBytesResumable', 'where', 'workerNameForEpoch',
   'writeBatch',
 ];
 
