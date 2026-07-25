@@ -260,7 +260,7 @@ describe('multi-axis conformance model', () => {
 
   it('does not contradict the structured resumable-upload availability in public prose', () => {
     const support = one('storage/uploadBytesResumable');
-    expect(support.availability).toBe('deferred');
+    expect(support.availability).toBe('available');
     expect([support.summary, ...support.caveats].join('\n').toLowerCase()).not.toContain('out of scope');
   });
 
