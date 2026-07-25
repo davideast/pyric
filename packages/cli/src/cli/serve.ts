@@ -516,6 +516,7 @@ export async function startServe(opts: {
   }
   if (session.summary.capturePath) {
     logger.info(`✔ capture  session → ${session.summary.capturePath} (run \`pyric verify\` to replay it)`);
+  }
   if (watching) {
     logger.info(`✔ watch    hot-reloading ${rulesSourcePath} over /__pyric/events`);
   }
