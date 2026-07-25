@@ -47,9 +47,9 @@ describe('generated API reference inventory', () => {
   });
 
   test('uses unique stable routes backed by declaration entries', () => {
-    expect(descriptors).toHaveLength(50);
-    expect(new Set(descriptors.map(({ importPath }) => importPath)).size).toBe(50);
-    expect(new Set(descriptors.map(({ slug }) => slug)).size).toBe(50);
+    expect(descriptors).toHaveLength(51);
+    expect(new Set(descriptors.map(({ importPath }) => importPath)).size).toBe(51);
+    expect(new Set(descriptors.map(({ slug }) => slug)).size).toBe(51);
     for (const descriptor of descriptors) {
       expect(existsSync(descriptor.typesPath), descriptor.importPath).toBeTrue();
       expect(descriptor.slug).toMatch(/^[a-z0-9-]+-reference-api$/);

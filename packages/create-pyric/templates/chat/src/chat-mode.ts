@@ -1,1 +1,1 @@
-export type ChatMode = 'explore' | 'plan' | 'refine';
+export type ChatMode = 'explore' | 'plan' | 'refine' | 'direct';

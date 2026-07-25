@@ -70,12 +70,19 @@ describe('@pyric/cli published dependency closure', () => {
     }
   });
 
-  it('has no emitted runtime or declaration edge to either Firebase SDK', () => {
+  it('has no emitted runtime or declaration edge to either Firebase SDK outside explicit AI shadow bridges', () => {
+    const allowedBridges = new Set([
+      'packages/cli/dist/register/app-bridge.js -> firebase/app',
+      'packages/cli/dist/register/app-bridge.d.ts -> firebase/app',
+      'packages/cli/dist/serve/entries/app-ai-passthrough.js -> firebase/app',
+      'packages/cli/dist/serve/entries/app-ai-passthrough.d.ts -> firebase/app',
+    ]);
     const edges = packageDirs.flatMap((packageDir) =>
       emittedFiles(packageDir).flatMap((file) =>
         moduleSpecifiers(file)
           .filter(isFirebaseSdk)
-          .map((specifier) => `${file.slice(workspaceRoot.length + 1)} -> ${specifier}`),
+          .map((specifier) => `${file.slice(workspaceRoot.length + 1)} -> ${specifier}`)
+          .filter((edge) => !allowedBridges.has(edge)),
       ),
     );
     expect(edges).toEqual([]);

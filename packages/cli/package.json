@@ -90,6 +90,13 @@
         "types": "./dist/register/index.d.ts",
         "import": "./dist/register/index.js"
       }
+    },
+    "./register/app-bridge": {
+      "types": "./dist/register/app-bridge.d.ts",
+      "node": {
+        "types": "./dist/register/app-bridge.d.ts",
+        "import": "./dist/register/app-bridge.js"
+      }
     }
   },
   "bin": {

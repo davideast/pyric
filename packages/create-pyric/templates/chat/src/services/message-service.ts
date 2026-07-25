@@ -70,6 +70,35 @@ export class MessageService {
     const text = input.text.trim();
     if (!text || text.length > 20_000) throw new ServiceError('invalid-input', 'Message must be 1–20,000 characters');
     try {
+      let thoughtsVal = null;
+      const rawThoughts = input.thoughts;
+      const hasThoughts = rawThoughts !== undefined && rawThoughts !== null;
+      if (hasThoughts) {
+        const trimmed = rawThoughts.trim();
+        if (trimmed !== '') {
+          thoughtsVal = trimmed;
+        }
+      }
+      let modelVal = 'gemini-3.5-flash';
+      const hasModel = input.model !== undefined && input.model !== null && input.model !== '';
+      if (hasModel) {
+        modelVal = input.model as string;
+      }
+      let finishReasonVal = 'stop';
+      const hasReason = input.finishReason !== undefined && input.finishReason !== null;
+      if (hasReason) {
+        finishReasonVal = input.finishReason as string;
+      }
+      let inputTokenVal = null;
+      const hasInputTokens = input.inputTokenCount !== undefined && input.inputTokenCount !== null;
+      if (hasInputTokens) {
+        inputTokenVal = input.inputTokenCount;
+      }
+      let outputTokenVal = null;
+      const hasOutputTokens = input.outputTokenCount !== undefined && input.outputTokenCount !== null;
+      if (hasOutputTokens) {
+        outputTokenVal = input.outputTokenCount;
+      }
       const reference = await addDoc(messageCollection(input.conversationId), {
         ownerUid: uid,
         conversationId: input.conversationId,
@@ -77,11 +106,11 @@ export class MessageService {
         text,
         createdAt: serverTimestamp(),
         clientMessageId: input.clientMessageId,
-        thoughts: input.thoughts?.trim() || null,
-        model: input.model ?? 'gemini-2.5-flash',
-        finishReason: input.finishReason ?? 'stop',
-        inputTokenCount: input.inputTokenCount ?? null,
-        outputTokenCount: input.outputTokenCount ?? null,
+        thoughts: thoughtsVal,
+        model: modelVal,
+        finishReason: finishReasonVal,
+        inputTokenCount: inputTokenVal,
+        outputTokenCount: outputTokenVal,
         schemaVersion: 1,
       });
       // Fan out a backend notification request now that the reply is persisted.

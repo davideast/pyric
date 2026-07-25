@@ -22,7 +22,7 @@ service cloud.firestore {
         && hasOnly(['ownerUid', 'title', 'model', 'createdAt', 'updatedAt', 'lastMessageAt', 'messageCount', 'archivedAt', 'attachmentCount', 'schemaVersion'])
         && isOwner(request.resource.data.ownerUid)
         && validString('title', 1, 120)
-        && isOneOf('model', ['gemini-2.5-flash'])
+        && isOneOf('model', ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-lite-latest'])
         && request.resource.data.messageCount == 0
         && request.resource.data.attachmentCount == 0
         && request.resource.data.schemaVersion == 1
@@ -57,7 +57,7 @@ service cloud.firestore {
         && validString('text', 1, 20000)
         && validString('clientMessageId', 1, 200)
         && (request.resource.data.thoughts == null || validString('thoughts', 1, 20000))
-        && isOneOf('model', ['gemini-2.5-flash'])
+        && isOneOf('model', ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-lite-latest'])
         && isServerTimestamp('createdAt')
         && request.resource.data.schemaVersion == 1;
     }

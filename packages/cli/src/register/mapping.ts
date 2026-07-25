@@ -23,11 +23,57 @@ const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
  * Map a Firebase specifier to its pyric mirror, or return `null` when the
  * specifier is not a Firebase package (leave it for the default resolver).
  */
-export function mapFirebaseSpecifier(specifier: string): string | null {
-  if (specifier === 'firebase/app') return 'pyric/app/register';
+export function mapFirebaseSpecifier(
+  specifier: string,
+  importer?: string,
+  options?: { aiMode?: 'sandbox' | 'production' },
+): string | null {
+  const isShadowBridgeImporter = importer !== undefined &&
+    (importer.includes('app-bridge') || importer.includes('app-ai-passthrough'));
+  const isFirebaseAppSpecifier = specifier === 'firebase/app';
+  const isBypassedBridgeImport = isShadowBridgeImporter && isFirebaseAppSpecifier;
+  if (isBypassedBridgeImport) {
+    return null;
+  }
+
+  let mode: 'sandbox' | 'production' = 'sandbox';
+  const explicitMode = options?.aiMode;
+  const hasExplicitMode = explicitMode !== undefined;
+  if (hasExplicitMode) {
+    mode = explicitMode;
+  } else {
+    const isEnvProductionMode = process.env.PYRIC_AI_MODE === 'production';
+    const isEnvPassthroughFlag = process.env.PYRIC_AI_PASSTHROUGH === '1';
+    const isProductionEnv = isEnvProductionMode || isEnvPassthroughFlag;
+    if (isProductionEnv) {
+      mode = 'production';
+    }
+  }
+
+  const isProductionMode = mode === 'production';
+  const isFirebaseAiSpecifier = specifier === 'firebase/ai';
+  const isProductionAiPassthrough = isProductionMode && isFirebaseAiSpecifier;
+  if (isProductionAiPassthrough) {
+    return null;
+  }
+
+  if (isFirebaseAppSpecifier) {
+    if (isProductionMode) {
+      return '@pyric/cli/register/app-bridge';
+    }
+    return 'pyric/app/register';
+  }
+
   for (const [from, to] of MAPPINGS) {
-    if (specifier === from) return to;
-    if (specifier.startsWith(`${from}/`)) return to + specifier.slice(from.length);
+    const isExactMatch = specifier === from;
+    if (isExactMatch) {
+      return to;
+    }
+    const isSubpathMatch = specifier.startsWith(`${from}/`);
+    if (isSubpathMatch) {
+      const subpath = specifier.slice(from.length);
+      return to + subpath;
+    }
   }
   return null;
 }

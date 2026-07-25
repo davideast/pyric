@@ -25,6 +25,7 @@ const modeOptions: Array<{ id: ChatMode; label: string; description: string; pla
   { id: 'explore', label: 'Explore', description: 'Open possibilities', placeholder: 'Explore an idea…' },
   { id: 'plan', label: 'Plan', description: 'Make it actionable', placeholder: 'Turn an idea into a plan…' },
   { id: 'refine', label: 'Refine', description: 'Pressure-test a direction', placeholder: 'Pressure-test a direction…' },
+  { id: 'direct', label: 'Direct', description: 'Direct AI Logic (no agent/workspace)', placeholder: 'Chat directly with AI Logic…' },
 ];
 const conversationIdFromUrl = (): string | null => new URLSearchParams(window.location.search).get('conversation');
 

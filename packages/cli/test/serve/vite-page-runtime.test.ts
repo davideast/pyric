@@ -60,6 +60,6 @@ describe('Vite page runtime', () => {
   it('loads mode-specific AI environment during Vite config', () => {
     const page = runtime();
     page.config({}, { command: 'serve', mode: 'development' } as never);
-    expect(page.ai()).toEqual({ engineWire: undefined, proxyUpstream: undefined });
+    expect(page.ai()).toEqual({ mode: 'sandbox', engineWire: undefined, proxyUpstream: undefined });
   });
 });
