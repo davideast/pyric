@@ -213,7 +213,7 @@ function toBlob(
  * structurally); the other formats return `undefined` and let the
  * caller's metadata + the default-raw fallback win.
  */
-function decodeString(
+export function decodeString(
   value: string,
   format: StringFormat,
 ): { bytes: Uint8Array; inferredType: string | undefined } {
@@ -272,7 +272,7 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-function defaultRawContentType(format: StringFormat): string {
+export function defaultRawContentType(format: StringFormat): string {
   return format === 'raw' ? 'text/plain;charset=utf-8' : OCTET;
 }
 

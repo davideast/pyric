@@ -21,6 +21,7 @@ import {
   listAll as workerListAll,
   ref as workerRef,
   uploadBytes as workerUploadBytes,
+  uploadString as workerUploadString,
   deleteObject as workerDeleteObject,
 } from '../worker/client.js';
 import { useWorker } from './worker-runtime.js';
@@ -89,5 +90,5 @@ export const uploadBytes = (useWorker ? workerUploadBytes : ip.uploadBytes) as t
 export const getBytes = (useWorker ? workerGetBytes : ip.getBytes) as typeof ip.getBytes;
 export const deleteObject = (useWorker ? workerDeleteObject : ip.deleteObject) as typeof ip.deleteObject;
 
-export const uploadString = workerOrInPage('uploadString', ip.uploadString);
+export const uploadString = (useWorker ? workerUploadString : ip.uploadString) as typeof ip.uploadString;
 export const updateMetadata = workerOrInPage('updateMetadata', ip.updateMetadata);

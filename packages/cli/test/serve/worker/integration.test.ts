@@ -248,4 +248,42 @@ describe('client↔host event stream (Studio data plane)', () => {
       await client.deleteObject(r);
     }
   });
+
+  it('Storage uploadString round-trips over worker client across formats', async () => {
+    const { db } = await connectClient();
+    const storage = client.getStorage(db);
+
+    // base64 format
+    const rB64 = client.ref(storage, 'upload-string/b64.txt');
+    await client.uploadString(rB64, 'aGVsbG8=', 'base64', { contentType: 'text/plain' });
+    const urlB64 = await client.getDownloadURL(rB64);
+    try {
+      expect(await (await fetch(urlB64)).text()).toBe('hello');
+    } finally {
+      URL.revokeObjectURL(urlB64);
+      await client.deleteObject(rB64);
+    }
+
+    // data_url format
+    const rData = client.ref(storage, 'upload-string/data.txt');
+    await client.uploadString(rData, 'data:text/plain;base64,d29ya2Vy', 'data_url');
+    const urlData = await client.getDownloadURL(rData);
+    try {
+      expect(await (await fetch(urlData)).text()).toBe('worker');
+    } finally {
+      URL.revokeObjectURL(urlData);
+      await client.deleteObject(rData);
+    }
+
+    // raw format
+    const rRaw = client.ref(storage, 'upload-string/raw.txt');
+    await client.uploadString(rRaw, 'raw text over worker', 'raw');
+    const urlRaw = await client.getDownloadURL(rRaw);
+    try {
+      expect(await (await fetch(urlRaw)).text()).toBe('raw text over worker');
+    } finally {
+      URL.revokeObjectURL(urlRaw);
+      await client.deleteObject(rRaw);
+    }
+  });
 });
