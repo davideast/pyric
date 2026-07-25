@@ -595,6 +595,7 @@ export interface StorageApiTestCase {
  * `"images/x"` and `"/images/x"` normalize identically.
  */
 export function normalizeStoragePath(objectPath: string, bucket: string = DEFAULT_STORAGE_BUCKET): string {
+  if (objectPath.startsWith('/b/') && objectPath.includes('/o/')) return objectPath;
   const clean = objectPath.startsWith('/') ? objectPath.slice(1) : objectPath;
   return `/b/${bucket}/o/${clean}`;
 }

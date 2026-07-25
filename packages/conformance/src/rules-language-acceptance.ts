@@ -72,11 +72,13 @@ import type { StorageFunctionMock, TestCase } from '../../../packages/pyric/src/
 import type { EvaluationInput } from '../../../packages/pyric/src/storage/sandbox/rules.ts';
 import {
   resolveFirestoreConstructProbe,
-  stProbeFor,
-  resolveStProbe,
 } from './rules-language-capability.ts';
+import { storageRequest, EXPECTS_DENY, resolveStProbe, stProbeFor } from './rules-language-storage-capability.ts';
 import { FIRESTORE_ACCEPTANCE_EVIDENCE_NOTE } from './firestore-rules-acceptance-evidence.ts';
+import { STORAGE_ACCEPTANCE_EVIDENCE_NOTE } from './storage-rules-acceptance-evidence.ts';
+import { generateRtdbAcceptanceEvidence } from './rtdb-rules-acceptance-evidence.ts';
 import { firestoreRulesTestInputDigest } from './firestore-rules-input-digest.ts';
+import { storageRulesTestInputDigest } from './storage-rules-input-digest.ts';
 import {
   loadSnapshot,
   type LanguageConstruct,
@@ -101,12 +103,6 @@ function selectedEngines(args: readonly string[] = process.argv.slice(2)): reado
   }
   return [engine];
 }
-
-/** The sole construct whose micro-scenario is designed to DENY rather than
- *  ALLOW (storage's default-deny semantic: no rule matches the probed path).
- *  Every other probeable construct's micro-scenario is a tautology designed
- *  to ALLOW when the construct behaves as expected. */
-const EXPECTS_DENY = new Set(['storage.semantic.deny-by-default']);
 
 // ── Batching / rate limiting ────────────────────────────────────────────
 
@@ -183,59 +179,6 @@ export function requireExactProbeResults<T>(
  */
 function firestoreRequest(c: LanguageConstruct): { rules: string; cases: TestCase[] } | { unprobeable: string } {
   return resolveFirestoreConstructProbe(c);
-}
-
-// ── Storage adapter: EvaluationInput → StorageTestCase ──────────────────
-
-function storageMethodToTestMethod(
-  method: EvaluationInput['request']['method'],
-): 'get' | 'list' | 'create' | 'update' | 'delete' {
-  if (method === 'read') return 'get';
-  if (method === 'write') return 'create';
-  return method;
-}
-
-/**
- * DIAGNOSIS (issue #185 step 5): calling `firestore.get()` / `firestore.exists()`
- * from a Storage rule fails against production with "Function not found error"
- * UNLESS the test case ALSO declares a matching `functionMocks` entry for that
- * exact call — the mock registration is what makes the Test API recognize the
- * cross-service identifier at all, not merely supply its canned result.
- * Verified live: the identical expression evaluates ALLOW once the matching
- * mock is attached. Without this, both constructs would read as `rejected`;
- * that would be a probe-harness gap (no mock registered), not a genuine
- * production verdict on whether the construct is real language surface.
- */
-const ST_FUNCTION_MOCKS: Record<string, StorageFunctionMock[]> = {
-  'storage.function.firestore.get': [{ function: 'get', path: 'u/x', result: { k: 'v' } }],
-  'storage.function.firestore.exists': [{ function: 'exists', path: 'u/x', result: true }],
-};
-
-async function storageRequest(
-  c: LanguageConstruct,
-): Promise<{ rules: string; cases: import('../../../packages/pyric/src/rules/test/spec.ts').StorageTestCase[] } | { unprobeable: string }> {
-  const resolved = resolveStProbe(stProbeFor(c));
-  if ('unprobeable' in resolved) return resolved;
-  const { rules, input } = resolved;
-  const expectation = EXPECTS_DENY.has(c.id) ? 'DENY' : 'ALLOW';
-  const functionMocks = ST_FUNCTION_MOCKS[c.id];
-  return {
-    rules,
-    cases: [
-      {
-        description: 'probe',
-        expectation,
-        method: storageMethodToTestMethod(input.request.method),
-        path: input.request.path,
-        auth: input.request.auth ?? null,
-        resource: input.request.resource,
-        existingResource: input.resource,
-        // Production requires an explicit request.time.
-        requestTime: '2024-01-01T00:00:00Z',
-        ...(functionMocks ? { functionMocks } : {}),
-      },
-    ],
-  };
 }
 
 // ── Inert plan ───────────────────────────────────────────────────────────
@@ -364,10 +307,11 @@ async function probeStorageConstruct(
   if ('unprobeable' in req) {
     return { id: c.id, kind: c.kind, status: 'unprobeable', probeNote: req.unprobeable };
   }
+  const probeDigest = storageRulesTestInputDigest(req.rules, req.cases);
   const res = await handler.execute(scope, req.rules, req.cases);
   if (!res.success) {
     if (res.error.code === 'RULES_ERROR' || res.error.code === 'INVALID_REQUEST') {
-      return { id: c.id, kind: c.kind, status: 'rejected', probeNote: `${res.error.code}: ${res.error.message}` };
+      return { id: c.id, kind: c.kind, status: 'rejected', probeNote: `${res.error.code}: ${res.error.message}`, probeDigest };
     }
     throw new Error(`[storage] infra error probing "${c.id}": ${res.error.code}: ${res.error.message}`);
   }
@@ -384,13 +328,14 @@ async function probeStorageConstruct(
   if (!agree) {
     const rejectionReason = evaluationRejectionReason(result?.notes ?? []);
     if (rejectionReason) {
-      return { id: c.id, kind: c.kind, status: 'rejected', probeNote: rejectionReason };
+      return { id: c.id, kind: c.kind, status: 'rejected', probeNote: rejectionReason, probeDigest };
     }
   }
   return {
     id: c.id,
     kind: c.kind,
     status: 'accepted',
+    probeDigest,
     evaluationAgreement: agree,
     evaluationDetail: `expected ${expected}, got ${decision}`,
     expectedDecision: expected,
@@ -453,6 +398,26 @@ function writeFirestoreAcceptanceEvidence(
   );
 }
 
+function writeStorageAcceptanceEvidence(
+  report: AcceptanceReport,
+  projectId: string,
+): void {
+  const storage = report.engines.find((engine) => engine.engine === 'storage');
+  if (!storage) return;
+  const evidence = {
+    schema: 'pyric.conformance.storage-rules-acceptance-evidence.v1',
+    generatedNote: STORAGE_ACCEPTANCE_EVIDENCE_NOTE,
+    capturedAt: report.probedAt,
+    projectId,
+    ...storage,
+  };
+  writeFileSync(
+    join(LANG_DIR, 'storage-acceptance-evidence.json'),
+    JSON.stringify(evidence, null, 2) + '\n',
+    'utf8',
+  );
+}
+
 async function run(): Promise<void> {
   // Heavy imports deferred to the credentialed path, same pattern as
   // run-rules.ts / run-rules-storage.ts, so the inert preview stays
@@ -470,7 +435,7 @@ async function run(): Promise<void> {
       'Issue #185 step 5: production Rules Test API acceptance probe (firestore + storage arms). ' +
       '`status` on each snapshot construct is accepted/rejected/unprobeable — see rules-language/types.ts ' +
       "ConstructStatus doc. rejected constructs are findings: production disagrees with the snapshot's claim " +
-      'that the construct is real language surface. RTDB stays unprobed (no Test API for RTDB rules).',
+      'that the construct is real language surface. RTDB stays unprobed on Rules Test API and uses live-database captures.',
     probedAt: new Date().toISOString(),
     engines: [],
   };
@@ -517,17 +482,19 @@ async function run(): Promise<void> {
   }
 
   writeFirestoreAcceptanceEvidence(report, scope.projectId);
+  writeStorageAcceptanceEvidence(report, scope.projectId);
+  generateRtdbAcceptanceEvidence(scope.projectId);
 
   writeFileSync(join(LANG_DIR, 'acceptance-report.json'), JSON.stringify(report, null, 2) + '\n', 'utf8');
 
   console.log('\n[rules-language:acceptance] probe complete.');
-  console.log(`[rules-language:acceptance] wrote ${join(LANG_DIR, 'acceptance-report.json')}`);
-  console.log(`[rules-language:acceptance] updated ${selectedEngines().map((engine) => `${engine}.json`).join(' / ')} status fields.`);
+  console.log(`[rules-language:acceptance] wrote ${join(LANG_DIR, 'acceptance-report.json')}, storage-acceptance-evidence.json, and rtdb-acceptance-evidence.json`);
+  console.log(`[rules-language:acceptance] updated status fields in construct snapshots.`);
 }
 
 if (import.meta.main) {
-  const hasCliConfig = existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
-  if (!process.env.PARITY_SA_BASE64 && !hasCliConfig && !process.env.PARITY_PROJECT_ID) {
+  const { hasParitySecret } = await import('../../../packages/pyric/test/rules/parity/harness.ts');
+  if (!hasParitySecret()) {
     printInertPlan();
     process.exit(0);
   }

@@ -28,16 +28,12 @@ describe('rules-language snapshots + loader', () => {
     }
   });
 
-  it('firestore + storage constructs have all been probed', () => {
-    for (const engine of ['firestore', 'storage'] as const) {
+  it('all constructs across all three engines have been probed or verified via live captures', () => {
+    for (const engine of RULES_ENGINES) {
       for (const c of loadSnapshot(engine).constructs) {
         expect(['accepted', 'rejected', 'unprobeable']).toContain(c.status);
       }
     }
-  });
-
-  it('rtdb constructs stay unprobed because RTDB has no Rules Test API', () => {
-    for (const c of loadSnapshot('rtdb').constructs) expect(c.status).toBe('unprobed');
   });
 
   it('every rejected or unprobeable construct carries a non-empty probeNote', () => {

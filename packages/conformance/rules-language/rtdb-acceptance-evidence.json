@@ -1,0 +1,349 @@
+{
+  "schema": "pyric.conformance.rtdb-rules-acceptance-evidence.v1",
+  "generatedNote": "Committed production acceptance evidence for Realtime Database rules derived from live-database deploy-observe-restore captures.",
+  "capturedAt": "2026-07-25T18:42:45.868Z",
+  "projectId": "digame-mas",
+  "engine": "rtdb",
+  "total": 56,
+  "accepted": 56,
+  "rejected": 0,
+  "unprobeable": 0,
+  "constructs": [
+    {
+      "id": "rtdb.binding.auth",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.binding.auth.uid",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.binding.auth.token",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.binding.data",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.binding.newData",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.binding.root",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.binding.now",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.binding.path-variable",
+      "kind": "binding",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.val",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.child",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.parent",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.hasChild",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.hasChildren",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.exists",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.getPriority",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.isNumber",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.isString",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.snapshot.isBoolean",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.string.contains",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.string.beginsWith",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.string.endsWith",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.string.matches",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.string.replace",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.string.toLowerCase",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.string.toUpperCase",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.method.string.length",
+      "kind": "method",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.strictEq",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.strictNeq",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.looseEq",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.looseNeq",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.lt",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.gt",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.lte",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.gte",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.add",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.sub",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.mul",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.div",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.mod",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.and",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.or",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.not",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.neg",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.ternary",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.member",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.operator.index",
+      "kind": "operator",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.rule-kind.read",
+      "kind": "rule-kind",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.rule-kind.write",
+      "kind": "rule-kind",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.rule-kind.validate",
+      "kind": "rule-kind",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.rule-kind.indexOn",
+      "kind": "rule-kind",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.rule-kind.location-wildcard",
+      "kind": "rule-kind",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.semantic.read-cascade",
+      "kind": "semantic",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.semantic.write-cascade",
+      "kind": "semantic",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.semantic.validate-non-cascade",
+      "kind": "semantic",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.semantic.deny-by-default",
+      "kind": "semantic",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    },
+    {
+      "id": "rtdb.semantic.regex-literal",
+      "kind": "semantic",
+      "status": "accepted",
+      "evidenceSource": "live-database"
+    }
+  ]
+}

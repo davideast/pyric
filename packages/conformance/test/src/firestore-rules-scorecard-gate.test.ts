@@ -34,7 +34,7 @@ describe('Firestore Rules scorecard baseline gate', () => {
   it('replays every production observation before evaluating the score', () => {
     const rootPackage = JSON.parse(readFileSync(join(import.meta.dir, '../../../../package.json'), 'utf8'));
     expect(rootPackage.scripts['compat:rules-score']).toBe(
-      'bun test packages/pyric/test/rules/oracle-conformance.test.ts && bun run packages/conformance/src/firestore-rules-scorecard-gate.ts',
+      'bun test packages/pyric/test/rules/oracle-conformance.test.ts && bun run packages/conformance/src/rules-scorecard-gate.ts',
     );
   });
   it('accepts an exact canonical recomputation', () => {
