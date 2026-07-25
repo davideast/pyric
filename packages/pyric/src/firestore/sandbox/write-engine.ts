@@ -255,35 +255,69 @@ export class WriteEngine {
       debugMessages: renderLegacyDebugMessages(result),
       event,
     };
-    if (!isAllowed) {
+    if (isAllowed === false) {
       // Structural error wins over a synthesized permission-denied —
       // it's the more specific signal. The structural-error branch
       // skips eval context (already-exists / not-found don't depend on
       // auth or resource shape).
-      if (writeError) {
-        out.error = writeError;
+      let hasStructuralErr = false;
+      const isWriteErrPresent = writeError !== undefined;
+      if (isWriteErrPresent) {
+        const isWriteErrNotNull = writeError !== null;
+        if (isWriteErrNotNull) {
+          hasStructuralErr = true;
+        }
+      }
+      if (hasStructuralErr) {
+        out.error = writeError!;
       } else {
-        const priorDoc = snapshot[path] ?? null;
-        // `set` denials surface under the rule clause that actually
-        // ran — `create` for absent docs, `update` for existing ones
-        // — so downstream consumers reading `error.request.method`
-        // see the same value the rules engine saw.
-        const evalMethod: 'create' | 'update' | 'delete' | 'get' | 'list' =
-          method === 'set'
-            ? (priorDoc !== null ? 'update' : 'create')
-            : method;
+        let priorDoc: Record<string, unknown> | null = null;
+        const snapDoc = snapshot[path];
+        const isSnapDocDefined = snapDoc !== undefined;
+        if (isSnapDocDefined) {
+          priorDoc = snapDoc!;
+        }
+        let evalMethod: 'create' | 'update' | 'delete' | 'get' | 'list' = method as any;
+        const isSet = method === 'set';
+        if (isSet) {
+          const hasPriorDoc = priorDoc !== null;
+          if (hasPriorDoc) {
+            evalMethod = 'update';
+          } else {
+            evalMethod = 'create';
+          }
+        }
+        const evalRule = projectEvaluatedRule(result);
+        const isPriorDocNotNull = priorDoc !== null;
+        const errExtras: {
+          request: {
+            method: 'create' | 'update' | 'delete' | 'get' | 'list';
+            path: string;
+            auth: any;
+            resourceData?: Record<string, unknown>;
+          };
+          resource: { data: Record<string, unknown> | null; exists: boolean };
+          rule?: any;
+        } = {
+          request: {
+            method: evalMethod,
+            path,
+            auth,
+          },
+          resource: { data: priorDoc, exists: isPriorDocNotNull },
+        };
+        const hasData = data !== undefined;
+        if (hasData) {
+          errExtras.request.resourceData = data;
+        }
+        const hasRule = evalRule !== undefined;
+        if (hasRule) {
+          errExtras.rule = evalRule;
+        }
         out.error = makeError(
           'permission-denied',
           `${method} ${path} denied by rules`,
-          {
-            request: {
-              method: evalMethod,
-              path,
-              auth,
-              ...(data ? { resourceData: data } : {}),
-            },
-            resource: { data: priorDoc, exists: priorDoc !== null },
-          },
+          errExtras as any,
         );
         this.runtime.emitDenial(out.error);
       }

@@ -134,10 +134,14 @@ function recoverReasons(message: string): string[] {
  * still see (e.g.) a TypeError thrown from user code.
  */
 export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
-  if (!(err instanceof FirestoreCompatError)) return err;
+  const isCompatError = err instanceof FirestoreCompatError;
+  if (isCompatError === false) {
+    return err;
+  }
 
   const code = err.code as SandboxErrorCode;
-  if (code !== 'permission-denied') {
+  const isPermissionDenied = code === 'permission-denied';
+  if (isPermissionDenied === false) {
     return new SandboxError(code, err.message);
   }
 
@@ -146,24 +150,36 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
     reasons: recoverReasons(err.message),
   };
   const sim = err.simError;
-  if (sim?.request) {
-    const r = sim.request;
-    denialContext.request = {
-      method: r.method,
-      path: r.path,
-      ...(r.resourceData ? { resourceData: r.resourceData } : {}),
-    };
-  }
-  if (sim?.resource) {
-    denialContext.resource = { data: sim.resource.data, exists: sim.resource.exists };
-  }
-  // RULES-B11 — a statically-unprovable query denial carries the query shape it
-  // rejected and (when actionable) narrowing remediation; relay both.
-  if (sim?.query) {
-    denialContext.query = sim.query;
-  }
-  if (sim?.remediation !== undefined) {
-    return new SandboxError({ code, message: err.message, denialContext, remediation: sim.remediation });
+  const hasSim = sim !== undefined;
+  if (hasSim) {
+    const hasRequest = sim!.request !== undefined;
+    if (hasRequest) {
+      const r = sim!.request!;
+      denialContext.request = {
+        method: r.method,
+        path: r.path,
+      };
+      const hasResourceData = r.resourceData !== undefined;
+      if (hasResourceData) {
+        denialContext.request.resourceData = r.resourceData;
+      }
+    }
+    const hasResource = sim!.resource !== undefined;
+    if (hasResource) {
+      denialContext.resource = { data: sim!.resource!.data, exists: sim!.resource!.exists };
+    }
+    const hasQuery = sim!.query !== undefined;
+    if (hasQuery) {
+      denialContext.query = sim!.query;
+    }
+    const hasRule = sim!.rule !== undefined;
+    if (hasRule) {
+      denialContext.rule = sim!.rule;
+    }
+    const hasRemediation = sim!.remediation !== undefined;
+    if (hasRemediation) {
+      return new SandboxError({ code, message: err.message, denialContext, remediation: sim!.remediation });
+    }
   }
   return new SandboxError(code, err.message, denialContext);
 }

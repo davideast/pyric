@@ -41,8 +41,9 @@ export type SandboxErrorCode =
  * reference traces.
  */
 export interface DenialContext {
-  /** The rule whose evaluation produced the denial. Best effort; may be absent until source positions land in the AST. */
-  rule?: { line: number; expression: string };
+  /** The rule whose evaluation produced the denial (#370). */
+  rule?: { line?: number; col?: number; column?: number; file?: string; citation?: string; expression?: string };
+
   /** Auth identity that was active when the denial fired. */
   auth?: AuthState;
   /** Field paths in `request.resource.data` that the rule referenced and that failed. */

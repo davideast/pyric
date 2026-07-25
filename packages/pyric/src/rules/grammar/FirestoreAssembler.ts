@@ -167,41 +167,140 @@ export function assembleMatchBlock(match: MatchBlock, level: number = 0): string
   return lines.join('\n');
 }
 
-export function assembleRules(ast: FirestoreRules): string {
+function recordSourceLoc(
+  loc: { line: number; col: number; file?: string } | undefined,
+  generatedLine: number,
+  sourceMap: RulesSourceMapEntry[],
+  expression?: string,
+): void {
+  const hasLoc = loc !== undefined;
+  if (hasLoc) {
+    let file = 'firestore.rules';
+    const hasFile = loc!.file !== undefined;
+    if (hasFile) {
+      file = loc!.file!;
+    }
+    const entry: RulesSourceMapEntry = {
+      generatedLine,
+      authoredLine: loc!.line,
+      authoredCol: loc!.col,
+      authoredFile: file,
+    };
+    const hasExpr = expression !== undefined;
+    if (hasExpr) {
+      entry.expression = expression;
+    }
+    sourceMap.push(entry);
+  }
+}
+
+function assembleFunctionWithMap(
+  fn: FunctionDef,
+  level: number,
+  lines: string[],
+  sourceMap: RulesSourceMapEntry[],
+): void {
+  const pad = indent(level);
+  const bodyPad = indent(level + 2);
+  const params = fn.parameters.join(', ');
+  let exportPrefix = '';
+  const isExported = fn.exported === true;
+  if (isExported) {
+    exportPrefix = 'export ';
+  }
+  const nextLineIdx = lines.length + 1;
+  lines.push(`${pad}${exportPrefix}function ${fn.name}(${params}) {`);
+  recordSourceLoc(fn.loc, nextLineIdx, sourceMap);
+  for (const binding of fn.lets) {
+    const bindingLineIdx = lines.length + 1;
+    lines.push(`${bodyPad}let ${binding.name} = ${assembleExpression(binding.value)};`);
+    recordSourceLoc(binding.loc, bindingLineIdx, sourceMap);
+  }
+  const retLineIdx = lines.length + 1;
+  lines.push(`${bodyPad}return ${assembleExpression(fn.body)};`);
+  recordSourceLoc(fn.body.loc, retLineIdx, sourceMap);
+  lines.push(`${pad}}`);
+}
+
+function assembleAllowWithMap(
+  allow: AllowRule,
+  level: number,
+  lines: string[],
+  sourceMap: RulesSourceMapEntry[],
+): void {
+  const pad = indent(level);
+  const ops = allow.operations.join(', ');
+  const condExpr = assembleExpression(allow.condition);
+  const nextLineIdx = lines.length + 1;
+  lines.push(`${pad}allow ${ops}: if ${condExpr};`);
+  recordSourceLoc(allow.loc, nextLineIdx, sourceMap, condExpr);
+}
+
+function assembleMatchBlockWithMap(
+  match: MatchBlock,
+  level: number,
+  lines: string[],
+  sourceMap: RulesSourceMapEntry[],
+): void {
+  const pad = indent(level);
+  const innerLevel = level + 2;
+  const nextLineIdx = lines.length + 1;
+  lines.push(`${pad}match ${assemblePath(match.path)} {`);
+  recordSourceLoc(match.loc, nextLineIdx, sourceMap);
+  for (const fn of match.functions) {
+    assembleFunctionWithMap(fn, innerLevel, lines, sourceMap);
+  }
+  for (const allow of match.allows) {
+    assembleAllowWithMap(allow, innerLevel, lines, sourceMap);
+  }
+  for (const child of match.children) {
+    assembleMatchBlockWithMap(child, innerLevel, lines, sourceMap);
+  }
+  lines.push(`${pad}}`);
+}
+
+export interface RulesSourceMapEntry {
+  generatedLine: number;
+  authoredLine: number;
+  authoredCol: number;
+  authoredFile: string;
+  expression?: string;
+}
+
+export function assembleRulesWithSourceMap(ast: FirestoreRules): {
+  resolved: string;
+  sourceMap: RulesSourceMapEntry[];
+} {
   const lines: string[] = [];
+  const sourceMap: RulesSourceMapEntry[] = [];
   for (const imp of ast.imports) {
     lines.push(`import { ${imp.functions.join(', ')} } from '${imp.module}';`);
   }
   lines.push(`rules_version = '${ast.version}';`);
-  for (const fn of ast.functions ?? []) {
-    lines.push(assembleFunction(fn, 0));
+  const hasGlobalFns = ast.functions !== undefined;
+  if (hasGlobalFns) {
+    for (const fn of ast.functions!) {
+      assembleFunctionWithMap(fn, 0, lines, sourceMap);
+    }
   }
+  const serviceHeaderIdx = lines.length + 1;
   lines.push(`service ${ast.service.name} {`);
+  recordSourceLoc(ast.service.loc, serviceHeaderIdx, sourceMap);
 
-  for (const fn of ast.service.functions ?? []) {
-    lines.push(assembleFunction(fn, 2));
+  const hasServiceFns = ast.service.functions !== undefined;
+  if (hasServiceFns) {
+    for (const fn of ast.service.functions!) {
+      assembleFunctionWithMap(fn, 2, lines, sourceMap);
+    }
   }
 
   const root = ast.service.match;
-  const rootPad = indent(2);
-  const innerLevel = 4;
-
-  lines.push(`${rootPad}match ${assemblePath(root.path)} {`);
-
-  for (const fn of root.functions) {
-    lines.push(assembleFunction(fn, innerLevel));
-  }
-
-  for (const allow of root.allows) {
-    lines.push(assembleAllow(allow, innerLevel));
-  }
-
-  for (const child of root.children) {
-    lines.push(assembleMatchBlock(child, innerLevel));
-  }
-
-  lines.push(`${rootPad}}`);
+  assembleMatchBlockWithMap(root, 2, lines, sourceMap);
   lines.push('}');
   lines.push('');
-  return lines.join('\n');
+  return { resolved: lines.join('\n'), sourceMap };
+}
+
+export function assembleRules(ast: FirestoreRules): string {
+  return assembleRulesWithSourceMap(ast).resolved;
 }

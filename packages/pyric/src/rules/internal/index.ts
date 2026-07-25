@@ -166,7 +166,8 @@ export { createFirestoreRulesStdlibTools } from '../stdlib-tools.js';
 // importing `resolveModules` from `pyric/rules/node`,
 // which falls back to disk reads for stdlib modules and picks up
 // `.rules` edits between builds without re-running the inliner.
-export { resolveModulesBrowser, STDLIB_INLINE } from '../modules/resolver-browser.js';
+export { resolveModulesBrowser, STDLIB_INLINE, resolveAuthoredSourceLoc, type AuthoredSourceLoc } from '../modules/resolver-browser.js';
+
 
 // Composite-index extractor: static analysis of JS/TS source for the modular
 // Firestore client's `query(collection(...), where(...), orderBy(...))` pattern.

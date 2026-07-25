@@ -294,11 +294,15 @@ service cloud.firestore {
   }
 }`;
     const result = resolveModules(source);
-    if (!result.success) throw new Error('Failed to resolve');
+    const isSuccess = result.success === true;
+    if (isSuccess === false) {
+      throw new Error('Failed to resolve');
+    }
     // Parse the resolved output and re-assemble — should be identical
     const ast = parseToAST(result.data.resolved);
     const { assembleRules } = require('../../../src/rules/grammar/FirestoreAssembler.js');
     const reassembled = assembleRules(ast!);
-    expect(reassembled).toBe(result.data.resolved);
+    const strippedResolved = result.data.resolved.split('// @pyric-source-map:')[0]!;
+    expect(reassembled).toBe(strippedResolved);
   });
 });

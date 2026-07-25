@@ -120,13 +120,25 @@ export class RulesListAuthorizer {
 
     const placeholderPath = `${path}/__listPlaceholder__`;
     const evalStart = performance.now();
-    const proof = proveListQuery(evaluationAst, placeholderPath, auth, constraints);
-    if (proof.kind === 'unprovable') {
+    const proof = proveListQuery(evaluationAst, placeholderPath, auth, constraints, this.rules.source);
+    const isUnprovable = proof.kind === 'unprovable';
+    if (isUnprovable) {
       const message =
         `list ${path} denied: the query is statically unprovable for every possible ` +
         `result (rules are not filters), so the whole query is rejected — ${proof.reason}`;
       const remediation = renderQueryRemediation(proof.residual);
-      this.emitRequest({
+      const reqEvent: {
+        at: number;
+        evalMs: number;
+        method: 'list';
+        path: string;
+        auth: any;
+        result: 'deny';
+        debugMessages: string[];
+        origin: any;
+        detail?: unknown;
+        triggeredBy?: unknown;
+      } = {
         at: evalAt,
         evalMs: performance.now() - evalStart,
         method: 'list',
@@ -135,14 +147,38 @@ export class RulesListAuthorizer {
         result: 'deny',
         debugMessages: [message],
         origin,
-        ...(detail ? { detail } : {}),
-        ...(triggeredBy ? { triggeredBy } : {}),
-      });
-      const error = makeError('permission-denied', message, {
+      };
+      const hasDetail = detail !== undefined;
+      if (hasDetail) {
+        reqEvent.detail = detail;
+      }
+      const hasTriggeredBy = triggeredBy !== undefined;
+      if (hasTriggeredBy) {
+        reqEvent.triggeredBy = triggeredBy;
+      }
+      this.emitRequest(reqEvent as any);
+
+      const errExtras: {
+        request: { method: 'list'; path: string; auth: any };
+        query: any;
+        remediation?: string;
+        rule?: any;
+      } = {
         request: { method: 'list', path, auth },
         query: constraints,
-        ...(remediation ? { remediation } : {}),
-      });
+      };
+      const isRemediationDefined = remediation !== undefined;
+      if (isRemediationDefined) {
+        const isRemediationNotEmpty = remediation !== '';
+        if (isRemediationNotEmpty) {
+          errExtras.remediation = remediation;
+        }
+      }
+      const hasProofRule = proof.rule !== undefined;
+      if (hasProofRule) {
+        errExtras.rule = proof.rule;
+      }
+      const error = makeError('permission-denied', message, errExtras as any);
       this.emitUserDenial(origin, error);
       return { allowed: false, error };
     }
@@ -207,8 +243,22 @@ export class RulesListAuthorizer {
       );
     }
 
-    if (result.state !== 'PASSED') {
-      this.emitRequest({
+    const isNotPassed = result.state !== 'PASSED';
+    if (isNotPassed) {
+      const evalRule = projectEvaluatedRule(result);
+      const reqEvent: {
+        at: number;
+        evalMs: number;
+        method: 'list';
+        path: string;
+        auth: any;
+        result: 'deny';
+        debugMessages: string[];
+        evaluatedRule?: unknown;
+        origin: any;
+        detail?: unknown;
+        triggeredBy?: unknown;
+      } = {
         at: evalAt,
         evalMs,
         method: 'list',
@@ -216,14 +266,30 @@ export class RulesListAuthorizer {
         auth,
         result: 'deny',
         debugMessages,
-        evaluatedRule: projectEvaluatedRule(result),
+        evaluatedRule: evalRule,
         origin,
-        ...(detail ? { detail } : {}),
-        ...(triggeredBy ? { triggeredBy } : {}),
-      });
-      const error = makeError('permission-denied', `list ${path} denied by rules`, {
+      };
+      const hasDetail = detail !== undefined;
+      if (hasDetail) {
+        reqEvent.detail = detail;
+      }
+      const hasTriggeredBy = triggeredBy !== undefined;
+      if (hasTriggeredBy) {
+        reqEvent.triggeredBy = triggeredBy;
+      }
+      this.emitRequest(reqEvent as any);
+
+      const errExtras: {
+        request: { method: 'list'; path: string; auth: any };
+        rule?: unknown;
+      } = {
         request: { method: 'list', path, auth },
-      });
+      };
+      const hasRule = evalRule !== undefined;
+      if (hasRule) {
+        errExtras.rule = evalRule;
+      }
+      const error = makeError('permission-denied', `list ${path} denied by rules`, errExtras as any);
       this.emitUserDenial(origin, error);
       return { allowed: false, error };
     }

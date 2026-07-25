@@ -46,7 +46,11 @@ export class RulesOperationReader {
   }
   execute(operation: ReadOperation): OperationResult {
     const { method, path, auth, bypassRules } = operation;
-    const detail = bypassRules ? { admin: true } : undefined;
+    let detail: { admin: true } | undefined = undefined;
+    const isBypass = bypassRules === true;
+    if (isBypass) {
+      detail = { admin: true };
+    }
 
     // No data to resolve on reads, but still pin a serverTime so the
     // handler's `request.time` is deterministic relative to anything
@@ -65,43 +69,67 @@ export class RulesOperationReader {
     );
     const evalMs = performance.now() - evalStart;
 
-    if (!simResult.success) {
+    let authPayload: { uid: string } | null = null;
+    const isAuthDefined = auth !== undefined;
+    const isAuthNotNull = auth !== null;
+    if (isAuthDefined) {
+      if (isAuthNotNull) {
+        authPayload = { uid: auth!.uid };
+      }
+    }
+
+    const isSuccess = simResult.success === true;
+    if (isSuccess === false) {
       const event = this.eventLog.append({
-        type: 'single', method, path, auth: auth ? { uid: auth.uid } : null,
+        type: 'single', method, path, auth: authPayload,
         allowed: false, debugMessages: [`Simulation error: ${simResult.error.message}`],
       });
       // Issue #307 — simulator failures are still requests worth surfacing.
-      this.emitRequest({
+      const failReqEvent: any = {
         at: evalAt, evalMs, method, path, auth, result: 'deny',
         debugMessages: [`Simulation error: ${simResult.error.message}`],
         origin: 'user',
-        ...(detail ? { detail } : {}),
-      });
+      };
+      const hasDetail = detail !== undefined;
+      if (hasDetail) {
+        failReqEvent.detail = detail;
+      }
+      this.emitRequest(failReqEvent);
       return { allowed: false, debugMessages: [simResult.error.message], event };
     }
 
     const result = simResult.data.results[0];
-    if (result.state === 'UNSUPPORTED') {
+    const isUnsupported = result.state === 'UNSUPPORTED';
+    if (isUnsupported) {
       // Issue #307 — surface the eval-time event BEFORE throwing so
       // subscribers see the unsupported request alongside everything else.
-      this.emitRequest({
+      const unsupReqEvent: any = {
         at: evalAt, evalMs, method, path, auth, result: 'unsupported',
         debugMessages: renderLegacyDebugMessages(result), origin: 'user',
-        ...(detail ? { detail } : {}),
-      });
+      };
+      const hasDetail = detail !== undefined;
+      if (hasDetail) {
+        unsupReqEvent.detail = detail;
+      }
+      this.emitRequest(unsupReqEvent);
       throw new SimulatorUnsupportedError(
         unsupportedMessage(method, path, renderLegacyDebugMessages(result)),
         method, path, renderLegacyDebugMessages(result),
       );
     }
     const isAllowed = result.state === 'PASSED';
-    let readData: DocumentData | null | undefined;
+    let readData: DocumentData | null | undefined = undefined;
     if (isAllowed) {
-      readData = method === 'get' ? this.state.get(path) : this.state.list(path) as unknown as DocumentData;
+      const isGet = method === 'get';
+      if (isGet) {
+        readData = this.state.get(path);
+      } else {
+        readData = this.state.list(path) as unknown as DocumentData;
+      }
     }
 
     const event = this.eventLog.append({
-      type: 'single', method, path, auth: auth ? { uid: auth.uid } : null,
+      type: 'single', method, path, auth: authPayload,
       allowed: isAllowed, debugMessages: renderLegacyDebugMessages(result),
     });
 
@@ -110,11 +138,14 @@ export class RulesOperationReader {
     // by Firestore's contract; the rule decides visibility).
     const out: OperationResult = {
       allowed: isAllowed,
-      data: isAllowed ? readData : undefined,
       debugMessages: renderLegacyDebugMessages(result),
       event,
     };
-    if (!isAllowed) {
+    if (isAllowed) {
+      out.data = readData;
+    }
+    const evalRule = projectEvaluatedRule(result);
+    if (isAllowed === false) {
       // Item 6+: surface the eval-time request + resource on the
       // error so callers (sandbox / playground) can render a "why
       // did this denial happen" frame without re-deriving state.
@@ -122,13 +153,25 @@ export class RulesOperationReader {
       // evaluated against a collection, not a single doc.
       const reqRead: { method: 'get' | 'list'; path: string; auth: Operation['auth'] } =
         { method, path, auth };
-      const resRead = method === 'get'
-        ? { data: this.state.get(path), exists: this.state.get(path) !== null }
-        : undefined;
+      const errExtras: {
+        request: { method: 'get' | 'list'; path: string; auth: Operation['auth'] };
+        resource?: { data: DocumentData | null; exists: boolean };
+        rule?: unknown;
+      } = { request: reqRead };
+      const isMethodGet = method === 'get';
+      if (isMethodGet) {
+        const docData = this.state.get(path);
+        const docExists = docData !== null;
+        errExtras.resource = { data: docData, exists: docExists };
+      }
+      const hasRule = evalRule !== undefined;
+      if (hasRule) {
+        errExtras.rule = evalRule;
+      }
       out.error = makeError(
         'permission-denied',
         `${method} ${path} denied by rules`,
-        { request: reqRead, ...(resRead ? { resource: resRead } : {}) },
+        errExtras as any,
       );
       this.emitDenial(out.error);
     }
@@ -136,17 +179,40 @@ export class RulesOperationReader {
     // resourceBefore mirrors what the rule saw on `resource`: populated for
     // `get` (the single doc); omitted for `list` (the rule didn't evaluate
     // against a single resource).
-    this.emitRequest({
+    let resultStr: 'allow' | 'deny' = 'deny';
+    if (isAllowed) {
+      resultStr = 'allow';
+    }
+    const reqEvent: {
+      at: number;
+      evalMs: number;
+      method: 'get' | 'list';
+      path: string;
+      auth: any;
+      result: 'allow' | 'deny';
+      debugMessages: string[];
+      evaluatedRule?: unknown;
+      origin: 'user';
+      resourceBefore?: { data: DocumentData | null; exists: boolean };
+      detail?: unknown;
+    } = {
       at: evalAt, evalMs, method, path, auth,
-      result: isAllowed ? 'allow' : 'deny',
+      result: resultStr,
       debugMessages: renderLegacyDebugMessages(result),
-      evaluatedRule: projectEvaluatedRule(result),
+      evaluatedRule: evalRule,
       origin: 'user',
-      ...(method === 'get'
-        ? { resourceBefore: { data: this.state.get(path), exists: this.state.get(path) !== null } }
-        : {}),
-      ...(detail ? { detail } : {}),
-    });
+    };
+    const isEventGet = method === 'get';
+    if (isEventGet) {
+      const docData = this.state.get(path);
+      const docExists = docData !== null;
+      reqEvent.resourceBefore = { data: docData, exists: docExists };
+    }
+    const hasDetail = detail !== undefined;
+    if (hasDetail) {
+      reqEvent.detail = detail;
+    }
+    this.emitRequest(reqEvent as any);
     return out;
   }
 
