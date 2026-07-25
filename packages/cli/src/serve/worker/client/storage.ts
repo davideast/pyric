@@ -20,14 +20,55 @@ import type { ClientDb, ClientPort } from './handles.js';
 export interface ClientFirebaseStorage {
   readonly __kind: 'client-storage';
   readonly port: ClientPort;
+  readonly bucket: string;
 }
 
 /** Worker-backed Storage reference (path + name; carries the port for ops). */
 export interface ClientStorageReference {
   readonly __kind: 'storage-ref';
   readonly port: ClientPort;
+  readonly storage?: ClientFirebaseStorage;
+  readonly bucket: string;
   readonly fullPath: string;
   readonly name: string;
+  readonly parent: ClientStorageReference | null;
+  readonly root: ClientStorageReference;
+  toString(): string;
+}
+
+class ClientStorageReferenceImpl implements ClientStorageReference {
+  readonly __kind = 'storage-ref';
+  readonly port: ClientPort;
+  readonly storage?: ClientFirebaseStorage;
+  readonly bucket: string;
+  readonly fullPath: string;
+  readonly name: string;
+
+  constructor(port: ClientPort, bucket: string, fullPath: string, storage?: ClientFirebaseStorage) {
+    this.port = port;
+    this.bucket = bucket;
+    this.fullPath = fullPath;
+    this.name = lastSegment(fullPath);
+    if (storage) {
+      this.storage = storage;
+    }
+  }
+
+  get parent(): ClientStorageReference | null {
+    if (this.fullPath === '') return null;
+    const idx = this.fullPath.lastIndexOf('/');
+    const parentPath = idx === -1 ? '' : this.fullPath.slice(0, idx);
+    return new ClientStorageReferenceImpl(this.port, this.bucket, parentPath, this.storage);
+  }
+
+  get root(): ClientStorageReference {
+    if (this.fullPath === '') return this;
+    return new ClientStorageReferenceImpl(this.port, this.bucket, '', this.storage);
+  }
+
+  toString(): string {
+    return `gs://${this.bucket}/${this.fullPath}`;
+  }
 }
 
 /** Strip leading/trailing slashes (the worker keyspace uses bare paths). */
@@ -39,7 +80,7 @@ function normalizeStorageRefPath(path: string): string {
  * Get the worker-backed Storage handle. Like `getAuth`, accepts an existing
  * `ClientDb` (reusing its port) or a worker URL (standalone).
  */
-export function getStorage(source: ClientDb | string | URL, name?: string): ClientFirebaseStorage {
+export function getStorage(source: ClientDb | string | URL, name?: string, bucketUrl?: string): ClientFirebaseStorage {
   let port: ClientPort;
   if (typeof source === 'object' && '__kind' in source && source.__kind === 'client-db') {
     port = source.port;
@@ -58,7 +99,7 @@ export function getStorage(source: ClientDb | string | URL, name?: string): Clie
     port.start();
     wirePort(port);
   }
-  return { __kind: 'client-storage', port };
+  return { __kind: 'client-storage', port, bucket: bucketUrl ?? 'pyric-default' };
 }
 
 /** Build a Storage reference. Mirrors `pyric/storage`'s `ref(storage, path?)` /
@@ -69,13 +110,23 @@ export function ref(
 ): ClientStorageReference {
   const rel = normalizeStorageRefPath(path ?? '');
   let fullPath: string;
+  let port: ClientPort;
+  let bucket = 'pyric-default';
+  let storage: ClientFirebaseStorage | undefined;
+
   if (parent.__kind === 'client-storage') {
     fullPath = rel;
+    port = parent.port;
+    bucket = parent.bucket;
+    storage = parent;
   } else {
     const base = parent.fullPath;
     fullPath = rel ? (base ? `${base}/${rel}` : rel) : base;
+    port = parent.port;
+    bucket = parent.bucket;
+    storage = parent.storage;
   }
-  return { __kind: 'storage-ref', port: parent.port, fullPath, name: lastSegment(fullPath) };
+  return new ClientStorageReferenceImpl(port, bucket, fullPath, storage);
 }
 
 /** Enumerate immediate child items + sub-prefixes under a ref (Pyric Studio
@@ -86,9 +137,8 @@ export async function listAll(
   const r = (await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.listAll', path: reference.fullPath,
   })) as { items: Array<{ fullPath: string; name: string }>; prefixes: Array<{ fullPath: string; name: string }> };
-  const mk = (e: { fullPath: string; name: string }): ClientStorageReference => ({
-    __kind: 'storage-ref', port: reference.port, fullPath: e.fullPath, name: e.name,
-  });
+  const mk = (e: { fullPath: string; name: string }): ClientStorageReference =>
+    new ClientStorageReferenceImpl(reference.port, reference.bucket, e.fullPath, reference.storage);
   return { items: r.items.map(mk), prefixes: r.prefixes.map(mk) };
 }
 
