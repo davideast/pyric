@@ -20,4 +20,8 @@ export {
   getAdminStorageSandbox,
   getStorageRulesResolution,
 } from './service.js';
+export {
+  decodeString,
+  defaultRawContentType,
+} from './upload.js';
 export type { StorageRulesResolution } from './rules-resolution.js';

@@ -5,7 +5,8 @@
  */
 
 import { bytesToBase64, base64ToBytes, storagePayloadTooLarge, MAX_STORAGE_OP_BYTES } from '../protocol.js';
-import type { FullMetadata } from 'pyric/storage';
+import type { FullMetadata, StringFormat } from 'pyric/storage';
+import { decodeString, defaultRawContentType } from 'pyric/storage/internal';
 import { dataRpc, nextId, wirePort } from './core.js';
 import { lastSegment } from './handles.js';
 import type { ClientDb, ClientPort } from './handles.js';
@@ -163,6 +164,22 @@ export async function uploadBytes(
     ...(metadata !== undefined ? { metadata: metadata as Record<string, unknown> } : {}),
   })) as FullMetadata;
   return { ref: reference, metadata: stored };
+}
+
+/** Upload string payload at the reference's path.
+ *  Mirrors `pyric/storage`'s `uploadString` result shape. */
+export async function uploadString(
+  reference: ClientStorageReference,
+  value: string,
+  format: StringFormat = 'raw',
+  metadata?: ClientSettableMetadata,
+): Promise<{ ref: ClientStorageReference; metadata: FullMetadata }> {
+  const { bytes, inferredType } = decodeString(value, format);
+  const effective: ClientSettableMetadata = {
+    ...metadata,
+    contentType: metadata?.contentType ?? inferredType ?? defaultRawContentType(format),
+  };
+  return uploadBytes(reference, bytes, effective);
 }
 
 /** Read an object's bytes (JSON-safe base64 op → `ArrayBuffer`). Mirrors

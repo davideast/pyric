@@ -167,6 +167,7 @@ export {
   getDownloadURL,
   // Storage byte ops (worker-mode uploads/reads via the base64 protocol)
   uploadBytes,
+  uploadString,
   getBytes,
   deleteObject,
   type ClientFirebaseStorage,
