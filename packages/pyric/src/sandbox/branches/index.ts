@@ -52,6 +52,9 @@ import {
 } from '../index.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
 import { Timestamp } from 'pyric/rules/internal';
+import { getOrCreateBackend } from '../../database/sandbox/backend-for.js';
+import { stripJsonComments } from '../../database/sandbox-controls.js';
+import type { JsonValue } from '../../database/sandbox/data-tree.js';
 
 type DocData = Record<string, unknown>;
 
@@ -100,11 +103,79 @@ export type DiffTarget = LocalSandbox | SandboxSnapshot;
 export function fork(snapshot: SandboxSnapshot, rules = ''): Branch {
   const sandbox = initializeSandbox();
   const env = getInternalEnv(sandbox);
+
+  const hasServices = snapshot.services !== undefined;
+  let isRtdbPresent = false;
+  if (hasServices) {
+    const isServicesNotNull = snapshot.services !== null;
+    if (isServicesNotNull) {
+      const hasRtdbKey = 'rtdb' in snapshot.services;
+      if (hasRtdbKey) {
+        const rtdbState = snapshot.services.rtdb;
+        const isRtdbStateNotNull = rtdbState !== null;
+        const isRtdbStateNotUndefined = rtdbState !== undefined;
+        if (isRtdbStateNotNull) {
+          if (isRtdbStateNotUndefined) {
+            isRtdbPresent = true;
+          }
+        }
+      }
+    }
+  }
+
+  if (isRtdbPresent) {
+    const rtdbBackend = getOrCreateBackend(sandbox);
+    const rtdbData = snapshot.services.rtdb as Record<string, unknown>;
+    rtdbBackend.restoreTree(rtdbData as unknown as JsonValue);
+  }
+
+  const isRulesProvided = rules !== '';
+  let isRtdbRuleset = false;
+  if (isRulesProvided) {
+    const trimmed = rules.trim();
+    const startsWithBrace = trimmed.startsWith('{');
+    if (startsWithBrace) {
+      try {
+        const stripped = stripJsonComments(rules);
+        const parsed = JSON.parse(stripped) as Record<string, unknown>;
+        const isObject = typeof parsed === 'object';
+        const isNotNull = parsed !== null;
+        const isNotArray = !Array.isArray(parsed);
+        let isValidObject = false;
+        if (isObject) {
+          if (isNotNull) {
+            if (isNotArray) {
+              isValidObject = true;
+            }
+          }
+        }
+        if (isValidObject) {
+          const hasRulesKey = 'rules' in parsed;
+          if (hasRulesKey) {
+            isRtdbRuleset = true;
+          }
+        }
+      } catch {
+        isRtdbRuleset = false;
+      }
+    }
+  }
+
+  let firestoreRules = '';
+  if (isRtdbRuleset) {
+    const rtdbBackend = getOrCreateBackend(sandbox);
+    const stripped = stripJsonComments(rules);
+    const parsed = JSON.parse(stripped) as { rules: Record<string, unknown> };
+    rtdbBackend.setRules(parsed);
+  } else {
+    firestoreRules = rules;
+  }
+
   // Copy-on-write fork: the branch reads `snapshot.firestore` as an immutable
   // base (no clone, O(1)) and lands its own writes in an overlay. The snapshot
   // is a stable, branch-owned object the live sandbox never mutates, so the
   // branch stays isolated from later live writes.
-  env.seed({ rules, baseDocuments: snapshot.firestore });
+  env.seed({ rules: firestoreRules, baseDocuments: snapshot.firestore });
   return {
     sandbox,
     rules,

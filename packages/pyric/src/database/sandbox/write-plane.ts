@@ -41,13 +41,24 @@ export class WritePlane {
   }
 
   setRules(rules: { rules: Record<string, unknown> } | null): void {
+    const isRulesNull = rules === null;
+    if (isRulesNull) {
+      this.state.activeRules = null;
+    } else {
+      this.state.activeRules = structuredClone(rules);
+    }
     this.state.rules.setRules(rules);
-    this.state.activeRules = rules === null ? null : structuredClone(rules);
     this.cancelDeniedListeners();
+    this.state.notifyWrite();
   }
 
   getActiveRules(): { rules: Record<string, unknown> } | null {
-    return this.state.activeRules === null ? null : structuredClone(this.state.activeRules);
+    const isRulesNull = this.state.activeRules === null;
+    let result: { rules: Record<string, unknown> } | null = null;
+    if (!isRulesNull) {
+      result = structuredClone(this.state.activeRules);
+    }
+    return result;
   }
 
   snapshotState(): JsonValue {
