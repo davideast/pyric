@@ -34,6 +34,9 @@ export type { StorageReference } from './reference.js';
 export { uploadBytes, uploadString } from './upload.js';
 export type { StringFormat } from './upload.js';
 
+export { uploadBytesResumable } from './resumable.js';
+export type { UploadTask, UploadTaskSnapshot, TaskState, TaskEvent } from './resumable.js';
+
 export { getBytes, getBlob, getDownloadURL, deleteObject } from './download.js';
 
 export { getMetadata, updateMetadata } from './metadata.js';

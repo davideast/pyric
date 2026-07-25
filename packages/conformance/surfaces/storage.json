@@ -28,16 +28,6 @@
   "registry": "storage",
   "dispositions": [
     {
-      "id": "storage.resumable-upload",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "The UploadTask and observer surface is deferred — v1 shipped the one-shot uploadBytes driver first; the resumable/observable variant is unbuilt, not unbuildable.",
-      "evidenceRefs": ["registry:storage#47"],
-      "symbols": [
-        "uploadBytesResumable"
-      ]
-    },
-    {
       "id": "storage.node-stream",
       "availability": "deferred",
       "reasonCode": "implementation-deferred",

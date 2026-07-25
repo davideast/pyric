@@ -1,5 +1,5 @@
 import { createContext, createElement, useContext, type ReactNode } from 'react';
-import { ref, listAll, getMetadata, getBlob, uploadBytes, deleteObject } from 'pyric/storage';
+import { ref, listAll, getMetadata, getBlob, uploadBytes, uploadBytesResumable, deleteObject } from 'pyric/storage';
 
 /**
  * The modular Storage fns the browse/inspect hooks call, as an INJECTABLE
@@ -23,7 +23,7 @@ import { ref, listAll, getMetadata, getBlob, uploadBytes, deleteObject } from 'p
  */
 export type StorageApi = Pick<
   typeof import('pyric/storage'),
-  'ref' | 'listAll' | 'getMetadata' | 'getBlob' | 'uploadBytes' | 'deleteObject'
+  'ref' | 'listAll' | 'getMetadata' | 'getBlob' | 'uploadBytes' | 'uploadBytesResumable' | 'deleteObject'
 >;
 
 const inProcessStorageApi: StorageApi = {
@@ -32,6 +32,7 @@ const inProcessStorageApi: StorageApi = {
   getMetadata,
   getBlob,
   uploadBytes,
+  uploadBytesResumable,
   deleteObject,
 };
 

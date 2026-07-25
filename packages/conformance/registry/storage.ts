@@ -47,9 +47,9 @@ const row5 = defineRows({
     featureKeys: ["uploadBytesResumable"],
     section: "`uploadBytesResumable(ref, data, metadata?)` — resumable upload + task observers",
     api: "uploadBytesResumable(ref, data, metadata?)",
-    status: "unsupported",
-    automation: "unsupported",
-    exceptionReason: "Behavior is unimplemented; availability is contract-owned.",
+    status: "diverged-documented",
+    automation: "unit-backed",
+    conformanceTests: ["packages/pyric/test/storage/resumable-upload.test.ts"],
   },
 });
 
@@ -579,7 +579,7 @@ export const storageRegistry = {
         row5({
           rowRef: "47",
           behavior: "Exported by `firebase/storage`; returns an `UploadTask` with `pause()` / `resume()` / `cancel()`",
-          evidence: "No `pyric/storage` implementation or behavioral probe exists; availability is classified by the owning surface contract.",
+          evidence: "`unit:resumable-upload.test.ts` confirms `uploadBytesResumable(ref, data)` returns an `UploadTask` supporting `pause()`, `resume()`, and `cancel()` over synthetic microtask steps.",
           risk: ["specific-value"],
           riskScore: 2,
           riskReasons: ["asserts 2 specific value(s)"],
@@ -587,7 +587,7 @@ export const storageRegistry = {
         row5({
           rowRef: "48",
           behavior: "`task.on('state_changed', next, error, complete)` fires `next` with `{bytesTransferred, totalBytes, state}` snapshots",
-          evidence: "not implemented",
+          evidence: "`unit:resumable-upload.test.ts` confirms synthetic progress snapshots are emitted during task execution without requiring network transfer.",
           risk: ["listener"],
           riskScore: 2,
           riskReasons: ["asserts listener semantics"],
@@ -595,7 +595,7 @@ export const storageRegistry = {
         row5({
           rowRef: "49",
           behavior: "`task.pause()` flips `state` to `'paused'`; `task.resume()` continues",
-          evidence: "not implemented",
+          evidence: "`unit:resumable-upload.test.ts` confirms calling `task.pause()` and `task.resume()` transitions through `'paused'` and `'running'` states deterministically.",
           risk: ["specific-value"],
           riskScore: 2,
           riskReasons: ["asserts 1 specific value(s)"],
@@ -603,7 +603,7 @@ export const storageRegistry = {
         row5({
           rowRef: "50",
           behavior: "`task.cancel()` rejects the upload with `storage/canceled`",
-          evidence: "not implemented",
+          evidence: "`unit:resumable-upload.test.ts` confirms cancellation rejects with `storage/canceled` and leaves no falsely completed object in storage.",
           risk: ["specific-value","error-code"],
           riskScore: 5,
           riskReasons: ["asserts 1 specific value(s)","asserts Firebase error code(s): `storage/canceled`"],

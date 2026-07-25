@@ -22,6 +22,7 @@ import {
   ref as workerRef,
   uploadBytes as workerUploadBytes,
   uploadString as workerUploadString,
+  uploadBytesResumable as workerUploadBytesResumable,
   deleteObject as workerDeleteObject,
 } from '../worker/client.js';
 import { useWorker } from './worker-runtime.js';
@@ -87,6 +88,14 @@ function workerOrInPage<T extends (...args: any[]) => unknown>(name: string, fn:
 // ruleset; only their active Auth sessions differ. Payloads are capped at
 // 8 MiB per op.
 export const uploadBytes = (useWorker ? workerUploadBytes : ip.uploadBytes) as typeof ip.uploadBytes;
+
+let selectedUploadBytesResumable = ip.uploadBytesResumable;
+const isWorkerMode = useWorker === true;
+if (isWorkerMode) {
+  selectedUploadBytesResumable = workerUploadBytesResumable as unknown as typeof ip.uploadBytesResumable;
+}
+export const uploadBytesResumable = selectedUploadBytesResumable;
+
 export const getBytes = (useWorker ? workerGetBytes : ip.getBytes) as typeof ip.getBytes;
 export const deleteObject = (useWorker ? workerDeleteObject : ip.deleteObject) as typeof ip.deleteObject;
 
