@@ -404,6 +404,47 @@ export async function startServe(opts: {
       watcher.close();
     });
   }
+  const dbRulesSourcePath = session.summary.rules.database.sourcePath;
+  const isWatchEnabled = opts.watch !== false;
+  const hasDbRulesPath = dbRulesSourcePath !== null;
+  const watchingDb = isWatchEnabled && hasDbRulesPath;
+  if (watchingDb) {
+    let debounceDb: ReturnType<typeof setTimeout> | null = null;
+    const dbWatcher = watchFile(dbRulesSourcePath as string, () => {
+      const hasDebounceDb = debounceDb !== null;
+      if (hasDebounceDb) {
+        clearTimeout(debounceDb as ReturnType<typeof setTimeout>);
+      }
+      debounceDb = setTimeout(() => {
+        void session.reloadDatabaseRules().then((result) => {
+          const isReloaded = result.kind === 'reloaded';
+          if (isReloaded) {
+            logger.note(`  ↻ rtdb rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)`);
+          } else {
+            const isRejected = result.kind === 'rejected';
+            if (isRejected) {
+              logger.note(`  ⚠ rtdb rules NOT reloaded (last-good stays live): ${result.error.message}`);
+            }
+          }
+        });
+      }, 150);
+    });
+    dbWatcher.on('error', (error) => {
+      const isErrorInstance = error instanceof Error;
+      let errorMsg = String(error);
+      if (isErrorInstance) {
+        errorMsg = (error as Error).message;
+      }
+      logger.note(`  ⚠ rtdb rules watcher failed (hot reload off): ${errorMsg}`);
+    });
+    handle.server.once('close', () => {
+      const hasDebounceDb = debounceDb !== null;
+      if (hasDebounceDb) {
+        clearTimeout(debounceDb as ReturnType<typeof setTimeout>);
+      }
+      dbWatcher.close();
+    });
+  }
 
   logger.info(`=== Serving from '${opts.cwd}'...`);
   logger.info('');

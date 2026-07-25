@@ -84,6 +84,36 @@ export function setupWorkerHotReload(
       console.error('[pyric worker] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
     }
   });
+  events.addEventListener('rtdb-rules-update', (ev) => {
+    try {
+      const { rules } = JSON.parse(ev.data) as { rules: { rules: Record<string, unknown> }; rulesHash?: string };
+      const isRtdbMissing = ctx.rtdb === undefined;
+      if (isRtdbMissing) {
+        ctx.rtdb = getDatabase(ctx.sandbox);
+      }
+      rtdbSandbox.setRules(ctx.rtdb as ReturnType<typeof getDatabase>, rules);
+      const isActiveRulesMissing = ctx.activeRules === undefined;
+      if (isActiveRulesMissing) {
+        ctx.activeRules = {};
+      }
+      (ctx.activeRules as Record<string, unknown>).database = {
+        source: rules,
+        updatedAt: Date.now(),
+        status: 'active',
+        messages: [],
+      };
+      // eslint-disable-next-line no-console
+      console.info('[pyric worker] database.rules.json hot-reloaded');
+    } catch (err) {
+      const isErrorInstance = err instanceof Error;
+      let errorMessage = String(err);
+      if (isErrorInstance) {
+        errorMessage = (err as Error).message;
+      }
+      // eslint-disable-next-line no-console
+      console.error('[pyric worker] database rules hot-reload failed:', errorMessage);
+    }
+  });
   return () => events.close();
 }
 
