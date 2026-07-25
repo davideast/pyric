@@ -436,6 +436,25 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
     dispose();
     expect(es.closed).toBe(true);
   });
+
+  it('connects to /__pyric/events and updates Realtime Database rules on rtdb-rules-update', async () => {
+    const ctx = await makeCtx();
+    const dispose = setupWorkerHotReload(ctx, (url) => new FakeES(url));
+    const es = FakeES.last!;
+    expect(es.url).toBe('/__pyric/events');
+
+    es.emit('rtdb-rules-update', JSON.stringify({
+      rules: { rules: { '.read': 'false', '.write': 'false' } },
+      rulesHash: 'hash123',
+    }));
+
+    expect(ctx.activeRules?.database?.status).toBe('active');
+    expect(ctx.activeRules?.database?.source).toEqual({ rules: { '.read': 'false', '.write': 'false' } });
+    expect(ctx.rtdb).toBeDefined();
+
+    dispose();
+    expect(es.closed).toBe(true);
+  });
 });
 
 // ─── Event-history hydration: survive worker death ──────────────────────────

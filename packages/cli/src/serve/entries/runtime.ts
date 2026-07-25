@@ -553,4 +553,29 @@ if (!useWorker && typeof EventSource !== 'undefined') {
       console.error('[pyric dev] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
     }
   });
+  events.addEventListener('rtdb-rules-update', (e) => {
+    try {
+      const { rules, rulesHash } = JSON.parse((e as MessageEvent).data as string) as {
+        rules: { rules: Record<string, unknown> };
+        rulesHash: string;
+      };
+      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      diagnostics.databaseRulesDeployed = true;
+      let newHash: string | null = null;
+      const isHashDefined = rulesHash !== undefined;
+      if (isHashDefined) {
+        newHash = rulesHash;
+      }
+      diagnostics.databaseRulesHash = newHash;
+      console.info(`[pyric dev] database.rules.json hot-reloaded (hash ${rulesHash})`);
+    } catch (err) {
+      runtimeStatus.reportError(err, 'runtime');
+      const isErrorInstance = err instanceof Error;
+      let errorMessage = String(err);
+      if (isErrorInstance) {
+        errorMessage = (err as Error).message;
+      }
+      console.error('[pyric dev] database rules hot-reload failed:', errorMessage);
+    }
+  });
 }

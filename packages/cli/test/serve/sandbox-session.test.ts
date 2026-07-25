@@ -143,6 +143,38 @@ service cloud.firestore {
     await session.close();
   });
 
+  it('replaces valid Realtime Database rules and retains last-good rules after a broken edit', async () => {
+    const root = project();
+    const sourcePath = join(root, 'database.rules.json');
+    writeFileSync(sourcePath, JSON.stringify({
+      rules: { '.read': 'false' },
+    }));
+
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: { database: { rules: 'database.rules.json' } },
+      sdk: { dir: join(root, 'sdk') },
+    });
+    const beforeHash = session.payload().databaseRulesHash;
+
+    writeFileSync(sourcePath, JSON.stringify({
+      rules: { '.read': 'true' },
+    }));
+    const reloaded = await (session as unknown as { reloadDatabaseRules(): Promise<{ kind: string }> }).reloadDatabaseRules();
+    expect(reloaded.kind).toBe('reloaded');
+    expect(session.payload().databaseRules).toEqual({ rules: { '.read': 'true' } });
+    expect(session.payload().databaseRulesHash).not.toBe(beforeHash);
+
+    const lastGoodHash = session.payload().databaseRulesHash;
+    writeFileSync(sourcePath, '{ invalid json');
+    const rejected = await (session as unknown as { reloadDatabaseRules(): Promise<{ kind: string }> }).reloadDatabaseRules();
+    expect(rejected.kind).toBe('rejected');
+    expect(session.payload().databaseRulesHash).toBe(lastGoodHash);
+    expect(session.payload().databaseRules).toEqual({ rules: { '.read': 'true' } });
+
+    await session.close();
+  });
+
   it('serves one live init payload with late-bound host facts', async () => {
     const root = project();
     let bridgeUrl: string | null = null;

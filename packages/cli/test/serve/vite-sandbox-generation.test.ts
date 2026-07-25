@@ -15,7 +15,7 @@ type Middleware = (
   next: () => void,
 ) => void;
 
-function harness(options: { functions?: boolean; rulesFile?: string | null } = {}) {
+function harness(options: { functions?: boolean; rulesFile?: string | null; databaseRulesFile?: string | null } = {}) {
   const events: string[] = [];
   const warnings: string[] = [];
   const watcher = new EventEmitter() as EventEmitter & { add(path: string): void };
@@ -29,7 +29,7 @@ function harness(options: { functions?: boolean; rulesFile?: string | null } = {
     summary: {
       rules: {
         firestore: { sourcePath: options.rulesFile ?? null, hash: null },
-        database: { sourcePath: null, hash: null },
+        database: { sourcePath: options.databaseRulesFile ?? null, hash: null },
         storage: { sourcePath: null, hash: null },
       },
       persistence: null,
@@ -41,6 +41,7 @@ function harness(options: { functions?: boolean; rulesFile?: string | null } = {
     payload: () => ({}) as ReturnType<SandboxSession['payload']>,
     handle: () => { handled += 1; return false; },
     reloadFirestoreRules: async () => ({ kind: 'not-configured' }),
+    reloadDatabaseRules: async () => ({ kind: 'not-configured' }),
     close: async () => { events.push('close:session'); },
   };
   const bridgeAttachment = { close: async () => { events.push('close:bridge-host'); } };
@@ -219,5 +220,12 @@ describe('active Vite sandbox generation', () => {
       '@pyric/cli/vite: seed must be a JSON object of "collection/doc" → fields',
     );
     expect(shapeFailure.events).toContain('close:bridge');
+  });
+
+  it('watches the configured Realtime Database rules file in Vite dev server', async () => {
+    const h = harness({ databaseRulesFile: '/project/database.rules.json' });
+    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    expect(h.events).toContain('watch:/project/database.rules.json');
+    await generation.close();
   });
 });

@@ -63,6 +63,7 @@ export interface SandboxSession {
   payload(): InitPayload;
   handle(req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean>;
   reloadFirestoreRules(): Promise<RulesReloadResult>;
+  reloadDatabaseRules(): Promise<RulesReloadResult>;
   close(): Promise<void>;
 }
 
@@ -93,6 +94,8 @@ export async function createSandboxSession(
   const live = {
     rules: firestore.rules,
     rulesHash: firestore.rulesHash,
+    databaseRules: database.rules,
+    databaseRulesHash: database.rulesHash,
   };
   const events = createEventHub();
   const capture: CaptureStore | undefined = (options.capture ?? true)
@@ -145,8 +148,8 @@ export async function createSandboxSession(
   const payload = (): InitPayload => ({
     rules: live.rules,
     rulesHash: live.rulesHash,
-    databaseRules: database.rules,
-    databaseRulesHash: database.rulesHash,
+    databaseRules: live.databaseRules,
+    databaseRulesHash: live.databaseRulesHash,
     databaseUrl: database.databaseUrl,
     storageRules: storage.rules,
     storageRulesHash: storage.rulesHash,
@@ -217,6 +220,31 @@ export async function createSandboxSession(
       return { kind: 'rejected', error: error instanceof Error ? error : new Error(String(error)) };
     }
   };
+  const reloadDatabaseRules = async (): Promise<RulesReloadResult> => {
+    const isMissingDatabaseRules = database.sourcePath === null;
+    if (isMissingDatabaseRules) {
+      return { kind: 'not-configured' };
+    }
+    try {
+      const updated = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig);
+      const isMissingUpdatedRules = updated.rules === null || updated.rulesHash === null;
+      if (isMissingUpdatedRules) {
+        return { kind: 'not-configured' };
+      }
+      live.databaseRules = updated.rules;
+      live.databaseRulesHash = updated.rulesHash;
+      events.broadcast('rtdb-rules-update', { rules: updated.rules, rulesHash: updated.rulesHash });
+      return { kind: 'reloaded', rulesHash: updated.rulesHash as string, clients: events.clientCount() };
+    } catch (error) {
+      const isErrorInstance = error instanceof Error;
+      let errorResult: Error = new Error(String(error));
+      if (isErrorInstance) {
+        errorResult = error as Error;
+      }
+      return { kind: 'rejected', error: errorResult };
+    }
+  };
+
   let closePromise: Promise<void> | null = null;
   const close = (): Promise<void> => {
     closePromise ??= Promise.resolve().then(() => events.close());
@@ -228,6 +256,7 @@ export async function createSandboxSession(
     payload,
     handle: namespace,
     reloadFirestoreRules,
+    reloadDatabaseRules,
     close,
   };
 }
