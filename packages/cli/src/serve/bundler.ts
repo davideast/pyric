@@ -57,6 +57,7 @@ export function defaultSdkEntries(): Record<string, string> {
   return {
     ai: pick('ai'),
     app: pick('app'),
+    'app-ai-passthrough': pick('app-ai-passthrough'),
     auth: pick('auth'),
     firestore: pick('firestore'),
     database: pick('database'),
@@ -309,6 +310,7 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
       sourcemap: 'linked',
       minify: opts.minify ?? true,
       logLevel: 'silent',
+      external: ['firebase/*'],
       // Provenance: any stack frame or "view source" into these bundles must
       // self-identify as the sandbox shim, not the real Firebase SDK.
       chunkNames: 'pyric-sandbox-[hash]',

@@ -37,7 +37,8 @@
     "./next",
     "./serve/worker",
     "./remote",
-    "./register"
+    "./register",
+    "./register/app-bridge"
   ],
   "removedExports": [
     "./deploy",

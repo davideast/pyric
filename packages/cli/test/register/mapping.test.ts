@@ -47,6 +47,17 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('pyric-admin/app')).toBeNull();
     expect(mapFirebaseSpecifier('pyric/firestore')).toBeNull();
   });
+
+  it('skips mapping firebase/ai and maps firebase/app to app-bridge when in production AI mode', () => {
+    expect(mapFirebaseSpecifier('firebase/ai', undefined, { aiMode: 'production' })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', undefined, { aiMode: 'production' })).toBe('@pyric/cli/register/app-bridge');
+    expect(mapFirebaseSpecifier('firebase/firestore', undefined, { aiMode: 'production' })).toBe('pyric/firestore');
+  });
+
+  it('leaves firebase/app unmapped when importer is the shadow app bridge', () => {
+    expect(mapFirebaseSpecifier('firebase/app', '/cli/dist/register/app-bridge.js', { aiMode: 'production' })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', '/cli/src/serve/entries/app-ai-passthrough.ts', { aiMode: 'production' })).toBeNull();
+  });
 });
 
 describe('resolveEsmOnlySubpath', () => {

@@ -1,14 +1,26 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
 
 const config = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? 'demo',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? 'demo.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'demo',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID ?? 'demo',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? 'demo',
+  apiKey: "AIzaSyBlUIy20Mg26q_MZm9qkT1jHAGhmxaeszs",
+  authDomain: "pyric-site.firebaseapp.com",
+  projectId: "pyric-site",
+  storageBucket: "pyric-site.firebasestorage.app",
+  messagingSenderId: "157619808114",
+  appId: "1:157619808114:web:e86807e086001aaf269feb",
+  measurementId: "G-GZTGQE1M30",
   databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
 };
 
-export const firebaseApp = getApps().length > 0 ? getApp() : initializeApp(config);
+const existingApps = getApps();
+const hasExistingApps = existingApps.length > 0;
+let appInstance;
+if (hasExistingApps) {
+  appInstance = getApp();
+} else {
+  appInstance = initializeApp(config);
+}
+
+export const firebaseApp = appInstance;
 export const firebaseConfig = config;
+const aiLogicEnv = import.meta.env.VITE_USE_AI_LOGIC;
+export const useAiLogic = aiLogicEnv === 'true';

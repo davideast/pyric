@@ -45,10 +45,18 @@ export function createViteModuleContext(): ViteModuleContext {
   return { entries, cliRoot: packageRootOf(entries.init) };
 }
 
+export interface ViteModuleSwapOptions {
+  getAiMode?: () => 'sandbox' | 'production';
+}
+
 /** Own the Vite and optimizer forms of the Firebase-module swap. */
-export function createViteModuleSwap(context: ViteModuleContext): ViteModuleSwap {
+export function createViteModuleSwap(
+  context: ViteModuleContext,
+  options?: ViteModuleSwapOptions,
+): ViteModuleSwap {
   const { entries, cliRoot } = context;
   const pyricRoot = pyricPackageRoot();
+  const aiMode = () => options?.getAiMode?.() ?? 'sandbox';
 
   const isPyricImporter = (importer: string | undefined): boolean => {
     if (!importer) return false;
@@ -68,28 +76,73 @@ export function createViteModuleSwap(context: ViteModuleContext): ViteModuleSwap
     name: 'pyric-sandbox-optimizer',
     setup(build) {
       build.onResolve({ filter: FIREBASE_SPECIFIER }, (args) => {
-        const subpath = FIREBASE_SPECIFIER.exec(args.path)![1]!;
-        if (SERVED_FIREBASE_SUBPATHS.has(subpath)) {
-          return { path: entries[entryKey(subpath)]! };
+        const isShadowBridgeImporter = args.importer !== undefined && args.importer !== '' &&
+          (args.importer.includes('app-ai-passthrough') || args.importer.includes('app-bridge'));
+        const isFirebaseAppSpecifier = args.path === 'firebase/app';
+        const isBypassedBridgeImport = isShadowBridgeImporter && isFirebaseAppSpecifier;
+        if (isBypassedBridgeImport) {
+          return null;
+        }
+
+        const match = FIREBASE_SPECIFIER.exec(args.path);
+        const subpath = match !== null && match[1] !== undefined ? match[1] : '';
+        const isProductionAiMode = aiMode() === 'production';
+        if (isProductionAiMode) {
+          const isAiSubpath = subpath === 'ai';
+          if (isAiSubpath) {
+            return null;
+          }
+          const isAppSubpath = subpath === 'app';
+          const passthroughEntry = entries['app-ai-passthrough'];
+          const hasPassthroughEntry = passthroughEntry !== undefined;
+          const shouldUsePassthroughBridge = isAppSubpath && hasPassthroughEntry;
+          if (shouldUsePassthroughBridge) {
+            return { path: passthroughEntry };
+          }
+        }
+
+        const isServedSubpath = SERVED_FIREBASE_SUBPATHS.has(subpath);
+        if (isServedSubpath) {
+          const key = entryKey(subpath);
+          const entryPath = entries[key];
+          if (entryPath !== undefined) {
+            return { path: entryPath };
+          }
         }
         return null;
       });
       build.onResolve({ filter: NODE_BUILTIN_RE }, (args) => {
-        if (!isOurCode(args.importer)) return null;
-        return { path: args.path.replace(/^node:/, ''), namespace: 'pyric-node-shim' };
+        const isOwnedImporter = isOurCode(args.importer);
+        if (!isOwnedImporter) {
+          return null;
+        }
+        const shimPath = args.path.replace(/^node:/, '');
+        return { path: shimPath, namespace: 'pyric-node-shim' };
       });
-      build.onLoad({ filter: /.*/, namespace: 'pyric-node-shim' }, (args) => ({
-        contents: NODE_BUILTIN_SHIMS[args.path]!,
-        loader: 'js',
-      }));
+      build.onLoad({ filter: /.*/, namespace: 'pyric-node-shim' }, (args) => {
+        const content = NODE_BUILTIN_SHIMS[args.path];
+        if (content !== undefined) {
+          return { contents: content, loader: 'js' };
+        }
+        return null;
+      });
     },
   };
 
   return {
     config() {
+      const excludedModules = SDK_MODULES.filter((specifier) => {
+        const isProductionAiMode = aiMode() === 'production';
+        const isFirebaseAi = specifier === 'firebase/ai';
+        const isProductionAiModule = isProductionAiMode && isFirebaseAi;
+        if (isProductionAiModule) {
+          return false;
+        }
+        return true;
+      });
       return {
         optimizeDeps: {
-          exclude: [...SDK_MODULES],
+          exclude: excludedModules,
           include: ['js-md5', 'js-sha256'],
           esbuildOptions: { plugins: [optimizerMirror] },
         },
@@ -97,23 +150,71 @@ export function createViteModuleSwap(context: ViteModuleContext): ViteModuleSwap
     },
     configResolved(config) {
       const allow = config.server?.fs?.allow;
-      if (!allow) return;
+      const hasAllowList = allow !== undefined && Array.isArray(allow);
+      if (!hasAllowList) {
+        return;
+      }
       for (const dir of [pyricRoot, cliRoot]) {
-        if (!allow.includes(dir)) allow.push(dir);
+        const isAlreadyAllowed = allow.includes(dir);
+        if (!isAlreadyAllowed) {
+          allow.push(dir);
+        }
       }
     },
     resolveId(source, importer) {
-      const firebase = FIREBASE_SPECIFIER.exec(source);
-      if (firebase) {
-        const subpath = firebase[1]!;
-        return SERVED_FIREBASE_SUBPATHS.has(subpath) ? entries[entryKey(subpath)]! : null;
+      const isShadowBridgeImporter = importer !== undefined &&
+        (importer.includes('app-ai-passthrough') || importer.includes('app-bridge'));
+      const isFirebaseAppSpecifier = source === 'firebase/app';
+      const isBypassedBridgeImport = isShadowBridgeImporter && isFirebaseAppSpecifier;
+      if (isBypassedBridgeImport) {
+        return null;
       }
-      const node = NODE_BUILTIN_RE.exec(source);
-      return node && isOurCode(importer) ? NODE_SHIM_PREFIX + node[2]! : null;
+
+      const firebaseMatch = FIREBASE_SPECIFIER.exec(source);
+      const isFirebaseSpecifier = firebaseMatch !== null;
+      if (isFirebaseSpecifier) {
+        const subpath = firebaseMatch[1] !== undefined ? firebaseMatch[1] : '';
+        const isProductionAiMode = aiMode() === 'production';
+        if (isProductionAiMode) {
+          const isAiSubpath = subpath === 'ai';
+          if (isAiSubpath) {
+            return null;
+          }
+          const isAppSubpath = subpath === 'app';
+          const passthroughEntry = entries['app-ai-passthrough'];
+          const hasPassthroughEntry = passthroughEntry !== undefined;
+          const shouldUsePassthroughBridge = isAppSubpath && hasPassthroughEntry;
+          if (shouldUsePassthroughBridge) {
+            return passthroughEntry;
+          }
+        }
+        const isServedSubpath = SERVED_FIREBASE_SUBPATHS.has(subpath);
+        if (isServedSubpath) {
+          const key = entryKey(subpath);
+          const entryPath = entries[key];
+          if (entryPath !== undefined) {
+            return entryPath;
+          }
+        }
+        return null;
+      }
+
+      const nodeMatch = NODE_BUILTIN_RE.exec(source);
+      const isNodeBuiltin = nodeMatch !== null && nodeMatch[2] !== undefined;
+      const isOwnedImporter = isOurCode(importer);
+      const shouldShimNodeBuiltin = isNodeBuiltin && isOwnedImporter;
+      if (shouldShimNodeBuiltin) {
+        return NODE_SHIM_PREFIX + nodeMatch[2];
+      }
+      return null;
     },
     load(id) {
-      if (!id.startsWith(NODE_SHIM_PREFIX)) return null;
-      return shimFor(id.slice(NODE_SHIM_PREFIX.length));
+      const isNodeShim = id.startsWith(NODE_SHIM_PREFIX);
+      if (!isNodeShim) {
+        return null;
+      }
+      const specifier = id.slice(NODE_SHIM_PREFIX.length);
+      return shimFor(specifier);
     },
   };
 }

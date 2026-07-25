@@ -190,7 +190,6 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
  */
 export function pyric(options: PyricOptions = {}): Plugin {
   const moduleContext = createViteModuleContext();
-  const moduleSwap = createViteModuleSwap(moduleContext);
   const { entries, cliRoot } = moduleContext;
   const workerRuntime = createViteWorkerRuntime();
   const studioEnabled = options.ui !== false;
@@ -201,6 +200,9 @@ export function pyric(options: PyricOptions = {}): Plugin {
     workerRuntime,
   };
   const pageRuntime = createVitePageRuntime(pageRuntimeInput);
+  const moduleSwap = createViteModuleSwap(moduleContext, {
+    getAiMode: () => pageRuntime.ai().mode,
+  });
 
   // Normalize the public bridge shorthand once. The active generation owns the
   // bridge/session attachment and routes the peer through the SharedWorker.

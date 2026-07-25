@@ -23,12 +23,13 @@ import type { ChatMode } from '../chat-mode';
 import type { UiMessage, UiToolCall, UiUsage } from '../ui/chat/chat-types';
 import { AgentRunRecorder } from './agent-run-store';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-3.5-flash';
 const MAX_MESSAGES = 40;
 const modeInstructions: Record<ChatMode, string> = {
   explore: 'Help the user explore possibilities. Surface alternatives, assumptions, and useful questions before converging.',
   plan: 'Help the user turn ideas into a practical plan. Clarify the desired outcome, sequence the work, and identify the next concrete step.',
   refine: 'Help the user pressure-test and improve the current direction. Identify weaknesses, tradeoffs, and specific refinements without discarding useful intent.',
+  direct: 'You are a direct, helpful AI assistant. Answer questions clearly and accurately without assumptions.',
 };
 
 type AgentCallbacks = {
@@ -61,7 +62,7 @@ const toUiUsage = (usage: ModelUsage): UiUsage => ({
 
 const generationConfig = {
   maxOutputTokens: 8192,
-  thinkingConfig: { thinkingBudget: 1024, includeThoughts: true },
+  thinkingConfig: { thinkingLevel: 'MEDIUM', includeThoughts: true },
 };
 
 export class BrowserAgentService {

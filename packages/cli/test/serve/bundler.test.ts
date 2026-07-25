@@ -298,6 +298,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     expect(Object.keys(entries).sort()).toEqual([
       'ai',
       'app',
+      'app-ai-passthrough',
       'auth',
       'database',
       'firestore',
@@ -316,6 +317,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const names = result.files.map((f) => f.split('/').pop()!);
     expect(names).toContain('ai.js');
     expect(names).toContain('app.js');
+    expect(names).toContain('app-ai-passthrough.js');
     expect(names).toContain('auth.js');
     expect(names).toContain('database.js');
     expect(names).toContain('firestore.js');
@@ -342,7 +344,9 @@ describe('the real wrapper entries (plan step 1.2)', () => {
       const src = readFileSync(f, 'utf8');
       // provenance banner on every served bundle
       expect(src).toContain('NOT the real Firebase SDK');
-      expect(src).not.toMatch(/from\s*["']firebase\//);
+      if (!f.endsWith('/app-ai-passthrough.js')) {
+        expect(src).not.toMatch(/from\s*["']firebase\//);
+      }
       expect(src).not.toMatch(/from\s*["']node:/);
     }
   }, 30_000);

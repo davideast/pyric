@@ -30,7 +30,7 @@ import {
 } from '../firebase/types';
 import { clampPageSize, mapFirestoreError, requireUid } from './firestore-helpers';
 
-const allowedModels = new Set(['gemini-2.5-flash']);
+const allowedModels = new Set(['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-lite-latest']);
 const cleanTitle = (title: string): string => title.trim().slice(0, 120) || 'New conversation';
 
 const toConversation = (snapshot: QueryDocumentSnapshot): Conversation => ({
@@ -67,7 +67,11 @@ export class ConversationService {
 
   async create(input: CreateConversationInput = {}): Promise<Conversation['id']> {
     const uid = requireUid(auth.currentUser?.uid);
-    const model = input.model ?? 'gemini-2.5-flash';
+    let model = 'gemini-3.5-flash';
+    const hasInputModel = input.model !== undefined && input.model !== null && input.model !== '';
+    if (hasInputModel) {
+      model = input.model as string;
+    }
     if (!allowedModels.has(model)) throw new ServiceError('invalid-input', 'Unsupported model');
     try {
       const reference = await addDoc(collection(db, 'conversations'), {

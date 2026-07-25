@@ -1,7 +1,32 @@
 import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
 
 /** The import-map targets. Spec → served URL. */
-export function sdkImportMap(): Record<string, string> {
+export function sdkImportMap(options?: { aiMode?: 'sandbox' | 'production' }): Record<string, string> {
+  const explicitMode = options?.aiMode;
+  let mode: 'sandbox' | 'production' = 'sandbox';
+  const hasExplicitMode = explicitMode !== undefined;
+  if (hasExplicitMode) {
+    mode = explicitMode;
+  } else {
+    const isEnvProductionMode = process.env.PYRIC_AI_MODE === 'production';
+    const isEnvPassthroughFlag = process.env.PYRIC_AI_PASSTHROUGH === '1';
+    const isProductionEnv = isEnvProductionMode || isEnvPassthroughFlag;
+    if (isProductionEnv) {
+      mode = 'production';
+    }
+  }
+  const isProductionMode = mode === 'production';
+  if (isProductionMode) {
+    return {
+      'firebase/app': '/__pyric/sdk/app-ai-passthrough.js',
+      'firebase/auth': '/__pyric/sdk/auth.js',
+      'firebase/database': '/__pyric/sdk/database.js',
+      'firebase/firestore': '/__pyric/sdk/firestore.js',
+      'firebase/messaging': '/__pyric/sdk/messaging.js',
+      'firebase/messaging/sw': '/__pyric/sdk/messaging-sw.js',
+      'firebase/storage': '/__pyric/sdk/storage.js',
+    };
+  }
   return {
     'firebase/ai': '/__pyric/sdk/ai.js',
     'firebase/app': '/__pyric/sdk/app.js',

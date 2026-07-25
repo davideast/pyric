@@ -26,5 +26,10 @@ export function resolve(
   context: ResolveContext,
   nextResolve: (specifier: string, context?: ResolveContext) => Promise<ResolveResult>,
 ): Promise<ResolveResult> {
-  return nextResolve(mapFirebaseSpecifier(specifier) ?? specifier, context);
+  const mappedSpecifier = mapFirebaseSpecifier(specifier, context.parentURL);
+  const hasMappedSpecifier = mappedSpecifier !== null && mappedSpecifier !== undefined;
+  if (hasMappedSpecifier) {
+    return nextResolve(mappedSpecifier, context);
+  }
+  return nextResolve(specifier, context);
 }

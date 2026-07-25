@@ -92,7 +92,7 @@ function activate(): void {
   if (typeof moduleApi.registerHooks === 'function') {
     moduleApi.registerHooks({
       resolve(specifier, context, nextResolve) {
-        const mapped = mapFirebaseSpecifier(specifier);
+        const mapped = mapFirebaseSpecifier(specifier, context.parentURL);
         if (mapped === null) return nextResolve(specifier, context);
         try {
           return nextResolve(mapped, { ...context, parentURL: import.meta.url });

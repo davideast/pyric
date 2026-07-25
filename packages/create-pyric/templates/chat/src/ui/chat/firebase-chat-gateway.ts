@@ -6,8 +6,9 @@ import { UserService } from '@/services/user-service';
 import { PresenceService } from '@/services/presence-service';
 import { NotificationService } from '@/services/notification-service';
 import { BrowserAgentService } from '@/services/browser-agent-service';
+import { AiChatService } from '@/services/ai-chat-service';
 import { asConversationId, type AuthUser, type Conversation, type Message, type PresenceEntry } from '@/firebase/types';
-import type { ChatPageServices, UiConversation, UiMessage, UiPresence, UiUser } from './chat-types';
+import type { ChatPageServices, UiConversation, UiMessage, UiPresence, UiUser, UiUsage } from './chat-types';
 
 const toUiUser = (user: AuthUser | null): UiUser | null =>
   user
@@ -40,6 +41,7 @@ export const createFirebaseChatGateway = (): ChatPageServices => {
   const conversations = new ConversationService();
   const messages = new MessageService();
   const ai = new BrowserAgentService();
+  const directAi = new AiChatService();
   const users = new UserService();
   const presence = new PresenceService();
   const notifications = new NotificationService();
@@ -99,8 +101,49 @@ export const createFirebaseChatGateway = (): ChatPageServices => {
     },
     ai: {
       stream: async (input, onChunk, onThought, onTool, onUsage, onWorkspaceChanged) => {
+        const isDirectMode = input.mode === 'direct';
+        if (isDirectMode) {
+          const directInput = { ...input, conversationId: asConversationId(input.conversationId) };
+          const directRes = await directAi.stream(directInput, onChunk, onThought);
+          let modelVal = 'gemini-3.5-flash';
+          const hasDirectModel = directRes.model !== undefined && directRes.model !== null && directRes.model !== '';
+          if (hasDirectModel) {
+            modelVal = directRes.model;
+          }
+          let usageVal: UiUsage | undefined = undefined;
+          const hasInTokens = directRes.inputTokenCount !== null && directRes.inputTokenCount !== undefined;
+          const hasOutTokens = directRes.outputTokenCount !== null && directRes.outputTokenCount !== undefined;
+          if (hasInTokens) {
+            if (hasOutTokens) {
+              const inCount = directRes.inputTokenCount as number;
+              const outCount = directRes.outputTokenCount as number;
+              usageVal = { inputTokens: inCount, outputTokens: outCount };
+            }
+          }
+          if (usageVal !== undefined) {
+            if (onUsage !== undefined) {
+              onUsage(usageVal);
+            }
+          }
+          return { text: directRes.text, thoughts: undefined, model: modelVal, finishReason: 'stop', usage: usageVal, inputTokenCount: directRes.inputTokenCount, outputTokenCount: directRes.outputTokenCount };
+        }
         const result = await ai.stream(input, { onChunk, onThought, onTool, onUsage, onWorkspaceChanged });
-        return { text: result.text, thoughts: result.thoughts, model: 'gemini-2.5-flash', finishReason: 'stop', usage: result.usage, inputTokenCount: result.usage?.inputTokens ?? null, outputTokenCount: result.usage?.outputTokens ?? null };
+        const modelVal = 'gemini-3.5-flash';
+        let inputTokens = null;
+        let outputTokens = null;
+        const usageObj = result.usage;
+        const hasUsageObj = usageObj !== undefined && usageObj !== null;
+        if (hasUsageObj) {
+          const hasIn = usageObj.inputTokens !== undefined && usageObj.inputTokens !== null;
+          if (hasIn) {
+            inputTokens = usageObj.inputTokens;
+          }
+          const hasOut = usageObj.outputTokens !== undefined && usageObj.outputTokens !== null;
+          if (hasOut) {
+            outputTokens = usageObj.outputTokens;
+          }
+        }
+        return { text: result.text, thoughts: result.thoughts, model: modelVal, finishReason: 'stop', usage: result.usage, inputTokenCount: inputTokens, outputTokenCount: outputTokens };
       },
     },
     workspace: {

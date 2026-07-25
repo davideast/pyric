@@ -134,7 +134,7 @@ export async function createViteSandboxGeneration(
     const rulesConfig = dependencies.resolveRulesConfig(cwd, options.rules, firebaseConfig);
 
     try {
-      const epochSalt = viteWorkerEpochSalt(cwd, ai.engineWire);
+      const epochSalt = viteWorkerEpochSalt(cwd, ai.engineWire, ai.mode);
       await dependencies.prepareWorker(workerRuntime, epochSalt);
     } catch (error) {
       server.config.logger.warn(
