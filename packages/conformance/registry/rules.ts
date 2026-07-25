@@ -351,8 +351,9 @@ export const rulesRegistry = {
           featureKeys: ["getAfter", "existsAfter", "batch", "transaction"],
           behavior: "In multi-document batched writes and transactions, getAfter() deep-merges incoming updates with pre-existing sibling document state, preserving unmodified fields; updates targeting non-existent siblings project to null so existsAfter() returns false.",
           status: "conforms",
-          evidence: "Standard production rules behavior: multi-document transaction and batched write simulation deep-merges pre-existing database state with incoming field updates using applyMerge. Asserted by unit:rules/oracle-conformance.test.ts and unit:sandbox/firestore/simulator/get-after-batch.test.ts.",
-          automation: "unit-backed",
+          evidence: "Captured production behavior via rules-firestore-atomic-batch-sibling-merge proves getAfter() evaluates against deep-merged sibling state during multi-document atomic updates.",
+          automation: "oracle-backed",
+          oracleObservations: ["rules-firestore-atomic-batch-sibling-merge"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/pyric/test/sandbox/firestore/simulator/get-after-batch.test.ts",
@@ -364,8 +365,9 @@ export const rulesRegistry = {
           featureKeys: ["bool", "debug", "math.isInfinite", "hasAll", "hasAny", "hasOnly"],
           behavior: "Compile-time AST verification rejects non-conforming casts (bool()), unsupported helper methods (debug(), math.isInfinite()), and bare Map membership assertions (map.hasAll/hasAny/hasOnly).",
           status: "conforms",
-          evidence: "Standard production rules behavior: static compile-time AST analysis in checkHallucinations and runtime evaluation blocks bool(), math.isInfinite(), debug(), and Map membership assertions directly on map objects (requiring map.keys().hasAll(...) instead). Asserted by unit:rules/oracle-conformance.test.ts and unit:rules/linter/hallucinations.test.ts.",
-          automation: "unit-backed",
+          evidence: "Captured production behavior via rules-firestore-ast-strictness-and-unsupported-casts proves compile-time AST verification and execution rejection of bool(), math.isInfinite(), debug(), and bare Map membership assertions.",
+          automation: "oracle-backed",
+          oracleObservations: ["rules-firestore-ast-strictness-and-unsupported-casts"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/pyric/test/rules/linter/hallucinations.test.ts",

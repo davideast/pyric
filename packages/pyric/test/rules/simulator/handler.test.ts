@@ -670,20 +670,20 @@ service cloud.firestore {
     // the contract that each branch attaches `message` and the right
     // verdict — sandbox UI and the playground tool's summary depend on it.
 
-    test('UNSUPPORTED verdict — rule calls an unknown function', () => {
-      // `unknownHelper()` isn't defined anywhere in the source and isn't a
-      // built-in, so the evaluator throws UnsupportedError; the handler
-      // maps that to verdict='UNSUPPORTED' and decision='UNSUPPORTED'.
+    test('UNSUPPORTED verdict — rule calls an unknown namespace or method', () => {
+      // `unknownNamespace.helper()` invokes an unknown namespace not handled
+      // by built-ins, throwing UnsupportedError; the handler maps that to
+      // verdict='UNSUPPORTED' and decision='UNSUPPORTED'.
       const RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /docs/{id} {
-      allow read: if unknownHelper();
+      allow read: if unknownNamespace.helper();
     }
   }
 }`;
       const r = handler.simulate(RULES, [{
-        description: 'unknown fn',
+        description: 'unknown namespace',
         expectation: 'ALLOW',
         method: 'get',
         path: 'docs/d1',
@@ -696,8 +696,33 @@ service cloud.firestore {
       expect(result.state).toBe('UNSUPPORTED');
       const entry = result.trace[0];
       expect(entry.verdict).toBe('UNSUPPORTED');
-      // Message is the UnsupportedError text — the agent's signal of
-      // *which* feature is the gap.
+      expect(entry.message).toMatch(/Unknown namespace/);
+    });
+
+    test('ERROR verdict — rule calls an undefined function', () => {
+      // `unknownHelper()` throws EvalError as an unresolvable function name,
+      // evaluating to DENY as standard production rules behavior.
+      const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} {
+      allow read: if unknownHelper();
+    }
+  }
+}`;
+      const r = handler.simulate(RULES, [{
+        description: 'unknown helper',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'docs/d1',
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      const result = r.data.results[0];
+      expect(result.decision).toBe('DENY');
+      expect(result.state).toBe('FAILED');
+      const entry = result.trace[0];
+      expect(entry.verdict).toBe('ERROR');
       expect(entry.message).toMatch(/Unknown function: unknownHelper/);
     });
 

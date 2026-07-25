@@ -1,0 +1,48 @@
+{
+  "name": "rules-firestore-atomic-batch-sibling-merge",
+  "matrixRow": "firestore-rules#190",
+  "rowIds": [
+    "firestore-rules#190"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"atomic-batch-sibling-merge\" (Item 7 (Batch Sibling Merge)). Proves getAfter() evaluates against deep-merged sibling state during multi-document atomic updates.",
+  "observedAt": "2026-07-24T20:38:49.115Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "agentive-de",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "72821aa8ab3c0cb8bfedd3c46587cdb6f82f38682e17215e909bc46a7deb7fdc"
+  },
+  "behavior": {
+    "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": {
+      "notes": [
+        "Error: firestore.rules line [6], column [24]. Function not found error: Name: [getAfter]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 6,
+          "column": 24,
+          "currentOffset": 187,
+          "endOffset": 194
+        },
+        "functionCalls": [
+          {
+            "function": "getAfter",
+            "args": [
+              "/databases/%28default%29/documents/config/state"
+            ]
+          },
+          {
+            "function": "getAfter",
+            "args": [
+              "/databases/%28default%29/documents/config/state"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

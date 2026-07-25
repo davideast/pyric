@@ -127,7 +127,7 @@ export function evaluateFunctionCall(
 
   // User-defined functions
   const fn = ctx.functions.get(name);
-  if (!fn) throw new UnsupportedError(`Unknown function: ${name}`);
+  if (!fn) throw new EvalError(`Unknown function: ${name}`);
 
   // Bind parameters — parameter expressions evaluate in the CALLER's
   // scope and frame. We push the inlinedFrom frame *after* this loop
@@ -382,7 +382,7 @@ export function evaluateMethodCall(
     }
   }
 
-  throw new UnsupportedError(`Unknown method '${method}' on ${typeof obj}`);
+  throw new EvalError(`Unknown method '${method}' on ${typeof obj}`);
 }
 
 /**
@@ -476,7 +476,7 @@ function evaluateMathMethod(method: string, args: unknown[]): unknown {
     case 'pow': return Math.pow(args[0] as number, args[1] as number);
     case 'isNaN': return Number.isNaN(args[0] as number);
   }
-  throw new UnsupportedError(`Unknown math method '${method}'`);
+  throw new EvalError(`Unknown math method '${method}'`);
 }
 
 function evaluateTimestampMethod(method: string, args: unknown[]): unknown {

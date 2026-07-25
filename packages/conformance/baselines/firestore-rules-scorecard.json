@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 131,
+    "numerator": 132,
     "denominator": 140,
-    "ratio": 0.9357142857142857,
-    "percent": 93.6
+    "ratio": 0.9428571428571428,
+    "percent": 94.3
   },
   "axes": {
     "productionAcceptance": {
@@ -163,27 +163,27 @@
     },
     "localAcceptance": {
       "accepted": 129,
-      "rejected": 3,
-      "unsupported": 5,
+      "rejected": 8,
+      "unsupported": 0,
       "unprobeable": 3
     },
     "localCapability": {
       "implemented": 129,
-      "unsupported": 5,
-      "error": 3,
+      "unsupported": 0,
+      "error": 8,
       "unprobeable": 3
     },
     "productionEvidence": {
-      "verified": 131,
+      "verified": 137,
       "diverged": 0,
-      "unverified": 9
+      "unverified": 3
     }
   },
   "counts": {
-    "conformant": 131,
+    "conformant": 132,
     "diverged": 0,
     "unknown": 0,
-    "acceptance-mismatch": 6,
+    "acceptance-mismatch": 5,
     "local-unsupported": 0,
     "local-error": 0,
     "unprobeable": 3
@@ -201,6 +201,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
@@ -244,6 +246,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
@@ -327,6 +330,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
         "builtins-time-and-math",
         "duration-and-latlng",
         "error-absorption-and-or",
@@ -361,6 +365,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
         "builtins-time-and-math",
         "duration-and-latlng",
         "error-absorption-and-or",
@@ -578,6 +583,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
@@ -662,10 +669,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "atomic-batch-sibling-merge",
         "get-after-and-exists-after"
       ],
       "verifiedByRows": [
-        "firestore-rules#164"
+        "firestore-rules#164",
+        "firestore-rules#190"
       ],
       "divergedByRows": []
     },
@@ -684,7 +693,8 @@
         "get-after-and-exists-after"
       ],
       "verifiedByRows": [
-        "firestore-rules#164"
+        "firestore-rules#164",
+        "firestore-rules#190"
       ],
       "divergedByRows": []
     },
@@ -698,10 +708,12 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
       "localEvaluationAgreement": true,
-      "productionEvidence": "unverified",
+      "productionEvidence": "verified",
       "classification": "acceptance-mismatch",
       "verifiedBy": [],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#191"
+      ],
       "divergedByRows": []
     },
     "firestore.function.math.abs": {
@@ -808,17 +820,21 @@
     },
     "firestore.function.math.isInfinite": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "unsupported",
+      "localAcceptance": "rejected",
       "productionRejectionSignature": "function-not-found:math.isInfinite",
-      "localCapability": "unsupported",
+      "localCapability": "error",
       "productionProbeDigest": "607eee122ba3df6b35ec7ea31ef54d1a14012a250d841fabacd90b2304c68a98",
       "currentProbeDigest": "607eee122ba3df6b35ec7ea31ef54d1a14012a250d841fabacd90b2304c68a98",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
-      "productionEvidence": "unverified",
+      "productionEvidence": "verified",
       "classification": "acceptance-mismatch",
-      "verifiedBy": [],
-      "verifiedByRows": [],
+      "verifiedBy": [
+        "ast-strictness-and-unsupported-casts"
+      ],
+      "verifiedByRows": [
+        "firestore-rules#191"
+      ],
       "divergedByRows": []
     },
     "firestore.function.math.isNaN": {
@@ -1077,18 +1093,22 @@
     },
     "firestore.function.cast.bool": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "unsupported",
+      "localAcceptance": "rejected",
       "productionRejectionSignature": "function-not-found:bool",
       "localRejectionSignature": "function-not-found:bool",
-      "localCapability": "unsupported",
+      "localCapability": "error",
       "productionProbeDigest": "6bfee12fe7fffe3f7ce50cbcd8efe56bca23772358319872a658411401835035",
       "currentProbeDigest": "6bfee12fe7fffe3f7ce50cbcd8efe56bca23772358319872a658411401835035",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
-      "productionEvidence": "unverified",
-      "classification": "acceptance-mismatch",
-      "verifiedBy": [],
-      "verifiedByRows": [],
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "ast-strictness-and-unsupported-casts"
+      ],
+      "verifiedByRows": [
+        "firestore-rules#191"
+      ],
       "divergedByRows": []
     },
     "firestore.function.cast.path": {
@@ -1262,6 +1282,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
         "list-and-string-methods",
         "required-fields-and-mapdiff"
       ],
@@ -1404,6 +1425,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
         "prototype-chain-keys",
         "required-fields-and-mapdiff",
         "set-algebra-difference-union-intersection"
@@ -1464,47 +1486,55 @@
     },
     "firestore.method.map.hasAll": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "unsupported",
+      "localAcceptance": "rejected",
       "productionRejectionSignature": "function-not-found:hasAll",
-      "localCapability": "unsupported",
+      "localCapability": "error",
       "productionProbeDigest": "0659755883dcf0cf629bac715446cc2e9c5210e6d0a4c16fbc930e1d71a6772e",
       "currentProbeDigest": "0659755883dcf0cf629bac715446cc2e9c5210e6d0a4c16fbc930e1d71a6772e",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
-      "productionEvidence": "unverified",
+      "productionEvidence": "verified",
       "classification": "acceptance-mismatch",
-      "verifiedBy": [],
-      "verifiedByRows": [],
+      "verifiedBy": [
+        "ast-strictness-and-unsupported-casts"
+      ],
+      "verifiedByRows": [
+        "firestore-rules#191"
+      ],
       "divergedByRows": []
     },
     "firestore.method.map.hasAny": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "unsupported",
+      "localAcceptance": "rejected",
       "productionRejectionSignature": "function-not-found:hasAny",
-      "localCapability": "unsupported",
+      "localCapability": "error",
       "productionProbeDigest": "7163c07a13c741b781c21cf54a867812fdc4d10ccfb5c241b7135b6f28de6f64",
       "currentProbeDigest": "7163c07a13c741b781c21cf54a867812fdc4d10ccfb5c241b7135b6f28de6f64",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
-      "productionEvidence": "unverified",
+      "productionEvidence": "verified",
       "classification": "acceptance-mismatch",
       "verifiedBy": [],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#191"
+      ],
       "divergedByRows": []
     },
     "firestore.method.map.hasOnly": {
       "productionAcceptance": "rejected",
-      "localAcceptance": "unsupported",
+      "localAcceptance": "rejected",
       "productionRejectionSignature": "function-not-found:hasOnly",
-      "localCapability": "unsupported",
+      "localCapability": "error",
       "productionProbeDigest": "037893de2201bed48546e9b654a1ffeaeae7a2fc655d1b7a2525e608b3b469c9",
       "currentProbeDigest": "037893de2201bed48546e9b654a1ffeaeae7a2fc655d1b7a2525e608b3b469c9",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
-      "productionEvidence": "unverified",
+      "productionEvidence": "verified",
       "classification": "acceptance-mismatch",
       "verifiedBy": [],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#191"
+      ],
       "divergedByRows": []
     },
     "firestore.method.map.diff": {
@@ -2111,6 +2141,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
+        "atomic-batch-sibling-merge",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
         "cross-type-operator-overloads",
@@ -2150,6 +2182,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
@@ -2350,6 +2383,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
@@ -2523,6 +2557,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
@@ -2607,6 +2643,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
         "functions-verbs-and-recursive",
         "global-and-service-scope-functions",
         "optional-rules-version",
@@ -2628,6 +2665,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
         "functions-verbs-and-recursive",
         "optional-rules-version"
       ],
@@ -2683,6 +2721,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
@@ -2722,6 +2762,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "atomic-batch-sibling-merge",
         "functions-verbs-and-recursive",
         "required-fields-and-mapdiff",
         "resource-document-identity",
@@ -2742,6 +2783,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
         "get-after-and-exists-after",
         "resource-document-identity",
         "resource-missing-document"
@@ -2761,6 +2803,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
@@ -2846,6 +2890,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",
@@ -2905,6 +2951,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "ast-strictness-and-unsupported-casts",
+        "atomic-batch-sibling-merge",
         "builtins-time-and-math",
         "bytes-toutf8-and-hashing",
         "common-auth-membership-firestore",

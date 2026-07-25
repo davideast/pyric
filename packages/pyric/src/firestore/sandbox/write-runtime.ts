@@ -112,27 +112,63 @@ export class WriteRuntime {
     );
   }
 
+  private isReadOnlyMethod(method: string): boolean {
+    return method === 'get' || method === 'list';
+  }
+
+  private resolvePriorDocumentState(
+    path: string,
+    projection: Map<string, DocumentData | null>,
+    databaseState: DocStore,
+  ): DocumentData | null {
+    if (projection.has(path)) {
+      const projectedState = projection.get(path);
+      return projectedState ?? null;
+    }
+    if (databaseState.exists(path)) {
+      const existingDatabaseState = databaseState.get(path);
+      return existingDatabaseState ?? null;
+    }
+    return null;
+  }
+
+  private computeProjectedUpdate(
+    priorState: DocumentData | null,
+    incomingData: DocumentData | undefined,
+  ): DocumentData | null {
+    if (priorState === null) {
+      return null;
+    }
+    const effectiveIncomingData = incomingData ?? {};
+    return applyMerge(priorState, effectiveIncomingData);
+  }
+
+  private computeProjectedOverwrite(
+    priorState: DocumentData | null,
+    incomingData: DocumentData | undefined,
+  ): DocumentData {
+    const baseState = priorState ?? {};
+    const effectiveIncomingData = incomingData ?? {};
+    return applyMerge(baseState, effectiveIncomingData);
+  }
+
   buildBatchProjection(testCases: TestCase[]): Map<string, DocumentData | null> {
     const projection = new Map<string, DocumentData | null>();
     for (const testCase of testCases) {
-      if (testCase.method === 'get' || testCase.method === 'list') continue;
+      if (this.isReadOnlyMethod(testCase.method)) {
+        continue;
+      }
       if (testCase.method === 'delete') {
         projection.set(testCase.path, null);
         continue;
       }
-      const prior = projection.has(testCase.path)
-        ? projection.get(testCase.path)!
-        : (this.state.get(testCase.path) ?? null);
+      const priorState = this.resolvePriorDocumentState(testCase.path, projection, this.state);
       if (testCase.method === 'update') {
-        // Updates on non-existent documents project to null so existsAfter() evaluates to false.
-        if (prior === null) {
-          projection.set(testCase.path, null);
-        } else {
-          projection.set(testCase.path, applyMerge(prior, testCase.data ?? {}));
-        }
+        const updatedDocument = this.computeProjectedUpdate(priorState, testCase.data);
+        projection.set(testCase.path, updatedDocument);
       } else {
-        // create or set operation
-        projection.set(testCase.path, applyMerge(prior ?? {}, testCase.data ?? {}));
+        const overwrittenDocument = this.computeProjectedOverwrite(priorState, testCase.data);
+        projection.set(testCase.path, overwrittenDocument);
       }
     }
     return projection;
