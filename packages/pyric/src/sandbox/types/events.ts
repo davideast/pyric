@@ -522,6 +522,9 @@ export interface SandboxListenerEvent {
   };
   triggeredBy?: { method: string; path?: string };
   detail?: Record<string, unknown>;
+  reasons?: string[];
+  rules?: SandboxOperationEvent['rules'];
+  rulesDisposition?: RulesDisposition;
 }
 
 /** Canonical non-rules operational failure. */

@@ -711,3 +711,55 @@ service cloud.firestore {
     expect(rerun.result.outcome).toBe('allow');
   });
 });
+
+describe('rules inspector: RTDB listener error events', () => {
+  it('projects rtdb.listener errored events into Denial objects with rules evaluation traces', async () => {
+    const sandbox = initializeSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+
+    const db = getDatabase(sandbox.withAuth({ uid: 'bob' }));
+    rtdbSandbox.setRules(db, {
+      rules: {
+        rooms: {
+          '$roomId': {
+            '.read': 'auth != null && auth.uid == "alice"',
+            '.write': 'auth != null',
+          },
+        },
+      },
+    });
+
+    let permissionError: Error | null = null;
+    try {
+      const { onValue, ref: dbRef } = await import('pyric/database');
+      onValue(
+        dbRef(db, 'rooms/r1'),
+        () => {},
+        (err) => { permissionError = err; },
+      );
+    } catch (err) {
+      if (err instanceof Error) {
+        permissionError = err;
+      } else {
+        permissionError = new Error(String(err));
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(permissionError).toBeDefined();
+
+    const denials = selectDenials(events);
+    const listenerDenial = denials.find((d) => d.origin === 'listener' && d.path === '/rooms/r1');
+    expect(listenerDenial).toBeDefined();
+    if (listenerDenial) {
+      expect(listenerDenial.method).toBe('listen');
+      expect(listenerDenial.service).toBe('rtdb');
+      expect(listenerDenial.rules).toBeDefined();
+      expect(listenerDenial.rules?.engine).toBe('rtdb');
+
+      const explanation = explainDenial(listenerDenial);
+      expect(explanation.ruleNode).toContain('.read');
+      expect(explanation.ruleExpression).toContain('auth != null');
+    }
+  });
+});

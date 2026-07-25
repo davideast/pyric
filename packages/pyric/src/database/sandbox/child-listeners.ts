@@ -54,13 +54,25 @@ export class ChildListeners {
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: Date.now() - at, origin: 'listener', detail: { event },
       });
+      const rulesObj = {
+        engine: 'rtdb' as const,
+        matchedPath: evaluation.matchedPath,
+        matchedRule: evaluation.matchedRule,
+        pathVariableBindings: evaluation.pathVariableBindings,
+        reason: evaluation.reason,
+        errorCode: evaluation.errorCode,
+      };
       this.state.events.listener('errored', { id, path }, auth, {
         event, result: 'deny',
         error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },
+        reasons: evaluation.reasons,
+        rules: rulesObj,
       });
       if (cancelCallback) {
         queueMicrotask(() => {
-          onCanceled?.();
+          if (onCanceled) {
+            onCanceled();
+          }
           cancelCallback(listenerPermissionDenied(path));
         });
         return () => {};
