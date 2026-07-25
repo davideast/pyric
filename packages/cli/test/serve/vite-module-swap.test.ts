@@ -43,7 +43,14 @@ describe('Vite module swap', () => {
 
   it('configures both optimizer exclusion and its esbuild mirror', () => {
     const config = swap.config();
-    expect(config.optimizeDeps?.exclude).toEqual([...SDK_MODULES]);
+    expect(config.optimizeDeps?.exclude).toEqual([
+      ...SDK_MODULES,
+      '@firebase/app',
+      '@firebase/component',
+      '@firebase/ai',
+      '@firebase/util',
+      '@firebase/logger',
+    ]);
     expect(config.optimizeDeps?.include).toEqual(['js-md5', 'js-sha256']);
     expect(config.optimizeDeps?.esbuildOptions?.plugins).toHaveLength(1);
   });
