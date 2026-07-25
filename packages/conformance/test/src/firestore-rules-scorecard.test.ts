@@ -180,12 +180,12 @@ describe('Firestore Rules scorecard', () => {
   it('pins the current honest baseline over all 140 constructs', async () => {
     const scorecard = await computeFirestoreRulesScorecard();
     expect(scorecard.universe.denominator).toBe(140);
-    expect(scorecard.score).toEqual({ numerator: 132, denominator: 140, ratio: 132 / 140, percent: 94.3 });
+    expect(scorecard.score).toEqual({ numerator: 136, denominator: 140, ratio: 136 / 140, percent: 97.1 });
     expect(scorecard.counts).toEqual({
-      conformant: 132,
+      conformant: 136,
       diverged: 0,
       unknown: 0,
-      'acceptance-mismatch': 5,
+      'acceptance-mismatch': 1,
       'local-unsupported': 0,
       'local-error': 0,
       unprobeable: 3,

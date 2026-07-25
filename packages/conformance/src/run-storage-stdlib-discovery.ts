@@ -7,7 +7,8 @@
  * (14 requests). P2 probes Storage-native MapDiff/update/hash-shaped fields in
  * one 12-case request. Nothing is deployed and no Firebase data is mutated.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ProjectScope } from '../../../packages/pyric/src/project-scope.ts';
@@ -246,7 +247,8 @@ async function runP2(scope: ProjectScope): Promise<void> {
 
 async function run(): Promise<void> {
   const probes = selectedProbes(Bun.argv.slice(2));
-  if (!process.env.PARITY_SA_BASE64) return printPlan(probes);
+  const hasCliConfig = existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
+  if (!process.env.PARITY_SA_BASE64 && !hasCliConfig && !process.env.PARITY_PROJECT_ID) return printPlan(probes);
   const { parityScope } = await import('../../../packages/pyric/test/rules/parity/harness.ts');
   const scope = parityScope();
   for (const probe of probes) {

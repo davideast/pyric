@@ -149,10 +149,10 @@
     ]
   },
   "score": {
-    "numerator": 132,
+    "numerator": 136,
     "denominator": 140,
-    "ratio": 0.9428571428571428,
-    "percent": 94.3
+    "ratio": 0.9714285714285714,
+    "percent": 97.1
   },
   "axes": {
     "productionAcceptance": {
@@ -180,10 +180,10 @@
     }
   },
   "counts": {
-    "conformant": 132,
+    "conformant": 136,
     "diverged": 0,
     "unknown": 0,
-    "acceptance-mismatch": 5,
+    "acceptance-mismatch": 1,
     "local-unsupported": 0,
     "local-error": 0,
     "unprobeable": 3
@@ -822,13 +822,14 @@
       "productionAcceptance": "rejected",
       "localAcceptance": "rejected",
       "productionRejectionSignature": "function-not-found:math.isInfinite",
+      "localRejectionSignature": "function-not-found:math.isInfinite",
       "localCapability": "error",
       "productionProbeDigest": "607eee122ba3df6b35ec7ea31ef54d1a14012a250d841fabacd90b2304c68a98",
       "currentProbeDigest": "607eee122ba3df6b35ec7ea31ef54d1a14012a250d841fabacd90b2304c68a98",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
       "productionEvidence": "verified",
-      "classification": "acceptance-mismatch",
+      "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts"
       ],
@@ -1488,13 +1489,14 @@
       "productionAcceptance": "rejected",
       "localAcceptance": "rejected",
       "productionRejectionSignature": "function-not-found:hasAll",
+      "localRejectionSignature": "function-not-found:hasAll",
       "localCapability": "error",
       "productionProbeDigest": "0659755883dcf0cf629bac715446cc2e9c5210e6d0a4c16fbc930e1d71a6772e",
       "currentProbeDigest": "0659755883dcf0cf629bac715446cc2e9c5210e6d0a4c16fbc930e1d71a6772e",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
       "productionEvidence": "verified",
-      "classification": "acceptance-mismatch",
+      "classification": "conformant",
       "verifiedBy": [
         "ast-strictness-and-unsupported-casts"
       ],
@@ -1507,13 +1509,14 @@
       "productionAcceptance": "rejected",
       "localAcceptance": "rejected",
       "productionRejectionSignature": "function-not-found:hasAny",
+      "localRejectionSignature": "function-not-found:hasAny",
       "localCapability": "error",
       "productionProbeDigest": "7163c07a13c741b781c21cf54a867812fdc4d10ccfb5c241b7135b6f28de6f64",
       "currentProbeDigest": "7163c07a13c741b781c21cf54a867812fdc4d10ccfb5c241b7135b6f28de6f64",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
       "productionEvidence": "verified",
-      "classification": "acceptance-mismatch",
+      "classification": "conformant",
       "verifiedBy": [],
       "verifiedByRows": [
         "firestore-rules#191"
@@ -1524,13 +1527,14 @@
       "productionAcceptance": "rejected",
       "localAcceptance": "rejected",
       "productionRejectionSignature": "function-not-found:hasOnly",
+      "localRejectionSignature": "function-not-found:hasOnly",
       "localCapability": "error",
       "productionProbeDigest": "037893de2201bed48546e9b654a1ffeaeae7a2fc655d1b7a2525e608b3b469c9",
       "currentProbeDigest": "037893de2201bed48546e9b654a1ffeaeae7a2fc655d1b7a2525e608b3b469c9",
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": false,
       "productionEvidence": "verified",
-      "classification": "acceptance-mismatch",
+      "classification": "conformant",
       "verifiedBy": [],
       "verifiedByRows": [
         "firestore-rules#191"
