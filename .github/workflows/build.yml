@@ -187,7 +187,7 @@ jobs:
 
       - name: Install Chromium browser
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: bunx playwright install chromium
+        run: cd packages/cli && bunx playwright install chromium
 
       # `playwright install-deps chromium` (23s of apt on every run) is
       # intentionally absent: the ubuntu-latest image ships Chrome's shared

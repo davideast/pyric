@@ -138,6 +138,11 @@ export function rejectionSignature(detail: string | undefined): string | undefin
   if (productionFunction) return `function-not-found:${productionFunction[1]}`;
   const localFunction = detail.match(/Unknown function: ([^\s]+)/);
   if (localFunction) return `function-not-found:${localFunction[1]}`;
+  const localNsMethod = detail.match(/Unknown (math|latlng|timestamp|duration|hashing) method '([^']+)'/);
+  if (localNsMethod) return `function-not-found:${localNsMethod[1]}.${localNsMethod[2]}`;
+  const localMethod = detail.match(/Unknown method '([^']+)'/)
+    ?? detail.match(/Function not found on \w+ receiver: ([^\s]+)/);
+  if (localMethod) return `function-not-found:${localMethod[1]}`;
   return undefined;
 }
 

@@ -64,7 +64,8 @@
  *   # real probe (credentialed, reads env from the primary checkout):
  *   bun --env-file=/path/to/.env run packages/conformance/src/rules-language-acceptance.ts
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { StorageFunctionMock, TestCase } from '../../../packages/pyric/src/rules/test/spec.ts';
@@ -525,7 +526,8 @@ async function run(): Promise<void> {
 }
 
 if (import.meta.main) {
-  if (!process.env.PARITY_SA_BASE64) {
+  const hasCliConfig = existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
+  if (!process.env.PARITY_SA_BASE64 && !hasCliConfig && !process.env.PARITY_PROJECT_ID) {
     printInertPlan();
     process.exit(0);
   }

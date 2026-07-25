@@ -33,7 +33,8 @@
  *   PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \
  *     bun run packages/conformance/src/run-rules-storage.ts
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TestFirestoreRulesResult, TestResult } from '../../../packages/pyric/src/rules/test/spec.ts';
@@ -219,7 +220,8 @@ async function capture(scenarios: StorageScenario[]): Promise<void> {
 
 if (import.meta.main) {
   const scenarios = selectStorageScenarios(Bun.argv.slice(2));
-  if (!process.env.PARITY_SA_BASE64) {
+  const hasCliConfig = existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
+  if (!process.env.PARITY_SA_BASE64 && !hasCliConfig && !process.env.PARITY_PROJECT_ID) {
     printInertPlan(scenarios);
     process.exit(0);
   }

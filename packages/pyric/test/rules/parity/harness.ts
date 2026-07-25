@@ -92,7 +92,7 @@ export function parityScope(): ProjectScope {
   }
   const configPath = join(homedir(), '.config', 'configstore', 'firebase-tools.json');
   if (existsSync(configPath)) {
-    const projectId = process.env.PARITY_PROJECT_ID || 'agentive-de';
+    const projectId = process.env.PARITY_PROJECT_ID || 'digame-mas';
     let cached: { token: string; expiresAt: number } | undefined;
     return {
       projectId,
