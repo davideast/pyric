@@ -1,14 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Owner-based from line 1 — the Vite plugin deploys + hot-reloads this file
+    // Per-user scoping from line 1 — the Vite plugin deploys + hot-reloads this file
     // into the sandbox, so safe rules are cheap to iterate. These deploy as-is.
-    match /posts/{postId} {
-      allow read: if true;
-      allow create: if request.auth != null
-                    && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if request.auth != null
-                            && resource.data.uid == request.auth.uid;
+    match /users/{userId}/posts/{postId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
     // Default deny — opt in per collection.

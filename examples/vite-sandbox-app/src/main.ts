@@ -19,12 +19,30 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 
+let apiKey = 'demo';
+const hasApiKey = import.meta.env.VITE_FIREBASE_API_KEY !== undefined;
+if (hasApiKey) {
+  apiKey = import.meta.env.VITE_FIREBASE_API_KEY as string;
+}
+
+let authDomain = 'demo.firebaseapp.com';
+const hasAuthDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN !== undefined;
+if (hasAuthDomain) {
+  authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string;
+}
+
+let projectId = 'demo';
+const hasProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID !== undefined;
+if (hasProjectId) {
+  projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID as string;
+}
+
 const app = initializeApp({
   // Filled from .env (see .env.example) at `vite build` time for production.
   // Ignored in `vite dev` — the pyric sandbox stands in for Firebase.
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? 'demo',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? 'demo.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? 'demo',
+  apiKey,
+  authDomain,
+  projectId,
 });
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -42,41 +60,88 @@ const els = {
 els.signIn.addEventListener('click', () => signInWithPopup(auth, new GoogleAuthProvider()));
 els.signOut.addEventListener('click', () => signOut(auth));
 
+let unsubscribePosts: (() => void) | undefined = undefined;
+
 onAuthStateChanged(auth, (user) => {
-  els.status.textContent = user
-    ? 'Signed in as ' + (user.displayName ?? user.email)
-    : 'Signed out';
-  els.signIn.hidden = !!user;
-  els.signOut.hidden = !user;
+  const hasActiveSubscription = unsubscribePosts !== undefined;
+  if (hasActiveSubscription) {
+    unsubscribePosts();
+    unsubscribePosts = undefined;
+  }
+
+  const isSignedIn = user !== null;
+  if (isSignedIn) {
+    let displayLabel = 'user';
+    const hasEmail = user.email !== null;
+    if (hasEmail) {
+      displayLabel = user.email as string;
+    }
+    const hasDisplayName = user.displayName !== null;
+    if (hasDisplayName) {
+      displayLabel = user.displayName as string;
+    }
+    els.status.textContent = 'Signed in as ' + displayLabel;
+    els.signIn.hidden = true;
+    els.signOut.hidden = false;
+
+    const userPostsRef = collection(db, 'users', user.uid, 'posts');
+    unsubscribePosts = onSnapshot(userPostsRef, (snap) => {
+      els.posts.replaceChildren(
+        ...snap.docs.map((docSnap) => {
+          const data = docSnap.data() as { title?: string };
+          let titleText = '';
+          const hasTitle = data.title !== undefined;
+          if (hasTitle) {
+            titleText = data.title as string;
+          }
+          const li = document.createElement('li');
+          li.textContent = titleText;
+          return li;
+        }),
+      );
+    });
+  } else {
+    els.status.textContent = 'Signed out';
+    els.signIn.hidden = false;
+    els.signOut.hidden = true;
+    els.posts.replaceChildren();
+  }
 });
 
 els.form.addEventListener('submit', async (e) => {
   e.preventDefault();
   // The form stays visible while signed out ON PURPOSE: submitting then
-  // ATTEMPTS the write, the owner-based rules deny it (create requires
-  // uid == request.auth.uid), and the denial shows up in Pyric Studio's
+  // ATTEMPTS the write, the per-user rules deny it (write requires
+  // request.auth.uid == userId), and the denial shows up in Pyric Studio's
   // Traffic tab — the rules-teaching loop this demo exists for.
   const user = auth.currentUser;
+  let targetUid = 'anonymous';
+  const hasUser = user !== null;
+  if (hasUser) {
+    targetUid = user.uid;
+  }
+
   try {
-    await addDoc(collection(db, 'posts'), {
+    const targetCollection = collection(db, 'users', targetUid, 'posts');
+    await addDoc(targetCollection, {
       title: els.title.value.trim(),
-      uid: user?.uid ?? 'anonymous',
+      uid: targetUid,
       createdAt: serverTimestamp(),
     });
     els.title.value = '';
   } catch (err) {
-    els.status.textContent = user
-      ? `Write failed: ${(err as { code?: string }).code ?? String(err)}`
-      : 'Denied by rules (signed out) — see the Traffic tab in Pyric Studio.';
+    const isUserSignedIn = user !== null;
+    if (isUserSignedIn) {
+      const errorObject = err as { code?: string };
+      let errorCode = String(err);
+      const hasCode = errorObject.code !== undefined;
+      if (hasCode) {
+        errorCode = errorObject.code as string;
+      }
+      els.status.textContent = 'Write failed: ' + errorCode;
+    } else {
+      els.status.textContent =
+        'Denied by rules (signed out) — see the Traffic tab in Pyric Studio.';
+    }
   }
-});
-
-onSnapshot(collection(db, 'posts'), (snap) => {
-  els.posts.replaceChildren(
-    ...snap.docs.map((d) => {
-      const li = document.createElement('li');
-      li.textContent = (d.data() as { title?: string }).title ?? '';
-      return li;
-    }),
-  );
 });

@@ -112,6 +112,39 @@ describe('runScaffold', () => {
     expect(io.getOut()).toContain('create-pyric: scaffolded web');
   });
 
+  it('scaffolds the web template with posts scoped by user UID and matching per-user rules', async () => {
+    const io = bufferIo();
+    const writeFn = mock(async () => undefined);
+    const mkdirFn = mock(async () => undefined);
+    const code = await runScaffold(
+      {
+        dir: 'scoped-app',
+        commandLabel: 'create-pyric',
+        effectiveTemplate: applyDepsMode(TEMPLATES.web, 'npm', { version: null }),
+      },
+      {
+        ...io,
+        cwd: '/tmp',
+        writeFile: writeFn as never,
+        mkdir: mkdirFn as never,
+        exists: async () => false,
+      },
+    );
+    expect(code).toBe(0);
+
+    const mainCall = writeFn.mock.calls.find((c) => String(c[0]).endsWith('src/main.ts'));
+    expect(mainCall).toBeDefined();
+    const mainContent = String(mainCall![1]);
+    expect(mainContent).toContain("collection(db, 'users', user.uid, 'posts')");
+    expect(mainContent).toContain("collection(db, 'users', targetUid, 'posts')");
+
+    const rulesCall = writeFn.mock.calls.find((c) => String(c[0]).endsWith('firestore.rules'));
+    expect(rulesCall).toBeDefined();
+    const rulesContent = String(rulesCall![1]);
+    expect(rulesContent).toContain('match /users/{userId}/posts/{postId}');
+    expect(rulesContent).toContain('request.auth != null && request.auth.uid == userId');
+  });
+
   it('writes the nextjs scaffold when selected', async () => {
     const io = bufferIo();
     const writeFn = mock(async () => undefined);
