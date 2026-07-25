@@ -75,7 +75,7 @@ const HALLUCINATED_METHODS: Record<string, string> = {
  * JavaScript globals or constructors that don't exist as identifiers in
  * Firestore rules. CEL has no module system and a tiny global namespace
  * (just `request`, `resource`, custom functions, and a handful of
- * built-in casts: `string`, `int`, `float`, `bool`, `timestamp`).
+ * built-in casts: `string`, `int`, `float`, `timestamp`).
  */
 const HALLUCINATED_GLOBALS: Record<string, string> = {
   Object:     'No `Object` in rules — use `data.keys()` / `data.values()` directly',
@@ -85,7 +85,8 @@ const HALLUCINATED_GLOBALS: Record<string, string> = {
   Date:       'No `Date` in rules — use `request.time` (a Timestamp)',
   String:     'Use lowercase `string(x)` for casting',
   Number:     'Use lowercase `int(x)` or `float(x)` for casting',
-  Boolean:    'Use lowercase `bool(x)` for casting',
+  Boolean:    'Use direct comparison or validation instead of boolean casting',
+  bool:       'No `bool()` cast in rules — boolean casting is not supported in production Firestore rules.',
   parseInt:   'Use `int(x)` instead',
   parseFloat: 'Use `float(x)` instead',
   isNaN:      'No equivalent in rules',
@@ -93,6 +94,9 @@ const HALLUCINATED_GLOBALS: Record<string, string> = {
   Promise:    'Rules are synchronous — no Promise support',
   undefined:  '`undefined` does not exist in rules — use `null`',
 };
+
+const VALID_MATH_METHODS = new Set(['abs', 'ceil', 'floor', 'round', 'sqrt', 'pow', 'isNaN']);
+
 
 /**
  * Wrong properties accessed on the well-known top-level rule objects.
@@ -227,7 +231,66 @@ function walkExpr(
  * distinct (rule, key, location) tuple — duplicate identical patterns
  * within the same rule are de-duplicated.
  */
-export function checkHallucinations(ast: FirestoreRules): LintWarning[] {
+function isUnsupportedDebugCall(expr: Expression, allowDebug?: boolean): boolean {
+  if (allowDebug) return false;
+  return expr.type === 'functionCall' && expr.name === 'debug';
+}
+
+function isHallucinatedMethodCall(expr: Expression): boolean {
+  return expr.type === 'methodCall' && Boolean(HALLUCINATED_METHODS[expr.method]);
+}
+
+function isUnsupportedMathMethodCall(expr: Expression): boolean {
+  if (expr.type !== 'methodCall') return false;
+  if (expr.object.type !== 'identifier' || expr.object.name !== 'math') return false;
+  return !VALID_MATH_METHODS.has(expr.method);
+}
+
+function isBareMapMembershipCall(expr: Expression): boolean {
+  if (expr.type !== 'methodCall') return false;
+  if (expr.method !== 'hasAll' && expr.method !== 'hasAny' && expr.method !== 'hasOnly') return false;
+  const isKnownMap = expr.object.type === 'mapLiteral' ||
+    (expr.object.type === 'memberAccess' && expr.object.property === 'data');
+  return isKnownMap;
+}
+
+function isHallucinatedGlobalMethodCall(expr: Expression): boolean {
+  if (expr.type !== 'methodCall') return false;
+  if (expr.object.type !== 'identifier') return false;
+  return Boolean(HALLUCINATED_GLOBALS[expr.object.name]);
+}
+
+function isHallucinatedGlobalFunctionCall(expr: Expression): boolean {
+  return expr.type === 'functionCall' && Boolean(HALLUCINATED_GLOBALS[expr.name]);
+}
+
+function isHallucinatedGlobalIdentifier(expr: Expression): boolean {
+  return expr.type === 'identifier' && Boolean(HALLUCINATED_GLOBALS[expr.name]);
+}
+
+function isWrongContextPath(expr: Expression): { suggestion: string } | undefined {
+  if (expr.type !== 'memberAccess' || expr.object.type !== 'identifier') return undefined;
+  const recv = expr.object.name;
+  const prop = expr.property;
+  return WRONG_CONTEXT_PATHS.find(p => p.receiver === recv && p.property === prop);
+}
+
+function isLengthPropertyAccessOnMethod(expr: Expression): boolean {
+  return expr.type === 'memberAccess' && expr.property === 'length' && expr.object.type === 'methodCall';
+}
+
+function isMethodMissingParens(expr: Expression): boolean {
+  if (expr.type !== 'memberAccess' || !KNOWN_BUILTIN_METHODS.has(expr.property)) return false;
+  const isLikelyData =
+    (expr.object.type === 'identifier' &&
+      (expr.object.name === 'request' || expr.object.name === 'resource')) ||
+    expr.object.type === 'memberAccess' ||
+    expr.object.type === 'methodCall' ||
+    expr.object.type === 'bracketAccess';
+  return isLikelyData;
+}
+
+export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?: boolean } = {}): LintWarning[] {
   const warnings: LintWarning[] = [];
   const seen = new Set<string>();
 
@@ -239,77 +302,105 @@ export function checkHallucinations(ast: FirestoreRules): LintWarning[] {
   }
 
   walkAllExpressions(ast.service.match, (expr, loc) => {
-    // HALLUCINATED_METHOD — obj.someJsMethod(...)
-    if (expr.type === 'methodCall' && HALLUCINATED_METHODS[expr.method]) {
-      emit('HALLUCINATED_METHOD', expr.method, loc, {
-        rule: 'HALLUCINATED_METHOD',
-        severity: 'error',
-        message: `\`.${expr.method}()\` does not exist in Firestore rules. ${HALLUCINATED_METHODS[expr.method]}`,
-        location: loc,
-        fix: HALLUCINATED_METHODS[expr.method],
-      });
-    }
-
-    // HALLUCINATED_GLOBAL — Object.keys(...), JSON.parse(...), Math.max(...)
-    if (expr.type === 'methodCall' && expr.object.type === 'identifier' && HALLUCINATED_GLOBALS[expr.object.name]) {
-      const name = expr.object.name;
-      emit('HALLUCINATED_GLOBAL', `${name}.${expr.method}`, loc, {
+    if (isUnsupportedDebugCall(expr, options.allowDebug)) {
+      emit('HALLUCINATED_GLOBAL', 'debug', loc, {
         rule: 'HALLUCINATED_GLOBAL',
         severity: 'error',
-        message: `\`${name}.${expr.method}()\` does not exist in Firestore rules. ${HALLUCINATED_GLOBALS[name]}`,
+        message: '`debug()` helper is only permitted in local testing environments; remove it before deployment.',
         location: loc,
-        fix: HALLUCINATED_GLOBALS[name],
+        fix: 'Remove debug() wrapper around the expression.',
       });
     }
 
-    // HALLUCINATED_GLOBAL — bare function call: parseInt(x), isNaN(x)
-    if (expr.type === 'functionCall' && HALLUCINATED_GLOBALS[expr.name]) {
-      emit('HALLUCINATED_GLOBAL', expr.name, loc, {
-        rule: 'HALLUCINATED_GLOBAL',
-        severity: 'error',
-        message: `\`${expr.name}()\` does not exist in Firestore rules. ${HALLUCINATED_GLOBALS[expr.name]}`,
-        location: loc,
-        fix: HALLUCINATED_GLOBALS[expr.name],
-      });
-    }
-
-    // HALLUCINATED_GLOBAL — bare identifier reference (e.g. `Math` used as a value)
-    if (expr.type === 'identifier' && HALLUCINATED_GLOBALS[expr.name]) {
-      emit('HALLUCINATED_GLOBAL', `ref:${expr.name}`, loc, {
-        rule: 'HALLUCINATED_GLOBAL',
-        severity: 'error',
-        message: `\`${expr.name}\` is not a Firestore rules identifier. ${HALLUCINATED_GLOBALS[expr.name]}`,
-        location: loc,
-        fix: HALLUCINATED_GLOBALS[expr.name],
-      });
-    }
-
-    // WRONG_CONTEXT_PATH — request.data, request.uid, resource.path, etc.
-    if (expr.type === 'memberAccess' && expr.object.type === 'identifier') {
-      const recv = expr.object.name;
-      const prop = expr.property;
-      const m = WRONG_CONTEXT_PATHS.find(p => p.receiver === recv && p.property === prop);
-      if (m) {
-        emit('WRONG_CONTEXT_PATH', `${recv}.${prop}`, loc, {
-          rule: 'WRONG_CONTEXT_PATH',
+    if (isHallucinatedMethodCall(expr)) {
+      if (expr.type === 'methodCall') {
+        emit('HALLUCINATED_METHOD', expr.method, loc, {
+          rule: 'HALLUCINATED_METHOD',
           severity: 'error',
-          message: `\`${recv}.${prop}\` is not a valid Firestore rules path. ${m.suggestion}`,
+          message: `\`.${expr.method}()\` does not exist in Firestore rules. ${HALLUCINATED_METHODS[expr.method]}`,
           location: loc,
-          fix: m.suggestion,
+          fix: HALLUCINATED_METHODS[expr.method],
         });
       }
     }
 
-    // LENGTH_PROPERTY — `.length` accessed on the result of a method call,
-    // which is unambiguously a JS confusion (CEL methods return lists or
-    // strings, neither of which has `.length` — both have `.size()`).
-    // Skip when the receiver is plain data, since fields named "length"
-    // are legitimate on user documents.
-    if (
-      expr.type === 'memberAccess' &&
-      expr.property === 'length' &&
-      expr.object.type === 'methodCall'
-    ) {
+    if (isUnsupportedMathMethodCall(expr)) {
+      if (expr.type === 'methodCall') {
+        emit('HALLUCINATED_METHOD', `math.${expr.method}`, loc, {
+          rule: 'HALLUCINATED_METHOD',
+          severity: 'error',
+          message: `\`math.${expr.method}()\` does not exist in production Firestore security rules.`,
+          location: loc,
+          fix: 'Use supported math namespace functions: abs, ceil, floor, round, sqrt, pow, isNaN.',
+        });
+      }
+    }
+
+    if (isBareMapMembershipCall(expr)) {
+      if (expr.type === 'methodCall') {
+        emit('HALLUCINATED_METHOD', `map.${expr.method}`, loc, {
+          rule: 'HALLUCINATED_METHOD',
+          severity: 'error',
+          message: `\`.${expr.method}()\` cannot be called directly on a map in Firestore rules — call it on \`.keys()\` instead.`,
+          location: loc,
+          fix: `Insert \`.keys()\`: e.g. \`data.keys().${expr.method}(...)\`.`,
+        });
+      }
+    }
+
+    if (isHallucinatedGlobalMethodCall(expr)) {
+      if (expr.type === 'methodCall' && expr.object.type === 'identifier') {
+        const name = expr.object.name;
+        emit('HALLUCINATED_GLOBAL', `${name}.${expr.method}`, loc, {
+          rule: 'HALLUCINATED_GLOBAL',
+          severity: 'error',
+          message: `\`${name}.${expr.method}()\` does not exist in Firestore rules. ${HALLUCINATED_GLOBALS[name]}`,
+          location: loc,
+          fix: HALLUCINATED_GLOBALS[name],
+        });
+      }
+    }
+
+    if (isHallucinatedGlobalFunctionCall(expr)) {
+      if (expr.type === 'functionCall') {
+        emit('HALLUCINATED_GLOBAL', expr.name, loc, {
+          rule: 'HALLUCINATED_GLOBAL',
+          severity: 'error',
+          message: `\`${expr.name}()\` does not exist in Firestore rules. ${HALLUCINATED_GLOBALS[expr.name]}`,
+          location: loc,
+          fix: HALLUCINATED_GLOBALS[expr.name],
+        });
+      }
+    }
+
+    if (isHallucinatedGlobalIdentifier(expr)) {
+      if (expr.type === 'identifier') {
+        emit('HALLUCINATED_GLOBAL', `ref:${expr.name}`, loc, {
+          rule: 'HALLUCINATED_GLOBAL',
+          severity: 'error',
+          message: `\`${expr.name}\` is not a Firestore rules identifier. ${HALLUCINATED_GLOBALS[expr.name]}`,
+          location: loc,
+          fix: HALLUCINATED_GLOBALS[expr.name],
+        });
+      }
+    }
+
+    const wrongContextMatch = isWrongContextPath(expr);
+    if (wrongContextMatch) {
+      if (expr.type === 'memberAccess' && expr.object.type === 'identifier') {
+        const recv = expr.object.name;
+        const prop = expr.property;
+        emit('WRONG_CONTEXT_PATH', `${recv}.${prop}`, loc, {
+          rule: 'WRONG_CONTEXT_PATH',
+          severity: 'error',
+          message: `\`${recv}.${prop}\` is not a valid Firestore rules path. ${wrongContextMatch.suggestion}`,
+          location: loc,
+          fix: wrongContextMatch.suggestion,
+        });
+      }
+    }
+
+    if (isLengthPropertyAccessOnMethod(expr)) {
       emit('LENGTH_PROPERTY', '', loc, {
         rule: 'LENGTH_PROPERTY',
         severity: 'error',
@@ -319,13 +410,6 @@ export function checkHallucinations(ast: FirestoreRules): LintWarning[] {
       });
     }
 
-    // INVALID_PATH_INTERPOLATION — `{var}` syntax used inside a path literal,
-    // which is the match-statement wildcard syntax in the wrong context.
-    // Path literals (the argument to get/exists/getAfter/existsAfter) require
-    // `$(var)` for interpolation. Without this rule, the parser would
-    // backtrack into MapLiteral and emit an opaque "expected ':'" diagnostic
-    // that an iterating agent cannot recover from. We accept `{ident}` in the
-    // grammar specifically so this diagnostic can fire.
     if (expr.type === 'pathLiteral') {
       for (const seg of expr.segments) {
         if (typeof seg !== 'string') continue;
@@ -346,18 +430,8 @@ export function checkHallucinations(ast: FirestoreRules): LintWarning[] {
       }
     }
 
-    // METHOD_MISSING_PARENS — built-in method name accessed as a bare
-    // property (e.g. `data.size` instead of `data.size()`). Restricted
-    // to receivers that are likely rules data, and emitted as `warning`
-    // because field names can collide with method names.
-    if (expr.type === 'memberAccess' && KNOWN_BUILTIN_METHODS.has(expr.property)) {
-      const isLikelyData =
-        (expr.object.type === 'identifier' &&
-          (expr.object.name === 'request' || expr.object.name === 'resource')) ||
-        expr.object.type === 'memberAccess' ||
-        expr.object.type === 'methodCall' ||
-        expr.object.type === 'bracketAccess';
-      if (isLikelyData) {
+    if (isMethodMissingParens(expr)) {
+      if (expr.type === 'memberAccess') {
         emit('METHOD_MISSING_PARENS', expr.property, loc, {
           rule: 'METHOD_MISSING_PARENS',
           severity: 'warning',

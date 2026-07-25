@@ -1,0 +1,91 @@
+{
+  "name": "rules-firestore-ast-strictness-and-unsupported-casts",
+  "matrixRow": "firestore-rules#191",
+  "rowIds": [
+    "firestore-rules#191"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"ast-strictness-and-unsupported-casts\" (RULES-AST-STRICT). Proves production Firebase Rules Test API rejects unsupported boolean casting, non-whitelisted math helpers, and bare map membership assertions.",
+  "observedAt": "2026-07-24T20:31:31.533Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "agentive-de",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "48c603af9a24a70c9bd58f70beb7b837ca9002a7e48423107f04610ce6e3d727"
+  },
+  "behavior": {
+    "bool() casting attempt DENIED due to function not found": "DENY",
+    "math.isInfinite() invocation DENIED due to method not found": "DENY",
+    "bare map.hasAll() assertion DENIED without calling keys() first": "DENY",
+    "map.keys().hasAll() ALLOWED as standard CEL map membership syntax": "ALLOW"
+  },
+  "diagnostics": {
+    "bool() casting attempt DENIED due to function not found": {
+      "notes": [
+        "Error: firestore.rules line [5], column [22]. Function not found error: Name: [bool]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 5,
+          "column": 22,
+          "currentOffset": 138,
+          "endOffset": 141
+        },
+        "functionCalls": [
+          {
+            "function": "bool",
+            "args": [
+              "true"
+            ]
+          }
+        ]
+      }
+    },
+    "math.isInfinite() invocation DENIED due to method not found": {
+      "notes": [
+        "Error: firestore.rules line [8], column [23]. Function not found error: Name: [math.isInfinite]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 8,
+          "column": 23,
+          "currentOffset": 220,
+          "endOffset": 223
+        },
+        "functionCalls": [
+          {
+            "function": "math.isInfinite",
+            "args": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    "bare map.hasAll() assertion DENIED without calling keys() first": {
+      "notes": [
+        "Error: firestore.rules line [11], column [24]. Function not found error: Name: [hasAll]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 11,
+          "column": 24,
+          "currentOffset": 300,
+          "endOffset": 306
+        },
+        "functionCalls": [
+          {
+            "function": "hasAll",
+            "args": [
+              [
+                "required_key"
+              ]
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

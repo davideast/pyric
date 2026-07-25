@@ -767,6 +767,8 @@ export interface LintOptions {
    * block linting of a valid current ruleset.
    */
   previousSource?: string;
+  /** Set to true when validating in a local emulator or testing environment where debug() is permitted. */
+  allowDebug?: boolean;
 }
 
 /**
@@ -835,7 +837,7 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   checkGetDuplication(allRules, allFunctions, warnings);
 
   // Rule 9: Hallucinations — JS-style code that parses but fails at runtime
-  warnings.push(...checkHallucinations(ast));
+  warnings.push(...checkHallucinations(ast, { allowDebug: options.allowDebug || Boolean(options.testCases && options.testCases.length > 0) }));
 
   // Rule 9.5: Always-true predicates and recursive-wildcard open rules.
   // Severity: error so deployRules refuses to swap. The agent's #1

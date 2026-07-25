@@ -36,6 +36,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { TestFirestoreRulesResult, TestResult } from '../../../packages/pyric/src/rules/test/spec.ts';
 import {
@@ -239,7 +240,8 @@ if (import.meta.main) {
   }
   // Same env-var contract as the parity harness (harness.ts hasParitySecret).
   // Checked inline so the inert path imports none of the heavy machinery.
-  if (!process.env.PARITY_SA_BASE64) {
+  const hasCliConfig = existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
+  if (!process.env.PARITY_SA_BASE64 && !hasCliConfig && !process.env.PARITY_PROJECT_ID) {
     printInertPlan(scenarios);
     process.exit(0);
   }

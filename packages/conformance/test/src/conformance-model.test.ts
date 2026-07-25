@@ -17,12 +17,12 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1128);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1130);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
-      numerator: 131, denominator: 140, ratio: 131 / 140, percent: 93.6,
+      numerator: 132, denominator: 140, ratio: 132 / 140, percent: 94.3,
     });
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);
@@ -130,7 +130,7 @@ describe('multi-axis conformance model', () => {
     expect(result).toMatchObject({
       surface: 'firestore-rules', availability: 'available', fidelity: 'conforms', assurance: 'eligible',
     });
-    expect(result.claims.map(({ id }) => id)).toEqual(['firestore-rules#164', 'firestore.function.getAfter']);
+    expect(result.claims.map(({ id }) => id)).toEqual(['firestore-rules#164', 'firestore-rules#190', 'firestore.function.getAfter']);
   });
 
   it('joins rules fidelity through structured construct ids', () => {
