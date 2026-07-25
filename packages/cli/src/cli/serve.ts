@@ -516,8 +516,12 @@ export async function startServe(opts: {
   }
   if (session.summary.capturePath) {
     logger.info(`✔ capture  session → ${session.summary.capturePath} (run \`pyric verify\` to replay it)`);
+  if (watching) {
+    logger.info(`✔ watch    hot-reloading ${rulesSourcePath} over /__pyric/events`);
   }
-  if (watching) logger.info(`✔ watch    hot-reloading ${rulesSourcePath} over /__pyric/events`);
+  if (watchingDb) {
+    logger.info(`✔ watch    hot-reloading ${dbRulesSourcePath} over /__pyric/events`);
+  }
   // Browser-honesty: the sandbox is browser-resident — firestore/auth and
   // persistence run IN the served page. With no page open, data ops silently
   // no-op. This warning (paired with auto-open in runServe) is the fix for the
