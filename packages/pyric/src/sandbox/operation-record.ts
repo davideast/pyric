@@ -17,26 +17,35 @@ import type {
   RequestEvent,
   RulesDisposition,
   SandboxEvent,
+  SandboxListenerEvent,
   SandboxOperationEvent,
 } from './types/events.js';
 
 export interface OperationRecord {
   readonly id: string;
   readonly at: number;
-  readonly eventKind: 'request' | 'operation';
+  readonly eventKind: 'request' | 'operation' | 'listener';
   readonly service: EventService;
   readonly method: string;
   readonly path?: string;
   readonly auth: AuthState;
-  readonly result: RequestEvent['result'] | SandboxOperationEvent['result'];
+  readonly result?: RequestEvent['result'] | SandboxOperationEvent['result'] | SandboxListenerEvent['result'];
   readonly context: OperationContext;
   readonly rules: RulesDisposition;
 }
 
-type OperationEvent = (RequestEvent | SandboxOperationEvent) & EventProvenance;
+type OperationEvent = (RequestEvent | SandboxOperationEvent | SandboxListenerEvent) & EventProvenance;
 
 export function isOperationEvent(event: SandboxEvent): event is OperationEvent {
-  return event.kind === 'request' || event.kind === 'operation';
+  if (event.kind === 'request' || event.kind === 'operation') {
+    return true;
+  }
+  if (event.kind === 'listener') {
+    if (event.phase === 'errored') {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Build an immutable context. Cloning + freezing here means callers can bind
@@ -121,11 +130,13 @@ export function operationContextFor(
  * stream seam. Consumers must not inspect `detail.admin`, `origin`, or the
  * presence of a trace themselves. */
 export function rulesDispositionFor(event: OperationEvent): RulesDisposition {
-  if (event.rulesDisposition) return event.rulesDisposition;
-  if (
-    (event.kind === 'operation' && event.origin === 'admin')
-    || event.detail?.admin === true
-  ) {
+  if ('rulesDisposition' in event && event.rulesDisposition) {
+    return event.rulesDisposition;
+  }
+  if (event.kind === 'operation' && event.origin === 'admin') {
+    return { kind: 'bypassed', reason: 'admin' };
+  }
+  if (event.detail?.admin === true) {
     return { kind: 'bypassed', reason: 'admin' };
   }
 
@@ -138,13 +149,25 @@ export function rulesDispositionFor(event: OperationEvent): RulesDisposition {
   if (event.kind === 'operation' && event.result === 'not-applicable') {
     return { kind: 'not-evaluated', reason: 'not-a-rules-operation' };
   }
+  if (event.kind === 'listener') {
+    if (event.result === 'deny') {
+      return { kind: 'evaluated', verdict: 'deny' };
+    }
+    if (event.error?.code === 'PERMISSION_DENIED') {
+      return { kind: 'evaluated', verdict: 'deny' };
+    }
+    if (event.rules) {
+      return { kind: 'evaluated', verdict: 'deny' };
+    }
+    return { kind: 'not-evaluated', reason: 'runtime-error' };
+  }
   if (event.result === 'deny') {
     return { kind: 'evaluated', verdict: 'deny' };
   }
   if (event.kind === 'request') {
     return { kind: 'evaluated', verdict: 'allow' };
   }
-  if (event.rules) {
+  if ('rules' in event && event.rules) {
     return { kind: 'evaluated', verdict: 'allow' };
   }
   return { kind: 'not-evaluated', reason: 'no-rules' };
@@ -152,11 +175,13 @@ export function rulesDispositionFor(event: OperationEvent): RulesDisposition {
 
 function immutableAuthState(auth: AuthState): AuthState {
   if (auth === null) return null;
+  let tokenVal: Record<string, unknown> | undefined = undefined;
+  if (auth.token !== undefined) {
+    tokenVal = immutableRecord(auth.token);
+  }
   return Object.freeze({
     uid: auth.uid,
-    ...(auth.token === undefined
-      ? {}
-      : { token: immutableRecord(auth.token) }),
+    ...(tokenVal === undefined ? {} : { token: tokenVal }),
   });
 }
 
@@ -179,13 +204,30 @@ function immutableValue(value: unknown): unknown {
 /** Project either traffic event family into the canonical record. */
 export function toOperationRecord(event: SandboxEvent): OperationRecord | null {
   if (!isOperationEvent(event)) return null;
+  let methodVal = 'listen';
+  let pathVal: string | undefined = undefined;
+  if (event.kind === 'request' || event.kind === 'operation') {
+    methodVal = event.method;
+    if (event.path !== undefined) {
+      pathVal = event.path;
+    }
+  } else if (event.kind === 'listener') {
+    methodVal = 'listen';
+    if (event.target.path !== undefined) {
+      pathVal = event.target.path;
+    }
+  }
+  let serviceVal: EventService = 'firestore';
+  if (event.service !== undefined) {
+    serviceVal = event.service;
+  }
   return Object.freeze({
     id: event.id,
     at: event.at,
     eventKind: event.kind,
-    service: event.kind === 'request' ? (event.service ?? 'firestore') : event.service,
-    method: event.method,
-    ...(event.path === undefined ? {} : { path: event.path }),
+    service: serviceVal,
+    method: methodVal,
+    ...(pathVal === undefined ? {} : { path: pathVal }),
     auth: immutableAuthState(event.auth),
     result: event.result,
     context: operationContextFor(event),

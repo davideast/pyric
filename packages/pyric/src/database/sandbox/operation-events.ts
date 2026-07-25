@@ -1,4 +1,4 @@
-import type { AuthState, Sandbox } from 'pyric/sandbox';
+import type { AuthState, Sandbox, SandboxOperationEvent } from 'pyric/sandbox';
 import {
   emitSandboxEvent,
   makeSandboxCommitEvent,
@@ -11,7 +11,10 @@ import type { ChildListener, ValueListener } from './listener-types.js';
 import type { RuleCheck, RuleEvaluationDetails } from './rules-eval.js';
 
 export function denyResultFor(check: RuleCheck): 'deny' | 'unsupported' {
-  return check === 'unsupported' ? 'unsupported' : 'deny';
+  if (check === 'unsupported') {
+    return 'unsupported';
+  }
+  return 'deny';
 }
 
 export function canonicalPath(path: string): string {
@@ -69,16 +72,26 @@ export class OperationEvents {
   ): void {
     if (!this.sandbox) return;
     try {
-      emitSandboxEvent(this.sandbox, makeSandboxOperationEvent({
-        service: 'rtdb', method, path: canonicalPath(path), auth, result,
-        origin: fields.origin ?? 'user', durationMs: fields.durationMs,
-        reasons: evaluation?.reasons,
-        rules: evaluation ? {
-          engine: 'rtdb', matchedPath: evaluation.matchedPath,
+      let rulesObj: SandboxOperationEvent['rules'] | undefined = undefined;
+      if (evaluation) {
+        rulesObj = {
+          engine: 'rtdb',
+          matchedPath: evaluation.matchedPath,
           matchedRule: evaluation.matchedRule,
           pathVariableBindings: evaluation.pathVariableBindings,
-          reason: evaluation.reason, errorCode: evaluation.errorCode,
-        } : undefined,
+          reason: evaluation.reason,
+          errorCode: evaluation.errorCode,
+        };
+      }
+      let originVal: 'user' | 'listener' | 'transaction' | 'batch' | 'admin' | 'system' = 'user';
+      if (fields.origin) {
+        originVal = fields.origin;
+      }
+      emitSandboxEvent(this.sandbox, makeSandboxOperationEvent({
+        service: 'rtdb', method, path: canonicalPath(path), auth, result,
+        origin: originVal, durationMs: fields.durationMs,
+        reasons: evaluation?.reasons,
+        rules: rulesObj,
         request: fields.request, resourceBefore: fields.resourceBefore,
         resourceAfter: fields.resourceAfter, groupId: fields.groupId,
         groupKind: fields.groupKind, triggeredBy: fields.triggeredBy,
@@ -125,16 +138,22 @@ export class OperationEvents {
       error?: { code?: string; message: string; reasons?: string[] };
       triggeredBy?: { method: string; path?: string };
       detail?: Record<string, unknown>;
+      reasons?: string[];
+      rules?: SandboxOperationEvent['rules'];
     } = {},
   ): void {
     if (!this.sandbox) return;
     try {
+      let kindVal: string = 'value';
+      if (fields.event) {
+        kindVal = fields.event;
+      }
       emitSandboxEvent(this.sandbox, makeSandboxListenerEvent({
         service: 'rtdb', phase, listenerId: listener.id,
-        target: { kind: fields.event ?? 'value', path: canonicalPath(listener.path) },
+        target: { kind: kindVal, path: canonicalPath(listener.path) },
         auth, result: fields.result, size: fields.size, sample: fields.sample,
         reason: fields.reason, error: fields.error, triggeredBy: fields.triggeredBy,
-        detail: fields.detail,
+        detail: fields.detail, reasons: fields.reasons, rules: fields.rules,
       }), { service: 'rtdb' });
     } catch { /* telemetry is observational */ }
   }

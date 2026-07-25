@@ -32,10 +32,11 @@ import type {
   LocalSandbox,
   RequestEvent,
   SandboxEvent,
+  SandboxListenerEvent,
   SandboxOperationEvent,
   SandboxSnapshot,
 } from 'pyric/sandbox';
-import { toOperationRecord } from 'pyric/sandbox';
+import { isOperationEvent, toOperationRecord } from 'pyric/sandbox';
 import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { foldSessionEventLog } from '../events/fold.js';
@@ -262,12 +263,13 @@ export function useStudioEvents(): readonly SandboxEvent[] {
 
 function isTrafficEvent(
   e: SandboxEvent,
-): e is (RequestEvent | SandboxOperationEvent) & EventProvenance {
-  return e.kind === 'request' || e.kind === 'operation';
+): e is (RequestEvent | SandboxOperationEvent | SandboxListenerEvent) & EventProvenance {
+  const isValidOperation = isOperationEvent(e);
+  return isValidOperation;
 }
 
 function toTrafficEvent(
-  e: (RequestEvent | SandboxOperationEvent) & EventProvenance,
+  e: (RequestEvent | SandboxOperationEvent | SandboxListenerEvent) & EventProvenance,
 ): StudioTrafficEvent {
   const record = toOperationRecord(e);
   if (!record) {
@@ -280,6 +282,54 @@ function toTrafficEvent(
       rulesDisposition: record.rules,
     } as StudioTrafficEvent;
   }
+  if (e.kind === 'listener') {
+    let resultVal: 'allow' | 'deny' | 'unsupported' | 'error' | 'not-applicable' = 'error';
+    if (e.result !== undefined) {
+      resultVal = e.result;
+    } else {
+      const errorObj = e.error as Record<string, unknown> | undefined;
+      const hasPermissionDeniedCode = errorObj !== undefined && errorObj.code === 'PERMISSION_DENIED';
+      if (hasPermissionDeniedCode) {
+        resultVal = 'deny';
+      }
+    }
+    let pathVal = '(service)';
+    if (e.target.path !== undefined) {
+      pathVal = e.target.path;
+    }
+    let reasonsVal: string[] = [];
+    if (e.reasons !== undefined) {
+      reasonsVal = e.reasons;
+    } else {
+      const errorObj = e.error as { reasons?: string[] } | undefined;
+      if (errorObj !== undefined && errorObj.reasons !== undefined) {
+        reasonsVal = errorObj.reasons;
+      }
+    }
+    return {
+      kind: 'operation',
+      service: e.service,
+      id: e.id,
+      at: e.at,
+      method: 'listen',
+      path: pathVal,
+      auth: e.auth,
+      result: resultVal,
+      reasons: reasonsVal,
+      origin: 'listener',
+      triggeredBy: e.triggeredBy,
+      operationContext: record.context,
+      rulesDisposition: record.rules,
+    };
+  }
+  let pathVal = '(service)';
+  if (e.path !== undefined) {
+    pathVal = e.path;
+  }
+  let reasonsVal: string[] = [];
+  if (e.reasons !== undefined) {
+    reasonsVal = e.reasons;
+  }
   return {
     kind: 'operation',
     service: e.service,
@@ -287,10 +337,10 @@ function toTrafficEvent(
     at: e.at,
     durationMs: e.durationMs,
     method: e.method,
-    path: e.path ?? '(service)',
+    path: pathVal,
     auth: e.auth,
     result: e.result,
-    reasons: e.reasons ?? [],
+    reasons: reasonsVal,
     request: e.request,
     resourceBefore: e.resourceBefore,
     resourceAfter: e.resourceAfter,

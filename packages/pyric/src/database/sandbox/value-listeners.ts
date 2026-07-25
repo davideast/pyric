@@ -45,16 +45,32 @@ export class ValueListeners {
       mockData: this.state.tree.snapshot() as Record<string, unknown>,
     });
     if (evaluation.check !== 'allow') {
+      let requestVal: { query: unknown } | undefined = undefined;
+      if (query) {
+        requestVal = { query };
+      }
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
-        at, durationMs: Date.now() - at, request: query ? { query } : undefined, origin: 'listener',
+        at, durationMs: Date.now() - at, request: requestVal, origin: 'listener',
       });
+      const rulesObj = {
+        engine: 'rtdb' as const,
+        matchedPath: evaluation.matchedPath,
+        matchedRule: evaluation.matchedRule,
+        pathVariableBindings: evaluation.pathVariableBindings,
+        reason: evaluation.reason,
+        errorCode: evaluation.errorCode,
+      };
       this.state.events.listener('errored', { id: this.state.events.nextListenerId(), path }, auth, {
         event: 'value', result: 'deny',
         error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },
+        reasons: evaluation.reasons,
+        rules: rulesObj,
       });
       if (cancelCallback) {
         queueMicrotask(() => {
-          onCanceled?.();
+          if (onCanceled) {
+            onCanceled();
+          }
           cancelCallback(listenerPermissionDenied(path));
         });
         return () => {};

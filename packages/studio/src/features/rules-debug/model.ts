@@ -16,12 +16,13 @@ import type {
   AuthState,
   RequestEvent,
   SandboxEvent,
+  SandboxListenerEvent,
   SandboxOperationEvent,
 } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules/internal';
 
-type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent;
+type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent | SandboxListenerEvent;
 
 /** The rule-engine verdict a service's mechanical simulator/enforcer stamped on
  *  the operation event. Mirrors {@link SandboxOperationEvent.rules} verbatim (do
@@ -84,29 +85,95 @@ export interface Denial {
 
 /** Type guard: a request event the rules engine rejected (deny or unsupported). */
 function isDeniedRequest(e: SandboxEvent): e is DeniedSandboxEvent {
-  return (
-    (e.kind === 'request' || e.kind === 'operation') &&
-    (e.result === 'deny' || e.result === 'unsupported')
-  );
+  if (e.kind === 'request' || e.kind === 'operation') {
+    return e.result === 'deny' || e.result === 'unsupported';
+  }
+  if (e.kind === 'listener') {
+    if (e.phase === 'errored') {
+      if (e.result === 'deny' || e.result === 'unsupported') {
+        return true;
+      }
+      if (e.error?.code === 'PERMISSION_DENIED') {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** Type guard: a request event the rules engine EVALUATED — allow, deny, or
  *  unsupported. Excludes non-rule results (not-applicable, error) so the rules
  *  inspector only ever opens ops that actually went through a rules engine. */
 function isRulesEvaluatedRequest(e: SandboxEvent): e is DeniedSandboxEvent {
-  return toOperationRecord(e)?.rules.kind === 'evaluated';
+  if (e.kind === 'listener') {
+    if (e.phase === 'errored') {
+      if (e.result === 'deny' || e.result === 'unsupported' || e.result === 'allow') {
+        return true;
+      }
+      if (e.error?.code === 'PERMISSION_DENIED') {
+        return true;
+      }
+    }
+    return false;
+  }
+  const record = toOperationRecord(e);
+  if (!record) {
+    return false;
+  }
+  return record.rules.kind === 'evaluated';
 }
 
 function serviceOf(e: DeniedSandboxEvent): string {
-  return 'service' in e && typeof e.service === 'string' ? e.service : 'firestore';
+  if ('service' in e) {
+    if (typeof e.service === 'string') {
+      return e.service;
+    }
+  }
+  return 'firestore';
 }
 
 function requestDataOf(e: DeniedSandboxEvent): unknown {
+  if (!('request' in e)) {
+    return undefined;
+  }
   const request = e.request;
   if (!request) return undefined;
   if ('resourceData' in request && request.resourceData !== undefined) return request.resourceData;
   if ('data' in request) return request.data;
   return undefined;
+}
+
+function enrichListenerDenials(denials: Denial[], events: readonly SandboxEvent[]): Denial[] {
+  const out: Denial[] = [];
+  for (const d of denials) {
+    if (d.origin === 'listener') {
+      if (!d.rules) {
+        let matchedOp: SandboxOperationEvent | undefined = undefined;
+        for (const e of events) {
+          if (e.kind === 'operation') {
+            if (e.method === 'listen' && e.path === d.path) {
+              if (e.rules) {
+                matchedOp = e;
+                break;
+              }
+            }
+          }
+        }
+        if (matchedOp) {
+          if (matchedOp.rules) {
+            d.rules = matchedOp.rules;
+          }
+          if (matchedOp.reasons) {
+            if (d.reasons.length === 0) {
+              d.reasons = matchedOp.reasons;
+            }
+          }
+        }
+      }
+    }
+    out.push(d);
+  }
+  return out;
 }
 
 /**
@@ -122,8 +189,8 @@ export function selectDenials(events: readonly SandboxEvent[]): Denial[] {
     if (!isDeniedRequest(e)) continue;
     out.push(toDenial(e));
   }
-  // Newest first: the most recent failure is the one you're debugging.
-  return out.sort((a, b) => b.at - a.at);
+  const enriched = enrichListenerDenials(out, events);
+  return enriched.sort((a, b) => b.at - a.at);
 }
 
 /**
@@ -137,30 +204,54 @@ export function selectRuleEvaluations(events: readonly SandboxEvent[]): Denial[]
     if (!isRulesEvaluatedRequest(e)) continue;
     out.push(toDenial(e));
   }
-  return out.sort((a, b) => b.at - a.at);
+  const enriched = enrichListenerDenials(out, events);
+  return enriched.sort((a, b) => b.at - a.at);
 }
 
 /** Project one rules-evaluated request event to a {@link Denial}. */
 export function toDenial(e: DeniedSandboxEvent): Denial {
+  let methodVal = 'listen';
+  let pathVal = '(service)';
+  let originVal: Denial['origin'] = 'listener';
+  if (e.kind === 'request' || e.kind === 'operation') {
+    methodVal = e.method;
+    if (e.path !== undefined) {
+      pathVal = e.path;
+    }
+    originVal = e.origin;
+  } else if (e.kind === 'listener') {
+    methodVal = 'listen';
+    if (e.target.path !== undefined) {
+      pathVal = e.target.path;
+    }
+    originVal = 'listener';
+  }
+
+  let resultVal: 'allow' | 'deny' | 'unsupported' = 'deny';
+  if (e.result === 'allow') {
+    resultVal = 'allow';
+  } else if (e.result === 'unsupported') {
+    resultVal = 'unsupported';
+  }
+
   const d: Denial = {
     id: e.id,
     at: e.at,
-    result:
-      e.result === 'allow' ? 'allow' : e.result === 'unsupported' ? 'unsupported' : 'deny',
-    method: e.method,
+    result: resultVal,
+    method: methodVal,
     service: serviceOf(e),
-    path: e.path ?? '(service)',
+    path: pathVal,
     auth: e.auth,
     reasons: e.reasons ?? [],
-    origin: e.origin,
-    unsupported: e.result === 'unsupported',
+    origin: originVal,
+    unsupported: resultVal === 'unsupported',
   };
   if ('matchedRule' in e && e.matchedRule) d.matchedRule = e.matchedRule;
   if ('evaluatedRule' in e && e.evaluatedRule) d.evaluatedRule = e.evaluatedRule;
   if ('rules' in e && e.rules) d.rules = e.rules;
   const requestData = requestDataOf(e);
   if (requestData !== undefined) d.resourceData = requestData;
-  if (e.resourceBefore) {
+  if ('resourceBefore' in e && e.resourceBefore) {
     d.resourceBefore = {
       data: e.resourceBefore.data,
       exists: e.resourceBefore.exists,

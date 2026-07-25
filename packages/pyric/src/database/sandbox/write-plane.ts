@@ -338,23 +338,67 @@ export class WritePlane {
     const mockData = this.state.tree.snapshot() as Record<string, unknown>;
     const deniedValues: ValueListener[] = [];
     for (const listener of [...this.state.valueListeners]) {
-      if (this.state.rules.evaluate('read', listener.path, {
+      const evaluation = this.state.rules.evaluate('read', listener.path, {
         auth: listener.auth, mockData,
-      }).check === 'allow') continue;
+      });
+      if (evaluation.check === 'allow') continue;
       this.state.valueListeners.delete(listener);
+      this.state.events.operation(listener.auth, 'listen', listener.path, denyResultFor(evaluation.check), evaluation, {
+        origin: 'listener',
+      });
+      const rulesObj = {
+        engine: 'rtdb' as const,
+        matchedPath: evaluation.matchedPath,
+        matchedRule: evaluation.matchedRule,
+        pathVariableBindings: evaluation.pathVariableBindings,
+        reason: evaluation.reason,
+        errorCode: evaluation.errorCode,
+      };
+      this.state.events.listener('errored', listener, listener.auth, {
+        event: 'value', result: 'deny',
+        error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },
+        reasons: evaluation.reasons,
+        rules: rulesObj,
+      });
       deniedValues.push(listener);
     }
     const deniedChildren: ChildListener[] = [];
     for (const listener of [...this.state.childListeners]) {
-      if (this.state.rules.evaluate('read', listener.path, {
+      const evaluation = this.state.rules.evaluate('read', listener.path, {
         auth: listener.auth, mockData,
-      }).check === 'allow') continue;
+      });
+      if (evaluation.check === 'allow') continue;
       this.state.childListeners.delete(listener);
+      this.state.events.operation(listener.auth, 'listen', listener.path, denyResultFor(evaluation.check), evaluation, {
+        origin: 'listener', detail: { event: listener.event },
+      });
+      const rulesObj = {
+        engine: 'rtdb' as const,
+        matchedPath: evaluation.matchedPath,
+        matchedRule: evaluation.matchedRule,
+        pathVariableBindings: evaluation.pathVariableBindings,
+        reason: evaluation.reason,
+        errorCode: evaluation.errorCode,
+      };
+      this.state.events.listener('errored', listener, listener.auth, {
+        event: listener.event, result: 'deny',
+        error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied', reasons: evaluation.reasons },
+        reasons: evaluation.reasons,
+        rules: rulesObj,
+      });
       deniedChildren.push(listener);
     }
     for (const listener of [...deniedValues, ...deniedChildren]) {
-      try { listener.onCanceled?.(); } catch { /* isolated teardown */ }
-      try { listener.cancelCallback?.(listenerPermissionDenied(listener.path)); } catch { /* isolated callback */ }
+      try {
+        if (listener.onCanceled) {
+          listener.onCanceled();
+        }
+      } catch { /* isolated teardown */ }
+      try {
+        if (listener.cancelCallback) {
+          listener.cancelCallback(listenerPermissionDenied(listener.path));
+        }
+      } catch { /* isolated callback */ }
     }
   }
 
