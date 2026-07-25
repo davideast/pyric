@@ -13,6 +13,7 @@ import {
   buildChildEnv,
   createLinePrefixer,
   detectPackageManager,
+  formatStartupEnvExport,
   readDevScript,
   registerModuleUrl,
   resolveDevChild,
@@ -196,5 +197,19 @@ describe('waitForSandboxPeer (first-run race guard)', () => {
       sleep: async () => {},
     });
     expect(ok).toBe(true);
+  });
+});
+
+describe('formatStartupEnvExport', () => {
+  it('formats copy-pasteable POSIX export commands for host-only startup', () => {
+    const output = formatStartupEnvExport({
+      serveUrl: 'http://localhost:3473',
+      registerUrl: 'file:///usr/local/pyric/dist/register/index.js',
+    });
+    expect(output).toContain('export PYRIC_SANDBOX="remote:http://localhost:3473"');
+    expect(output).toContain(
+      'export NODE_OPTIONS="--import file:///usr/local/pyric/dist/register/index.js"',
+    );
+    expect(output).toContain('To run external commands against this sandbox');
   });
 });

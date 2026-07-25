@@ -163,6 +163,27 @@ export function buildChildEnv(
   };
 }
 
+/**
+ * Format copy-pasteable POSIX export statements for host-only startup.
+ * Grouped in a cleanly formatted console block for easy selection and copying
+ * into a separate terminal (for example, when running Next.js independently).
+ */
+export function formatStartupEnvExport(opts: { serveUrl: string; registerUrl: string }): string {
+  const pyricSandbox = `remote:${opts.serveUrl}`;
+  const nodeOptions = `--import ${opts.registerUrl}`;
+  const line1 = `export PYRIC_SANDBOX="${pyricSandbox}"`;
+  const line2 = `export NODE_OPTIONS="${nodeOptions}"`;
+  const divider = '─'.repeat(Math.max(line1.length, line2.length) + 4);
+  return (
+    '\n' +
+    '  To run external commands against this sandbox, paste in another terminal:\n' +
+    `  ${divider}\n` +
+    `  ${line1}\n` +
+    `  ${line2}\n` +
+    `  ${divider}\n`
+  );
+}
+
 // ─── Line prefixing (pure core) ────────────────────────────────────────────
 
 /**
