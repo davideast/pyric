@@ -11,6 +11,7 @@ import {
   setRules,
   snapshotDocuments,
 } from 'pyric/sandbox/firestore';
+import { getDatabase, onValue, ref as dbRef, sandbox as rtdbSandbox } from '../../src/database/index.js';
 
 const READ_ALL = `rules_version = '2';
 service cloud.firestore {
@@ -209,5 +210,28 @@ describe('pyric/sandbox/firestore', () => {
 
     unsubscribeEvents();
     unsubscribeSnapshot();
+  });
+
+  it('includes RTDB operation and listener denials in inspect() reports', async () => {
+    const sandbox = initializeSandbox();
+    const db = getDatabase(sandbox.withAuth({ uid: 'bob' }));
+    rtdbSandbox.setRules(db, {
+      rules: {
+        rooms: {
+          '.read': 'false',
+        },
+      },
+    });
+
+    try {
+      onValue(dbRef(db, 'rooms/r1'), () => {}, () => {});
+    } catch {
+      // expected permission denial
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const report = inspect(sandbox, { recentEventLimit: 10 });
+    const listenerDenials = report.events.recentDenials.filter((d) => d.path === '/rooms/r1' || d.path === 'rooms/r1');
+    expect(listenerDenials.length).toBeGreaterThan(0);
   });
 });

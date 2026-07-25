@@ -102,21 +102,98 @@ export function inspect(
   }
 
   const history = sandbox.history() as unknown as Array<Record<string, unknown>>;
-  const requests = history.filter((event) => event.kind === 'request');
-  const denials = requests.filter((event) => event.result === 'deny');
-  const recentRequests = requests.slice(-recentLimit).map((event) => ({
-    path: String(event.path ?? ''),
-    method: String(event.method ?? ''),
-    result: String(event.result ?? ''),
-    auth: event.auth ?? null,
-  }));
-  const recentDenials = denials.slice(-recentLimit).map((event) => ({
-    path: String(event.path ?? ''),
-    method: String(event.method ?? ''),
-    auth: event.auth ?? null,
-    debugMessage:
-      typeof event.debugMessage === 'string' ? event.debugMessage : undefined,
-  }));
+  const operations: Array<Record<string, unknown>> = [];
+  for (const event of history) {
+    const isRequestKind = event.kind === 'request';
+    const isOperationKind = event.kind === 'operation';
+    const isListenerKind = event.kind === 'listener';
+    if (isRequestKind) {
+      operations.push(event);
+    } else if (isOperationKind) {
+      operations.push(event);
+    } else if (isListenerKind) {
+      const isErroredPhase = event.phase === 'errored';
+      if (isErroredPhase) {
+        operations.push(event);
+      }
+    }
+  }
+  const denials: Array<Record<string, unknown>> = [];
+  for (const event of operations) {
+    const isDenyResult = event.result === 'deny';
+    if (isDenyResult) {
+      denials.push(event);
+    } else {
+      const errorObj = event.error as Record<string, unknown> | undefined;
+      const hasPermissionDeniedCode = errorObj !== undefined && errorObj.code === 'PERMISSION_DENIED';
+      if (hasPermissionDeniedCode) {
+        denials.push(event);
+      }
+    }
+  }
+  const recentRequests = operations.slice(-recentLimit).map((event) => {
+    let pathVal = '';
+    if (event.path !== undefined) {
+      pathVal = String(event.path);
+    } else {
+      const targetObj = event.target as Record<string, unknown> | undefined;
+      if (targetObj !== undefined && targetObj.path !== undefined) {
+        pathVal = String(targetObj.path);
+      }
+    }
+    let methodVal = 'listen';
+    if (event.method !== undefined) {
+      methodVal = String(event.method);
+    }
+    let resultVal = 'error';
+    if (event.result !== undefined) {
+      resultVal = String(event.result);
+    } else {
+      const errorObj = event.error as Record<string, unknown> | undefined;
+      if (errorObj !== undefined && errorObj.code === 'PERMISSION_DENIED') {
+        resultVal = 'deny';
+      }
+    }
+    let authVal: unknown = null;
+    if (event.auth !== undefined) {
+      authVal = event.auth;
+    }
+    return {
+      path: pathVal,
+      method: methodVal,
+      result: resultVal,
+      auth: authVal,
+    };
+  });
+  const recentDenials = denials.slice(-recentLimit).map((event) => {
+    let pathVal = '';
+    if (event.path !== undefined) {
+      pathVal = String(event.path);
+    } else {
+      const targetObj = event.target as Record<string, unknown> | undefined;
+      if (targetObj !== undefined && targetObj.path !== undefined) {
+        pathVal = String(targetObj.path);
+      }
+    }
+    let methodVal = 'listen';
+    if (event.method !== undefined) {
+      methodVal = String(event.method);
+    }
+    let authVal: unknown = null;
+    if (event.auth !== undefined) {
+      authVal = event.auth;
+    }
+    let debugMessageVal: string | undefined = undefined;
+    if (typeof event.debugMessage === 'string') {
+      debugMessageVal = event.debugMessage;
+    }
+    return {
+      path: pathVal,
+      method: methodVal,
+      auth: authVal,
+      debugMessage: debugMessageVal,
+    };
+  });
 
   return {
     rules: {

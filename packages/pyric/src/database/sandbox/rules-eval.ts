@@ -136,6 +136,30 @@ export class RulesEvaluator {
     path: string,
     ctx: EvalContext,
   ): RuleEvaluationDetails {
+    const isReadOperation = operation === 'read';
+    if (isReadOperation) {
+      const isRootInfoPath = path === '/.info' || path === '.info';
+      if (isRootInfoPath) {
+        return {
+          check: 'allow',
+          reasons: ['/.info/ system metadata paths are always readable regardless of security rules.'],
+        };
+      }
+      const startsWithSlashInfo = path.startsWith('/.info/');
+      if (startsWithSlashInfo) {
+        return {
+          check: 'allow',
+          reasons: ['/.info/ system metadata paths are always readable regardless of security rules.'],
+        };
+      }
+      const startsWithDotInfo = path.startsWith('.info/');
+      if (startsWithDotInfo) {
+        return {
+          check: 'allow',
+          reasons: ['/.info/ system metadata paths are always readable regardless of security rules.'],
+        };
+      }
+    }
     if (this.compiled === null) {
       return {
         check: 'allow',
