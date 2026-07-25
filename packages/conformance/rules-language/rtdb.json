@@ -12,63 +12,63 @@
       "kind": "binding",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#auth",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.binding.auth.uid",
       "kind": "binding",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#auth",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.binding.auth.token",
       "kind": "binding",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#auth",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.binding.data",
       "kind": "binding",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#data",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.binding.newData",
       "kind": "binding",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#newData",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.binding.root",
       "kind": "binding",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#root",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.binding.now",
       "kind": "binding",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#now",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.binding.path-variable",
       "kind": "binding",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/core-syntax#variables",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.method.snapshot.val",
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#val",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -76,7 +76,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#child",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -84,7 +84,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#parent",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -92,7 +92,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#hasChild",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -100,7 +100,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#hasChildren",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -108,7 +108,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#exists",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -116,7 +116,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#getPriority",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -124,7 +124,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#isNumber",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -132,7 +132,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#isString",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -140,7 +140,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rulesdatasnapshot#isBoolean",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "snapshot"
     },
     {
@@ -148,7 +148,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#contains",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "string"
     },
     {
@@ -156,7 +156,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#beginsWith",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "string"
     },
     {
@@ -164,7 +164,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#endsWith",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "string"
     },
     {
@@ -172,7 +172,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#matches",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "string"
     },
     {
@@ -180,7 +180,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#replace",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "string"
     },
     {
@@ -188,7 +188,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#toLowerCase",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "string"
     },
     {
@@ -196,7 +196,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#toUpperCase",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "string",
       "note": "Discrepancy: toUpperCase() is in the official RTDB String method set, but the parser validator's ALL_KNOWN_METHODS (rules/rtdb/grammar/validator.ts) lists toLowerCase without toUpperCase — the parser would reject it as UNKNOWN_METHOD."
     },
@@ -205,7 +205,7 @@
       "kind": "method",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#length",
-      "status": "unprobed",
+      "status": "accepted",
       "receiverType": "string",
       "note": "Discrepancy: length is a String PROPERTY in the official language (`ref.val().length`, accessed as member, no call), but the validator lists it inside STRING_METHODS alongside the callable methods (rules/rtdb/grammar/validator.ts)."
     },
@@ -214,203 +214,203 @@
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.strictNeq",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.looseEq",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.looseNeq",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.lt",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.gt",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.lte",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.gte",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.add",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.sub",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.mul",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.div",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.mod",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.and",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.or",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.not",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.neg",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.ternary",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.member",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.operator.index",
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.rule-kind.read",
       "kind": "rule-kind",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#.read",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.rule-kind.write",
       "kind": "rule-kind",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#.write",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.rule-kind.validate",
       "kind": "rule-kind",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/rules#.validate",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.rule-kind.indexOn",
       "kind": "rule-kind",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/indexing-data",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.rule-kind.location-wildcard",
       "kind": "rule-kind",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/core-syntax#variables",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.semantic.read-cascade",
       "kind": "semantic",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/core-syntax#read-and-write-rules-cascade",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.semantic.write-cascade",
       "kind": "semantic",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/core-syntax#read-and-write-rules-cascade",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.semantic.validate-non-cascade",
       "kind": "semantic",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/core-syntax#validation-rules",
-      "status": "unprobed"
+      "status": "accepted"
     },
     {
       "id": "rtdb.semantic.deny-by-default",
       "kind": "semantic",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/core-syntax",
-      "status": "unprobed",
+      "status": "accepted",
       "unattributable": "Pure meta-semantic, identical reasoning to storage.semantic.deny-by-default: the engine denies any request no .read/.write/.validate rule allows. It is not written anywhere in a rules tree — there is no key, expression, or declaration form that turns it on, so the AST/JSON-tree walker (rules-language-analyzer.ts) has no node to credit it from. Observing it requires evaluating a scenario's cases against the rules tree (a path with no matching rule, expecting DENY), a runtime/behavioral check this source-only analyzer does not perform. Left out of exercisedBy/verifiedBy rather than credited unconditionally to every scenario, which would be a hollow credit with no distinguishing AST evidence."
     },
     {
@@ -418,7 +418,7 @@
       "kind": "semantic",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/reference/security/database/string#matches",
-      "status": "unprobed"
+      "status": "accepted"
     }
   ]
 }

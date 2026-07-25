@@ -200,7 +200,7 @@ function rtProbeFor(c: LanguageConstruct): RtProbe {
     if (name === 'read-cascade') return { subtree: { probe: { '.read': 'true', child: {} } }, op: 'read', opPath: '/probe/child' };
     if (name === 'write-cascade') return { subtree: { probe: { '.write': 'true', child: {} } }, op: 'write', opPath: '/probe/child', newData: 'v' };
     if (name === 'validate-non-cascade') {
-      return { unprobeable: 'validate non-cascade is a multi-node relationship (a parent .validate must NOT govern a deeper write); it is not a single allow/deny micro-scenario.' };
+      return { subtree: { '.write': 'true', child: { '.validate': 'true' } }, op: 'write', opPath: '/child', newData: 'v' };
     }
     if (name === 'deny-by-default') return { subtree: { probe: {} }, op: 'read', opPath: '/probe' };
     if (name === 'regex-literal') return { op: 'write', read: 'newData.val().matches(/^a/)', newData: 'abc' };
@@ -221,7 +221,7 @@ export function probeEngine(engine: RulesEngine): ConstructCapability[] {
       const resolved = resolveFirestoreConstructProbe(c);
       r = evaluateFirestoreCapability(resolved);
     }
-    else if (engine === 'storage') r = stRun(stProbeFor(c));
+    else if (engine === 'storage') r = stRun(stProbeFor(c), c);
     else r = rtRun(rtProbeFor(c));
     out.push({
       id: c.id, kind: c.kind, classification: r.classification, detail: r.detail,

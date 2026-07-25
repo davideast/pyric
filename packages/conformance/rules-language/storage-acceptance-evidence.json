@@ -1,858 +1,912 @@
 {
+  "schema": "pyric.conformance.storage-rules-acceptance-evidence.v1",
+  "generatedNote": "Committed production acceptance evidence for Storage Security Rules captured over Google Cloud Rules Test API.",
+  "capturedAt": "2026-07-25T18:42:40.989Z",
+  "projectId": "digame-mas",
   "engine": "storage",
-  "version": "rules_version 2 (standalone subset)",
-  "sources": [
-    "Firebase Storage Security Rules language reference (firebase.google.com/docs/reference/security/storage)",
-    "Storage security rules conditions guide",
-    "Repo ground truth: packages/pyric/src/storage/sandbox/rules.ts (parser) and rules-evaluator.ts (evaluator)"
-  ],
+  "total": 69,
+  "accepted": 69,
+  "rejected": 0,
+  "unprobeable": 0,
+  "evaluationAgree": 69,
+  "evaluationDisagree": 0,
   "constructs": [
     {
       "id": "storage.binding.request",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "96095342b864e49f876e0248ce36618e7329b1dbaeba01e891b53c6b65594f45"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.auth",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request#auth",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "2dac7676c26293148f898b8e108a5789d1c7e07031436c2d8732d51512331f81"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.auth.uid",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request#auth",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "66fee008fd7aebbf3353bb29f8e505d1e57252c584354935a8617587096d5bfa"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.auth.token",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request#auth",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "3758042582d06434f7c5b5a3fdc544f356038c1617f9b28b2e1a3821477574d3"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.resource",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request#resource",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "827747d7c28a35485ee31efb2140514464b0ec1319a2b94214a21c0af130de0f"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.resource.size",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request#resource",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "2dede2d653bb978245c6959d878601b50539175258f62888afd899415b02cb9d"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.resource.contentType",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request#resource",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "202eb87e8debc0684bfffab97b2971cd9ef032c2b2b9739025681728ddce88aa"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.resource.metadata",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request#resource",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "18a6f0a09fab73144733cd57024136a0ed2aeaf363e66fd5ec96056f9f72559b"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.time",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request#time",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "edc0f247546d66bcd7f20ba82c7f7a936ca469ce082fe5579028ea7618d81ace"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.method",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "99a97a9f83498219fa7f1cc59873a017f46215ff8d2c875ea544748d8c4200e9"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.request.path",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/request",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "3aeac1cacea09c020ae4d650f43fe140563fef2b0ef9fea134e509b851cbea9a"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "861269fa47561702194e6374e6048f206cbcac3676962f0c2e9a7f104190bfd6"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource.size",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#size",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "63a223966300191bb3d6568a32f6195a1c50338fd1b3a2214d22870158a6bf8b"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource.contentType",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#contentType",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "2b725285bc22baf38d4aae2630c88c2b737252612f1a3243e4c2cab8195eeb5b"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource.metadata",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#metadata",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "842a90ebd52d0b4845f8932b65b2eb9c8ba67eaa52d918cb7cfe9da0b40073f1"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.path-variable",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "88921848c790589098b62bd9b7b212ba4a1241c60e7fb5b13f4174a94a9ba4be"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource.name",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#name",
       "status": "accepted",
-      "note": "resource.name is the object's FULL path within the bucket (GCS object-name convention, e.g. `uploads/pic.png`), sourced from the persisted record's fullPath — NOT the client SDK's last-path-segment name. Production returns it as a literal on the resource map; an absent name is an evaluation error that denies.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "f893fd2fb26d6970964b09bc7707993ee7cabe2174e0f663962b8c1b71e6f9ae"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource.timeCreated",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#timeCreated",
       "status": "accepted",
-      "note": "resource.timeCreated is a timestamp (ISO-8601 in the persisted record; the evaluator compares it as epoch millis against request.time). Production rejects an int in a timestamp comparison; an absent timeCreated denies.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "0a0d40429b7714c6cef976068bf6d3e926aa3df816121e9689c4837129f5be41"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource.updated",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#updated",
       "status": "accepted",
-      "note": "resource.updated is the object's last-update timestamp. The field is `updated` — the Storage rules language has NO `resource.timeUpdated` (live-probed: `timeUpdated` reads as an absent property). Renamed from the earlier mis-identified `storage.binding.resource.timeUpdated`.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "fdfc5a906d2995f31941a7395e91ab6ea39de419380147bbcbbab870d2353894"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource.bucket",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#bucket",
       "status": "accepted",
-      "note": "resource.bucket is the bucket the object resides in, sourced from the persisted record. Production returns it as a literal on the resource map; an absent bucket denies.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "4b596c84278f165e703d95671108a8b6fed2f29a3ad2b36ceb858e7e816ecb3c"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource.generation",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#generation",
       "status": "accepted",
-      "note": "Production types resource.generation as an int; exact comparison succeeds and an absent field errors and denies.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "7c32e3f924b7ee7facf23dba9033a82defc85222986cd649e946779e5a57a88f"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.binding.resource.metageneration",
       "kind": "binding",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#metageneration",
       "status": "accepted",
-      "note": "Production types resource.metageneration as an int; captured together with generation on the existing-object binding.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "62b6d8e70ecf9b42a06514469c3780c657efe20e0c887d7c739fad403cc98dda"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.function.timestamp.date",
       "kind": "function",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/timestamp#date",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "acd7b32ee80f2a9fc73eb85303e3af86d66e630a3dfbc06072f74cc66182b900"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.function.timestamp.value",
       "kind": "function",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/timestamp#value",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "c378e800f4cc237e6fdc562bdd85671a1fb1f0dede6f8b7dc725461a2f4e9d5e"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.function.duration.value",
       "kind": "function",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/duration#value",
       "status": "accepted",
-      "note": "duration.value(magnitude, unit) — a duration the evaluator returns as milliseconds so it adds to / subtracts from the millis-modeled timestamps, enabling the freshness idiom `request.time < resource.timeCreated + duration.value(1, 'h')`.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "2fb4fabc38a0428dcd3933a062a62a8db16ffec01772a147101f43418287b8e4"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.function.firestore.get",
       "kind": "function",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions#firestore",
       "status": "accepted",
-      "note": "Discrepancy: firestore.get() is in the official Storage rules language, but the standalone evaluator only resolves it when the enforcement layer injects a FirestoreLookup; the pure/test evaluator denies-with-reason (cross-document lookups are out of the standalone subset).",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "714989cf523db3a163e9cb61a6ad6b500e6a455988c9df4e48b647d4d3d5976b"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.function.firestore.exists",
       "kind": "function",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions#firestore",
       "status": "accepted",
-      "note": "Discrepancy: firestore.exists() — same standalone limitation as firestore.get(); resolved only with an injected FirestoreLookup, otherwise denies-with-reason.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "ffdd53eb25900d747c60b19fa463ce89952443ac7cc7a35971fd87929ff4e3b3"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.method.string.matches",
       "kind": "method",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/security/storage/string#matches",
       "status": "accepted",
-      "receiverType": "string",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "21e89d7e8b5869b60c6865f0ba5c1efe8db3b8a3a4ded5596be55ad1ee4c711f"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.method.size",
       "kind": "method",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
-      "receiverType": "string|list|map",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "b2c26c7f51d8687afa9c3273f40320f4a3c4c688790952332955b0ca278e6639"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.method.string.split",
       "kind": "method",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
-      "receiverType": "string",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "b3d668a41a5859ee8d3cf5f4c993a380afab74482443d74362504dd8f28a4307"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.method.map.keys",
       "kind": "method",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_keys_",
       "status": "accepted",
-      "receiverType": "map",
-      "note": "Production and the local Storage evaluator accept request.resource.metadata.keys(); replayed by the Storage upload-boundary corpus.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "b43c5b69dd0fad7a4cfd74193df9fcc61908fcfbc11a2d7dcb9273d03ebae9aa"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.method.map.get",
       "kind": "method",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_get_",
       "status": "accepted",
-      "receiverType": "map",
-      "note": "Production and the local Storage evaluator accept request.resource.metadata.get(key, default); replayed by the Storage upload-boundary corpus.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "2fb16e5efdd2b812e7da0864005f525841fe6b7c65b6fa807666f534bca4f34b"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.method.set.hasAll",
       "kind": "method",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAll_",
       "status": "accepted",
-      "receiverType": "set",
-      "note": "Production and the local Storage evaluator accept hasAll() on the set returned by custom-metadata keys(); replayed by the Storage upload-boundary corpus.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "b43c5b69dd0fad7a4cfd74193df9fcc61908fcfbc11a2d7dcb9273d03ebae9aa"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.eq",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "374b1b68c4624d89564f5f9a7bf8423874cc2cc7644e8d9070c909fcc8c3c5fe"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.neq",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "a702e19dcf63fcd30305b2b79c4c51d88343a2763935771de34cd21d00d31336"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.lt",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "0d0d1b422d9f871ca1fdb4c8c9db535789a6ce12d1b1d074d5a518cf373dd487"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.gt",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "019e0989be2bacf76327ce3c65727d1936399bb178ff61c0dc1e4348bc252d34"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.lte",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "ead3e1e9d0f607b4b1ccf84045232bc2ad9d8a3f6b53fd0ea68224582350b913"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.gte",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "7db8ac0502b48f50203ba94cbdf51292d6e2e65b34572375324d91b22dcdfa45"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.add",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "5432480b751b928248cc51f2d5cc845546f2d73c93e6529bb4ed0c627a3f95d3"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.sub",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "0e3c2fb39f3110daf981ea79c02e317c1c4d70197b8204ddd13653958300adea"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.mul",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "f98202322ce143bed2860e431a46be73586824d864ffe565ff3a3f368bf0e81f"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.div",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "910f572551715c7a3825d72625a2f7fd51983ff3988a01a8ddad084273e78734"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.and",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "5d1fa07a96d325629fa5d9e2b898b867c7b144ea6ab3436e36c0df33be8a0fec"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.or",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "89575d76f73459ebc5f099771e30daba5c5a437cd12196f1d5b663e13f09045c"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.not",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "d43146df1f655b3018b7e5bcc37930bc68174663cd4d5be433539a8802adf60a"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.member",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "a17413c2b2e10cb564b716549eb3294b04847df7c19be2dac8a006d268e59924"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.index",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "8c90726c4236489e8c25abba886bd575d80653c13d39e4f5726606b49bfe47b0"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.slice",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "d55841f0fd742da97e75eef470ac640ea8039fd9dd2a87053bfacde48fe54295"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.is",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "1cc7b960d2be75c91f67951fa192ec08ccb5c0701c388cf6eb14843e0cd121c4"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.in",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "6d710b1ba93ff519aa3f98c526844868d21df03548868df738d07916519e6400"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.ternary",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "d0f741ee1ade4bd8d81d95c19b3a117c4b364a0a58a0281b82566662f202eb59"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.unary-minus",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "e7200bab53075acaea3fba2d821bfadf06088dc2c3150a3154a50d0413296310"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.operator.mod",
       "kind": "operator",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "ed239340f6913c6e27c810a71ab89b53808d03227eeefae8faca981a6637a399"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.allow-read",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "1056d1f23b92b66425edca4a6c1fd02fe264e1720a21017b9953e9e16da034e6"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.allow-write",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "acf2fb088a3e6eb927f81bb1365f59af300d7aa49b5e098d85c63f84744089da"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.allow-get",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "00cea604db51712837e8119c1d1699f72fd8d2a3ecf0bd7e79943400e9d1c4b9"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.allow-list",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "c628bf537b30bdfe9a539f19963c8a22aa63741aac9c6b66ac22ae2e3137647a"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.allow-create",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "77203d6149bdc4d5a3763cc4de80a12bd7c2398a014e2f4149426def5154b44b"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.allow-update",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "0a3e9025693dbcb8858dcf2dc3c2bcd611b4b9152e386ae149279acb45c34abe"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.allow-delete",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "1404c95654cc699dcabb5e26d46c43145651a04626f5c4295c992b5dcaca65e0"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.match",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "1056d1f23b92b66425edca4a6c1fd02fe264e1720a21017b9953e9e16da034e6"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.function",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "19f3bd154c0b6d8bfcdb6c446c7d4c250fe0b8405d7fa7b9702929e6a7253457"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.let",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "805eb449bd14c4fca925208ff64408576d3fef8fe8a5d505b0886ca3fc59d48a"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.rule-kind.rules_version",
       "kind": "rule-kind",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "1056d1f23b92b66425edca4a6c1fd02fe264e1720a21017b9953e9e16da034e6"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.semantic.read-umbrella",
       "kind": "semantic",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "1056d1f23b92b66425edca4a6c1fd02fe264e1720a21017b9953e9e16da034e6"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.semantic.write-umbrella",
       "kind": "semantic",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "acf2fb088a3e6eb927f81bb1365f59af300d7aa49b5e098d85c63f84744089da"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.semantic.recursive-wildcard",
       "kind": "semantic",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "d5b07cafbeddf79ae6d5350ca79044961a6e1210e0027565a4b84998829920ad"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected ALLOW, got ALLOW",
+      "expectedDecision": "ALLOW",
+      "actualDecision": "ALLOW"
     },
     {
       "id": "storage.semantic.deny-by-default",
       "kind": "semantic",
-      "engine": "storage",
-      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
-      "unattributable": "Pure meta-semantic: the engine denies any request no `allow` matches. It is not written anywhere in a ruleset's source — there is no expression, operator, or declaration form that turns it on, so the AST walker (rules-language-analyzer.ts) has no node to credit it from. It could only be observed by evaluating a scenario's cases against the ruleset (a request whose path/verb no allow rule covers, expecting DENY) — a runtime/behavioral check, not a static-source fact, and this analyzer deliberately only walks parsed rules source, never evaluates. Crediting it to every ruleset unconditionally (since the fallback is unconditional) would be a hollow credit with no distinguishing AST evidence behind it, so it is intentionally left out of exercisedBy/verifiedBy rather than papered over as attributed.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "32e93ec154cfa2e6d532cae58c9a0bc56701e97d6876b73954237ec98b9e6cd3"
       },
-      "probeEvaluationAgreement": true
+      "evaluationAgreement": true,
+      "evaluationDetail": "expected DENY, got DENY",
+      "expectedDecision": "DENY",
+      "actualDecision": "DENY"
     }
   ]
 }

@@ -77,9 +77,10 @@ export class TestFirestoreRulesHandler {
       });
 
       if (res.status === 403) {
+        const body = await res.text().catch(() => '');
         return {
           success: false,
-          error: { code: 'PERMISSION_DENIED', message: 'Service account lacks permission to test Firestore rules', recoverable: false },
+          error: { code: 'PERMISSION_DENIED', message: `Service account lacks permission to test Firestore rules: ${body}`, recoverable: false },
         };
       }
 
@@ -197,9 +198,10 @@ export class TestStorageRulesHandler {
       });
 
       if (res.status === 403) {
+        const body = await res.text().catch(() => '');
         return {
           success: false,
-          error: { code: 'PERMISSION_DENIED', message: 'Service account lacks permission to test Storage rules', recoverable: false },
+          error: { code: 'PERMISSION_DENIED', message: `Service account lacks permission to test Storage rules: ${body}`, recoverable: false },
         };
       }
 
