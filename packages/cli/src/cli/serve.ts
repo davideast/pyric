@@ -31,6 +31,7 @@ import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import {
   buildChildEnv,
   detectPackageManager,
+  formatStartupEnvExport,
   readDevScript,
   registerModuleUrl,
   resolveDevChild,
@@ -802,6 +803,13 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
         registerUrl: registerModuleUrl(),
       }),
     });
+  } else if (!json) {
+    process.stdout.write(
+      formatStartupEnvExport({
+        serveUrl: runtime.handle.url,
+        registerUrl: registerModuleUrl(),
+      }),
+    );
   }
 
   return await new Promise<number>((resolveExit) => {

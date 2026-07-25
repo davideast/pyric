@@ -6,7 +6,8 @@ import { afterAll, describe, expect, it } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { extractHosting, serveJsonLine, startServe, wantsSpaRewrite, type ServeRuntime } from '../../src/cli/serve.js';
+import { extractHosting, runServe, serveJsonLine, startServe, wantsSpaRewrite, type ServeRuntime } from '../../src/cli/serve.js';
+import { parseArgs } from '../../src/cli/index.js';
 import { silentServeLogger, type ServeLogger } from '../../src/serve/server.js';
 import { CAPTURE_RELATIVE_PATH } from '../../src/serve/capture-store.js';
 
@@ -312,5 +313,34 @@ describe('/__pyric/capture endpoint (serve-capture)', () => {
     const { existsSync: exists } = await import('node:fs');
     const capturePath = join(cwd, CAPTURE_RELATIVE_PATH);
     expect(exists(capturePath)).toBe(false);
+  }, 30_000);
+});
+
+describe('runServe host-only environment export', () => {
+  it('runServe prints copy-pasteable POSIX export commands in host-only mode', async () => {
+    const cwd = fixtureProject();
+    const prevCwd = process.cwd();
+    process.chdir(cwd);
+    let stdout = '';
+    let triggered = false;
+    const origWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
+      if (!triggered && stdout.includes('export PYRIC_SANDBOX=')) {
+        triggered = true;
+        setTimeout(() => process.emit('SIGINT'), 20);
+      }
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const parsed = parseArgs(['dev', '--port', '0', '--no-open', '--no-run', '--no-cache']);
+      const code = await runServe(parsed);
+      expect(code).toBe(0);
+      expect(stdout).toContain('export PYRIC_SANDBOX="remote:http://');
+      expect(stdout).toContain('export NODE_OPTIONS="--import file://');
+    } finally {
+      process.stdout.write = origWrite;
+      process.chdir(prevCwd);
+    }
   }, 30_000);
 });
