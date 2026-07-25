@@ -17,7 +17,7 @@
  * first while the browser is on the other — split-brain.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 /** Ports probed when the pointer is absent — serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss
@@ -26,6 +26,26 @@ import { join } from 'node:path';
  *  writes no pointer, so it is registered directly via `claude mcp add`, not discovered here. */
 export const SCAN_PORTS = [3473, 3474, 3475, 3476, 3477, 5173, 5174, 5175, 5176, 5177];
 export const POINTER = join('.pyric', 'serve.json');
+
+function candidatePointerPaths(startDir: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  const subdirs = ['', 'web', 'frontend', 'client', 'app', 'ui', 'www'];
+  let current = resolve(startDir);
+  while (true) {
+    for (const sub of subdirs) {
+      const p = sub ? join(current, sub, POINTER) : join(current, POINTER);
+      if (!seen.has(p)) {
+        seen.add(p);
+        paths.push(p);
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return paths;
+}
 
 export interface HealthLite {
   mode?: string;
@@ -141,46 +161,47 @@ export async function discoverServe(
   // real localhost ports, which a test environment can't guarantee are free.
   scanPorts: number[] = SCAN_PORTS,
 ): Promise<Discovered | null> {
-  const pointerPath = join(cwd, POINTER);
-  if (existsSync(pointerPath)) {
-    try {
-      const p = JSON.parse(readFileSync(pointerPath, 'utf8')) as {
-        url?: string;
-        mcpUrl?: string;
-        port?: number;
-        instanceId?: string;
-      };
-      const port = p.port ?? portOf(p.mcpUrl) ?? portOf(p.url);
-      if (port) {
-        const expectedId = typeof p.instanceId === 'string' && p.instanceId ? p.instanceId : null;
-        const hit = await healthyBase(port, expectedId);
-        if (hit) {
-          return {
-            mcpUrl: `${hit.base}/__pyric/mcp`,
-            url: canonicalServeUrl(port, p.url),
-            base: hit.base,
-            instanceId: hit.instanceId,
-            source: `pointer ${POINTER}`,
-          };
+  for (const pointerPath of candidatePointerPaths(cwd)) {
+    if (existsSync(pointerPath)) {
+      try {
+        const p = JSON.parse(readFileSync(pointerPath, 'utf8')) as {
+          url?: string;
+          mcpUrl?: string;
+          port?: number;
+          instanceId?: string;
+        };
+        const port = p.port ?? portOf(p.mcpUrl) ?? portOf(p.url);
+        if (port) {
+          const expectedId = typeof p.instanceId === 'string' && p.instanceId ? p.instanceId : null;
+          const hit = await healthyBase(port, expectedId);
+          if (hit) {
+            return {
+              mcpUrl: `${hit.base}/__pyric/mcp`,
+              url: canonicalServeUrl(port, p.url),
+              base: hit.base,
+              instanceId: hit.instanceId,
+              source: `pointer ${pointerPath}`,
+            };
+          }
+          // The pointer named a specific identity we could NOT find on its port:
+          // a different sandbox may be squatting it (cross-family collision) or
+          // the server stopped. Do NOT scan into a possibly-wrong server — that
+          // split-brain is exactly what this identity check prevents. Fail legibly.
+          if (expectedId) {
+            log(
+              `pointer ${pointerPath} names a server (instanceId ${expectedId.slice(0, 8)}…) ` +
+                `that isn't answering on port ${port} — another sandbox may be squatting the ` +
+                `port on the other loopback family, or the server stopped. Not falling back to ` +
+                `a blind port scan (it could hit the wrong sandbox). Restart your dev server, ` +
+                `and open the exact URL it prints (http://localhost:<port> by default) — every ` +
+                `page must share that ONE origin, or the browser splits into separate sandboxes.`,
+            );
+            return null;
+          }
         }
-        // The pointer named a specific identity we could NOT find on its port:
-        // a different sandbox may be squatting it (cross-family collision) or
-        // the server stopped. Do NOT scan into a possibly-wrong server — that
-        // split-brain is exactly what this identity check prevents. Fail legibly.
-        if (expectedId) {
-          log(
-            `pointer ${POINTER} names a server (instanceId ${expectedId.slice(0, 8)}…) ` +
-              `that isn't answering on port ${port} — another sandbox may be squatting the ` +
-              `port on the other loopback family, or the server stopped. Not falling back to ` +
-              `a blind port scan (it could hit the wrong sandbox). Restart your dev server, ` +
-              `and open the exact URL it prints (http://localhost:<port> by default) — every ` +
-              `page must share that ONE origin, or the browser splits into separate sandboxes.`,
-          );
-          return null;
-        }
+      } catch {
+        /* stale/corrupt pointer — fall through to next candidate */
       }
-    } catch {
-      /* stale/corrupt pointer — fall through to scan */
     }
   }
   for (const port of scanPorts) {

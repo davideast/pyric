@@ -131,15 +131,14 @@ export function createViteModuleSwap(
 
   return {
     config() {
-      const excludedModules = SDK_MODULES.filter((specifier) => {
-        const isProductionAiMode = aiMode() === 'production';
-        const isFirebaseAi = specifier === 'firebase/ai';
-        const isProductionAiModule = isProductionAiMode && isFirebaseAi;
-        if (isProductionAiModule) {
-          return false;
-        }
-        return true;
-      });
+      const excludedModules = [
+        ...SDK_MODULES,
+        '@firebase/app',
+        '@firebase/component',
+        '@firebase/ai',
+        '@firebase/util',
+        '@firebase/logger',
+      ];
       return {
         optimizeDeps: {
           exclude: excludedModules,
