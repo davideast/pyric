@@ -40,6 +40,10 @@
     "./register",
     "./register/app-bridge"
   ],
+  "allowedFirebaseSdkImportEdges": [
+    "dist/register/app-bridge.js -> firebase/app",
+    "dist/serve/entries/app-ai-passthrough.js -> firebase/app"
+  ],
   "removedExports": [
     "./deploy",
     "./credentials",

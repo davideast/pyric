@@ -12,8 +12,18 @@ interface PackageManifest {
   dependencies?: Record<string, string>;
 }
 
+interface CliReleaseContract {
+  allowedFirebaseSdkImportEdges?: string[];
+}
+
 function manifest(packageDir: string): PackageManifest {
   return JSON.parse(readFileSync(join(workspaceRoot, packageDir, 'package.json'), 'utf8')) as PackageManifest;
+}
+
+function cliReleaseContract(): CliReleaseContract {
+  return JSON.parse(
+    readFileSync(join(workspaceRoot, 'scripts/fixtures/cli-release-contract.json'), 'utf8'),
+  ) as CliReleaseContract;
 }
 
 function emittedFiles(packageDir: string): string[] {
@@ -71,12 +81,11 @@ describe('@pyric/cli published dependency closure', () => {
   });
 
   it('has no emitted runtime or declaration edge to either Firebase SDK outside explicit AI shadow bridges', () => {
-    const allowedBridges = new Set([
-      'packages/cli/dist/register/app-bridge.js -> firebase/app',
-      'packages/cli/dist/register/app-bridge.d.ts -> firebase/app',
-      'packages/cli/dist/serve/entries/app-ai-passthrough.js -> firebase/app',
-      'packages/cli/dist/serve/entries/app-ai-passthrough.d.ts -> firebase/app',
-    ]);
+    const allowedBridges = new Set(
+      (cliReleaseContract().allowedFirebaseSdkImportEdges ?? []).map(
+        (edge) => `packages/cli/${edge}`,
+      ),
+    );
     const edges = packageDirs.flatMap((packageDir) =>
       emittedFiles(packageDir).flatMap((file) =>
         moduleSpecifiers(file)
