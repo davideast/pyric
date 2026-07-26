@@ -2,7 +2,7 @@
   <img src="https://pyric.dev/pyric-logo.svg" alt="Pyric" width="180" />
 </p>
 
-<h1 align="center">Build with Firebase without touching production</h1>
+<h1 align="center">A local first Firebase development framework built for Agents</h1>
 
 <p align="center">Keep the same <code>firebase/*</code> code. Pyric runs it against a local backend during development, then gets out of the way when the app ships to Firebase.</p>
 
@@ -38,7 +38,7 @@ Add it to the existing Vite configuration:
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
-import { pyricSandbox } from '@pyric/cli/vite';
+import { pyric } from '@pyric/cli/vite';
 
 export default defineConfig({
   plugins: [pyricSandbox()],
@@ -57,7 +57,7 @@ Pyric Studio is available on the Vite origin at `/__pyric/ui/`. It opens the sam
 
 For a static application or a Node process, `pyric dev` provides the same development-only package swap without the Vite plugin. The [CLI reference](packages/cli/docs/reference/cli.md) documents those paths and every command.
 
-## Keep writing Firebase code
+## Keep using official Firebase SDKs
 
 Application code continues to import Firebase:
 
@@ -81,16 +81,18 @@ The Firebase configuration is accepted by the local mirror during development. T
 
 Pyric documents the parts that differ locally, including supported behavior, Security Rules, persistence, inspection, verification, and known gaps. See [use the Vite plugin](packages/cli/docs/how-to/use-the-vite-plugin.md) for the complete plugin contract.
 
-## Inspect and correct a failed operation
+## Monitor the local environment in Pyric Studio
 
 Pyric Studio shows local data, requests, authentication state, Security Rules verdicts, and denied operations. Open `/__pyric/ui/` on the development server and reproduce the failure. A denied request includes the path and verdict needed to correct the rule or the application code.
+
+<img width="1512" height="947" alt="image" src="https://github.com/user-attachments/assets/cb4a219c-c5f0-4fb7-8904-996416c0a79c" />
 
 The Vite plugin discovers the Firestore rules path from `firebase.json`, or falls back to `firestore.rules`. Saving that file replaces the active local ruleset without a production deploy. A parse failure leaves the last valid ruleset active and reports the error in the development server.
 
 State and test identities stay browser-local by default. Add `persist: true` to write a committable `.pyric/state/state.json`, or use `seed` to start from a known scenario:
 
 ```ts
-pyricSandbox({
+pyric({
   persist: true,
   seed: 'seed.json',
 });
@@ -98,19 +100,21 @@ pyricSandbox({
 
 See [persistence and multi-tab behavior](packages/cli/docs/how-to/serve-persistence-and-multi-tab.md) for reset and seed precedence.
 
-## Give coding agents the same local Firebase target
+## Connect Coding Agents to the Sandbox using the Pyric MCP server
 
 An agent can keep writing the same Firebase code while inspecting and changing the backend that the application is already using. Agent access is opt-in. Enable the MCP bridge in the Vite plugin:
 
 ```ts
-pyricSandbox({ bridge: true });
+pyric({ 
+  bridge: true 
+});
 ```
 
-The bridge mounts on the Vite development origin and routes agent operations to the same SharedWorker backend used by the application and Studio. The included [Claude Code plugin](pyric-plugin/README.md) discovers that bridge, while other MCP clients can connect to its HTTP endpoint.
+The bridge mounts on the Vite development origin and routes agent operations to the same SharedWorker backend used by the application and Studio.
 
 This protects the local workflow, not an independently credentialed process. A coding agent with production Firebase credentials or deployment access can still affect production outside Pyric.
 
-## Verify the rules boundary
+## Verify the rules against production 
 
 Development sessions capture Firestore and Realtime Database operations in `.pyric/last-session.json` by default. Replay those requests against candidate rules before deployment:
 
