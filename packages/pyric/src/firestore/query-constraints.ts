@@ -43,6 +43,7 @@ function fieldToString(field: string | FieldPath): string {
 // ─── Query constraints ────────────────────────────────────────────────
 
 export interface QueryConstraint {
+  readonly type?: string;
   applySandbox(q: ChainQuery): ChainQuery;
   prepareSandbox?(owner: object): QueryConstraint;
   /**
@@ -112,6 +113,7 @@ function whereConstraint(
 ): QueryConstraint {
   const sandboxFilter: ChainFilter = { kind: 'where', field: fieldPath, op, value };
   return {
+    type: 'where',
     applySandbox: (q) => q.where(fieldPath, op, value),
     prepareSandbox: prepared ? undefined : (owner) => {
       const captured = captureQueryOperand(
@@ -171,6 +173,7 @@ function composite(
   }
   const sandboxFilter: ChainFilter = { kind, filters: sandboxSubs };
   return {
+    type: kind,
     applySandbox: (q) => q.applyFilter(sandboxFilter),
     prepareSandbox: prepared ? undefined : (owner) => composite(
       kind,
@@ -187,12 +190,14 @@ export function orderBy(
 ): QueryConstraint {
   const fieldPath = fieldToString(field);
   return {
+    type: 'orderBy',
     applySandbox: (q) => q.orderBy(fieldPath, direction),
   };
 }
 
 export function limit(n: number): QueryConstraint {
   return {
+    type: 'limit',
     applySandbox: (q) => q.limit(n),
   };
 }
@@ -217,6 +222,7 @@ export function limit(n: number): QueryConstraint {
  */
 export function limitToLast(n: number): QueryConstraint {
   return {
+    type: 'limitToLast',
     applySandbox: (q) => q.limitToLast(n),
   };
 }
@@ -306,6 +312,7 @@ function snapshotCursorConstraint(
   prepared = false,
 ): QueryConstraint {
   return {
+    type: start ? 'startAt' : 'endAt',
     applySandbox: (q) => start
       ? q.startCursorFromSnapshot(snapshot as unknown as ChainDocSnap, inclusive)
       : q.endCursorFromSnapshot(snapshot as unknown as ChainDocSnap, inclusive),
@@ -333,6 +340,7 @@ function cursorValuesConstraint(
   prepared = false,
 ): QueryConstraint {
   return {
+    type: start ? 'startAt' : 'endAt',
     applySandbox: (q) => start
       ? q.startCursor([...values], inclusive)
       : q.endCursor([...values], inclusive),
@@ -344,3 +352,50 @@ function cursorValuesConstraint(
     ),
   };
 }
+
+export type QueryConstraintType = 'where' | 'orderBy' | 'limit' | 'limitToLast' | 'startAt' | 'startAfter' | 'endAt' | 'endBefore' | 'or' | 'and';
+export type QueryNonFilterConstraint = any;
+export type QueryFilterConstraint = any;
+
+export class QueryConstraint {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && ('type' in instance || '_sandboxFilter' in instance || 'applySandbox' in instance));
+  }
+}
+
+export class QueryFieldFilterConstraint extends QueryConstraint {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && (('type' in instance && (instance as any).type === 'where') || ('_sandboxFilter' in instance && (instance as any)._sandboxFilter?.kind === 'where')));
+  }
+}
+
+export class QueryCompositeFilterConstraint extends QueryConstraint {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && (('type' in instance && ((instance as any).type === 'and' || (instance as any).type === 'or')) || ('_sandboxFilter' in instance && ((instance as any)._sandboxFilter?.kind === 'and' || (instance as any)._sandboxFilter?.kind === 'or'))));
+  }
+}
+
+export class QueryOrderByConstraint extends QueryConstraint {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && ('type' in instance && (instance as any).type === 'orderBy'));
+  }
+}
+
+export class QueryLimitConstraint extends QueryConstraint {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && ('type' in instance && ((instance as any).type === 'limit' || (instance as any).type === 'limitToLast')));
+  }
+}
+
+export class QueryStartAtConstraint extends QueryConstraint {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && ('type' in instance && ((instance as any).type === 'startAt' || (instance as any).type === 'startAfter')));
+  }
+}
+
+export class QueryEndAtConstraint extends QueryConstraint {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && ('type' in instance && ((instance as any).type === 'endAt' || (instance as any).type === 'endBefore')));
+  }
+}
+

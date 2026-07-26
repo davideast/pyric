@@ -133,3 +133,18 @@ export async function addDoc<T = DocumentData>(
   }
   return tagged as DocumentReference<T>;
 }
+
+import { writeBatch } from './transactions.js';
+import type { Firestore, WriteBatch } from './types.js';
+
+export function ensureFirestoreConfigured(db: Firestore): void {
+  targetOf(db);
+}
+
+export async function executeWrite<T>(db: Firestore, action: (batch: WriteBatch) => Promise<T>): Promise<T> {
+  const batch = writeBatch(db);
+  const result = await action(batch);
+  await batch.commit();
+  return result;
+}
+

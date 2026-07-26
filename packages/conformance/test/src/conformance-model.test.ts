@@ -17,7 +17,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1130);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1136);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
@@ -286,9 +286,9 @@ describe('multi-axis conformance model', () => {
   });
 
   it('does not let a mapped type export hide a deferred runtime value', () => {
-    const result = one('firestore/AggregateField');
+    const result = one('storage/StorageErrorCode');
     expect(result).toMatchObject({
-      feature: 'AggregateField', surface: 'firestore', availability: 'deferred',
+      feature: 'StorageErrorCode', surface: 'storage', availability: 'deferred',
       fidelity: 'not-applicable', assurance: 'not-applicable',
     });
     expect(result.claims).toEqual(expect.arrayContaining([

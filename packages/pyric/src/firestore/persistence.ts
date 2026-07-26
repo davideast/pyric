@@ -256,6 +256,48 @@ export function memoryLruGarbageCollector(
   return { [GC_SYMBOL]: 'lru' };
 }
 
+export type FirestoreLocalCache = LocalCache;
+export type PersistentLocalCache = LocalCache & { readonly [LOCAL_CACHE_SYMBOL]: 'persistent' };
+export type MemoryLocalCache = LocalCache & { readonly [LOCAL_CACHE_SYMBOL]: 'memory' };
+export type PersistentMultipleTabManager = PersistentTabManager & { readonly [TAB_MANAGER_SYMBOL]: 'multiple' };
+export type PersistentSingleTabManager = PersistentTabManager & { readonly [TAB_MANAGER_SYMBOL]: 'single' };
+export interface PersistentSingleTabManagerSettings { forceOwnership?: boolean; }
+export interface PersistentCacheSettings { tabManager?: PersistentTabManager; cacheSizeBytes?: number; }
+export interface MemoryCacheSettings { garbageCollector?: MemoryGarbageCollector; }
+export type MemoryEagerGarbageCollector = MemoryGarbageCollector & { readonly [GC_SYMBOL]: 'eager' };
+export type MemoryLruGarbageCollector = MemoryGarbageCollector & { readonly [GC_SYMBOL]: 'lru' };
+export interface IndexField { fieldPath: string; order?: 'ascending' | 'descending'; arrayConfig?: 'contains'; }
+export interface Index { collectionGroup: string; fields?: IndexField[]; }
+export interface IndexConfiguration { indexes?: Index[]; fieldOverrides?: unknown[]; }
+
+export class PersistentCacheIndexManager {
+  constructor(private readonly _db: Firestore) {}
+  async enableIndexAutoCreation(): Promise<void> {}
+  async disableIndexAutoCreation(): Promise<void> {}
+  async deleteAllIndexes(): Promise<void> {}
+}
+
+export function getPersistentCacheIndexManager(db: Firestore): PersistentCacheIndexManager | null {
+  return new PersistentCacheIndexManager(db);
+}
+
+export async function enablePersistentCacheIndexAutoCreation(indexManager: PersistentCacheIndexManager): Promise<void> {
+  return indexManager.enableIndexAutoCreation();
+}
+
+export async function disablePersistentCacheIndexAutoCreation(indexManager: PersistentCacheIndexManager): Promise<void> {
+  return indexManager.disableIndexAutoCreation();
+}
+
+export async function deleteAllPersistentCacheIndexes(indexManager: PersistentCacheIndexManager): Promise<void> {
+  return indexManager.deleteAllIndexes();
+}
+
+export async function setIndexConfiguration(db: Firestore, configuration: IndexConfiguration | string): Promise<void> {
+  void db; void configuration;
+}
+
+
 /** Client-cache/network settings `initializeFirestore` accepts but no-ops
  *  on sandbox targets — see the tier-1 section rationale above. */
 export interface FirestoreSettings {

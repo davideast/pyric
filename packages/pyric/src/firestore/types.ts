@@ -113,9 +113,106 @@ export interface QuerySnapshot<T = DocumentData> {
   readonly docs: ReadonlyArray<QueryDocumentSnapshot<T>>;
   readonly metadata: SnapshotMetadata;
 }
-export type WriteBatch = ChainWriteBatch;
-export type Transaction = ChainTransaction;
+export interface WriteBatch extends ChainWriteBatch {}
+export interface Transaction extends ChainTransaction {}
 export type Unsubscribe = () => void;
+
+export const CACHE_SIZE_UNLIMITED = -1;
+export class FirestoreError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = 'FirestoreError';
+  }
+}
+export class Firestore {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && TARGET_SYMBOL in instance && !('path' in instance) && !('docs' in instance));
+  }
+}
+export class DocumentReference<_T = DocumentData> {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(
+      instance &&
+      typeof instance === 'object' &&
+      'id' in instance &&
+      'path' in instance &&
+      typeof (instance as any).path === 'string' &&
+      !('docs' in instance) &&
+      !('exists' in instance) &&
+      !('doc' in instance) &&
+      !('add' in instance)
+    );
+  }
+}
+export class CollectionReference<_T = DocumentData> {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(
+      instance &&
+      typeof instance === 'object' &&
+      'id' in instance &&
+      'path' in instance &&
+      typeof (instance as any).path === 'string' &&
+      (('doc' in instance) || ('add' in instance))
+    );
+  }
+}
+export class Query<_T = DocumentData> {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(
+      instance &&
+      typeof instance === 'object' &&
+      (('_isQuery' in instance) || ('where' in instance) || ('orderBy' in instance) || ('doc' in instance) || ('add' in instance))
+    );
+  }
+}
+export class DocumentSnapshot<T = DocumentData> {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(
+      instance &&
+      typeof instance === 'object' &&
+      'id' in instance &&
+      'ref' in instance &&
+      'exists' in instance &&
+      typeof (instance as any).exists === 'function' &&
+      !('docs' in instance)
+    );
+  }
+}
+export class QueryDocumentSnapshot<T = DocumentData> extends DocumentSnapshot<T> {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(
+      DocumentSnapshot[Symbol.hasInstance](instance) &&
+      typeof (instance as any).data === 'function'
+    );
+  }
+}
+export class QuerySnapshot<T = DocumentData> {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(
+      instance &&
+      typeof instance === 'object' &&
+      'docs' in instance &&
+      'size' in instance &&
+      'empty' in instance
+    );
+  }
+}
+export class Transaction {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && ('get' in instance || 'set' in instance || 'update' in instance || 'delete' in instance) && !('commit' in instance));
+  }
+}
+export class WriteBatch {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && ('set' in instance || 'update' in instance || 'delete' in instance) && ('commit' in instance));
+  }
+}
+export class SnapshotMetadata {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && 'fromCache' in instance && 'hasPendingWrites' in instance);
+  }
+}
+export class AbstractUserDataWriter {}
 
 export type {
   AuthState,
@@ -127,5 +224,20 @@ export type {
   OrderDirection,
   WhereFilterOp,
 };
+
+export type Primitive = string | number | boolean | bigint | symbol | undefined | null;
+export type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
+export type UpdateData<T> = { [path in string]: unknown };
+export type WithFieldValue<T> = T | Record<string, unknown>;
+export type PartialWithFieldValue<T> = Partial<T> | Record<string, unknown>;
+export type AddPrefixToKeys<Prefix extends string, T extends Record<string, unknown>> = { [K in keyof T as `${Prefix}.${string & K}`]: T[K] };
+export type ChildUpdateFields<T> = Record<string, unknown>;
+export type NestedUpdateFields<T> = Record<string, unknown>;
+export type DocumentChangeType = 'added' | 'removed' | 'modified';
+export interface DocumentChange<T = DocumentData> { readonly type: DocumentChangeType; readonly doc: QueryDocumentSnapshot<T>; readonly oldIndex: number; readonly newIndex: number; }
+export type OrderByDirection = 'asc' | 'desc';
+export interface EmulatorMockTokenOptions { mockUserToken?: Record<string, unknown> | string; }
+export interface ExperimentalLongPollingOptions { forceLongPolling?: boolean; }
+export type FirestoreErrorCode = 'cancelled' | 'unknown' | 'invalid-argument' | 'deadline-exceeded' | 'not-found' | 'already-exists' | 'permission-denied' | 'resource-exhausted' | 'failed-precondition' | 'aborted' | 'out-of-range' | 'unimplemented' | 'internal' | 'unavailable' | 'data-loss' | 'unauthenticated';
 
 export { SandboxError };

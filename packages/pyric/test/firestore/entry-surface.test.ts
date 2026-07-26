@@ -13,24 +13,34 @@
 import { describe, expect, test } from 'bun:test';
 import * as firestore from '../../src/firestore/index.js';
 
-/** The 73 value (runtime) exports of `pyric/firestore`, sorted. Frozen. */
+/** The 111 value (runtime) exports of `pyric/firestore`, sorted. Frozen. */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
-  'Bytes', 'FieldPath', 'FieldValue', 'GeoPoint', 'SandboxError', 'TARGET_SYMBOL',
-  'Timestamp', 'VectorValue', 'actingAs', 'addDoc', 'and', 'arrayRemove',
-  'arrayUnion', 'average', 'clearIndexedDbPersistence', 'collection',
-  'collectionGroup', 'connectFirestoreEmulator', 'count', 'createFirestoreDataTools',
-  'createFirestoreInspectTools', 'deleteDoc', 'deleteField', 'disableNetwork', 'doc',
-  'documentId', 'enableIndexedDbPersistence', 'enableMultiTabIndexedDbPersistence',
-  'enableNetwork', 'endAt', 'endBefore', 'getAdminFirestore', 'getAggregateFromServer',
-  'getCountFromServer', 'getDoc', 'getDocFromCache', 'getDocFromServer', 'getDocs',
-  'getDocsFromCache', 'getDocsFromServer', 'getFirestore', 'increment',
-  'initializeFirestore', 'limit', 'limitToLast', 'memoryEagerGarbageCollector',
-  'memoryLocalCache', 'memoryLruGarbageCollector', 'onSnapshot', 'onSnapshotsInSync',
-  'or', 'orderBy', 'persistentLocalCache', 'persistentMultipleTabManager',
-  'persistentSingleTabManager', 'query', 'queryEqual', 'refEqual', 'runTransaction',
-  'serverTimestamp', 'setDoc', 'setLogLevel', 'snapshotEqual', 'startAfter',
-  'startAt', 'sum', 'terminate', 'updateDoc', 'vector', 'waitForPendingWrites', 'where',
-  'withConverter', 'writeBatch',
+  "AbstractUserDataWriter", "AggregateField", "AggregateQuerySnapshot", "Bytes",
+  "CACHE_SIZE_UNLIMITED", "CollectionReference", "DocumentReference", "DocumentSnapshot",
+  "FieldPath", "FieldValue", "Firestore", "FirestoreError", "GeoPoint", "LoadBundleTask",
+  "PersistentCacheIndexManager", "Query", "QueryCompositeFilterConstraint", "QueryConstraint",
+  "QueryDocumentSnapshot", "QueryEndAtConstraint", "QueryFieldFilterConstraint",
+  "QueryLimitConstraint", "QueryOrderByConstraint", "QuerySnapshot", "QueryStartAtConstraint",
+  "SandboxError", "SnapshotMetadata", "TARGET_SYMBOL", "Timestamp", "Transaction",
+  "VectorValue", "WriteBatch", "actingAs", "addDoc", "aggregateFieldEqual",
+  "aggregateQuerySnapshotEqual", "and", "arrayRemove", "arrayUnion", "average",
+  "clearIndexedDbPersistence", "collection", "collectionGroup", "connectFirestoreEmulator",
+  "count", "createFirestoreDataTools", "createFirestoreInspectTools",
+  "deleteAllPersistentCacheIndexes", "deleteDoc", "deleteField", "disableNetwork",
+  "disablePersistentCacheIndexAutoCreation", "doc", "documentId", "documentSnapshotFromJSON",
+  "enableIndexedDbPersistence", "enableMultiTabIndexedDbPersistence", "enableNetwork",
+  "enablePersistentCacheIndexAutoCreation", "endAt", "endBefore", "ensureFirestoreConfigured",
+  "executeWrite", "getAdminFirestore", "getAggregateFromServer", "getCountFromServer",
+  "getDoc", "getDocFromCache", "getDocFromServer", "getDocs", "getDocsFromCache",
+  "getDocsFromServer", "getFirestore", "getPersistentCacheIndexManager", "increment",
+  "initializeFirestore", "limit", "limitToLast", "loadBundle", "memoryEagerGarbageCollector",
+  "memoryLocalCache", "memoryLruGarbageCollector", "namedQuery", "onSnapshot",
+  "onSnapshotResume", "onSnapshotsInSync", "or", "orderBy", "persistentLocalCache",
+  "persistentMultipleTabManager", "persistentSingleTabManager", "query", "queryEqual",
+  "querySnapshotFromJSON", "refEqual", "runTransaction", "serverTimestamp", "setDoc",
+  "setIndexConfiguration", "setLogLevel", "snapshotEqual", "startAfter", "startAt", "sum",
+  "terminate", "updateDoc", "vector", "waitForPendingWrites", "where", "withConverter",
+  "writeBatch",
 ];
 
 describe('pyric/firestore export surface', () => {
