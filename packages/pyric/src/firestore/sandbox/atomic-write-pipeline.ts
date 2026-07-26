@@ -1,8 +1,9 @@
 import type { BatchOperation, DocumentData } from './local-state.js';
 import { resolveValueTree, type ResolveMethod } from './value-resolver.js';
 import { makeError, type FirestoreSimError } from './errors.js';
-import { renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
+import { renderLegacyDebugMessages, Timestamp, projectEvaluatedRule } from 'pyric/rules/internal';
 import {
+
   SimulatorUnsupportedError,
   unsupportedMessage,
 } from './rules-evaluation.js';
@@ -185,6 +186,10 @@ export class AtomicWritePipeline {
       }
 
       const isAllowed = evaluated.state === 'PASSED';
+      let resultStr: 'allow' | 'deny' = 'deny';
+      if (isAllowed) {
+        resultStr = 'allow';
+      }
       const outcome: AtomicWriteOutcome = {
         path: input.path,
         method: input.ruleMethod,
@@ -196,25 +201,42 @@ export class AtomicWritePipeline {
           prior,
           evalAt,
           evalMs,
-          isAllowed ? 'allow' : 'deny',
+          resultStr,
           debugMessages,
         ),
       };
-      if (!isAllowed) {
+      if (isAllowed === false) {
+        const evalRule = projectEvaluatedRule(evaluated);
+        const isPriorNotNull = prior !== null;
+        const errExtras: {
+          request: {
+            method: AtomicRuleMethod;
+            path: string;
+            auth: any;
+            resourceData?: DocumentData;
+          };
+          resource: { data: DocumentData | null; exists: boolean };
+          rule?: any;
+        } = {
+          request: {
+            method: input.ruleMethod,
+            path: input.path,
+            auth: context.auth,
+          },
+          resource: { data: prior, exists: isPriorNotNull },
+        };
+        const incData = this.includesRequestData(context, input);
+        if (incData) {
+          errExtras.request.resourceData = input.preData;
+        }
+        const hasRule = evalRule !== undefined;
+        if (hasRule) {
+          errExtras.rule = evalRule;
+        }
         outcome.error = makeError(
           'permission-denied',
           `${input.ruleMethod} ${input.path} denied by rules`,
-          {
-            request: {
-              method: input.ruleMethod,
-              path: input.path,
-              auth: context.auth,
-              ...(this.includesRequestData(context, input)
-                ? { resourceData: input.preData }
-                : {}),
-            },
-            resource: { data: prior, exists: prior !== null },
-          },
+          errExtras as any,
         );
         this.runtime.emitDenial(outcome.error);
         allowed = false;

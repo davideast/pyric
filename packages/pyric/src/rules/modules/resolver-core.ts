@@ -6,8 +6,8 @@
  * (`resolveModules` with real disk reads) lives in `./resolver.js`.
  */
 import { parseToASTOrError, parseFunctions } from '../grammar/FirestoreParser.js';
-import { assembleRules } from '../grammar/FirestoreAssembler.js';
-import type { FunctionDef, Expression } from '../grammar/FirestoreAST.js';
+import { assembleRules, assembleRulesWithSourceMap, type RulesSourceMapEntry } from '../grammar/FirestoreAssembler.js';
+import type { FunctionDef, Expression, FirestoreRules, MatchBlock } from '../grammar/FirestoreAST.js';
 import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
 import { STDLIB_MODULE_EVIDENCE } from './stdlib-services.generated.js';
 import {
@@ -56,12 +56,14 @@ export type ResolveResult =
     modules: string[];
     bundledModules: string[];
     evidenceIds: string[];
+    sourceMap?: RulesSourceMapEntry[];
   } }
   | { success: false; error: { code: string; message: string } };
 
 export interface ResolveOptions {
   basePath?: string;
   modules?: Record<string, string>;
+  sourceFile?: string;
 }
 
 type LoadResult =
@@ -90,11 +92,12 @@ function functionCallSites(
 // ---- Module loading ----
 
 function loadModuleFromContent(content: string, moduleName: string, bundled: boolean): LoadResult {
-  const functions = parseFunctions(content);
-  if (!functions) {
+  const functions = parseFunctions(content, moduleName);
+  const isFunctionsNull = functions === null;
+  if (isFunctionsNull) {
     return { success: false, error: { code: 'PARSE_FAILED', message: `Failed to parse module '${moduleName}'` } };
   }
-  return { success: true, functions, bundled };
+  return { success: true, functions: functions!, bundled };
 }
 
 function isRelativeImport(moduleName: string): boolean {
@@ -175,29 +178,54 @@ export function resolveModulesWith(
     };
   }
   const ast = parsed.ast;
+  let sourceFile = 'firestore.rules';
+  const isModular = ast.version === '2+modules';
+  if (isModular) {
+    sourceFile = 'firestore.modules.rules';
+  }
+  const hasOptions = options !== undefined;
+  if (hasOptions) {
+    const hasSourceFile = options!.sourceFile !== undefined;
+    if (hasSourceFile) {
+      const isNotEmpty = options!.sourceFile !== '';
+      if (isNotEmpty) {
+        sourceFile = options!.sourceFile!;
+      }
+    }
+  }
+  attachAstSourceFile(ast, sourceFile);
 
   // 2. Check for module version (exact match)
-  if (ast.version !== '2+modules') {
+  if (isModular === false) {
     return { success: false, error: { code: 'NOT_MODULE_SOURCE', message: `Version '${ast.version}' is not a module source` } };
   }
 
-  if (ast.service.name !== 'cloud.firestore' && ast.service.name !== 'firebase.storage') {
-    return {
-      success: false,
-      error: {
-        code: 'UNSUPPORTED_SERVICE',
-        message: `Module resolution does not support service '${ast.service.name}'`,
-      },
-    };
+  const isFirestore = ast.service.name === 'cloud.firestore';
+  if (isFirestore === false) {
+    const isStorage = ast.service.name === 'firebase.storage';
+    if (isStorage === false) {
+      return {
+        success: false,
+        error: {
+          code: 'UNSUPPORTED_SERVICE',
+          message: `Module resolution does not support service '${ast.service.name}'`,
+        },
+      };
+    }
   }
 
-  if (ast.imports.length === 0) {
+  const isNoImports = ast.imports.length === 0;
+  if (isNoImports) {
     ast.version = '2';
+    const assembled = assembleRulesWithSourceMap(ast);
+    const sourceMapJson = JSON.stringify(assembled.sourceMap);
+    const resolvedWithMap = `${assembled.resolved}// @pyric-source-map: ${sourceMapJson}\n`;
     return { success: true, data: {
-      resolved: assembleRules(ast),
+      resolved: resolvedWithMap,
       modules: [],
       bundledModules: [],
       evidenceIds: [],
+      sourceMap: assembled.sourceMap,
     } };
   }
 
@@ -551,13 +579,154 @@ export function resolveModulesWith(
     }
   }
 
+  const assembled = assembleRulesWithSourceMap(ast);
+  const sourceMapJson = JSON.stringify(assembled.sourceMap);
+  const resolvedWithMap = `${assembled.resolved}// @pyric-source-map: ${sourceMapJson}\n`;
   return {
     success: true,
     data: {
-      resolved: assembleRules(ast),
+      resolved: resolvedWithMap,
       modules: modulesUsed,
       bundledModules: bundledModulesUsed,
       evidenceIds: [...evidenceIds].sort(),
+      sourceMap: assembled.sourceMap,
     },
   };
 }
+
+export function attachAstSourceFile(ast: FirestoreRules, file: string): void {
+  const hasFunctions = ast.functions !== undefined;
+  if (hasFunctions) {
+    for (const fn of ast.functions!) {
+      const hasLoc = fn.loc !== undefined;
+      if (hasLoc) {
+        fn.loc!.file = file;
+      }
+    }
+  }
+  const hasServiceFunctions = ast.service.functions !== undefined;
+  if (hasServiceFunctions) {
+    for (const fn of ast.service.functions!) {
+      const hasLoc = fn.loc !== undefined;
+      if (hasLoc) {
+        fn.loc!.file = file;
+      }
+    }
+  }
+  const stack: MatchBlock[] = [ast.service.match];
+  let stackLength = stack.length;
+  while (stackLength > 0) {
+    const block = stack.pop()!;
+    const hasBlockLoc = block.loc !== undefined;
+    if (hasBlockLoc) {
+      block.loc!.file = file;
+    }
+    for (const allow of block.allows) {
+      const hasAllowLoc = allow.loc !== undefined;
+      if (hasAllowLoc) {
+        allow.loc!.file = file;
+      }
+    }
+    for (const fn of block.functions) {
+      const hasFnLoc = fn.loc !== undefined;
+      if (hasFnLoc) {
+        fn.loc!.file = file;
+      }
+    }
+    for (const child of block.children) {
+      stack.push(child);
+    }
+    stackLength = stack.length;
+  }
+}
+
+export interface AuthoredSourceLoc {
+  line: number;
+  col: number;
+  file: string;
+  citation: string;
+  expression?: string;
+}
+
+export function resolveAuthoredSourceLoc(
+  sourceString: string,
+  generatedLine?: number,
+  generatedCol?: number,
+  fallbackFile?: string,
+  fallbackExpression?: string,
+): AuthoredSourceLoc | undefined {
+  const isLineUndefined = generatedLine === undefined;
+  if (isLineUndefined) {
+    return undefined;
+  }
+  let line = generatedLine!;
+  let col = 1;
+  const isColDefined = generatedCol !== undefined;
+  if (isColDefined) {
+    col = generatedCol!;
+  }
+  let file = 'firestore.rules';
+  const isFallbackDefined = fallbackFile !== undefined;
+  if (isFallbackDefined) {
+    const isNotEmpty = fallbackFile !== '';
+    if (isNotEmpty) {
+      file = fallbackFile!;
+    }
+  }
+  let expression: string | undefined = undefined;
+  const isExprDefined = fallbackExpression !== undefined;
+  if (isExprDefined) {
+    expression = fallbackExpression;
+  }
+
+  const marker = '// @pyric-source-map: ';
+  const markerIdx = sourceString.indexOf(marker);
+  const hasMarker = markerIdx !== -1;
+  if (hasMarker) {
+    const startIdx = markerIdx + marker.length;
+    const endIdx = sourceString.indexOf('\n', startIdx);
+    let jsonStr = '';
+    const hasNewLine = endIdx !== -1;
+    if (hasNewLine) {
+      jsonStr = sourceString.slice(startIdx, endIdx).trim();
+    } else {
+      jsonStr = sourceString.slice(startIdx).trim();
+    }
+    try {
+      const sourceMap = JSON.parse(jsonStr) as Array<{
+        generatedLine: number;
+        authoredLine: number;
+        authoredCol: number;
+        authoredFile: string;
+        expression?: string;
+      }>;
+      const isArray = Array.isArray(sourceMap);
+      if (isArray) {
+        for (const entry of sourceMap) {
+          const isMatch = entry.generatedLine === line;
+          if (isMatch) {
+            line = entry.authoredLine;
+            col = entry.authoredCol;
+            file = entry.authoredFile;
+            const hasEntryExpr = entry.expression !== undefined;
+            if (hasEntryExpr) {
+              expression = entry.expression;
+            }
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      // ignore JSON parse errors
+    }
+  }
+
+  const citation = `${file}:${line}:${col}`;
+  const result: AuthoredSourceLoc = { line, col, file, citation };
+  const hasFinalExpr = expression !== undefined;
+  if (hasFinalExpr) {
+    result.expression = expression;
+  }
+  return result;
+}
+

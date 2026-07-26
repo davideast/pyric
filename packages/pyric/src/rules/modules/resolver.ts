@@ -53,11 +53,11 @@ export function loadModule(moduleName: string, options?: ResolveOptions) {
   return loadModuleWith(diskReader, moduleName, options);
 }
 
-// Pure helpers + types re-exported so existing `./resolver.js` importers
-// (`rules/node.js`, `rules/tools.js`) keep their import sites unchanged.
 export {
   sanitizeModuleName,
   prefixPrivateFunctions,
   rewriteCalls,
+  resolveAuthoredSourceLoc,
 } from './resolver-core.js';
-export type { ResolveOptions, ResolveResult, ModuleFileReader } from './resolver-core.js';
+export type { ResolveOptions, ResolveResult, ModuleFileReader, AuthoredSourceLoc } from './resolver-core.js';
+

@@ -74,5 +74,10 @@ export function resolveModulesBrowser(
   }, bundledModules);
 }
 
+export {
+  resolveAuthoredSourceLoc,
+  type AuthoredSourceLoc,
+} from './resolver-core.js';
 export { STDLIB_INLINE };
 export type { ResolveResult, ResolveOptions };
+

@@ -19,7 +19,9 @@ import type {
 import type { FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression } from '../grammar/FirestoreAST.js';
 import { parseToAST } from '../grammar/FirestoreParser.js';
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
+import { resolveAuthoredSourceLoc } from '../modules/resolver-core.js';
 import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
+
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
 import { projectAfterState } from './project-after-state.js';
@@ -90,6 +92,7 @@ function evaluateRules(
   block: MatchBlock,
   operation: string,
   ctx: SimulationContext,
+  source?: string,
 ): { decision: Decision; trace: RuleEvaluation[]; notes: string[] } {
   const ops = methodToOperations(operation);
   const trace: RuleEvaluation[] = [];
@@ -98,13 +101,15 @@ function evaluateRules(
   // Find allow rules that match this operation
   const matchingRules: { rule: AllowRule; index: number }[] = [];
   for (let i = 0; i < block.allows.length; i++) {
-    const rule = block.allows[i];
-    if (rule.operations.some(op => ops.includes(op))) {
+    const rule = block.allows[i]!;
+    const hasOp = rule.operations.some((op) => ops.includes(op));
+    if (hasOp) {
       matchingRules.push({ rule, index: i });
     }
   }
 
-  if (matchingRules.length === 0) {
+  const isNoRules = matchingRules.length === 0;
+  if (isNoRules) {
     notes.push(`No allow rules found for operation '${operation}'`);
     return { decision: 'DENY', trace, notes };
   }
@@ -118,13 +123,14 @@ function evaluateRules(
   let sawUnsupported = false;
   const priorRecorder = ctx.trace;
   for (const { rule, index } of matchingRules) {
-    const entry = newEntry(rule, index);
+    const entry = newEntry(rule, index, source);
     const recorder = new TraceRecorder();
     ctx.trace = recorder;
     try {
       const result = evaluate(rule.condition, ctx);
       entry.expressionTrace = recorder.entries;
-      if (result) {
+      const isAllowed = Boolean(result) === true;
+      if (isAllowed) {
         entry.verdict = 'ALLOW';
         trace.push(entry);
         ctx.trace = priorRecorder;
@@ -134,13 +140,19 @@ function evaluateRules(
       trace.push(entry);
     } catch (e) {
       entry.expressionTrace = recorder.entries;
-      if (e instanceof UnsupportedError) {
+      const isUnsupported = e instanceof UnsupportedError;
+      if (isUnsupported) {
         sawUnsupported = true;
         entry.verdict = 'UNSUPPORTED';
-        entry.message = e.message;
+        entry.message = (e as UnsupportedError).message;
       } else {
         entry.verdict = 'ERROR';
-        entry.message = e instanceof Error ? e.message : String(e);
+        const isErrorInstance = e instanceof Error;
+        if (isErrorInstance) {
+          entry.message = (e as Error).message;
+        } else {
+          entry.message = String(e);
+        }
       }
       trace.push(entry);
     }
@@ -151,17 +163,52 @@ function evaluateRules(
   // to UNSUPPORTED so the agent sees "sim couldn't decide" rather than a
   // misleading DENY. If every failure was a real eval error, return DENY
   // (production would also deny on runtime errors).
-  return { decision: sawUnsupported ? 'UNSUPPORTED' : 'DENY', trace, notes };
+  let finalDecision: Decision = 'DENY';
+  if (sawUnsupported) {
+    finalDecision = 'UNSUPPORTED';
+  }
+  return { decision: finalDecision, trace, notes };
 }
 
-function newEntry(rule: AllowRule, index: number): RuleEvaluation {
+function newEntry(rule: AllowRule, index: number, source?: string): RuleEvaluation {
+  const condText = assembleExpression(rule.condition);
   const entry: RuleEvaluation = {
     ruleIndex: index,
     operations: [...rule.operations],
     verdict: 'DENY',
-    conditionText: assembleExpression(rule.condition),
+    conditionText: condText,
   };
-  if (rule.loc) entry.line = rule.loc.line;
+  const hasLoc = rule.loc !== undefined;
+  if (hasLoc) {
+    const loc = rule.loc!;
+    entry.line = loc.line;
+    entry.col = loc.col;
+    entry.column = loc.col;
+    const hasFile = loc.file !== undefined;
+    if (hasFile) {
+      entry.file = loc.file;
+      entry.citation = `${loc.file}:${loc.line}:${loc.col}`;
+    } else {
+      entry.file = 'firestore.rules';
+      entry.citation = `firestore.rules:${loc.line}:${loc.col}`;
+    }
+    const hasSource = source !== undefined;
+    if (hasSource) {
+      const authored = resolveAuthoredSourceLoc(source!, loc.line, loc.col, loc.file, condText);
+      const hasAuthored = authored !== undefined;
+      if (hasAuthored) {
+        entry.line = authored!.line;
+        entry.col = authored!.col;
+        entry.column = authored!.col;
+        entry.file = authored!.file;
+        entry.citation = authored!.citation;
+        const hasExpr = authored!.expression !== undefined;
+        if (hasExpr) {
+          entry.conditionText = authored!.expression;
+        }
+      }
+    }
+  }
   return entry;
 }
 
@@ -432,19 +479,27 @@ export class SimulateFirestoreRulesHandler {
       // list paths (`menuItems/any`) keep resolving on the first attempt,
       // so existing call sites are unaffected. (RULES-LIST parity scenario.)
       let syntheticListDoc = false;
-      if (matches.length === 0 && tc.method === 'list') {
-        const widened = [...pathSegments, '__hypothetical_doc__'];
-        for (const child of ast.service.match.children) {
-          matches.push(...collectMatches(child, widened, rootFunctions, pathRecorder));
+      const isMatchesZero = matches.length === 0;
+      const isListMethod = tc.method === 'list';
+      if (isMatchesZero) {
+        if (isListMethod) {
+          const widened = [...pathSegments, '__hypothetical_doc__'];
+          for (const child of ast.service.match.children) {
+            matches.push(...collectMatches(child, widened, rootFunctions, pathRecorder));
+          }
+          const isMatchesNonZero = matches.length > 0;
+          if (isMatchesNonZero) {
+            syntheticListDoc = true;
+          }
         }
-        if (matches.length > 0) syntheticListDoc = true;
       }
       const pathResolution: PathResolutionTrace = {
         requestPath: tc.path,
         attempts: pathRecorder.attempts,
       };
 
-      if (matches.length === 0) {
+      const isNoMatches = matches.length === 0;
+      if (isNoMatches) {
         // No match block at all → production default-DENY. Expectation
         // 'DENY' agrees → PASSED; expectation 'ALLOW' disagrees → FAILED.
         const state = tc.expectation === 'DENY' ? 'PASSED' : 'FAILED';
@@ -488,27 +543,44 @@ export class SimulateFirestoreRulesHandler {
         const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection);
 
         const blockPath = renderMatchBlockPath(match.block);
-        const res = evaluateRules(match.block, tc.method, ctx);
-        for (const entry of res.trace) entry.matchPath = blockPath;
+        const res = evaluateRules(match.block, tc.method, ctx, source);
+        for (const entry of res.trace) {
+          entry.matchPath = blockPath;
+        }
         trace.push(...res.trace);
         notes.push(...res.notes);
 
-        if (res.decision === 'ALLOW') {
+        const isResAllow = res.decision === 'ALLOW';
+        if (isResAllow) {
           decision = 'ALLOW';
           grantingBlockPath = blockPath;
           break;
         }
-        if (res.decision === 'UNSUPPORTED') sawUnsupported = true;
+        const isUnsupported = res.decision === 'UNSUPPORTED';
+        if (isUnsupported) {
+          sawUnsupported = true;
+        }
       }
-      if (decision !== 'ALLOW' && sawUnsupported) decision = 'UNSUPPORTED';
-      if (decision === 'ALLOW' && grantingBlockPath) {
-        notes.push(`Allowed by match block '${grantingBlockPath}'`);
+      const isNotAllow = decision !== 'ALLOW';
+      if (isNotAllow) {
+        if (sawUnsupported) {
+          decision = 'UNSUPPORTED';
+        }
       }
-      if (syntheticListDoc) {
+      const isDecisionAllow = decision === 'ALLOW';
+      if (isDecisionAllow) {
+        const hasGrantingBlock = grantingBlockPath !== undefined;
+        if (hasGrantingBlock) {
+          notes.push(`Allowed by match block '${grantingBlockPath}'`);
+        }
+      }
+      const isSynthetic = syntheticListDoc === true;
+      if (isSynthetic) {
         notes.push(
           `list on collection path '${tc.path}' evaluated against the document-level match block (document wildcard hypothetical, resource undefined) — emulator-faithful`,
         );
       }
+
 
       // Compare with expectation. UNSUPPORTED is its own terminal state —
       // not PASSED (we didn't agree, we abstained) and not FAILED (the

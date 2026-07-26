@@ -168,6 +168,10 @@ export interface RuleEvaluation {
   /** 1-indexed source line of the `allow` keyword. Populated when the
    *  rule's `loc` was set by the parser. */
   line?: number;
+  col?: number;
+  column?: number;
+  file?: string;
+  citation?: string;
   /**
    * Source-rendered path of the `match` block this rule belongs to, e.g.
    * `'/docs/{docId}'` or `'/{document=**}'`. Populated when the request
@@ -316,6 +320,10 @@ export interface EvaluatedRuleInfo {
   verdict: 'allow' | 'deny';
   /** 1-indexed source line of the deciding `allow` rule. */
   line?: number;
+  col?: number;
+  column?: number;
+  file?: string;
+  citation?: string;
   /** Pretty-printed condition text of the deciding rule. */
   expression?: string;
   /** Per-sub-expression evaluation trace of the deciding rule. */
@@ -333,20 +341,83 @@ export interface EvaluatedRuleInfo {
  * (`UNSUPPORTED`). Never invents data: a missing line/trace stays absent.
  */
 export function projectEvaluatedRule(result: TestResult): EvaluatedRuleInfo | undefined {
-  if (result.decision === 'UNSUPPORTED') return undefined;
-  const allowed = result.decision === 'ALLOW';
-  const deciding = allowed
-    ? result.trace.find((t) => t.verdict === 'ALLOW')
-    : (result.trace.find((t) => t.verdict === 'DENY' || t.verdict === 'ERROR') ??
-       result.trace[result.trace.length - 1]);
-  if (!deciding) return undefined;
-  const info: EvaluatedRuleInfo = { verdict: allowed ? 'allow' : 'deny' };
-  if (deciding.line !== undefined) info.line = deciding.line;
-  if (deciding.conditionText !== undefined) info.expression = deciding.conditionText;
-  if (deciding.expressionTrace !== undefined) info.expressionTrace = deciding.expressionTrace;
-  return info.line !== undefined || info.expression !== undefined || info.expressionTrace !== undefined
-    ? info
-    : undefined;
+  const isUnsupported = result.decision === 'UNSUPPORTED';
+  if (isUnsupported) {
+    return undefined;
+  }
+  const isAllowed = result.decision === 'ALLOW';
+  let verdict: 'allow' | 'deny' = 'deny';
+  let deciding: RuleEvaluation | undefined = undefined;
+  if (isAllowed) {
+    verdict = 'allow';
+    deciding = result.trace.find((t) => t.verdict === 'ALLOW');
+  } else {
+    verdict = 'deny';
+    deciding = result.trace.find((t) => {
+      const isDeny = t.verdict === 'DENY';
+      if (isDeny) {
+        return true;
+      }
+      const isError = t.verdict === 'ERROR';
+      return isError;
+    });
+    const isDecidingUndefined = deciding === undefined;
+    if (isDecidingUndefined) {
+      const traceLen = result.trace.length;
+      const hasEntries = traceLen > 0;
+      if (hasEntries) {
+        deciding = result.trace[traceLen - 1];
+      }
+    }
+  }
+  const isMissing = deciding === undefined;
+  if (isMissing) {
+    return undefined;
+  }
+  const info: EvaluatedRuleInfo = { verdict };
+  const hasLine = deciding!.line !== undefined;
+  if (hasLine) {
+    info.line = deciding!.line;
+  }
+  const hasCol = deciding!.col !== undefined;
+  if (hasCol) {
+    info.col = deciding!.col;
+    info.column = deciding!.col;
+  }
+  const hasColumn = deciding!.column !== undefined;
+  if (hasColumn) {
+    info.col = deciding!.column;
+    info.column = deciding!.column;
+  }
+  const hasFile = deciding!.file !== undefined;
+  if (hasFile) {
+    info.file = deciding!.file;
+  }
+  const hasCitation = deciding!.citation !== undefined;
+  if (hasCitation) {
+    info.citation = deciding!.citation;
+  }
+  const hasCondText = deciding!.conditionText !== undefined;
+  if (hasCondText) {
+    info.expression = deciding!.conditionText;
+  }
+  const hasExprTrace = deciding!.expressionTrace !== undefined;
+  if (hasExprTrace) {
+    info.expressionTrace = deciding!.expressionTrace;
+  }
+  const isLinePresent = info.line !== undefined;
+  const isExprPresent = info.expression !== undefined;
+  const isTracePresent = info.expressionTrace !== undefined;
+  if (isLinePresent) {
+    return info;
+  }
+  if (isExprPresent) {
+    return info;
+  }
+  if (isTracePresent) {
+    return info;
+  }
+  return undefined;
 }
 
 export function renderLegacyDebugMessages(result: TestResult): string[] {

@@ -64,12 +64,18 @@ semantics.addOperation<any>('toAST', {
     } as FirestoreRules;
   },
   ImportDecl(_import, _lb, names, _trailingComma, _rb, _from, moduleStr, _semi) {
-    return { functions: names.asIteration().children.map((c: any) => c.sourceString), module: moduleStr.toAST().value };
+    const { lineNum, colNum } = (_import.source as any).getLineAndColumn();
+    return {
+      functions: names.asIteration().children.map((c: any) => c.sourceString),
+      module: moduleStr.toAST().value,
+      loc: { line: lineNum, col: colNum },
+    };
   },
   RulesVersion(_kw, _eq, str, _semi) {
     return str.toAST().value;
   },
   ServiceBlock(_kw, name, _lb, fnsBefore, docMatch, fnsAfter, _rb) {
+    const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
     return {
       name: name.sourceString,
       functions: [
@@ -77,6 +83,7 @@ semantics.addOperation<any>('toAST', {
         ...fnsAfter.children.map((c: any) => c.toAST()),
       ],
       match: docMatch.toAST(),
+      loc: { line: lineNum, col: colNum },
     } as ServiceBlock;
   },
   DocumentsMatch(_kw, path, _lb, body, _rb) {
@@ -93,9 +100,20 @@ semantics.addOperation<any>('toAST', {
     const children: MatchBlock[] = [];
     for (const item of items.children) {
       const ast = item.toAST();
-      if (ast._kind === 'function') functions.push(ast);
-      else if (ast._kind === 'allow') allows.push(ast);
-      else if (ast._kind === 'match') children.push(ast);
+      const isFunction = ast._kind === 'function';
+      if (isFunction) {
+        functions.push(ast);
+      } else {
+        const isAllow = ast._kind === 'allow';
+        if (isAllow) {
+          allows.push(ast);
+        } else {
+          const isMatch = ast._kind === 'match';
+          if (isMatch) {
+            children.push(ast);
+          }
+        }
+      }
     }
     return { functions, allows, children };
   },
@@ -133,7 +151,22 @@ semantics.addOperation<any>('toAST', {
   Operation(op) { return op.sourceString as Operation; },
   FunctionDef(_export, _kw, name, _lp, params, _rp, _lb, body, _rb) {
     const { lets, expr } = body.toAST();
-    return { _kind: 'function', name: name.sourceString, parameters: params.toAST(), exported: _export.sourceString.trim() === 'export', lets, body: expr };
+    const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
+    let isExported = false;
+    const exportStr = _export.sourceString.trim();
+    const isExportKw = exportStr === 'export';
+    if (isExportKw) {
+      isExported = true;
+    }
+    return {
+      _kind: 'function',
+      name: name.sourceString,
+      parameters: params.toAST(),
+      exported: isExported,
+      lets,
+      body: expr,
+      loc: { line: lineNum, col: colNum },
+    };
   },
   ParameterList(list) {
     return list.asIteration().children.map((c: any) => c.sourceString);
@@ -142,7 +175,8 @@ semantics.addOperation<any>('toAST', {
     return { lets: lets.children.map((c: any) => c.toAST()), expr: ret.toAST() };
   },
   LetBinding(_kw, name, _eq, expr, _semi) {
-    return { name: name.sourceString, value: expr.toAST() } as LetBinding;
+    const { lineNum, colNum } = (_kw.source as any).getLineAndColumn();
+    return { name: name.sourceString, value: expr.toAST(), loc: { line: lineNum, col: colNum } } as LetBinding;
   },
   ReturnStatement(_kw, expr, _semi) { return expr.toAST(); },
 
@@ -405,27 +439,107 @@ export function parseToASTOrError(
   const leadingTrimmed = input.length - input.trimStart().length;
   let leadingLineOffset = 0;
   for (let i = 0; i < leadingTrimmed; i++) {
-    if (input.charCodeAt(i) === 10 /* \n */) leadingLineOffset++;
+    const isNewline = input.charCodeAt(i) === 10;
+    if (isNewline) {
+      leadingLineOffset++;
+    }
   }
-  if (leadingLineOffset > 0) shiftAstLines(ast, leadingLineOffset);
+  const hasLeadingOffset = leadingLineOffset > 0;
+  if (hasLeadingOffset) {
+    shiftAstLines(ast, leadingLineOffset);
+  }
   return { ok: true, ast };
 }
 
-function shiftAstLines(ast: FirestoreRules, offset: number): void {
-  const stack: MatchBlock[] = [ast.service.match];
-  while (stack.length > 0) {
-    const block = stack.pop()!;
-    if (block.loc) block.loc.line += offset;
-    for (const allow of block.allows) {
-      if (allow.loc) allow.loc.line += offset;
-    }
-    for (const child of block.children) stack.push(child);
+function shiftSourceLoc(loc: { line: number; col: number; file?: string } | undefined, offset: number): void {
+  const hasLoc = loc !== undefined;
+  if (hasLoc) {
+    loc!.line = loc!.line + offset;
   }
 }
 
-export function parseFunctions(input: string): FunctionDef[] | null {
+function shiftFunctionLocs(fn: FunctionDef, offset: number): void {
+  shiftSourceLoc(fn.loc, offset);
+  for (const binding of fn.lets) {
+    shiftSourceLoc(binding.loc, offset);
+    shiftSourceLoc(binding.value.loc, offset);
+  }
+  shiftSourceLoc(fn.body.loc, offset);
+}
+
+function shiftAstLines(ast: FirestoreRules, offset: number): void {
+  shiftSourceLoc(ast.loc, offset);
+  for (const imp of ast.imports) {
+    shiftSourceLoc(imp.loc, offset);
+  }
+  const hasGlobalFunctions = ast.functions !== undefined;
+  if (hasGlobalFunctions) {
+    for (const fn of ast.functions!) {
+      shiftFunctionLocs(fn, offset);
+    }
+  }
+  shiftSourceLoc(ast.service.loc, offset);
+  const hasServiceFunctions = ast.service.functions !== undefined;
+  if (hasServiceFunctions) {
+    for (const fn of ast.service.functions!) {
+      shiftFunctionLocs(fn, offset);
+    }
+  }
+  const stack: MatchBlock[] = [ast.service.match];
+  let stackLen = stack.length;
+  while (stackLen > 0) {
+    const block = stack.pop()!;
+    shiftSourceLoc(block.loc, offset);
+    for (const fn of block.functions) {
+      shiftFunctionLocs(fn, offset);
+    }
+    for (const allow of block.allows) {
+      shiftSourceLoc(allow.loc, offset);
+      shiftSourceLoc(allow.condition.loc, offset);
+    }
+    for (const child of block.children) {
+      stack.push(child);
+    }
+    stackLen = stack.length;
+  }
+}
+
+function attachFunctionSourceFile(fn: FunctionDef, file: string): void {
+  const hasLoc = fn.loc !== undefined;
+  if (hasLoc) {
+    fn.loc!.file = file;
+  }
+  for (const binding of fn.lets) {
+    const hasBindingLoc = binding.loc !== undefined;
+    if (hasBindingLoc) {
+      binding.loc!.file = file;
+    }
+    const hasValueLoc = binding.value.loc !== undefined;
+    if (hasValueLoc) {
+      binding.value.loc!.file = file;
+    }
+  }
+  const hasBodyLoc = fn.body.loc !== undefined;
+  if (hasBodyLoc) {
+    fn.body.loc!.file = file;
+  }
+}
+
+export function parseFunctions(input: string, sourceFile?: string): FunctionDef[] | null {
   const wrapped = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n${input}\n  }\n}`;
   const ast = parseToAST(wrapped);
-  if (!ast) return null;
-  return ast.service.match.functions;
+  const isAstNull = ast === null;
+  if (isAstNull) {
+    return null;
+  }
+  const fns = ast!.service.match.functions;
+  for (const fn of fns) {
+    shiftFunctionLocs(fn, -3);
+    const hasSourceFile = sourceFile !== undefined;
+    if (hasSourceFile) {
+      attachFunctionSourceFile(fn, sourceFile!);
+    }
+  }
+  return fns;
 }
+

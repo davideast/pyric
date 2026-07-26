@@ -4,11 +4,13 @@
 export interface SourceLoc {
   line: number;
   col: number;
+  file?: string;
 }
 
 export interface ImportDecl {
   functions: string[];
   module: string;
+  loc?: SourceLoc;
 }
 
 export interface FirestoreRules {
@@ -19,6 +21,7 @@ export interface FirestoreRules {
    *  constructed programmatically. */
   functions?: FunctionDef[];
   service: ServiceBlock;
+  loc?: SourceLoc;
 }
 
 export interface ServiceBlock {
@@ -28,6 +31,7 @@ export interface ServiceBlock {
    *  programmatically. */
   functions?: FunctionDef[];
   match: MatchBlock;
+  loc?: SourceLoc;
 }
 
 export interface MatchBlock {
@@ -68,26 +72,29 @@ export interface FunctionDef {
   exported: boolean;
   lets: LetBinding[];
   body: Expression;
+  loc?: SourceLoc;
 }
 
 export interface LetBinding {
   name: string;
   value: Expression;
+  loc?: SourceLoc;
 }
 
 export type Expression =
-  | { type: 'literal'; value: string | number | boolean | null; raw: string }
-  | { type: 'identifier'; name: string }
-  | { type: 'memberAccess'; object: Expression; property: string }
-  | { type: 'methodCall'; object: Expression; method: string; args: Expression[] }
-  | { type: 'bracketAccess'; object: Expression; index: Expression }
-  | { type: 'sliceAccess'; object: Expression; start: Expression; end: Expression }
-  | { type: 'binaryOp'; op: string; left: Expression; right: Expression }
-  | { type: 'unaryOp'; op: string; operand: Expression }
-  | { type: 'ternary'; condition: Expression; consequent: Expression; alternate: Expression }
-  | { type: 'inExpr'; element: Expression; collection: Expression }
-  | { type: 'isExpr'; value: Expression; typeName: string }
-  | { type: 'listLiteral'; elements: Expression[] }
-  | { type: 'mapLiteral'; entries: Array<{ key: Expression; value: Expression }> }
-  | { type: 'pathLiteral'; raw: string; segments: Array<string | Expression> }
-  | { type: 'functionCall'; name: string; args: Expression[] };
+  | { type: 'literal'; value: string | number | boolean | null; raw: string; loc?: SourceLoc }
+  | { type: 'identifier'; name: string; loc?: SourceLoc }
+  | { type: 'memberAccess'; object: Expression; property: string; loc?: SourceLoc }
+  | { type: 'methodCall'; object: Expression; method: string; args: Expression[]; loc?: SourceLoc }
+  | { type: 'bracketAccess'; object: Expression; index: Expression; loc?: SourceLoc }
+  | { type: 'sliceAccess'; object: Expression; start: Expression; end: Expression; loc?: SourceLoc }
+  | { type: 'binaryOp'; op: string; left: Expression; right: Expression; loc?: SourceLoc }
+  | { type: 'unaryOp'; op: string; operand: Expression; loc?: SourceLoc }
+  | { type: 'ternary'; condition: Expression; consequent: Expression; alternate: Expression; loc?: SourceLoc }
+  | { type: 'inExpr'; element: Expression; collection: Expression; loc?: SourceLoc }
+  | { type: 'isExpr'; value: Expression; typeName: string; loc?: SourceLoc }
+  | { type: 'listLiteral'; elements: Expression[]; loc?: SourceLoc }
+  | { type: 'mapLiteral'; entries: Array<{ key: Expression; value: Expression }>; loc?: SourceLoc }
+  | { type: 'pathLiteral'; raw: string; segments: Array<string | Expression>; loc?: SourceLoc }
+  | { type: 'functionCall'; name: string; args: Expression[]; loc?: SourceLoc };
+

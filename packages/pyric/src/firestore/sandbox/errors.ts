@@ -99,6 +99,17 @@ export interface FirestoreSimError {
    * re-deriving the query. Absent for non-query denials.
    */
   query?: QueryDenialDescriptor;
+  /**
+   * Deciding rule source location and citation (#370).
+   */
+  rule?: {
+    line?: number;
+    col?: number;
+    column?: number;
+    file?: string;
+    citation?: string;
+    expression?: string;
+  };
 }
 
 /**
@@ -131,12 +142,39 @@ export function makeError(
     resource?: FirestoreEvalResource;
     remediation?: string;
     query?: QueryDenialDescriptor;
+    rule?: {
+      line?: number;
+      col?: number;
+      column?: number;
+      file?: string;
+      citation?: string;
+      expression?: string;
+    };
   },
 ): FirestoreSimError {
   const out: FirestoreSimError = { code, message };
-  if (extras?.request) out.request = extras.request;
-  if (extras?.resource) out.resource = extras.resource;
-  if (extras?.remediation) out.remediation = extras.remediation;
-  if (extras?.query) out.query = extras.query;
+  const hasExtras = extras !== undefined;
+  if (hasExtras) {
+    const hasRequest = extras!.request !== undefined;
+    if (hasRequest) {
+      out.request = extras!.request;
+    }
+    const hasResource = extras!.resource !== undefined;
+    if (hasResource) {
+      out.resource = extras!.resource;
+    }
+    const hasRemediation = extras!.remediation !== undefined;
+    if (hasRemediation) {
+      out.remediation = extras!.remediation;
+    }
+    const hasQuery = extras!.query !== undefined;
+    if (hasQuery) {
+      out.query = extras!.query;
+    }
+    const hasRule = extras!.rule !== undefined;
+    if (hasRule) {
+      out.rule = extras!.rule;
+    }
+  }
   return out;
 }

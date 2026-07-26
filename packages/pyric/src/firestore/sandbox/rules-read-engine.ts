@@ -161,21 +161,58 @@ export class RulesReadEngine implements ListenerDispatchHost {
     }
     const isAllowed = result.state === 'PASSED';
     const data = this.state.get(path);
-    this.emitRequest({
-      at: evalAt, evalMs, method: 'get', path, auth,
-      result: isAllowed ? 'allow' : 'deny',
+    const evalRule = projectEvaluatedRule(result);
+    let resultStr: 'allow' | 'deny' = 'deny';
+    if (isAllowed) {
+      resultStr = 'allow';
+    }
+    const isDataNotNull = data !== null;
+    const reqEvent: {
+      at: number;
+      evalMs: number;
+      method: 'get';
+      path: string;
+      auth: ListenerAuth;
+      result: 'allow' | 'deny';
+      debugMessages: string[];
+      evaluatedRule?: unknown;
+      origin: 'listener';
+      resourceBefore: { data: Record<string, unknown> | null; exists: boolean };
+      triggeredBy?: unknown;
+    } = {
+      at: evalAt,
+      evalMs,
+      method: 'get',
+      path,
+      auth,
+      result: resultStr,
       debugMessages: renderLegacyDebugMessages(result),
-      evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
-      resourceBefore: { data, exists: data !== null },
-      ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
-    });
-    if (!isAllowed) {
+      evaluatedRule: evalRule,
+      origin: 'listener',
+      resourceBefore: { data, exists: isDataNotNull },
+    };
+    const currentTrigger = this.triggerScope.current();
+    const hasTrigger = currentTrigger !== undefined;
+    if (hasTrigger) {
+      reqEvent.triggeredBy = currentTrigger;
+    }
+    this.emitRequest(reqEvent as any);
+    if (isAllowed === false) {
+      const errExtras: {
+        request: { method: 'get'; path: string; auth: ListenerAuth };
+        resource: { data: Record<string, unknown> | null; exists: boolean };
+        rule?: unknown;
+      } = {
+        request: { method: 'get', path, auth },
+        resource: { data, exists: isDataNotNull },
+      };
+      const hasRule = evalRule !== undefined;
+      if (hasRule) {
+        errExtras.rule = evalRule;
+      }
       return {
         allowed: false,
-        error: makeError('permission-denied', `get ${path} denied by rules`, {
-          request: { method: 'get', path, auth },
-          resource: { data, exists: data !== null },
-        }),
+        error: makeError('permission-denied', `get ${path} denied by rules`, errExtras as any),
       };
     }
     return { allowed: true, data };
