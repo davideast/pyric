@@ -55,12 +55,14 @@ const hiddenEdges = emitted.flatMap((file) =>
     .filter(isFirebaseSdk)
     .map((specifier) => `${file.slice(packageDir.length + 1)} -> ${specifier}`),
 );
-if (hiddenEdges.length > 0) {
-  fail(`packed compiled artifacts import Firebase SDKs:\n${hiddenEdges.join('\n')}`);
-}
+assertExact(
+  'packed @pyric/cli Firebase SDK import edges',
+  hiddenEdges,
+  contract.allowedFirebaseSdkImportEdges ?? [],
+);
 
 process.stdout.write(
-  `  ✓ packed @pyric/cli has exactly ${contract.exports.length} exports and no Firebase SDK manifest or compiled-import edge\n`,
+  `  ✓ packed @pyric/cli has exactly ${contract.exports.length} exports and only the pinned Firebase SDK bridge edges\n`,
 );
 
 function assertExact(label, actual, expected) {
