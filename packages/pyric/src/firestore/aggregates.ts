@@ -38,10 +38,19 @@ import type { Query, CollectionReference } from './types.js';
  * Aggregate-field descriptor returned by `count()` / `sum(field)` /
  * `average(field)`.
  */
-export type AggregateField =
-  | { readonly kind: 'count' }
-  | { readonly kind: 'sum'; readonly field: string }
-  | { readonly kind: 'average'; readonly field: string };
+export type AggregateFieldType = 'count' | 'sum' | 'average';
+export type AggregateType = 'count' | 'sum' | 'average';
+export type AggregateSpecData<T> = Record<string, unknown>;
+
+export interface AggregateField {
+  readonly kind: AggregateFieldType;
+  readonly field?: string;
+}
+export class AggregateField {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && 'kind' in instance && ((instance as any).kind === 'count' || (instance as any).kind === 'sum' || (instance as any).kind === 'average'));
+  }
+}
 
 /** Spec passed to `getAggregateFromServer(query, spec)`. */
 export type AggregateSpec = Record<string, AggregateField>;
@@ -54,6 +63,21 @@ export type AggregateSpec = Record<string, AggregateField>;
  */
 export interface AggregateQuerySnapshot<T extends Record<string, number | null> = Record<string, number | null>> {
   data(): T;
+}
+export class AggregateQuerySnapshot<T extends Record<string, number | null> = Record<string, number | null>> {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && 'data' in instance && typeof (instance as any).data === 'function' && !('exists' in instance) && !('docs' in instance));
+  }
+}
+
+export function aggregateFieldEqual(a: any, b: any): boolean {
+  if (!a || !b) return false;
+  return a.kind === b.kind && a.field === b.field;
+}
+
+export function aggregateQuerySnapshotEqual(a: any, b: any): boolean {
+  if (!a || !b) return false;
+  return JSON.stringify(a.data()) === JSON.stringify(b.data());
 }
 
 /** Factory: count() aggregate. */
