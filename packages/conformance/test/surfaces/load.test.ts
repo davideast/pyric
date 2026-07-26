@@ -21,7 +21,7 @@ describe('machine-readable surface contracts', () => {
     expect(surfaceContracts.every(({ record }) => !('order' in record))).toBe(true);
     expect(surfaceDescriptors).toHaveLength(13);
     expect(loadCensusPairs()).toHaveLength(8);
-    expect(loadSurfaceDispositions()).toHaveLength(37);
+    expect(loadSurfaceDispositions()).toHaveLength(22);
   });
 
   it('models the service-worker census-only surface as a contract, not code', () => {
@@ -144,24 +144,24 @@ describe('machine-readable surface contracts', () => {
   });
 
   it('keeps every disposition grouped with its owning census contract', () => {
-    const auth = surfaceContracts.find(({ key }) => key === 'auth')?.record;
-    expect(auth?.kind).toBe('mirror');
-    if (auth?.kind !== 'mirror') throw new Error('expected Auth mirror contract');
-    expect(auth.dispositions.flatMap(({ symbols }) => symbols)).toContain('multiFactor');
-    expect(loadSurfaceDispositions().find(({ surface, symbol }) => surface === 'auth' && symbol === 'multiFactor'))
+    const ai = surfaceContracts.find(({ key }) => key === 'ai')?.record;
+    expect(ai?.kind).toBe('mirror');
+    if (ai?.kind !== 'mirror') throw new Error('expected AI mirror contract');
+    expect(ai.dispositions.flatMap(({ symbols }) => symbols)).toContain('getLiveGenerativeModel');
+    expect(loadSurfaceDispositions().find(({ surface, symbol }) => surface === 'ai' && symbol === 'getLiveGenerativeModel'))
       .toMatchObject({
-        dispositionId: 'auth.mfa-phone-recaptcha',
+        dispositionId: 'ai.live-api',
         availability: 'deferred',
         reasonCode: 'implementation-deferred',
-        evidenceRefs: expect.arrayContaining(['registry:auth#180']),
+        evidenceRefs: expect.arrayContaining(['upstream:firebase/ai']),
       });
   });
 
   it('pairs each disposition availability with its own reason code', () => {
     const dispositions = loadSurfaceDispositions();
-    expect(dispositions.find(({ surface, symbol }) => surface === 'auth' && symbol === 'fetchSignInMethodsForEmail'))
+    expect(dispositions.find(({ surface, symbol }) => surface === 'ai' && symbol === 'getImagenModel'))
       .toMatchObject({
-        dispositionId: 'auth.email-enumeration',
+        dispositionId: 'ai.imagen-retirement',
         availability: 'out-of-scope',
         reasonCode: 'upstream-deprecated',
       });

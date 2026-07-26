@@ -17,7 +17,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1136);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1143);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
@@ -98,18 +98,18 @@ describe('multi-axis conformance model', () => {
   });
 
   it('keeps baseline-tolerated type gaps queryable without claiming runtime availability', () => {
-    expect(canIUse(model, 'auth/ApplicationVerifier')).toMatchObject({
+    expect(canIUse(model, 'storage/UploadMetadata')).toMatchObject({
       match: 'exact',
       supports: [expect.objectContaining({
-        feature: 'ApplicationVerifier',
-        surface: 'auth',
+        feature: 'UploadMetadata',
+        surface: 'storage',
         availability: 'unavailable',
         fidelity: 'not-applicable',
         assurance: 'not-applicable',
-        claims: [expect.objectContaining({ id: 'auth:type:ApplicationVerifier', status: 'unmapped' })],
+        claims: [expect.objectContaining({ id: 'storage:type:UploadMetadata', status: 'unmapped' })],
       })],
     });
-    expect(model.census.find(({ surface }) => surface === 'auth')?.types.unmapped).toContain('ApplicationVerifier');
+    expect(model.census.find(({ surface }) => surface === 'storage')?.types.unmapped).toContain('UploadMetadata');
     const indexedClaims = new Set(Object.values(model.featureIndex).flat());
     for (const entry of model.census) {
       for (const symbol of entry.types.unmapped) {
@@ -300,8 +300,8 @@ describe('multi-axis conformance model', () => {
   it('preserves stable disposition identities in the central census', () => {
     const disposition = model.census
       .flatMap(({ runtime }) => runtime.dispositioned)
-      .find(({ symbol }) => symbol === 'multiFactor');
-    expect(disposition?.dispositionId).toBe('auth.mfa-phone-recaptcha');
+      .find(({ symbol }) => symbol === 'getLiveGenerativeModel');
+    expect(disposition?.dispositionId).toBe('ai.live-api');
   });
 
   it('returns stable candidates for ambiguous or fuzzy names', () => {

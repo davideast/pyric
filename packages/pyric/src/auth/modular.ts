@@ -1,19 +1,6 @@
 /** Public modular Auth composition. Implementations live in API-family files. */
 
-export type {
-  Auth,
-  AppAuth,
-  AuthFlowRequest,
-  AuthFlowResolver,
-  AuthObserver,
-  IdTokenResult,
-  Persistence,
-  Unsubscribe,
-  User,
-  UserCredential,
-  UserInfo,
-} from './types.js';
-export { TARGET_SYMBOL } from './types.js';
+export * from './types.js';
 export type { AuthProvider } from './providers.js';
 export type {
   AuthUserRecord,
@@ -116,3 +103,7 @@ export {
   useDeviceLanguage,
 } from './user-lifecycle.js';
 export { sandbox } from './sandbox/driver.js';
+export * from './phone.js';
+export * from './mfa.js';
+export * from './recaptcha.js';
+export * from './enumeration.js';

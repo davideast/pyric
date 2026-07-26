@@ -296,3 +296,117 @@ export interface Auth {
 
 /** Auth handle returned by Firebase-shaped app overloads. */
 export type AppAuth = Auth & { readonly app: FirebaseApp };
+
+export type ConfirmationResult = {
+  readonly verificationId: string;
+  confirm(verificationCode: string): Promise<UserCredential>;
+};
+export type MultiFactorAssertion = { readonly factorId: string; [key: string]: unknown };
+export type MultiFactorError = AuthError & { readonly customData?: { readonly resolver?: MultiFactorResolver } };
+export type MultiFactorInfo = { readonly uid: string; readonly displayName?: string | null; readonly factorId: string; readonly enrollmentTime?: string };
+export type MultiFactorResolver = {
+  readonly session: MultiFactorSession;
+  readonly hints: ReadonlyArray<MultiFactorInfo>;
+  resolveSignIn(assertion: MultiFactorAssertion): Promise<UserCredential>;
+};
+export type MultiFactorSession = { readonly id: string };
+export type MultiFactorUser = {
+  readonly enrolledFactors: ReadonlyArray<MultiFactorInfo>;
+  getSession(): Promise<MultiFactorSession>;
+  enroll(assertion: MultiFactorAssertion, displayName?: string | null): Promise<void>;
+  unenroll(target: string | MultiFactorInfo): Promise<void>;
+};
+
+export class PhoneAuthCredential {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && 'verificationId' in instance && 'verificationCode' in instance);
+  }
+  constructor(public readonly verificationId: string, public readonly verificationCode: string) {}
+}
+
+export class PhoneAuthProvider {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && 'providerId' in instance && (instance as any).providerId === 'phone');
+  }
+  static credential(verificationId: string, verificationCode: string): PhoneAuthCredential {
+    return { providerId: 'phone', signInMethod: 'phone', verificationId, verificationCode } as unknown as PhoneAuthCredential;
+  }
+}
+
+export type PhoneInfoOptions = PhoneSingleFactorInfoOptions | PhoneMultiFactorSignInInfoOptions | PhoneMultiFactorEnrollInfoOptions;
+export type PhoneMultiFactorAssertion = MultiFactorAssertion & { readonly factorId: 'phone' };
+export type PhoneMultiFactorEnrollInfoOptions = { readonly phoneNumber: string; readonly session: MultiFactorSession };
+
+export class PhoneMultiFactorGenerator {
+  static [Symbol.hasInstance](instance: unknown): boolean { return Boolean(instance && typeof instance === 'object' && 'factorId' in instance && (instance as any).factorId === 'phone'); }
+  static FACTOR_ID = 'phone' as const;
+  static assertion(credential: PhoneAuthCredential): PhoneMultiFactorAssertion { return { factorId: 'phone', credential } as PhoneMultiFactorAssertion; }
+}
+
+export type PhoneMultiFactorInfo = MultiFactorInfo & { readonly factorId: 'phone'; readonly phoneNumber: string };
+export type PhoneMultiFactorSignInInfoOptions = { readonly session: MultiFactorSession; readonly phoneInfo: string };
+export type PhoneSingleFactorInfoOptions = { readonly phoneNumber: string };
+export type RecaptchaParameters = { readonly callback?: (token: string) => void; readonly 'expired-callback'?: () => void; readonly size?: 'normal' | 'compact' | 'invisible'; readonly badge?: 'bottomright' | 'bottomleft' | 'inline'; readonly tabindex?: number };
+
+export class RecaptchaVerifier {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && 'verify' in instance && 'render' in instance && 'clear' in instance);
+  }
+  constructor(public readonly authInstance: Auth | string, public readonly container: string | unknown, public readonly parameters?: RecaptchaParameters) {}
+  async verify(): Promise<string> {
+    if (this.parameters?.callback && typeof this.parameters.callback === 'function') {
+      this.parameters.callback('test-recaptcha-token-mock-0000');
+    }
+    return 'test-recaptcha-token-mock-0000';
+  }
+  async render(): Promise<number> { return 0; }
+  clear(): void {}
+}
+
+export type TotpMultiFactorAssertion = MultiFactorAssertion & { readonly factorId: 'totp' };
+export type TotpMultiFactorInfo = MultiFactorInfo & { readonly factorId: 'totp' };
+
+export class TotpSecret {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    return Boolean(instance && typeof instance === 'object' && 'secretKey' in instance && 'generateQrCodeUrl' in instance);
+  }
+  constructor(public readonly secretKey: string, public readonly hashingAlgorithm: string, public readonly codeIntervalSeconds: number, public readonly codeLength: number) {}
+  generateQrCodeUrl(accountName: string, issuer: string): string {
+    return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}?secret=${this.secretKey}&issuer=${encodeURIComponent(issuer)}`;
+  }
+}
+
+export class TotpMultiFactorGenerator {
+  static [Symbol.hasInstance](instance: unknown): boolean { return Boolean(instance && typeof instance === 'object' && 'factorId' in instance && (instance as any).factorId === 'totp'); }
+  static FACTOR_ID = 'totp' as const;
+  static generateSecret(_session: MultiFactorSession): Promise<TotpSecret> {
+    return Promise.resolve(new TotpSecret('JBSWY3DPEHPK3PXP', 'SHA1', 30, 6));
+  }
+  static assertionForEnrollment(secret: TotpSecret, otpCode: string): TotpMultiFactorAssertion {
+    return { factorId: 'totp', secret, otpCode } as TotpMultiFactorAssertion;
+  }
+  static assertionForSignIn(enrollmentId: string, otpCode: string): TotpMultiFactorAssertion {
+    return { factorId: 'totp', enrollmentId, otpCode } as TotpMultiFactorAssertion;
+  }
+}
+
+export const FactorId = { PHONE: 'phone', TOTP: 'totp' } as const;
+export type FactorId = (typeof FactorId)[keyof typeof FactorId];
+
+export type ApplicationVerifier = { readonly type: string; verify(): Promise<string> };
+export interface AuthError extends Error { readonly code: string; readonly customData?: Record<string, unknown> }
+export type AuthSettings = { readonly appVerificationDisabledForTesting?: boolean };
+export type Config = Record<string, unknown>;
+export type CustomParameters = Record<string, string>;
+export type Dependencies = Record<string, unknown>;
+export type EmulatorConfig = { readonly url: string };
+export type OAuthCredentialOptions = { readonly idToken?: string; readonly accessToken?: string; readonly rawNonce?: string };
+export type ParsedToken = Record<string, unknown>;
+export type PopupRedirectResolver = { readonly _resolverType: string };
+export type CompleteFn = () => void;
+export type ErrorFn = (error: AuthError) => void;
+export type NextFn<T> = (value: T) => void;
+export type NextOrObserver<T> = NextFn<T> | { next?: NextFn<T>; error?: ErrorFn; complete?: CompleteFn };
+export type ReactNativeAsyncStorage = Record<string, unknown>;
+export type UserMetadata = { readonly creationTime?: string; readonly lastSignInTime?: string };
+export type UserProfile = { readonly displayName?: string | null; readonly photoURL?: string | null };
