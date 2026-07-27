@@ -1,0 +1,36 @@
+---
+import { Code } from 'astro:components';
+import rulesSource from '../examples/chess/chess-v2.rules?raw';
+---
+
+<section
+  class="source-explorer"
+  aria-label="Chess Security Rules"
+  data-source={rulesSource}
+>
+  <div class="source-toolbar">
+    <strong>Security Rules</strong>
+    <button type="button" class="copy-source">Copy source</button>
+  </div>
+  <Code
+    code={rulesSource.trim()}
+    lang="javascript"
+    theme="one-dark-pro"
+  />
+</section>
+
+<script>
+  document.querySelectorAll<HTMLElement>('.source-explorer').forEach((explorer) => {
+    const button = explorer.querySelector<HTMLButtonElement>('.copy-source');
+    if (!button || button.dataset.copyInstalled === 'true') return;
+    button.dataset.copyInstalled = 'true';
+
+    button.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(explorer.dataset.source ?? '');
+      button.textContent = 'Copied';
+      window.setTimeout(() => {
+        button.textContent = 'Copy source';
+      }, 1500);
+    });
+  });
+</script>

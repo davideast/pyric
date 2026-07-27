@@ -1,4 +1,5 @@
 ---
+import ExampleMeta from './example-meta.astro';
 import { PYRIC_EXAMPLES } from '../examples/registry';
 import { withBase } from '../lib/content';
 
@@ -7,23 +8,74 @@ const examples = Object.entries(PYRIC_EXAMPLES)
 ---
 
 <div class="example-gallery">
-  {examples.map(([id, example]) => (
+  {examples.map(([, example]) => (
     <a class:list={['example-card', { 'is-showcase': example.definition.presentation === 'showcase' }]} href={withBase(example.definition.docsPath)}>
-      <span>{example.definition.subLabel}</span>
+      <ExampleMeta>{example.definition.subLabel}</ExampleMeta>
       <h2>{example.definition.header}</h2>
-      <p>{example.definition.summary}</p>
-      <code>{id}</code>
+      <p class="example-summary">{example.definition.summary}</p>
+      <span class="example-action">
+        {example.definition.presentation === 'showcase' ? 'Open showcase' : 'Open example'}
+        <span aria-hidden="true">→</span>
+      </span>
     </a>
   ))}
 </div>
 
 <style>
-  .example-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; margin: 2rem 0; }
-  .example-card { display: block; border: 1px solid var(--border); border-radius: .85rem; padding: 1.15rem; background: var(--surface-1); color: inherit; text-decoration: none; transition: border-color .15s, transform .15s; }
-  .example-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-  .example-card.is-showcase { grid-column: 1 / -1; padding: clamp(1.25rem, 3vw, 2rem); background: radial-gradient(circle at 80% 10%, #463d7138, transparent 55%), var(--surface-1); }
-  .example-card > span { color: var(--accent); font-size: .7rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-  .example-card h2 { margin: .45rem 0; font-size: 1.2rem; }
-  .example-card p { margin: 0 0 1rem; color: var(--muted); }
-  .example-card code { font-size: .72rem; }
+  .example-gallery {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .example-card {
+    display: block;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: .85rem;
+    padding: clamp(1.15rem, 2.5vw, 1.6rem);
+    background: var(--panel);
+    color: inherit;
+    text-decoration: none;
+    transition: border-color .15s, background-color .15s;
+  }
+
+  .example-card:hover {
+    border-color: var(--line-2);
+    background: color-mix(in srgb, var(--panel) 96%, var(--ink));
+  }
+
+  .example-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  .example-card.is-showcase {
+    border-left-color: var(--line-2);
+  }
+
+  .example-card h2 {
+    margin: .45rem 0;
+    color: var(--ink);
+    font-size: 1.2rem;
+    line-height: 1.3;
+  }
+
+  .example-summary {
+    max-width: 62ch;
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .example-action {
+    display: inline-flex;
+    gap: .35rem;
+    align-items: center;
+    margin-top: 1rem;
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: .72rem;
+  }
 </style>

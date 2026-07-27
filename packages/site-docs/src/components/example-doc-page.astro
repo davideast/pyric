@@ -1,12 +1,14 @@
 ---
 import ExampleHeader from './example-header.astro';
 import IsolatedExampleStage from './isolated-example-stage.astro';
-import { ChessSourceExplorer } from './chess-source-explorer';
+import PyricExample from './pyric-example.astro';
+import ChessSourceExplorer from './chess-source-explorer.astro';
 import { pyricExample, type PyricExampleId } from '../examples/registry';
 
 interface Props { id: PyricExampleId }
 const { id } = Astro.props;
 const { definition } = pyricExample(id);
+const isShowcase = definition.presentation === 'showcase';
 ---
 
 <div class="example-doc-page">
@@ -15,15 +17,17 @@ const { definition } = pyricExample(id);
     subLabel={definition.subLabel}
     summary={definition.summary}
   />
-  <IsolatedExampleStage id={id} title={definition.header} showcase />
+  {isShowcase
+    ? <IsolatedExampleStage id={id} title={definition.header} showcase />
+    : <PyricExample id={id} />}
   <article class="prose example-explanation">
     <slot />
   </article>
   {definition.renderer === 'chess' ? (
     <section class="example-rules">
-      <h2>Security Rules</h2>
-      <p>The board uses the modular Rules below. Pyric resolves the Standard Library imports into ordinary version 2 Rules before the sandbox evaluates each move.</p>
-      <ChessSourceExplorer client:visible />
+      <h2>Full Security Rules</h2>
+      <p>These are the Rules running the board above. Look for the imports at the top, the separate <code>moveType</code> gates, and the explicit king-safety checks.</p>
+      <ChessSourceExplorer />
     </section>
   ) : null}
 </div>
@@ -41,5 +45,5 @@ const { definition } = pyricExample(id);
   .source-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem .8rem; border-bottom: 1px solid #353540; color: #f4f4f7; }
   .source-toolbar strong { font-size: .8rem; }
   .source-toolbar button { border: 1px solid #4a4a58; border-radius: .35rem; padding: .38rem .55rem; background: #24242f; color: #f4f4f7; cursor: pointer; }
-  .source-explorer pre { max-height: 34rem; margin: 0; overflow: auto; padding: 1rem; background: #111118; color: #d9f99d; font: .76rem/1.55 'JetBrains Mono', monospace; }
+  .source-explorer pre.astro-code { max-height: 34rem; margin: 0; overflow: auto; padding: 1rem; background-color: #111118 !important; font: .76rem/1.55 'JetBrains Mono', monospace; }
 </style>

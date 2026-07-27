@@ -1,7 +1,6 @@
 ---
 import type { AstroComponentFactory } from 'astro/runtime/server/index.js';
 import DocsLayout from '../../layouts/DocsLayout.astro';
-import PyricExample from '../../components/pyric-example.astro';
 import ExampleGallery from '../../components/example-gallery.astro';
 import ExampleDocPage from '../../components/example-doc-page.astro';
 import { pyricExample } from '../../examples/registry';
@@ -22,7 +21,7 @@ interface Props {
 const { entry } = Astro.props;
 const Content = entry.Content as AstroComponentFactory;
 const registeredExample = entry.data.example ? pyricExample(entry.data.example) : undefined;
-const isShowcase = registeredExample?.definition.presentation === 'showcase';
+const isExamplePage = registeredExample !== undefined;
 ---
 
 <DocsLayout
@@ -35,13 +34,12 @@ const isShowcase = registeredExample?.definition.presentation === 'showcase';
   apiImportPath={entry.data.apiImportPath}
   apiSymbolCount={entry.data.apiSymbolCount}
   apiEvidenceSlug={entry.data.apiEvidenceSlug}
-  examplePage={isShowcase}
+  examplePage={isExamplePage}
 >
-  {isShowcase && entry.data.example
+  {isExamplePage && entry.data.example
     ? <ExampleDocPage id={entry.data.example}><Content /></ExampleDocPage>
     : <>
         <Content />
         {entry.data.gallery ? <ExampleGallery /> : null}
-        {entry.data.example ? <PyricExample id={entry.data.example} /> : null}
       </>}
 </DocsLayout>
