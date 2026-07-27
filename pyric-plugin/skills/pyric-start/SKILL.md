@@ -1,5 +1,4 @@
 ---
-name: pyric-start
 description: Start the pyric sandbox bridge for this project and open the app so the in-page sandbox connects. Use this BEFORE asking the agent to work with Firestore or auth through pyric. The pyric MCP tools need a running bridge and (for now) an open page.
 ---
 
