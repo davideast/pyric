@@ -19,6 +19,16 @@ Install the Pyric plugin:
 npx plugins add davideast/pyric
 ```
 
+Antigravity CLI and OpenCode use the standalone skill installer:
+
+```bash
+# Antigravity CLI
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent antigravity-cli
+
+# OpenCode
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent opencode
+```
+
 Then ask your agent:
 
 ```text

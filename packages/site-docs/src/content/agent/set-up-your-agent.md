@@ -4,7 +4,7 @@ navLabel: "Connect an agent"
 group: "Work with an agent"
 section: ""
 order: 10
-description: "Connect Claude Code, Cursor, Codex, or any MCP client to your backend in minutes."
+description: "Connect Claude Code, Cursor, Codex, Antigravity CLI, OpenCode, or any MCP client to your backend in minutes."
 ---
 
 # Connect an agent to the sandbox
@@ -17,6 +17,16 @@ Install the Pyric plugin from any terminal:
 
 ```bash
 npx plugins add davideast/pyric
+```
+
+Antigravity CLI and OpenCode use the standalone skill installer:
+
+```bash
+# Antigravity CLI
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent antigravity-cli
+
+# OpenCode
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent opencode
 ```
 
 Then ask your coding agent:
@@ -74,6 +84,42 @@ command = "npx"
 args = ["--package", "@pyric/cli", "pyric", "mcp"]
 ```
 Start `pyric dev --bridge`, open the app, and ask it to inspect the sandbox.
+
+### Antigravity CLI
+
+Antigravity CLI reads workspace MCP servers from `.agents/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "pyric": {
+      "command": "npx",
+      "args": ["--package", "@pyric/cli", "pyric", "mcp"]
+    }
+  }
+}
+```
+
+Start `pyric dev --bridge`, open the app, then use `/mcp` in Antigravity CLI to confirm that `pyric` is connected. Ask it to inspect the sandbox.
+
+### OpenCode
+
+Add Pyric to the workspace `opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "pyric": {
+      "type": "local",
+      "command": ["npx", "--package", "@pyric/cli", "pyric", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Start `pyric dev --bridge`, open the app, then run `opencode mcp list` to confirm that `pyric` is connected. Ask it to inspect the sandbox.
 
 ### Any MCP client
 
