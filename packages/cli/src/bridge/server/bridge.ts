@@ -206,10 +206,12 @@ function workerOpError(
   code: string,
   message: string,
   denialContext?: unknown,
-): Error & { code: string; denialContext?: unknown } {
-  const err = new Error(message) as Error & { code: string; denialContext?: unknown };
+  envelope?: unknown,
+): Error & { code: string; denialContext?: unknown; envelope?: unknown } {
+  const err = new Error(message) as Error & { code: string; denialContext?: unknown; envelope?: unknown };
   err.code = code;
   if (denialContext !== undefined) err.denialContext = denialContext;
+  if (envelope !== undefined) err.envelope = envelope;
   return err;
 }
 
@@ -481,6 +483,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
               res.error?.code ?? 'unknown',
               res.error?.message ?? 'unknown sandbox error',
               res.error?.denialContext,
+              (res.error as any)?.envelope,
             ),
           );
         }

@@ -59,6 +59,7 @@ export async function createFunctionsWorkerHostCtx(
     sandbox,
     instanceId: options.instanceId,
     subs: new Map(),
+    messagingEnabled: true,
   };
 }
 

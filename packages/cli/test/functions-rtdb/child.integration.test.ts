@@ -233,6 +233,33 @@ describe('isolated Functions RTDB child', () => {
     expect(await child.stop()).toBe(0);
   }, 15_000);
 
+  test('injects synthetic GCLOUD_PROJECT and FIREBASE_CONFIG without warning in stderr', async () => {
+    const cleanEnv = { ...process.env };
+    delete cleanEnv.GCLOUD_PROJECT;
+    delete cleanEnv.FIREBASE_CONFIG;
+    let stderr = '';
+    child = spawnFunctionsRtdbChild({
+      cwd: join(fixtureDir, 'functions'),
+      entry: join(fixtureDir, 'functions/index.js'),
+      childModuleUrl: pathToFileURL(childModule),
+      env: buildChildEnv(cleanEnv, {
+        serveUrl: runtime.handle.url,
+        registerUrl: registerModuleUrl(),
+      }),
+      instance: 'demo-project-default-rtdb',
+      location: 'us-central1',
+      projectId: 'my-custom-proj',
+    });
+    child.child.stderr?.setEncoding('utf8');
+    child.child.stderr?.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    const ready = await child.ready;
+    expect(ready.triggerCount).toBe(2);
+    expect(stderr).not.toContain('FIREBASE_CONFIG and GCLOUD_PROJECT environment variables are missing');
+    expect(await child.stop()).toBe(0);
+  }, 15_000);
+
   test('rejects exports spanning more than one effective database instance', async () => {
     const entry = join(fixtureDir, 'functions/multi-instance.cjs');
     writeFileSync(entry, `const { onValueCreated } = require('firebase-functions/v2/database');

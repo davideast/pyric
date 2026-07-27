@@ -144,6 +144,7 @@ export function attachViteFunctionsDevelopment(
       registerUrl: options.registerUrl,
       instance: options.instance ?? `${options.projectId}-default-rtdb`,
       location: options.region ?? options.baseEnv.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
+      projectId: options.projectId,
       readiness: createInProcessFunctionsPeerReadiness(bridge.sandboxConnected),
       onEvent: (event) => reportEvent(options.logger, event),
       ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),

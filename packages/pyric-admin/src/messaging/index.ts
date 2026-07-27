@@ -28,7 +28,7 @@
  * preserve the observable names, codes, and static members used by callers.
  */
 
-import { initializeSandbox } from 'pyric/sandbox';
+import { initializeSandbox, isRemoteSandbox, type RemoteSandbox, type Sandbox } from 'pyric/sandbox';
 import {
   getMessagingBroker,
   BrokerSendError,
@@ -116,15 +116,59 @@ function clientErrorInfoFor(fcmErrorCode: string | undefined): ErrorCodeInfo {
 }
 
 /** Re-wrap a broker rejection exactly as firebase-admin wraps the wire envelope. */
-function rethrowWrapped(error: unknown): never {
+function toMessagingError(error: unknown): unknown {
   if (error instanceof BrokerSendError) {
-    throw new MessagingError(clientErrorInfoFor(error.errorCode), error.envelope.error.message);
+    return new MessagingError(clientErrorInfoFor(error.errorCode), error.envelope.error.message);
   }
-  throw error;
+  if (error !== null && typeof error === 'object' && 'envelope' in error && (error as any).envelope) {
+    const sendErr = new BrokerSendError((error as any).envelope);
+    return new MessagingError(clientErrorInfoFor(sendErr.errorCode), sendErr.envelope.error.message);
+  }
+  return error;
+}
+
+function rethrowWrapped(error: unknown): never {
+  throw toMessagingError(error);
 }
 
 function invalidArgument(message: string): Error & { readonly code: string } {
   return new MessagingError(ErrorCodes.INVALID_ARGUMENT!, message);
+}
+
+async function dispatchSend(
+  sandbox: Sandbox,
+  broker: MessagingBroker,
+  message: BrokerMessage,
+  validateOnly: boolean,
+): Promise<string> {
+  if (isRemoteSandbox(sandbox)) {
+    const res = (await sandbox.channel.op({
+      method: 'messaging.send',
+      message,
+      ...(validateOnly ? { validateOnly } : {}),
+    })) as { name: string };
+    return res.name;
+  }
+  return broker.send(message, { validateOnly }).name;
+}
+
+async function dispatchTopicOp(
+  sandbox: Sandbox,
+  broker: MessagingBroker,
+  action: 'subscribe' | 'unsubscribe',
+  tokens: string[],
+  topic: string,
+): Promise<TopicManagementOutcome> {
+  if (isRemoteSandbox(sandbox)) {
+    return (await sandbox.channel.op({
+      method: action === 'subscribe' ? 'messaging.subscribeToTopic' : 'messaging.unsubscribeFromTopic',
+      tokens,
+      topic,
+    })) as TopicManagementOutcome;
+  }
+  return action === 'subscribe'
+    ? broker.subscribeToTopic(tokens, topic)
+    : broker.unsubscribeFromTopic(tokens, topic);
 }
 
 // ── The sandbox Messaging service ────────────────────────────────────────────
@@ -156,7 +200,12 @@ export class Messaging {
    */
   async send(message: Message, dryRun?: boolean): Promise<string> {
     try {
-      return this.broker.send(message as BrokerMessage, { validateOnly: dryRun === true }).name;
+      return await dispatchSend(
+        this.boundApp.sandbox,
+        this.broker,
+        message as BrokerMessage,
+        dryRun === true,
+      );
     } catch (error) {
       rethrowWrapped(error);
     }
@@ -176,15 +225,15 @@ export class Messaging {
     const responses: SendResponse[] = [];
     for (const message of messages) {
       try {
-        const name = this.broker.send(message as BrokerMessage, {
-          validateOnly: dryRun === true,
-        }).name;
+        const name = await dispatchSend(
+          this.boundApp.sandbox,
+          this.broker,
+          message as BrokerMessage,
+          dryRun === true,
+        );
         responses.push({ success: true, messageId: name });
       } catch (error) {
-        const wrapped =
-          error instanceof BrokerSendError
-            ? new MessagingError(clientErrorInfoFor(error.errorCode), error.envelope.error.message)
-            : error;
+        const wrapped = toMessagingError(error);
         responses.push({
           success: false,
           error: wrapped as unknown as SendResponse['error'],
@@ -226,21 +275,24 @@ export class Messaging {
     return this.manageTopic(tokenOrTokens, topic, 'unsubscribe');
   }
 
-  private manageTopic(
+  private async manageTopic(
     tokenOrTokens: string | string[],
     topic: string,
     action: 'subscribe' | 'unsubscribe',
-  ): MessagingTopicManagementResponse {
+  ): Promise<MessagingTopicManagementResponse> {
     const tokens = Array.isArray(tokenOrTokens) ? tokenOrTokens : [tokenOrTokens];
     if (tokens.length === 0) {
       throw invalidArgument('registration token(s) must be a non-empty string or a non-empty array');
     }
     let outcome: TopicManagementOutcome;
     try {
-      outcome =
-        action === 'subscribe'
-          ? this.broker.subscribeToTopic(tokens, topic)
-          : this.broker.unsubscribeFromTopic(tokens, topic);
+      outcome = await dispatchTopicOp(
+        this.boundApp.sandbox,
+        this.broker,
+        action,
+        tokens,
+        topic,
+      );
     } catch (error) {
       rethrowWrapped(error);
     }

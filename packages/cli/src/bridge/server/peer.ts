@@ -162,7 +162,7 @@ export function createConsumerSession(
         case 'worker-op': {
           bridge.dispatchWorkerOp(msg.op).then(
             (value) => send({ type: 'worker-res', id: msg.id, ok: true, value }),
-            (err: Error & { code?: string; denialContext?: unknown }) =>
+            (err: Error & { code?: string; denialContext?: unknown; envelope?: unknown }) =>
               send({
                 type: 'worker-res',
                 id: msg.id,
@@ -173,6 +173,7 @@ export function createConsumerSession(
                   // Structured denial context (spike gap 6) — plain JSON,
                   // relayed verbatim so the Node side re-attaches it.
                   ...(err.denialContext !== undefined ? { denialContext: err.denialContext } : {}),
+                  ...(err.envelope !== undefined ? { envelope: err.envelope } : {}),
                 },
               }),
           );
