@@ -3,7 +3,7 @@
 Scaffold a Pyric app. Used by:
 
 ```bash
-npm create pyric [dir]
+npm create pyric@latest [dir]
 ```
 
 Default template is **web**: a Vite app wired to `@pyric/cli/vite`. Then:
