@@ -61,6 +61,7 @@ export interface SpawnFunctionsRtdbChildOptions {
   instance: string;
   location: string;
   databaseHost?: string;
+  projectId?: string;
   childModuleUrl?: string | URL;
   nodeExecutable?: string;
   onEvent?(event: FunctionsRtdbChildEvent): void;
@@ -104,6 +105,14 @@ export function spawnFunctionsRtdbChild(
   const childModulePath = typeof childModuleUrl === 'string' && !childModuleUrl.startsWith('file:')
     ? resolve(childModuleUrl)
     : fileURLToPath(childModuleUrl);
+  const projectId = options.projectId ?? options.instance.replace(/-default-rtdb$/, '') ?? 'demo-project';
+  const databaseHost = options.databaseHost ?? 'firebasedatabase.app';
+  const databaseURL = `https://${options.instance}.${databaseHost}`;
+  const firebaseConfig = JSON.stringify({
+    projectId,
+    databaseURL,
+    storageBucket: `${projectId}.appspot.com`,
+  });
   const child = spawn(options.nodeExecutable ?? 'node', [childModulePath], {
     cwd: options.cwd,
     env: {
@@ -112,7 +121,9 @@ export function spawnFunctionsRtdbChild(
       PYRIC_FUNCTIONS_ENTRY: resolve(options.entry),
       PYRIC_FUNCTIONS_INSTANCE: options.instance,
       PYRIC_FUNCTIONS_LOCATION: options.location,
-      PYRIC_FUNCTIONS_DATABASE_HOST: options.databaseHost ?? 'firebasedatabase.app',
+      PYRIC_FUNCTIONS_DATABASE_HOST: databaseHost,
+      GCLOUD_PROJECT: options.env.GCLOUD_PROJECT ?? projectId,
+      FIREBASE_CONFIG: options.env.FIREBASE_CONFIG ?? firebaseConfig,
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });

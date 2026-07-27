@@ -60,13 +60,15 @@ function remoteError(
   code: string,
   message: string,
   denialContext?: unknown,
-): Error & { code: string; denialContext?: unknown } {
-  const err = new Error(message) as Error & { code: string; denialContext?: unknown };
+  envelope?: unknown,
+): Error & { code: string; denialContext?: unknown; envelope?: unknown } {
+  const err = new Error(message) as Error & { code: string; denialContext?: unknown; envelope?: unknown };
   err.code = code;
   // Structured denial context (spike gap 6): a relayed permission-denied
   // carries the same "why did this deny" frame a local SandboxError has —
   // plain JSON off the wire, re-attached here.
   if (denialContext !== undefined) err.denialContext = denialContext;
+  if (envelope !== undefined) err.envelope = envelope;
   return err;
 }
 
@@ -406,7 +408,7 @@ export function createRemoteSandboxCore(
               ' — the running sandbox may predate this feature; restart pyric dev ' +
               'and close other open pages of this origin, then reload.';
           }
-          call.reject(remoteError(code, message, msg.error?.denialContext));
+          call.reject(remoteError(code, message, msg.error?.denialContext, (msg.error as any)?.envelope));
         }
         return;
       }
@@ -430,8 +432,8 @@ export function createRemoteSandboxCore(
               send({ type: 'worker-unsub', subId: msg.subId });
             } catch {}
           }
-          const payload = value.__error as { code: string; message: string; denialContext?: unknown };
-          const err = remoteError(payload.code, payload.message, payload.denialContext);
+          const payload = value.__error as { code: string; message: string; denialContext?: unknown; envelope?: unknown };
+          const err = remoteError(payload.code, payload.message, payload.denialContext, payload.envelope);
           if (sub.onError) sub.onError(err);
           else console.error('pyric remote sandbox: uncaught error in subscription:', err);
           return;

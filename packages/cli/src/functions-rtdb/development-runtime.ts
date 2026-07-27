@@ -40,6 +40,7 @@ export interface FunctionsDevelopmentRuntimeOptions {
   registerUrl: string;
   instance: string;
   location: string;
+  projectId?: string;
   childModuleUrl?: string | URL;
   readiness: FunctionsPeerReadiness;
   onEvent?(event: FunctionsDevelopmentEvent): void;
@@ -218,6 +219,7 @@ export function createFunctionsDevelopmentRuntime(
         }),
         instance: options.instance,
         location: options.location,
+        ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
         ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
         onEvent: (event) => emit({ type: 'child-event', event }),
       });
