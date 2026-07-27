@@ -201,10 +201,10 @@ jobs:
         # and the worker-owned AI boundary. These are blocking oracle claims.
         run: bun run --cwd packages/cli test:app-conformance
 
-      - name: CLI-hosted Studio and docs
+      - name: CLI-hosted Studio
         run: bun run --cwd packages/cli test:site-cli
 
-      - name: Public Studio, docs, and embedded examples
+      - name: Public Studio
         run: bun run --cwd packages/cli test:site-static
 
   release-contract:

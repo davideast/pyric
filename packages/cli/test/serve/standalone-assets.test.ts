@@ -31,7 +31,7 @@ const SDK_BLOB: Record<string, string> = { 'app.js': b64('// pyric app shim'), '
 const SITE_BLOB: Record<string, string> = {
   'index.html': b64('<!doctype html>studio'),
   '_astro/app.js': b64('// unified site bundle'),
-  'docs/overview/index.html': b64('<!doctype html>docs'),
+  'assets/nested/item.txt': b64('nested asset'),
   'studio-routes.json': b64('{"routes":[]}'),
 };
 const TMP_ROOT = join(tmpdir(), `pyric-serve-${VERSION}-${ASSET_VERSION}`);
@@ -163,7 +163,7 @@ describe('materializeSiteUi', () => {
     }
     // Nested asset landed under its subdir, not flattened.
     expect(existsSync(join(dir, '_astro', 'app.js'))).toBe(true);
-    expect(existsSync(join(dir, 'docs', 'overview', 'index.html'))).toBe(true);
+    expect(existsSync(join(dir, 'assets', 'nested', 'item.txt'))).toBe(true);
   });
 
   it('is idempotent across calls', async () => {

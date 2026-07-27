@@ -20,7 +20,6 @@ function siteFixture(): { publicDir: string; siteRoot: string } {
   const siteRoot = join(publicDir, 'site');
   mkdirSync(join(siteRoot, 'firestore'), { recursive: true });
   mkdirSync(join(siteRoot, 'storage'), { recursive: true });
-  mkdirSync(join(siteRoot, 'docs', 'overview'), { recursive: true });
   mkdirSync(join(siteRoot, '_astro'), { recursive: true });
   writeFileSync(join(siteRoot, 'index.html'), '<!doctype html><head></head>HOME');
   writeFileSync(
@@ -28,9 +27,6 @@ function siteFixture(): { publicDir: string; siteRoot: string } {
     '<!doctype html><head></head>FIRESTORE',
   );
   writeFileSync(join(siteRoot, 'storage', 'index.html'), '<!doctype html><head></head>STORAGE');
-  writeFileSync(join(siteRoot, 'docs', 'overview', 'index.html'), '<!doctype html>DOCS');
-  writeFileSync(join(siteRoot, 'docs', 'overview.md'), '# Overview');
-  writeFileSync(join(siteRoot, 'docs', 'index.json'), '{"pages":[]}');
   writeFileSync(join(siteRoot, '_astro', 'app.js'), '// app');
   writeFileSync(
     join(siteRoot, 'studio-routes.json'),
@@ -97,8 +93,6 @@ describe('Astro site tree', () => {
     expect((await fetch(
       h.url + '/__pyric/ui/firestore/a.b/c',
     )).status).toBe(404);
-    expect((await fetch(h.url + '/__pyric/ui/docs/missing')).status).toBe(404);
-    expect((await fetch(h.url + '/__pyric/ui/docs/%E0%A4%A')).status).toBe(404);
     const handler = createSiteTreeHandler(siteRoot, '0123456789abcdef');
     const traversal = invokeRawPath(
       handler,
@@ -108,21 +102,12 @@ describe('Astro site tree', () => {
     expect(traversal.location).toBeUndefined();
     expect(invokeRawPath(
       handler,
-      '/__pyric/ui/firestore/%2e%2e/docs/index.json',
+      '/__pyric/ui/firestore/%2e%2e/assets/index.json',
     ).status).toBe(404);
     expect(invokeRawPath(
       handler,
-      '/__pyric/ui/storage/%2e%2e%5cdocs/index.json',
+      '/__pyric/ui/storage/%2e%2e%5cassets/index.json',
     ).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/not-a-service')).status).toBe(404);
-
-    const docsTwin = await fetch(h.url + '/__pyric/ui/docs/overview.md');
-    expect(docsTwin.status).toBe(200);
-    expect(await docsTwin.text()).toContain('# Overview');
-    expect((await fetch(h.url + '/__pyric/ui/docs/index.json')).headers.get('content-type')).toContain('application/json');
-
-    const docs = await (await fetch(h.url + '/__pyric/ui/docs/overview/')).text();
-    expect(docs).toContain('DOCS');
-    expect(docs).not.toContain('pyric-worker-v');
   });
 });
