@@ -686,6 +686,30 @@ export function useStudioBranches(): StudioBranches {
  * still shows the denial's path/method/auth; the trace fills in once present).
  * Supports Firestore, Realtime Database (`databaseRules`), and Storage.
  */
+function hasPyricSourceMapMarker(source: string): boolean {
+  const marker = '// @pyric-source-map:';
+  return source.includes(marker);
+}
+
+export function stripPyricSourceMap(source: string): string {
+  const isMarkedSource = hasPyricSourceMapMarker(source);
+  if (!isMarkedSource) {
+    return source;
+  }
+  const markerIndex = source.indexOf('// @pyric-source-map:');
+  return source.slice(0, markerIndex).trimEnd();
+}
+
+/**
+ * The deployed ruleset for the targeted service. Studio's rule inspectors
+ * (`TrafficSurface` → `DenialDetail`, `RulesSurface`) display this text and
+ * re-run against it on a throwaway fork. For dev-server connections it reads
+ * the live rules text served at `/__pyric/init.json` (the exact string the
+ * runtime compiler compiled); for standalone offline sessions (`?seed=`) it
+ * reads them without a worker round-trip. Empty until resolved (the inspector
+ * still shows the denial's path/method/auth; the trace fills in once present).
+ * Supports Firestore, Realtime Database (`databaseRules`), and Storage.
+ */
 export function useStudioRulesSource(service: string = 'firestore'): string {
   const seed = useDevSeed();
   const seedReady = seed.status === 'ready';
@@ -732,19 +756,24 @@ export function useStudioRulesSource(service: string = 'firestore'): string {
     const normalizedService = service === 'database' ? 'rtdb' : service;
     if (!isOfflineSeed) {
       const source = servedRules[normalizedService];
-      if (source !== undefined) return source;
+      const hasServedSource = source !== undefined;
+      if (hasServedSource) {
+        return stripPyricSourceMap(source);
+      }
       return '';
     }
     try {
       const isRtdb = normalizedService === 'rtdb';
       if (isRtdb) {
         const active = getActiveDatabaseRules(seed.handles.sandbox as unknown as LocalSandbox);
-        if (active !== undefined && active !== null) {
+        const hasActiveRtdbRules = active !== undefined && active !== null;
+        if (hasActiveRtdbRules) {
           return JSON.stringify(active, null, 2);
         }
         return '';
       }
-      return getInternalEnv(seed.handles.sandbox).getRules();
+      const rawRules = getInternalEnv(seed.handles.sandbox).getRules();
+      return stripPyricSourceMap(rawRules);
     } catch {
       return '';
     }

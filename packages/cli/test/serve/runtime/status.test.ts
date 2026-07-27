@@ -115,6 +115,31 @@ describe('Pyric runtime status', () => {
     });
   });
 
+  it('normalizes one-shot operation rules denials into runtime error toasts', () => {
+    const runtime = createPyricRuntimeStatus(manifest);
+    runtime.recordSandboxEvents([{
+      kind: 'operation',
+      id: 'op-denied-1',
+      at: 999,
+      service: 'firestore',
+      method: 'get',
+      path: 'conversations/unauthorized-doc-id',
+      auth: { uid: null },
+      result: 'deny',
+      rulesDisposition: { kind: 'evaluated', verdict: 'deny' },
+    }]);
+
+    expect(runtime.getSnapshot().errors[0]).toMatchObject({
+      id: 'op-denied-1',
+      source: 'sandbox',
+      service: 'firestore',
+      method: 'get',
+      path: 'conversations/unauthorized-doc-id',
+      code: 'PERMISSION_DENIED',
+      message: 'PERMISSION_DENIED: get on conversations/unauthorized-doc-id denied by rules',
+    });
+  });
+
   it('bounds retained errors and clears them without changing worker status', () => {
     const runtime = createPyricRuntimeStatus(manifest, { maxErrors: 2 });
     runtime.reportError('first', 'runtime');
