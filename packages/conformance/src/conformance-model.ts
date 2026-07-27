@@ -25,6 +25,16 @@ import {
   type FirestoreRulesScorecard,
 } from './firestore-rules-scorecard.ts';
 import { loadAndValidateFirestoreAcceptanceEvidence } from './firestore-rules-acceptance-evidence.ts';
+import {
+  deriveStorageRulesScorecard,
+  type StorageRulesScorecard,
+} from './storage-rules-scorecard.ts';
+import { loadAndValidateStorageAcceptanceEvidence } from './storage-rules-acceptance-evidence.ts';
+import {
+  deriveRtdbRulesScorecard,
+  type RtdbRulesScorecard,
+} from './rtdb-rules-scorecard.ts';
+import { loadAndValidateRtdbAcceptanceEvidence } from './rtdb-rules-acceptance-evidence.ts';
 import type { SurfaceDescriptor } from '../surfaces/types.ts';
 import type { CompatibilitySurfaceRegistry } from '../registry/types.ts';
 import coverageBaselineJson from '../baselines/coverage-baseline.json' with { type: 'json' };
@@ -93,6 +103,8 @@ export interface ConformanceModel {
     capability: CapabilityReport;
     coverage: CoverageReport;
     firestoreScorecard: FirestoreRulesScorecard;
+    storageScorecard: StorageRulesScorecard;
+    rtdbScorecard: RtdbRulesScorecard;
   };
   documentation: {
     registries: readonly CompatibilitySurfaceRegistry[];
@@ -282,14 +294,36 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
   const firestoreSnapshot = snapshots.find(({ engine }) => engine === 'firestore');
   const firestoreCapability = evidence.capabilityReport.engines.find(({ engine }) => engine === 'firestore');
   const firestoreCoverage = evidence.coverageReport.engines.find(({ engine }) => engine === 'firestore');
-  if (!firestoreSnapshot || !firestoreCapability || !firestoreCoverage) {
-    throw new Error('Firestore Rules scorecard inputs are missing from the central conformance model');
+  const storageSnapshot = snapshots.find(({ engine }) => engine === 'storage');
+  const storageCapability = evidence.capabilityReport.engines.find(({ engine }) => engine === 'storage');
+  const storageCoverage = evidence.coverageReport.engines.find(({ engine }) => engine === 'storage');
+  const rtdbSnapshot = snapshots.find(({ engine }) => engine === 'rtdb');
+  const rtdbCapability = evidence.capabilityReport.engines.find(({ engine }) => engine === 'rtdb');
+  const rtdbCoverage = evidence.coverageReport.engines.find(({ engine }) => engine === 'rtdb');
+  if (
+    !firestoreSnapshot || !firestoreCapability || !firestoreCoverage
+    || !storageSnapshot || !storageCapability || !storageCoverage
+    || !rtdbSnapshot || !rtdbCapability || !rtdbCoverage
+  ) {
+    throw new Error('Security Rules scorecard inputs are missing from the central conformance model');
   }
   loadAndValidateFirestoreAcceptanceEvidence(firestoreSnapshot.constructs);
   const firestoreScorecard = deriveFirestoreRulesScorecard({
     constructs: firestoreSnapshot.constructs,
     capabilities: firestoreCapability.constructs,
     coverage: firestoreCoverage.constructs,
+  });
+  loadAndValidateStorageAcceptanceEvidence(storageSnapshot.constructs);
+  const storageScorecard = deriveStorageRulesScorecard({
+    constructs: storageSnapshot.constructs,
+    capabilities: storageCapability.constructs,
+    coverage: storageCoverage.constructs,
+  });
+  loadAndValidateRtdbAcceptanceEvidence(rtdbSnapshot.constructs);
+  const rtdbScorecard = deriveRtdbRulesScorecard({
+    constructs: rtdbSnapshot.constructs,
+    capabilities: rtdbCapability.constructs,
+    coverage: rtdbCoverage.constructs,
   });
   const firestoreScoreById = new Map(firestoreScorecard.constructs.map((construct) => [construct.id, construct]));
   for (const construct of firestoreScorecard.constructs) {
@@ -531,6 +565,8 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
       capability: evidence.capabilityReport,
       coverage: evidence.coverageReport,
       firestoreScorecard,
+      storageScorecard,
+      rtdbScorecard,
     },
     documentation: {
       registries: surfaceRegistries,
