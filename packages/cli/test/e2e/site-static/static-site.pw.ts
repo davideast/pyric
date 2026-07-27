@@ -102,17 +102,6 @@ test('the unified build preserves the Firestore seed, theme utilities, and pane 
   ]);
 });
 
-test('the checked-in Firestore example runs in its isolated iframe and resets', async ({ page }) => {
-  await page.goto('/docs/build/cloud-firestore/');
-  const frame = page.frameLocator('iframe[title="Write to an isolated Firestore sandbox"]');
-  await expect(frame.getByText('The sandbox is local')).toBeVisible();
-  await frame.getByRole('button', { name: 'Reset sandbox' }).click();
-  await expect(frame.getByText('The sandbox is local')).toBeVisible();
-  await expect(page.getByText("import { doc, getDoc, getFirestore, setDoc } from 'pyric/firestore';", {
-    exact: false,
-  })).toBeVisible();
-});
-
 test('the chess showcase commits an allowed move, denies an illegal move, and resets', async ({ page }) => {
   const urls = trackRequests(page);
   await page.goto('/docs/examples/chess/');

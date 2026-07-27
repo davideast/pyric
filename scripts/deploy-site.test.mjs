@@ -162,7 +162,7 @@ describe('dist/site/404.html', () => {
     expect(readFileSync(new URL('docs/overview/index.html', distSite), 'utf8')).not.toContain(
       'pyric-worker-v',
     );
-    expect(readFileSync(new URL('examples/firestore-first-write/index.html', distSite), 'utf8')).not.toContain(
+    expect(readFileSync(new URL('examples/chess/index.html', distSite), 'utf8')).not.toContain(
       'pyric-worker-v',
     );
   });
