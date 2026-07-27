@@ -127,6 +127,16 @@ describe('Pyric runtime status', () => {
     expect(runtime.getSnapshot()).toMatchObject({ errors: [], updateAvailable: true });
   });
 
+  it('dismisses an individual error by id without removing remaining errors', () => {
+    const runtime = createPyricRuntimeStatus(manifest, { maxErrors: 5 });
+    runtime.reportError('first', 'runtime');
+    runtime.reportError('second', 'runtime');
+    const [err1, err2] = runtime.getSnapshot().errors;
+    runtime.dismissError(err1.id);
+    expect(runtime.getSnapshot().errors.map((error) => error.message)).toEqual(['second']);
+    expect(runtime.getSnapshot().errors[0].id).toBe(err2.id);
+  });
+
   it('runs the configured worker update only when a new epoch is available', async () => {
     const status = createPyricRuntimeStatus({
       ...manifest,

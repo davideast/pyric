@@ -268,6 +268,16 @@ function isTrafficEvent(
   return isValidOperation;
 }
 
+function isPermissionDeniedErrorCode(code: unknown): boolean {
+  if (typeof code !== 'string') return false;
+  const normalized = code.toLowerCase();
+  return (
+    normalized === 'permission_denied' ||
+    normalized === 'permission-denied' ||
+    normalized === 'auth/permission-denied'
+  );
+}
+
 function toTrafficEvent(
   e: (RequestEvent | SandboxOperationEvent | SandboxListenerEvent) & EventProvenance,
 ): StudioTrafficEvent {
@@ -288,7 +298,7 @@ function toTrafficEvent(
       resultVal = e.result;
     } else {
       const errorObj = e.error as Record<string, unknown> | undefined;
-      const hasPermissionDeniedCode = errorObj !== undefined && errorObj.code === 'PERMISSION_DENIED';
+      const hasPermissionDeniedCode = errorObj !== undefined && isPermissionDeniedErrorCode(errorObj.code);
       if (hasPermissionDeniedCode) {
         resultVal = 'deny';
       }

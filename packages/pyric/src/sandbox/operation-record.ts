@@ -126,6 +126,24 @@ export function operationContextFor(
   return resolveOperationContext(undefined, event);
 }
 
+function isPermissionDeniedError(event: OperationEvent): boolean {
+  if (event.result === 'deny') {
+    return true;
+  }
+  if (!('error' in event) || !event.error || typeof event.error !== 'object') {
+    return false;
+  }
+  const code = (event.error as { code?: unknown }).code;
+  if (typeof code !== 'string') {
+    return false;
+  }
+  const normalized = code.toLowerCase();
+  if (normalized === 'permission_denied' || normalized === 'permission-denied' || normalized === 'auth/permission-denied') {
+    return true;
+  }
+  return false;
+}
+
 /** Normalize the legacy per-service markers exactly once, at the sandbox
  * stream seam. Consumers must not inspect `detail.admin`, `origin`, or the
  * presence of a trace themselves. */
@@ -139,6 +157,9 @@ export function rulesDispositionFor(event: OperationEvent): RulesDisposition {
   if (event.detail?.admin === true) {
     return { kind: 'bypassed', reason: 'admin' };
   }
+  if (isPermissionDeniedError(event)) {
+    return { kind: 'evaluated', verdict: 'deny' };
+  }
 
   if (event.result === 'unsupported') {
     return { kind: 'not-evaluated', reason: 'unsupported' };
@@ -150,19 +171,10 @@ export function rulesDispositionFor(event: OperationEvent): RulesDisposition {
     return { kind: 'not-evaluated', reason: 'not-a-rules-operation' };
   }
   if (event.kind === 'listener') {
-    if (event.result === 'deny') {
-      return { kind: 'evaluated', verdict: 'deny' };
-    }
-    if (event.error?.code === 'PERMISSION_DENIED') {
-      return { kind: 'evaluated', verdict: 'deny' };
-    }
     if (event.rules) {
       return { kind: 'evaluated', verdict: 'deny' };
     }
     return { kind: 'not-evaluated', reason: 'runtime-error' };
-  }
-  if (event.result === 'deny') {
-    return { kind: 'evaluated', verdict: 'deny' };
   }
   if (event.kind === 'request') {
     return { kind: 'evaluated', verdict: 'allow' };

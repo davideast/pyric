@@ -36,6 +36,7 @@ export interface PyricRuntimeStatus {
   reportError(error: unknown, source: PyricRuntimeErrorSource): void;
   recordSandboxEvents(events: readonly SandboxEvent[]): void;
   clearErrors(): void;
+  dismissError(id: string): void;
 }
 
 let nextErrorId = 0;
@@ -200,6 +201,14 @@ export function createPyricRuntimeStatus(
     clearErrors() {
       errorIds.clear();
       publish({ ...snapshot, errors: [] });
+    },
+    dismissError(id) {
+      if (!errorIds.has(id)) return;
+      errorIds.delete(id);
+      publish({
+        ...snapshot,
+        errors: snapshot.errors.filter((err) => err.id !== id),
+      });
     },
   };
 }
