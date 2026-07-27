@@ -10,17 +10,30 @@ const { title } = Astro.props;
 </SiteLayout>
 
 <style is:global>
+  html, body { min-width: 0; overflow-x: hidden; }
   body { margin: 0; background: #15151d; color: #f4f4f7; font-family: Inter, sans-serif; }
-  .example-runtime { box-sizing: border-box; min-height: 100vh; padding: 1rem; }
-  .example-runtime header { display: flex; align-items: center; gap: .65rem; }
-  .example-runtime header strong { flex: 1; font-size: .9rem; }
+  .example-runtime { box-sizing: border-box; display: grid; align-content: start; min-height: 100vh; gap: .85rem; padding: 1rem; }
+  .example-runtime header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+  .runtime-status { display: inline-flex; align-items: center; gap: .5rem; color: #c6c4cf; font-size: .78rem; font-weight: 600; }
   .example-runtime button { border: 1px solid #4a4a58; border-radius: .45rem; padding: .45rem .65rem; background: #24242f; color: inherit; cursor: pointer; }
-  .example-runtime p { color: #b6b6c2; font-size: .82rem; line-height: 1.45; }
-  .example-runtime pre { min-height: 8rem; overflow: auto; border-radius: .55rem; padding: .85rem; background: #0f0f17; color: #d9f99d; font: .78rem/1.5 'JetBrains Mono', monospace; }
+  .example-runtime button:hover { border-color: #777284; background: #2d2b38; }
+  .runtime-result { min-width: 0; overflow: hidden; border: 1px solid #3b3946; border-radius: .55rem; background: #1b1a23; }
+  .runtime-result-ready { border-color: #3e604b; }
+  .runtime-result-error { border-color: #70434f; }
+  .result-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem .85rem; border-bottom: 1px solid #35333f; }
+  .result-heading div { min-width: 0; }
+  .result-heading span { display: block; color: #9995a6; font-size: .65rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+  .result-heading strong { display: block; margin-top: .18rem; color: #f4f4f7; font: 600 .82rem/1.3 'JetBrains Mono', monospace; }
+  .example-runtime pre { box-sizing: border-box; min-height: 7rem; max-height: 20rem; margin: 0; overflow: auto; padding: .9rem; background: #0f0f17; color: #d9f99d; font: .78rem/1.55 'JetBrains Mono', monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
   .status { width: .55rem; height: .55rem; border-radius: 50%; background: #eab308; }
   .status-ready { background: #22c55e; }
   .status-error { background: #ef4444; }
-  .copy-error { float: right; }
+  .copy-error { flex: 0 0 auto; }
+  @media (max-width: 430px) {
+    .example-runtime { padding: .75rem; }
+    .result-heading { align-items: flex-start; flex-direction: column; }
+  }
+
   .chess-showcase { padding: clamp(1rem, 3vw, 2.25rem); background: #15151d; color: #f4f4f7; }
   .chess-play { display: grid; grid-template-columns: minmax(20rem, 42rem) minmax(18rem, 25rem); gap: clamp(1rem, 3vw, 2rem); align-items: start; max-width: 70rem; margin: 0 auto; }
   .chess-board-wrap { padding: clamp(.55rem, 1.5vw, 1rem); border: 1px solid #474258; border-radius: .5rem; background: #201f2a; }

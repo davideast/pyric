@@ -1,4 +1,5 @@
 ---
+import { Code } from 'astro:components';
 import { pyricExample, type PyricExampleId } from '../examples/registry';
 import IsolatedExampleStage from './isolated-example-stage.astro';
 
@@ -8,23 +9,106 @@ interface Props {
 
 const { id } = Astro.props;
 const example = pyricExample(id);
-const isShowcase = example.definition.presentation === 'showcase';
 ---
 
-<figure class:list={['pyric-example', { 'pyric-showcase': isShowcase }]}>
-  <figcaption>{example.definition.header}</figcaption>
-  <div class="pyric-example-grid">
-    {!isShowcase ? <pre><code>{example.source.trim()}</code></pre> : null}
-    <IsolatedExampleStage id={id} title={example.definition.header} showcase={isShowcase} />
+<section class="pyric-example" aria-label={example.definition.header}>
+  <div class="example-live">
+    <div class="example-panel-heading">
+      <span>Live result</span>
+      <span>Fresh sandbox on every reset</span>
+    </div>
+    <IsolatedExampleStage id={id} title={example.definition.header} />
   </div>
-</figure>
+
+  <section class="example-source" aria-labelledby={`${id}-source-heading`}>
+    <div class="source-heading">
+      <h2 id={`${id}-source-heading`}>Example source</h2>
+      <p>The source executed in the sandbox.</p>
+    </div>
+    <div class="source-code">
+      <Code code={example.source.trim()} lang="ts" theme="one-dark-pro" />
+    </div>
+  </section>
+</section>
 
 <style>
-  .pyric-example { margin: 2rem 0; }
-  figcaption { margin-bottom: .75rem; font-weight: 650; }
-  .pyric-example-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(19rem, .8fr); gap: 1rem; }
-  pre { box-sizing: border-box; width: 100%; min-height: 19rem; margin: 0; border: 1px solid var(--border, #30303a); border-radius: .5rem; }
-  pre { overflow: auto; padding: 1rem; background: #0f0f17; color: #e8e8ef; }
-  .pyric-showcase .pyric-example-grid { grid-template-columns: 1fr; }
-  @media (max-width: 800px) { .pyric-example-grid { grid-template-columns: 1fr; } }
+  .pyric-example {
+    display: grid;
+    min-width: 0;
+    gap: 1.5rem;
+    margin: 0;
+  }
+
+  .example-live,
+  .example-source {
+    min-width: 0;
+  }
+
+  .example-panel-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .65rem .8rem;
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: .5rem .5rem 0 0;
+    background: var(--panel);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: .7rem;
+  }
+
+  .example-live :global(.example-stage) {
+    border-radius: 0 0 .5rem .5rem;
+  }
+
+  .source-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: .75rem;
+  }
+
+  .source-heading h2 {
+    margin: 0;
+    color: var(--ink);
+    font-size: 1.15rem;
+    font-weight: 600;
+  }
+
+  .source-heading p {
+    margin: 0;
+    color: var(--muted);
+    font-size: .78rem;
+  }
+
+  .source-code {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: .5rem;
+    background: var(--code-bg);
+  }
+
+  .source-code :global(pre.astro-code) {
+    box-sizing: border-box;
+    max-width: 100%;
+    max-height: 30rem;
+    margin: 0;
+    overflow: auto;
+    padding: 1rem;
+    background-color: var(--code-bg) !important;
+    font-size: .78rem;
+    line-height: 1.55;
+  }
+
+  @media (max-width: 640px) {
+    .example-panel-heading,
+    .source-heading {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: .3rem;
+    }
+  }
 </style>

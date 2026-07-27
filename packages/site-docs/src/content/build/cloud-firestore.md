@@ -5,36 +5,41 @@ group: "Build"
 section: ""
 order: 20
 description: "Read, write, query, and stream Firestore documents locally, and derive the composite indexes your queries need from your source."
-example: "firestore-first-write"
 ---
 
 # Run Cloud Firestore locally
 
-Firestore in Pyric is v1. The modular SDK surface, reads and writes, queries, snapshots, transactions, and aggregations, runs locally with your rules enforced, and it is tested against recorded production behavior. Your imports stay `firebase/firestore`.
+Firestore runs locally with your Security Rules enforced. Your application keeps the `firebase/firestore` imports it will ship.
 
-## Write and read documents
+## Write and read a document
+
+Use the same Firebase SDK calls in local development and production:
+
 ```ts
-import {
-  getFirestore, collection, doc,
-  addDoc, setDoc, getDoc, serverTimestamp,
-} from 'firebase/firestore';
+import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore';
 
 const db = getFirestore(app);
+const note = doc(db, 'notes', 'first');
 
-const noteRef = await addDoc(collection(db, 'notes'), {
-  title: 'First note',
-  ownerId: uid,
-  createdAt: serverTimestamp(),
+await setDoc(note, {
+  title: 'The sandbox is local',
+  ownerId: 'ada',
 });
 
-const snap = await getDoc(noteRef);
-console.log(snap.data());
+const saved = await getDoc(note);
+console.log(saved.data());
 ```
-`setDoc` writes to a known path (pass `{ merge: true }` to update in place), `updateDoc` patches fields, `deleteDoc` removes. Field sentinels work: `serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, `deleteField`.
 
-## Query with where, orderBy, limit
+During development, Pyric resolves those imports to the local backend. A production build resolves them to Firebase again.
+
+## Query the documents the current user owns
+
+Combine the ownership filter with the order and result limit your screen needs:
+
 ```ts
-import { query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import {
+  collection, getDocs, limit, orderBy, query, where,
+} from 'firebase/firestore';
 
 const recent = query(
   collection(db, 'notes'),
@@ -46,16 +51,13 @@ const recent = query(
 
 const page = await getDocs(recent);
 ```
-Multiple `where` clauses AND together; the `or` and `and` combinators handle the rest. Cursors (`startAfter`, `endAt`) paginate, and collection groups query across every subcollection with a given name. Aggregations run without fetching the documents:
-```ts
-import { getCountFromServer } from 'firebase/firestore';
 
-const count = await getCountFromServer(query(collection(db, 'notes'), where('archived', '==', false)));
-console.log(count.data().count);
-```
-`sum` and `average` follow the same shape through `getAggregateFromServer`.
+The local Rules engine evaluates the query as a query. A rule that allows one document does not automatically make an under-constrained list safe.
 
-## Keep the UI live
+## Keep those results live
+
+Attach a listener to the same query:
+
 ```ts
 import { onSnapshot } from 'firebase/firestore';
 
@@ -65,11 +67,13 @@ const unsubscribe = onSnapshot(recent, (snap) => {
   }
 });
 ```
-Listeners fire on every matching change, across tabs, because every tab shares one backend. If your rules deny a listener, the error callback fires with a verdict that names the rule, not a bare `permission-denied`.
 
-## Read, then write, atomically
+Listeners receive each matching change across tabs. If Rules deny the listener, its error callback receives a verdict that identifies the rule responsible.
 
-When a write depends on the current value, use a transaction:
+## Update a value atomically
+
+Use a transaction when the next write depends on the stored value:
+
 ```ts
 import { runTransaction } from 'firebase/firestore';
 
@@ -79,24 +83,23 @@ await runTransaction(db, async (tx) => {
   tx.set(doc(db, 'counters', 'main'), { count: current + 1 });
 });
 ```
-All reads must come before any writes inside the callback. Production enforces that because the engine retries on conflict, and the sandbox enforces it for parity, so the mistake surfaces on your machine instead of in a retry storm. For multiple writes with no read dependency, `writeBatch` is the cheaper shape.
 
-## Design queries and the indexes they need
+Keep every transaction read before its first write. Pyric enforces that ordering locally, matching the retry-safe shape Firebase requires.
 
-A query with combined filters and ordering needs a composite index in production, and the missing-index error arrives at the worst time. Pyric derives the index file from your code instead: `firestore_extract_indexes` statically reads your `query(collection(...), where(...), orderBy(...))` call sites and returns the `firestore.indexes.json` they require, with warnings where it suspects overshoot.
+## Generate the indexes your queries need
 
-When branchy code enumerates more shapes than your app will ever run, guide the extractor with JSDoc annotations on the function:
+Derive `firestore.indexes.json` from the filters and ordering in your application source:
 
-- `@firestore-mutex { fieldA, fieldB }` drops combinations where those filters would coexist.
-- `@firestore-required fieldA` drops combinations missing a filter that is always present.
-- `@firestore-budget N` is a soft cap that warns when exceeded.
+```bash
+pyric firestore indexes generate src --out firestore.indexes.json
+```
 
-The index file stops being a hand-kept artifact. It becomes derived output, and [ship to production](../ship/ship-to-production.md) deploys it.
+Review the generated file with the query open, then deploy it with the rest of the Firebase configuration when you [ship to production](../ship/ship-to-production.md).
 
 ## And from an agent
 
-An MCP-connected agent can inventory the queries the product performs and compare them with the rules that govern list access. Start with [Work with an agent](../agent/work-with-an-agent.md).
+Ask a connected agent to inventory the Firestore queries in the application, derive their indexes, and compare each query with the Rules that govern list access. [Work with an agent](../agent/work-with-an-agent.md) shows how the agent connects to the same local backend.
 
 ## Where to go next
 
-Data without protection is a liability, so [secure it with rules](../secure/secure-it-with-rules.md). And when you need scenarios instead of hand-typed documents, [shape your data](../observe/shape-your-data.md) covers seeding, snapshots, and resets.
+Now [prove your Rules protect the application](../secure/secure-it-with-rules.md).
