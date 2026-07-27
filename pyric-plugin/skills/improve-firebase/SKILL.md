@@ -55,15 +55,15 @@ Save transient reports outside the source tree or under a temporary directory. D
 
 ### Phase 3 — Audit by outcome
 
-Audit every applicable category in the playbook:
+Audit every applicable category in the playbook. Whenever an audit touches a specialized Firebase service or architecture area, **lazy-load and consult its corresponding expert reference handbook** before making architectural judgments or logging findings:
 
-1. Authorization & identity
-2. Data integrity & model fit
-3. Queries, indexes, performance & cost
-4. Runtime behavior & side effects
-5. Production readiness & regression safety
+1. **Authorization & identity:** Consult [references/auth-model.md](references/auth-model.md) and [references/firestore-rules.md](references/firestore-rules.md) (or [references/rtdb-security-rules.md](references/rtdb-security-rules.md)).
+2. **Data integrity & model fit:** Consult [references/rtdb-data-model.md](references/rtdb-data-model.md) and [references/firebase-audit-playbook.md](references/firebase-audit-playbook.md).
+3. **Queries, indexes, performance & cost:** Consult [references/query-indexes.md](references/query-indexes.md).
+4. **Runtime behavior & side effects:** Consult [references/firebase-audit-playbook.md](references/firebase-audit-playbook.md).
+5. **Production readiness & regression safety:** Confirm verified test parity and rules adherence across all active services.
 
-For a large repository, divide read-only investigation by category or application area when parallel workers are available. Give each worker the absolute path to `references/AUDIT.md`, recon facts, evidence paths, and Hard Rule 7 verbatim. Require findings only: location, evidence grade, impact, and uncertainty—no fixes.
+For a large repository, divide read-only investigation by category or application area when parallel workers are available. Give each worker the absolute path to `references/AUDIT.md`, relevant domain reference handbooks, recon facts, evidence paths, and Hard Rule 7 verbatim. Require findings only: location, evidence grade, impact, and uncertainty—no fixes.
 
 ### Phase 4 — Vet and prioritize
 
