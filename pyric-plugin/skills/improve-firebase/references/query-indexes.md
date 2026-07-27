@@ -1,8 +1,3 @@
----
-name: firestore-query-indexes
-description: Design Firestore query shapes and the composite indexes they require — filters, ordering, pagination, collection groups, denormalized reads. Use when the user plans Firestore reads, hits a missing-index error, or asks for firestore.indexes.json.
----
-
 # Firestore Query & Index Design
 
 A query plan is an index proof: name what the product must read, prove each

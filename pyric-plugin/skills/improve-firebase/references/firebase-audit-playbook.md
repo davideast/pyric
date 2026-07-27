@@ -1,8 +1,3 @@
----
-name: firebase-audit
-description: Audit a Firebase project's security and data posture — who can access what, what rules/data/auth exist, and where they disagree. Use when the user asks for a Firebase audit, a security review of rules and data, or "find the gaps" across Firestore/RTDB/Auth.
----
-
 # Firebase Audit
 
 Produce an evidence-based, severity-ranked report answering three questions:

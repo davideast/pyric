@@ -1,8 +1,3 @@
----
-name: rtdb-data-model
-description: Model Realtime Database structures — flat paths, fan-out writes, index tables, denormalized summaries, .indexOn. Use when the user designs an RTDB tree, complains about slow/overlarge RTDB reads, or asks how to shape data for RTDB queries.
----
-
 # RTDB Data Modeling
 
 RTDB is one JSON tree; every path is an API endpoint and reading a path

@@ -1,8 +1,3 @@
----
-name: firebase-auth-model
-description: Design or audit Firebase Authentication identity models — provider flows, auth state, custom claims, UID-to-data mapping, and how identities connect to Security Rules. Use when the user needs an auth model, asks who-can-do-what across identities, or wants claims/roles designed or reviewed.
----
-
 # Firebase Auth Model
 
 Authentication answers who the user is; Security Rules answer what that

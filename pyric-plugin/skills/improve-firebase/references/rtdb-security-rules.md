@@ -1,8 +1,3 @@
----
-name: rtdb-security-rules
-description: Author or audit Realtime Database security rules — cascading read/write access, .validate shape checks, auth expressions, data vs newData semantics. Use when the user works on database.rules.json, asks why an RTDB read/write is allowed or denied, or needs RTDB paths locked down.
----
-
 # RTDB Security Rules
 
 RTDB rules are JSON-embedded expressions where access cascades downward: a

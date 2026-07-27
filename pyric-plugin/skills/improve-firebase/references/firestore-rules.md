@@ -1,8 +1,3 @@
----
-name: firestore-rules-audit
-description: Audit Firestore security rules for public access, semantic errors, unsafe match-block composition, and missing validation. Use when the user asks to review firestore.rules, check rules for vulnerabilities, or explain why a rule allows/denies an operation.
----
-
 # Firestore Rules Audit
 
 Answer three questions about a ruleset, with evidence:
