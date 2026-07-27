@@ -29,7 +29,7 @@ describe('resolveSiteUiDir (embed fallback)', () => {
     const root = mkdtempSync(join(tmpdir(), 'pyric-site-ui-'));
     const missing = join(root, 'missing');
     const site = join(root, 'site');
-    mkdirSync(join(site, 'docs'), { recursive: true });
+    mkdirSync(join(site, 'assets'), { recursive: true });
     writeFileSync(join(site, 'studio-routes.json'), '[]');
 
     expect(resolveSiteUiDir([missing, site])).toBe(site);

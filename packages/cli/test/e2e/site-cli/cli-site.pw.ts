@@ -49,19 +49,8 @@ test('CLI serves Astro Studio deep links and shares the app worker generation an
   await expect(studio.getByText(marker)).toBeVisible({ timeout: 10_000 });
   expect(await studio.evaluate(() => localStorage.getItem('pyric:worker-generation'))).toBe(appGeneration);
 
-  expect((await context.request.get('/__pyric/ui/docs/does-not-exist')).status()).toBe(404);
   expect((await context.request.get('/__pyric/ui/_astro/does-not-exist.js')).status()).toBe(404);
   await context.close();
-});
-
-test('CLI documentation pages do not start a SharedWorker', async ({ page }) => {
-  const requests: string[] = [];
-  page.on('request', (request) => requests.push(request.url()));
-  const response = await page.goto('/__pyric/ui/docs/overview/');
-  expect(response?.ok()).toBeTruthy();
-  await expect(page.getByRole('heading', { name: 'Firebase that runs in your browser' })).toBeVisible();
-  await page.waitForTimeout(500);
-  expect(requests.filter((url) => url.includes('/__pyric/sdk/worker.js'))).toEqual([]);
 });
 
 test('an app-triggered worker replacement moves an open Studio page to the announced generation', async ({ browser }) => {
