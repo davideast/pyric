@@ -152,4 +152,36 @@ describe('PyricRuntimeChip', () => {
     chip.dispose();
     expect(dom.window.document.querySelector('[data-pyric-runtime-chip-host]')).toBeNull();
   });
+
+  it('clears all errors when the header Clear button is clicked', () => {
+    const { runtime, root } = setup({ initiallyOpen: true });
+    runtime.reportError('first error', 'sandbox');
+    runtime.reportError('second error', 'sandbox');
+    expect(root.querySelectorAll('.error-row')).toHaveLength(2);
+
+    root.querySelector<HTMLButtonElement>('[data-clear-errors]')!.click();
+    expect(root.querySelectorAll('.error-row')).toHaveLength(0);
+  });
+
+  it('dismisses an individual error when its dismiss button is clicked', () => {
+    const { runtime, root } = setup({ initiallyOpen: true });
+    runtime.reportError('first error', 'sandbox');
+    runtime.reportError('second error', 'sandbox');
+    expect(root.querySelectorAll('.error-row')).toHaveLength(2);
+
+    const firstDismiss = root.querySelector<HTMLButtonElement>('[data-dismiss-error]')!;
+    firstDismiss.click();
+    expect(root.querySelectorAll('.error-row')).toHaveLength(1);
+    expect(root.textContent).toContain('second error');
+    expect(root.textContent).not.toContain('first error');
+  });
+
+  it('hides the host element from the page when the dismiss-chip X button is clicked', () => {
+    const { root, chip } = setup({ initiallyOpen: true });
+    expect(chip.element.style.display).not.toBe('none');
+
+    root.querySelector<HTMLButtonElement>('[data-dismiss-chip]')!.click();
+    expect(chip.element.style.display).toBe('none');
+  });
 });
+

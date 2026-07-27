@@ -115,6 +115,31 @@ describe('Pyric runtime status', () => {
     });
   });
 
+  it('normalizes one-shot operation rules denials into runtime error toasts', () => {
+    const runtime = createPyricRuntimeStatus(manifest);
+    runtime.recordSandboxEvents([{
+      kind: 'operation',
+      id: 'op-denied-1',
+      at: 999,
+      service: 'firestore',
+      method: 'get',
+      path: 'conversations/unauthorized-doc-id',
+      auth: { uid: null },
+      result: 'deny',
+      rulesDisposition: { kind: 'evaluated', verdict: 'deny' },
+    }]);
+
+    expect(runtime.getSnapshot().errors[0]).toMatchObject({
+      id: 'op-denied-1',
+      source: 'sandbox',
+      service: 'firestore',
+      method: 'get',
+      path: 'conversations/unauthorized-doc-id',
+      code: 'PERMISSION_DENIED',
+      message: 'PERMISSION_DENIED: get on conversations/unauthorized-doc-id denied by rules',
+    });
+  });
+
   it('bounds retained errors and clears them without changing worker status', () => {
     const runtime = createPyricRuntimeStatus(manifest, { maxErrors: 2 });
     runtime.reportError('first', 'runtime');
@@ -125,6 +150,16 @@ describe('Pyric runtime status', () => {
     expect(runtime.getSnapshot().errors.map((error) => error.message)).toEqual(['second', 'third']);
     runtime.clearErrors();
     expect(runtime.getSnapshot()).toMatchObject({ errors: [], updateAvailable: true });
+  });
+
+  it('dismisses an individual error by id without removing remaining errors', () => {
+    const runtime = createPyricRuntimeStatus(manifest, { maxErrors: 5 });
+    runtime.reportError('first', 'runtime');
+    runtime.reportError('second', 'runtime');
+    const [err1, err2] = runtime.getSnapshot().errors;
+    runtime.dismissError(err1.id);
+    expect(runtime.getSnapshot().errors.map((error) => error.message)).toEqual(['second']);
+    expect(runtime.getSnapshot().errors[0].id).toBe(err2.id);
   });
 
   it('runs the configured worker update only when a new epoch is available', async () => {
