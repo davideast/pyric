@@ -80,6 +80,60 @@ export interface RuleLine {
  * Verdicts are matched to source lines via `RuleEvaluation.line` (1-indexed
  * `allow` keyword). Lines without a matching evaluation entry get no verdict.
  */
+function parsePyricSourceMapEntries(sourceText: string): Array<{
+  generatedLine: number;
+  authoredLine: number;
+  authoredCol: number;
+  authoredFile: string;
+}> | null {
+  const marker = '// @pyric-source-map:';
+  const markerIndex = sourceText.indexOf(marker);
+  const hasMarker = markerIndex !== -1;
+  if (!hasMarker) {
+    return null;
+  }
+  const jsonStart = markerIndex + marker.length;
+  const rawJson = sourceText.slice(jsonStart).trim();
+  try {
+    const parsed = JSON.parse(rawJson);
+    const isArrayPayload = Array.isArray(parsed);
+    if (isArrayPayload) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function stripPyricSourceMap(source: string): string {
+  const marker = '// @pyric-source-map:';
+  const markerIndex = source.indexOf(marker);
+  const hasMarker = markerIndex !== -1;
+  if (!hasMarker) {
+    return source;
+  }
+  return source.slice(0, markerIndex).trimEnd();
+}
+
+function mapAuthoredLineToGenerated(
+  sourceMapEntries: Array<{ generatedLine: number; authoredLine: number }> | null,
+  authoredLine: number,
+): number {
+  const isMapMissing = sourceMapEntries === null;
+  if (isMapMissing) {
+    return authoredLine;
+  }
+  const matchingEntry = sourceMapEntries.find(
+    (entry) => entry.authoredLine === authoredLine,
+  );
+  const hasMatchingEntry = matchingEntry !== undefined;
+  if (hasMatchingEntry) {
+    return matchingEntry.generatedLine;
+  }
+  return authoredLine;
+}
+
 export function markRuleLines(
   rulesSource: string,
   evaluation: RuleEvaluation[],
@@ -87,36 +141,41 @@ export function markRuleLines(
 ): RuleLine[] {
   const deciding = decidingEvaluation(evaluation);
   const ops = methodOperations(method);
-  // line → verdict, from the evaluated rules.
+  const sourceMapEntries = parsePyricSourceMapEntries(rulesSource);
   const byLine = new Map<number, LineVerdict>();
-  const noteByLine = new Map<number, string>();
   for (const e of evaluation) {
-    if (e.line == null) continue;
-    if (e === deciding) byLine.set(e.line, 'deny');
-    else byLine.set(e.line, 'allow');
+    const hasLineNumber = e.line != null;
+    if (!hasLineNumber) continue;
+    const targetLine = mapAuthoredLineToGenerated(sourceMapEntries, e.line!);
+    const isDecidingEvaluation = e === deciding;
+    if (isDecidingEvaluation) {
+      byLine.set(targetLine, 'deny');
+    } else {
+      byLine.set(targetLine, 'allow');
+    }
   }
-  // Detect skipped allow lines by scanning the source for `allow <ops>:`
-  // declarations whose operations don't intersect the request method.
-  const rawLines = rulesSource.split('\n');
+  const cleanSource = stripPyricSourceMap(rulesSource);
+  const rawLines = cleanSource.split('\n');
   const allowRe = /^\s*allow\s+([a-z,\s]+?)\s*:/;
   return rawLines.map((text, i) => {
     const number = i + 1;
     const line: RuleLine = { number, text };
     const fromEval = byLine.get(number);
-    if (fromEval) {
+    const hasEvaluationVerdict = fromEval !== undefined;
+    if (hasEvaluationVerdict) {
       line.verdict = fromEval;
       return line;
     }
     const m = allowRe.exec(text);
-    if (m) {
-      const declared = m[1].split(',').map(s => s.trim()).filter(Boolean);
-      const matches = declared.some(op => ops.includes(op));
-      if (!matches) {
+    const isAllowLine = m !== null;
+    if (isAllowLine) {
+      const declared = m[1].split(',').map((s) => s.trim()).filter(Boolean);
+      const matches = declared.some((op) => ops.includes(op));
+      const isOperationMatched = matches;
+      if (!isOperationMatched) {
         line.verdict = 'skip';
         line.note = `not checked, this is a ${method}`;
       } else {
-        // Declared for this method but not in the evaluation trace
-        // (e.g. a different match block). Treat as a normal allow line.
         line.verdict = 'allow';
       }
     }

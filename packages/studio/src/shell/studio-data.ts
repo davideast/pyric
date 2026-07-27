@@ -758,7 +758,7 @@ export function useStudioRulesSource(service: string = 'firestore'): string {
       const source = servedRules[normalizedService];
       const hasServedSource = source !== undefined;
       if (hasServedSource) {
-        return stripPyricSourceMap(source);
+        return source;
       }
       return '';
     }
@@ -773,7 +773,7 @@ export function useStudioRulesSource(service: string = 'firestore'): string {
         return '';
       }
       const rawRules = getInternalEnv(seed.handles.sandbox).getRules();
-      return stripPyricSourceMap(rawRules);
+      return rawRules;
     } catch {
       return '';
     }

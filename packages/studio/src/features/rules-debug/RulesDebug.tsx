@@ -276,6 +276,16 @@ function parsePyricSourceMapEntries(sourceText: string): Array<{
   }
 }
 
+function stripPyricSourceMap(source: string): string {
+  const marker = '// @pyric-source-map:';
+  const markerIndex = source.indexOf(marker);
+  const hasMarker = markerIndex !== -1;
+  if (!hasMarker) {
+    return source;
+  }
+  return source.slice(0, markerIndex).trimEnd();
+}
+
 function resolveMarkedLine(
   rawSource: string | undefined,
   authoredLine: number | undefined,
@@ -314,8 +324,9 @@ function FirestoreRuleDetail({
 }) {
   const rawLine = denial.evaluatedRule?.line;
   const line = resolveMarkedLine(rulesSource, rawLine);
+  const cleanRulesSource = rulesSource !== undefined ? stripPyricSourceMap(rulesSource) : undefined;
   const allowed = denial.result === 'allow';
-  const showSource = Boolean(rulesSource && rulesSource.trim().length > 0);
+  const showSource = Boolean(cleanRulesSource && cleanRulesSource.trim().length > 0);
   return (
     <Field
       label={
@@ -326,7 +337,7 @@ function FirestoreRuleDetail({
     >
       {showSource ? (
         <LazyRulesCodeEditor
-          value={rulesSource!}
+          value={cleanRulesSource!}
           readOnly
           markLine={line}
           markKind={allowed ? 'allow' : 'deny'}
