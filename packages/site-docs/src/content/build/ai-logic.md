@@ -116,6 +116,34 @@ For model-specific routing or a scripted configuration shared by the whole dev s
 
 Generation settings such as `maxOutputTokens`, `temperature`, `topP`, `stopSequences`, and JSON response formatting carry over to the OpenAI request. `topK` and `thinkingConfig` have no equivalent and are dropped locally. Local models do not reproduce production model quality, safety policy, latency, quotas, billing, or service availability, so verify model-dependent behaviour against the production backend before release.
 
+## Pass through to production AI models
+
+To evaluate your application against live Google AI or Vertex AI models during development, set `PYRIC_AI_MODE` to `production` in `.env.local`:
+
+```dotenv
+PYRIC_AI_MODE=production
+```
+
+Or configure the equivalent mode in your Vite plugin options:
+
+```ts
+pyric({
+  ai: {
+    mode: 'production',
+  },
+})
+```
+
+In production mode, Pyric stops intercepting `getAI()` and `getGenerativeModel()` calls with local sandbox responses or same-origin proxies. Instead, requests pass directly through to Google AI and Vertex AI backend endpoints.
+
+### Project configuration requirements
+
+To use production pass-through successfully, your Firebase project configuration must be authorized for live cloud services:
+
+1. **Authorized Project Credentials**: The configuration object passed to `initializeApp({ apiKey: '...', projectId: '...', ... })` in your application must contain a valid production API key and project ID. Sandbox demo project IDs (such as `demo-app`) will fail when contacting production endpoints.
+2. **Enabled Cloud APIs**: The Vertex AI API or Google AI Studio API must be enabled in the Google Cloud / Firebase Console for your project.
+3. **No Conflicting Proxy Options**: When `mode` is set to `production`, configuring `ai.model` or `ai.engine` is invalid and will throw an error on startup. Because model selection and routing are handled directly by the production Firebase SDK, remove local proxy model overrides when passing through to production.
+
 ## Check the supported boundary
 
 Per-feature support is tracked on the [AI Logic conformance page](ai-compat.md).
