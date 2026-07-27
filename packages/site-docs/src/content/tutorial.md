@@ -17,6 +17,8 @@ Firebase provides the Emulator Suite, but it is Java-dependent, can be frustrati
 
 ## Meet Pyric
 
+For this tutorial, use the terminal path so every step starts from the same chat template:
+
 ```bash
 npm create pyric@latest my-chat -- --template chat
 cd my-chat

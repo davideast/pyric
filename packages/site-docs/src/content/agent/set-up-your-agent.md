@@ -11,21 +11,38 @@ description: "Connect Claude Code, Cursor, Codex, or any MCP client to your back
 
 One connection and your agent has the whole backend as tools. It can read and write documents as any user, run queries, lint and simulate rules, seed data, and inspect everything, against the same sandbox your app and Studio see. Nothing it does leaves your machine.
 
-The seam is one endpoint. `pyric dev --bridge` mounts an MCP server on your dev server at `/__pyric/mcp`, and every client below connects to it, directly or through a small stdio proxy that finds it for you.
+## Install the plugin
+
+Install the Pyric plugin from any terminal:
+
+```bash
+npx plugins add davideast/pyric
+```
+
+Then ask your coding agent:
+
+```text
+Use the pyric-start skill to set up and run Pyric in this project.
+```
+
+The skill scaffolds a project if needed, selects the correct launcher, starts the bridge, opens the app, and checks that the sandbox is connected. Ask for the skill by name because command syntax differs between coding agents. To expose the backend as tools, configure the client below.
+
+One requirement remains: the sandbox lives inside the served page, so keep the app open in a browser tab while the agent works. If data tools return nothing, open the page and try again.
+
+## Configure a client manually
+
+The seam is one endpoint. `pyric dev --bridge` mounts an MCP server on the development server at `/__pyric/mcp`. A client can connect directly or through the stdio proxy, which finds the running server.
+
+Start the bridge:
+
 ```bash
 pyric dev --bridge
 ```
-One requirement to know up front: the sandbox lives inside the served page, so keep the app open in a browser tab while the agent works. If data tools return nothing, the page is not open. Open it and try again.
 
-## Claude Code
+### Claude Code
 
-The plugin does the whole thing, including finding the port.
-```bash
-claude plugin install https://github.com/davideast/pyric   # path: pyric-plugin/
-```
-Then, inside Claude Code, run `/pyric:pyric-start`. It scaffolds a project if you need one, starts `pyric dev --bridge --persist`, opens the app so the sandbox connects, and wires MCP through a stdio proxy that discovers the running server on its own. There is no `claude mcp add` step and no port to configure.
+Register the stdio server:
 
-Prefer manual wiring? Register the stdio server:
 ```bash
 claude mcp add pyric -- npx --package @pyric/cli pyric mcp
 ```
@@ -36,7 +53,7 @@ claude mcp add pyric --transport http --url http://localhost:5173/__pyric/mcp
 ```
 First thing to ask: "Inspect the sandbox." One tool call comes back with the current rules, a lint summary, a document census, and recent denials.
 
-## Cursor
+### Cursor
 
 Cursor reads MCP servers from `.cursor/mcp.json`. Use the stdio server so the port is never your problem:
 ```json
@@ -48,7 +65,7 @@ Cursor reads MCP servers from `.cursor/mcp.json`. Use the stdio server so the po
 ```
 Start `pyric dev --bridge`, open the app, then ask Cursor to inspect the sandbox.
 
-## Codex
+### Codex
 
 Same shape, Codex config. In `~/.codex/config.toml`:
 ```toml
@@ -58,7 +75,7 @@ args = ["--package", "@pyric/cli", "pyric", "mcp"]
 ```
 Start `pyric dev --bridge`, open the app, and ask it to inspect the sandbox.
 
-## Any MCP client
+### Any MCP client
 
 The generic recipe is two options, and every client above is one of them applied:
 

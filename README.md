@@ -14,12 +14,28 @@ Pyric adds a development-only resolution layer to a Firebase application. Run th
 
 The mirrored data services do not connect to a production Firebase project. Local writes cannot delete production data or create Firebase usage charges, and local rules changes do not deploy. Pyric owns the development sandbox and verification workflow. Firebase owns production, with `firebase-tools` or the Firebase Console handling deployment.
 
-## Start a new Firebase application locally
+## Start with a coding agent
+
+Install the Pyric plugin:
+
+```bash
+npx plugins add davideast/pyric
+```
+
+Then ask your agent:
+
+```text
+Use the pyric-start skill to set up and run Pyric in this project.
+```
+
+The skill chooses the project launcher, starts one local sandbox bridge, opens the application, and confirms that the browser sandbox is connected.
+
+## Start from the terminal
 
 Create a Vite application with canonical Firebase imports, Firestore rules, and the Pyric development plugin already configured:
 
 ```bash
-npm create pyric my-app
+npm create pyric@latest my-app
 cd my-app
 npm install
 npm run dev
