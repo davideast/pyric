@@ -1,14 +1,10 @@
 import type { User, MultiFactorUser, MultiFactorSession, MultiFactorResolver, MultiFactorAssertion, MultiFactorInfo } from './types.js';
+import { getMultiFactorState } from './internal-user.js';
 
 export function multiFactor(user: User): MultiFactorUser {
-  if (!(user as any)._multiFactor) {
-    (user as any)._multiFactor = {
-      enrolledFactors: [],
-    };
-  }
-  const state = (user as any)._multiFactor;
+  const state = getMultiFactorState(user);
   return {
-    enrolledFactors: state.enrolledFactors,
+    enrolledFactors: state.enrolledFactors as unknown as MultiFactorInfo[],
     getSession: () => Promise.resolve({ id: `mfa-session-${user.uid}` } as MultiFactorSession),
     enroll: async (assertion: MultiFactorAssertion, displayName?: string | null) => {
       state.enrolledFactors.push({
@@ -20,7 +16,7 @@ export function multiFactor(user: User): MultiFactorUser {
     },
     unenroll: async (target: string | MultiFactorInfo) => {
       const targetId = typeof target === 'string' ? target : target.uid;
-      const idx = state.enrolledFactors.findIndex((f: any) => f.uid === targetId || f.factorId === targetId);
+      const idx = state.enrolledFactors.findIndex((f) => f.uid === targetId || f.factorId === targetId);
       if (idx !== -1) {
         state.enrolledFactors.splice(idx, 1);
       }

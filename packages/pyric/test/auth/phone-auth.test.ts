@@ -31,6 +31,13 @@ describe('Phone Auth offline challenge-response (CDD)', () => {
     expect(cred.operationType).toBe('signIn');
   });
 
+  test('confirm with invalid code throws auth/invalid-verification-code error', async () => {
+    const app = initializeSandbox({ projectId: 'test-invalid-code' });
+    const auth = getAuth(app);
+    const confirmation = await signInWithPhoneNumber(auth, '+16505551234', null);
+    expect(confirmation.confirm('999999')).rejects.toThrow(/invalid-verification-code/);
+  });
+
   test('linkWithPhoneNumber adds phone data to existing user', async () => {
     const app = initializeSandbox({ projectId: 'test-link-phone' });
     const auth = getAuth(app);
@@ -42,17 +49,17 @@ describe('Phone Auth offline challenge-response (CDD)', () => {
     expect(linkedCred.user.phoneNumber).toBe('+16505559999');
   });
 
-  test('reauthenticateWithPhoneNumber and updatePhoneNumber execute cleanly', async () => {
+  test('reauthenticateWithPhoneNumber and updatePhoneNumber execute cleanly with valid credential', async () => {
     const app = initializeSandbox({ projectId: 'test-reauth-phone' });
     const auth = getAuth(app);
     const initialConf = await signInWithPhoneNumber(auth, '+16505550000', null);
     const { user } = await initialConf.confirm('123456');
 
-    const reauthConf = await reauthenticateWithPhoneNumber(user, '+16505550000', null);
+    const reauthConf = await reauthenticateWithPhoneNumber(user, '+16505558888', null);
     expect(reauthConf.verificationId).toBeDefined();
 
-    const cred = PhoneAuthProvider.credential('vid', '123456');
+    const cred = PhoneAuthProvider.credential(reauthConf.verificationId, '123456');
     await updatePhoneNumber(user, cred);
-    expect(user.phoneNumber).toBe('+16505550000');
+    expect(user.phoneNumber).toBe('+16505558888');
   });
 });
