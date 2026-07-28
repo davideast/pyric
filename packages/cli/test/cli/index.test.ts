@@ -124,6 +124,7 @@ describe('service command hierarchy', () => {
       'firestore rules resolve',
       'firestore indexes generate',
       'storage rules lint',
+      'storage rules resolve',
       'storage rules simulate',
       'database rules lint',
       'database rules validate',
@@ -182,6 +183,28 @@ describe('service command hierarchy', () => {
     expect(result.stderr).toBe('');
     expect(result.stdout).toContain("rules_version = '2';");
     expect(result.stdout).toContain('function isAuthenticated()');
+  });
+
+  it('resolves Storage rules modules through the namespaced command', async () => {
+    const sourcePath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'storage.modules.rules');
+    const result = await runDispatch(['storage', 'rules', 'resolve', sourcePath]);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain("rules_version = '2';");
+    expect(result.stdout).toContain('function sizeAtMost(maxBytes)');
+    expect(result.stdout).toContain('service firebase.storage');
+  });
+
+  it('rejects a Firestore source passed to Storage rules resolve', async () => {
+    const sourcePath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'firestore.modules.rules');
+    const result = await runDispatch(['storage', 'rules', 'resolve', sourcePath]);
+
+    expect(result.code).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain(
+      'source declares service cloud.firestore; expected firebase.storage',
+    );
   });
 
   it('generates Firestore indexes through the namespaced command', async () => {

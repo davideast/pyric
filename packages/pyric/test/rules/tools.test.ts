@@ -20,13 +20,16 @@ const fakeCtx = { signal: new AbortController().signal };
 describe('createFirestoreRulesTools — without scope', () => {
   const tools = createFirestoreRulesTools();
 
-  it('emits 5 handlers (no firestore_test_rules without scope; stdlib + lint + resolve come from the browser-safe factory)', () => {
+  it('emits 8 handlers (no firestore_test_rules without scope; generic Rules tools keep Firestore aliases)', () => {
     expect(tools.map((t) => t.name)).toEqual([
       'firestore_simulate_rules',
       'firestore_rules_stdlib_list',
       'firestore_rules_stdlib_get',
       'firestore_lint_rules',
       'firestore_resolve_modules',
+      'rules_stdlib_list',
+      'rules_stdlib_get',
+      'rules_resolve_modules',
     ]);
   });
 
@@ -107,18 +110,63 @@ service cloud.firestore {
     expect(result.ok).toBe(false);
     expect(result.summary).toContain('Resolve failed');
   });
+
+  it('lists and resolves Storage modules through the service-neutral tools', async () => {
+    const registry = createToolRegistry();
+    for (const t of tools) registry.register(t);
+    const dispatch = createDispatch(registry);
+    const listed = await dispatch.execute(
+      {
+        id: '1',
+        name: 'rules_stdlib_list',
+        args: { service: 'storage' },
+      },
+      fakeCtx,
+    );
+    expect(listed.ok).toBe(true);
+    expect(
+      (listed.data as { modules: Array<{ key: string }> }).modules.map(
+        ({ key }) => key,
+      ),
+    ).toContain('storage/uploads');
+
+    const resolved = await dispatch.execute(
+      {
+        id: '2',
+        name: 'rules_resolve_modules',
+        args: {
+          service: 'storage',
+          source: `rules_version = '2+modules';
+import { sizeAtMost } from 'storage/uploads';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow write: if sizeAtMost(1024); }
+  }
+}`,
+        },
+      },
+      fakeCtx,
+    );
+    expect(resolved.ok).toBe(true);
+    expect((resolved.data as { resolved: string }).resolved).toContain(
+      'function sizeAtMost(maxBytes)',
+    );
+  });
 });
 
 describe('createFirestoreRulesTools — with scope', () => {
   const tools = createFirestoreRulesTools({ scope: fakeScope });
 
-  it('emits 6 handlers when scope is supplied (adds firestore_test_rules to the 5-handler default)', () => {
+  it('emits 9 handlers when scope is supplied (adds firestore_test_rules to the local default)', () => {
     expect(tools.map((t) => t.name)).toEqual([
       'firestore_simulate_rules',
       'firestore_rules_stdlib_list',
       'firestore_rules_stdlib_get',
       'firestore_lint_rules',
       'firestore_resolve_modules',
+      'rules_stdlib_list',
+      'rules_stdlib_get',
+      'rules_resolve_modules',
       'firestore_test_rules',
     ]);
   });

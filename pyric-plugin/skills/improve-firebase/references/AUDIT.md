@@ -18,6 +18,8 @@ Use this reference to select evidence, not to force every possible probe. Inspec
 | Evidence | Pyric surface | What it proves | What it does not prove |
 |---|---|---|---|
 | E1 static rules | `firestore_lint_rules`; `pyric firestore rules lint`; Storage/RTDB lint and validate commands | Parseability, budgets, known unsafe constructs and smells | Runtime authorization for a concrete identity/state/query |
+| E1 Standard Library | `rules_stdlib_list`; `rules_stdlib_get`; Firestore compatibility aliases on older versions | Available tested helpers, exact signatures, and service compatibility | That a helper fits the product model or proves a complete policy |
+| E1 modular build | `rules_resolve_modules`; `pyric firestore rules resolve`; `pyric storage rules resolve` | Imports resolve to a deployable version 2 artifact; source/artifact comparison exposes drift | Runtime authorization or deployment state |
 | E1 index extraction | `pyric firestore indexes generate <sources...> --out <temp>` | Composite shapes statically visible in supported query syntax | Runtime frequency, production build status, dynamic/admin-chain queries, necessity of every overshot branch |
 | E2 sandbox census | `sandbox_inspect` | Active local Firestore rules, document counts, recent requests and denials | Production rules, production traffic, complete schema |
 | E2 Firestore simulation | `firestore_simulate_rules` | Local decision for explicit rules, identity, operation, data/query, and mocks | Exact Firebase behavior where Pyric reports an unsupported/gap surface |
@@ -64,6 +66,10 @@ Useful identity matrix: signed out; valid owner; authenticated non-owner; same-r
 ## 3. Data integrity & model fit
 
 Pair every important write with the invariants later reads assume.
+For Firestore and Storage, inspect the service-compatible Standard Library
+before proposing fields, custom metadata, object paths, or helper functions.
+Use its signatures to inform the model, then keep only the helpers that express
+real product invariants.
 
 Hunt for:
 
@@ -135,6 +141,8 @@ Hunt for:
 - candidate Rules that introduce `now-allowed`, `now-denied`, state drift, unsupported replay, or engine drift
 - local-only confidence where a hosted check is warranted for a high-risk Firestore boundary
 - missing or ambiguous Firebase project selection, generated Rules not resolved for deployment, or index config not wired through `firebase.json`
+- `firestore.modules.rules` or `storage.modules.rules` missing while generated Rules are hand-edited
+- `firestore.rules` or `storage.rules` drifted from its modular source, or `firebase.json` pointed at the modular source instead of the generated artifact
 - client-bundled secrets or accidental Admin credentials
 - deploy scripts that can target the wrong project or deploy broader surfaces than intended
 - Pyric conformance gaps relevant to the application's actual features
@@ -145,6 +153,7 @@ Treat `pyric verify` as regression evidence, not a universal security proof. Cov
 ## 7. Capability boundaries
 
 - The default MCP bridge does not expose every programmatic Pyric tool. Index extraction is a CLI/library surface; discovery and assurance may require a custom registry.
+- Service-neutral Standard Library tools may be absent on older Pyric versions. Use the Firestore aliases or bundled skill reference; do not invent a Storage tool.
 - `sandbox_inspect`, RTDB crawl, and data-plane tools describe the connected local sandbox, not production.
 - The Firestore Rules Test API requires existing credentials and project scope. Never solicit secrets into chat or create credentials.
 - Production deployment and index build status belong to Firebase CLI/Console. Keep this audit non-mutating.

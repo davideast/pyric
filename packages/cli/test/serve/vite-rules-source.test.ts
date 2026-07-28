@@ -29,6 +29,37 @@ describe('Vite rules source convention', () => {
     });
   });
 
+  it('prefers storage.modules.rules for Vite while preserving the deployment target', () => {
+    const root = project();
+    writeFileSync(path.join(root, 'storage.modules.rules'), 'modules');
+    expect(resolveViteRulesConfig(root, undefined, {
+      firestore: { rules: 'firestore.rules' },
+      storage: { rules: 'storage.rules', bucket: 'assets.example' },
+    })).toEqual({
+      firestore: { rules: 'firestore.rules' },
+      storage: {
+        rules: 'storage.modules.rules',
+        bucket: 'assets.example',
+      },
+    });
+  });
+
+  it('updates the first configured Storage rules entry for Vite', () => {
+    const root = project();
+    writeFileSync(path.join(root, 'storage.modules.rules'), 'modules');
+    expect(resolveViteRulesConfig(root, undefined, {
+      storage: [
+        { bucket: 'one.example' },
+        { rules: 'storage.rules', bucket: 'two.example' },
+      ],
+    })).toEqual({
+      storage: [
+        { bucket: 'one.example' },
+        { rules: 'storage.modules.rules', bucket: 'two.example' },
+      ],
+    });
+  });
+
   it('preserves firebase.json when no explicit or modules source exists', () => {
     const root = project();
     const firebase = { firestore: { rules: 'firestore.rules' } };

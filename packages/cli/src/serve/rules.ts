@@ -109,19 +109,29 @@ export async function loadProjectRules(
 }
 
 /**
- * Validate a raw storage-rules source. `pyric/storage`'s parser throws a
- * plain `SyntaxError` (no line/col like the firestore lint path) — wrap it
- * into the same actionable "fix before serving" message shape.
+ * Resolve and validate a raw Storage rules source. Modular sources are
+ * authored in storage.modules.rules and resolved in memory before the
+ * sandbox sees them; firebase.json can continue to point at storage.rules.
  */
 export function prepareStorageRulesSource(raw: string, sourcePath: string): string {
+  let source = raw;
+  if (/^\s*rules_version\s*=\s*['"]2\+modules['"]/m.test(raw)) {
+    const resolved = resolveModulesBrowser(raw, { sourceFile: sourcePath });
+    if (!resolved.success) {
+      throw new Error(
+        `pyric dev: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
+      );
+    }
+    source = resolved.data.resolved;
+  }
   try {
-    parseStorageRules(raw);
+    parseStorageRules(source);
   } catch (e) {
     throw new Error(
       `pyric dev: ${sourcePath} failed to parse: ${e instanceof Error ? e.message : String(e)} — fix the rules before serving.`,
     );
   }
-  return raw;
+  return source;
 }
 
 /**

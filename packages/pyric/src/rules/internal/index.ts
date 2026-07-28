@@ -145,19 +145,20 @@ export { createFirestoreSimulatorTools } from '../simulator.js';
 
 // ─── Stdlib reference (browser-safe — pure data) ─────────────────────
 // Module-organized reference an agent can call before writing rules.
-// Exposed via the `firestore_rules_stdlib_list` + `_get` tools in
-// `createFirestoreRulesStdlibTools()`; also importable directly for
-// non-agent consumers (docs generators, lint integrations).
+// Exposed through service-neutral tools plus retained Firestore aliases in
+// `createFirestoreRulesStdlibTools()`; also importable directly.
 export {
   STDLIB_MODULES,
   findModuleByKey,
   allModuleKeys,
+  modulesForService,
   suggestKey,
 } from '../stdlib-modules.js';
 export type {
   StdlibModule,
   StdlibEntry,
   ModuleKind,
+  RulesService,
 } from '../stdlib-modules.js';
 export { createFirestoreRulesStdlibTools } from '../stdlib-tools.js';
 

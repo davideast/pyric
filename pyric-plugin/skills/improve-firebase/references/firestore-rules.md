@@ -8,19 +8,27 @@ Answer three questions about a ruleset, with evidence:
 
 ## Steps
 
-1. **Read the ruleset.** Use the project's `firestore.rules`, or
-   `firestore_get_rules` for deployed state. Complete when you can list every
-   match block and the operations each allows.
+1. **Read the source and artifact.** Read `firestore.modules.rules`,
+   `firestore.rules`, the Firestore block in `firebase.json`, and
+   [rules-standard-library.md](rules-standard-library.md). Confirm the modular
+   file is the authored source, the plain version 2 file is generated, and
+   `firebase.json` points at `firestore.rules`.
 
-2. **Lint.** Run `firestore_lint_rules`. Complete when every lint finding is
-   either carried into the report or explained away.
+2. **Inspect the Standard Library.** Query the installed Firestore-compatible
+   catalog before judging the document model or helper functions. Read exact
+   signatures for the selected modules. Never copy module bodies.
 
-3. **Access analysis.** For each match block, record identity × operation
+3. **Resolve and lint.** Resolve `firestore.modules.rules` to a temporary file,
+   compare it with `firestore.rules`, then run `firestore_lint_rules` on the
+   generated output. Carry source/artifact drift and lint findings into the
+   report.
+
+4. **Access analysis.** For each match block, record identity × operation
    (get/list/create/update/delete) → allow/deny. Flag public writes, public
    reads on sensitive paths, and create/update/delete without an auth check.
    Complete when the access matrix has no blank cells.
 
-4. **Semantic checks.** Verify each expression against its operation context:
+5. **Semantic checks.** Verify each expression against its operation context:
    - `list` cannot rely on a single document's `resource.data` — a list query
      must be constrained so it can only return readable documents.
    - `create` reads `request.resource.data`; there is no `resource.data` yet.
@@ -31,20 +39,20 @@ Answer three questions about a ruleset, with evidence:
    Complete when every `resource.data` / `request.resource.data` use is
    justified for its operation.
 
-5. **Composition checks.** Any matching `allow` grants access — permissive
+6. **Composition checks.** Any matching `allow` grants access — permissive
    wildcards override specific restrictions elsewhere. Flag recursive
    wildcards (`{doc=**}`) that bypass sibling rules, undefined function calls,
    unused functions whose names near-miss a called one, and repeated
    `get()`/`exists()` calls that multiply per-request cost. Complete when
    every wildcard's reach is stated.
 
-6. **Prove the findings.** Back each critical/high finding with
+7. **Prove the findings.** Back each critical/high finding with
    `firestore_simulate_rules` (vary auth context and operation) or a
    `firestore_test_rules` suite; `pyric_derive_rules_test_cases` can generate
    the case list. Complete when each such finding cites a passing
    simulation/test demonstrating the problem.
 
-7. **Report.**
+8. **Report.**
 
    ```
    ## Firestore Rules Audit
@@ -54,8 +62,9 @@ Answer three questions about a ruleset, with evidence:
    ### Recommended Fixes
    ```
 
-If the user asks for remediation: change the rules, re-lint, then re-run the
-simulations or tests that exposed each finding and confirm they now deny.
+For an explicit `execute` request, edit `firestore.modules.rules`, regenerate
+`firestore.rules`, review the generated semantic diff, re-lint the artifact,
+then rerun the simulations or tests that exposed each finding.
 
 ## Reference — high-signal patterns
 

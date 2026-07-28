@@ -21,10 +21,25 @@ import {
   STDLIB_MODULES,
   findModuleByKey,
   allModuleKeys,
+  modulesForService,
   suggestKey,
+  type RulesService,
 } from './stdlib-modules.js';
 
+function expectedServiceName(service: RulesService): string {
+  return service === 'storage' ? 'firebase.storage' : 'cloud.firestore';
+}
+
+function importLineFor(module: (typeof STDLIB_MODULES)[number]): string | undefined {
+  return module.kind === 'user-module'
+    ? `import { ${module.entries
+        .map((entry) => entry.signature.slice(0, entry.signature.indexOf('(')))
+        .join(', ')} } from '${module.key}';`
+    : undefined;
+}
+
 export function createFirestoreRulesStdlibTools(): ToolHandler[] {
+  const firestoreModules = modulesForService('firestore');
   return [
     {
       name: 'firestore_rules_stdlib_list',
@@ -37,13 +52,14 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
       async execute() {
         return {
           ok: true,
-          summary: `Listed ${STDLIB_MODULES.length} stdlib modules`,
+          summary: `Listed ${firestoreModules.length} Firestore stdlib modules`,
           data: {
             authoring:
               "user-module entries are IMPORTED, never copied: start the rules file with rules_version = '2+modules'; add one `import { fn } from 'key';` line per module; call the functions in allow conditions. write_file inlines imports on save.",
-            modules: STDLIB_MODULES.map((m) => ({
+            modules: firestoreModules.map((m) => ({
               key: m.key,
               kind: m.kind,
+              services: m.services,
               description: m.description,
             })),
           },
@@ -67,9 +83,9 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
       },
       async execute(args) {
         const { key } = args as { key: string };
-        const found = findModuleByKey(key);
+        const found = findModuleByKey(key, 'firestore');
         if (!found) {
-          const suggestion = suggestKey(key);
+          const suggestion = suggestKey(key, 'firestore');
           return {
             ok: false,
             summary:
@@ -78,7 +94,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
             data: {
               unknownKey: key,
               ...(suggestion ? { suggestion } : {}),
-              validKeys: allModuleKeys(),
+              validKeys: allModuleKeys('firestore'),
             },
           };
         }
@@ -86,12 +102,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
         // response shape nudges IMPORT-mode over copy-mode (epic #787):
         // bodies stay available in entries, but the first thing the
         // model reads is the line it should actually write.
-        const importLine =
-          found.kind === 'user-module'
-            ? `import { ${found.entries
-                .map((e) => e.signature.slice(0, e.signature.indexOf('(')))
-                .join(', ')} } from '${found.key}';`
-            : undefined;
+        const importLine = importLineFor(found);
         return {
           ok: true,
           summary:
@@ -198,6 +209,164 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
             result.data.modules.length > 0
               ? `Resolved ${result.data.modules.length} module${result.data.modules.length === 1 ? '' : 's'}: ${result.data.modules.join(', ')}`
               : 'No modules imported — source returned as-is (version rewritten to "2")',
+          data: result.data,
+        };
+      },
+    },
+    {
+      name: 'rules_stdlib_list',
+      description:
+        'List the Security Rules Standard Library with service compatibility. Pass `firestore` or `storage` to see only modules that can be imported by that service. Call this before modeling protected fields, metadata, object paths, or authorization helpers.',
+      parameters: {
+        type: 'object',
+        properties: {
+          service: {
+            type: 'string',
+            enum: ['firestore', 'storage'],
+            description: 'Optional service filter.',
+          },
+        },
+      },
+      async execute(args) {
+        const { service } = args as { service?: RulesService };
+        const modules = service ? modulesForService(service) : STDLIB_MODULES;
+        return {
+          ok: true,
+          summary:
+            `Listed ${modules.length} Rules stdlib modules` +
+            (service ? ` for ${service}` : ''),
+          data: {
+            authoring:
+              "Import user-module functions from a rules_version = '2+modules' source. Keep firestore.modules.rules or storage.modules.rules as the authored source and resolve it to the deployment artifact. Never copy module bodies.",
+            modules: modules.map((module) => ({
+              key: module.key,
+              kind: module.kind,
+              services: module.services,
+              description: module.description,
+            })),
+          },
+        };
+      },
+    },
+    {
+      name: 'rules_stdlib_get',
+      description:
+        'Get one Security Rules Standard Library module for a specific service, including exact function signatures, examples, notes, and the import line. Use a key returned by rules_stdlib_list.',
+      parameters: {
+        type: 'object',
+        properties: {
+          service: {
+            type: 'string',
+            enum: ['firestore', 'storage'],
+          },
+          key: {
+            type: 'string',
+            description: 'Exact module key returned by rules_stdlib_list.',
+          },
+        },
+        required: ['service', 'key'],
+      },
+      async execute(args) {
+        const { service, key } = args as {
+          service: RulesService;
+          key: string;
+        };
+        const found = findModuleByKey(key, service);
+        if (!found) {
+          const incompatible = findModuleByKey(key);
+          const suggestion = suggestKey(key, service);
+          return {
+            ok: false,
+            summary: incompatible
+              ? `Stdlib module "${key}" is not compatible with ${service}`
+              : `No ${service} stdlib module named "${key}"` +
+                (suggestion ? ` — did you mean "${suggestion}"?` : ''),
+            data: {
+              unknownKey: key,
+              service,
+              ...(incompatible ? { compatibleServices: incompatible.services } : {}),
+              ...(suggestion ? { suggestion } : {}),
+              validKeys: allModuleKeys(service),
+            },
+          };
+        }
+        const importLine = importLineFor(found);
+        return {
+          ok: true,
+          summary:
+            `Stdlib module: ${found.key} (${service})` +
+            (importLine ? ` — author with: ${importLine}` : ''),
+          data: {
+            ...(importLine
+              ? {
+                  importLine,
+                  authoring:
+                    `Import this function from ${service}.modules.rules; do not copy its body.`,
+                }
+              : {}),
+            module: found,
+          },
+        };
+      },
+    },
+    {
+      name: 'rules_resolve_modules',
+      description:
+        "Resolve a Firestore or Storage `2+modules` source into an ordinary version 2 deployment artifact. Pass the service explicitly so a mismatched source is rejected. Use firestore.modules.rules → firestore.rules or storage.modules.rules → storage.rules.",
+      parameters: {
+        type: 'object',
+        properties: {
+          service: {
+            type: 'string',
+            enum: ['firestore', 'storage'],
+          },
+          source: {
+            type: 'string',
+            description: "Rules source whose version line is `2+modules`.",
+          },
+          modules: {
+            type: 'object',
+            additionalProperties: { type: 'string' },
+            description: 'Optional project-local module overrides.',
+          },
+        },
+        required: ['service', 'source'],
+      },
+      async execute(args) {
+        const { service, source, modules } = args as {
+          service: RulesService;
+          source: string;
+          modules?: Record<string, string>;
+        };
+        const expected = expectedServiceName(service);
+        if (!new RegExp(`\\bservice\\s+${expected.replace('.', '\\.')}\\b`).test(source)) {
+          return {
+            ok: false,
+            summary: `Resolve failed: source does not declare service ${expected}`,
+            data: { service, expectedService: expected },
+          };
+        }
+        const sourceFile =
+          service === 'storage'
+            ? 'storage.modules.rules'
+            : 'firestore.modules.rules';
+        const result = resolveModulesBrowser(source, {
+          ...(modules ? { modules } : {}),
+          sourceFile,
+        });
+        if (!result.success) {
+          return {
+            ok: false,
+            summary: `Resolve failed: ${result.error.message}`,
+            data: result,
+          };
+        }
+        return {
+          ok: true,
+          summary:
+            result.data.modules.length > 0
+              ? `Resolved ${result.data.modules.length} ${service} module${result.data.modules.length === 1 ? '' : 's'}: ${result.data.modules.join(', ')}`
+              : `Resolved ${service} source with no imports`,
           data: result.data,
         };
       },

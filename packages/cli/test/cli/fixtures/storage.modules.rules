@@ -1,0 +1,11 @@
+rules_version = '2+modules';
+
+import { sizeAtMost } from 'storage/uploads';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileName} {
+      allow write: if sizeAtMost(1048576);
+    }
+  }
+}
