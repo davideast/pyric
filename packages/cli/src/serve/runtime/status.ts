@@ -108,6 +108,13 @@ function isListenerPhaseErroredEvent(event: SandboxEvent): boolean {
   return isListenerKind && isErroredPhase && hasErrorPayload;
 }
 
+function isAiRejectedEvent(event: SandboxEvent): boolean {
+  const isServiceMutationKind = event.kind === 'service_mutation';
+  const isAiService = event.service === 'ai';
+  const isRejectedOp = 'op' in event && event.op === 'request_rejected';
+  return isServiceMutationKind && isAiService && isRejectedOp;
+}
+
 function sandboxError(event: SandboxEvent): PyricRuntimeError | null {
   if (isRuntimeErrorEvent(event)) {
     const hasPathProperty = 'path' in event && typeof event.path === 'string';
@@ -125,6 +132,23 @@ function sandboxError(event: SandboxEvent): PyricRuntimeError | null {
       ...(targetPath ? { path: targetPath } : {}),
       ...(errorPayload?.code ? { code: errorPayload.code } : {}),
       message: errorPayload?.message ? errorPayload.message : 'Sandbox runtime error',
+    };
+  }
+  if (isAiRejectedEvent(event)) {
+    const detail = 'detail' in event ? (event.detail as Record<string, unknown> | undefined) : undefined;
+    const code = typeof detail?.code === 'string' ? detail.code : 'AI_ERROR';
+    const message = typeof detail?.message === 'string' ? detail.message : 'AI request rejected';
+    const hasPathProperty = 'path' in event && typeof event.path === 'string';
+    const targetPath = hasPathProperty ? event.path : '(ai)';
+    return {
+      id: event.id,
+      source: 'sandbox',
+      at: event.at,
+      service: 'ai',
+      method: 'generateContent',
+      path: targetPath,
+      code,
+      message: `AI_ERROR: ${message}`,
     };
   }
   if (isListenerErroredEvent(event)) {

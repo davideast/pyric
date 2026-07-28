@@ -116,7 +116,10 @@ export class GeminiEngine implements AnswerEngine {
 
   private normalizeModel(model: string): string {
     const stripped = model.replace(/^models\//, '');
-    return `models/${stripped}`;
+    const isExperimentalFlashLite =
+      stripped === 'gemini-3.5-flash-lite' || stripped === 'gemini-2.5-flash';
+    const resolved = isExperimentalFlashLite ? 'gemini-1.5-flash' : stripped;
+    return `models/${resolved}`;
   }
 
   /**

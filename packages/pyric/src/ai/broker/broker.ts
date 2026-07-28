@@ -141,16 +141,31 @@ export class AiBroker {
     return detail;
   }
 
+  private emitRejectionIfBrokerError(model: string, err: unknown): void {
+    if (err instanceof AiBrokerError) {
+      this.emit('request_rejected', model, {
+        code: err.envelope.error.code,
+        status: err.envelope.error.status,
+        message: err.envelope.error.message,
+      });
+    }
+  }
+
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
     this.validate(req, model);
-    const response = await this.engine.generateContent(req, model);
-    this.emit('generate_content', model, {
-      contentCount: req.contents.length,
-      finishReason: response.candidates?.[0]?.finishReason,
-      totalTokenCount: response.usageMetadata?.totalTokenCount,
-      responseId: response.responseId,
-    });
-    return response;
+    try {
+      const response = await this.engine.generateContent(req, model);
+      this.emit('generate_content', model, {
+        contentCount: req.contents.length,
+        finishReason: response.candidates?.[0]?.finishReason,
+        totalTokenCount: response.usageMetadata?.totalTokenCount,
+        responseId: response.responseId,
+      });
+      return response;
+    } catch (err) {
+      this.emitRejectionIfBrokerError(model, err);
+      throw err;
+    }
   }
 
   /**
@@ -167,21 +182,32 @@ export class AiBroker {
         contentCount: req.contents.length,
         chunkCount,
       });
+    const emitRejection = (err: unknown) => this.emitRejectionIfBrokerError(model, err);
     return (async function* wrapped(): AsyncGenerator<WireChunk> {
       let chunkCount = 0;
-      for await (const chunk of inner) {
-        chunkCount++;
-        yield chunk;
+      try {
+        for await (const chunk of inner) {
+          chunkCount++;
+          yield chunk;
+        }
+        emit(chunkCount);
+      } catch (err) {
+        emitRejection(err);
+        throw err;
       }
-      emit(chunkCount);
     })();
   }
 
   async countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse> {
     this.validateContents(req, model);
-    const response = await this.engine.countTokens(req, model);
-    this.emit('count_tokens', model, { totalTokens: response.totalTokens });
-    return response;
+    try {
+      const response = await this.engine.countTokens(req, model);
+      this.emit('count_tokens', model, { totalTokens: response.totalTokens });
+      return response;
+    } catch (err) {
+      this.emitRejectionIfBrokerError(model, err);
+      throw err;
+    }
   }
 
   // ── Production-shaped validation ──────────────────────────────────────────
