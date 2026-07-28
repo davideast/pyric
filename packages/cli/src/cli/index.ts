@@ -15,6 +15,7 @@
  *   pyric firestore rules resolve <path> [--out <path>]
  *   pyric firestore indexes generate <path...> [--out <path>]
  *   pyric storage rules lint <path>
+ *   pyric storage rules resolve <path> [--out <path>]
  *   pyric storage rules simulate [--stdin]
  *   pyric database rules lint <path>
  *   pyric database rules validate <path>
@@ -71,6 +72,7 @@ USAGE
   pyric firestore rules resolve <path> [--out <path>]
   pyric firestore indexes generate <path...> [--out <path>]
   pyric storage rules lint <path>
+  pyric storage rules resolve <path> [--out <path>]
   pyric storage rules simulate [--stdin]
   pyric database rules lint <path>
   pyric database rules validate <path>
@@ -127,6 +129,7 @@ COMMANDS
   firestore rules resolve    Resolve Firestore 2+modules imports to one ruleset.
   firestore indexes generate Generate firestore.indexes.json from application source.
   storage rules lint         Check Storage rules syntax locally.
+  storage rules resolve      Resolve Storage 2+modules imports to one ruleset.
   storage rules simulate     Run the local Storage rules evaluator.
   database rules lint        Run the Realtime Database rules expression linter.
   database rules validate    Validate Realtime Database rules expressions.

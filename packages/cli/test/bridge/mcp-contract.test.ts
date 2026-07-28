@@ -35,6 +35,9 @@ describe('default MCP tool contract', () => {
       'firestore_rules_stdlib_get',
       'firestore_lint_rules',
       'firestore_resolve_modules',
+      'rules_stdlib_list',
+      'rules_stdlib_get',
+      'rules_resolve_modules',
       'pyric_can_i_use',
     ]);
   });

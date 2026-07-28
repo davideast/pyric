@@ -12,17 +12,39 @@ export function resolveViteRulesConfig(
   explicitRules: string | undefined,
   firebaseConfig: FirebaseJson | null,
 ): FirebaseJson | null {
-  const rulesSource = explicitRules
+  const firestoreSource = explicitRules
     ?? (existsSync(path.join(root, 'firestore.modules.rules'))
       ? 'firestore.modules.rules'
       : undefined);
+  const storageSource = existsSync(path.join(root, 'storage.modules.rules'))
+    ? 'storage.modules.rules'
+    : undefined;
 
-  if (!rulesSource) return firebaseConfig;
-  return {
+  if (!firestoreSource && !storageSource) return firebaseConfig;
+  let resolved: FirebaseJson = {
     ...(firebaseConfig ?? {}),
-    firestore: {
-      ...(firebaseConfig?.firestore ?? {}),
-      rules: rulesSource,
-    },
   };
+  if (firestoreSource) {
+    resolved.firestore = {
+      ...(firebaseConfig?.firestore ?? {}),
+      rules: firestoreSource,
+    };
+  }
+  if (storageSource) {
+    const storage = firebaseConfig?.storage;
+    if (Array.isArray(storage)) {
+      const index = Math.max(0, storage.findIndex((entry) => entry.rules));
+      resolved.storage = storage.length === 0
+        ? [{ rules: storageSource }]
+        : storage.map((entry, entryIndex) =>
+            entryIndex === index ? { ...entry, rules: storageSource } : entry,
+          );
+    } else {
+      resolved.storage = {
+        ...(storage ?? {}),
+        rules: storageSource,
+      };
+    }
+  }
+  return resolved;
 }

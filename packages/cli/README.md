@@ -31,6 +31,7 @@ Console to ship rules, indexes, hosting, and functions to a real project.
 | `pyric firestore rules resolve <path>` | Resolve `2+modules` imports into a Firebase rules artifact |
 | `pyric firestore indexes generate <path...>` | Derive composite-index definitions from application source |
 | `pyric storage rules lint <path>` / `simulate` | Run local Storage rules lint or simulation |
+| `pyric storage rules resolve <path> --out storage.rules` | Resolve `storage.modules.rules` into a deployable Storage rules artifact |
 | `pyric database rules lint <path>` | Lint a Realtime Database rules JSON file |
 | `pyric database rules validate <path>` | Validate Realtime Database rules expressions |
 | `pyric database rules simulate` | Run the local Realtime Database rules simulator |
@@ -120,7 +121,10 @@ Assurance campaign tools remain available programmatically from
 without a live `ProjectScope`, so no Rules Test API tool):
 
 - `firestore_simulate_rules`
-- `firestore_rules_stdlib_list` / `_get`
+- `rules_stdlib_list` / `_get` (Firestore or Storage), with
+  `firestore_rules_stdlib_list` / `_get` retained as compatibility aliases
+- `rules_resolve_modules` (Firestore or Storage), with
+  `firestore_resolve_modules` retained as a compatibility alias
 - `firestore_lint_rules`
 - `firestore_resolve_modules`
 

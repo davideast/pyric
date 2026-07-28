@@ -126,13 +126,29 @@ export async function runRulesResolve(
   parsed: ParsedArgs,
   deps: ResolveRulesDeps = {},
 ): Promise<number> {
+  return runServiceRulesResolve('firestore', parsed, deps);
+}
+
+export async function runStorageRulesResolve(
+  parsed: ParsedArgs,
+  deps: ResolveRulesDeps = {},
+): Promise<number> {
+  return runServiceRulesResolve('storage', parsed, deps);
+}
+
+async function runServiceRulesResolve(
+  service: 'firestore' | 'storage',
+  parsed: ParsedArgs,
+  deps: ResolveRulesDeps,
+): Promise<number> {
   const out = deps.stdout ?? process.stdout;
   const err = deps.stderr ?? process.stderr;
   const cwd = deps.cwd ?? process.cwd();
+  const command = `pyric ${service} rules resolve`;
   const sourcePath = parsed.positional[0];
   if (!sourcePath) {
     err.write(
-      'pyric firestore rules resolve: missing rules-file path. Usage: pyric firestore rules resolve <path> [--out <path>]\n',
+      `${command}: missing rules-file path. Usage: ${command} <path> [--out <path>]\n`,
     );
     return 1;
   }
@@ -143,16 +159,27 @@ export async function runRulesResolve(
     source = await (deps.readFile ?? readFile)(absoluteSourcePath, 'utf-8');
   } catch (error) {
     err.write(
-      `pyric firestore rules resolve: ${error instanceof Error ? error.message : String(error)}\n`,
+      `${command}: ${error instanceof Error ? error.message : String(error)}\n`,
     );
     return 1;
   }
 
+  const expectedService =
+    service === 'storage' ? 'firebase.storage' : 'cloud.firestore';
+  const parsedSource = parseToAST(source);
+  if (parsedSource && parsedSource.service.name !== expectedService) {
+    err.write(
+      `${command}: source declares service ${parsedSource.service.name}; expected ${expectedService}\n`,
+    );
+    return 2;
+  }
+
   const result = (deps.resolveModules ?? resolveModules)(source, {
     basePath: dirname(absoluteSourcePath),
+    sourceFile: sourcePath,
   });
   if (!result.success) {
-    err.write(`pyric firestore rules resolve: ${result.error.message}\n`);
+    err.write(`${command}: ${result.error.message}\n`);
     return 2;
   }
 
@@ -169,7 +196,7 @@ export async function runRulesResolve(
     result.data.resolved.endsWith('\n') ? result.data.resolved : `${result.data.resolved}\n`,
     'utf-8',
   );
-  out.write(`pyric firestore rules resolve: wrote ${outputPath}\n`);
+  out.write(`${command}: wrote ${outputPath}\n`);
   return 0;
 }
 

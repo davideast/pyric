@@ -33,11 +33,15 @@
  * runtime constant grows, the test fails until this file catches up.
  */
 
+import { STDLIB_SERVICE_CONTRACTS } from './modules/stdlib-services.generated.js';
+
 export type ModuleKind =
   | 'language-namespace'
   | 'type-methods'
   | 'globals'
   | 'user-module';
+
+export type RulesService = 'firestore' | 'storage';
 
 export interface StdlibEntry {
   /** Surface signature, e.g. `math.ceil(x: number): int`. */
@@ -56,6 +60,8 @@ export interface StdlibModule {
    *  `firestore_rules_stdlib_get({ key })`. Case-insensitive lookup. */
   key: string;
   kind: ModuleKind;
+  /** Rules services where this catalog entry can be used. */
+  services: readonly RulesService[];
   /** One-line for the list TOC. */
   description: string;
   /** One-paragraph: what this module is for. */
@@ -71,9 +77,11 @@ export interface StdlibModule {
   relatedKeys?: string[];
 }
 
+type StdlibModuleDefinition = Omit<StdlibModule, 'services'>;
+
 // ─── Top-level callables ──────────────────────────────────────────────
 
-const BUILTINS_MODULE: StdlibModule = {
+const BUILTINS_MODULE: StdlibModuleDefinition = {
   key: 'builtins',
   kind: 'language-namespace',
   description:
@@ -120,7 +128,7 @@ const BUILTINS_MODULE: StdlibModule = {
 
 // ─── Language namespaces ──────────────────────────────────────────────
 
-const MATH: StdlibModule = {
+const MATH: StdlibModuleDefinition = {
   key: 'math',
   kind: 'language-namespace',
   description:
@@ -150,7 +158,7 @@ const MATH: StdlibModule = {
   relatedKeys: ['hashing'],
 };
 
-const TIMESTAMP_NS: StdlibModule = {
+const TIMESTAMP_NS: StdlibModuleDefinition = {
   key: 'timestamp',
   kind: 'language-namespace',
   description:
@@ -173,7 +181,7 @@ const TIMESTAMP_NS: StdlibModule = {
   relatedKeys: ['duration', 'request', 'lifecycle'],
 };
 
-const DURATION_NS: StdlibModule = {
+const DURATION_NS: StdlibModuleDefinition = {
   key: 'duration',
   kind: 'language-namespace',
   description:
@@ -202,7 +210,7 @@ const DURATION_NS: StdlibModule = {
   relatedKeys: ['timestamp'],
 };
 
-const LATLNG_NS: StdlibModule = {
+const LATLNG_NS: StdlibModuleDefinition = {
   key: 'latlng',
   kind: 'language-namespace',
   description:
@@ -222,7 +230,7 @@ const LATLNG_NS: StdlibModule = {
   ],
 };
 
-const HASHING_NS: StdlibModule = {
+const HASHING_NS: StdlibModuleDefinition = {
   key: 'hashing',
   kind: 'language-namespace',
   description:
@@ -257,7 +265,7 @@ const HASHING_NS: StdlibModule = {
 
 // ─── Type methods ─────────────────────────────────────────────────────
 
-const STRING_METHODS: StdlibModule = {
+const STRING_METHODS: StdlibModuleDefinition = {
   key: 'string',
   kind: 'type-methods',
   description:
@@ -299,7 +307,7 @@ const STRING_METHODS: StdlibModule = {
   relatedKeys: ['bytes', 'hashing', 'validation'],
 };
 
-const LIST_METHODS: StdlibModule = {
+const LIST_METHODS: StdlibModuleDefinition = {
   key: 'list',
   kind: 'type-methods',
   description:
@@ -345,7 +353,7 @@ const LIST_METHODS: StdlibModule = {
   relatedKeys: ['map', 'string'],
 };
 
-const MAP_METHODS: StdlibModule = {
+const MAP_METHODS: StdlibModuleDefinition = {
   key: 'map',
   kind: 'type-methods',
   description:
@@ -388,7 +396,7 @@ const MAP_METHODS: StdlibModule = {
   relatedKeys: ['list', 'lifecycle', 'validation'],
 };
 
-const BYTES_METHODS: StdlibModule = {
+const BYTES_METHODS: StdlibModuleDefinition = {
   key: 'bytes',
   kind: 'type-methods',
   description:
@@ -414,7 +422,7 @@ const BYTES_METHODS: StdlibModule = {
   relatedKeys: ['hashing', 'string'],
 };
 
-const PATH_METHODS: StdlibModule = {
+const PATH_METHODS: StdlibModuleDefinition = {
   key: 'path',
   kind: 'type-methods',
   description:
@@ -439,7 +447,7 @@ const PATH_METHODS: StdlibModule = {
 
 // ─── Globals ──────────────────────────────────────────────────────────
 
-const REQUEST_GLOBALS: StdlibModule = {
+const REQUEST_GLOBALS: StdlibModuleDefinition = {
   key: 'request',
   kind: 'globals',
   description:
@@ -493,7 +501,7 @@ const REQUEST_GLOBALS: StdlibModule = {
   relatedKeys: ['resource', 'auth'],
 };
 
-const RESOURCE_GLOBALS: StdlibModule = {
+const RESOURCE_GLOBALS: StdlibModuleDefinition = {
   key: 'resource',
   kind: 'globals',
   description:
@@ -514,7 +522,7 @@ const RESOURCE_GLOBALS: StdlibModule = {
 
 // ─── User-authored modules (mirror of the canonical site reference) ──
 
-const AUTH_MODULE: StdlibModule = {
+const AUTH_MODULE: StdlibModuleDefinition = {
   key: 'auth',
   kind: 'user-module',
   description:
@@ -540,7 +548,7 @@ const AUTH_MODULE: StdlibModule = {
   relatedKeys: ['validation', 'lifecycle', 'membership'],
 };
 
-const VALIDATION_MODULE: StdlibModule = {
+const VALIDATION_MODULE: StdlibModuleDefinition = {
   key: 'validation',
   kind: 'user-module',
   description:
@@ -578,7 +586,7 @@ const VALIDATION_MODULE: StdlibModule = {
   relatedKeys: ['map', 'lifecycle', 'content'],
 };
 
-const LOBBY_MODULE: StdlibModule = {
+const LOBBY_MODULE: StdlibModuleDefinition = {
   key: 'lobby',
   kind: 'user-module',
   description:
@@ -604,7 +612,7 @@ const LOBBY_MODULE: StdlibModule = {
   relatedKeys: ['turns', 'state', 'transitions'],
 };
 
-const TURNS_MODULE: StdlibModule = {
+const TURNS_MODULE: StdlibModuleDefinition = {
   key: 'turns',
   kind: 'user-module',
   description:
@@ -626,7 +634,7 @@ const TURNS_MODULE: StdlibModule = {
   relatedKeys: ['lobby', 'state', 'transitions'],
 };
 
-const STATE_MODULE: StdlibModule = {
+const STATE_MODULE: StdlibModuleDefinition = {
   key: 'state',
   kind: 'user-module',
   description:
@@ -649,7 +657,7 @@ const STATE_MODULE: StdlibModule = {
   relatedKeys: ['turns', 'lifecycle', 'transitions'],
 };
 
-const MEMBERSHIP_MODULE: StdlibModule = {
+const MEMBERSHIP_MODULE: StdlibModuleDefinition = {
   key: 'membership',
   kind: 'user-module',
   description:
@@ -679,7 +687,7 @@ const MEMBERSHIP_MODULE: StdlibModule = {
   relatedKeys: ['auth', 'request'],
 };
 
-const LIFECYCLE_MODULE: StdlibModule = {
+const LIFECYCLE_MODULE: StdlibModuleDefinition = {
   key: 'lifecycle',
   kind: 'user-module',
   description:
@@ -717,7 +725,7 @@ const LIFECYCLE_MODULE: StdlibModule = {
   relatedKeys: ['map', 'validation', 'request', 'counters'],
 };
 
-const TRANSITIONS_MODULE: StdlibModule = {
+const TRANSITIONS_MODULE: StdlibModuleDefinition = {
   key: 'transitions',
   kind: 'user-module',
   description:
@@ -743,7 +751,7 @@ const TRANSITIONS_MODULE: StdlibModule = {
   relatedKeys: ['state', 'lifecycle'],
 };
 
-const GEOMETRY_MODULE: StdlibModule = {
+const GEOMETRY_MODULE: StdlibModuleDefinition = {
   key: 'geometry',
   kind: 'user-module',
   description:
@@ -767,7 +775,7 @@ const GEOMETRY_MODULE: StdlibModule = {
 
 // ─── Module registry ──────────────────────────────────────────────────
 
-const COUNTERS_MODULE: StdlibModule = {
+const COUNTERS_MODULE: StdlibModuleDefinition = {
   key: 'counters',
   kind: 'user-module',
   description:
@@ -799,7 +807,7 @@ const COUNTERS_MODULE: StdlibModule = {
   relatedKeys: ['lifecycle', 'state'],
 };
 
-const TIMING_MODULE: StdlibModule = {
+const TIMING_MODULE: StdlibModuleDefinition = {
   key: 'timing',
   kind: 'user-module',
   description:
@@ -821,7 +829,7 @@ const TIMING_MODULE: StdlibModule = {
   relatedKeys: ['lifecycle', 'timestamp', 'duration'],
 };
 
-const CONTENT_MODULE: StdlibModule = {
+const CONTENT_MODULE: StdlibModuleDefinition = {
   key: 'content',
   kind: 'user-module',
   description:
@@ -857,7 +865,7 @@ const CONTENT_MODULE: StdlibModule = {
   relatedKeys: ['auth', 'lifecycle', 'validation'],
 };
 
-const SPACES_MODULE: StdlibModule = {
+const SPACES_MODULE: StdlibModuleDefinition = {
   key: 'spaces',
   kind: 'user-module',
   description:
@@ -889,7 +897,7 @@ const SPACES_MODULE: StdlibModule = {
   relatedKeys: ['membership', 'content', 'builtins'],
 };
 
-const JOINING_MODULE: StdlibModule = {
+const JOINING_MODULE: StdlibModuleDefinition = {
   key: 'joining',
   kind: 'user-module',
   description:
@@ -916,7 +924,7 @@ const JOINING_MODULE: StdlibModule = {
   relatedKeys: ['spaces', 'lifecycle', 'membership'],
 };
 
-const ATOMIC_MODULE: StdlibModule = {
+const ATOMIC_MODULE: StdlibModuleDefinition = {
   key: 'atomic',
   kind: 'user-module',
   description:
@@ -945,6 +953,128 @@ const ATOMIC_MODULE: StdlibModule = {
   ],
   relatedKeys: ['counters', 'joining', 'spaces', 'builtins'],
 };
+
+const STORAGE_UPLOADS_MODULE: StdlibModuleDefinition = {
+  key: 'storage/uploads',
+  kind: 'user-module',
+  description:
+    'Storage module: inclusive upload-size limits and declared MIME metadata allowlists.',
+  purpose:
+    'Apply bounded upload policies to the incoming Storage object. MIME helpers inspect declared metadata; they do not inspect or authenticate the uploaded bytes.',
+  whenToUse:
+    'Use for Storage create or update rules that limit object size or accepted content-type metadata.',
+  entries: [
+    {
+      signature: 'sizeAtMost(maxBytes: int): bool',
+      description: 'The incoming object size is at most the inclusive byte limit.',
+    },
+    {
+      signature: 'sizeBetween(minBytes: int, maxBytes: int): bool',
+      description: 'The incoming object size is inside the inclusive byte range.',
+    },
+    {
+      signature: 'contentTypeMatches(pattern: string): bool',
+      description: 'The incoming content-type metadata matches the entire RE2 pattern.',
+      notes: 'This checks declared metadata, not the uploaded bytes.',
+    },
+    {
+      signature: 'contentTypeIsOneOf(types: list): bool',
+      description: 'The incoming content-type metadata equals one allowlisted value.',
+      notes: 'This checks declared metadata, not the uploaded bytes.',
+    },
+  ],
+  relatedKeys: ['auth', 'membership', 'storage/metadata', 'storage/objects'],
+};
+
+const STORAGE_METADATA_MODULE: StdlibModuleDefinition = {
+  key: 'storage/metadata',
+  kind: 'user-module',
+  description:
+    'Storage module: required custom metadata, bounded string values, and metadata ownership.',
+  purpose:
+    'Validate the flat string map in Storage custom metadata and connect incoming or existing ownership metadata to the authenticated UID.',
+  whenToUse:
+    'Use when object paths alone do not carry every upload invariant and custom metadata must be present, bounded, or owner-bound.',
+  entries: [
+    {
+      signature: 'hasRequiredMetadata(keys: list): bool',
+      description: 'The incoming custom metadata contains every required key.',
+    },
+    {
+      signature: 'metadataString(key: string, min: int, max: int): bool',
+      description: 'The incoming metadata value is a string within the inclusive size range.',
+    },
+    {
+      signature: 'incomingMetadataOwner(key: string): bool',
+      description: 'The incoming metadata value equals the authenticated UID.',
+    },
+    {
+      signature: 'existingMetadataOwner(key: string): bool',
+      description: 'The existing metadata value equals the authenticated UID.',
+    },
+  ],
+  relatedKeys: ['auth', 'membership', 'storage/uploads', 'storage/objects'],
+};
+
+const STORAGE_OBJECTS_MODULE: StdlibModuleDefinition = {
+  key: 'storage/objects',
+  kind: 'user-module',
+  description:
+    'Storage module: distinguish create, update, and delete operations safely.',
+  purpose:
+    'Branch Storage authorization by request method without relying on missing resource bindings or null checks.',
+  whenToUse:
+    'Use when create, update, and delete require different ownership or validation checks.',
+  entries: [
+    {
+      signature: 'isCreate(): bool',
+      description: "The Storage request method is 'create'.",
+    },
+    {
+      signature: 'isUpdate(): bool',
+      description: "The Storage request method is 'update'.",
+    },
+    {
+      signature: 'isDelete(): bool',
+      description: "The Storage request method is 'delete'.",
+    },
+  ],
+  relatedKeys: ['auth', 'membership', 'storage/uploads', 'storage/metadata'],
+};
+
+const STORAGE_TIME_MODULE: StdlibModuleDefinition = {
+  key: 'storage/time',
+  kind: 'user-module',
+  description:
+    'Storage module: strict freshness windows over server-owned object timestamps.',
+  purpose:
+    'Check whether an existing Storage object was created or updated within a bounded number of seconds.',
+  whenToUse:
+    'Use for access policies whose validity expires relative to an existing object timestamp.',
+  entries: [
+    {
+      signature: 'createdWithin(seconds: int): bool',
+      description: 'Request time is strictly before creation time plus the window.',
+      notes: 'Equality with the deadline denies. Requires an existing object.',
+    },
+    {
+      signature: 'updatedWithin(seconds: int): bool',
+      description: 'Request time is strictly before update time plus the window.',
+      notes: 'Equality with the deadline denies. Requires an existing object.',
+    },
+  ],
+  relatedKeys: ['storage/objects', 'auth', 'membership'],
+};
+
+function servicesForModule(module: StdlibModuleDefinition): readonly RulesService[] {
+  if (module.kind !== 'user-module') return ['firestore'];
+  const contracts =
+    STDLIB_SERVICE_CONTRACTS[module.key as keyof typeof STDLIB_SERVICE_CONTRACTS];
+  if (!contracts) return ['firestore'];
+  return contracts.map((service) =>
+    service === 'firebase.storage' ? 'storage' : 'firestore',
+  );
+}
 
 export const STDLIB_MODULES: ReadonlyArray<StdlibModule> = [
   // top-level callables (get / exists / getAfter / debug)
@@ -980,24 +1110,48 @@ export const STDLIB_MODULES: ReadonlyArray<StdlibModule> = [
   SPACES_MODULE,
   JOINING_MODULE,
   ATOMIC_MODULE,
-];
+  STORAGE_UPLOADS_MODULE,
+  STORAGE_METADATA_MODULE,
+  STORAGE_OBJECTS_MODULE,
+  STORAGE_TIME_MODULE,
+].map((module) => ({
+  ...module,
+  services: servicesForModule(module),
+}));
+
+/** Catalog entries compatible with one Rules service. */
+export function modulesForService(service: RulesService): StdlibModule[] {
+  return STDLIB_MODULES.filter((module) => module.services.includes(service));
+}
 
 /** Look up a module by case-insensitive key. */
-export function findModuleByKey(key: string): StdlibModule | undefined {
+export function findModuleByKey(
+  key: string,
+  service?: RulesService,
+): StdlibModule | undefined {
   const k = key.toLowerCase();
-  return STDLIB_MODULES.find((m) => m.key.toLowerCase() === k);
+  return STDLIB_MODULES.find(
+    (m) =>
+      m.key.toLowerCase() === k &&
+      (service === undefined || m.services.includes(service)),
+  );
 }
 
 /** All valid keys — used in the error response when a get-call misses. */
-export function allModuleKeys(): string[] {
-  return STDLIB_MODULES.map((m) => m.key);
+export function allModuleKeys(service?: RulesService): string[] {
+  return (service ? modulesForService(service) : STDLIB_MODULES).map(
+    (m) => m.key,
+  );
 }
 
 /** Closest-match suggestion (cheap Levenshtein) for a bad key. */
-export function suggestKey(input: string): string | null {
+export function suggestKey(
+  input: string,
+  service?: RulesService,
+): string | null {
   const want = input.toLowerCase();
   let best: { key: string; d: number } | null = null;
-  for (const m of STDLIB_MODULES) {
+  for (const m of service ? modulesForService(service) : STDLIB_MODULES) {
     const d = levenshtein(want, m.key.toLowerCase());
     if (best === null || d < best.d) best = { key: m.key, d };
   }

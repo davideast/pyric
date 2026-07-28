@@ -7,7 +7,7 @@ into whatever runtime you use. They reach an agent two ways:
 1. **`pyric dev --bridge`** (or `pyric bridge`) — exposes the **default sandbox
    registry** over MCP; the [Pyric agent plugin](../pyric-plugin/README.md)
    auto-wires it. Forwarded + in-process names are pinned in
-   `packages/cli/src/bridge/server/mcp-contract.ts` (**35** tools today).
+   `packages/cli/src/bridge/server/mcp-contract.ts` (**29** tools today).
 2. **Programmatic** — import a factory and register the handlers with any agent
    framework (the playground does this with `@inbrowser/agent`).
 
@@ -26,14 +26,17 @@ plus sandbox inspection.
 `firestore_batch_write` · `firestore_query_where` ·
 `sandbox_inspect`
 
-## Firestore rules — `createFirestoreRulesTools` / `createFirestoreRulesStdlibTools` (`pyric/rules`, Node-only pieces under `pyric/rules/internal/node`)
+## Security Rules — `createFirestoreRulesTools` / `createFirestoreRulesStdlibTools` (`pyric/rules`, Node-only pieces under `pyric/rules/internal/node`)
 
-The differentiator surface: lint, simulate, and (optionally) test rules
-**locally, as a library** — no emulator.
+The service-neutral catalog and resolver cover Firestore and Storage. Existing
+Firestore-prefixed names remain compatibility aliases. Firestore lint,
+simulation, and optional hosted testing remain service-specific.
 
-`firestore_lint_rules` · `firestore_simulate_rules` ·
-`firestore_resolve_modules` (`2+modules` → plain v2) ·
+`rules_stdlib_list` · `rules_stdlib_get` ·
+`rules_resolve_modules` (`2+modules` → plain v2) ·
 `firestore_rules_stdlib_list` · `firestore_rules_stdlib_get` ·
+`firestore_resolve_modules` · `firestore_lint_rules` ·
+`firestore_simulate_rules` ·
 `firestore_test_rules` (live Rules Test API — only when a `ProjectScope` is
 supplied; build one with `@pyric/cli/credentials/node`)
 

@@ -31,9 +31,8 @@ export type {
   FirestoreSimulatorToolDeps,
 } from '../tools.js';
 
-// Stdlib discovery tools — `firestore_rules_stdlib_list` +
-// `firestore_rules_stdlib_get`. Live on /node because the stdlib
-// modules ship as files the resolver loads from disk.
+// Rules stdlib discovery/resolution tools, including retained
+// Firestore-prefixed compatibility aliases.
 export { createFirestoreRulesStdlibTools } from '../stdlib-tools.js';
 
 // RTDB rules generation — `writeRtdbRulesFile` writes a compiled
