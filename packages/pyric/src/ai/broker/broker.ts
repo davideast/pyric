@@ -109,10 +109,16 @@ export class AiBroker {
 
   /** One-line construction-time summary of what this broker resolved to. */
   private describeEngine(): string {
-    if (this.engineKind === 'openai') {
+    const isOpenAiEngine = this.engineKind === 'openai';
+    if (isOpenAiEngine) {
       return `[pyric/ai] engine resolved: openai (model=${this.engineModel ?? 'passthrough'}, upstream=${this.engineBaseUrl})`;
     }
-    if (this.engineKind === 'custom') {
+    const isGeminiEngine = this.engineKind === 'gemini';
+    if (isGeminiEngine) {
+      return `[pyric/ai] engine resolved: gemini (upstream=${this.engineBaseUrl ?? 'https://generativelanguage.googleapis.com'})`;
+    }
+    const isCustomEngine = this.engineKind === 'custom';
+    if (isCustomEngine) {
       return '[pyric/ai] engine resolved: custom AnswerEngine';
     }
     return '[pyric/ai] engine resolved: scripted (zero-config unless a script is queued)';
@@ -120,12 +126,19 @@ export class AiBroker {
 
   /** Additive detail fields every emitted event carries so Studio can show the engine. */
   private engineDetail(): Record<string, unknown> {
-    return {
+    const detail: Record<string, unknown> = {
       engine: this.engineKind,
-      ...(this.engineKind === 'openai'
-        ? { model: this.engineModel, baseUrl: this.engineBaseUrl }
-        : {}),
     };
+    const isOpenAiEngine = this.engineKind === 'openai';
+    if (isOpenAiEngine) {
+      detail.model = this.engineModel;
+      detail.baseUrl = this.engineBaseUrl;
+    }
+    const isGeminiEngine = this.engineKind === 'gemini';
+    if (isGeminiEngine) {
+      detail.baseUrl = this.engineBaseUrl ?? 'https://generativelanguage.googleapis.com';
+    }
+    return detail;
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {

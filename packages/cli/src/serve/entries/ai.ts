@@ -139,12 +139,20 @@ function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
       ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
     } as EngineOption;
   }
-  if (wire.kind === 'gemini') {
-    return {
+  const isGeminiWire = wire.kind === 'gemini';
+  if (isGeminiWire) {
+    const result: Record<string, unknown> = {
       kind: 'gemini',
-      ...(wire.baseUrl !== undefined ? { baseUrl: wire.baseUrl } : {}),
-      ...(wire.apiKey !== undefined ? { apiKey: wire.apiKey } : {}),
-    } as unknown as EngineOption;
+    };
+    const hasBaseUrl = wire.baseUrl !== undefined;
+    if (hasBaseUrl) {
+      result.baseUrl = wire.baseUrl;
+    }
+    const hasApiKey = wire.apiKey !== undefined;
+    if (hasApiKey) {
+      result.apiKey = wire.apiKey;
+    }
+    return result as unknown as EngineOption;
   }
   return {
     kind: 'scripted',

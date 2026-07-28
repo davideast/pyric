@@ -65,12 +65,20 @@ export function engineConfigToWire(engine: PyricAiEngineConfig): AiEngineConfigW
     }
     return result as AiEngineConfigWire;
   }
-  if (engine.kind === 'gemini') {
-    return {
+  const isGeminiEngine = engine.kind === 'gemini';
+  if (isGeminiEngine) {
+    const result: Record<string, unknown> = {
       kind: 'gemini',
-      ...(engine.baseUrl !== undefined ? { baseUrl: engine.baseUrl } : {}),
-      ...(engine.apiKey !== undefined ? { apiKey: engine.apiKey } : {}),
-    } as AiEngineConfigWire;
+    };
+    const hasBaseUrl = engine.baseUrl !== undefined;
+    if (hasBaseUrl) {
+      result.baseUrl = engine.baseUrl;
+    }
+    const hasApiKey = engine.apiKey !== undefined;
+    if (hasApiKey) {
+      result.apiKey = engine.apiKey;
+    }
+    return result as AiEngineConfigWire;
   }
   const result: Record<string, unknown> = {
     kind: 'scripted',
