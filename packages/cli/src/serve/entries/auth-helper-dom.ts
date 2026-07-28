@@ -113,6 +113,8 @@ export function mountAuthHelperDialog(helper: ServeAuthHelper): void {
     form.append(email, name, claims, err, row);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
+      submit.disabled = true;
+      cancel.disabled = true;
       let parsed: Record<string, unknown> | undefined;
       if (claims.value.trim()) {
         try {

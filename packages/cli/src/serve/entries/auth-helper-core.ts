@@ -183,10 +183,11 @@ export class ServeAuthHelper {
     if (existing) {
       return bareCredential(existing, request.providerId);
     }
+    const defaultName = request.spec.email.split('@')[0] || null;
     const identity: HelperIdentity = {
       uid: mintProviderUid(),
       email: request.spec.email,
-      displayName: request.spec.displayName ?? null,
+      displayName: request.spec.displayName ?? defaultName,
       customClaims: request.spec.customClaims ?? {},
     };
     await Promise.resolve(this.directory.add?.(identity));
