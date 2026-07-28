@@ -250,6 +250,65 @@ function RuleDetail({
   return <FirestoreRuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />;
 }
 
+function parsePyricSourceMapEntries(sourceText: string): Array<{
+  generatedLine: number;
+  authoredLine: number;
+  authoredCol: number;
+  authoredFile: string;
+}> | null {
+  const marker = '// @pyric-source-map:';
+  const markerIndex = sourceText.indexOf(marker);
+  const hasMarker = markerIndex !== -1;
+  if (!hasMarker) {
+    return null;
+  }
+  const jsonStart = markerIndex + marker.length;
+  const rawJson = sourceText.slice(jsonStart).trim();
+  try {
+    const parsed = JSON.parse(rawJson);
+    const isArrayPayload = Array.isArray(parsed);
+    if (isArrayPayload) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function stripPyricSourceMap(source: string): string {
+  const marker = '// @pyric-source-map:';
+  const markerIndex = source.indexOf(marker);
+  const hasMarker = markerIndex !== -1;
+  if (!hasMarker) {
+    return source;
+  }
+  return source.slice(0, markerIndex).trimEnd();
+}
+
+function resolveMarkedLine(
+  rawSource: string | undefined,
+  authoredLine: number | undefined,
+): number | undefined {
+  const isSourceMissing = rawSource === undefined;
+  const isLineMissing = authoredLine === undefined;
+  if (isSourceMissing || isLineMissing) {
+    return authoredLine;
+  }
+  const sourceMapEntries = parsePyricSourceMapEntries(rawSource);
+  const hasSourceMap = sourceMapEntries !== null;
+  if (hasSourceMap) {
+    const matchingEntry = sourceMapEntries.find(
+      (entry) => entry.authoredLine === authoredLine,
+    );
+    const hasMatchingEntry = matchingEntry !== undefined;
+    if (hasMatchingEntry) {
+      return matchingEntry.generatedLine;
+    }
+  }
+  return authoredLine;
+}
+
 /** Firestore: the matched `Rule #N (ops)` node, the deployed ruleset shown
  *  read-only with the DECIDING line marked (✗ + remove tint on a deny; ✓ + add
  *  tint on an allow), and — when no source is available — the raw simulator
@@ -263,20 +322,22 @@ function FirestoreRuleDetail({
   exp: RuleExplanation;
   rulesSource?: string;
 }) {
-  const line = denial.evaluatedRule?.line;
+  const rawLine = denial.evaluatedRule?.line;
+  const line = resolveMarkedLine(rulesSource, rawLine);
+  const cleanRulesSource = rulesSource !== undefined ? stripPyricSourceMap(rulesSource) : undefined;
   const allowed = denial.result === 'allow';
-  const showSource = !!rulesSource && rulesSource.trim().length > 0;
+  const showSource = Boolean(cleanRulesSource && cleanRulesSource.trim().length > 0);
   return (
     <Field
       label={
         exp.implicitDeny || !exp.ruleNode
           ? 'matched rule'
-          : `matched rule — ${exp.ruleNode}${line ? ` · line ${line}` : ''}`
+          : `matched rule — ${exp.ruleNode}${rawLine ? ` · line ${rawLine}` : ''}`
       }
     >
       {showSource ? (
         <LazyRulesCodeEditor
-          value={rulesSource!}
+          value={cleanRulesSource!}
           readOnly
           markLine={line}
           markKind={allowed ? 'allow' : 'deny'}

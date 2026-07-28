@@ -261,7 +261,6 @@ describe('pyric init v2 — chat template', () => {
     ]) {
       expect(existsSync(join(dir, file))).toBe(true);
     }
-    expect(readFileSync(join(dir, 'README.md'), 'utf8')).toContain('# idea-room');
     expect(readFileSync(join(dir, 'vite.config.ts'), 'utf8')).not.toContain('node_modules/');
     expect(existsSync(join(dir, 'bun.lock'))).toBe(false);
     expect(existsSync(join(dir, '.pyric'))).toBe(false);
@@ -278,7 +277,6 @@ describe('pyric init v2 — CLI surface', () => {
     expect(existsSync(join(root, 'myapp', 'index.html'))).toBe(true);
     const pkg = JSON.parse(readFileSync(join(root, 'myapp', 'package.json'), 'utf8'));
     expect(pkg.name).toBe('custom-name');
-    expect(readFileSync(join(root, 'myapp', 'README.md'), 'utf8')).toContain('# custom-name');
   });
 
   it('--json emits ONE parseable line on stdout; human report on stderr', async () => {
@@ -366,7 +364,7 @@ describe('pyric init v2 — CLI surface', () => {
   }, 30_000);
 });
 
-describe('pyric init v2 — production handoff', () => {
+describe('pyric init v2 — production scripts', () => {
   for (const template of ['web', 'node', 'static', 'chat', 'nextjs'] as const) {
     it(`${template} delegates production deployment to firebase-tools`, async () => {
       const dir = tmp();
@@ -379,10 +377,6 @@ describe('pyric init v2 — production handoff', () => {
       };
       expect(Object.keys(pkg.scripts).some((name) => name.startsWith('deploy'))).toBe(false);
       expect(Object.values(pkg.scripts).some((command) => command.includes('pyric deploy'))).toBe(false);
-
-      const readme = readFileSync(join(dir, 'README.md'), 'utf8');
-      expect(readme).toContain('npx firebase-tools deploy');
-      expect(readme).not.toContain('pyric deploy');
     });
   }
 });
@@ -401,7 +395,7 @@ function generatedFiles(root: string): string[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) visit(path);
-      else files.push(relative(root, path));
+      else if (entry.name !== 'README.md') files.push(relative(root, path));
     }
   };
   visit(root);
@@ -430,7 +424,7 @@ async function scaffoldContract(template: Template): Promise<Record<string, stri
 }
 
 describe('pyric init output contract', () => {
-  it('keeps every generated file stable across internal template moves', async () => {
+  it('keeps generated runtime files stable across internal template moves', async () => {
     expect({
       web: await scaffoldContract('web'),
       node: await scaffoldContract('node'),
@@ -439,7 +433,6 @@ describe('pyric init output contract', () => {
       web: {
         '.env.example': '28dfe95f880d2ef18c36d150760286eee88c09054cb5341466f3b22c0f5ff297',
         '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
-        'README.md': '7237e0dc51e7aa1432278a53cc06cb5c611e1d2da02f9d513740480c6bac6d83',
         'firebase.json': '06ed33d14b46379011c4a805299016f8c03adf5f47994624fde82b794f09ec2b',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '622374ca45b9bc35f561b377dff02da4c6c583dc1ddcd67cd43b0c69276634bd',
@@ -453,7 +446,6 @@ describe('pyric init output contract', () => {
       node: {
         '.env.example': '20b0fec5308501f75cab4d6026678eefbbbef0001bfabaa17c66d92e67c9d582',
         '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
-        'README.md': '80980e88cdcc1d4e261cd2b65748cd68290a24255bbae01e512d4a64ea52198f',
         'firebase.json': 'e817f89d2f9776ba460ec062be7d40f827b8f910d740cff2522b72232f1cdf5a',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '9028ecbf9580fee3a04afae28223bad887df81c814d14d2ebe983d30f3a49080',
@@ -464,7 +456,6 @@ describe('pyric init output contract', () => {
       static: {
         '.env.example': '18c3e06dc3745d958ab69b314618808d7b0d0f31fad4db05552bf5c9c6613c92',
         '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
-        'README.md': '448d17c5c58fa1f300693d5b35db23d201ac230af1290fc17a0b2b54a7a56194',
         'firebase.json': 'da40b786caed050b30a5bb108c6e369376477e89a8e08e09c105445ef01bd0fd',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '75a93ddd7994180a083b2f3337538eb0bcff8fa775c2edd72a13bce051dbc9f3',

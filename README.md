@@ -14,12 +14,43 @@ Pyric adds a development-only resolution layer to a Firebase application. Run th
 
 The mirrored data services do not connect to a production Firebase project. Local writes cannot delete production data or create Firebase usage charges, and local rules changes do not deploy. Pyric owns the development sandbox and verification workflow. Firebase owns production, with `firebase-tools` or the Firebase Console handling deployment.
 
-## Start a new Firebase application locally
+## Start with a coding agent
+
+Install the Pyric plugin:
+
+```bash
+npx plugins add davideast/pyric
+```
+
+Antigravity CLI and OpenCode use the standalone skill installer:
+
+```bash
+# Antigravity CLI
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent antigravity-cli
+
+# OpenCode
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent opencode
+```
+
+Then invoke the skill:
+
+| Agent | Enter |
+|---|---|
+| Codex | `$pyric-start` |
+| Claude Code | `/pyric:pyric-start` |
+| Antigravity CLI | `/pyric-start` |
+| OpenCode | `/pyric-start` |
+
+The leading `$` or `/` is part of the command.
+
+The skill chooses the project launcher, starts one local sandbox bridge, opens the application, and confirms that the browser sandbox is connected.
+
+## Start from the terminal
 
 Create a Vite application with canonical Firebase imports, Firestore rules, and the Pyric development plugin already configured:
 
 ```bash
-npm create pyric my-app
+npm create pyric@latest my-app
 cd my-app
 npm install
 npm run dev
@@ -41,7 +72,7 @@ import { defineConfig } from 'vite';
 import { pyric } from '@pyric/cli/vite';
 
 export default defineConfig({
-  plugins: [pyricSandbox()],
+  plugins: [pyric()],
 });
 ```
 

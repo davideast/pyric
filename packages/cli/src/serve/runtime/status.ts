@@ -36,6 +36,7 @@ export interface PyricRuntimeStatus {
   reportError(error: unknown, source: PyricRuntimeErrorSource): void;
   recordSandboxEvents(events: readonly SandboxEvent[]): void;
   clearErrors(): void;
+  dismissError(id: string): void;
 }
 
 let nextErrorId = 0;
@@ -77,41 +78,95 @@ export function normalizePyricRuntimeError(
   return { id, source, at, message: String(value) };
 }
 
+function isOperationOrRequestEvent(event: SandboxEvent): boolean {
+  const isOperationKind = event.kind === 'operation';
+  const isRequestKind = event.kind === 'request';
+  return isOperationKind || isRequestKind;
+}
+
+function isDeniedOperationEvent(event: SandboxEvent): boolean {
+  const isTargetEventKind = isOperationOrRequestEvent(event);
+  const hasResultProperty = 'result' in event;
+  const isDeniedResult = hasResultProperty && event.result === 'deny';
+  return isTargetEventKind && isDeniedResult;
+}
+
+function isRuntimeErrorEvent(event: SandboxEvent): boolean {
+  return event.kind === 'runtime_error';
+}
+
+function isListenerErroredEvent(event: SandboxEvent): boolean {
+  const isListenerErroredKind = event.kind === 'listener_errored';
+  const hasErrorPayload = 'error' in event && Boolean(event.error);
+  return isListenerErroredKind && hasErrorPayload;
+}
+
+function isListenerPhaseErroredEvent(event: SandboxEvent): boolean {
+  const isListenerKind = event.kind === 'listener';
+  const isErroredPhase = 'phase' in event && event.phase === 'errored';
+  const hasErrorPayload = 'error' in event && Boolean(event.error);
+  return isListenerKind && isErroredPhase && hasErrorPayload;
+}
+
 function sandboxError(event: SandboxEvent): PyricRuntimeError | null {
-  if (event.kind === 'runtime_error') {
+  if (isRuntimeErrorEvent(event)) {
+    const hasPathProperty = 'path' in event && typeof event.path === 'string';
+    const targetPath = hasPathProperty ? event.path : undefined;
+    const hasMethodProperty = 'method' in event && typeof event.method === 'string';
+    const targetMethod = hasMethodProperty ? event.method : 'unknown';
+    const hasErrorPayload = 'error' in event && Boolean(event.error);
+    const errorPayload = hasErrorPayload ? (event as { error: { code?: string; message: string } }).error : undefined;
     return {
       id: event.id,
       source: 'sandbox',
       at: event.at,
       service: event.service,
-      method: event.method,
-      ...(event.path ? { path: event.path } : {}),
-      ...(event.error.code ? { code: event.error.code } : {}),
-      message: event.error.message,
+      method: targetMethod,
+      ...(targetPath ? { path: targetPath } : {}),
+      ...(errorPayload?.code ? { code: errorPayload.code } : {}),
+      message: errorPayload?.message ? errorPayload.message : 'Sandbox runtime error',
     };
   }
-  if (event.kind === 'listener_errored' && event.error) {
+  if (isListenerErroredEvent(event)) {
+    const errorPayload = (event as { error: { code?: string; message: string } }).error;
     return {
       id: event.id,
       source: 'sandbox',
       at: event.at,
       service: 'firestore',
       method: 'listener',
-      ...('path' in event.target ? { path: event.target.path } : {}),
-      code: event.error.code,
-      message: event.error.message,
+      ...('target' in event && event.target && 'path' in event.target ? { path: event.target.path } : {}),
+      code: errorPayload.code,
+      message: errorPayload.message,
     };
   }
-  if (event.kind === 'listener' && event.phase === 'errored' && event.error) {
+  if (isListenerPhaseErroredEvent(event)) {
+    const errorPayload = (event as { error: { code?: string; message: string } }).error;
     return {
       id: event.id,
       source: 'sandbox',
       at: event.at,
       service: event.service,
       method: 'listener',
-      ...(event.target.path ? { path: event.target.path } : {}),
-      ...(event.error.code ? { code: event.error.code } : {}),
-      message: event.error.message,
+      ...('target' in event && event.target && 'path' in event.target ? { path: event.target.path } : {}),
+      ...(errorPayload.code ? { code: errorPayload.code } : {}),
+      message: errorPayload.message,
+    };
+  }
+  if (isDeniedOperationEvent(event)) {
+    const hasPathProperty = 'path' in event && typeof event.path === 'string';
+    const targetPath = hasPathProperty ? event.path : '(service)';
+    const hasMethodProperty = 'method' in event && typeof event.method === 'string';
+    const targetMethod = hasMethodProperty ? event.method : 'operation';
+    return {
+      id: event.id,
+      source: 'sandbox',
+      at: event.at,
+      service: event.service,
+      method: targetMethod,
+      path: targetPath,
+      code: 'PERMISSION_DENIED',
+      message: `PERMISSION_DENIED: ${targetMethod} on ${targetPath} denied by rules`,
     };
   }
   return null;
@@ -200,6 +255,14 @@ export function createPyricRuntimeStatus(
     clearErrors() {
       errorIds.clear();
       publish({ ...snapshot, errors: [] });
+    },
+    dismissError(id) {
+      if (!errorIds.has(id)) return;
+      errorIds.delete(id);
+      publish({
+        ...snapshot,
+        errors: snapshot.errors.filter((err) => err.id !== id),
+      });
     },
   };
 }

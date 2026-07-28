@@ -1,0 +1,22 @@
+---
+interface Props {
+  as?: 'p' | 'span';
+}
+
+const { as: Tag = 'p' } = Astro.props;
+---
+
+<Tag class="example-meta"><slot /></Tag>
+
+<style>
+  .example-meta {
+    margin: 0;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: .7rem;
+    font-weight: 500;
+    letter-spacing: .04em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+</style>

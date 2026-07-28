@@ -2,16 +2,15 @@
  * `pyric mcp-proxy` — a stdio MCP server that relays to a RUNNING
  * `pyric dev --bridge`'s HTTP MCP endpoint.
  *
- * Why this exists: a Claude Code plugin can only declare a STATIC MCP URL in
- * `.mcp.json`, but serve's endpoint is `http://localhost:<PORT>/__pyric/mcp`
- * with a runtime port (scan-forward / AirPlay). So the plugin declares a
- * STDIO server that runs this proxy; the proxy discovers the live serve and
- * forwards the protocol. No manual `claude mcp add`, no fixed port.
+ * Why this exists: the agent plugin declares one static stdio command, while
+ * serve's endpoint is `http://localhost:<PORT>/__pyric/mcp` with a runtime
+ * port (scan-forward / AirPlay). The proxy discovers the live serve and
+ * forwards the protocol. No per-client MCP setup, no fixed port.
  * (design rationale)
  *
  * Relay is at the TRANSPORT level via the MCP SDK's own transports — we do
  * NOT re-implement JSON-RPC/SSE/session framing. `StdioServerTransport`
- * talks to Claude Code; `StreamableHTTPClientTransport` talks to serve; each
+ * talks to the MCP client; `StreamableHTTPClientTransport` talks to serve; each
  * transport's `onmessage` is piped to the other's `send`.
  *
  * Two hardening layers sit on top of that pipe:
@@ -22,7 +21,7 @@
  *     + IPv6 `[::1]:P`); without this, the proxy locks onto whichever family
  *     answers first while the browser is on the other — split-brain.
  *   TIMEOUT — every relayed request is failed with a JSON-RPC error after
- *     REQUEST_TIMEOUT_MS instead of hanging Claude Code forever (a killed
+ *     REQUEST_TIMEOUT_MS instead of hanging the agent forever (a killed
  *     server can leave a half-open keep-alive socket that never FINs). A
  *     `settled` set swallows a late real response so the client never sees a
  *     duplicate after the timeout already failed the call.

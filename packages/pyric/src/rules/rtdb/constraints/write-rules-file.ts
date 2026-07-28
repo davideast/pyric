@@ -5,7 +5,7 @@
  * Deliberately kept out of `document.ts` (and out of the browser-facing
  * `pyric/rules` and `pyric/database` root entries) — it imports
  * `node:fs` / `node:path`, so it lives alongside the other Node-only
- * surfaces re-exported from `pyric/rules/node`. It does no compilation
+ * surfaces re-exported from `pyric/rules/internal/node`. It does no compilation
  * of its own: it calls `doc.toJSON()`, which routes through
  * the pure RTDB rules serializer, then writes the result.
  *

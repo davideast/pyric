@@ -61,7 +61,7 @@ export type {
 
 // ─── Modules resolver — Node-only ────────────────────────────────────
 // The resolver reads stdlib files off disk and so can't ship to the
-// browser. Its value exports live on `pyric/rules/node`;
+// browser. Its value exports live on `pyric/rules/internal/node`;
 // only the (erasable) types stay on the universal root entry.
 export type { ResolveResult, ResolveOptions } from '../modules/resolver.js';
 
@@ -134,7 +134,7 @@ export {
 // ─── Tool factories (Slice 8) — Node-only ────────────────────────────
 // `createFirestoreRulesTools` wraps the resolver (Node-only) into
 // agent tools, so the factory itself is Node-only. Values live on
-// `pyric/rules/node`; types stay here so consumers in
+// `pyric/rules/internal/node`; types stay here so consumers in
 // either environment can describe tool deps without dragging Node
 // imports along.
 export type {
@@ -145,25 +145,26 @@ export { createFirestoreSimulatorTools } from '../simulator.js';
 
 // ─── Stdlib reference (browser-safe — pure data) ─────────────────────
 // Module-organized reference an agent can call before writing rules.
-// Exposed via the `firestore_rules_stdlib_list` + `_get` tools in
-// `createFirestoreRulesStdlibTools()`; also importable directly for
-// non-agent consumers (docs generators, lint integrations).
+// Exposed through service-neutral tools plus retained Firestore aliases in
+// `createFirestoreRulesStdlibTools()`; also importable directly.
 export {
   STDLIB_MODULES,
   findModuleByKey,
   allModuleKeys,
+  modulesForService,
   suggestKey,
 } from '../stdlib-modules.js';
 export type {
   StdlibModule,
   StdlibEntry,
   ModuleKind,
+  RulesService,
 } from '../stdlib-modules.js';
 export { createFirestoreRulesStdlibTools } from '../stdlib-tools.js';
 
 // Browser-safe `2+modules` resolver — pre-supplies the inlined stdlib
 // content so it works without `node:fs`. Node consumers should keep
-// importing `resolveModules` from `pyric/rules/node`,
+// importing `resolveModules` from `pyric/rules/internal/node`,
 // which falls back to disk reads for stdlib modules and picks up
 // `.rules` edits between builds without re-running the inliner.
 export { resolveModulesBrowser, STDLIB_INLINE, resolveAuthoredSourceLoc, type AuthoredSourceLoc } from '../modules/resolver-browser.js';

@@ -276,3 +276,36 @@
   font-size: 0.8125rem;
   color: var(--ink-3, #667);
 }
+
+.prose .compat-score-row--rules .compat-score-cell {
+  white-space: normal;
+}
+
+.prose .compat-score-row--rules th[scope="row"] {
+  vertical-align: top;
+}
+
+.prose .compat-score-group {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.prose .compat-score-engine {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.7fr) minmax(14rem, 1.3fr);
+  align-items: start;
+  gap: var(--space-3);
+}
+
+.prose .compat-score-engine-name {
+  padding-top: 1px;
+  color: var(--ink);
+  font-weight: 550;
+}
+
+@media (max-width: 760px) {
+  .prose .compat-score-engine {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}

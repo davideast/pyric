@@ -239,6 +239,7 @@ starts where the last iteration ended.
 - **2026-07-08 — No manual line wrapping in markdown prose.** One line
   per paragraph; hard-wrapped prose is a diff and editing nuisance and an
   owner correction that should never recur.
+- **2026-07-27 — Make generator freshness explicit.** An unversioned package-generator command can reuse stale package-runner state and silently expose an older template set. User-facing onboarding commands should request the intended distribution tag explicitly, such as `npm create package@latest`; internal package identity, usage syntax, and implementation comments can remain unversioned.
 
 ---
 

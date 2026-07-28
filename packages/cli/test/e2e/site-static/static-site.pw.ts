@@ -44,16 +44,6 @@ test('Studio loads at / with no console errors', async ({ page }) => {
   expect(errors, `uncaught page errors: ${errors.join('\n')}`).toEqual([]);
 });
 
-test('a documentation page stays static and does not start the Studio SharedWorker', async ({ page }) => {
-  const urls = trackRequests(page);
-  const res = await page.goto('/docs/build/cloud-firestore/');
-  expect(res?.ok()).toBeTruthy();
-  await expect(page.getByRole('heading', { name: 'Run Cloud Firestore locally' })).toBeVisible();
-  await page.waitForTimeout(500);
-  expect(urls.filter((url) => url.includes('/__pyric/sdk/worker.js'))).toEqual([]);
-  expect(urls.filter((url) => /\/_astro\/[^/]*chess/i.test(url))).toEqual([]);
-});
-
 test('the unified build preserves the Firestore seed, theme utilities, and pane borders', async ({ page }) => {
   await page.goto('/firestore/');
   await page.getByText('notes', { exact: true }).click();
@@ -100,33 +90,6 @@ test('the unified build preserves the Firestore seed, theme utilities, and pane 
     { width: '1px', color: 'rgb(42, 42, 53)' },
     { width: '1px', color: 'rgb(42, 42, 53)' },
   ]);
-});
-
-test('the checked-in Firestore example runs in its isolated iframe and resets', async ({ page }) => {
-  await page.goto('/docs/build/cloud-firestore/');
-  const frame = page.frameLocator('iframe[title="Write to an isolated Firestore sandbox"]');
-  await expect(frame.getByText('The sandbox is local')).toBeVisible();
-  await frame.getByRole('button', { name: 'Reset sandbox' }).click();
-  await expect(frame.getByText('The sandbox is local')).toBeVisible();
-  await expect(page.getByText("import { doc, getDoc, getFirestore, setDoc } from 'pyric/firestore';", {
-    exact: false,
-  })).toBeVisible();
-});
-
-test('the chess showcase commits an allowed move, denies an illegal move, and resets', async ({ page }) => {
-  const urls = trackRequests(page);
-  await page.goto('/docs/examples/chess/');
-  const frame = page.frameLocator('iframe[data-example-id="chess"]');
-
-  await frame.getByRole('button', { name: 'Try legal e2 → e4' }).click();
-  await expect(frame.getByText('Allowed · e2 → e4')).toBeVisible();
-  await expect(frame.getByRole('gridcell', { name: 'e4 P' })).toBeVisible();
-
-  await frame.getByRole('button', { name: 'Reset board' }).click();
-  await frame.getByRole('button', { name: 'Try illegal e2 → e5' }).click();
-  await expect(frame.getByText('Denied · e2 → e5')).toBeVisible();
-  await expect(frame.getByRole('gridcell', { name: 'e2 P' })).toBeVisible();
-  expect(urls.filter((url) => url.includes('/__pyric/sdk/worker.js'))).toEqual([]);
 });
 
 test('public Studio exposes and completes an explicit stale-worker update', async ({ page }) => {

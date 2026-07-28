@@ -179,22 +179,60 @@ function scoreRow(
   ];
 }
 
+type RulesLanguageScores = ConformanceModel['rulesLanguage'];
+type RulesScore = RulesLanguageScores['firestoreScorecard']['score'];
+
+function rulesEngineScore(label: string, score: RulesScore): string {
+  return [
+    '<div class="compat-score-engine">',
+    `<span class="compat-score-engine-name">${escapeHtml(label)}</span>`,
+    meterCell(
+      score.percent,
+      `${score.numerator} of ${score.denominator} rules-language constructs verified`,
+    ),
+    '</div>',
+  ].join('\n');
+}
+
+function rulesScoreRow(
+  surface: CompatibilitySurfaceRegistry,
+  rulesLanguage: RulesLanguageScores,
+): string[] {
+  return [
+    '<tr class="compat-score-row--rules">',
+    `<th scope="row" class="compat-score-name"><a href="${compatibilityHref(surface.compatPath)}">${escapeCell(surface.label)}</a></th>`,
+    '<td class="compat-score-cell">',
+    '<div class="compat-score-group">',
+    rulesEngineScore('Firestore Rules', rulesLanguage.firestoreScorecard.score),
+    rulesEngineScore('Storage Rules', rulesLanguage.storageScorecard.score),
+    rulesEngineScore('Realtime Database Rules', rulesLanguage.rtdbScorecard.score),
+    '</div>',
+    '</td>',
+    '</tr>',
+  ];
+}
+
 /** Central scoreboard across every scored COMPAT surface. */
-export function renderScoreboardMarkdown(projection: DocumentationProjection): string {
+export function renderScoreboardMarkdown(model: ConformanceModel): string {
+  const projection = model.documentation;
   const lines: string[] = [
     GENERATED_HEADER,
     '',
-    '# Public API coverage',
+    '# Conformance scores',
     '',
-    'This is the share of Firebase\'s public API that Pyric supports. Not-implemented-yet, deprecated, and deferred APIs still count against the total. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
+    'Mirror services measure the share of Firebase\'s public API that Pyric supports. Rules engines measure production-verified rules-language constructs. Not-implemented-yet, deprecated, deferred, and unverified items remain in their respective denominators. Overall combines only the public API rows. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
     '',
     '## Services',
     '',
     '<table class="compat-score-table">',
-    '<thead><tr><th>Service</th><th>Public API supported</th></tr></thead>',
+    '<thead><tr><th>Service</th><th>Measured coverage</th></tr></thead>',
     '<tbody>',
   ];
   for (const surface of projection.registries) {
+    if (surface.surface === 'rules') {
+      lines.push(...rulesScoreRow(surface, model.rulesLanguage));
+      continue;
+    }
     const spec = scoreSpec(surface, projection);
     const coverage = computeSurface(spec, projection.census);
     lines.push(...scoreRow(
@@ -690,7 +728,7 @@ export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry, p
 export function renderAllCompatibilityMarkdown(model: ConformanceModel): Map<string, string> {
   const projection = model.documentation;
   const out = new Map(projection.registries.map((surface) => [surface.compatPath, renderSurfaceMarkdown(surface, projection)]));
-  out.set(SCOREBOARD_PATH, renderScoreboardMarkdown(projection));
+  out.set(SCOREBOARD_PATH, renderScoreboardMarkdown(model));
   return out;
 }
 
@@ -704,7 +742,7 @@ export interface CompatibilityPageCatalogEntry {
  * a list of paths that can silently drift. */
 export function compatibilityPageCatalog(model: ConformanceModel): readonly CompatibilityPageCatalogEntry[] {
   return [
-    { path: SCOREBOARD_PATH, label: 'Public API coverage' },
+    { path: SCOREBOARD_PATH, label: 'Conformance scores' },
     ...model.documentation.registries.map(({ compatPath, label }) => ({ path: compatPath, label })),
   ];
 }

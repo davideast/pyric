@@ -29,7 +29,7 @@ describe('resolveSiteUiDir (embed fallback)', () => {
     const root = mkdtempSync(join(tmpdir(), 'pyric-site-ui-'));
     const missing = join(root, 'missing');
     const site = join(root, 'site');
-    mkdirSync(join(site, 'docs'), { recursive: true });
+    mkdirSync(join(site, 'assets'), { recursive: true });
     writeFileSync(join(site, 'studio-routes.json'), '[]');
 
     expect(resolveSiteUiDir([missing, site])).toBe(site);
@@ -467,15 +467,11 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
     const src = readFileSync(file, 'utf8');
 
     // Classic-worker shape: an iife wrapper, NOT an ESM module. esbuild emits
-    // `"use strict"; (() => { … })()` for format:'iife'. A SharedWorker opened
-    // with `{ type: 'classic' }` rejects top-level import/export. Assert the
-    // wrapper signature + the absence of real ESM `import/export … from`
-    // statements. (A naive `^export` line filter is fooled by firestore-rules
-    // helper SOURCE embedded as strings — `export function isOwner…` — so we
-    // require the `from` clause that only real module syntax carries.)
+    // `"use strict"; (() => { … })()` for format:'iife'. Parse the complete
+    // output as a classic script: this rejects real top-level import/export
+    // syntax without mistaking embedded Rules source strings for JavaScript.
     expect(src.replace(/^\/\*[^]*?\*\/\s*/, '')).toMatch(/^"use strict";\s*\(\(\) => \{/);
-    const esmStatements = src.match(/^\s*(import|export)\b[^\n]*\bfrom\s*["']/gm) ?? [];
-    expect(esmStatements).toEqual([]);
+    expect(() => new Function(src)).not.toThrow();
 
     // Browser-standalone: no bare firebase/* or node: specifiers survive.
     expect(src).not.toMatch(/from\s*["']firebase\//);

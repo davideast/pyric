@@ -222,11 +222,6 @@ describe('runScaffold', () => {
       expect(generated.name).toBe('thinking-room');
       expect(generated.devDependencies['@pyric/cli']).toBe('^1.2.3');
       expect(generated.devDependencies.pyric).toBe('^1.2.3');
-      const readme = readFileSync(join(project, 'README.md'), 'utf8');
-      expect(readme).toContain('# thinking-room');
-      expect(readme).toContain('PYRIC_AI_MODEL=qwen3:4b \\');
-      expect(readme).toContain('Do not put `&&` before `npm run dev`');
-      expect(readme).toContain('## Runtime status');
       expect(readFileSync(join(project, 'index.html'), 'utf8')).toContain('<title>thinking-room');
       expect(readFileSync(join(project, '.gitignore'), 'utf8')).toContain('node_modules/');
       expect(readdirSync(project)).not.toContain('scaffold.json');

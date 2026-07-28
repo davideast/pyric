@@ -436,18 +436,31 @@ bun run dev        # Pyric sandbox through the Node package swap
 bun start          # production: real Firebase
 \`\`\`
 
-## Use with an MCP-connected agent (Claude Code)
+## Use with a coding agent
 
-Install the pyric Claude Code plugin once. It auto-connects through a bundled
-stdio proxy that discovers the running bridge from \`.pyric/serve.json\` and probes
-both IPv4 + IPv6, so there is NO \`claude mcp add\` step and no hand-written URL (a
-static \`127.0.0.1\` URL hits the loopback-family trap). Just start the bridge:
+Install the Pyric agent plugin:
 
 \`\`\`bash
-pyric bridge       # default port 5174
+npx plugins add davideast/pyric
 \`\`\`
 
-and the agent's pyric tools attach automatically.
+Antigravity CLI and OpenCode use the standalone skill installer:
+
+\`\`\`bash
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent antigravity-cli
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent opencode
+\`\`\`
+
+Then invoke the skill:
+
+| Agent | Enter |
+|---|---|
+| Codex | \`$pyric-start\` |
+| Claude Code | \`/pyric:pyric-start\` |
+| Antigravity CLI | \`/pyric-start\` |
+| OpenCode | \`/pyric-start\` |
+
+The skill starts the bridge and connects the agent's Pyric tools.
 
 ## Graduating to a real Firebase project
 

@@ -4,7 +4,7 @@
  * Anything that imports `node:fs` / `node:path` / `node:url` at
  * module-init lives here, so the browser-facing root entry stays
  * free of Node builtins. Consumers running in Node (admin tools,
- * SDK agent definitions, tests) import from `pyric/rules/node`.
+ * SDK agent definitions, tests) import from `pyric/rules/internal/node`.
  *
  * Today the only Node-only surface is the modules resolver — it
  * reads stdlib files off disk via `readFileSync`.
@@ -31,9 +31,8 @@ export type {
   FirestoreSimulatorToolDeps,
 } from '../tools.js';
 
-// Stdlib discovery tools — `firestore_rules_stdlib_list` +
-// `firestore_rules_stdlib_get`. Live on /node because the stdlib
-// modules ship as files the resolver loads from disk.
+// Rules stdlib discovery/resolution tools, including retained
+// Firestore-prefixed compatibility aliases.
 export { createFirestoreRulesStdlibTools } from '../stdlib-tools.js';
 
 // RTDB rules generation — `writeRtdbRulesFile` writes a compiled

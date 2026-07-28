@@ -10,6 +10,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import {
   initializeSandbox,
+  isOperationEvent,
   toOperationRecord,
   type EventProvenance,
   type OperationContext,
@@ -247,4 +248,22 @@ describe('canonical operation records', () => {
     expect(Object.isFrozen(record.auth)).toBe(true);
     expect(Object.isFrozen(record.rules)).toBe(true);
   });
+
+  it('canonically classifies stream permission denied errors as evaluated denials without requiring trace metadata', () => {
+    const event: SandboxEvent = {
+      kind: 'listener',
+      id: 'rtdb-denial',
+      at: 1,
+      service: 'rtdb',
+      phase: 'errored',
+      target: { kind: 'value', path: 'spaces_app/userinfo/provider-a9db/lastSeen' },
+      auth: { uid: 'provider-a9db' },
+      result: 'deny',
+      error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied' },
+    };
+    const record = toOperationRecord(event)!;
+    expect(record.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
+  });
 });
+
+

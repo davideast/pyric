@@ -94,9 +94,12 @@ const styles = `
   .errors { background: var(--pyric-content); border-bottom: 1px solid var(--pyric-border-soft); border-top: 1px solid var(--pyric-border-soft); max-height: 184px; min-height: 58px; overflow-y: auto; }
   .errors::-webkit-scrollbar { width: 8px; }
   .errors::-webkit-scrollbar-thumb { background: #33333f; border-radius: 4px; }
-  .error-row { align-items: flex-start; border-bottom: 1px solid rgba(42,42,53,.7); display: grid; gap: 8px; grid-template-columns: 18px minmax(0,1fr) 28px; padding: 10px 8px 10px 12px; }
+  .error-row { align-items: flex-start; border-bottom: 1px solid rgba(42,42,53,.7); display: grid; gap: 8px; grid-template-columns: 18px minmax(0,1fr) 28px 28px; padding: 10px 8px 10px 12px; }
   .error-row:last-child { border-bottom: 0; }
   .error-number { color: var(--pyric-error); font: 10px/20px ui-monospace, monospace; }
+  .panel-controls { align-items: center; display: inline-flex; gap: 4px; }
+  .clear-button { background: transparent; border: 0; color: var(--pyric-muted); cursor: pointer; font-size: 11px; margin-left: 8px; padding: 2px 6px; }
+  .clear-button:hover { color: var(--pyric-text); }
   .error-body { min-width: 0; }
   .error-body code { color: #d7d7df; display: block; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
   .error-meta { color: var(--pyric-muted); font: 9px/1.4 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; }
@@ -122,6 +125,7 @@ const styles = `
 
 const icons = {
   close: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 6 12 12M18 6 6 18"/></svg>',
+  minimize: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14"/></svg>',
   copy: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="11" height="11" rx="1"/><path d="M16 8V5H5v11h3"/></svg>',
   chevron: '<svg class="chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 15 6-6 6 6"/></svg>',
   external: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 5h5v5M19 5l-8 8"/><path d="M19 13v6H5V5h6"/></svg>',
@@ -148,6 +152,7 @@ function renderErrors(snapshot: PyricRuntimeSnapshot, canCopy: boolean): string 
       <span class="error-number">${String(index + 1).padStart(2, '0')}</span>
       <div class="error-body"><code></code><div class="error-meta"></div></div>
       <button class="icon-button" type="button" data-copy-error="${escapeAttribute(error.id)}" aria-label="${canCopy ? `Copy error ${index + 1}` : 'Copy unavailable'}" title="${canCopy ? 'Copy error' : 'Clipboard unavailable'}" ${canCopy ? '' : 'disabled'}>${icons.copy}</button>
+      <button class="icon-button" type="button" data-dismiss-error="${escapeAttribute(error.id)}" aria-label="Dismiss error ${index + 1}" title="Dismiss error">${icons.close}</button>
     </div>
   `).join('');
 }
@@ -202,8 +207,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     view.innerHTML = `${open ? `
       <section class="panel" role="dialog" aria-label="Pyric runtime">
         <header class="panel-header">
-          <div class="panel-title"><span class="brand-mark">&gt;_</span><strong>Pyric runtime</strong>${errorCount > 0 ? `<span class="count">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : ''}</div>
-          <button class="icon-button" type="button" data-collapse aria-label="Collapse Pyric runtime">${icons.close}</button>
+          <div class="panel-title"><span class="brand-mark">&gt;_</span><strong>Pyric runtime</strong>${errorCount > 0 ? `<span class="count">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span><button class="clear-button" type="button" data-clear-errors aria-label="Clear all errors">Clear</button>` : ''}</div>
+          <div class="panel-controls">
+            <button class="icon-button" type="button" data-collapse aria-label="Minimize Pyric runtime">${icons.minimize}</button>
+            <button class="icon-button" type="button" data-dismiss-chip aria-label="Dismiss Pyric runtime from page">${icons.close}</button>
+          </div>
         </header>
         <div class="worker-state"><span class="state-label${snapshot.updateAvailable ? ' available' : ''}"><span class="mini-dot"></span>${workerLabel}</span><span class="epochs">${epochs}</span></div>
         <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
@@ -247,6 +255,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       render();
       root.querySelector<HTMLButtonElement>('[data-expand]')?.focus();
     });
+    root.querySelector('[data-clear-errors]')?.addEventListener('click', () => {
+      options.runtime.clearErrors();
+    });
+    root.querySelector('[data-dismiss-chip]')?.addEventListener('click', () => {
+      host.style.display = 'none';
+    });
     root.querySelector('[data-update-worker]')?.addEventListener('click', () => {
       if (!snapshot.updateAvailable || snapshot.updatingWorker) return;
       void options.runtime.updateWorker().catch(() => { /* status records and renders the failure */ });
@@ -260,6 +274,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           button.setAttribute('aria-label', 'Copy failed');
           button.title = 'Copy failed';
         });
+      });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-dismiss-error]')) {
+      button.addEventListener('click', () => {
+        if (button.dataset.dismissError) {
+          options.runtime.dismissError(button.dataset.dismissError);
+        }
       });
     }
     if (focusToken) {

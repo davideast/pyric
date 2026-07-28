@@ -8,7 +8,7 @@
  * `firestore_simulator_create` accepts `rules_version = '2+modules'`
  * sources without a disk dependency.
  *
- * The public Node entry (`pyric/rules/node`) re-exports the same factory wired
+ * The Node entry (`pyric/rules/internal/node`) re-exports the same factory wired
  * with the disk-reading `resolveModules`. The two factories share
  * `./simulator-tools-impl.ts` so browser dispatch and Node MCP advertisement
  * stay in lockstep.

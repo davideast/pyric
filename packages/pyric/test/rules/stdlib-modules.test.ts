@@ -18,6 +18,7 @@ import {
   STDLIB_MODULES,
   findModuleByKey,
   allModuleKeys,
+  modulesForService,
   suggestKey,
 } from '../../src/rules/stdlib-modules.js';
 import { STDLIB_SERVICE_CONTRACTS } from '../../src/rules/modules/stdlib-services.generated.js';
@@ -105,11 +106,12 @@ describe('STDLIB_MODULES — drift check against runtime constants', () => {
 
     for (const name of docNames) {
       const services = STDLIB_SERVICE_CONTRACTS[name as keyof typeof STDLIB_SERVICE_CONTRACTS];
-      if (services.includes('cloud.firestore')) {
-        expect(userModuleKeys.has(name), `Firestore module not mirrored in agent catalog: ${name}`).toBe(true);
-      } else {
-        expect(userModuleKeys.has(name), `Storage-only module leaked into Firestore agent catalog: ${name}`).toBe(false);
-      }
+      expect(userModuleKeys.has(name), `Rules module not mirrored in agent catalog: ${name}`).toBe(true);
+      expect(findModuleByKey(name)?.services).toEqual(
+        services.map((service) =>
+          service === 'firebase.storage' ? 'storage' : 'firestore',
+        ),
+      );
     }
   });
 });
@@ -119,6 +121,7 @@ describe('STDLIB_MODULES — internal shape', () => {
     for (const m of STDLIB_MODULES) {
       expect(m.key, `module missing key`).toBeTruthy();
       expect(m.kind, `module ${m.key} missing kind`).toBeTruthy();
+      expect(m.services?.length, `module ${m.key} missing services`).toBeGreaterThan(0);
       expect(m.description.length, `module ${m.key} empty description`).toBeGreaterThan(0);
       expect(m.purpose.length, `module ${m.key} empty purpose`).toBeGreaterThan(0);
       expect(m.whenToUse.length, `module ${m.key} empty whenToUse`).toBeGreaterThan(0);
@@ -175,5 +178,14 @@ describe('findModuleByKey / suggestKey', () => {
 
   it('allModuleKeys returns every module key', () => {
     expect(allModuleKeys().length).toBe(STDLIB_MODULES.length);
+  });
+
+  it('filters user modules by Rules service compatibility', () => {
+    const storageKeys = modulesForService('storage').map(({ key }) => key);
+    expect(storageKeys).toContain('auth');
+    expect(storageKeys).toContain('membership');
+    expect(storageKeys).toContain('storage/uploads');
+    expect(storageKeys).not.toContain('validation');
+    expect(storageKeys).not.toContain('builtins');
   });
 });

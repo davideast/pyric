@@ -11,16 +11,47 @@ description: "Start a new Firebase application or add Pyric to an existing Vite 
 
 Pyric adds a development-only resolution layer to a Firebase application. During Vite development, supported `firebase/*` imports resolve to a browser-local backend. A normal production build resolves those imports to Firebase again.
 
-## Start a new application
+## Start with a coding agent
+
+Install the Pyric plugin:
+
+```bash
+npx plugins add davideast/pyric
+```
+
+Antigravity CLI and OpenCode use the standalone skill installer:
+
+```bash
+# Antigravity CLI
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent antigravity-cli
+
+# OpenCode
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent opencode
+```
+
+Then invoke the skill:
+
+| Agent | Enter |
+|---|---|
+| Codex | `$pyric-start` |
+| Claude Code | `/pyric:pyric-start` |
+| Antigravity CLI | `/pyric-start` |
+| OpenCode | `/pyric-start` |
+
+The leading `$` or `/` is part of the command.
+
+The skill selects the project launcher, starts one local sandbox bridge, opens the application, and confirms that the browser sandbox is connected.
+
+## Start from the terminal
 
 Create a new Vite or Next.js application with canonical Firebase imports, Firestore rules, and Pyric already configured:
 
 ```bash
 # Start a Vite application
-npm create pyric my-app
+npm create pyric@latest my-app
 
 # Or start a Next.js application
-npm create pyric my-app -- --template nextjs
+npm create pyric@latest my-app -- --template nextjs
 
 cd my-app
 npm install

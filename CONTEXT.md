@@ -32,7 +32,7 @@ The repository is a Bun workspace with these principal packages:
 | `packages/conformance` | `@pyric/conformance` | Private evidence registry, observations, probes, and gates |
 | `packages/playground` | `@pyric/playground` | Private browser agent playground |
 
-Examples live in `examples/`. The Claude Code plugin lives in
+Examples live in `examples/`. The cross-agent Pyric plugin lives in
 `pyric-plugin/`. Repository-local agent skills live in `.agents/skills/`.
 
 All public packages are ESM-only and require Node 22 or later. Prefer public

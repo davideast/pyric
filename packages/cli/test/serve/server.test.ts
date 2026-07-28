@@ -32,8 +32,8 @@ function fixtureSite(): string {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-site-'));
   writeFileSync(join(dir, 'index.html'), '<!doctype html><head></head><body>home</body>');
   writeFileSync(join(dir, 'app.js'), 'export const x = 1;');
-  mkdirSync(join(dir, 'docs'));
-  writeFileSync(join(dir, 'docs', 'index.html'), '<!doctype html><body>docs</body>');
+  mkdirSync(join(dir, 'nested'));
+  writeFileSync(join(dir, 'nested', 'index.html'), '<!doctype html><body>nested</body>');
   return dir;
 }
 
@@ -52,10 +52,10 @@ describe('resolveStaticFile', () => {
   it('serves files, directory index, and refuses traversal', () => {
     const site = fixtureSite();
     expect(resolveStaticFile(site, '/app.js')).toContain('app.js');
-    expect(resolveStaticFile(site, '/docs')).toContain('docs/index.html');
+    expect(resolveStaticFile(site, '/nested')).toContain('nested/index.html');
     expect(resolveStaticFile(site, '/../../../etc/passwd')).toBeNull();
     expect(resolveStaticFile(site, '/%2e%2e/%2e%2e/etc/passwd')).toBeNull();
-    expect(resolveStaticFile(site, '/docs/%E0%A4%A')).toBeNull();
+    expect(resolveStaticFile(site, '/nested/%E0%A4%A')).toBeNull();
     expect(resolveStaticFile(site, '/missing.js')).toBeNull();
   });
 });

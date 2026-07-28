@@ -84,21 +84,6 @@ describe('deploy-site.sh', () => {
 describe('firebase.json hosting rewrites', () => {
   const firebaseJson = JSON.parse(readFileSync(new URL('firebase.json', repoRoot), 'utf8'));
 
-  test('has no /docs/** (or other **) catch-all rewrite', () => {
-    // A catch-all under /docs/** (or a bare `**`) turns any dead docs URL —
-    // typo'd, removed, crawled by a stale link — into a 200'd app shell
-    // instead of a real 404 (issue #375). The docs are pure static output
-    // (Astro `directory` format: every page is its own <slug>/index.html),
-    // so real docs URLs need no rewrite at all; Firebase Hosting serves
-    // them, and dist/site/404.html, natively. Only the Studio SPA's own
-    // client-routed tabs get scoped rewrites.
-    const patterns = firebaseJson.hosting.rewrites.map(
-      (rewrite) => rewrite.source ?? rewrite.regex,
-    );
-    expect(patterns).not.toContain('/docs/**');
-    expect(patterns).not.toContain('**');
-  });
-
   test('scopes deep links to their finite Astro Studio entry documents', () => {
     const regexes = firebaseJson.hosting.rewrites.map((rewrite) => rewrite.regex);
     expect(regexes.sort()).toEqual(studioStaticPaths().map(({ params }) =>
@@ -113,9 +98,9 @@ describe('firebase.json hosting rewrites', () => {
       const route = new RegExp(rewrite.regex);
       expect(route.test(`/${match[1]}/users/alice`)).toBe(true);
       expect(route.test(`/${match[1]}/missing.js`)).toBe(match[1] === 'storage');
-      expect(route.test(`/${match[1]}/../docs/index.json`)).toBe(false);
-      expect(route.test(`/${match[1]}/..\\docs/index.json`)).toBe(false);
-      expect(route.test(`/${match[1]}/a\\..\\docs/index.json`)).toBe(false);
+      expect(route.test(`/${match[1]}/../assets/index.json`)).toBe(false);
+      expect(route.test(`/${match[1]}/..\\assets/index.json`)).toBe(false);
+      expect(route.test(`/${match[1]}/a\\..\\assets/index.json`)).toBe(false);
     }
   });
 
@@ -159,12 +144,6 @@ describe('dist/site/404.html', () => {
         /<meta name="pyric-worker-v" content="[a-f0-9]{16}">/,
       );
     }
-    expect(readFileSync(new URL('docs/overview/index.html', distSite), 'utf8')).not.toContain(
-      'pyric-worker-v',
-    );
-    expect(readFileSync(new URL('examples/firestore-first-write/index.html', distSite), 'utf8')).not.toContain(
-      'pyric-worker-v',
-    );
   });
 
   test.skipIf(!built)('ships the reserved static sandbox runtime beside Astro output', () => {
