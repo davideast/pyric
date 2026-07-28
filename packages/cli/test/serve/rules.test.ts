@@ -4,7 +4,12 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadProjectRules, prepareRulesSource, rulesHashOf } from '../../src/serve/rules.js';
+import {
+  loadProjectRules,
+  prepareRulesSource,
+  prepareStorageRulesSource,
+  rulesHashOf,
+} from '../../src/serve/rules.js';
 
 const PLAIN = `rules_version = '2';
 service cloud.firestore {
@@ -18,6 +23,14 @@ import { isAuthenticated } from 'auth';
 service cloud.firestore {
   match /databases/{db}/documents {
     match /tasks/{id} { allow read: if isAuthenticated(); }
+  }
+}`;
+
+const STORAGE_MODULAR = `rules_version = '2+modules';
+import { sizeAtMost } from 'storage/uploads';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileName} { allow write: if sizeAtMost(1024); }
   }
 }`;
 
@@ -38,6 +51,18 @@ describe('prepareRulesSource', () => {
     const badImport = MODULAR.replace("from 'auth'", "from 'does_not_exist'");
     expect(() => prepareRulesSource(badImport, 'bad.rules')).toThrow(/module resolution failed/);
     expect(() => prepareRulesSource('rules_version = ;;;', 'broken.rules')).toThrow(/failed to parse/);
+  });
+});
+
+describe('prepareStorageRulesSource', () => {
+  it('resolves Storage modules before parsing the sandbox ruleset', () => {
+    const out = prepareStorageRulesSource(
+      STORAGE_MODULAR,
+      'storage.modules.rules',
+    );
+    expect(out).toContain("rules_version = '2';");
+    expect(out).not.toContain('2+modules');
+    expect(out).toContain('function sizeAtMost(maxBytes)');
   });
 });
 

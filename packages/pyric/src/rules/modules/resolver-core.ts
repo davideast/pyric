@@ -178,11 +178,12 @@ export function resolveModulesWith(
     };
   }
   const ast = parsed.ast;
-  let sourceFile = 'firestore.rules';
   const isModular = ast.version === '2+modules';
-  if (isModular) {
-    sourceFile = 'firestore.modules.rules';
-  }
+  const isStorageService = ast.service.name === 'firebase.storage';
+  let sourceFile = isStorageService ? 'storage.rules' : 'firestore.rules';
+  if (isModular) sourceFile = isStorageService
+    ? 'storage.modules.rules'
+    : 'firestore.modules.rules';
   const hasOptions = options !== undefined;
   if (hasOptions) {
     const hasSourceFile = options!.sourceFile !== undefined;
@@ -729,4 +730,3 @@ export function resolveAuthoredSourceLoc(
   }
   return result;
 }
-

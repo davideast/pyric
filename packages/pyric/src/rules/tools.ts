@@ -59,7 +59,7 @@ export function createFirestoreRulesTools(
   deps: FirestoreRulesToolDeps = {},
 ): ToolHandler[] {
   const handlers: ToolHandler[] = [
-    // `firestore_lint_rules` + `firestore_resolve_modules` are
+    // Firestore lint/resolve plus the service-neutral catalog and resolver are
     // provided by `createFirestoreRulesStdlibTools()` (browser-safe;
     // stdlib content inlined at build time) and spread in below.
     // Node consumers that need `basePath`-driven relative-import
@@ -94,7 +94,8 @@ export function createFirestoreRulesTools(
         };
       },
     },
-    // Stdlib reference tools (list + get) — pure data, browser-safe.
+    // Stdlib reference and resolver tools — pure data/source transforms,
+    // browser-safe.
     // Defined in `./stdlib-tools.ts` so consumers that only need the
     // reference (the playground, browser docs generators) don't pull
     // in the Node-only resolver via this Node-only factory.
