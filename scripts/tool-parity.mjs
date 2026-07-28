@@ -168,7 +168,12 @@ const PLAYGROUND_WRAPPERS = {
   [`${PLAY}/tools/core/firestoreRulesStdlib.ts`]: {
     file: `${PYRIC}/rules/stdlib-tools.ts`,
     factory: 'createFirestoreRulesStdlibTools',
-    pick: ['firestore_rules_stdlib_list', 'firestore_rules_stdlib_get'],
+    pick: [
+      'firestore_rules_stdlib_list',
+      'firestore_rules_stdlib_get',
+      'rules_stdlib_list',
+      'rules_stdlib_get',
+    ],
     gate: 'always-on',
   },
 };

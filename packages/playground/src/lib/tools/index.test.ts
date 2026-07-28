@@ -47,6 +47,10 @@ describe('filterToolsForProfile', () => {
       const authoringNames = listToolHandlersForProfile('authoring').map((t) => t.name);
       expect(authoringNames).toContain('seed_firestore_data_as_admin');
       expect(authoringNames).toContain('pyric_can_i_use');
+      expect(authoringNames).toContain('rules_stdlib_list');
+      expect(authoringNames).toContain('rules_stdlib_get');
+      expect(authoringNames).not.toContain('rules_resolve_modules');
+      expect(authoringNames).not.toContain('firestore_lint_rules');
     } finally {
       useSettingsStore.setState({ pyricDiagnosticsEnabled: previous });
     }

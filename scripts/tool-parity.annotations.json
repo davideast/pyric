@@ -65,6 +65,18 @@
       "decision": "deliberate",
       "reason": "intentionally shared rules-authoring reference across MCP and Playground"
     },
+    "rules_stdlib_get": {
+      "decision": "deliberate",
+      "reason": "service-aware rules-authoring reference intentionally shared across MCP and Playground"
+    },
+    "rules_stdlib_list": {
+      "decision": "deliberate",
+      "reason": "service-aware rules-authoring reference intentionally shared across MCP and Playground"
+    },
+    "rules_resolve_modules": {
+      "decision": "deliberate",
+      "reason": "local MCP Rules primitive; the Playground resolves modules inside its native authoring and write workflow"
+    },
     "firestore_simulate_rules": {
       "decision": "deliberate",
       "reason": "local MCP rules primitive; the Playground reaches simulation through its diagnostic workflow rather than a duplicate top-level handler"
