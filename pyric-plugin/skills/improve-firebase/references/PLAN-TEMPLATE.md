@@ -12,6 +12,8 @@ Write one plan per selected finding. The executor has no conversation context an
 - **Evidence**: E0 | E1 | E2 | E3 | E4
 - **Estimated scope**: <files and rough size>
 - **Depends on**: <plan ids or none>
+- **Configuration surface**: <Firebase SDK | Vite plugin | Next wrapper | CLI launcher | n/a>
+- **Production boundary**: <what changes between local and production; whether live verification is explicitly authorized>
 - **Rules source**: <firestore.modules.rules | storage.modules.rules | n/a>
 - **Generated artifact**: <firestore.rules | storage.rules | n/a>
 - **Build command**: <exact resolve command | n/a>
@@ -57,7 +59,8 @@ State an observable invariant before showing target code. For Security Rules, na
 
 - **Build**: `<exact resolve command>` succeeds and the generated artifact matches the modular source.
 - **Static**: `<exact Pyric lint/index command against the generated artifact>` succeeds and the targeted diagnostic or index drift is gone.
-- **Local behavior**: `<exact tool/case>` proves the intended ALLOW control and one-dimension DENY mutation, query result bound, transaction outcome, or Function side effect.
+- **Local behavior**: `<exact tool/case>` proves the intended ALLOW control and one-dimension DENY mutation, query result bound, transaction outcome, Function side effect, or deterministic AI request path.
+- **Production boundary**: `<exact source/config/build inspection>` confirms the release path excludes sandbox-only code and settings. Run a live AI request only when the plan records explicit user authorization.
 - **Journey regression**: `<exact pyric verify command/fixture>` reports no failing divergence when applicable.
 - **Hosted behavior**: `<exact rules-test-api|both command>` only when required and credentials/project scope are already configured.
 - **Repository checks**: `<focused tests, typecheck, lint>`.
@@ -74,5 +77,7 @@ State an observable invariant before showing target code. For Security Rules, na
   edit `firestore.rules` or `storage.rules` are incomplete.
 - For a query/index fix, pair generated config with the source query and its Rules-compatible identity constraints.
 - For performance/cost, require a measurement: document count, listener result bound, read/write count, payload size, or captured hot-path frequency. Do not optimize from aesthetics.
+- For AI Logic, record scripted, local-model, and production behavior separately. Include prompt-data classes, output validation, failure paths, and the evidence that remains unavailable without a live cloud request.
+- For Pyric configuration, use the installed `@pyric/cli` surface. Remove retired names instead of downgrading or adding an override to preserve them.
 - For Pyric gaps, write a verification step against Firebase rather than pretending local proof exists.
 - Update `plans/README.md` with status, order, dependencies, and strongest evidence grade.
