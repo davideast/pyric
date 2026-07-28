@@ -1,0 +1,12 @@
+{
+  "pyric": {
+    "command": "npx",
+    "args": [
+      "--yes",
+      "--package",
+      "@pyric/cli@latest",
+      "pyric",
+      "mcp"
+    ]
+  }
+}

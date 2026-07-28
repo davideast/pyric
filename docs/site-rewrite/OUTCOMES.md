@@ -40,7 +40,7 @@ That arc is the candidate spine for the hierarchy. It is verbs the whole way dow
 
 **The Pyric path.** One command and the backend is the page itself. The app's own `firebase/*` imports resolve to a local sandbox. Nothing in the source changes. A developer has a full Firebase stack in the first ten seconds. Then they forget it is there.
 
-**The parts behind it.** `pyric dev` serving the app against the in-process sandbox. `pyric init --template web` for a fresh start. The Vite plugin for a source-driven app that wants its own dev loop. The import-map swap and the SharedWorker sandbox.
+**The parts behind it.** `pyric dev` serving the app against the in-process sandbox. `npm create pyric@latest` for a fresh start. The Vite plugin for a source-driven app that wants its own dev loop. The import-map swap and the SharedWorker sandbox.
 
 **Maturity.** Core. This is the first thing anyone sees and it has to be flawless.
 
@@ -88,7 +88,7 @@ That arc is the candidate spine for the hierarchy. It is verbs the whole way dow
 
 **The Pyric path.** The whole backend becomes a tool surface the agent can drive. One bridge exposes the sandbox over MCP, and the agent works against the same local backend the app and Studio see. It can seed data, run a stateful Firestore session with undo and redo, simulate a rules verdict before writing, and inspect what exists. Nothing it does leaves the machine. You can watch all of it in the event stream.
 
-**The parts behind it.** `pyric dev --bridge` and the MCP tool surface. The stateful `firestore_simulator_*` session, `sandbox_inspect`, `rtdb_validated_write`, `firestore_simulate_rules`. Studio's Prototype tab, an agent working against the shared sandbox in view. The Claude Code plugin that wires it up.
+**The parts behind it.** `pyric dev --bridge` and the MCP tool surface. The stateful `firestore_simulator_*` session, `sandbox_inspect`, `rtdb_validated_write`, `firestore_simulate_rules`. Studio's Prototype tab, an agent working against the shared sandbox in view. The Pyric agent plugin that wires it up.
 
 **Maturity.** Core to the story, and the newest ground. We show it working, and we are honest that the tool surface is wide and still consolidating.
 

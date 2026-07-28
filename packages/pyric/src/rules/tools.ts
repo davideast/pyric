@@ -31,7 +31,7 @@ import {
 } from './simulator-tools-impl.js';
 
 // Re-exported for back-compat with consumers that imported the type
-// from `pyric/rules/node` (where this file is exposed).
+// from `pyric/rules/internal/node` (where this file is exposed).
 export type FirestoreSimulatorToolDeps = Pick<
   FirestoreSimulatorToolDepsImpl,
   'resolveSandbox'

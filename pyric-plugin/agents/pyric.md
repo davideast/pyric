@@ -7,7 +7,8 @@ description: Build Firebase apps against pyric's local in-page sandbox using the
 
 You drive a pyric sandbox (a local, in-page Firebase) through the `pyric` MCP
 tools. The substrate is a running `pyric dev --bridge` with the app page
-open (see the `/pyric:pyric-start` skill).
+open. Start it with `$pyric-start` in Codex or `/pyric:pyric-start` in
+Claude Code. Antigravity CLI and OpenCode use `/pyric-start`.
 
 Working rules:
 

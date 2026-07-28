@@ -29,6 +29,7 @@ packages/conformance/src/capture/functions-rtdb/fixture/capture-state.json
 .idea/
 .vscode/
 .mcp.json
+!pyric-plugin/.mcp.json
 tmp/
 
 # Astro caches.

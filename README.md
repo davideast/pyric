@@ -32,11 +32,16 @@ npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/
 npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent opencode
 ```
 
-Then ask your agent:
+Then invoke the skill:
 
-```text
-Use the pyric-start skill to set up and run Pyric in this project.
-```
+| Agent | Enter |
+|---|---|
+| Codex | `$pyric-start` |
+| Claude Code | `/pyric:pyric-start` |
+| Antigravity CLI | `/pyric-start` |
+| OpenCode | `/pyric-start` |
+
+The leading `$` or `/` is part of the command.
 
 The skill chooses the project launcher, starts one local sandbox bridge, opens the application, and confirms that the browser sandbox is connected.
 

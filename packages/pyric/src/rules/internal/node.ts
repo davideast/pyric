@@ -4,7 +4,7 @@
  * Anything that imports `node:fs` / `node:path` / `node:url` at
  * module-init lives here, so the browser-facing root entry stays
  * free of Node builtins. Consumers running in Node (admin tools,
- * SDK agent definitions, tests) import from `pyric/rules/node`.
+ * SDK agent definitions, tests) import from `pyric/rules/internal/node`.
  *
  * Today the only Node-only surface is the modules resolver — it
  * reads stdlib files off disk via `readFileSync`.

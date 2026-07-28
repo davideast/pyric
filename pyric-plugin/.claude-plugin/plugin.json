@@ -1,6 +1,6 @@
 {
   "name": "pyric",
-  "description": "Drive a local Firebase sandbox (pyric dev --bridge) from Claude Code — auto-wires the MCP endpoint via a stdio proxy, no manual `claude mcp add`.",
+  "description": "Drive a local Firebase sandbox from coding agents through Pyric skills and its auto-discovered MCP bridge.",
   "version": "0.0.0",
   "homepage": "https://github.com/davideast/pyric"
 }
