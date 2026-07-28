@@ -5,7 +5,7 @@ Every agent-callable tool in this repo, **sourced**. Tools are plain
 into whatever runtime you use. They reach an agent two ways:
 
 1. **`pyric dev --bridge`** (or `pyric bridge`) — exposes the **default sandbox
-   registry** over MCP; the [Claude Code plugin](../pyric-plugin/README.md)
+   registry** over MCP; the [Pyric agent plugin](../pyric-plugin/README.md)
    auto-wires it. Forwarded + in-process names are pinned in
    `packages/cli/src/bridge/server/mcp-contract.ts` (**35** tools today).
 2. **Programmatic** — import a factory and register the handlers with any agent
@@ -26,7 +26,7 @@ plus sandbox inspection.
 `firestore_batch_write` · `firestore_query_where` ·
 `sandbox_inspect`
 
-## Firestore rules — `createFirestoreRulesTools` / `createFirestoreRulesStdlibTools` (`pyric/rules`, Node-only pieces under `pyric/rules/node`)
+## Firestore rules — `createFirestoreRulesTools` / `createFirestoreRulesStdlibTools` (`pyric/rules`, Node-only pieces under `pyric/rules/internal/node`)
 
 The differentiator surface: lint, simulate, and (optionally) test rules
 **locally, as a library** — no emulator.

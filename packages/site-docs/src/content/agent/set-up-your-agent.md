@@ -29,13 +29,16 @@ npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/
 npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent opencode
 ```
 
-Then ask your coding agent:
+Then invoke the skill:
 
-```text
-Use the pyric-start skill to set up and run Pyric in this project.
-```
+| Agent | Enter |
+|---|---|
+| Codex | `$pyric-start` |
+| Claude Code | `/pyric:pyric-start` |
+| Antigravity CLI | `/pyric-start` |
+| OpenCode | `/pyric-start` |
 
-The skill scaffolds a project if needed, selects the correct launcher, starts the bridge, opens the app, and checks that the sandbox is connected. Ask for the skill by name because command syntax differs between coding agents. To expose the backend as tools, configure the client below.
+The leading `$` or `/` is part of the command. The skill scaffolds a project if needed, selects the correct launcher, starts the bridge, opens the app, and checks that the sandbox is connected. To expose the backend as tools, configure the client below.
 
 One requirement remains: the sandbox lives inside the served page, so keep the app open in a browser tab while the agent works. If data tools return nothing, open the page and try again.
 

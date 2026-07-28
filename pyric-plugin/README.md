@@ -1,38 +1,56 @@
-# pyric — Claude Code plugin
+# Pyric agent plugin
 
-Drive a local Firebase sandbox from Claude Code with zero MCP wiring.
+Drive a local Firebase sandbox from a coding agent with zero manual MCP wiring.
 
 `pyric dev --bridge` exposes an MCP endpoint, but at a runtime port
 (`http://localhost:<PORT>/__pyric/mcp`) that a static `.mcp.json` can't name.
-This plugin bridges that with a **stdio MCP proxy**: it declares a stdio
+The agent plugin bridges that with a **stdio MCP proxy**: it declares a stdio
 server that runs `pyric mcp`, which discovers the live serve (from the
 `.pyric/serve.json` pointer serve writes, else a port scan) and relays the
-protocol. No `claude mcp add`, no fixed port.
+protocol. There is no fixed port to configure.
 
 ## What it provides
 
 - **`pyric` MCP server** (`.mcp.json`) — auto-connects to the running serve
   via the stdio proxy. Gives the agent the sandbox tools (data plane, rules
   lint/simulate, `pyric_sandbox_inspect`).
-- **`/pyric:pyric-start` skill** — scaffolds (if needed), starts
-  `pyric dev --bridge --persist`, and opens the app so the in-page sandbox
-  connects.
+- **`pyric-start` skill** — installs `@pyric/cli@latest`, configures the
+  current `pyric` Vite plugin, starts one bridge, and opens the app so the
+  in-page sandbox connects.
 - **`pyric` agent** — sandbox operating knowledge for common Pyric workflows.
 
 ## Install
 
 ```bash
-claude plugin install https://github.com/davideast/pyric   # path: pyric-plugin/
-# or, for local dev against this checkout:
-claude --plugin-dir ./pyric-plugin
+npx plugins add davideast/pyric
 ```
 
-`pyric` must be available on the project's PATH (the `pyric init` web
-template adds `@pyric/cli` as a development dependency, so `npx pyric …` resolves it).
+For local development against this checkout:
+
+```bash
+npx plugins add ./pyric-plugin
+```
+
+## Start Pyric
+
+Use the syntax for your agent:
+
+| Agent | Invoke the skill |
+|---|---|
+| Codex | `$pyric-start` |
+| Claude Code | `/pyric:pyric-start` |
+| Antigravity CLI | `/pyric-start` |
+| OpenCode | `/pyric-start` |
+
+The leading `$` or `/` is part of the invocation. Codex uses `$` for skills.
+Claude Code uses `/` and namespaces skills installed through a plugin.
+Antigravity CLI and OpenCode install `pyric-start` as a standalone skill and
+use `/pyric-start`.
 
 ## How it connects (no manual steps)
 
-1. `/pyric:pyric-start` runs `pyric dev --bridge` → the dev server writes
+1. `pyric-start` configures the current `@pyric/cli` Vite plugin or runs the
+   project-local `pyric dev --bridge`. The dev server writes
    `.pyric/serve.json` with the bound port.
 2. The plugin's stdio server (`pyric mcp`) reads that pointer and relays
    stdio ↔ `http://<addr>:<port>/__pyric/mcp`.
@@ -44,5 +62,4 @@ re-open the page.
 
 ## Status
 
-Pre-release. The MCP proxy + start skill are functional and tested in
-`packages/cli`.
+Pre-release.

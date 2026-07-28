@@ -1,36 +1,56 @@
 ---
 name: pyric-start
-description: Start the pyric sandbox bridge for this project and open the app so the in-page sandbox connects. Use this BEFORE asking the agent to work with Firestore or auth through pyric. The pyric MCP tools need a running bridge and (for now) an open page.
+description: Install the current Pyric CLI, start this project's sandbox bridge, and open the app so the in-page sandbox connects. Use before asking an agent to work with Firestore, Auth, or another Firebase service through Pyric.
 ---
 
 # Start pyric
 
-Get a pyric sandbox running and wired to this session. There are TWO launchers. Pick by the
-project shape and start ONLY one. Two servers means two ports and two separate sandboxes, which
-is the classic failure mode.
+Get one current Pyric sandbox running and wired to this session.
 
-1. **Detect the launcher.**
-   - **Vite app** (there is a `vite.config.*` that imports `pyricSandbox` from `@pyric/cli/vite`):
-     the app's own `vite dev` IS the bridge. Start the app, NOT a separate `pyric dev`. Confirm
-     the config passes `pyricSandbox({ bridge: true })` (the MCP endpoint only mounts under `bridge`).
-   - **Otherwise** (a `firebase.json` with no vite plugin, or no project yet): use `pyric dev --bridge`.
-     If there is no `firebase.json`, run `pyric init` first.
+## Use the current package and APIs
 
-2. **Start the dev server (backgrounded).** Background it so it keeps running. Avoid restarting it
-   for config edits; a restart drops the MCP connection and you have to reconnect.
-   - Vite app: run the app's dev script, e.g. `bun run dev` (or `npm run dev`).
-   - Serve: `pyric dev --bridge --persist --json` (the single JSON line on stdout carries
-     `{ url, port, mcpUrl, persist, restoredDocs, restoredUsers }`; keep the `url`).
+- Use only `@pyric/cli@latest` for the CLI and build integrations.
+- Import `{ pyric }` from `@pyric/cli/vite`.
+- Use `pyric({ bridge: true })` for a Vite bridge.
+- Use `pyric/rules/internal/node` for the Node-only Rules entry point.
+- Never use `pyricSandbox`. It is the retired Vite plugin name.
+- Never downgrade Pyric or add a `pyric` override to make a retired name resolve.
+- Never scaffold with `pyric init`; an old global CLI can carry a stale embedded template. Use
+  `npm create pyric@latest` for a new project.
+- Never add an absolute `file:/...` dependency that points at a global npm installation.
 
-3. **MCP is already wired. There is NO `claude mcp add` step.** Both launchers write
-   `.pyric/serve.json`; the `pyric` MCP server (this plugin) connects via the bundled stdio proxy,
-   which discovers the port from that pointer and probes both IPv4 and IPv6 loopback. NEVER
-   hand-write a static MCP URL into `.mcp.json`. That is the IPv6/IPv4 trap.
+If the project contains another Pyric CLI/build dependency, `pyricSandbox`, `pyric/rules/node`, or
+an old compatibility override, migrate it to the current forms above and update the lockfile with
+the project's package manager.
 
-4. **Open the app.** Open the served `url` in a browser. THIS IS REQUIRED TODAY: the sandbox lives
-   inside the served page, so the data-plane MCP tools (addDoc, getDoc, query, ...) have nothing to
-   talk to until a page is open. Confirm with `GET <url>/__pyric/health` and check
-   `"sandboxConnected": true`.
+## Start one launcher
 
-Report the `url` and confirm `sandboxConnected: true` before doing pyric work. If health shows
-`false`, the page is not open. Open it and re-check.
+1. Inspect `package.json`, the lockfile, `vite.config.*`, and `firebase.json`.
+2. If the directory has no application yet, scaffold the current Vite template with
+   `npm create pyric@latest`. Do not use a globally installed `pyric` executable.
+3. For an existing project, install or update the development dependency with its package manager:
+   `@pyric/cli@latest`. Remove any superseded Pyric CLI/build dependency through the same package
+   manager.
+4. Choose one launcher:
+   - **Vite:** Edit the existing Vite configuration in place. Import `pyric` from
+     `@pyric/cli/vite` and ensure the existing `plugins` array contains one
+     `pyric({ bridge: true })` call. Do not add a second `plugins` property. Start the existing
+     dev script, such as `npm run dev` or `bun run dev`. Do not also start `pyric dev`.
+   - **Existing non-Vite app:** Preserve its development command. If its script starts with
+     `pyric dev`, add `--bridge --persist --json` before the child-command separator (`--`).
+     Run that script with the project's package manager.
+   - **No existing development command:** Run the project-local CLI with
+     `npx --no-install pyric dev --bridge --persist --json`.
+5. Keep the URL printed by the launcher.
+6. Keep the dev server running in the background. Avoid restarting it after the bridge connects.
+
+## Connect and verify
+
+The plugin's `pyric` MCP server uses the stdio proxy to discover `.pyric/serve.json`. Do not add a
+static MCP URL or run a separate `claude mcp add` command.
+
+Open the served URL in a browser. The data-plane tools require the in-page sandbox. Request
+`<url>/__pyric/health` and confirm `"sandboxConnected": true`.
+
+Report the URL and the successful health result before doing Pyric work. If health reports
+`false`, open the page and check again.

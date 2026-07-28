@@ -5,7 +5,7 @@
  * browser bundle.
  *
  * The factory takes `resolveModulesFn` as an injected dep:
- *  - `pyric/rules/node` wires `resolveModules` from `./modules/resolver.js`
+ *  - `pyric/rules/internal/node` wires `resolveModules` from `./modules/resolver.js`
  *    — Node's disk-reading version.
  *  - `./simulator.ts` wires `resolveModulesBrowser` from
  *    `./modules/resolver-browser.js`, which pre-supplies the stdlib content
@@ -107,7 +107,7 @@ export function createFirestoreSimulatorTools(
             return {
               ok: false,
               summary:
-                'Module resolve unavailable: this builder was not wired with `resolveModulesFn`. Use a package entry that wires module resolution, such as pyric/rules/node, instead of importing the impl directly.',
+                'Module resolve unavailable: this builder was not wired with `resolveModulesFn`. Use a package entry that wires module resolution, such as pyric/rules/internal/node, instead of importing the impl directly.',
               data: { code: 'NO_MODULE_RESOLVER' },
             };
           }

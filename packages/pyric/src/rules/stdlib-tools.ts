@@ -3,7 +3,7 @@
  *
  * Why a separate file: `createFirestoreRulesTools` lives in `./tools.ts`
  * alongside the Node-only resolver — so the whole factory ships from
- * `pyric/rules/node`. The stdlib tools are pure data (no
+ * `pyric/rules/internal/node`. The stdlib tools are pure data (no
  * fs, no network) and useful to browser consumers (the playground
  * imports them straight into its tool registry). Keeping the data +
  * tool factory together in this file lets the main `pyric/firestore-
