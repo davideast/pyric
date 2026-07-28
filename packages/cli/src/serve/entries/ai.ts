@@ -139,6 +139,13 @@ function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
       ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
     } as EngineOption;
   }
+  if (wire.kind === 'gemini') {
+    return {
+      kind: 'gemini',
+      ...(wire.baseUrl !== undefined ? { baseUrl: wire.baseUrl } : {}),
+      ...(wire.apiKey !== undefined ? { apiKey: wire.apiKey } : {}),
+    } as unknown as EngineOption;
+  }
   return {
     kind: 'scripted',
     ...(wire.script !== undefined

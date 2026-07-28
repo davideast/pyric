@@ -57,6 +57,13 @@ function resolveEngineConfig(wire: AiEngineConfigWire): NonNullable<AIOptions['e
       ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
     };
   }
+  if (wire.kind === 'gemini') {
+    return {
+      kind: 'gemini',
+      ...(wire.baseUrl !== undefined ? { baseUrl: wire.baseUrl } : {}),
+      ...(wire.apiKey !== undefined ? { apiKey: wire.apiKey } : {}),
+    } as unknown as NonNullable<AIOptions['engine']>;
+  }
   return {
     kind: 'scripted',
     ...(wire.script !== undefined

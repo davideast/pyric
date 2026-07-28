@@ -117,17 +117,17 @@ describe('Vite AI configuration', () => {
   it('resolves production mode when configured in options or environment', () => {
     expect(resolveViteAiConfig({ mode: 'production' }, {})).toEqual({
       mode: 'production',
-      engineWire: undefined,
+      engineWire: { kind: 'gemini' },
       proxyUpstream: undefined,
     });
     expect(resolveViteAiConfig(undefined, { PYRIC_AI_MODE: 'production' })).toEqual({
       mode: 'production',
-      engineWire: undefined,
+      engineWire: { kind: 'gemini' },
       proxyUpstream: undefined,
     });
     expect(resolveViteAiConfig(undefined, { PYRIC_AI_PASSTHROUGH: '1' })).toEqual({
       mode: 'production',
-      engineWire: undefined,
+      engineWire: { kind: 'gemini' },
       proxyUpstream: undefined,
     });
   });

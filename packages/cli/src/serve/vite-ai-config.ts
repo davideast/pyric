@@ -65,6 +65,13 @@ export function engineConfigToWire(engine: PyricAiEngineConfig): AiEngineConfigW
     }
     return result as AiEngineConfigWire;
   }
+  if (engine.kind === 'gemini') {
+    return {
+      kind: 'gemini',
+      ...(engine.baseUrl !== undefined ? { baseUrl: engine.baseUrl } : {}),
+      ...(engine.apiKey !== undefined ? { apiKey: engine.apiKey } : {}),
+    } as AiEngineConfigWire;
+  }
   const result: Record<string, unknown> = {
     kind: 'scripted',
   };
@@ -123,12 +130,12 @@ export function resolveViteAiConfig(
   }
 
   let engineWire: AiEngineConfigWire | undefined = undefined;
-  if (!isProductionMode) {
-    if (explicitEngine !== undefined) {
-      engineWire = engineConfigToWire(explicitEngine);
-    } else if (model !== undefined) {
-      engineWire = engineConfigToWire({ kind: 'openai', baseUrl: AI_PROXY_PATH, model });
-    }
+  if (isProductionMode) {
+    engineWire = { kind: 'gemini' };
+  } else if (explicitEngine !== undefined) {
+    engineWire = engineConfigToWire(explicitEngine);
+  } else if (model !== undefined) {
+    engineWire = engineConfigToWire({ kind: 'openai', baseUrl: AI_PROXY_PATH, model });
   }
 
   let proxyUpstream: string | undefined = undefined;

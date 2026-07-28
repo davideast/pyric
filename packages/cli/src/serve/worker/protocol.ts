@@ -203,7 +203,8 @@ export type AiEngineConfigWire =
       model?: string;
       /** Explicit Gemini-model-id → upstream-model mapping. */
       modelMap?: Record<string, string>;
-    };
+    }
+  | { kind: 'gemini'; baseUrl?: string; apiKey?: string };
 
 /**
  * Wire form of the Gemini error envelope an `AiBrokerError` carries

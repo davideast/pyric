@@ -31,6 +31,7 @@ import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/intern
 import { AiBrokerError, Synthesizer, badRole, emptyContents, missingThoughtSignature } from './synthesizer.js';
 import { ScriptedEngine } from './scripted-engine.js';
 import { OpenAiEngine } from './openai-engine.js';
+import { GeminiEngine } from './gemini-engine.js';
 import type {
   AnswerEngine,
   CountTokensRequest,
@@ -75,7 +76,7 @@ function isAnswerEngine(value: EngineConfig | AnswerEngine): value is AnswerEngi
 }
 
 /** What Studio's stream (and the construction log line) name the engine. */
-type EngineKind = 'scripted' | 'openai' | 'custom';
+type EngineKind = 'scripted' | 'openai' | 'gemini' | 'custom';
 
 export class AiBroker {
   readonly engine: AnswerEngine;
@@ -93,6 +94,10 @@ export class AiBroker {
     } else if (engine.kind === 'scripted') {
       this.engine = new ScriptedEngine(engine.script ?? [], new Synthesizer());
       this.engineKind = 'scripted';
+    } else if (engine.kind === 'gemini') {
+      this.engine = new GeminiEngine(engine);
+      this.engineKind = 'gemini';
+      this.engineBaseUrl = engine.baseUrl;
     } else {
       this.engine = new OpenAiEngine(engine);
       this.engineKind = 'openai';
