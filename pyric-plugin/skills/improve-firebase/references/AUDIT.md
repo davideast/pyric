@@ -154,7 +154,7 @@ Hunt for:
 - client-bundled secrets or accidental Admin credentials
 - deploy scripts that can target the wrong project or deploy broader surfaces than intended
 - Pyric conformance gaps relevant to the application's actual features
-- retired Pyric packages/APIs, duplicate launchers or plugin entries, a disconnected bridge, or a sandbox build on the deployment path
+- Pyric imports or configuration that do not match the installed package, duplicate launchers or plugin entries, a disconnected bridge, or a sandbox build on the deployment path
 - AI production pass-through combined with a local model/engine, demo Firebase configuration, or a cloud API whose enablement remains unverified
 - AI confidence based only on scripted or local-model behavior when the release depends on production model quality, safety, latency, quota, billing, or availability
 - tests that assert only ALLOW controls and never adjacent DENY mutations

@@ -4,17 +4,15 @@ Read this reference whenever Pyric is installed or referenced by build configura
 
 ## Package and API surface
 
-Check package manifests, lockfiles, imports, scripts, and overrides:
+Check package manifests, lockfiles, imports, and scripts:
 
 - use `@pyric/cli` for the CLI and build integrations
 - import `{ pyric }` from `@pyric/cli/vite`
 - use `pyric()` as the Vite plugin name
 - use `withPyric` from `@pyric/cli/next` for a Next.js integration
-- treat `pyric-tools`, `pyricSandbox`, and `pyric/rules/node` as retired names
 - flag absolute `file:/...` dependencies that point to a global installation
-- flag overrides or downgrades added only to make a retired name resolve
 
-Confirm versions from the lockfile and installed package. If `pyric` and `@pyric/cli` disagree, inspect their actual exports and report the concrete failure risk. Do not choose an older version to force compatibility.
+Confirm versions from the lockfile and installed package. Inspect the exports used by the project and report any concrete mismatch without changing package versions during the audit.
 
 ## Launcher and bridge
 

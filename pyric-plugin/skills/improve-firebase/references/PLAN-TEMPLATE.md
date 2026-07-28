@@ -78,6 +78,6 @@ State an observable invariant before showing target code. For Security Rules, na
 - For a query/index fix, pair generated config with the source query and its Rules-compatible identity constraints.
 - For performance/cost, require a measurement: document count, listener result bound, read/write count, payload size, or captured hot-path frequency. Do not optimize from aesthetics.
 - For AI Logic, record scripted, local-model, and production behavior separately. Include prompt-data classes, output validation, failure paths, and the evidence that remains unavailable without a live cloud request.
-- For Pyric configuration, use the installed `@pyric/cli` surface. Remove retired names instead of downgrading or adding an override to preserve them.
+- For Pyric configuration, use the installed `@pyric/cli` surface and confirm every proposed import or option exists in that version.
 - For Pyric gaps, write a verification step against Firebase rather than pretending local proof exists.
 - Update `plans/README.md` with status, order, dependencies, and strongest evidence grade.
