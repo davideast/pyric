@@ -17,6 +17,8 @@ Use this reference to select evidence, not to force every possible probe. Inspec
 
 | Evidence | Pyric surface | What it proves | What it does not prove |
 |---|---|---|---|
+| E0 Pyric configuration | Package/lockfile, build configuration, scripts, environment-key names, and installed exports/types | Which integration and local/production switches the source declares | That a server started, a sandbox connected, or a production build/deploy used those settings |
+| E0 AI Logic configuration | `firebase/ai` and `pyric/ai` call sites, model/settings/schema declarations, and Pyric AI mode | Declared request flow, data boundaries, and configuration conflicts | Model behavior, cloud API enablement, production quality, latency, quota, billing, or availability |
 | E1 static rules | `firestore_lint_rules`; `pyric firestore rules lint`; Storage/RTDB lint and validate commands | Parseability, budgets, known unsafe constructs and smells | Runtime authorization for a concrete identity/state/query |
 | E1 Standard Library | `rules_stdlib_list`; `rules_stdlib_get`; Firestore compatibility aliases on older versions | Available tested helpers, exact signatures, and service compatibility | That a helper fits the product model or proves a complete policy |
 | E1 modular build | `rules_resolve_modules`; `pyric firestore rules resolve`; `pyric storage rules resolve` | Imports resolve to a deployable version 2 artifact; source/artifact comparison exposes drift | Runtime authorization or deployment state |
@@ -27,6 +29,8 @@ Use this reference to select evidence, not to force every possible probe. Inspec
 | E2 RTDB structure | `rtdb_crawl_structure` | Bounded local tree shape without leaf values | Production tree shape or frequency |
 | E2 RTDB authorization | `rtdb_simulate_access` | Local read/write/validate decision against active rules and state | Unsupported expressions or exact production parity outside the conformance contract |
 | E2 simulator history | `firestore_simulator_*`, undo/redo/events | State transitions, transactions, and event ordering in an isolated local session | Production contention or network timing |
+| E2 scripted AI path | An observed Firebase AI Logic request against Pyric's scripted engine | Request plumbing and application behavior for the exact deterministic response or failure | Production model quality, safety policy, latency, quota, billing, or cloud availability |
+| E2 loopback AI path | An observed request through an already configured loopback OpenAI-compatible model | Local proxy wiring and application handling for that engine/model/run | Deterministic behavior or parity with Google AI and Vertex AI models |
 | E3 journey replay | `pyric verify [fixture]` | Candidate Rules preserve captured Firestore/RTDB requests and resulting state | Journeys never captured; Storage verification; general proof over all inputs |
 | E4 hosted replay | `pyric verify --engine rules-test-api|both` | Firebase Rules Test API result for derived Firestore cases; `both` can reveal engine drift | RTDB hosted verification, production data/traffic, uncaptured behavior |
 | Optional programmatic | discovery and assurance APIs when actually registered | Bounded schema sampling or mutation-based authorization counterexamples | Availability through the default plugin; permission to read/write production |
@@ -130,6 +134,10 @@ Hunt for:
 - Functions that are non-idempotent, assume exactly-once delivery, recurse on their own writes, or expose unsupported trigger patterns
 - RTDB `onValueCreated` handlers whose sandbox-visible writes differ from expected paths/state
 - client and Functions/Auth boundaries that disagree about claims or ownership
+- AI prompts that include secrets or unnecessary user data
+- unvalidated model output used for writes, tool calls, navigation, or authorization-sensitive choices
+- missing handling for blocked or malformed responses, interrupted streams, duplicate submission, cancellation, timeout, quota, and bounded retries
+- remote AI proxy endpoints treated as local simply because Pyric is in sandbox mode
 
 Pyric can execute only the Functions shapes supported by the installed version. Report every omitted/unsupported trigger as untested; never extrapolate from a supported RTDB trigger to all Firebase Functions.
 
@@ -146,6 +154,9 @@ Hunt for:
 - client-bundled secrets or accidental Admin credentials
 - deploy scripts that can target the wrong project or deploy broader surfaces than intended
 - Pyric conformance gaps relevant to the application's actual features
+- Pyric imports or configuration that do not match the installed package, duplicate launchers or plugin entries, a disconnected bridge, or a sandbox build on the deployment path
+- AI production pass-through combined with a local model/engine, demo Firebase configuration, or a cloud API whose enablement remains unverified
+- AI confidence based only on scripted or local-model behavior when the release depends on production model quality, safety, latency, quota, billing, or availability
 - tests that assert only ALLOW controls and never adjacent DENY mutations
 
 Treat `pyric verify` as regression evidence, not a universal security proof. Coverage is the set of captured events and explicitly authored cases; name missing journeys.
@@ -158,6 +169,8 @@ Treat `pyric verify` as regression evidence, not a universal security proof. Cov
 - The Firestore Rules Test API requires existing credentials and project scope. Never solicit secrets into chat or create credentials.
 - Production deployment and index build status belong to Firebase CLI/Console. Keep this audit non-mutating.
 - Storage can be linted/simulated locally, but captured-session verification currently targets Firestore/RTDB.
+- Scripted AI evidence covers an exact local request and response. A local model adds proxy evidence, but its output is nondeterministic and does not represent production AI behavior.
+- Do not enable AI production pass-through or contact a remote model during an audit unless the user explicitly placed that live network activity in scope.
 - Unsupported/gap results are evidence about Pyric's limit, not evidence that Firebase allows or denies the operation.
 
 ## 8. Optional high-leverage Pyric surfaces
