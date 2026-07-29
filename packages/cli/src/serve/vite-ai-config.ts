@@ -146,7 +146,11 @@ export function resolveViteAiConfig(
 
   let engineWire: AiEngineConfigWire | undefined = undefined;
   if (isProductionMode) {
-    engineWire = { kind: 'gemini' };
+    const apiKey = env.GEMINI_API_KEY ?? env.GOOGLE_GENAI_API_KEY ?? env.VITE_GEMINI_API_KEY;
+    engineWire = {
+      kind: 'gemini',
+      ...(apiKey !== undefined && apiKey.trim() !== '' ? { apiKey: apiKey.trim() } : {}),
+    };
   } else if (explicitEngine !== undefined) {
     engineWire = engineConfigToWire(explicitEngine);
   } else if (model !== undefined) {

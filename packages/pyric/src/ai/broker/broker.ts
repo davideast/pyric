@@ -142,13 +142,12 @@ export class AiBroker {
   }
 
   private emitRejectionIfBrokerError(model: string, err: unknown): void {
-    if (err instanceof AiBrokerError) {
-      this.emit('request_rejected', model, {
-        code: err.envelope.error.code,
-        status: err.envelope.error.status,
-        message: err.envelope.error.message,
-      });
-    }
+    const code = err instanceof AiBrokerError ? err.envelope.error.code : 500;
+    const status = err instanceof AiBrokerError ? err.envelope.error.status : 'INTERNAL';
+    const message = err instanceof AiBrokerError
+      ? err.envelope.error.message
+      : err instanceof Error ? err.message : String(err);
+    this.emit('request_rejected', model, { code, status, message });
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {

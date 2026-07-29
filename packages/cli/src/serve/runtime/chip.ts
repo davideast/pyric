@@ -19,9 +19,14 @@ export interface PyricRuntimeChip {
 }
 
 function aiEngineLabel(): string {
-  const engine = (globalThis as { __PYRIC_AI_ENGINE__?: { kind?: string } }).__PYRIC_AI_ENGINE__;
-  if (engine?.kind === 'gemini') return 'production (gemini)';
-  if (engine?.kind === 'openai') return 'proxy (openai)';
+  const engine = (globalThis as { __PYRIC_AI_ENGINE__?: { kind?: string; model?: string } }).__PYRIC_AI_ENGINE__;
+  if (engine?.kind === 'gemini') {
+    return 'production (gemini: gemini-3.5-flash-lite → gemini-flash-lite-latest)';
+  }
+  if (engine?.kind === 'openai') {
+    const modelLabel = engine.model ? ` (${engine.model})` : '';
+    return `proxy (openai${modelLabel})`;
+  }
   return 'sandbox (scripted)';
 }
 
