@@ -44,7 +44,14 @@ export function loadViteAiEnv(
   const resolvedEnvDir = envDir === undefined
     ? resolvedRoot
     : path.resolve(resolvedRoot, envDir);
-  return loadEnv(mode, resolvedEnvDir, '');
+  const loaded = loadEnv(mode, resolvedEnvDir, '');
+  for (const [key, val] of Object.entries(loaded)) {
+    const isAiKey = key.includes('GEMINI') || key.includes('GOOGLE_GENAI') || key.includes('PYRIC_');
+    if (isAiKey && process.env[key] === undefined) {
+      process.env[key] = val;
+    }
+  }
+  return loaded;
 }
 
 /** Convert a public declarative engine into the JSON-safe worker wire shape. */

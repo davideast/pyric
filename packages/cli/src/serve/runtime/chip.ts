@@ -18,6 +18,13 @@ export interface PyricRuntimeChip {
   dispose(): void;
 }
 
+function aiEngineLabel(): string {
+  const engine = (globalThis as { __PYRIC_AI_ENGINE__?: { kind?: string } }).__PYRIC_AI_ENGINE__;
+  if (engine?.kind === 'gemini') return 'production (gemini)';
+  if (engine?.kind === 'openai') return 'proxy (openai)';
+  return 'sandbox (scripted)';
+}
+
 const styles = `
   :host {
     --pyric-bg: #1e1e24;
@@ -214,6 +221,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           </div>
         </header>
         <div class="worker-state"><span class="state-label${snapshot.updateAvailable ? ' available' : ''}"><span class="mini-dot"></span>${workerLabel}</span><span class="epochs">${epochs}</span></div>
+        <div class="worker-state" data-ai-status><span class="state-label"><span class="mini-dot"></span>AI logic</span><span class="epochs">${aiEngineLabel()}</span></div>
         <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
         <div class="actions">
           <button class="button update" type="button" data-update-worker ${snapshot.updateAvailable ? '' : 'disabled'} aria-disabled="${snapshot.updateAvailable && !snapshot.updatingWorker ? 'false' : 'true'}">${snapshot.updatingWorker ? 'Updating…' : 'Update worker'}</button>
