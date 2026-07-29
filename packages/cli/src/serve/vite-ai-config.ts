@@ -46,8 +46,12 @@ export function loadViteAiEnv(
     : path.resolve(resolvedRoot, envDir);
   const loaded = loadEnv(mode, resolvedEnvDir, '');
   for (const [key, val] of Object.entries(loaded)) {
-    const isAiKey = key.includes('GEMINI') || key.includes('GOOGLE_GENAI') || key.includes('PYRIC_');
-    if (isAiKey && process.env[key] === undefined) {
+    const isAuthKey =
+      key === 'GEMINI_API_KEY' ||
+      key === 'GOOGLE_GENAI_API_KEY' ||
+      key === 'VITE_GEMINI_API_KEY' ||
+      key === 'PYRIC_API_KEY';
+    if (isAuthKey && process.env[key] === undefined) {
       process.env[key] = val;
     }
   }
