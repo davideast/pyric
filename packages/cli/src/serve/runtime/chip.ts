@@ -18,16 +18,30 @@ export interface PyricRuntimeChip {
   dispose(): void;
 }
 
-function aiEngineLabel(): string {
+interface AiEngineDisplay {
+  primary: string;
+  subline: string | null;
+}
+
+function aiEngineState(): AiEngineDisplay {
   const engine = (globalThis as { __PYRIC_AI_ENGINE__?: { kind?: string; model?: string } }).__PYRIC_AI_ENGINE__;
   if (engine?.kind === 'gemini') {
-    return 'production (gemini: gemini-3.5-flash-lite → gemini-flash-lite-latest)';
+    return {
+      primary: 'gemini (production)',
+      subline: 'gemini-3.5-flash-lite → gemini-flash-lite-latest',
+    };
   }
   if (engine?.kind === 'openai') {
     const modelLabel = engine.model ? ` (${engine.model})` : '';
-    return `proxy (openai${modelLabel})`;
+    return {
+      primary: `openai (proxy${modelLabel})`,
+      subline: null,
+    };
   }
-  return 'sandbox (scripted)';
+  return {
+    primary: 'sandbox (scripted)',
+    subline: null,
+  };
 }
 
 const styles = `
@@ -98,8 +112,11 @@ const styles = `
   .icon-button[data-copy-failed] { color: var(--pyric-error); }
   .icon { height: 15px; width: 15px; }
   .worker-state { border-top: 1px solid var(--pyric-border-soft); color: var(--pyric-muted); font-size: 10px; justify-content: space-between; min-height: 34px; padding: 7px 12px; }
+  .worker-state-col { border-top: 1px solid var(--pyric-border-soft); color: var(--pyric-muted); font-size: 10px; display: flex; flex-direction: column; min-height: 34px; padding: 7px 12px; }
+  .worker-state-row { align-items: center; display: flex; justify-content: space-between; width: 100%; }
+  .worker-state-subline { color: #89899f; font: 9px/1.4 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; width: 100%; }
   .worker-state .available { color: var(--pyric-warning); }
-  .worker-state .state-label { align-items: center; display: flex; gap: 7px; }
+  .worker-state .state-label, .worker-state-col .state-label { align-items: center; display: flex; gap: 7px; white-space: nowrap; }
   .mini-dot { background: var(--pyric-accent); border-radius: 50%; height: 6px; width: 6px; }
   .available .mini-dot { background: var(--pyric-warning); }
   .epochs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -215,6 +232,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const epochs = snapshot.updateAvailable
       ? `${snapshot.runningEpoch?.slice(0, 8) ?? 'unknown'} → ${snapshot.servedEpoch?.slice(0, 8) ?? 'unknown'}`
       : snapshot.runningEpoch?.slice(0, 8) ?? '';
+    const aiState = aiEngineState();
 
     view.innerHTML = `${open ? `
       <section class="panel" role="dialog" aria-label="Pyric runtime">
@@ -226,7 +244,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           </div>
         </header>
         <div class="worker-state"><span class="state-label${snapshot.updateAvailable ? ' available' : ''}"><span class="mini-dot"></span>${workerLabel}</span><span class="epochs">${epochs}</span></div>
-        <div class="worker-state" data-ai-status><span class="state-label"><span class="mini-dot"></span>AI logic</span><span class="epochs">${aiEngineLabel()}</span></div>
+        <div class="worker-state-col" data-ai-status>
+          <div class="worker-state-row">
+            <span class="state-label"><span class="mini-dot"></span>AI engine</span>
+            <span class="epochs">${aiState.primary}</span>
+          </div>
+          ${aiState.subline ? `<div class="worker-state-subline">${aiState.subline}</div>` : ''}
+        </div>
         <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
         <div class="actions">
           <button class="button update" type="button" data-update-worker ${snapshot.updateAvailable ? '' : 'disabled'} aria-disabled="${snapshot.updateAvailable && !snapshot.updatingWorker ? 'false' : 'true'}">${snapshot.updatingWorker ? 'Updating…' : 'Update worker'}</button>
