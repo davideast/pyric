@@ -31,6 +31,7 @@ import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/intern
 import { AiBrokerError, Synthesizer, badRole, emptyContents, missingThoughtSignature } from './synthesizer.js';
 import { ScriptedEngine } from './scripted-engine.js';
 import { OpenAiEngine } from './openai-engine.js';
+import { GeminiEngine } from './gemini-engine.js';
 import type {
   AnswerEngine,
   CountTokensRequest,
@@ -75,7 +76,7 @@ function isAnswerEngine(value: EngineConfig | AnswerEngine): value is AnswerEngi
 }
 
 /** What Studio's stream (and the construction log line) name the engine. */
-type EngineKind = 'scripted' | 'openai' | 'custom';
+type EngineKind = 'scripted' | 'openai' | 'gemini' | 'custom';
 
 export class AiBroker {
   readonly engine: AnswerEngine;
@@ -93,6 +94,10 @@ export class AiBroker {
     } else if (engine.kind === 'scripted') {
       this.engine = new ScriptedEngine(engine.script ?? [], new Synthesizer());
       this.engineKind = 'scripted';
+    } else if (engine.kind === 'gemini') {
+      this.engine = new GeminiEngine(engine);
+      this.engineKind = 'gemini';
+      this.engineBaseUrl = engine.baseUrl;
     } else {
       this.engine = new OpenAiEngine(engine);
       this.engineKind = 'openai';
@@ -104,10 +109,16 @@ export class AiBroker {
 
   /** One-line construction-time summary of what this broker resolved to. */
   private describeEngine(): string {
-    if (this.engineKind === 'openai') {
+    const isOpenAiEngine = this.engineKind === 'openai';
+    if (isOpenAiEngine) {
       return `[pyric/ai] engine resolved: openai (model=${this.engineModel ?? 'passthrough'}, upstream=${this.engineBaseUrl})`;
     }
-    if (this.engineKind === 'custom') {
+    const isGeminiEngine = this.engineKind === 'gemini';
+    if (isGeminiEngine) {
+      return `[pyric/ai] engine resolved: gemini (upstream=${this.engineBaseUrl ?? 'https://generativelanguage.googleapis.com'})`;
+    }
+    const isCustomEngine = this.engineKind === 'custom';
+    if (isCustomEngine) {
       return '[pyric/ai] engine resolved: custom AnswerEngine';
     }
     return '[pyric/ai] engine resolved: scripted (zero-config unless a script is queued)';
@@ -115,24 +126,45 @@ export class AiBroker {
 
   /** Additive detail fields every emitted event carries so Studio can show the engine. */
   private engineDetail(): Record<string, unknown> {
-    return {
+    const detail: Record<string, unknown> = {
       engine: this.engineKind,
-      ...(this.engineKind === 'openai'
-        ? { model: this.engineModel, baseUrl: this.engineBaseUrl }
-        : {}),
     };
+    const isOpenAiEngine = this.engineKind === 'openai';
+    if (isOpenAiEngine) {
+      detail.model = this.engineModel;
+      detail.baseUrl = this.engineBaseUrl;
+    }
+    const isGeminiEngine = this.engineKind === 'gemini';
+    if (isGeminiEngine) {
+      detail.baseUrl = this.engineBaseUrl ?? 'https://generativelanguage.googleapis.com';
+    }
+    return detail;
+  }
+
+  private emitRejectionIfBrokerError(model: string, err: unknown): void {
+    const code = err instanceof AiBrokerError ? err.envelope.error.code : 500;
+    const status = err instanceof AiBrokerError ? err.envelope.error.status : 'INTERNAL';
+    const message = err instanceof AiBrokerError
+      ? err.envelope.error.message
+      : err instanceof Error ? err.message : String(err);
+    this.emit('request_rejected', model, { code, status, message });
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
     this.validate(req, model);
-    const response = await this.engine.generateContent(req, model);
-    this.emit('generate_content', model, {
-      contentCount: req.contents.length,
-      finishReason: response.candidates?.[0]?.finishReason,
-      totalTokenCount: response.usageMetadata?.totalTokenCount,
-      responseId: response.responseId,
-    });
-    return response;
+    try {
+      const response = await this.engine.generateContent(req, model);
+      this.emit('generate_content', model, {
+        contentCount: req.contents.length,
+        finishReason: response.candidates?.[0]?.finishReason,
+        totalTokenCount: response.usageMetadata?.totalTokenCount,
+        responseId: response.responseId,
+      });
+      return response;
+    } catch (err) {
+      this.emitRejectionIfBrokerError(model, err);
+      throw err;
+    }
   }
 
   /**
@@ -149,21 +181,32 @@ export class AiBroker {
         contentCount: req.contents.length,
         chunkCount,
       });
+    const emitRejection = (err: unknown) => this.emitRejectionIfBrokerError(model, err);
     return (async function* wrapped(): AsyncGenerator<WireChunk> {
       let chunkCount = 0;
-      for await (const chunk of inner) {
-        chunkCount++;
-        yield chunk;
+      try {
+        for await (const chunk of inner) {
+          chunkCount++;
+          yield chunk;
+        }
+        emit(chunkCount);
+      } catch (err) {
+        emitRejection(err);
+        throw err;
       }
-      emit(chunkCount);
     })();
   }
 
   async countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse> {
     this.validateContents(req, model);
-    const response = await this.engine.countTokens(req, model);
-    this.emit('count_tokens', model, { totalTokens: response.totalTokens });
-    return response;
+    try {
+      const response = await this.engine.countTokens(req, model);
+      this.emit('count_tokens', model, { totalTokens: response.totalTokens });
+      return response;
+    } catch (err) {
+      this.emitRejectionIfBrokerError(model, err);
+      throw err;
+    }
   }
 
   // ── Production-shaped validation ──────────────────────────────────────────

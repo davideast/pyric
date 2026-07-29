@@ -65,13 +65,10 @@ describe('Vite module swap', () => {
     ).toBe(true);
   });
 
-  it('skips swapping firebase/ai and uses shadow app bridge in production AI mode', () => {
+  it('swaps firebase/ai and firebase/app normally in production AI mode to route through server broker', () => {
     const prodSwap = createViteModuleSwap(context, { getAiMode: () => 'production' });
-    expect(prodSwap.resolveId('firebase/ai', userImporter)).toBeNull();
-    expect(prodSwap.resolveId('firebase/app', userImporter)).toBe(context.entries['app-ai-passthrough']);
+    expect(prodSwap.resolveId('firebase/ai', userImporter)).toBe(context.entries['ai']);
+    expect(prodSwap.resolveId('firebase/app', userImporter)).toBe(context.entries['app']);
     expect(prodSwap.resolveId('firebase/firestore', userImporter)).toBe(context.entries['firestore']);
-
-    // Shdow app bridge importer bypasses swapping firebase/app
-    expect(prodSwap.resolveId('firebase/app', '/cli/src/serve/entries/app-ai-passthrough.ts')).toBeNull();
   });
 });

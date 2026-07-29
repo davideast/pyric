@@ -191,4 +191,5 @@ export type EngineConfig =
       modelMap?: Record<string, string>;
       /** Injectable fetch for tests; defaults to globalThis.fetch. */
       fetch?: typeof fetch;
-    };
+    }
+  | { kind: 'gemini'; baseUrl?: string; apiKey?: string; fetch?: typeof fetch };

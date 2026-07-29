@@ -105,6 +105,16 @@ function toEngineWire(engine: EngineOption | undefined): AiEngineConfigWire | un
       ...(openai.modelMap !== undefined ? { modelMap: openai.modelMap } : {}),
     };
   }
+  if (config.kind === 'gemini') {
+    const gemini = config as Extract<EngineOption, { kind: 'gemini' }>;
+    const hasBaseUrl = gemini.baseUrl !== undefined;
+    const hasApiKey = gemini.apiKey !== undefined;
+    return {
+      kind: 'gemini',
+      ...(hasBaseUrl ? { baseUrl: gemini.baseUrl } : {}),
+      ...(hasApiKey ? { apiKey: gemini.apiKey } : {}),
+    };
+  }
   const scripted = config as Extract<EngineOption, { kind: 'scripted' }>;
   return {
     kind: 'scripted',
@@ -138,6 +148,21 @@ function wireToEngineOption(wire: AiEngineConfigWire): EngineOption {
       ...(wire.model !== undefined ? { model: wire.model } : {}),
       ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
     } as EngineOption;
+  }
+  const isGeminiWire = wire.kind === 'gemini';
+  if (isGeminiWire) {
+    const result: Record<string, unknown> = {
+      kind: 'gemini',
+    };
+    const hasBaseUrl = wire.baseUrl !== undefined;
+    if (hasBaseUrl) {
+      result.baseUrl = wire.baseUrl;
+    }
+    const hasApiKey = wire.apiKey !== undefined;
+    if (hasApiKey) {
+      result.apiKey = wire.apiKey;
+    }
+    return result as unknown as EngineOption;
   }
   return {
     kind: 'scripted',
@@ -274,10 +299,11 @@ export const getAI = (
               "Use a structured { kind: 'scripted' } or { kind: 'openai' } engine config.",
           );
         }
+        const wire = toEngineWire(engine) ?? pluginEngineWire();
         return createTransportAI(
           resolved,
           options,
-          portEngine(workerClientForApp(resolved), toEngineWire(engine)),
+          portEngine(workerClientForApp(resolved), wire),
           assertAlive,
         );
       }

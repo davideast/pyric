@@ -57,6 +57,21 @@ function resolveEngineConfig(wire: AiEngineConfigWire): NonNullable<AIOptions['e
       ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
     };
   }
+  const isGeminiWire = wire.kind === 'gemini';
+  if (isGeminiWire) {
+    const result: Record<string, unknown> = {
+      kind: 'gemini',
+    };
+    const hasBaseUrl = wire.baseUrl !== undefined;
+    if (hasBaseUrl) {
+      result.baseUrl = wire.baseUrl;
+    }
+    const hasApiKey = wire.apiKey !== undefined;
+    if (hasApiKey) {
+      result.apiKey = wire.apiKey;
+    }
+    return result as unknown as NonNullable<AIOptions['engine']>;
+  }
   return {
     kind: 'scripted',
     ...(wire.script !== undefined

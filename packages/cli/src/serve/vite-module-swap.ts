@@ -86,20 +86,6 @@ export function createViteModuleSwap(
 
         const match = FIREBASE_SPECIFIER.exec(args.path);
         const subpath = match !== null && match[1] !== undefined ? match[1] : '';
-        const isProductionAiMode = aiMode() === 'production';
-        if (isProductionAiMode) {
-          const isAiSubpath = subpath === 'ai';
-          if (isAiSubpath) {
-            return null;
-          }
-          const isAppSubpath = subpath === 'app';
-          const passthroughEntry = entries['app-ai-passthrough'];
-          const hasPassthroughEntry = passthroughEntry !== undefined;
-          const shouldUsePassthroughBridge = isAppSubpath && hasPassthroughEntry;
-          if (shouldUsePassthroughBridge) {
-            return { path: passthroughEntry };
-          }
-        }
 
         const isServedSubpath = SERVED_FIREBASE_SUBPATHS.has(subpath);
         if (isServedSubpath) {
@@ -173,20 +159,6 @@ export function createViteModuleSwap(
       const isFirebaseSpecifier = firebaseMatch !== null;
       if (isFirebaseSpecifier) {
         const subpath = firebaseMatch[1] !== undefined ? firebaseMatch[1] : '';
-        const isProductionAiMode = aiMode() === 'production';
-        if (isProductionAiMode) {
-          const isAiSubpath = subpath === 'ai';
-          if (isAiSubpath) {
-            return null;
-          }
-          const isAppSubpath = subpath === 'app';
-          const passthroughEntry = entries['app-ai-passthrough'];
-          const hasPassthroughEntry = passthroughEntry !== undefined;
-          const shouldUsePassthroughBridge = isAppSubpath && hasPassthroughEntry;
-          if (shouldUsePassthroughBridge) {
-            return passthroughEntry;
-          }
-        }
         const isServedSubpath = SERVED_FIREBASE_SUBPATHS.has(subpath);
         if (isServedSubpath) {
           const key = entryKey(subpath);

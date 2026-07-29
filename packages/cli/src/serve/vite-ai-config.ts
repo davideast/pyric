@@ -44,7 +44,18 @@ export function loadViteAiEnv(
   const resolvedEnvDir = envDir === undefined
     ? resolvedRoot
     : path.resolve(resolvedRoot, envDir);
-  return loadEnv(mode, resolvedEnvDir, '');
+  const loaded = loadEnv(mode, resolvedEnvDir, '');
+  for (const [key, val] of Object.entries(loaded)) {
+    const isAuthKey =
+      key === 'GEMINI_API_KEY' ||
+      key === 'GOOGLE_GENAI_API_KEY' ||
+      key === 'VITE_GEMINI_API_KEY' ||
+      key === 'PYRIC_API_KEY';
+    if (isAuthKey && process.env[key] === undefined) {
+      process.env[key] = val;
+    }
+  }
+  return loaded;
 }
 
 /** Convert a public declarative engine into the JSON-safe worker wire shape. */
@@ -62,6 +73,21 @@ export function engineConfigToWire(engine: PyricAiEngineConfig): AiEngineConfigW
     const hasModelMap = engine.modelMap !== undefined;
     if (hasModelMap) {
       result.modelMap = engine.modelMap;
+    }
+    return result as AiEngineConfigWire;
+  }
+  const isGeminiEngine = engine.kind === 'gemini';
+  if (isGeminiEngine) {
+    const result: Record<string, unknown> = {
+      kind: 'gemini',
+    };
+    const hasBaseUrl = engine.baseUrl !== undefined;
+    if (hasBaseUrl) {
+      result.baseUrl = engine.baseUrl;
+    }
+    const hasApiKey = engine.apiKey !== undefined;
+    if (hasApiKey) {
+      result.apiKey = engine.apiKey;
     }
     return result as AiEngineConfigWire;
   }
@@ -123,12 +149,16 @@ export function resolveViteAiConfig(
   }
 
   let engineWire: AiEngineConfigWire | undefined = undefined;
-  if (!isProductionMode) {
-    if (explicitEngine !== undefined) {
-      engineWire = engineConfigToWire(explicitEngine);
-    } else if (model !== undefined) {
-      engineWire = engineConfigToWire({ kind: 'openai', baseUrl: AI_PROXY_PATH, model });
-    }
+  if (isProductionMode) {
+    const apiKey = env.GEMINI_API_KEY ?? env.GOOGLE_GENAI_API_KEY ?? env.VITE_GEMINI_API_KEY;
+    engineWire = {
+      kind: 'gemini',
+      ...(apiKey !== undefined && apiKey.trim() !== '' ? { apiKey: apiKey.trim() } : {}),
+    };
+  } else if (explicitEngine !== undefined) {
+    engineWire = engineConfigToWire(explicitEngine);
+  } else if (model !== undefined) {
+    engineWire = engineConfigToWire({ kind: 'openai', baseUrl: AI_PROXY_PATH, model });
   }
 
   let proxyUpstream: string | undefined = undefined;
