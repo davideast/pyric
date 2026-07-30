@@ -50,5 +50,12 @@ test('verify auth modal matches prototype and push notification button works', a
   await expect(fcmBtn).toHaveAttribute('title', 'FCM Push: Active (Click to revoke)');
   await expect(fcmBtn).toHaveText('FCM');
 
+  // 3. Verify Google OAuth button works without AuthFlowResolver error
+  await page.locator('header button', { hasText: 'Bob' }).click();
+  await page.waitForTimeout(500);
+  await page.locator('#signin-modal button', { hasText: 'Google' }).click();
+  await page.waitForTimeout(1000);
+  await expect(page.locator('header button', { hasText: 'Google Demo User' })).toBeVisible();
+
   console.log('--- ALL ASSERTIONS PASSED ---');
 });

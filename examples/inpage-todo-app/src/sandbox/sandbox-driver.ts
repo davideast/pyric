@@ -97,6 +97,30 @@ service cloud.firestore {
       { uid: 'alice', email: 'alice@example.com', password: 'password', displayName: 'Alice (Owner)' },
       { uid: 'bob', email: 'bob@example.com', password: 'password', displayName: 'Bob (Collaborator)' },
     ]);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+    authSandbox.setAuthFlowResolver(auth, {
+      openPopup: async () => ({
+        user: {
+          uid: 'google_demo_user',
+          email: 'google.user@gmail.com',
+          displayName: 'Google Demo User',
+          isAnonymous: false,
+          getIdToken: async () => 'fake-google-token',
+          getIdTokenResult: async () => ({
+            token: 'fake-google-token',
+            claims: { sub: 'google_demo_user' },
+            expirationTime: new Date().toISOString(),
+            issuedAtTime: new Date().toISOString(),
+            authTime: new Date().toISOString(),
+          }),
+        } as any,
+        providerId: 'google.com',
+        operationType: 'signIn',
+      }),
+      openRedirect: async () => {
+        throw new Error('Redirect not simulated in iframe');
+      },
+    });
     seedDocuments(this.sandbox, {
       'todos/1': { title: 'Implement passkey authentication flow in auth provider', completed: false, category: 'Work', priority: 'High', ownerId: 'alice', createdAt: Date.now() - 3600000 },
       'todos/2': { title: 'Review shadcn monochromatic color contrast for WCAG AA', completed: true, category: 'Project', priority: 'High', ownerId: 'alice', createdAt: Date.now() - 7200000 },
