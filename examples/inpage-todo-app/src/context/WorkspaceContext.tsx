@@ -1,52 +1,38 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import type { User } from 'pyric/auth';
 import { TaskApplicationService, type TaskItem, type ActivityEvent } from '../services/firebase-service';
 import { SandboxSimulationDriver } from '../sandbox/sandbox-driver';
 
-export interface WorkspaceContextValue {
+interface WorkspaceContextValue {
   appService: TaskApplicationService;
   sandboxDriver: SandboxSimulationDriver;
-  currentUser: User | null;
+  currentUser: any | null;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
-let singletonDriver: SandboxSimulationDriver | null = null;
-let singletonService: TaskApplicationService | null = null;
-let isInitialized = false;
-
-function getWorkspaceSingletons(): { appService: TaskApplicationService; sandboxDriver: SandboxSimulationDriver } {
-  if (!singletonDriver || !singletonService) {
-    singletonDriver = new SandboxSimulationDriver('inpage-task-workspace');
-    singletonDriver.initializeDefaultSecurityRules();
-    singletonService = new TaskApplicationService(singletonDriver.sandbox);
-  }
-  return { appService: singletonService, sandboxDriver: singletonDriver };
-}
-
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { appService, sandboxDriver } = useRef(getWorkspaceSingletons()).current;
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const initRef = useRef<boolean>(false);
+  const [driver] = useState(() => new SandboxSimulationDriver('inpage-task-workspace'));
+  const [service] = useState(() => new TaskApplicationService(driver.sandbox));
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
 
   useEffect(() => {
-    if (!isInitialized) {
-      isInitialized = true;
-      sandboxDriver.seedDemoAccounts().catch((err) => {
-        console.warn('Failed to seed sandbox profiles:', err);
-      });
+    if (!initRef.current) {
+      initRef.current = true;
+      driver.initializeDefaultSecurityRules();
+      driver.seedDemoAccounts().catch(() => {});
     }
+  }, [driver]);
 
-    const unsubscribe = appService.onAuthChange((user) => {
+  useEffect(() => {
+    const unsubscribe = service.onAuthChange((user) => {
       setCurrentUser(user);
     });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [appService, sandboxDriver]);
+    return () => unsubscribe();
+  }, [service]);
 
   return (
-    <WorkspaceContext.Provider value={{ appService, sandboxDriver, currentUser }}>
+    <WorkspaceContext.Provider value={{ appService: service, sandboxDriver: driver, currentUser }}>
       {children}
     </WorkspaceContext.Provider>
   );
@@ -60,59 +46,71 @@ export function useWorkspace(): WorkspaceContextValue {
   return context;
 }
 
-export function useTasks(currentUser: User | null) {
-  const { appService } = useWorkspace();
+export function useTasks(currentUser: any | null) {
+  const { appService, sandboxDriver } = useWorkspace();
   const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [error, setError] = useState<any>(null);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    if (!currentUser) {
-      setTasks([]);
-      return;
-    }
-
     const unsubscribe = appService.subscribeToTasks(
-      (items) => {
-        setTasks(items);
+      (data) => {
+        setTasks(data);
+        setError(null);
       },
       (err) => {
         setError(err);
+        sandboxDriver.logDenialDiagnosticToConsole('Firestore Operation Denied');
       }
     );
-
     return () => {
       unsubscribe();
     };
-  }, [appService, currentUser?.uid]);
+  }, [appService, currentUser?.uid, sandboxDriver]);
+
+  useEffect(() => {
+    if (error) {
+      sandboxDriver.logDenialDiagnosticToConsole('Security Rule Denial Captured');
+    }
+  }, [error, sandboxDriver]);
 
   const clearError = () => setError(null);
   return { tasks, error, clearError, setError };
 }
 
 export function usePresence() {
-  const { appService } = useWorkspace();
+  const { appService, sandboxDriver } = useWorkspace();
   const [activeUids, setActiveUids] = useState<string[]>([]);
 
   useEffect(() => {
-    const unsubscribe = appService.subscribeToPresence((uids) => {
-      setActiveUids(uids);
-    });
+    const unsubscribe = appService.subscribeToPresence(
+      (uids) => {
+        setActiveUids(uids);
+      },
+      (err) => {
+        sandboxDriver.logDenialDiagnosticToConsole('RTDB Presence Listen Denied');
+      }
+    );
     return () => unsubscribe();
-  }, [appService]);
+  }, [appService, sandboxDriver]);
 
   return activeUids;
 }
 
 export function useActivityStream() {
-  const { appService } = useWorkspace();
+  const { appService, sandboxDriver } = useWorkspace();
   const [events, setEvents] = useState<ActivityEvent[]>([]);
 
   useEffect(() => {
-    const unsubscribe = appService.subscribeToActivityStream((list) => {
-      setEvents(list);
-    });
+    const unsubscribe = appService.subscribeToActivityStream(
+      (list) => {
+        setEvents(list);
+      },
+      (err) => {
+        sandboxDriver.logDenialDiagnosticToConsole('RTDB Activity Stream Listen Denied');
+      }
+    );
     return () => unsubscribe();
-  }, [appService]);
+  }, [appService, sandboxDriver]);
 
   return events;
 }

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 interface ErrorBannerProps {
   errorTitle: string;
@@ -42,6 +43,7 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
   onClose,
   onOpenConsole,
 }) => {
+  const { sandboxDriver } = useWorkspace();
   const [copied, setCopied] = useState(false);
 
   if (!errorDetails) return null;
@@ -70,14 +72,25 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
     });
   };
 
+  const handleLogToConsole = () => {
+    sandboxDriver.logDenialDiagnosticToConsole(titleText);
+  };
+
   return (
-    <section className="flex flex-col gap-3 rounded-xl bg-zinc-900 border-2 border-red-500/50 p-4 shadow-2xl w-full">
+    <section className="flex flex-col gap-3 rounded-xl bg-zinc-900 border-2 border-red-500/50 p-4 shadow-2xl w-full select-text cursor-default">
       <div className="flex items-center justify-between gap-3 border-b border-red-500/20 pb-2">
         <span className="font-bold text-red-400 text-sm flex items-center gap-2">
           <span>🛡️</span>
           <span>Reactive Security Rules Denial Inspector</span>
         </span>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleLogToConsole}
+            className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-red-400 border border-red-500/40 font-bold text-[11px] transition-colors"
+          >
+            📋 Log Diagnostic to Console
+          </button>
           <button
             type="button"
             onClick={handleCopy}

@@ -143,6 +143,31 @@ service cloud.firestore {
     };
   }
 
+  logDenialDiagnosticToConsole(errorTitle = 'Security Rule Denial Detected'): void {
+    const summary = this.getInspectorSummary();
+    const denials = summary.recentDenials;
+    if (denials.length === 0) {
+      console.groupCollapsed(`🛡️ [Pyric Security Rule Diagnostic] ${errorTitle}`);
+      console.warn('No recent rule denials recorded in sandbox inspection history.');
+      console.warn('Current Auth Identity:', summary.currentUid);
+      console.groupEnd();
+      return;
+    }
+    const latest = denials[denials.length - 1];
+    console.groupCollapsed(`🛡️ [Pyric Security Rule Denial Diagnostic] ${latest.method.toUpperCase()} ${latest.path}`);
+    console.warn(`Method:       ${latest.method}`);
+    console.warn(`Path:         ${latest.path}`);
+    console.warn(`Auth UID:     ${latest.auth ? (latest.auth as any).uid || JSON.stringify(latest.auth) : 'null (Unauthenticated)'}`);
+    if (latest.rule) {
+      console.warn(`Rule Line:    ${latest.rule.line ?? 'Unknown'}`);
+      console.warn(`Expression:   ${latest.rule.expression ?? 'N/A'}`);
+    }
+    if (latest.reasons && latest.reasons.length > 0) {
+      console.warn(`Reasons:\n - ${latest.reasons.join('\n - ')}`);
+    }
+    console.groupEnd();
+  }
+
   listOAuthTestUsers(): Array<{ uid: string; email?: string | null; displayName?: string | null }> {
     const auth = getAuth(this.sandbox);
     const allUsers = authSandbox.listUsers(auth);
