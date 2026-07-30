@@ -84,8 +84,8 @@ test.describe('Prototype and React Visual & Structural Conformance', () => {
     const cardVal = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-card').trim());
     const borderVal = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-border').trim());
 
-    expect(bgVal.toLowerCase()).toBe('#ffffff');
-    expect(cardVal.toLowerCase()).toBe('#ffffff');
-    expect(borderVal.toLowerCase()).toBe('#e4e4e7');
+    expect(bgVal.toLowerCase()).toBe('#21252c');
+    expect(cardVal.toLowerCase()).toBe('#21252c');
+    expect(borderVal.toLowerCase()).toBe('#35393f');
   });
 });

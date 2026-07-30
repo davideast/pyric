@@ -7,12 +7,13 @@
   <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
   <style>
     :root {
-      --app-background: #ffffff;
-      --app-foreground: #09090b;
-      --app-card: #ffffff;
-      --app-border: #e4e4e7;
-      --app-muted: #f4f4f5;
-      --app-muted-foreground: #71717a;
+      --app-background: #21252c;
+      --app-foreground: #cccccc;
+      --app-card: #21252c;
+      --app-border: #35393f;
+      --app-muted: #1e1e1e;
+      --app-muted-foreground: #808590;
+      --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, "Ubuntu", "Droid Sans", sans-serif;
     }
     .transition-all-fast {
       transition: all 0.15s ease-in-out;
@@ -40,8 +41,8 @@
     }
   </style>
 </head>
-<body class="bg-[var(--app-background)] text-[var(--app-foreground)] font-sans antialiased min-h-screen p-4 sm:p-8 flex justify-center selection:bg-[var(--app-muted)] selection:text-[var(--app-foreground)]">
-  <div id="root" class="max-w-2xl w-full flex flex-col gap-8 sm:gap-10 my-auto"></div>
+<body class="bg-[var(--app-background)] text-[var(--app-foreground)] font-[var(--vscode-font-family)] antialiased min-h-screen p-4 sm:p-8 flex justify-center selection:bg-[var(--app-muted)] selection:text-[var(--app-foreground)]">
+  <div id="root" class="w-full flex justify-center"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>
