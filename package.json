@@ -61,6 +61,8 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.3",
+    "@playwright/test": "^1.62.0",
+    "@pyric/cli": "workspace:*",
     "@types/bun": "latest",
     "bun-types": "latest",
     "firebase": "^12.12.0",
@@ -69,10 +71,9 @@
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-to-string": "^4.0.0",
     "publint": "^0.3.21",
+    "pyric": "workspace:*",
     "typedoc": "0.28.13",
     "typedoc-plugin-markdown": "4.9.0",
-    "pyric": "workspace:*",
-    "@pyric/cli": "workspace:*",
     "typescript": "^5.7.0",
     "zod": "^3.23.0"
   }

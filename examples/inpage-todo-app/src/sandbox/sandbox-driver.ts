@@ -1,6 +1,6 @@
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
-import { setRules as setFirestoreRules, inspect as inspectFirestore } from 'pyric/sandbox/firestore';
-import { setRules as setRtdbRules } from 'pyric/sandbox/database';
+import { setRules as setFirestoreRules, inspect as inspectFirestore, seedDocuments } from 'pyric/sandbox/firestore';
+import { setRules as setRtdbRules, setData as setRtdbData } from 'pyric/sandbox/database';
 import { getDatabase, ref, set, update } from 'pyric/database';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { sandbox as messagingSandbox } from 'pyric/messaging';
@@ -110,6 +110,23 @@ service cloud.firestore {
       email: 'guest@example.com',
       password: 'guest12345',
       displayName: 'Guest Auditor',
+    });
+
+    seedDocuments(this.sandbox, {
+      'todos/1': { title: 'Implement passkey authentication flow in auth provider', completed: false, category: 'Work', priority: 'High', ownerId: 'alice', createdAt: Date.now() - 3600000 },
+      'todos/2': { title: 'Review shadcn monochromatic color contrast for WCAG AA', completed: true, category: 'Project', priority: 'High', ownerId: 'alice', createdAt: Date.now() - 7200000 },
+      'todos/3': { title: 'Refactor Tailwind utility classes and CSS theme variables', completed: false, category: 'Work', priority: 'Medium', ownerId: 'alice', createdAt: Date.now() - 86400000 },
+      'todos/4': { title: 'Write integration unit tests for database mutations', completed: false, category: 'Study', priority: 'Low', ownerId: 'alice', createdAt: Date.now() - 259200000 }
+    });
+
+    setRtdbData(this.sandbox, {
+      presence: {
+        'bob': { online: true, user: 'Bob (Collaborator)', lastSeen: Date.now() - 120000 },
+        'charlie': { online: false, user: 'Charlie (Guest)', lastSeen: Date.now() - 3600000 }
+      },
+      activity_stream: {
+        'init_1': { user: 'Bob (Collaborator)', action: 'Joined workspace & seeded RTDB presence tree', timestamp: Date.now() - 120000 }
+      }
     });
   }
 

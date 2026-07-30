@@ -20,9 +20,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!initRef.current) {
       initRef.current = true;
       driver.initializeDefaultSecurityRules();
-      driver.seedDemoAccounts().catch(() => {});
+      driver.seedDemoAccounts().then(() => {
+        service.signInEmail('alice@example.com', 'password').catch(() => {});
+      }).catch(() => {});
     }
-  }, [driver]);
+  }, [driver, service]);
 
   useEffect(() => {
     const unsubscribe = service.onAuthChange((user) => {
