@@ -12,6 +12,7 @@
  * routing between the two planes is a single visibility decision.
  */
 import type { FirebaseApp } from '../app/types.js';
+import type { Sandbox, SandboxContext } from '../sandbox/index.js';
 import {
   defaultRegistration,
   deliverToMessaging,
@@ -50,8 +51,8 @@ export type {
  * service-worker plane (upstream: `getMessagingInSw`, component name
  * `messaging-sw`).
  */
-export function getMessaging(app?: FirebaseApp): Messaging {
-  return resolveMessaging('sw', app);
+export function getMessaging(target?: FirebaseApp | Sandbox | SandboxContext): Messaging {
+  return resolveMessaging('sw', target);
 }
 
 /**

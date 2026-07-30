@@ -14,6 +14,7 @@
  * upstream counterpart and is additive to the mirrored surface.
  */
 import type { FirebaseApp } from '../app/types.js';
+import type { Sandbox, SandboxContext } from '../sandbox/index.js';
 import {
   defaultRegistration,
   deliverToMessaging,
@@ -88,8 +89,8 @@ export interface GetTokenOptions {
  * Return the FCM `Messaging` instance for the given (or default) app —
  * window-client plane (upstream component name `messaging`).
  */
-export function getMessaging(app?: FirebaseApp): Messaging {
-  return resolveMessaging('window', app);
+export function getMessaging(target?: FirebaseApp | Sandbox | SandboxContext): Messaging {
+  return resolveMessaging('window', target);
 }
 
 /**
