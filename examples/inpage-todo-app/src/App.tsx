@@ -87,16 +87,7 @@ export const App: React.FC = () => {
     <>
       <ToastContainer />
 
-      <main className="w-full max-w-3xl flex flex-col gap-6 select-text cursor-default">
-        <TaskHeader
-          currentUser={currentUser}
-          onOpenSignIn={() => setIsAuthOpen(true)}
-          onSignOut={() => appService.signOutUser()}
-          onEnablePush={handleEnablePush}
-          onRevokePush={handleRevokePush}
-          fcmToken={appService.getActiveToken()}
-        />
-
+      <main className="max-w-2xl w-full flex flex-col gap-8 sm:gap-10 my-auto select-text cursor-default">
         <ErrorBanner
           errorTitle="Security Rules Denial or Operation Exception"
           errorDetails={error}
@@ -104,31 +95,37 @@ export const App: React.FC = () => {
           onOpenConsole={() => setIsConsoleOpen(true)}
         />
 
+        <TaskHeader
+          tasks={tasks}
+          currentUser={currentUser}
+          onOpenSignIn={() => setIsAuthOpen(true)}
+          onSignOut={() => appService.signOutUser()}
+          onEnablePush={handleEnablePush}
+          onRevokePush={handleRevokePush}
+          fcmToken={appService.getActiveToken()}
+          onOpenConsole={() => setIsConsoleOpen(true)}
+        />
+
         <TaskCreationForm
           onAddTask={handleAddTask}
           onUploadAttachment={handleUploadAttachment}
           onError={(_, err) => setError(err)}
-          activeFilter={activeFilter}
-          onFilterChange={setActiveFilter}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
         />
 
         <TaskListView
           tasks={tasks}
           currentUserId={currentUser ? currentUser.uid : 'anonymous'}
           activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
           searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
           onToggleStatus={handleToggleStatus}
           onUpdateTitle={handleUpdateTitle}
           onDelete={handleDelete}
+          onClearCompleted={handleClearCompleted}
         />
 
-        <ProgressFooter
-          tasks={tasks}
-          onClearCompleted={handleClearCompleted}
-          onOpenConsole={() => setIsConsoleOpen(true)}
-        />
+        <ProgressFooter />
       </main>
 
       <AuthenticationDialog

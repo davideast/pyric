@@ -9,20 +9,12 @@ interface TaskCreationFormProps {
   ) => Promise<void>;
   onUploadAttachment: (file: File) => Promise<string>;
   onError: (title: string, err: any) => void;
-  activeFilter: 'all' | 'active' | 'completed';
-  onFilterChange: (filter: 'all' | 'active' | 'completed') => void;
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
 }
 
 export const TaskCreationForm: React.FC<TaskCreationFormProps> = ({
   onAddTask,
   onUploadAttachment,
   onError,
-  activeFilter,
-  onFilterChange,
-  searchQuery,
-  onSearchChange,
 }) => {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('Work');
@@ -67,143 +59,122 @@ export const TaskCreationForm: React.FC<TaskCreationFormProps> = ({
   };
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl bg-zinc-900/40 border border-zinc-800 p-5 shadow-lg select-text cursor-default">
-      <form id="add-task-form" onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1 flex flex-col sm:flex-row gap-2.5 min-w-0">
+    <div className="bg-[var(--app-card)] border border-[var(--app-border)] rounded-xl p-5 sm:p-6 shadow-sm select-text cursor-default">
+      <form id="add-task-form" className="flex flex-col gap-4" onSubmit={handleSubmit}>
+        <div className="flex flex-col sm:flex-row gap-3">
           <input
             id="new-task-input"
             type="text"
-            placeholder="Describe a new task item..."
+            placeholder="What needs to be done?"
+            autoComplete="off"
+            required
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             disabled={isPending}
-            className="h-10 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3.5 text-sm text-white font-medium placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500 transition-colors"
-          />
-          <div className="flex items-center gap-2 shrink-0">
-            <select
-              id="task-category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={isPending}
-              className="h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-xs font-semibold text-zinc-300 focus:outline-none focus:border-zinc-500"
-            >
-              <option value="Work">Work</option>
-              <option value="Personal">Personal</option>
-              <option value="Urgent">Urgent</option>
-              <option value="Study">Study</option>
-            </select>
-            <select
-              id="task-priority"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as 'Low' | 'Medium' | 'High')}
-              disabled={isPending}
-              className="h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-xs font-semibold text-zinc-300 focus:outline-none focus:border-zinc-500"
-            >
-              <option value="Low">Low Priority</option>
-              <option value="Medium">Medium Priority</option>
-              <option value="High">High Priority</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isPending}
-            className="h-10 px-3 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-semibold text-xs transition-colors flex items-center gap-1.5 shrink-0"
-          >
-            <span>📎 Attach Image</span>
-          </button>
-          <input
-            ref={fileInputRef}
-            id="attachment-file-input"
-            type="file"
-            accept="image/*"
-            onChange={handleFileChange}
-            className="hidden"
+            className="flex h-11 w-full flex-1 rounded-lg border border-[var(--app-border)] bg-[var(--app-background)] px-3.5 py-2.5 text-sm shadow-inner transition-colors placeholder:text-[var(--app-muted-foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
           />
           <button
+            id="add-task-btn"
             type="submit"
             disabled={isPending}
-            className="h-10 px-5 rounded-lg bg-white text-zinc-950 hover:bg-zinc-200 font-bold text-sm transition-colors shrink-0 shadow-md"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-foreground)] disabled:pointer-events-none disabled:opacity-50 bg-[var(--app-foreground)] text-[var(--app-background)] hover:opacity-90 h-11 px-5 py-2.5 shadow-sm gap-2 shrink-0 cursor-pointer"
           >
-            {isPending ? 'Saving...' : '+ Create Task'}
+            <svg
+              className="w-4 h-4"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M5 12h14" />
+              <path d="M12 5v14" />
+            </svg>
+            <span>{isPending ? 'Adding...' : 'Add Task'}</span>
           </button>
+        </div>
+
+        {attachmentName ? (
+          <div className="flex items-center justify-between p-2 rounded-md bg-[var(--app-muted)] border border-[var(--app-border)] text-xs">
+            <span className="truncate font-medium text-[var(--app-foreground)]">
+              📎 Attachment: {attachmentName}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setAttachmentUrl(undefined);
+                setAttachmentName(undefined);
+              }}
+              className="px-2 py-0.5 rounded text-red-500 font-bold hover:underline"
+            >
+              &times; Remove
+            </button>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-[var(--app-border)] text-xs text-[var(--app-muted-foreground)]">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <span className="font-medium text-[var(--app-muted-foreground)]">Category:</span>
+              <select
+                id="task-category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                disabled={isPending}
+                className="h-8 rounded-md border border-[var(--app-border)] bg-[var(--app-card)] px-2.5 text-xs font-semibold text-[var(--app-foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-foreground)] cursor-pointer shadow-sm"
+              >
+                <option value="Work">Work</option>
+                <option value="Personal">Personal</option>
+                <option value="Project">Project</option>
+                <option value="Study">Study</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="font-medium text-[var(--app-muted-foreground)]">Priority:</span>
+              <select
+                id="task-priority"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as 'Low' | 'Medium' | 'High')}
+                disabled={isPending}
+                className="h-8 rounded-md border border-[var(--app-border)] bg-[var(--app-card)] px-2.5 text-xs font-semibold text-[var(--app-foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-foreground)] cursor-pointer shadow-sm"
+              >
+                <option value="Medium">Medium</option>
+                <option value="High">High</option>
+                <option value="Low">Low</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isPending}
+                className="h-8 px-2.5 rounded-md border border-[var(--app-border)] bg-[var(--app-card)] text-xs font-semibold text-[var(--app-foreground)] hover:bg-[var(--app-muted)] cursor-pointer shadow-sm flex items-center gap-1.5"
+              >
+                <span>📎 Attach Image</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                id="attachment-file-input"
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </div>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-1.5">
+            <span className="font-medium">Quick submit:</span>
+            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-[var(--app-border)] bg-[var(--app-muted)] px-1.5 font-mono text-[10px] font-semibold text-[var(--app-foreground)] shadow-sm">
+              Enter ↵
+            </kbd>
+          </div>
         </div>
       </form>
-
-      {attachmentName ? (
-        <div
-          id="attachment-chip"
-          className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs"
-        >
-          <span className="inline-flex items-center gap-2 truncate text-blue-400 font-medium">
-            <span>📎 Selected image asset:</span>
-            <strong id="attachment-filename" className="text-white truncate max-w-[240px]">
-              {attachmentName}
-            </strong>
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setAttachmentUrl(undefined);
-              setAttachmentName(undefined);
-            }}
-            className="px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 font-bold text-[11px]"
-          >
-            &times; Remove
-          </button>
-        </div>
-      ) : null}
-
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-zinc-800/80 pt-4">
-        <div className="flex items-center gap-1.5 bg-zinc-950 p-1 rounded-lg border border-zinc-800 text-xs font-semibold w-full sm:w-auto overflow-x-auto">
-          <button
-            id="tab-all"
-            type="button"
-            onClick={() => onFilterChange('all')}
-            className={`px-4 py-1.5 rounded-md font-bold shadow-sm ${
-              activeFilter === 'all'
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-400 hover:text-white font-normal'
-            }`}
-          >
-            All Tasks
-          </button>
-          <button
-            id="tab-active"
-            type="button"
-            onClick={() => onFilterChange('active')}
-            className={`px-4 py-1.5 rounded-md font-bold shadow-sm ${
-              activeFilter === 'active'
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-400 hover:text-white font-normal'
-            }`}
-          >
-            Active
-          </button>
-          <button
-            id="tab-completed"
-            type="button"
-            onClick={() => onFilterChange('completed')}
-            className={`px-4 py-1.5 rounded-md font-bold shadow-sm ${
-              activeFilter === 'completed'
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-400 hover:text-white font-normal'
-            }`}
-          >
-            Completed
-          </button>
-        </div>
-        <input
-          id="search-input"
-          type="text"
-          placeholder="Filter active tasks by keyword..."
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="h-9 w-full sm:w-64 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-xs text-white font-medium placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500 transition-colors"
-        />
-      </div>
-    </section>
+    </div>
   );
 };
