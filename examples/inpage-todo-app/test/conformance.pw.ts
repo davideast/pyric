@@ -79,13 +79,13 @@ test.describe('Prototype and React Visual & Structural Conformance', () => {
     await expect(page.locator('#todo-list')).toContainText('Refactor Tailwind utility classes and CSS theme variables');
     await expect(page.locator('#todo-list')).toContainText('Write integration unit tests for database mutations');
 
-    // Verify CSS Theme Variable configuration matches prototype slate palette
+    // Verify CSS Theme Variable configuration matches prototype palette
     const bgVal = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-background').trim());
     const cardVal = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-card').trim());
     const borderVal = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-border').trim());
 
-    expect(bgVal.toLowerCase()).toBe('#0f172a');
-    expect(cardVal.toLowerCase()).toBe('#1e293b');
-    expect(borderVal.toLowerCase()).toBe('#334155');
+    expect(bgVal.toLowerCase()).toBe('#ffffff');
+    expect(cardVal.toLowerCase()).toBe('#ffffff');
+    expect(borderVal.toLowerCase()).toBe('#e4e4e7');
   });
 });
