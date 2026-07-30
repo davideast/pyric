@@ -12,7 +12,7 @@ import { DeveloperConsoleModal } from './components/DeveloperConsoleModal';
 import { ToastContainer } from './components/ToastContainer';
 
 export const App: React.FC = () => {
-  const { appService, currentUser } = useWorkspace();
+  const { appService, currentUser, fcmToken, requestPushToken, revokePushToken } = useWorkspace();
   const { tasks, error, clearError, setError } = useTasks(currentUser);
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -55,18 +55,22 @@ export const App: React.FC = () => {
 
   const handleEnablePush = async () => {
     try {
-      await appService.requestPushToken();
+      await requestPushToken();
     } catch (err: any) {
       setError(err);
     }
   };
 
   const handleRevokePush = () => {
-    appService.clearPushToken();
+    revokePushToken();
   };
 
   const handleSignInEmail = async (email: string, pass: string) => {
     await appService.signInEmail(email, pass);
+  };
+
+  const handleSignUpEmail = async (email: string, pass: string, name?: string) => {
+    await appService.signUpEmail(email, pass, name);
   };
 
   const handleSignInGoogle = async () => {
@@ -95,7 +99,7 @@ export const App: React.FC = () => {
         onSignOut={() => appService.signOutUser()}
         onEnablePush={handleEnablePush}
         onRevokePush={handleRevokePush}
-        fcmToken={appService.getActiveToken()}
+        fcmToken={fcmToken}
         onOpenConsole={() => setIsConsoleOpen(true)}
       />
 
@@ -135,6 +139,7 @@ export const App: React.FC = () => {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         onSignInEmail={handleSignInEmail}
+        onSignUpEmail={handleSignUpEmail}
         onSignInGoogle={handleSignInGoogle}
         onSignInGuest={handleSignInGuest}
       />
@@ -144,7 +149,7 @@ export const App: React.FC = () => {
         onClose={() => setIsConsoleOpen(false)}
         onAcceptAiTask={handleAcceptAiTask}
         onError={(_, err) => setError(err)}
-        fcmToken={appService.getActiveToken()}
+        fcmToken={fcmToken}
       />
     </>
   );

@@ -1,10 +1,10 @@
 import type { LocalSandbox } from 'pyric/sandbox';
-import { getAuth, signInWithEmailAndPassword, signInWithPopup, signOut, onAuthStateChanged, GoogleAuthProvider, type Auth, type User } from 'pyric/auth';
+import { getAuth, signInWithEmailAndPassword, signInAnonymously, createUserWithEmailAndPassword, updateProfile, signInWithPopup, signOut, onAuthStateChanged, GoogleAuthProvider, type Auth, type User } from 'pyric/auth';
 import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, type Firestore } from 'pyric/firestore';
 import { getStorageSandbox, ref as storageRef, uploadBytes, getDownloadURL, type FirebaseStorage } from 'pyric/storage';
 import { getDatabase, ref as dbRef, onValue, type Database } from 'pyric/database';
 import { getAI, getGenerativeModel, type AI } from 'pyric/ai';
-import { getMessaging, getToken, onMessage, type Messaging } from 'pyric/messaging';
+import { getMessaging, getToken, onMessage, sandbox as messagingSandbox, type Messaging } from 'pyric/messaging';
 import { STORAGE_RULES_SOURCE } from '../sandbox/sandbox-driver';
 
 export interface TaskItem {
@@ -60,8 +60,15 @@ export class TaskApplicationService {
     await signInWithPopup(this.auth, new GoogleAuthProvider());
   }
 
-  async signInGuest(email = 'guest@example.com', pass = 'guest12345'): Promise<void> {
-    await signInWithEmailAndPassword(this.auth, email, pass);
+  async signInGuest(): Promise<void> {
+    await signInAnonymously(this.auth);
+  }
+
+  async signUpEmail(email: string, pass: string, name?: string): Promise<void> {
+    const cred = await createUserWithEmailAndPassword(this.auth, email, pass);
+    if (name && cred.user) {
+      await updateProfile(cred.user, { displayName: name });
+    }
   }
 
   async signOutUser(): Promise<void> {
@@ -178,6 +185,18 @@ export class TaskApplicationService {
   async requestPushToken(): Promise<string> {
     const token = await getToken(this.messaging);
     this.activeFcmToken = token;
+    try {
+      await messagingSandbox.deliver(this.messaging, {
+        visibilityState: 'visible',
+        notification: {
+          title: '✅ Push Notifications Enabled',
+          body: 'Successfully minted a stable FCM token in the local Pyric sandbox.'
+        },
+        data: { event: 'token_minted', token: token.slice(0, 20) + '...' }
+      });
+    } catch (err) {
+      console.warn('Test push notification simulation error:', err);
+    }
     return token;
   }
 

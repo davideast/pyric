@@ -19,9 +19,19 @@ export const GlobalNavbar: React.FC<GlobalNavbarProps> = ({
   fcmToken,
   onOpenConsole,
 }) => {
-  const userText = currentUser
-    ? `Alice (Owner)`
-    : 'Sign In';
+  let userText = 'Sign In';
+  if (currentUser) {
+    if (currentUser.displayName) {
+      if (currentUser.displayName.includes('Alice')) userText = 'Alice (Owner)';
+      else if (currentUser.displayName.includes('Bob')) userText = 'Bob';
+      else userText = currentUser.displayName;
+    } else if (currentUser.email) {
+      const name = currentUser.email.split('@')[0];
+      userText = name.charAt(0).toUpperCase() + name.slice(1);
+    } else {
+      userText = 'Guest';
+    }
+  }
 
   return (
     <header className="w-full border-b border-[var(--app-border)] bg-[var(--app-card)]/90 backdrop-blur sticky top-0 z-40 px-4 sm:px-8 py-2.5 shadow-sm select-none">
@@ -61,7 +71,7 @@ export const GlobalNavbar: React.FC<GlobalNavbarProps> = ({
                 type="button"
                 onClick={onOpenSignIn}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--app-border)] bg-[var(--app-muted)]/60 hover:bg-[var(--app-muted)] text-[var(--app-foreground)] transition-colors cursor-pointer shadow-sm text-xs"
-                title="Account Settings (Signed in as Alice)"
+                title="Account Settings"
               >
                 <svg
                   className="w-3.5 h-3.5 text-green-500 shrink-0"
@@ -76,7 +86,7 @@ export const GlobalNavbar: React.FC<GlobalNavbarProps> = ({
                   <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
                   <circle cx="12" cy="7" r="4" />
                 </svg>
-                <span className="font-semibold text-xs">Alice</span>
+                <span className="font-semibold text-xs">{userText}</span>
                 <span className="text-[10px] text-[var(--app-muted-foreground)]">▾</span>
               </button>
               <button

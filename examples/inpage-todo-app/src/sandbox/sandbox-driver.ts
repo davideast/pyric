@@ -93,25 +93,10 @@ service cloud.firestore {
 
   async seedDemoAccounts(): Promise<void> {
     const auth = getAuth(this.sandbox);
-    await authSandbox.createUser(auth, {
-      uid: 'alice',
-      email: 'alice@example.com',
-      password: 'password',
-      displayName: 'Alice (Workspace Owner)',
-    });
-    await authSandbox.createUser(auth, {
-      uid: 'bob',
-      email: 'bob@example.com',
-      password: 'password',
-      displayName: 'Bob (Lead Collaborator)',
-    });
-    await authSandbox.createUser(auth, {
-      uid: 'guest_demo',
-      email: 'guest@example.com',
-      password: 'guest12345',
-      displayName: 'Guest Auditor',
-    });
-
+    authSandbox.seedUsers(auth, [
+      { uid: 'alice', email: 'alice@example.com', password: 'password', displayName: 'Alice (Owner)' },
+      { uid: 'bob', email: 'bob@example.com', password: 'password', displayName: 'Bob (Collaborator)' },
+    ]);
     seedDocuments(this.sandbox, {
       'todos/1': { title: 'Implement passkey authentication flow in auth provider', completed: false, category: 'Work', priority: 'High', ownerId: 'alice', createdAt: Date.now() - 3600000 },
       'todos/2': { title: 'Review shadcn monochromatic color contrast for WCAG AA', completed: true, category: 'Project', priority: 'High', ownerId: 'alice', createdAt: Date.now() - 7200000 },

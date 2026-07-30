@@ -6,6 +6,9 @@ interface WorkspaceContextValue {
   appService: TaskApplicationService;
   sandboxDriver: SandboxSimulationDriver;
   currentUser: any | null;
+  fcmToken: string | null;
+  requestPushToken: () => Promise<string>;
+  revokePushToken: () => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -15,6 +18,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [driver] = useState(() => new SandboxSimulationDriver('inpage-task-workspace'));
   const [service] = useState(() => new TaskApplicationService(driver.sandbox));
   const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const [fcmToken, setFcmToken] = useState<string | null>(null);
+
+  const requestPushToken = async () => {
+    const token = await service.requestPushToken();
+    setFcmToken(token);
+    return token;
+  };
+
+  const revokePushToken = () => {
+    service.clearPushToken();
+    setFcmToken(null);
+  };
 
   useEffect(() => {
     if (!initRef.current) {
@@ -34,7 +49,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [service]);
 
   return (
-    <WorkspaceContext.Provider value={{ appService: service, sandboxDriver: driver, currentUser }}>
+    <WorkspaceContext.Provider value={{ appService: service, sandboxDriver: driver, currentUser, fcmToken, requestPushToken, revokePushToken }}>
       {children}
     </WorkspaceContext.Provider>
   );
