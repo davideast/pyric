@@ -293,6 +293,7 @@ export function getStorageSandbox(
     kind: 'sandbox',
     sandbox,
     context: ctx,
+    currentAuth: fromBareSandbox ? () => sandbox.currentUser : undefined,
     bucket,
     servicePromise,
   };

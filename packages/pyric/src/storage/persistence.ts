@@ -176,10 +176,61 @@ export interface StorageBackend {
  * production, callers pass nothing and inherit the default
  * `pyric-storage`.
  */
-export function openStorageBackend(
+export async function openStorageBackend(
   dbName: string = DEFAULT_DB_NAME,
 ): Promise<StorageBackend> {
-  return openDatabase(dbName).then((db) => new IndexedDbStorageBackend(db));
+  try {
+    const db = await openDatabase(dbName);
+    return new IndexedDbStorageBackend(db);
+  } catch (err) {
+    return new InMemoryStorageBackend();
+  }
+}
+
+class InMemoryStorageBackend implements StorageBackend {
+  private readonly blobs = new Map<string, Blob>();
+  private readonly metadata = new Map<string, StoredMetadata>();
+
+  async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void> {
+    this.blobs.set(path, blob);
+    this.metadata.set(path, metadata);
+  }
+
+  async getBlob(path: string): Promise<Blob | undefined> {
+    return this.blobs.get(path);
+  }
+
+  async getMetadata(path: string): Promise<StoredMetadata | undefined> {
+    return this.metadata.get(path);
+  }
+
+  async putMetadata(path: string, metadata: StoredMetadata): Promise<void> {
+    this.metadata.set(path, metadata);
+  }
+
+  async delete(path: string): Promise<void> {
+    this.blobs.delete(path);
+    this.metadata.delete(path);
+  }
+
+  async listByPrefix(prefix: string): Promise<StoredMetadata[]> {
+    const results: StoredMetadata[] = [];
+    const keys = Array.from(this.metadata.keys()).sort();
+    for (const key of keys) {
+      if (key.startsWith(prefix)) {
+        const meta = this.metadata.get(key);
+        if (meta) results.push(meta);
+      }
+    }
+    return results;
+  }
+
+  async reset(): Promise<void> {
+    this.blobs.clear();
+    this.metadata.clear();
+  }
+
+  close(): void {}
 }
 
 // ─── Internal ──────────────────────────────────────────────────────
@@ -246,21 +297,28 @@ class IndexedDbStorageBackend implements StorageBackend {
 
 function openDatabase(dbName: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(dbName, SCHEMA_VERSION);
-    req.addEventListener('upgradeneeded', () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(BLOBS_STORE)) {
-        db.createObjectStore(BLOBS_STORE);
+    try {
+      if (typeof indexedDB === 'undefined' || !indexedDB.open) {
+        return reject(new Error('IndexedDB not available'));
       }
-      if (!db.objectStoreNames.contains(METADATA_STORE)) {
-        db.createObjectStore(METADATA_STORE);
-      }
-    });
-    req.addEventListener('success', () => resolve(req.result));
-    req.addEventListener('error', () => reject(req.error));
-    req.addEventListener('blocked', () =>
-      reject(new Error(`IndexedDB open blocked for db "${dbName}"`)),
-    );
+      const req = indexedDB.open(dbName, SCHEMA_VERSION);
+      req.addEventListener('upgradeneeded', () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(BLOBS_STORE)) {
+          db.createObjectStore(BLOBS_STORE);
+        }
+        if (!db.objectStoreNames.contains(METADATA_STORE)) {
+          db.createObjectStore(METADATA_STORE);
+        }
+      });
+      req.addEventListener('success', () => resolve(req.result));
+      req.addEventListener('error', () => reject(req.error));
+      req.addEventListener('blocked', () =>
+        reject(new Error(`IndexedDB open blocked for db "${dbName}"`)),
+      );
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
