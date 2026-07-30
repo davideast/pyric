@@ -1,0 +1,4 @@
+interface:
+  display_name: "Embed Pyric In-Page Sandbox"
+  short_description: "Embed Pyric in-page sandbox into HTML pages without a CLI or dev server"
+  default_prompt: "Use $pyric-inpage-sandbox to embed Pyric's in-page Firestore sandbox directly into the HTML page, configuring security rules, sample document seeding, and live inspection."
