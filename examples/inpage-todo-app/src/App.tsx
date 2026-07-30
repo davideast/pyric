@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useWorkspace, useTasks } from './context/WorkspaceContext';
+import { GlobalNavbar } from './components/GlobalNavbar';
+import { PageTitleHeader } from './components/PageTitleHeader';
 import { TaskHeader } from './components/TaskHeader';
 import { TaskCreationForm } from './components/TaskCreationForm';
 import { TaskListView } from './components/TaskListView';
@@ -87,7 +89,17 @@ export const App: React.FC = () => {
     <>
       <ToastContainer />
 
-      <main className="max-w-2xl w-full flex flex-col gap-8 sm:gap-10 my-auto select-text cursor-default">
+      <GlobalNavbar
+        currentUser={currentUser}
+        onOpenSignIn={() => setIsAuthOpen(true)}
+        onSignOut={() => appService.signOutUser()}
+        onEnablePush={handleEnablePush}
+        onRevokePush={handleRevokePush}
+        fcmToken={appService.getActiveToken()}
+        onOpenConsole={() => setIsConsoleOpen(true)}
+      />
+
+      <main className="max-w-2xl w-full mx-auto flex flex-col gap-8 sm:gap-10 my-auto py-6 sm:py-8 select-text cursor-default">
         <ErrorBanner
           errorTitle="Security Rules Denial or Operation Exception"
           errorDetails={error}
@@ -95,16 +107,7 @@ export const App: React.FC = () => {
           onOpenConsole={() => setIsConsoleOpen(true)}
         />
 
-        <TaskHeader
-          tasks={tasks}
-          currentUser={currentUser}
-          onOpenSignIn={() => setIsAuthOpen(true)}
-          onSignOut={() => appService.signOutUser()}
-          onEnablePush={handleEnablePush}
-          onRevokePush={handleRevokePush}
-          fcmToken={appService.getActiveToken()}
-          onOpenConsole={() => setIsConsoleOpen(true)}
-        />
+        <PageTitleHeader tasks={tasks} />
 
         <TaskCreationForm
           onAddTask={handleAddTask}

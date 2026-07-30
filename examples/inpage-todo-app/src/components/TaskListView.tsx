@@ -40,6 +40,9 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
   });
 
   const activeCount = tasks.filter((t) => !t.completed).length;
+  const totalCount = tasks.length;
+  const completedCount = totalCount - activeCount;
+  const percent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
   const hasCompleted = tasks.some((t) => t.completed);
 
   return (
@@ -111,6 +114,24 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
       </div>
 
       <div className="bg-[var(--app-card)] border border-[var(--app-border)] rounded-xl shadow-sm overflow-hidden min-h-[350px] flex flex-col justify-between">
+        {/* Task-Adjacent Completion Progress Bar */}
+        <div className="p-4 bg-[var(--app-muted)]/40 border-b border-[var(--app-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <span className="text-xs font-semibold text-[var(--app-foreground)] shrink-0">
+              Completion Progress
+            </span>
+            <div className="h-2.5 w-32 sm:w-48 overflow-hidden rounded-full bg-[var(--app-muted)] border border-[var(--app-border)]">
+              <div
+                className="h-full rounded-full bg-[var(--app-foreground)] transition-all duration-300"
+                style={{ width: `${percent}%` }}
+              ></div>
+            </div>
+            <span id="progress-percent" className="text-xs font-mono font-bold text-[var(--app-foreground)]">
+              {percent}%
+            </span>
+          </div>
+        </div>
+
         {filtered.length > 0 ? (
           <div id="todo-list" className="divide-y divide-[var(--app-border)]">
             {filtered.map((task) => (

@@ -40,9 +40,8 @@
       color: var(--app-background, #ffffff);
     }
   </style>
-</head>
-<body class="bg-[var(--app-background)] text-[var(--app-foreground)] font-[var(--vscode-font-family)] antialiased min-h-screen p-4 sm:p-8 flex justify-center selection:bg-[var(--app-muted)] selection:text-[var(--app-foreground)]">
-  <div id="root" class="w-full flex justify-center"></div>
+<body class="bg-[var(--app-background)] text-[var(--app-foreground)] font-[var(--vscode-font-family)] antialiased min-h-screen m-0 p-0 selection:bg-[var(--app-muted)] selection:text-[var(--app-foreground)]">
+  <div id="root" class="w-full flex flex-col min-h-screen"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>
