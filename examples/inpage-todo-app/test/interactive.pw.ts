@@ -50,12 +50,31 @@ test('verify auth modal matches prototype and push notification button works', a
   await expect(fcmBtn).toHaveAttribute('title', 'FCM Push: Active (Click to revoke)');
   await expect(fcmBtn).toHaveText('FCM');
 
-  // 3. Verify Google OAuth button works without AuthFlowResolver error
+  // 3. Verify Google OAuth button opens Pluggable OAuth modal matching prototype UI
   await page.locator('header button', { hasText: 'Bob' }).click();
   await page.waitForTimeout(500);
   await page.locator('#signin-modal button', { hasText: 'Google' }).click();
   await page.waitForTimeout(1000);
-  await expect(page.locator('header button', { hasText: 'Google Demo User' })).toBeVisible();
+
+  // Verify OAuth popup modal is visible
+  const oauthModal = page.locator('#oauth-popup-modal');
+  await expect(oauthModal).toBeVisible();
+  await expect(oauthModal.locator('h3')).toHaveText('Sign in with Google');
+  await expect(oauthModal.locator('p', { hasText: 'Sandbox OAuth Provider Console' })).toBeVisible();
+
+  // Verify existing accounts (Alice and Bob) are listed in OAuth modal
+  await expect(oauthModal.locator('#oauth-users-list')).toContainText('Alice');
+  await expect(oauthModal.locator('#oauth-users-list')).toContainText('Bob');
+
+  // Click "Select" on Alice in the OAuth modal
+  const selectAliceBtn = oauthModal.locator('#oauth-users-list div', { hasText: 'alice@example.com' }).locator('button', { hasText: 'Select' });
+  await selectAliceBtn.click();
+  await page.waitForTimeout(1000);
+
+  // Both modals should now be closed and header updated to Alice (Owner)
+  await expect(oauthModal).toBeHidden();
+  await expect(page.locator('#signin-modal')).toBeHidden();
+  await expect(page.locator('header button', { hasText: 'Alice' })).toBeVisible();
 
   console.log('--- ALL ASSERTIONS PASSED ---');
 });

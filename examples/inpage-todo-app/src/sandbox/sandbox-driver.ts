@@ -37,6 +37,11 @@ service firebase.storage {
 }`;
 
 export class SandboxSimulationDriver {
+  private oauthPopupHandler: (() => Promise<any>) | null = null;
+
+  setOAuthPopupHandler(handler: () => Promise<any>) {
+    this.oauthPopupHandler = handler;
+  }
   readonly sandbox: LocalSandbox;
   private currentAiScenario: 'success' | 'malformed' | 'quota_error' = 'success';
   private rtdbPresenceState: boolean = false;
@@ -99,24 +104,12 @@ service cloud.firestore {
     ]);
     authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.setAuthFlowResolver(auth, {
-      openPopup: async () => ({
-        user: {
-          uid: 'google_demo_user',
-          email: 'google.user@gmail.com',
-          displayName: 'Google Demo User',
-          isAnonymous: false,
-          getIdToken: async () => 'fake-google-token',
-          getIdTokenResult: async () => ({
-            token: 'fake-google-token',
-            claims: { sub: 'google_demo_user' },
-            expirationTime: new Date().toISOString(),
-            issuedAtTime: new Date().toISOString(),
-            authTime: new Date().toISOString(),
-          }),
-        } as any,
-        providerId: 'google.com',
-        operationType: 'signIn',
-      }),
+      openPopup: async () => {
+        if (this.oauthPopupHandler) {
+          return await this.oauthPopupHandler();
+        }
+        throw new Error('No OAuth popup handler registered');
+      },
       openRedirect: async () => {
         throw new Error('Redirect not simulated in iframe');
       },

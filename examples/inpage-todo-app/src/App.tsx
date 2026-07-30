@@ -8,11 +8,24 @@ import { TaskListView } from './components/TaskListView';
 import { ProgressFooter } from './components/ProgressFooter';
 import { ErrorBanner } from './components/ErrorBanner';
 import { AuthenticationDialog } from './components/AuthenticationDialog';
+import { OAuthPopupModal } from './components/OAuthPopupModal';
 import { DeveloperConsoleModal } from './components/DeveloperConsoleModal';
 import { ToastContainer } from './components/ToastContainer';
 
 export const App: React.FC = () => {
-  const { appService, currentUser, fcmToken, requestPushToken, revokePushToken } = useWorkspace();
+  const {
+    appService,
+    currentUser,
+    fcmToken,
+    requestPushToken,
+    revokePushToken,
+    oauthModalOpen,
+    oauthUsers,
+    selectOAuthUser,
+    createOAuthUser,
+    deleteOAuthUser,
+    cancelOAuthPopup,
+  } = useWorkspace();
   const { tasks, error, clearError, setError } = useTasks(currentUser);
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -142,6 +155,15 @@ export const App: React.FC = () => {
         onSignUpEmail={handleSignUpEmail}
         onSignInGoogle={handleSignInGoogle}
         onSignInGuest={handleSignInGuest}
+      />
+
+      <OAuthPopupModal
+        isOpen={oauthModalOpen}
+        users={oauthUsers}
+        onSelectUser={selectOAuthUser}
+        onCreateUser={createOAuthUser}
+        onDeleteUser={deleteOAuthUser}
+        onCancel={cancelOAuthPopup}
       />
 
       <DeveloperConsoleModal
