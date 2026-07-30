@@ -1,10 +1,9 @@
-import { initializeSandbox, setStorageRules, inspectFirestore, type Sandbox } from 'pyric/sandbox';
-import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
+import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
+import { setRules as setFirestoreRules, inspect as inspectFirestore } from 'pyric/sandbox/firestore';
 import { setRules as setRtdbRules } from 'pyric/sandbox/database';
 import { getDatabase, ref, set, update } from 'pyric/database';
-import { getAuth } from 'pyric/auth';
-import { authSandbox } from 'pyric/auth/testing';
-import { messagingSandbox } from 'pyric/messaging/testing';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { sandbox as messagingSandbox } from 'pyric/messaging';
 
 export interface RuleDenialRecord {
   method: string;
@@ -24,12 +23,21 @@ export interface InspectorSummary {
   activeRtdbRulesJson: Record<string, unknown>;
 }
 
-/**
- * Autonomous administrative module encapsulating Pyric testing drivers, simulation controls,
- * and declarative security rules verifications. Forms a clean architectural seam against UI components.
- */
+export const STORAGE_RULES_SOURCE = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /attachments/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+                   && request.auth.uid == userId
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+  }
+}`;
+
 export class SandboxSimulationDriver {
-  readonly sandbox: Sandbox;
+  readonly sandbox: LocalSandbox;
   private currentAiScenario: 'success' | 'malformed' | 'quota_error' = 'success';
   private rtdbPresenceState: boolean = false;
   private activeFirestoreRulesSource: string = '';
@@ -39,7 +47,6 @@ export class SandboxSimulationDriver {
     this.sandbox = initializeSandbox({ projectId });
   }
 
-  // ── Initialization & Security Rules Seam ──
   initializeDefaultSecurityRules(): void {
     const firestoreRules = `rules_version = '2';
 service cloud.firestore {
@@ -57,20 +64,6 @@ service cloud.firestore {
 }`;
     this.activeFirestoreRulesSource = firestoreRules;
     setFirestoreRules(this.sandbox, firestoreRules);
-
-    const storageRules = `rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /attachments/{userId}/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null 
-                   && request.auth.uid == userId
-                   && request.resource.size < 5 * 1024 * 1024
-                   && request.resource.contentType.matches('image/.*');
-    }
-  }
-}`;
-    setStorageRules(this.sandbox, storageRules);
 
     const rtdbRules = {
       rules: {
@@ -120,24 +113,23 @@ service firebase.storage {
     });
   }
 
-  // ── Inspector & Verification Seam ──
   getInspectorSummary(): InspectorSummary {
     const info = inspectFirestore(this.sandbox);
     const auth = getAuth(this.sandbox);
     const currentUser = auth.currentUser;
     const currentUid = currentUser ? (currentUser.displayName || currentUser.email || currentUser.uid) : 'null (Signed out)';
-    
+
     const collections = info && info.documents && info.documents.byCollection ? Object.keys(info.documents.byCollection) : [];
     const totalDocuments = info && info.documents ? (info.documents.totalCount || 0) : 0;
     const totalEvents = info && info.events ? (info.events.totalCount || 0) : 0;
-    const recentDenials = info && info.events && Array.isArray(info.events.recentDenials) 
+    const recentDenials = info && info.events && Array.isArray(info.events.recentDenials)
       ? info.events.recentDenials.map((d: any) => ({
           method: d.method || 'unknown',
           path: d.path || 'unknown',
           auth: d.auth,
           rule: d.rule,
-          reasons: d.reasons
-        })) 
+          reasons: d.reasons,
+        }))
       : [];
 
     return {
@@ -151,8 +143,7 @@ service firebase.storage {
     };
   }
 
-  // ── OAuth & User Administration Seam ──
-  listOAuthTestUsers(): Array<{ uid: string; email?: string; displayName?: string }> {
+  listOAuthTestUsers(): Array<{ uid: string; email?: string | null; displayName?: string | null }> {
     const auth = getAuth(this.sandbox);
     const allUsers = authSandbox.listUsers(auth);
     return allUsers.filter((u: any) => u.uid !== 'alice' && u.uid !== 'bob' && u.uid !== 'guest_demo');
@@ -175,16 +166,15 @@ service firebase.storage {
     await authSandbox.deleteUser(auth, uid);
   }
 
-  // ── Realtime Database Simulation Seam ──
   async togglePresence(): Promise<boolean> {
     const auth = getAuth(this.sandbox);
     const user = auth.currentUser;
-    if (!user) throw new Error("Must be signed in to modify presence state.");
-    
+    if (!user) throw new Error('Must be signed in to modify presence state.');
+
     this.rtdbPresenceState = !this.rtdbPresenceState;
     const rtdb = getDatabase(this.sandbox);
     const presenceRef = ref(rtdb, `presence/${user.uid}`);
-    
+
     if (this.rtdbPresenceState) {
       await set(presenceRef, {
         state: 'online',
@@ -202,8 +192,8 @@ service firebase.storage {
   async triggerAtomicFanOut(): Promise<void> {
     const auth = getAuth(this.sandbox);
     const user = auth.currentUser;
-    if (!user) throw new Error("Must be signed in to execute atomic multi-path writes.");
-    
+    if (!user) throw new Error('Must be signed in to execute atomic multi-path writes.');
+
     const rtdb = getDatabase(this.sandbox);
     const eventId = `evt_${Date.now()}`;
     const fanoutData: Record<string, unknown> = {
@@ -212,7 +202,7 @@ service firebase.storage {
         user: user.displayName || user.email || user.uid,
         action: 'Executed atomic multi-path fan-out write',
         timestamp: Date.now(),
-      }
+      },
     };
     await update(ref(rtdb), fanoutData);
   }
@@ -241,11 +231,10 @@ service firebase.storage {
         timestamp: Date.now(),
       });
     } catch (err) {
-      console.warn("Failed to record activity event to RTDB:", err);
+      console.warn('Failed to record activity event to RTDB:', err);
     }
   }
 
-  // ── AI Scripting Scenario Seam ──
   setAiScenario(scenario: 'success' | 'malformed' | 'quota_error'): void {
     this.currentAiScenario = scenario;
   }
@@ -254,7 +243,6 @@ service firebase.storage {
     return this.currentAiScenario;
   }
 
-  // ── Cloud Messaging Simulation Seam ──
   async deliverSimulatedPush(type: 'overdue' | 'update' | 'silent', messagingHandle: any): Promise<void> {
     let notification: { title?: string; body?: string } | undefined = undefined;
     let data: Record<string, string> = {};
@@ -262,19 +250,19 @@ service firebase.storage {
     if (type === 'overdue') {
       notification = {
         title: '⏰ High Priority Task Overdue',
-        body: 'Your onboarding milestone "Security Rule Audit" requires immediate review.'
+        body: 'Your onboarding milestone "Security Rule Audit" requires immediate review.',
       };
       data = { taskId: 'demo-task-1', priority: 'High' };
     } else if (type === 'update') {
       notification = {
         title: '🔄 Workspace Collaborator Update',
-        body: 'Bob modified priority on 3 project tasks in your shared collection.'
+        body: 'Bob modified priority on 3 project tasks in your shared collection.',
       };
       data = { updatedBy: 'bob', action: 'bulk_edit' };
     } else if (type === 'silent') {
       data = {
         sync_type: 'background_cache_refresh',
-        payload: '{"schema_version":"v2","timestamp":"' + Date.now() + '"}'
+        payload: '{"schema_version":"v2","timestamp":"' + Date.now() + '"}',
       };
     }
 

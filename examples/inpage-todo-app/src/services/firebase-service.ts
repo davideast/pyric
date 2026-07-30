@@ -1,10 +1,11 @@
-import type { Sandbox } from 'pyric/sandbox';
+import type { LocalSandbox } from 'pyric/sandbox';
 import { getAuth, signInWithEmailAndPassword, signInWithPopup, signOut, onAuthStateChanged, GoogleAuthProvider, type Auth, type User } from 'pyric/auth';
 import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, type Firestore } from 'pyric/firestore';
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, type FirebaseStorage } from 'pyric/storage';
+import { getStorageSandbox, ref as storageRef, uploadBytes, getDownloadURL, type FirebaseStorage } from 'pyric/storage';
 import { getDatabase, ref as dbRef, onValue, type Database } from 'pyric/database';
 import { getAI, getGenerativeModel, type AI } from 'pyric/ai';
 import { getMessaging, getToken, onMessage, type Messaging } from 'pyric/messaging';
+import { STORAGE_RULES_SOURCE } from '../sandbox/sandbox-driver';
 
 export interface TaskItem {
   id: string;
@@ -23,10 +24,6 @@ export interface ActivityEvent {
   timestamp: number;
 }
 
-/**
- * Domain service adapter encapsulating all business operations over Firebase SDK mirrors.
- * Exposes a deep interface decoupled from user interfaces and DOM rendering mechanics.
- */
 export class TaskApplicationService {
   readonly auth: Auth;
   readonly db: Firestore;
@@ -38,16 +35,15 @@ export class TaskApplicationService {
   private activeFcmToken: string | null = null;
   private unsubscribeTodos: (() => void) | null = null;
 
-  constructor(sandbox: Sandbox) {
+  constructor(sandbox: LocalSandbox) {
     this.auth = getAuth(sandbox);
     this.db = getFirestore(sandbox);
-    this.storage = getStorage(sandbox);
+    this.storage = getStorageSandbox(sandbox, { rules: STORAGE_RULES_SOURCE });
     this.rtdb = getDatabase(sandbox);
     this.ai = getAI(sandbox);
     this.messaging = getMessaging(sandbox);
   }
 
-  // ── Authentication Seam ──
   onAuthChange(callback: (user: User | null) => void): () => void {
     return onAuthStateChanged(this.auth, callback);
   }
@@ -72,7 +68,6 @@ export class TaskApplicationService {
     await signOut(this.auth);
   }
 
-  // ── Firestore Task Workspace Seam ──
   subscribeToTasks(
     onData: (tasks: TaskItem[]) => void, 
     onError?: (err: Error) => void
@@ -84,8 +79,8 @@ export class TaskApplicationService {
     const colRef = collection(this.db, 'todos');
     this.unsubscribeTodos = onSnapshot(
       colRef,
-      (snapshot) => {
-        const items: TaskItem[] = snapshot.docs.map((docSnap) => {
+      (snapshot: any) => {
+        const items: TaskItem[] = snapshot.docs.map((docSnap: any) => {
           const data = docSnap.data() || {};
           return {
             id: docSnap.id,
@@ -101,7 +96,7 @@ export class TaskApplicationService {
         items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         onData(items);
       },
-      (err) => {
+      (err: any) => {
         if (onError) onError(err as Error);
       }
     );
@@ -155,7 +150,6 @@ export class TaskApplicationService {
     }
   }
 
-  // ── Firebase Storage Seam ──
   async uploadTaskAttachment(file: File): Promise<string> {
     const user = this.auth.currentUser;
     const uid = user ? user.uid : 'anonymous';
@@ -165,7 +159,6 @@ export class TaskApplicationService {
     return getDownloadURL(res.ref);
   }
 
-  // ── Firebase AI Logic Seam ──
   async generateTaskSuggestions(promptText: string): Promise<{ items: Array<{ title: string; category: string; priority: string }>; raw: string }> {
     const model = getGenerativeModel(this.ai, { model: 'gemini-2.5-pro' });
     const res = await model.generateContent(promptText);
@@ -177,7 +170,6 @@ export class TaskApplicationService {
     return { items: parsed, raw };
   }
 
-  // ── Cloud Messaging Seam ──
   async requestPushToken(): Promise<string> {
     const token = await getToken(this.messaging);
     this.activeFcmToken = token;
@@ -196,19 +188,18 @@ export class TaskApplicationService {
     return onMessage(this.messaging, handler);
   }
 
-  // ── Realtime Database Seam ──
   subscribeToPresence(onData: (uids: string[]) => void, onError?: (err: Error) => void): () => void {
     const presenceRef = dbRef(this.rtdb, 'presence');
     return onValue(
       presenceRef,
       (snap) => {
-        const val = snap.val() || {};
+        const val = (snap.val() || {}) as Record<string, any>;
         const uids = Object.keys(val).filter((k) => val[k] && val[k].state === 'online');
         onData(uids);
       },
-      (err) => {
-        if (onError) onError(err as Error);
-      }
+      ((err: Error) => {
+        if (onError) onError(err);
+      }) as any
     );
   }
 
@@ -217,7 +208,7 @@ export class TaskApplicationService {
     return onValue(
       activityRef,
       (snap) => {
-        const val = snap.val() || {};
+        const val = (snap.val() || {}) as Record<string, any>;
         const ids = Object.keys(val).sort().reverse().slice(0, 8);
         const events: ActivityEvent[] = ids.map((id) => ({
           user: val[id].user || 'Unknown',
@@ -226,9 +217,9 @@ export class TaskApplicationService {
         }));
         onData(events);
       },
-      (err) => {
-        if (onError) onError(err as Error);
-      }
+      ((err: Error) => {
+        if (onError) onError(err);
+      }) as any
     );
   }
 }

@@ -7,7 +7,8 @@
     "examples/vite-sandbox-app",
     "examples/nextjs-sandbox-app",
     "packages/create-pyric/templates/chat",
-    "packages/create-pyric/templates/chat/functions"
+    "packages/create-pyric/templates/chat/functions",
+    "examples/inpage-todo-app"
   ],
   "overrides": {
     "firebase": "12.13.0"
