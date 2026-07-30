@@ -15,6 +15,8 @@ export const App: React.FC = () => {
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'completed'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handleAddTask = async (
     title: string,
@@ -106,11 +108,17 @@ export const App: React.FC = () => {
           onAddTask={handleAddTask}
           onUploadAttachment={handleUploadAttachment}
           onError={(_, err) => setError(err)}
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
         />
 
         <TaskListView
           tasks={tasks}
           currentUserId={currentUser ? currentUser.uid : 'anonymous'}
+          activeFilter={activeFilter}
+          searchQuery={searchQuery}
           onToggleStatus={handleToggleStatus}
           onUpdateTitle={handleUpdateTitle}
           onDelete={handleDelete}

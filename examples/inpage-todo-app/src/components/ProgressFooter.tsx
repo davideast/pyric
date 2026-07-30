@@ -14,18 +14,19 @@ export const ProgressFooter: React.FC<ProgressFooterProps> = ({
 }) => {
   const activeCount = tasks.filter((t) => !t.completed).length;
   const totalCount = tasks.length;
-  const hasCompleted = tasks.some((t) => t.completed);
   const percent =
     totalCount > 0 ? Math.round(((totalCount - activeCount) / totalCount) * 100) : 0;
+  const hasCompleted = tasks.some((t) => t.completed);
 
   return (
-    <footer className="flex flex-col gap-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 p-5 shadow-xl w-full">
+    <footer className="flex flex-col gap-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 p-5 shadow-xl select-text cursor-default">
       <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 flex-wrap gap-2">
-        <span className="font-medium">
+        <span id="items-left-count" className="font-medium">
           {activeCount} item{activeCount === 1 ? '' : 's'} remaining
         </span>
         {hasCompleted ? (
           <button
+            id="clear-completed-btn"
             type="button"
             onClick={onClearCompleted}
             className="text-xs text-red-400 hover:text-red-300 underline font-medium"
@@ -34,20 +35,21 @@ export const ProgressFooter: React.FC<ProgressFooterProps> = ({
           </button>
         ) : null}
       </div>
-
       <div className="flex flex-col gap-2">
         <div className="flex justify-between items-center text-xs text-zinc-400">
           <span className="font-medium">Workspace Completion Rate</span>
-          <strong className="font-bold text-white">{percent}%</strong>
+          <strong id="progress-percent" className="font-bold text-white">
+            {percent}%
+          </strong>
         </div>
         <div className="h-2 w-full rounded-full bg-zinc-950 overflow-hidden border border-zinc-800">
           <div
+            id="progress-bar-fill"
             className="h-full bg-white transition-all duration-500 ease-out"
             style={{ width: `${percent}%` }}
           />
         </div>
       </div>
-
       <div className="flex items-center justify-between border-t border-zinc-800 pt-4 text-xs flex-wrap gap-3">
         <span className="text-zinc-400 font-medium">
           Powered by Pyric In-Page Sandbox & reactive Web SDK abstractions.
