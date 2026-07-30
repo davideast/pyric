@@ -76,36 +76,41 @@ export class TaskApplicationService {
       this.unsubscribeTodos();
       this.unsubscribeTodos = null;
     }
-    const colRef = collection(this.db, 'todos');
-    this.unsubscribeTodos = onSnapshot(
-      colRef,
-      (snapshot: any) => {
-        const items: TaskItem[] = snapshot.docs.map((docSnap: any) => {
-          const data = docSnap.data() || {};
-          return {
-            id: docSnap.id,
-            title: String(data.title || 'Untitled Task'),
-            completed: Boolean(data.completed),
-            category: String(data.category || 'Work'),
-            priority: (data.priority as 'Low' | 'Medium' | 'High') || 'Medium',
-            owner: String(data.owner || 'anonymous'),
-            attachmentUrl: data.attachmentUrl ? String(data.attachmentUrl) : undefined,
-            updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now(),
-          };
-        });
-        items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        onData(items);
-      },
-      (err: any) => {
-        if (onError) onError(err as Error);
-      }
-    );
-    return () => {
-      if (this.unsubscribeTodos) {
-        this.unsubscribeTodos();
-        this.unsubscribeTodos = null;
-      }
-    };
+    try {
+      const colRef = collection(this.db, 'todos');
+      this.unsubscribeTodos = onSnapshot(
+        colRef,
+        (snapshot: any) => {
+          const items: TaskItem[] = snapshot.docs.map((docSnap: any) => {
+            const data = docSnap.data() || {};
+            return {
+              id: docSnap.id,
+              title: String(data.title || 'Untitled Task'),
+              completed: Boolean(data.completed),
+              category: String(data.category || 'Work'),
+              priority: (data.priority as 'Low' | 'Medium' | 'High') || 'Medium',
+              owner: String(data.owner || 'anonymous'),
+              attachmentUrl: data.attachmentUrl ? String(data.attachmentUrl) : undefined,
+              updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now(),
+            };
+          });
+          items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          onData(items);
+        },
+        (err: any) => {
+          if (onError) onError(err as Error);
+        }
+      );
+      return () => {
+        if (this.unsubscribeTodos) {
+          this.unsubscribeTodos();
+          this.unsubscribeTodos = null;
+        }
+      };
+    } catch (err: any) {
+      if (onError) onError(err as Error);
+      return () => {};
+    }
   }
 
   async addTask(title: string, category: string, priority: 'Low' | 'Medium' | 'High', attachmentUrl?: string): Promise<string> {
@@ -189,37 +194,47 @@ export class TaskApplicationService {
   }
 
   subscribeToPresence(onData: (uids: string[]) => void, onError?: (err: Error) => void): () => void {
-    const presenceRef = dbRef(this.rtdb, 'presence');
-    return onValue(
-      presenceRef,
-      (snap) => {
-        const val = (snap.val() || {}) as Record<string, any>;
-        const uids = Object.keys(val).filter((k) => val[k] && val[k].state === 'online');
-        onData(uids);
-      },
-      ((err: Error) => {
-        if (onError) onError(err);
-      }) as any
-    );
+    try {
+      const presenceRef = dbRef(this.rtdb, 'presence');
+      return onValue(
+        presenceRef,
+        (snap) => {
+          const val = (snap.val() || {}) as Record<string, any>;
+          const uids = Object.keys(val).filter((k) => val[k] && val[k].state === 'online');
+          onData(uids);
+        },
+        ((err: Error) => {
+          if (onError) onError(err);
+        }) as any
+      );
+    } catch (err: any) {
+      if (onError) onError(err as Error);
+      return () => {};
+    }
   }
 
   subscribeToActivityStream(onData: (events: ActivityEvent[]) => void, onError?: (err: Error) => void): () => void {
-    const activityRef = dbRef(this.rtdb, 'activity_stream');
-    return onValue(
-      activityRef,
-      (snap) => {
-        const val = (snap.val() || {}) as Record<string, any>;
-        const ids = Object.keys(val).sort().reverse().slice(0, 8);
-        const events: ActivityEvent[] = ids.map((id) => ({
-          user: val[id].user || 'Unknown',
-          action: val[id].action || '',
-          timestamp: typeof val[id].timestamp === 'number' ? val[id].timestamp : Date.now(),
-        }));
-        onData(events);
-      },
-      ((err: Error) => {
-        if (onError) onError(err);
-      }) as any
-    );
+    try {
+      const activityRef = dbRef(this.rtdb, 'activity_stream');
+      return onValue(
+        activityRef,
+        (snap) => {
+          const val = (snap.val() || {}) as Record<string, any>;
+          const ids = Object.keys(val).sort().reverse().slice(0, 8);
+          const events: ActivityEvent[] = ids.map((id) => ({
+            user: val[id].user || 'Unknown',
+            action: val[id].action || '',
+            timestamp: typeof val[id].timestamp === 'number' ? val[id].timestamp : Date.now(),
+          }));
+          onData(events);
+        },
+        ((err: Error) => {
+          if (onError) onError(err);
+        }) as any
+      );
+    } catch (err: any) {
+      if (onError) onError(err as Error);
+      return () => {};
+    }
   }
 }

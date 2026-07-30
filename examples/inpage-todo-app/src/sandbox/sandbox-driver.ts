@@ -27,7 +27,7 @@ export const STORAGE_RULES_SOURCE = `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /attachments/{userId}/{fileName} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow write: if request.auth != null 
                    && request.auth.uid == userId
                    && request.resource.size < 5 * 1024 * 1024
@@ -52,7 +52,7 @@ export class SandboxSimulationDriver {
 service cloud.firestore {
   match /databases/{database}/documents {
     match /todos/{todoId} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow create: if request.auth != null 
                     && request.resource.data.owner == request.auth.uid;
       allow update, delete: if request.auth != null 
@@ -68,21 +68,21 @@ service cloud.firestore {
     const rtdbRules = {
       rules: {
         presence: {
+          ".read": true,
           "$uid": {
-            ".read": "auth != null",
             ".write": "auth != null && auth.uid === $uid",
             ".validate": "newData.hasChildren(['state', 'lastSeen']) && newData.child('state').val() === 'online'"
           }
         },
         activity_stream: {
-          ".read": "auth != null",
+          ".read": true,
           "$event_id": {
             ".write": "auth != null",
             ".validate": "newData.hasChildren(['user', 'action', 'timestamp'])"
           }
         },
         shared_fanout: {
-          ".read": "auth != null",
+          ".read": true,
           ".write": "auth != null"
         }
       }
