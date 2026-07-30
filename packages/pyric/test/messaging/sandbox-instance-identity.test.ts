@@ -95,4 +95,14 @@ describe('Messaging instance identity (sandbox)', () => {
     const app = initializeApp({ projectId: 'messaging-default-test' });
     expect(getMessaging().app).toBe(app);
   });
+
+  it('getMessaging(sandbox) returns a stable sandbox-backed messaging instance', async () => {
+    const sandbox = initializeSandbox();
+    const messaging = getMessaging(sandbox);
+    expect(getMessaging(sandbox)).toBe(messaging);
+    const seen: unknown[] = [];
+    onMessage(messaging, (p) => { seen.push(p); });
+    await messagingSandbox.deliver(messaging, { visibilityState: 'visible', data: { test: 'sandbox' } });
+    expect(seen).toHaveLength(1);
+  });
 });
