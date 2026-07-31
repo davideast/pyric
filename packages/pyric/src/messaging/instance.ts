@@ -12,7 +12,8 @@
  */
 import type { FirebaseApp } from '../app/types.js';
 import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-app.js';
-import type { Sandbox } from '../sandbox/types/service.js';
+import type { Sandbox, SandboxContext } from '../sandbox/index.js';
+import { SandboxContextImpl } from '../sandbox/index.js';
 import { DEFAULT_CLIENT_ID, getMessagingBroker, MessagingBroker } from './broker/index.js';
 import type { DeliveredPayload, DeliveryResult } from './broker/index.js';
 
@@ -38,6 +39,22 @@ interface InstanceState {
 const instanceState = new WeakMap<Messaging, InstanceState>();
 /** One instance per (app, plane); brokers remain shared by sandbox. */
 const instancesByApp = new WeakMap<FirebaseApp, Partial<Record<MessagingPlane, Messaging>>>();
+const instancesBySandbox = new WeakMap<Sandbox, Partial<Record<MessagingPlane, Messaging>>>();
+
+function isSandboxContext(target: unknown): target is SandboxContext {
+  return target instanceof SandboxContextImpl;
+}
+
+function isSandbox(target: unknown): target is Sandbox {
+  if (target === null || typeof target !== 'object') return false;
+  const o = target as Record<string, unknown>;
+  return (
+    typeof o.withAuth === 'function' &&
+    typeof o.onCurrentUserChanged === 'function' &&
+    'currentUser' in o &&
+    'admin' in o
+  );
+}
 
 // ── Simulated service-worker registrations ──────────────────────────────────
 
@@ -81,48 +98,39 @@ function resolveDefaultApp(): FirebaseApp {
 
 // ── Instance resolution ──────────────────────────────────────────────────────
 
-function isSandbox(target: any): boolean {
-  if (target === null || typeof target !== 'object') return false;
-  return (
-    typeof target.withAuth === 'function' &&
-    typeof target.onCurrentUserChanged === 'function' &&
-    'currentUser' in target &&
-    'admin' in target
-  );
-}
-
-export function resolveMessaging(plane: MessagingPlane, app?: any): Messaging {
-  const resolved = app ?? resolveDefaultApp();
-  if (isSandbox(resolved)) {
-    const sandbox = resolved;
-    const byApp = instancesByApp.get(resolved) ?? {};
-    instancesByApp.set(resolved, byApp);
-    const existing = byApp[plane];
+export function resolveMessaging(plane: MessagingPlane, target?: FirebaseApp | Sandbox | SandboxContext): Messaging {
+  const resolved = target ?? resolveDefaultApp();
+  if (isSandbox(resolved) || isSandboxContext(resolved)) {
+    const sandbox = isSandboxContext(resolved) ? resolved.sandbox : resolved;
+    const bySandbox = instancesBySandbox.get(sandbox) ?? {};
+    instancesBySandbox.set(sandbox, bySandbox);
+    const existing = bySandbox[plane];
     if (existing !== undefined) return existing;
+
     const broker = getMessagingBroker(sandbox);
-    const instance: Messaging = { app: resolved };
+    const instance: Messaging = { app: undefined as unknown as FirebaseApp };
     instanceState.set(instance, {
       broker,
       sandbox,
       plane,
       activeRegistrationId: registrationIdOf(DEFAULT_REGISTRATION),
-      own: (cleanup) => () => {},
+      own: (cleanup) => () => { cleanup(); },
     });
-    byApp[plane] = instance;
+    bySandbox[plane] = instance;
     return instance;
   }
-  const runtime = resolveClientApp(resolved);
-
+  const app = resolved as FirebaseApp;
+  const runtime = resolveClientApp(app);
   if (!runtime) throw new TypeError('pyric/messaging: unrecognized FirebaseApp handle');
   const sandbox = runtime.sandbox;
-  const byApp = instancesByApp.get(resolved) ?? {};
-  instancesByApp.set(resolved, byApp);
+  const byApp = instancesByApp.get(app) ?? {};
+  instancesByApp.set(app, byApp);
   const existing = byApp[plane];
   if (existing !== undefined) return existing;
   runtime.assertAlive();
 
   const broker = getMessagingBroker(sandbox);
-  const instance: Messaging = { app: resolved };
+  const instance: Messaging = { app };
   instanceState.set(instance, {
     broker,
     sandbox,
