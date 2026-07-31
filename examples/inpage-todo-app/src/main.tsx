@@ -1,3 +1,4 @@
+import 'pyric/app';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { WorkspaceProvider } from './context/WorkspaceContext';

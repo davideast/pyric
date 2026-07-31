@@ -81,9 +81,38 @@ function resolveDefaultApp(): FirebaseApp {
 
 // ── Instance resolution ──────────────────────────────────────────────────────
 
-export function resolveMessaging(plane: MessagingPlane, app?: FirebaseApp): Messaging {
+function isSandbox(target: any): boolean {
+  if (target === null || typeof target !== 'object') return false;
+  return (
+    typeof target.withAuth === 'function' &&
+    typeof target.onCurrentUserChanged === 'function' &&
+    'currentUser' in target &&
+    'admin' in target
+  );
+}
+
+export function resolveMessaging(plane: MessagingPlane, app?: any): Messaging {
   const resolved = app ?? resolveDefaultApp();
+  if (isSandbox(resolved)) {
+    const sandbox = resolved;
+    const byApp = instancesByApp.get(resolved) ?? {};
+    instancesByApp.set(resolved, byApp);
+    const existing = byApp[plane];
+    if (existing !== undefined) return existing;
+    const broker = getMessagingBroker(sandbox);
+    const instance: Messaging = { app: resolved };
+    instanceState.set(instance, {
+      broker,
+      sandbox,
+      plane,
+      activeRegistrationId: registrationIdOf(DEFAULT_REGISTRATION),
+      own: (cleanup) => () => {},
+    });
+    byApp[plane] = instance;
+    return instance;
+  }
   const runtime = resolveClientApp(resolved);
+
   if (!runtime) throw new TypeError('pyric/messaging: unrecognized FirebaseApp handle');
   const sandbox = runtime.sandbox;
   const byApp = instancesByApp.get(resolved) ?? {};

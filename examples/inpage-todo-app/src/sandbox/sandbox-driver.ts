@@ -1,3 +1,4 @@
+import 'pyric/app';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { setRules as setFirestoreRules, inspect as inspectFirestore, seedDocuments } from 'pyric/sandbox/firestore';
 import { setRules as setRtdbRules, setData as setRtdbData } from 'pyric/sandbox/database';

@@ -80,7 +80,7 @@ export const DeveloperConsoleModal: React.FC<DeveloperConsoleModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 sm:p-6 backdrop-blur-md select-text cursor-default">
-      <div className="w-full h-full max-w-6xl rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl flex flex-col overflow-hidden">
+      <div id="inspector-modal" className="w-full h-full max-w-6xl rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl flex flex-col overflow-hidden">
         {/* Console Header */}
         <header className="flex items-center justify-between p-5 border-b border-zinc-800 bg-zinc-950/60 shrink-0">
           <div className="flex items-center gap-3">
@@ -176,7 +176,7 @@ export const DeveloperConsoleModal: React.FC<DeveloperConsoleModalProps> = ({
                 <span className="font-bold text-red-400 text-xs">
                   Recent Rule Denials ({summary.recentDenials.length}):
                 </span>
-                <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
+                <div id="inspector-denials-list" className="flex flex-col gap-2 max-h-48 overflow-y-auto">
                   {summary.recentDenials.map((d, i) => (
                     <div
                       key={i}

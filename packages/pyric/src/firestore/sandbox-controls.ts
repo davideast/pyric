@@ -41,6 +41,8 @@ export interface FirestoreInspectReport {
       method: string;
       auth: unknown;
       debugMessage?: string;
+      rule?: unknown;
+      reasons?: string[];
     }>;
     recentRequests: Array<{
       path: string;
@@ -187,11 +189,19 @@ export function inspect(
     if (typeof event.debugMessage === 'string') {
       debugMessageVal = event.debugMessage;
     }
+    const ruleVal = (event as any).evaluatedRule ?? (event as any).rule ?? undefined;
+    const reasonsVal = Array.isArray((event as any).debugMessages)
+      ? (event as any).debugMessages
+      : typeof event.debugMessage === 'string'
+      ? [event.debugMessage]
+      : undefined;
     return {
       path: pathVal,
       method: methodVal,
       auth: authVal,
       debugMessage: debugMessageVal,
+      rule: ruleVal,
+      reasons: reasonsVal,
     };
   });
 
