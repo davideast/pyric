@@ -1,6 +1,7 @@
 # Pyric codebase context
 
-Last checked: 2026-07-13.
+Last checked: 2026-08-01. Workspace version `0.1.0-alpha.19`, conformance-tested
+against Firebase `12.13.0` (`packages/cli/src/version/compat-target.ts`).
 
 Pyric is a Firebase-shaped development sandbox for people and coding agents.
 It runs Firestore, Auth, Realtime Database, Storage, Security Rules, and related
@@ -12,9 +13,12 @@ The product boundary is deliberate:
 - Firebase owns production execution.
 - `firebase-tools` and the Firebase Console own production deployment.
 
-`PRIORITIES.md` is law for proposed work. Current work must reduce first-run
-friction, simplify the product model, or make the contract and gaps easier to
-trust.
+`PRIORITIES.md` is law for proposed work, and `AGENTS.md` says so plainly:
+judge every proposal against the priority tests before starting it. As of
+2026-07-14 the priorities are Top of Funnel, Simplification, Trust, Build
+Velocity, and Refactoring and Tech Debt. The season is explicitly not about
+building more; the npm alpha shipped and the feature set is the problem, so
+work that adds concepts without serving one of those tests waits.
 
 ## Workspace map
 
@@ -27,16 +31,24 @@ The repository is a Bun workspace with these principal packages:
 | `packages/cli` | `@pyric/cli` | `pyric` binary, Vite/Node resolution seams, bridge, verify, assurance |
 | `packages/create-pyric` | `create-pyric` | `npm create pyric` scaffolder |
 | `packages/ui` | `@pyric/ui` | Headless React components and hooks |
-| `packages/studio` | `@pyric/studio` | Local console served by `pyric dev --ui` |
-| `packages/site-docs` | `@pyric/site-docs` | Generated Astro documentation site |
-| `packages/conformance` | `@pyric/conformance` | Private evidence registry, observations, probes, and gates |
+| `packages/studio` | `@pyric/studio` | Studio console application, mounted by the Astro site and served by `pyric dev --ui` |
+| `packages/site-docs` | `@pyric/site-docs` | The one Astro site: documentation plus the Studio shell |
+| `packages/conformance` | `@pyric/conformance` | Private evidence graph: surfaces, registry, observations, probes, rigs, gates |
 | `packages/playground` | `@pyric/playground` | Private browser agent playground |
 
-Examples live in `examples/`. The cross-agent Pyric plugin lives in
-`pyric-plugin/`. Repository-local agent skills live in `.agents/skills/`.
+Examples live in `examples/`: `vite-sandbox-app`, `nextjs-sandbox-app`,
+`inpage-todo-app`, `admin-playground`, `ai-chat`, `playground-next`,
+`prelease-pyric`. Only some are workspace members; the root `package.json`
+`workspaces` array is the list. The cross-agent Pyric plugin lives in
+`pyric-plugin/` and ships three skills: `pyric-start`, `improve-firebase`,
+and `pyric-inpage-sandbox`. Repository-local agent skills live in
+`.agents/skills/`. `clones/` holds read-only upstream checkouts
+(`firebase-js-sdk`, `firebase-tools-ui`) used as reference, not as
+dependencies.
 
-All public packages are ESM-only and require Node 22 or later. Prefer public
-package subpaths; do not import through another package's source tree.
+All public packages are ESM-only and require Node 22 or later (`@pyric/cli`
+and `create-pyric` require 22.15). Prefer public package subpaths; do not
+import through another package's source tree.
 
 ## Package contracts
 
@@ -48,19 +60,23 @@ subpaths include:
 | Subpath | Purpose |
 |---|---|
 | `pyric/app` | Firebase-shaped client app registry: `initializeApp(options, settings?)`, `getApp`, `getApps`, `deleteApp`, local `FirebaseError`, pinned `SDK_VERSION`, `onLog`, `setLogLevel`, `registerVersion`. Default and named equal-config app containers share one managed sandbox backend; a second Firebase configuration in the same runtime is intentionally rejected. It has no `firebase/app` runtime dependency; production imports stay on `firebase/app`. |
+| `pyric/app/register` | Node register adapter for canonical `firebase/app` imports. Prepares a process-wide sandbox and loads `firestore.rules` from `firebase.json` when present. |
+| `pyric/app/internal` | App-registry seam for adapters. |
 | `pyric/auth` | Sandbox-only modular Auth mirror, identity, providers, and popup/redirect resolver. It has no `firebase/auth` runtime dependency; production imports stay on `firebase/auth`. |
 | `pyric/firestore` | Sandbox-only modular Firestore mirror plus Firestore data/inspect tools. It has no `firebase/firestore` runtime dependency; production imports stay on `firebase/firestore`. |
 | `pyric/firestore/internal/value-codec` | Worker-only Firestore wire-value rehydration seam; not an application-facing surface. |
 | `pyric/database` | Sandbox-only modular Realtime Database mirror. It has no `firebase/database` runtime dependency; production imports stay on `firebase/database`. |
+| `pyric/database/internal` | Realtime Database backend seam. |
 | `pyric/sandbox/database` | Owner controls for installing RTDB rules, seeding data, and reading detached snapshots. |
 | `pyric/storage` | Modular Storage mirror and storage admin-style tools. |
 | `pyric/storage/internal` | Storage engine seam. |
-| `pyric/ai` | Sandbox-only Firebase AI Logic mirror (`getAI`, `getGenerativeModel`, generateContent, streaming, chat, function calling, countTokens). It has no `firebase/ai` runtime dependency; production imports stay on `firebase/ai`. |
+| `pyric/ai` | Sandbox-only Firebase AI Logic mirror (`getAI`, `getGenerativeModel`, generateContent, streaming, chat, function calling, countTokens, `Schema`). It has no `firebase/ai` runtime dependency; production imports stay on `firebase/ai`. |
 | `pyric/ai/scripting` | Scripted answer-engine seam for the AI sandbox. |
+| `pyric/ai/internal` | Answer-engine and broker seam used by the CLI's AI proxy. |
 | `pyric/messaging` | Cloud Messaging client mirror. |
 | `pyric/messaging/sw` | Service-worker messaging entry. |
 | `pyric/messaging/internal` | Messaging broker seam. |
-| `pyric/rules` | **The whole rules public API** (see below). |
+| `pyric/rules` | **The whole rules public API.** Everything else in the rules family is an internal seam. |
 | `pyric/rules/internal` | Engine internals seam. |
 | `pyric/rules/internal/node` | Node-only filesystem-backed module resolution. |
 | `pyric/rules/internal/extract` | Composite-index extraction. |
@@ -74,6 +90,14 @@ subpaths include:
 The exact contract is `packages/pyric/package.json#exports`. Some exported
 internal seams exist for adapters; application code should use the ordinary
 service and sandbox fronts.
+
+Service fronts accept a bare `Sandbox` handle as well as a `FirebaseApp`:
+`getFirestore(sandbox)`, `getDatabase(sandbox)`, `getAuth(sandbox)`,
+`getMessaging(sandbox)`, `getAI(sandbox)`, and
+`getStorageSandbox(sandbox, { rules })` all work without `initializeApp`.
+Repeated calls with the same sandbox return the same instance. This is the
+entry path for CLI-free in-page prototypes, documented by the
+`pyric-inpage-sandbox` skill and exercised by `examples/inpage-todo-app`.
 
 ### `pyric-admin`
 
@@ -92,6 +116,7 @@ map those canonical imports to the sandbox mirrors without changing source.
 - `@pyric/cli/assurance/browser`
 - `@pyric/cli/conformance`
 - `@pyric/cli/conformance/browser`
+- `@pyric/cli/conformance/docs`
 - `@pyric/cli/bridge`
 - `@pyric/cli/bridge/client`
 - `@pyric/cli/discover`
@@ -100,10 +125,33 @@ map those canonical imports to the sandbox mirrors without changing source.
 - `@pyric/cli/serve/worker`
 - `@pyric/cli/remote`
 - `@pyric/cli/register`
+- `@pyric/cli/register/app-bridge`
 
 The package intentionally has no Firebase or Firebase Admin runtime dependency.
 The manifest, packaging gates, and generated declaration reference enforce this
 surface.
+
+`@pyric/cli/conformance/docs` is the published projection the documentation
+site consumes; the site never imports `@pyric/conformance`.
+
+`@pyric/cli/next` exports `withPyric`, a development-only Next.js config
+wrapper. It aliases client modules for Webpack and Turbopack, externalises the
+server SDKs so the Node loader can intercept them, and adds development
+rewrites for the sandbox socket and bridge. `examples/nextjs-sandbox-app` is
+the worked example.
+
+### `@pyric/ui` and `@pyric/studio`
+
+`@pyric/ui` publishes headless React components and hooks under
+`auth`, `auth/hooks`, `primitives`, `firestore`, `firestore/hooks`, `rtdb`,
+`storage`, `storage/hooks`, `traffic`, `traffic/hooks`, `events`,
+`events/hooks`, `agents`, `rules`, and `rules/hooks`. Components carry
+behaviour and structural `data-*` hooks, no visual styling, and run against a
+sandbox, production Firebase handles, or a custom adapter.
+
+`@pyric/studio` is private and unversioned. It exports `./app`, `./routes`,
+`./styles`, `./ports`, and `./env`, and is mounted by the Astro site rather
+than served on its own.
 
 ## Package resolution
 
@@ -163,6 +211,7 @@ pyric firestore rules simulate [--stdin]
 pyric firestore rules resolve <path> [--out <path>]
 pyric firestore indexes generate <path...> [--out <path>]
 pyric storage rules lint <path>
+pyric storage rules resolve <path> [--out <path>]
 pyric storage rules simulate [--stdin]
 pyric database rules lint <path>
 pyric database rules validate <path>
@@ -170,25 +219,38 @@ pyric database rules simulate [--stdin]
 pyric database rules generate [--config <path>] [--out <path>]
 ```
 
-`packages/cli/src/cli/index.ts` owns top-level dispatch and help.
-`packages/cli/src/cli/service-commands.ts` owns the service-first hierarchy.
-`packages/site-docs/src/content/cli/reference/cli.md` is the authored reference.
+`packages/cli/src/cli/index.ts` owns top-level dispatch, help, and the usage
+text that is the practical reference for flags. `packages/cli/src/cli/service-commands.ts`
+owns the service-first hierarchy.
+
+`pyric dev` defaults to port 3473 and opens the served page, or Studio under
+`--ui`. It runs the project's own dev command (`-- <cmd>`, otherwise the
+`package.json` `dev` script) with `PYRIC_SANDBOX` set, discovers a Functions
+source from `firebase.json`, hot-reloads Firestore and Realtime Database rules,
+and writes the session capture unless disabled.
 
 `pyric can-i-use` queries availability, Firebase fidelity, and assurance for a
 developer-facing feature. It is discovery, not a rules-verification subcommand.
+A surface prefix such as `firestore-rules/getAfter` disambiguates a name, and
+the query runs against the same model MCP serves.
 
 `pyric verify` replays captured sandbox sessions against candidate Firestore or
-RTDB rules. The default engine is local. The Firestore Rules Test API engine
-evaluates derived cases on Google's engine; it verifies rules and does not
-deploy them.
+RTDB rules. `--engine` selects `sandbox` (default), `rules-test-api`, or
+`both`. The Rules Test API engine is Firestore-only, evaluates derived cases on
+Google's engine, and verifies rules rather than deploying them.
 
 ## Sandbox and bridge
 
 The browser sandbox normally lives in a SharedWorker, giving tabs on one origin
-a shared backend. IndexedDB provides browser-local durability. `--persist`
-adds the committable `.pyric/state/state.json`; `pyric snapshot` promotes lived
-state to a fixture; the session capture at `.pyric/last-session.json` feeds
-`pyric verify`.
+a shared backend. ADR-0011 treats that worker transport as a versioned public
+API rather than an implementation detail. IndexedDB provides browser-local
+durability; Storage falls back to an in-memory store when the browser blocks
+IndexedDB (`packages/pyric/src/storage/persistence.ts`). `--persist` adds the committable `.pyric/state/state.json`; `pyric snapshot`
+promotes lived state to a fixture; the session capture at
+`.pyric/last-session.json` feeds `pyric verify`.
+
+A sandbox can also run entirely in the page with no worker, no CLI, and no dev
+server, which is the in-page prototype path described under `pyric` above.
 
 `pyric/app` mirrors Firebase's default and named registry. Equal-option apps
 receive separate service containers and Auth/listener sessions over that one
@@ -200,9 +262,14 @@ the same sandbox as the open application and Studio. `pyric bridge` provides a
 standalone sandbox bridge. `pyric mcp` is the stdio editor front: it attaches to
 a running development bridge when possible or hosts a headless sandbox.
 
-The default bridge contract is exactly 26 tool names in
-`packages/cli/src/bridge/server/mcp-contract.ts`. `scripts/tool-parity.mjs`
-checks that exposed tool registries stay explicit.
+The default bridge contract is exactly 29 tool names in
+`packages/cli/src/bridge/server/mcp-contract.ts`: 20 forwarded to the sandbox
+and 9 rules tools that run in the MCP process without a browser peer. The
+in-process set includes both the Firestore-specific spellings and the
+service-neutral `rules_stdlib_list`, `rules_stdlib_get`, and
+`rules_resolve_modules`, plus `pyric_can_i_use`. `getDefaultMcpToolSurface()`
+fails closed when a factory drifts, and `scripts/tool-parity.mjs` checks that
+exposed tool registries stay explicit.
 
 ### Firestore sandbox engine
 
@@ -226,6 +293,30 @@ Its internal seams, named by ADR-0009 and used only by the engine's own tests:
 - **RulesState** — the deployed rules source and parsed AST, invalidated by
   seed and rules deploys, shared by the read and write engines.
 
+## AI Logic modes
+
+`pyric/ai` mirrors Firebase AI Logic, and the CLI chooses which engine answers.
+There are three modes, selected by environment variables read by the Vite
+plugin or by explicit `pyric({ ai: … })` options; explicit options win.
+
+- **Scripted (default).** No configuration, no network. `pyric/ai/scripting`
+  queues exact responses for tests and prototypes.
+- **Local model.** `PYRIC_AI_MODEL` activates the OpenAI-compatible engine and
+  is the catch-all mapping for requested Firebase model names.
+  `PYRIC_AI_PROXY_UPSTREAM` points at a non-default OpenAI-compatible server
+  (Ollama's `http://localhost:11434/v1` is the default). The browser always
+  calls the same origin at `/__pyric/ai-proxy`; the dev server makes the
+  upstream hop, which is what avoids browser CORS configuration.
+- **Production pass-through.** `PYRIC_AI_MODE=production` (or `ai.mode`) stops
+  intercepting `getAI`/`getGenerativeModel` and brokers requests to Google AI
+  or Vertex AI through the server rather than the browser. It requires real
+  project credentials and enabled cloud APIs, and rejects `ai.model` or
+  `ai.engine` at startup because routing belongs to the production SDK.
+
+`packages/pyric/src/ai/broker/` and `packages/cli/src/serve/vite-ai-config.ts`
+own the mode plumbing. Studio's runtime chip surfaces the active mode, the
+resolved model alias, and broker rejections.
+
 ## Conformance
 
 Conformance is evidence, not a parity badge. The system separates:
@@ -243,51 +334,81 @@ Public type surface currently counts non-underscore Firebase exported type
 names and ratchets those gaps independently. Private Firebase plumbing and
 Pyric-only helpers receive no coverage credit.
 
-Authoritative inputs live under `packages/conformance/`:
+Authoritative inputs live under `packages/conformance/`, following the
+file-per-record convention: the filename is the join key, the directory is the
+index, and aggregation is computed rather than hand-written.
 
-- `surfaces/` defines measured surfaces;
-- `registry/` owns every published conformance row;
-- `observations/` stores frozen Firebase behaviour;
-- `probes/` replays observations against Pyric;
-- `rules-language/` tracks rules constructs;
+- `surfaces/` defines each measured surface and what it owns;
+- `registry/` owns every published conformance row, one file per service;
+- `observations/<surface>/<name>.json` stores frozen Firebase behaviour;
+- `probes/<surface>/<name>.ts` replays observations against Pyric;
+- `rules-corpus/<engine>/<scenario-id>.ts` holds the Firestore and Storage
+  rules scenarios that captured rules observations must match;
+- `exceptions/<observation-name>.ts` is the only way an uncited observation may
+  exist;
+- `rigs/<rig-id>.ts` records capture mechanisms, deliberately flat because a
+  rig such as `oracle-run` spans several surfaces;
+- `entry-path/<service>.ts` holds one canonical initialisation program per
+  service, adapted from Firebase's official quickstart shapes;
+- `rules-language/` tracks rules constructs per engine;
+- `src/conformance-model.ts` joins census, registries, rules snapshots,
+  evidence, and simulator capability into the shared read model;
 - `src/conformance-verdicts.ts` derives what the evidence can support;
 - `baselines/` ratchets regressions without turning an absolute percentage
   into an incentive to relabel gaps.
 
 Service `COMPAT.md`, `SCORES.md`, site ports, runtime lookups, and optional
-rules-language reports are ignored disposable projections. The CLI and docs
-builds derive them from the canonical model on a clean checkout; `compat:check`
-validates the authored graph and committed ratchet baselines.
+rules-language reports are ignored disposable projections written by
+`src/generate-projections.ts`. The CLI prebuild derives them from the canonical
+model on a clean checkout; `compat:check` runs the gate chain
+(`compat:validate`, `compat:census-gate`, `compat:entry-path`,
+`compat:conformance:check`, `compat:rules-score`, `compat:coverage`) over the
+authored graph and committed ratchet baselines.
+
+Firestore currently reports 100% public runtime and exported-type surface
+coverage. Rules conformance is oracle-backed: constructs are scored per engine
+and published as scorecards through `compat:rules-score`.
 
 Any PR that changes a published number, status, denominator, snapshot, or
 assurance capability needs an adversarial coverage review.
 
-## Documentation
+## Documentation and the site
 
-All authored documentation lives in one home — plain nested markdown with
-plain-YAML front matter under `packages/site-docs/src/content/`: the
-outcome-first guides at the root (overview, get-started, build, secure, …) and
-the package reference trees under `pyric/`, `pyric-admin/`, `cli/`, `ui/`.
-There is no content collection and no zod schema; pages are discovered by
-`import.meta.glob` (`src/lib/content.ts`) and validated by the build's own
-assertions. Authored pages link each other by relative `.md` path; the
-`src/lib/remark-doc-links.ts` plugin resolves those to routes and fails the
-build on a broken link.
+One Astro build owns both the documentation and the Studio shell (ADR-0010).
+`DOCS_BASE` selects the root for the public site or `/__pyric/ui/` for the tree
+embedded into `@pyric/cli`. Documentation stays static HTML and starts no
+SharedWorker; Studio entry pages hydrate the shared React application.
 
-Generated documentation is never committed. The conformance matrices and the
-TypeDoc API reference are written into the gitignored
-`packages/site-docs/src/content/_generated/` directory by `bun run generate`
-immediately before `astro build`:
+Authored documentation is plain nested markdown with plain-YAML front matter
+under `packages/site-docs/src/content/`, organised by outcome rather than by
+package: `get-started/`, `build/`, `secure/`, `observe/`, `ship/`, `agent/`,
+`trust/`, `examples/`, plus `overview.md`, `tutorial.md`, and `rhythm.md`.
+Authored pages have no content collection and no zod schema; they are
+discovered by `import.meta.glob` (`src/lib/content.ts`) and validated by the
+build's own assertions. Pages link each other by relative `.md` path, and
+`src/lib/remark-doc-links.ts` resolves those to routes and fails the build on a
+broken link.
+
+Generated documentation is never committed and is no longer written to disk.
+`src/content.config.ts` defines two data collections whose Astro content-layer
+loaders produce those pages at build time:
+
+- `src/lib/loaders/conformance.ts` consumes the published
+  `@pyric/cli/conformance/docs` projection and applies site-side table
+  presentation. No model derivation happens in the site.
+- `src/lib/loaders/api-reference.ts` supplies the TypeDoc API reference.
+
+Both loaders require built packages and say so when `@pyric/cli` is missing.
 
 ```bash
-bun run build                 # build packages so `types` targets exist
-bun run --cwd packages/site-docs generate   # writes _generated/ (conformance + API)
-bun run docs:api:check        # verifies the API reference matches declarations
-bun run --cwd packages/site-docs build      # generate + astro build
+bun run build                              # packages + embedded site
+bun run --cwd packages/site-docs build     # site only, needs built packages
+bash scripts/build-site.sh                 # composed public site into dist/site
+bash scripts/deploy-site.sh                # Firebase Hosting deploy of dist/site
 ```
 
 The site build audits front matter, route clashes, conflict markers, unknown
-groups, broken links, and every `pyric can-i-use` example — a broken doc fails
+groups, broken links, and every `pyric can-i-use` example; a broken doc fails
 the build.
 
 ## Build and tests
@@ -303,19 +424,32 @@ bun run tool:parity:check
 npm run test:packaging
 ```
 
-`scripts/build.sh` cleans package output, emits declaration stubs for the
-workspace, performs strict builds in dependency order, builds Studio and the
-documentation site, and embeds those assets into `@pyric/cli`.
+`scripts/build.sh` runs three phases: clean every `dist/`, emit declaration
+stubs for the workspace, then strict builds in dependency order. `pyric` is
+built early because the CLI prebuild derives its conformance projections from
+the live export surface. The final phase builds the unified Astro site at
+`/__pyric/ui/` and copies it into `packages/cli/dist/serve/site-ui/`.
+`--packages-only` skips that phase and is what `pretest` uses.
 
-The main PR workflow builds every package, checks declaration-document drift,
-runs the documentation site gate, validates conformance and assurance
-artifacts, checks tool exposure, and runs tests. Packaging and install-matrix
-jobs run on PRs carrying the `ci-packaging` label.
+`.github/workflows/build.yml` starts with a fail-closed proof-selection job
+(`scripts/ci/plan.ts`, itself tested) and then runs package builds and CLI
+tests, library/UI/Studio tests, the conformance suite, the conformance gate
+chain (`scripts/ci/conformance-gates.sh`), Playwright jobs for the served app,
+the CLI-hosted Studio and the public Studio, and the release-wrapper contract.
+Packaging and install-matrix jobs run on PRs carrying the `ci-packaging` label.
+`oracle-recapture.yml`, `simulator-parity.yml`, and `playground-contract.yml`
+are the other workflows.
 
 ## Working conventions
 
 - Read `PRIORITIES.md` before proposing work.
-- Read `docs/code-conventions.md` before changing module boundaries.
+- Read `docs/code-conventions.md` before changing module boundaries. It extends
+  the file-per-record convention to source: one public entry barrel per
+  mirrored surface, one file per API family, sandbox code under `X/sandbox/`,
+  tests mirroring the source path.
+- Ratified decisions live in `docs/decisions/` (ADR-0001 to ADR-0011). The two
+  that shape the current tree most are ADR-0009 (Firestore engine deepening)
+  and ADR-0010 (the unified Astro site).
 - Preserve unrelated work in a dirty tree.
 - Use public subpaths between packages.
 - Keep browser/Node/platform-specific imports at explicit boundary modules.

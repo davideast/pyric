@@ -8,7 +8,7 @@ filler about the work all fail this test. What survives is specific to THIS chan
 THE SHAPE:
 
 1. ONE LINE, THEN THE CODE. Start with a single sentence naming what the PR adds or
-   changes and what it is ("Adds `pyric-tools/assurance`, a library that ..."), then the
+   changes and what it is ("Adds `@pyric/cli/assurance`, a library that ..."), then the
    hero example immediately. The line orients; the code teaches. Do not open cold on a
    code block, and do not pad the line into a paragraph. Real imports, real values,
    runnable, from the consumer's seat. If the change is a behavior fix, show what the
