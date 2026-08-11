@@ -55,7 +55,7 @@ export function buildGeminiThinkingConfig(
   if (!effort || effort === 'off') return undefined;
   const thinkingConfig: Record<string, unknown> = { includeThoughts: true };
   const normalized = model.toLowerCase();
-  if (normalized.includes('gemini-3.5-') || normalized.includes('gemini-3-flash')) {
+  if (normalized.includes('gemini-3.6-') || normalized.includes('gemini-3.5-') || normalized.includes('gemini-3-flash')) {
     thinkingConfig.thinkingLevel = effort;
   } else if (normalized.includes('gemini-2.5-')) {
     thinkingConfig.thinkingBudget = GEMINI_25_THINKING_BUDGET[effort];

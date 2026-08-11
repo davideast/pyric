@@ -90,7 +90,7 @@ interface LlmState {
 
 const initial: Selection = readSelection() ?? {
   providerId: 'gemini',
-  modelId: 'gemini-3.5-flash',
+  modelId: 'gemini-3.6-flash',
 };
 
 export const useLlmStore = create<LlmState>()((set) => ({

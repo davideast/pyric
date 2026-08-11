@@ -32,12 +32,44 @@
 
 /* ── Type + fonts (theme-independent) ──────────────────────────────────── */
 :root {
-  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
-    Consolas, monospace;
-  --font-display: var(--font-ui);
+  --font-ui: "darkmode-off", "new-hero", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "config-mono-vf", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "darkmode-off", "new-hero", sans-serif;
+  --font-logo: "bd-gravel-vf", sans-serif;
+  --font-darkmode: "darkmode-off", sans-serif;
+}
 
+/* ── Darkmode Off font family utilities ─────────────────────────────────── */
+.font-darkmode {
+  font-family: var(--font-darkmode, "darkmode-off", sans-serif);
+}
+.font-darkmode-light {
+  font-family: "darkmode-off", sans-serif;
+  font-weight: 300;
+  font-style: normal;
+}
+.font-darkmode-regular {
+  font-family: "darkmode-off", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+}
+.font-darkmode-medium {
+  font-family: "darkmode-off", sans-serif;
+  font-weight: 500;
+  font-style: normal;
+}
+.font-darkmode-bold {
+  font-family: "darkmode-off", sans-serif;
+  font-weight: 700;
+  font-style: normal;
+}
+.font-darkmode-black {
+  font-family: "darkmode-off", sans-serif;
+  font-weight: 900;
+  font-style: normal;
+}
+
+:root {
   /* One tight type scale. Title for surface heads, body for prose, label for
      UI controls, data for mono identifiers/values, micro for uppercase
      eyebrows + column heads, caption for the quietest meta. */

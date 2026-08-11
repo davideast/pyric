@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-30T13:12:00.000Z",
+  "title": "Design System: Pyric",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Muted Studio Violet", "canonical": "#8f7fe8" },
+      "primary-light": { "role": "primary", "displayName": "Light Studio Violet", "canonical": "#6b57d6" },
+      "bg": { "role": "neutral", "displayName": "App Canvas", "canonical": "#16161a" },
+      "panel": { "role": "neutral", "displayName": "Sunken Panel", "canonical": "#1e1e24" },
+      "elevated": { "role": "neutral", "displayName": "Elevated Control", "canonical": "#24242c" },
+      "ink": { "role": "neutral", "displayName": "High-Contrast Text", "canonical": "#fbfbfe" },
+      "muted": { "role": "neutral", "displayName": "Muted Text", "canonical": "#72728a" },
+      "line": { "role": "neutral", "displayName": "Hairline Border", "canonical": "#2a2a35" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Title / Header", "purpose": "Section titles and panel headers." },
+      "body": { "displayName": "Body Prose", "purpose": "Standard documentation & UI text." },
+      "data": { "displayName": "Code / Data", "purpose": "Monospaced code, paths, and rule ASTs." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "transition-fast", "value": "color 0.12s, border-color 0.12s", "purpose": "Tab and button hover transitions." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "760px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary action button with muted violet accent fill.",
+      "html": "<button class=\"ds-btn-primary\">RUN VERIFY</button>",
+      "css": ".ds-btn-primary { background: #8f7fe8; color: #14102a; padding: 6px 14px; font-size: 12px; font-weight: 500; border: none; border-radius: 4px; cursor: pointer; transition: opacity 0.12s; } .ds-btn-primary:hover { opacity: 0.9; }"
+    },
+    {
+      "name": "Studio Shell Navigation Tab",
+      "kind": "nav",
+      "refersTo": "studio-nav-tab-active",
+      "description": "Active tab in the Studio 54px header bar.",
+      "html": "<div class=\"ds-nav-tab ds-nav-tab-active\">Overview</div>",
+      "css": ".ds-nav-tab { display: inline-flex; align-items: center; border-bottom: 2px solid transparent; font-size: 13px; font-weight: 500; color: #72728a; padding: 0 12px; height: 54px; font-family: Inter, sans-serif; } .ds-nav-tab-active { color: #fbfbfe; border-bottom-color: #fbfbfe; }"
+    },
+    {
+      "name": "Rule Verdict Chip (Denied)",
+      "kind": "chip",
+      "refersTo": "verdict-denied",
+      "description": "High-visibility denied verdict tag.",
+      "html": "<span class=\"ds-chip-denied\">DENIED</span>",
+      "css": ".ds-chip-denied { background: #ededee; color: #0c0c0d; font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 2px; letter-spacing: 0.06em; font-family: Inter, sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Inspector",
+    "overview": "Pyric's visual identity is a minimalist, zero-noise dark interface where whitespace and strict vertical rhythm carry structure without heavy boxes or aggressive fills. Calm surface steps with low contrast between them keep the interface focused on data, rules, and code execution.",
+    "keyCharacteristics": [
+      "Calm Neutral Base (#16161a background)",
+      "Single Accent Discipline (#8f7fe8 violet)",
+      "Rhythmic Proximity Layout",
+      "Sparing Hairline Borders (#2a2a35)"
+    ],
+    "rules": [
+      { "name": "The Single Spotlight Rule", "body": "The primary accent is restricted to <=10% of any view.", "section": "colors" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. Drop-shadows are omitted in favor of clear surface step contrast and 1px hairline borders.", "section": "elevation" },
+      { "name": "The Top-Heavy Gap Rule", "body": "The margin-block-start above any heading always dwarfs the gap below the preceding block.", "section": "layout" }
+    ],
+    "dos": [
+      "Do use strict vertical rhythm tokens (--rhythm-para, --rhythm-group, --rhythm-section).",
+      "Do keep primary violet accent usage under 10% of any view surface.",
+      "Do use var(--font-mono) for all code, paths, and security rule expressions."
+    ],
+    "donts": [
+      "Don't use heavy drop shadows or gradient backgrounds.",
+      "Don't introduce ad-hoc hex values; reference semantic CSS variables.",
+      "Don't create blue-tinted dark backgrounds; preserve neutral charcoal tones."
+    ]
+  }
+}

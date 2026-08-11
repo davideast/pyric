@@ -1,0 +1,501 @@
+---
+import { withBase, STUDIO_TABS } from '../lib/content';
+import SiteLayout from '../layouts/site-layout.astro';
+import '../styles/site.css';
+import '../styles/rhythm.css';
+
+const codeSnippet1 = `import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+
+// Same code for dev and production!`;
+
+const codeSnippet3 = `import { isAuthenticated, isOwner } from 'auth';
+import { cooldownElapsed } from 'timing';
+
+allow update: if isOwner(resource.data.ownerUid)
+  && cooldownElapsed('updatedAt', 2);`;
+---
+
+<SiteLayout title="Pyric — A local first Firebase development framework built for Agents" description="Firebase development without production consequences. Give coding agents deep Firebase intelligence and local sandboxing. Ship to prod without code changes." studioTheme={true}>
+  {/* Studio Header Bar */}
+  <header class="studio__bar">
+    <div class="studio__bar-inner">
+      <a class="studio__brand" href={withBase('/')} aria-label="Pyric Studio">
+        <img src={withBase('pyric-logo.svg')} alt="" width="20" height="20" style="display: inline-block; vertical-align: middle;" />
+      </a>
+      <nav class="studio__nav" aria-label="Studio tabs">
+        {
+          STUDIO_TABS.map((tab) => (
+            <a
+              class="studio__nav-tab"
+              href={withBase(tab.path)}
+              aria-current={tab.id === 'home' ? 'page' : undefined}
+            >
+              {tab.label}
+            </a>
+          ))
+        }
+      </nav>
+    </div>
+  </header>
+
+  <main class="landing-container">
+    {/* ACT 1: HERO & INTERACTIVE CONSOLE */}
+    <section class="hero-section">
+      <div class="hero-grid">
+        {/* LEFT COLUMN: Editorial Authority & Action */}
+        <div class="hero-left">
+          <h1 class="hero-title">
+            Firebase tooling<br />for the agent era
+          </h1>
+
+          <p class="hero-subtitle">
+            Pyric is a local Firebase dev framework built to give agents the freedom to operate without production consequences.
+          </p>
+
+          <div class="hero-ctas">
+            <a href={withBase('/docs/overview/')} class="btn btn--primary">Get started</a>
+            <a href="https://github.com/davideast/pyric" target="_blank" rel="noopener" class="btn btn--ghost">Star on GitHub</a>
+          </div>
+
+        </div>
+
+        {/* RIGHT COLUMN: One Iconic Deep-Dive Prompt Demo */}
+        <div class="hero-right">
+          <div class="ide-card">
+            {/* The Prompt Header (flush against card top/left/right border) */}
+            <div class="ide-card__prompt">
+              <span class="prompt-text">
+                <span class="prompt-skill">/pyric</span> create a realtime kanban app
+              </span>
+            </div>
+
+            {/* Gap-Based Body Container */}
+            <div class="ide-card__body">
+              {/* Quiet, Scannable Tool Trace */}
+              <div class="ide-card__trace" role="list" aria-label="Agent tool execution trace">
+                <div class="trace-row" role="listitem">
+                  <svg class="trace-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M5.5 3.5L2 8l3.5 4.5M10.5 3.5L14 8l-3.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="trace-name">FIRESTORE RULES STDLIB LIST</span>
+                  <span class="trace-meta">· /workspace/firestore.rules</span>
+                </div>
+                <div class="trace-row" role="listitem">
+                  <svg class="trace-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M11.5 2.5a2.121 2.121 0 0 1 3 3L6 14l-4 1 1-4 8.5-8.5Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="trace-name">WRITE FILE</span>
+                  <span class="trace-meta">· +42 lines · added isOwner() &amp; isSpaceMember()</span>
+                </div>
+
+                <div class="trace-row" role="listitem">
+                  <svg class="trace-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M5.5 3.5L2 8l3.5 4.5M10.5 3.5L14 8l-3.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="trace-name">INSPECT SANDBOX</span>
+                  <span class="trace-meta">· GET /boards/234 recently denied</span>
+                </div>
+
+                <div class="trace-row" role="listitem">
+                  <svg class="trace-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M5.5 3.5L2 8l3.5 4.5M10.5 3.5L14 8l-3.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="trace-name">SIMULATE FIRESTORE WRITE</span>
+                  <span class="trace-meta">· WRITE /boards/123 with uid:123</span>
+                </div>
+
+                <div class="trace-row" role="listitem">
+                  <svg class="trace-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M5.5 3.5L2 8l3.5 4.5M10.5 3.5L14 8l-3.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="trace-name">LINT FIRESTORE RULES</span>
+                  <span class="trace-meta">· 0 violations</span>
+                </div>
+               
+              </div>
+
+              {/* Permanently Visible Verified Inspection Card */}
+              <div class="ide-card__result">
+                <div class="result-head">
+                  <span class="result-file">/workspace/firestore.rules</span>
+                </div>
+                <pre class="result-code"><code><span class="c-offwhite">match /boards/&#123;boardId&#125;/tasks/&#123;taskId&#125; &#123;</span>
+<span class="c-offwhite">  allow write: if isOwner(boardId) ||</span>
+<span class="c-offwhite">                  isSpaceMember(boardId);</span>
+<span class="c-offwhite">&#125;</span></code></pre>
+                <div class="result-foot">
+                  <svg class="verdict-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.5" stroke="#57b985" stroke-width="1.5"/>
+                    <path d="M5.5 8L7.25 9.75L10.75 6.25" stroke="#57b985" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="verdict-msg">Rules verified</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ACT 2: FOUNDER NARRATIVE */}
+
+
+
+      <div class="founder-section">
+        <h2 class="hero-founder__title">I worked on Firebase for 12 years</h2>
+        <p class="hero-founder__desc">Pyric is the dev tool I always wanted to build.</p>
+
+        <p>
+          The Firebase dev workflow has always been done against a dev cloud project on the free tier. Yes, there's the emulator suite, but they come with a lot of friction. If they were easy to use then developers wouldn't default to using cloud dev projects.
+        </p>
+
+        <p>
+          This leaves developers in a position where their entire development workflow depends on stateful, network dependent, and billing metered services running in the cloud. Simple workflows like clearing state, seeding data, or testing rules are complicated in a cloud dev project.
+        </p>
+
+        <p>
+          Now bring in coding agents. If your workflow is uses a cloud dev project, you are relying on an agent to make safe changes and smart choices. You don't want an agent to blow through your free tier limits on a runaway useEffect hook. Making these smart choices is hard for an agent. When a Firestore read is denied there's no rich debug data for the calll, it's just a "PERMISSION DENIED" error. The debug context you need is stuck on a Firebase server and it's not synthesized with the actual client code that triggered it. So your coding agent is flying blind. 
+        </p>
+
+        <p>
+          What if your entire Firebase project lived in a sandbox on your laptop? What if this sandbox worked provided the same API surface as Firebase with the same behavior? What if you had specialized tools that could inspect this sandbox to provide rich debug data for your coding agent? What if these tools were backed by 12 years of Firebase experience? That's what Pyric is. 
+        </p>
+
+        <p>
+          Pyric is a local Firebase development framework built for agents. It provides local environments for Firebase projects that can be either persisted or ephemeral. It provides MCP-based tools to inspect and reason about your Firebase project, security rules, and Firestore data structures. It allows agents to make changes to your project and verify them instantly.
+        </p>
+
+        <p>
+          Pyric swaps out Firebase SDKs for its own SDKs at development time. This means the agent generates the exact same Firebase code it would for a production project. The difference is that the code runs in a sandboxed environment in the browser. Since everything is local all the debug context and client code can be synthesized into rich debug data for an LLM. This gives agents the ability to make smart decisions about your Firebase project.
+        </p>
+
+        <p>
+          Pyric was built with Security Rules in mind. Pyric ships language tooling for Security Rules all written in TypeScript. Pyric can parse, validate, lint, and simulate Security Rules. It provides a simple and familiar API for testing your rules. 
+        </p>
+
+        <p>
+          When you're ready to go to production, Pyric disappears. Your app continues to use the standard Firebase SDKs and only talks to Firebase servers. 
+        </p>
+
+      </div>
+    </section>
+
+    {/* FOOTER */}
+    <footer class="landing-footer">
+      <p class="landing-footer__author">
+        Built by <a href="https://x.com/davideast" target="_blank" rel="noopener">David East</a> after 12 years on the Firebase team.
+      </p>
+      <div class="landing-footer__links">
+        <a href={withBase('/docs/')}>Documentation</a>
+        <a href="https://github.com/davideast/pyric" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://www.npmjs.com/package/pyric" target="_blank" rel="noopener">npm</a>
+      </div>
+    </footer>
+  </main>
+
+</SiteLayout>
+
+<style>
+  .landing-container {
+    display: grid;
+    grid-template-columns: minmax(clamp(1rem, 5vw, 3rem), 1fr) minmax(0, 1200px) minmax(clamp(1rem, 5vw, 3rem), 1fr);
+    row-gap: clamp(56px, 8vw, 96px);
+    padding: clamp(32px, 4vw, 64px) 0 80px;
+    min-width: 0;
+  }
+
+  .landing-container > * {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  /* Two-Column Hero Grid: Left-to-Right Hero Header to Demo */
+  .hero-section {
+    padding: 32px 0 32px;
+    min-width: 0;
+  }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr));
+    gap: clamp(32px, 5vw, 64px);
+    align-items: flex-start;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Left Column: Typography & Authority */
+  .hero-left,
+  .hero-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .hero-title {
+    font-family: "darkmode-off", var(--font-darkmode, sans-serif);
+    font-size: clamp(38px, 5vw, 60px);
+    font-weight: 700;
+    line-height: 1.12;
+    color: var(--ink, #fbfbfe);
+    letter-spacing: -0.035em;
+    margin: 0 0 24px;
+  }
+
+  .hero-subtitle {
+    font-size: clamp(15px, 2vw, 18px);
+    line-height: 1.65;
+    color: #c8c8d8;
+    max-width: 55ch;
+    margin: 0 0 36px;
+  }
+
+  .hero-ctas {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-ui, sans-serif);
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 4px;
+    padding: 10px 18px;
+    text-decoration: none;
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+    cursor: pointer;
+  }
+
+  .btn--primary {
+    background: var(--ink, #fbfbfe);
+    color: #14102a;
+    border: 1px solid var(--ink, #fbfbfe);
+  }
+
+  .btn--primary:hover {
+    background: #e2e2ec;
+    color: #0d0d14;
+  }
+
+  .btn--ghost {
+    background: transparent;
+    color: var(--ink, #fbfbfe);
+    border: 1px solid var(--line, #2a2a35);
+  }
+
+  .btn--ghost:hover {
+    background: var(--panel, #1e1e24);
+    border-color: #4a4a5a;
+  }
+
+  /* Compact Founder Signature Block Below Hero Grid */
+  .founder-section {
+    margin-top: clamp(48px, 7vw, 80px);
+  }
+
+  .hero-founder__title {
+    font-family: "darkmode-off", var(--font-darkmode, sans-serif);
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 50px;
+    color: var(--ink, #fbfbfe);
+    letter-spacing: -0.015em;
+    margin: 0;
+  }
+
+  .hero-founder__desc {
+    font-size: 15px;
+    color: #b0b0c2;
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  /* Right Column: Interactive Clickable Console */
+  .hero-right {
+    width: 100%;
+  }
+
+  .ide-card {
+    background: var(--code-bg, #0f0f17);
+    border: 1px solid var(--line, #2a2a35);
+    border-radius: 8px;
+    font-family: "config-mono-vf", var(--font-mono, monospace);
+    overflow: hidden;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* The Prompt Header (flush against card top/left/right border) */
+  .ide-card__prompt {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 18px 22px;
+    background: #14141e;
+    border-bottom: 1px solid var(--line, #2a2a35);
+  }
+
+  .prompt-text {
+    font-family: "config-mono-vf", sans-serif;
+    font-size: 15px;
+    font-weight: 400;
+    color: #ffffff;
+    word-break: break-word;
+  }
+
+  .prompt-skill {
+    color: #c4b5fd;
+    font-weight: 500;
+  }
+
+  /* Gap-Based Layout Body Container */
+  .ide-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 22px 24px 24px;
+    min-width: 0;
+  }
+
+  /* Quiet, Scannable Tool Trace */
+  .ide-card__trace {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .trace-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    font-size: 12.5px;
+    color: #a0a0b4;
+    line-height: 1.6;
+  }
+
+  .trace-icon {
+    color: #84849a;
+    flex-shrink: 0;
+  }
+
+  .trace-tag {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6e6e82;
+    flex-shrink: 0;
+  }
+
+  .trace-name {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #ffffff;
+    flex-shrink: 0;
+  }
+
+  .trace-meta {
+    color: #84849a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  /* Permanently Visible Verified Inspection Card */
+  .ide-card__result {
+    background: #14141e;
+    border: 1px solid var(--line, #2a2a35);
+    border-radius: 6px;
+    padding: 16px 18px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .result-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 11.5px;
+    color: #a0a0b4;
+  }
+
+  .result-file {
+    font-weight: 500;
+    color: #ffffff;
+  }
+
+  .result-code {
+    margin: 0 0 14px;
+    font-family: "config-mono-vf", sans-serif;
+    font-size: 12.5px;
+    font-weight: 400;
+    line-height: 1.6;
+    color: #c8c8d8;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    max-width: 100%;
+  }
+
+  .result-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--ink, #fbfbfe);
+    border-top: 1px solid #222230;
+    padding-top: 12px;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .verdict-icon {
+    flex-shrink: 0;
+  }
+
+  .c-offwhite {
+    color: #c8c8d8;
+  }
+
+  /* Footer */
+  .landing-footer {
+    border-top: 1px solid var(--line, #2a2a35);
+    margin-top: 80px;
+    padding-top: 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--muted, #72728a);
+  }
+
+  .landing-footer a {
+    color: var(--ink, #fbfbfe);
+    text-decoration: none;
+  }
+
+  .landing-footer a:hover {
+    text-decoration: underline;
+  }
+
+  .landing-footer__links {
+    display: flex;
+    gap: 20px;
+  }
+</style>

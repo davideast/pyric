@@ -33,8 +33,8 @@ export interface ModelDef {
  * translate it.
  */
 export const GEMINI_MODELS: readonly ModelDef[] = [
-  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', contextWindowTokens: 1_000_000 },
-  { id: 'gemini-3.1-flash-lite', label: '3.1 Flash Lite', contextWindowTokens: 1_000_000 },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', contextWindowTokens: 1_000_000 },
+  { id: 'gemini-3.5-flash-lite', label: '3.5 Flash Lite', contextWindowTokens: 1_000_000 },
   { id: 'gemini-3-flash-preview', label: '3 Flash Preview', contextWindowTokens: 1_000_000 },
   { id: 'gemini-3.1-pro-preview', label: '3.1 Pro Preview', contextWindowTokens: 1_000_000 },
 ];
