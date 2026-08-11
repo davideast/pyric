@@ -114,10 +114,10 @@ export function startPresence(opts: StartPresenceOptions): PresenceSession {
 
   register();
 
-  if (typeof document !== 'undefined') {
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('visibilitychange', update);
   }
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('popstate', update);
     window.addEventListener('hashchange', update);
     // Best-effort clean disconnect; lease expiry covers unclean shutdown.
@@ -139,10 +139,10 @@ export function startPresence(opts: StartPresenceOptions): PresenceSession {
       clearInterval(timer);
       timer = null;
     }
-    if (typeof document !== 'undefined') {
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
       document.removeEventListener('visibilitychange', update);
     }
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
       window.removeEventListener('popstate', update);
       window.removeEventListener('hashchange', update);
       window.removeEventListener('pagehide', onPageHide);

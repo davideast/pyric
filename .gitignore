@@ -72,3 +72,4 @@ packages/site-docs/.astro/
 **/.impeccable/config.local.json
 **/.impeccable/hook.*.json
 **/.impeccable/live/
+.agents/skills/impeccable/
