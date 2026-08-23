@@ -37,6 +37,13 @@ const base = import.meta.env.BASE_URL.endsWith('/')
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <style is:global>
+      /* Both scrolling and app-height pages reserve the scrollbar gutter,
+         so the centered studio bar never shifts between routes. */
+      html {
+        scrollbar-gutter: stable;
+      }
+    </style>
   </head>
   <body>
     <slot />
