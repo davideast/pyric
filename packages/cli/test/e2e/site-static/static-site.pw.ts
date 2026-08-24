@@ -18,11 +18,11 @@ function trackRequests(page: Page): string[] {
   return urls;
 }
 
-test('Studio loads at / with no console errors', async ({ page }) => {
+test('Studio loads at /firestore/ with no console errors', async ({ page }) => {
   const urls = trackRequests(page);
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  const res = await page.goto('/');
+  const res = await page.goto('/firestore/');
   expect(res?.ok()).toBeTruthy();
   await expect(page).toHaveTitle(/./); // some non-empty title rendered
   await expect(page.getByLabel('Studio tabs')).toBeVisible();
@@ -96,7 +96,7 @@ test('public Studio exposes and completes an explicit stale-worker update', asyn
   const servedGeneration = 'fedcba9876543210';
   // Simulate successor HTML while the old worker bundle remains alive, which
   // is the state an already-open Studio sees immediately after a deployment.
-  await page.route('http://127.0.0.1:5199/', async (route) => {
+  await page.route('http://127.0.0.1:5199/firestore/', async (route) => {
     const response = await route.fetch();
     const body = (await response.text()).replace(
       /(<meta name="pyric-worker-v" content=")[a-f0-9]{16}("\s*\/?>)/,
@@ -104,7 +104,7 @@ test('public Studio exposes and completes an explicit stale-worker update', asyn
     );
     await route.fulfill({ response, body });
   });
-  await page.goto('/');
+  await page.goto('/firestore/');
 
   expect(await page.locator('meta[name="pyric-worker-v"]').getAttribute('content')).toBe(servedGeneration);
   await expect(page.getByRole('button', { name: 'update worker' })).toBeVisible();
@@ -125,8 +125,8 @@ test('Studio presence chip reports two logical clients then converges to one (#2
   const pageA = await context.newPage();
   const pageB = await context.newPage();
 
-  await pageA.goto('/');
-  await pageB.goto('/');
+  await pageA.goto('/firestore/');
+  await pageB.goto('/firestore/');
 
   const chipA = pageA.getByRole('button', { name: /page(?:s)? connected/i });
   const chipB = pageB.getByRole('button', { name: /page(?:s)? connected/i });

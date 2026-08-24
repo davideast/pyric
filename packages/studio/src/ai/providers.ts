@@ -64,7 +64,7 @@ const OPENROUTER_MODELS: readonly ModelDef[] = [
 ];
 
 const GEMINI_MODELS: readonly ModelDef[] = [
-  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', contextWindowTokens: 1_000_000 },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', contextWindowTokens: 1_000_000 },
   { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview', contextWindowTokens: 1_000_000 },
 ];
 
@@ -99,7 +99,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     browserDirect: true,
     byok: createApiKeySlot('gemini', 'Gemini API key', 'https://aistudio.google.com/apikey'),
     models: GEMINI_MODELS,
-    defaultModelId: 'gemini-3.5-flash',
+    defaultModelId: 'gemini-3.6-flash',
     availability: { status: 'unavailable', reason: PAGE_DIRECT_PROVIDER_UNAVAILABLE },
   },
   ollama: {

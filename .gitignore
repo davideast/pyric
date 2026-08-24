@@ -2,6 +2,7 @@ node_modules/
 dist/
 .dist/
 out-packages/
+.DS_Store
 
 # @pyric/cli standalone binary artifacts.
 packages/cli/dist-bin/
@@ -63,3 +64,12 @@ packages/cli/docs/functions-rtdb/COMPAT.md
 # Site content-layer cache (generated conformance + API reference pages render
 # through loaders into Astro's persisted store; nothing is committed).
 packages/site-docs/.astro/
+
+# Impeccable local & runtime files (root & workspace packages)
+.impeccable/config.local.json
+.impeccable/hook.*.json
+.impeccable/live/
+**/.impeccable/config.local.json
+**/.impeccable/hook.*.json
+**/.impeccable/live/
+.agents/skills/impeccable/

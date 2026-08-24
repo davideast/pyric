@@ -25,9 +25,29 @@ import type { ClientDb, Unsubscribe } from './handles.js';
 export type { PresenceClientKind, PresenceSnapshot, PresenceVisibility };
 export { PRESENCE_HEARTBEAT_INTERVAL_MS, PRESENCE_STALE_MS };
 
+function supportsRandomUUID(): boolean {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function';
+}
+
+function supportsDocumentEventListeners(): boolean {
+  return (
+    typeof document !== 'undefined' &&
+    typeof document.addEventListener === 'function' &&
+    typeof document.removeEventListener === 'function'
+  );
+}
+
+function supportsWindowEventListeners(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.addEventListener === 'function' &&
+    typeof window.removeEventListener === 'function'
+  );
+}
+
 /** Mint a random client id (page-lifetime). */
 export function mintPresenceClientId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  if (supportsRandomUUID()) {
     return crypto.randomUUID();
   }
   return `page-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -114,10 +134,10 @@ export function startPresence(opts: StartPresenceOptions): PresenceSession {
 
   register();
 
-  if (typeof document !== 'undefined') {
+  if (supportsDocumentEventListeners()) {
     document.addEventListener('visibilitychange', update);
   }
-  if (typeof window !== 'undefined') {
+  if (supportsWindowEventListeners()) {
     window.addEventListener('popstate', update);
     window.addEventListener('hashchange', update);
     // Best-effort clean disconnect; lease expiry covers unclean shutdown.
@@ -139,10 +159,10 @@ export function startPresence(opts: StartPresenceOptions): PresenceSession {
       clearInterval(timer);
       timer = null;
     }
-    if (typeof document !== 'undefined') {
+    if (supportsDocumentEventListeners()) {
       document.removeEventListener('visibilitychange', update);
     }
-    if (typeof window !== 'undefined') {
+    if (supportsWindowEventListeners()) {
       window.removeEventListener('popstate', update);
       window.removeEventListener('hashchange', update);
       window.removeEventListener('pagehide', onPageHide);

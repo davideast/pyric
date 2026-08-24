@@ -2,10 +2,10 @@ import { StrictMode } from 'react';
 import { App } from './App.js';
 
 /** Browser-only Studio module consumed by the Astro host. */
-export function StudioApp() {
+export function StudioApp({ brandLogoSrc }: { brandLogoSrc?: string } = {}) {
   return (
     <StrictMode>
-      <App />
+      <App brandLogoSrc={brandLogoSrc} />
     </StrictMode>
   );
 }

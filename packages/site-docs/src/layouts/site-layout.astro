@@ -29,12 +29,21 @@ const base = import.meta.env.BASE_URL.endsWith('/')
         </script>
       ) : null
     }
+    <link rel="preconnect" href="https://use.typekit.net" crossorigin />
+    <link rel="stylesheet" href="https://use.typekit.net/jwb3ycu.css" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <style is:global>
+      /* Both scrolling and app-height pages reserve the scrollbar gutter,
+         so the centered studio bar never shifts between routes. */
+      html {
+        scrollbar-gutter: stable;
+      }
+    </style>
   </head>
   <body>
     <slot />

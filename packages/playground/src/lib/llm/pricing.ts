@@ -24,9 +24,11 @@ export interface Pricing {
 }
 
 const PRICING: Record<string, Pricing> = {
+  'gemini-3.6-flash': { input: 1.5, output: 9.0, cacheRead: 0.15 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0, cacheRead: 0.15 },
   'gemini-3.1-pro-preview': { input: 2.5, output: 20.0, cacheRead: 0.625 },
   'gemini-3-flash-preview': { input: 0.5, output: 4.0, cacheRead: 0.125 },
+  'gemini-3.5-flash-lite': { input: 0.15, output: 0.6, cacheRead: 0.0375 },
   'gemini-3.1-flash-lite': { input: 0.15, output: 0.6, cacheRead: 0.0375 },
 };
 

@@ -58,7 +58,10 @@
   min-width: 0;
 }
 .studio__brand {
-  font-weight: 600;
+  font-family: var(--font-display, sans-serif);
+  font-size: 1.0625rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 

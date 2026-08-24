@@ -124,7 +124,7 @@ function Surface({ id }: { id: string }) {
   }
 }
 
-function Shell() {
+function Shell({ brandLogoSrc }: { brandLogoSrc?: string }) {
   const [active, navigateRoute] = useRoute(ROUTE_IDS, 'home');
   const navigate = (id: RouteId) => navigateRoute(id);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -171,7 +171,11 @@ function Shell() {
       <header className="studio__bar">
         <div className="studio__bar-inner">
           <span className="studio__brand" aria-label="Pyric Studio">
-            Pyric
+            {brandLogoSrc ? (
+              <img src={brandLogoSrc} alt="" width="20" height="20" style={{ display: 'block', blockSize: '2rem', inlineSize: 'auto' }} />
+            ) : (
+              'pyric'
+            )}
           </span>
           <nav className="studio__nav" aria-label="Studio tabs">
             {ROUTES.map((r) => (
@@ -212,12 +216,12 @@ function Shell() {
   );
 }
 
-export function App() {
+export function App({ brandLogoSrc }: { brandLogoSrc?: string } = {}) {
   return (
     <ThemeProvider>
       <DevSeedProvider>
         <EnvironmentProvider mode="local">
-          <Shell />
+          <Shell brandLogoSrc={brandLogoSrc} />
         </EnvironmentProvider>
       </DevSeedProvider>
     </ThemeProvider>

@@ -55,9 +55,9 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
         Studio's real route, so navigation round-trips. */}
     <header class="studio__bar">
       <div class="studio__bar-inner">
-        <a class="studio__brand" href={withBase('/')} aria-label="Pyric Studio"
-          >Pyric</a
-        >
+        <a class="studio__brand" href={withBase('/')} aria-label="Pyric Studio">
+          <img src={withBase('pyric-logo.svg')} alt="" width="20" height="20" style="display: inline-block; vertical-align: middle;" />
+        </a>
         <nav class="studio__nav" aria-label="Studio tabs">
           {
             STUDIO_TABS.map((tab) => (
