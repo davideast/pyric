@@ -125,6 +125,24 @@ describe('pyric/sandbox/firestore', () => {
             method: 'get',
             auth: null,
             debugMessage: undefined,
+            rule: {
+              verdict: 'deny',
+              line: 5,
+              col: 7,
+              column: 7,
+              file: 'firestore.rules',
+              citation: 'firestore.rules:5:7',
+              expression: 'false',
+              expressionTrace: [
+                {
+                  source: 'false',
+                  kind: 'literal',
+                  parent: null,
+                  value: false,
+                },
+              ],
+            },
+            reasons: undefined,
           },
         ],
         recentRequests: [

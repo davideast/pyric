@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Todo App (Pyric Firestore, Storage & Auth In-Page Sandbox)</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    :root {
+      --app-background: #21252c;
+      --app-foreground: #cccccc;
+      --app-card: #21252c;
+      --app-border: #35393f;
+      --app-muted: #1e1e1e;
+      --app-muted-foreground: #808590;
+      --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, "Ubuntu", "Droid Sans", sans-serif;
+    }
+    .transition-all-fast {
+      transition: all 0.15s ease-in-out;
+    }
+    input[type="checkbox"] {
+      display: none;
+    }
+    .custom-checkbox {
+      width: 1.125rem;
+      height: 1.125rem;
+      border-radius: 0.25rem;
+      border: 1px solid var(--app-border, #e4e4e7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      background: transparent;
+      color: transparent;
+    }
+    .checked-checkbox {
+      background-color: var(--app-foreground, #09090b);
+      border-color: var(--app-foreground, #09090b);
+      color: var(--app-background, #ffffff);
+    }
+  </style>
+<body class="bg-[var(--app-background)] text-[var(--app-foreground)] font-[var(--vscode-font-family)] antialiased min-h-screen m-0 p-0 selection:bg-[var(--app-muted)] selection:text-[var(--app-foreground)]">
+  <div id="root" class="w-full flex flex-col min-h-screen"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
