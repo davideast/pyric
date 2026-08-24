@@ -172,9 +172,9 @@ function Shell({ brandLogoSrc }: { brandLogoSrc?: string }) {
         <div className="studio__bar-inner">
           <span className="studio__brand" aria-label="Pyric Studio">
             {brandLogoSrc ? (
-              <img src={brandLogoSrc} alt="" width="20" height="20" style={{ display: 'block', blockSize: '2rem', inlineSize: 'auto', filter: 'brightness(2.1) contrast(1.5)' }} />
+              <img src={brandLogoSrc} alt="" width="20" height="20" style={{ display: 'block', blockSize: '2rem', inlineSize: 'auto' }} />
             ) : (
-              'Pyric'
+              'pyric'
             )}
           </span>
           <nav className="studio__nav" aria-label="Studio tabs">

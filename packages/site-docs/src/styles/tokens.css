@@ -32,9 +32,9 @@
 
 /* ── Type + fonts (theme-independent) ──────────────────────────────────── */
 :root {
-  --font-ui: "darkmode-off", "new-hero", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "config-mono-vf", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --font-display: "darkmode-off", "new-hero", sans-serif;
+  --font-ui: "neue-haas-grotesk-text", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "input-mono-narrow", "input-mono", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "neue-haas-grotesk-display", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-logo: "bd-gravel-vf", sans-serif;
   --font-darkmode: "darkmode-off", sans-serif;
 }

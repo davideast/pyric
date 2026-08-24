@@ -27,11 +27,11 @@
 
 /* ── Type + fonts (theme-independent) ──────────────────────────────────── */
 :root {
-  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
-    Consolas, monospace;
-  --font-display: var(--font-ui);
+  --font-ui: "neue-haas-grotesk-text", "Inter", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "input-mono-narrow", "input-mono", "JetBrains Mono",
+    ui-monospace, SFMono-Regular, monospace;
+  --font-display: "neue-haas-grotesk-display", "Inter", -apple-system, sans-serif;
 
   /* One tight type scale. Display is reserved for an editorial headline or
      primary metric; title for surface heads, body for prose, label for UI
