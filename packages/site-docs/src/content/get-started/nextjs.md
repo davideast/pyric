@@ -55,7 +55,7 @@ Browser (http://localhost:3000)
   └── SharedWorker Sandbox ──> Direct WebSocket    ──> Pyric Dev Host (Port 3473)
 ```
 
-1. **Single-Origin Browser Access**: You only ever open your Next.js application port (`http://localhost:3000`). Next.js HTTP rewrites seamlessly proxy Pyric Studio (`/__pyric/ui/`) and storage routes through that single port. Because your app and Studio share this exact origin, they share the single browser `SharedWorker` that holds your active Firestore data and IndexedDB persistence.
+1. **Single-Origin Browser Access**: You only ever open your Next.js application port (`http://localhost:3000`). Next.js HTTP rewrites seamlessly proxy Pyric (`/__pyric/*`) and Studio (`/__pyric/ui/studio`) through that single port. Because your app and Studio share this exact origin, they share the single browser `SharedWorker` that holds your active Firestore data and IndexedDB persistence.
 2. **Direct WebSocket Synchrony**: Next.js development rewrites proxy standard HTTP traffic but cannot forward WebSockets (`Upgrade: websocket`). To synchronize real-time edits between your open browser tab and server-side Route Handlers, the browser runtime bypasses the rewrite proxy to connect its WebSocket bridge directly to port 3473.
 
 ## Server-side Admin SDK queries

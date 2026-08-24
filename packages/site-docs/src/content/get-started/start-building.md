@@ -58,7 +58,7 @@ npm install
 npm run dev
 ```
 
-Open the local URL printed by the development server. The application and Pyric Studio use the exact same local backend. Studio is mounted at `/__pyric/ui/` on that origin.
+Open the local URL printed by the development server. The application and Pyric Studio use the exact same local backend. Studio is at `/__pyric/ui/studio` on that origin.
 
 Pyric also adds a small, collapsed runtime chip in the bottom-right corner. It stays quiet while the sandbox is healthy and signals when there is an error to inspect or a newer worker to activate. [Resolve runtime errors and stale workers](../observe/resolve-runtime-status.md) covers both actions.
 

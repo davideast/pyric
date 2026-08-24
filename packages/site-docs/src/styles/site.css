@@ -6,8 +6,8 @@
  * The shell bar is a byte-faithful port of Studio's `.studio__bar`
  * (packages/studio/src/styles/index.css on studio/stack): same 54px
  * height, same panel surface + hairline, same 13px/500 tab type, same
- * ink underline on the active tab — so /docs/ reads as a tab OF Studio,
- * not a separate site. All colour comes from tokens.css (the Studio
+ * so /docs/ reads as a tab of the same site as Studio, not a separate
+ * product. All colour comes from tokens.css (the Studio
  * role tokens); this file never states a hex except the code surface,
  * which is pinned to the playground's #0f0f17 in both themes.
  */
@@ -21,6 +21,7 @@
   /* Studio shell metrics (mirrors .studio on studio/stack). */
   --wide: 1440px;
   --gutter: clamp(16px, 3vw, 32px);
+  --tab-gap: var(--space-4);
   color-scheme: dark;
 }
 
@@ -49,28 +50,36 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── The Studio bar: identity | tabs (ported from .studio__bar) ──── */
+/* ── The Studio bar: identity | tabs (same chrome as Studio's site bar) ──── */
 
-.studio__bar {
+.studio__chrome {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
-  min-width: 0;
   position: sticky;
   top: 0;
   z-index: 10;
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
-.studio__bar-inner {
-  width: 100%;
-  max-width: var(--wide);
-  margin: 0 auto;
-  height: 54px;
-  display: grid;
-  grid-template-columns: auto 1fr; /* identity | nav */
-  align-items: center;
-  gap: 16px;
-  padding: 0 var(--gutter);
+.studio__bar {
   min-width: 0;
+}
+
+.studio__chrome-inner {
+  box-sizing: border-box;
+  width: min(var(--wide), calc(100% - 2 * var(--gutter)));
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  column-gap: var(--tab-gap);
+  min-width: 0;
+}
+
+.studio__bar .studio__chrome-inner {
+  height: 54px;
 }
 
 .studio__brand {
@@ -78,22 +87,23 @@ body {
   font-size: 1.0625rem;
   font-weight: 500;
   letter-spacing: -0.01em;
+  line-height: 1;
   color: var(--ink);
   text-decoration: none;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .studio__nav {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: flex-start;
-  gap: 4px;
-  height: 100%;
+  column-gap: var(--tab-gap);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
   min-width: 0;
   overflow-x: auto;
+  flex: 1 1 auto;
   scrollbar-width: none;
 }
 
@@ -102,16 +112,13 @@ body {
 }
 
 .studio__nav-tab {
-  display: inline-flex;
-  align-items: center;
+  flex: 0 0 auto;
   border-bottom: 2px solid transparent;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.5;
+  font: inherit;
+  line-height: inherit;
   color: var(--muted);
   text-decoration: none;
-  padding: 0 12px;
-  height: 100%;
+  padding: 0;
   white-space: nowrap;
   transition:
     color 0.12s,
@@ -134,9 +141,12 @@ body {
 @media (max-width: 760px) {
   .studio__nav {
     scroll-snap-type: x proximity;
-    padding-right: 28px;
-    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.75em), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.75em), transparent);
+  }
+  .studio__nav::after {
+    content: '';
+    flex: 0 0 1.75em;
   }
 
   .studio__nav-tab {

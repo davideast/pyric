@@ -6,8 +6,9 @@ import '../styles/rhythm.css';
 import '../styles/api-reference.css';
 import DocsNav from '../components/DocsNav.astro';
 import DocsBreadcrumbs from '../components/DocsBreadcrumbs.astro';
+import SiteChrome from '../components/SiteChrome.astro';
 import SiteLayout from './site-layout.astro';
-import { withBase, STUDIO_TABS, breadcrumbsFor, allDocs, slugOf } from '../lib/content';
+import { withBase, breadcrumbsFor, allDocs, slugOf } from '../lib/content';
 
 interface Props {
   title: string;
@@ -49,30 +50,7 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
 ---
 
 <SiteLayout title={`${title} · Pyric Studio`} description={description}>
-    {/* The Pyric Studio shell bar — docs are a tab OF Studio, so the
-        bar IS Studio's bar: brand, then the full tab set with Docs
-        active. Every other tab is a plain full-page link back to
-        Studio's real route, so navigation round-trips. */}
-    <header class="studio__bar">
-      <div class="studio__bar-inner">
-        <a class="studio__brand" href={withBase('/')} aria-label="Pyric Studio">
-          <img src={withBase('pyric-logo.svg')} alt="" width="20" height="20" style="display: inline-block; vertical-align: middle;" />
-        </a>
-        <nav class="studio__nav" aria-label="Studio tabs">
-          {
-            STUDIO_TABS.map((tab) => (
-              <a
-                class="studio__nav-tab"
-                href={withBase(tab.path)}
-                aria-current={tab.id === 'docs' ? 'page' : undefined}
-              >
-                {tab.label}
-              </a>
-            ))
-          }
-        </nav>
-      </div>
-    </header>
+    <SiteChrome current="docs" />
 
     <div class:list={['docs-shell', { 'docs-shell--example': examplePage }]}>
       {/* Mobile drawer duplicates the nav; CSS shows exactly one. */}

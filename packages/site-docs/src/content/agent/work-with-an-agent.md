@@ -1,15 +1,15 @@
 ---
-title: "Work with an agent in the browser sandbox"
+title: "Work with an agent against the sandbox"
 navLabel: "Use the MCP tools"
 group: "Work with an agent"
 section: ""
 order: 20
-description: "Give a local coding agent real backend tasks and watch it inspect, change, and verify the same browser sandbox as your app."
+description: "Give a local coding agent real backend tasks and watch it inspect, change, and verify the same sandbox as your app."
 ---
 
-# Work with an agent in the browser sandbox
+# Work with an agent against the sandbox
 
-Pyric connects your coding agent on your machine to the sandbox running in your browser. The agent does not get a second copy of the backend: its MCP calls cross the bridge into the tab your app and Studio already use.
+Pyric connects your coding agent on your machine to the same sandbox your app and Studio already use. The agent does not get a second copy of the backend: its MCP calls cross the bridge into that sandbox.
 
 Start the bridge, then keep the served app open in a browser tab:
 ```bash

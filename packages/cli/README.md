@@ -89,7 +89,7 @@ rulesHash}`.
 | `@pyric/cli/assurance/browser` | Browser attachment for assurance campaigns |
 | `@pyric/cli/bridge` | `createBridge`, `startServer` (Node) / `connectBridge` (browser via conditional export). Vite integration is `pyric({ bridge })` in `@pyric/cli/vite`. |
 | `@pyric/cli/bridge/client` | Browser bridge client helpers |
-| `@pyric/cli/vite` | `pyric(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/`, parity with `dev --ui`). |
+| `@pyric/cli/vite` | `pyric(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/studio`, parity with `dev --ui`). |
 | `@pyric/cli/discover` | Credential-free crawl helpers for sandbox discovery (`crawl`, `findCollectionGroup`, `createFirestoreDiscoverTools`). Not registered on the default MCP bridge. |
 | `@pyric/cli/serve/worker` | SharedWorker serve runtime |
 | `@pyric/cli/remote` | Remote / headless helpers |

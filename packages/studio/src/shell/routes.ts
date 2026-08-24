@@ -2,7 +2,9 @@
  * Pyric Studio routes. This is the single route registry used by the shell,
  * Home navigation, and tests, so top-level scope cannot drift across files.
  *
- * Published tab set: Home, Firestore, Auth, RTDB, Storage, Traffic, Settings.
+ * Published surfaces: Studio hub, Firestore, Auth, RTDB, Storage, Traffic,
+ * Settings. The hub's public path is `/studio` (`STUDIO_HUB_SEGMENT`); its
+ * internal id stays `home`. The site chrome labels it Studio.
  * Assurance remains available in local Vite development while it is being
  * tested, but is intentionally omitted from published builds. The shell spec
  * also names Rules; no approved Rules surface
@@ -20,6 +22,9 @@ export type RouteId =
   | 'assurance'
   | 'settings';
 
+/** Public first-segment for the Studio hub. Internal `RouteId` remains `home`. */
+export const STUDIO_HUB_SEGMENT = 'studio';
+
 export interface StudioRoute {
   id: RouteId;
   label: string;
@@ -30,7 +35,7 @@ export interface StudioRoute {
 const ROUTES_WITH_DEFERRED_SURFACES: readonly StudioRoute[] = [
   {
     id: 'home',
-    label: 'Home',
+    label: 'Studio',
     description: 'What is happening in the sandbox, and where to go next.',
   },
   {

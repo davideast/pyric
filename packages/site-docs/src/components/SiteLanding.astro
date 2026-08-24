@@ -1,32 +1,13 @@
 ---
-import { withBase, STUDIO_TABS } from '../lib/content';
+import { withBase } from '../lib/content';
+import SiteChrome from './SiteChrome.astro';
 import SiteLayout from '../layouts/site-layout.astro';
 import '../styles/site.css';
 import '../styles/rhythm.css';
 ---
 
 <SiteLayout title="Pyric — A local first Firebase development framework built for Agents" description="Firebase development without production consequences. Give coding agents deep Firebase intelligence and local sandboxing. Ship to prod without code changes." studioTheme={true}>
-  {/* Studio Header Bar */}
-  <header class="studio__bar">
-    <div class="studio__bar-inner">
-      <a class="studio__brand" href={withBase('/')} aria-label="Pyric Studio">
-        pyric
-      </a>
-      <nav class="studio__nav" aria-label="Studio tabs">
-        {
-          STUDIO_TABS.map((tab) => (
-            <a
-              class="studio__nav-tab"
-              href={withBase(tab.path)}
-              aria-current={tab.id === 'home' ? 'page' : undefined}
-            >
-              {tab.label}
-            </a>
-          ))
-        }
-      </nav>
-    </div>
-  </header>
+  <SiteChrome current="site-home" />
 
   <main class="sheet">
     {/* Zone 1 */}
@@ -125,13 +106,13 @@ import '../styles/rhythm.css';
         <div class="z3__headings">
           <h2>I worked on Firebase for 12 years.</h2>
           <h3>Pyric is the dev tool I always wanted to build.</h3>
+        </div>
         <div class="byline">
           <img src={withBase('david-east.jpg')} alt="" width="40" height="40" />
           <span class="byline__who">
             <span class="byline__name">David East</span>
             <a class="byline__handle" href="https://x.com/_davideast" target="_blank" rel="noopener">@_davideast</a>
           </span>
-        </div>
         </div>
         <p>The Firebase dev workflow has always been done against a dev cloud project. Your entire development workflow depends on stateful, network dependent, and billing metered services running in the cloud. Simple workflows like clearing state, seeding data, or testing rules are complicated.</p>
         <p>Now bring in coding agents. When a Firestore read is denied, there's no rich debug data for the call, it's just a <code class="perr">PERMISSION DENIED</code> error. The debug context you need is stuck on a Firebase server, and it's not synthesized with the actual client code that triggered it. Your coding agent is flying blind.</p>
@@ -250,7 +231,8 @@ import '../styles/rhythm.css';
   .z1 {
     position: relative;
     min-height: 100dvh;
-    align-items: center;
+    align-items: safe center;
+    padding-block: clamp(2.5rem, 8vh, 5rem) clamp(3rem, 8vh, 5rem);
   }
   .z1::before {
     content: "";
@@ -273,16 +255,16 @@ import '../styles/rhythm.css';
     grid-column: content;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
-    gap: clamp(1rem, 3vw, 3rem);
+    gap: clamp(2.5rem, 6vw, 3rem);
     place-items: start;
   }
   .z1__headings {
     display: grid;
-    gap: 1.5rem;
+    gap: var(--space-5);
   }
-  .lockup { 
-    display: grid; 
-    gap: 2.5rem;
+  .lockup {
+    display: grid;
+    gap: var(--space-6);
   }
   .z1 h1 {
     font-family: var(--font-display, sans-serif);
@@ -443,14 +425,18 @@ import '../styles/rhythm.css';
 
   .z3 {
     border-top: 0.0625rem solid var(--sheet-line);
-    padding-block: clamp(5rem, 10vh, 8rem);
+    padding-block: clamp(4rem, 10vh, 8rem);
   }
   .z3__inner {
     grid-column: content;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 32rem), 1fr));
-    gap: clamp(2.5rem,8vw,8rem);
+    gap: clamp(3.5rem, 8vw, 8rem);
     align-items: center;
+  }
+  @media (max-width: 59.9rem) {
+    .z1__inner { gap: 4.5rem; }
+    .z3__inner { gap: 5.5rem; }
   }
   .z3__art {
     inline-size: min(100%, 30rem);
@@ -461,15 +447,12 @@ import '../styles/rhythm.css';
 
   .z3__body {
     max-inline-size: 60ch;
-  }
-
-  .z3__body {
     display: grid;
-    row-gap: 1.75rem;
+    row-gap: var(--space-6);
   }
   .z3__headings {
     display: grid;
-    gap: 1rem;
+    gap: var(--space-4);
   }
   .z3__body h2 {
     font-family: var(--font-display, sans-serif);

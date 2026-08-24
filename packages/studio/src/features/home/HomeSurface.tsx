@@ -328,7 +328,7 @@ export function HomeSurface() {
           alt=""
           aria-hidden="true"
         />
-        <h1 className="studio-home__hero-title">Firebase that runs in the browser</h1>
+        <h1 className="studio-home__hero-title">Firebase tooling for the agent era</h1>
       </div>
       {/* The typeahead's INLINE mount; ⌘K on Home focuses it via the
           registered handle (shell/command-k.ts) instead of overlaying. */}

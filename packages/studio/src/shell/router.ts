@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { parsePath, serializePath, type ParsedPath } from './path.js';
+import { STUDIO_HUB_SEGMENT } from './routes.js';
 
 /** Fired after every programmatic pushState/replaceState so same-document
  *  subscribers re-read the location (popstate only covers back/forward). */
@@ -25,16 +26,21 @@ export function locationKey(): string {
     : '';
 }
 
+function routeTabFromPath(tab: string): string {
+  if (tab === '' || tab === STUDIO_HUB_SEGMENT) return 'home';
+  return tab;
+}
+
 /** Parse the current location into the routed shape. */
 export function currentPath(): ParsedPath {
   if (typeof window === 'undefined') return EMPTY;
-  return parsePath(window.location.pathname, window.location.search);
+  const parsed = parsePath(window.location.pathname, window.location.search);
+  return { ...parsed, tab: routeTabFromPath(parsed.tab) };
 }
 
-/** The hub is the app base itself (`/`, `/__pyric/ui/` — specs/home.md URL
- *  states), so the `home` tab serializes to an empty first segment. */
+/** The hub serializes to `/studio` so the marketing site can own `/`. */
 function canonical<T extends { tab: string }>(input: T): T {
-  return input.tab === 'home' ? { ...input, tab: '' } : input;
+  return input.tab === 'home' ? { ...input, tab: STUDIO_HUB_SEGMENT } : input;
 }
 
 /** Serialize a routed target to an href (for `<a href>` — shareable URLs). */
@@ -118,10 +124,8 @@ export function useRoute(
         return;
       }
     }
-    // An EMPTY tab is already canonical (the base URL IS the hub); only a
-    // non-empty unknown tab rewrites to the fallback.
     const cur = currentPath();
-    if (cur.tab !== '' && !valid.includes(cur.tab)) {
+    if (!valid.includes(cur.tab)) {
       replacePath({ tab: resolve(cur.tab) });
     }
     // Run once on mount; `resolve` is stable for a given valid/fallback pair.

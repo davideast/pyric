@@ -26,7 +26,7 @@ npm install
 npm run dev
 ```
 
-Pyric is a local mirror of Firebase. Open the Vite URL and the app runs Firebase code, but not against a cloud Firebase project. It runs against a backend in the browser. Choose a local user, send a message, then open Studio at `/__pyric/ui/` to see the data and requests.
+Pyric is a local mirror of Firebase. Open the Vite URL and the app runs Firebase code, but not against a cloud Firebase project. It runs against a local sandbox. Choose a local user, send a message, then open Studio at `/__pyric/ui/studio` to see the data and requests.
 
 A mirror is not a copy of Firebase's production infrastructure. Pyric implements the behavior the application can observe: a user signs in, a rule allows or denies a request, a snapshot changes, or a message arrives. It tests that supported behavior against Firebase and documents where the reflection ends.
 
@@ -68,7 +68,7 @@ It writes findings and plans under `plans/`. Review a plan, then let the skill c
 
 This gives us a path through the application based on what is actually present. The first change is to put its Firebase calls behind Pyric during development.
 
-## Put the backend in the browser
+## Add the Vite plugin
 
 Add the Vite plugin to an existing Firebase application:
 
@@ -133,7 +133,7 @@ onSnapshot(doc(db, 'conversations', 'welcome'), (snapshot) => {
 
 The second tab receives the update. There is no database server waiting on another port. For this application, the browser is the server.
 
-Open Pyric Studio at `/__pyric/ui/`. The new document appears there too because Studio connects to the same browser backend. The app, its other tabs, Studio, and a connected coding agent all see the same local state.
+Open Pyric Studio at `/__pyric/ui/studio`. The new document appears there too because Studio connects to the same sandbox. The app, its other tabs, Studio, and a connected coding agent all see the same local state.
 
 ## Connect a coding agent with Pyric MCP
 
@@ -702,7 +702,7 @@ Be diligent here. Local confidence should make cloud testing smaller and more fo
 npx firebase-tools deploy
 ```
 
-We started with Firebase calls in a chat app and followed them into a backend running in the browser. That backend signed in users, synchronized data between tabs, evaluated modular Security Rules, served files, tracked presence, answered AI Logic through Ollama, connected to server code through the Admin SDK bridge, and delivered a local notification.
+We started with Firebase calls in a chat app and followed them into a local sandbox. That sandbox signed in users, synchronized data between tabs, evaluated modular Security Rules, served files, tracked presence, answered AI Logic through Ollama, connected to server code through the Admin SDK bridge, and delivered a local notification.
 
 Along the way, we used the tools I wanted during 12 years of Firebase development: a Security Rules module system, a heavily tested Standard Library, an index analyzer, a backend we could inspect, and a way to check the complete journey before production.
 

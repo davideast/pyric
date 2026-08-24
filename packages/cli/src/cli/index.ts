@@ -144,10 +144,11 @@ CORE FLAGS (dev)
   --bridge           Also mount the MCP bridge on the serve origin — agents point
                      at http://<host>:<port>/__pyric/mcp and drive the sandbox
                      living in the served page. --project labels health/audit.
-  --ui               Also serve the Pyric Studio app at <url>/__pyric/ui/ (and
-                     mount its disk-backed workspace + project data routes).
-                     Auto-opens Studio instead of the served page. Needs a full
-                     build so the app assets are present.
+  --ui               Also serve the unified site at <url>/__pyric/ui/ (Studio
+                     hub at /__pyric/ui/studio) and mount its disk-backed
+                     workspace + project data routes. Auto-opens Studio
+                     instead of the served page. Needs a full build so the
+                     app assets are present.
   --seed FILE        JSON map of "collection/doc" → fields, loaded admin-style.
                      Also accepts a pyric state file (from \`pyric snapshot\`,
                      detected by its version key) — seeds docs + auth users.

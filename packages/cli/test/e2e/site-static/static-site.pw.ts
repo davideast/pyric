@@ -25,7 +25,7 @@ test('Studio loads at /firestore/ with no console errors', async ({ page }) => {
   const res = await page.goto('/firestore/');
   expect(res?.ok()).toBeTruthy();
   await expect(page).toHaveTitle(/./); // some non-empty title rendered
-  await expect(page.getByLabel('Studio tabs')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Studio' })).toBeVisible();
   await expect(page.getByText('Starting Pyric Studio…', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
   expect(await page.locator('link[rel="icon"]').getAttribute('href')).toBe('/pyric-logo.svg');

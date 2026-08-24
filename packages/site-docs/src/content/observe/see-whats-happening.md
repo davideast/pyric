@@ -12,10 +12,8 @@ description: "See every operation your backend performs, with its rules verdict,
 Every operation your app performs produces a typed event: the request with its rules verdict, the committed write, the snapshot a listener delivered. You don't instrument anything. The stream is already there, and you can watch it two ways: in Studio, or with one subscription in code.
 
 ## Open the Traffic view
-```bash
-pyric dev --ui
-```
-Studio mounts at `/__pyric/ui/` on your dev server. The Traffic tab shows the stream live: each request, who made it, the allow or deny verdict, and how long the rules evaluation took. Sign in, write a document, break a rule on purpose. Each one appears as it happens, in the same backend your open tabs are using.
+
+Open Studio and choose Traffic. On a Vite origin that is `/__pyric/ui/traffic`. The Traffic tab shows the stream live: each request, who made it, the allow or deny verdict, and how long the rules evaluation took. Sign in, write a document, break a rule on purpose. Each one appears as it happens, in the same backend your open tabs are using.
 
 ## Subscribe to the event stream
 

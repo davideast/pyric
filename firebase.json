@@ -9,6 +9,10 @@
     ],
     "rewrites": [
       {
+        "regex": "^/studio(/[^.\\\\]*)?/?$",
+        "destination": "/studio/index.html"
+      },
+      {
         "regex": "^/firestore(/[^.\\\\]*)?/?$",
         "destination": "/firestore/index.html"
       },
@@ -36,6 +40,15 @@
     "headers": [
       {
         "source": "/",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/studio/**",
         "headers": [
           {
             "key": "Cache-Control",

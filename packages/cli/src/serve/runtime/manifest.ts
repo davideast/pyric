@@ -1,7 +1,7 @@
 /** Stable routes and identity used by the served runtime and its UI. */
 export const PYRIC_WORKER_URL = '/__pyric/sdk/worker.js';
 export const PYRIC_WORKER_NAME = 'pyric-shared-worker';
-export const PYRIC_STUDIO_URL = '/__pyric/ui/';
+export const PYRIC_STUDIO_URL = '/__pyric/ui/studio';
 
 export interface PyricRuntimeManifest {
   studioUrl: string;

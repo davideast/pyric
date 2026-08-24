@@ -19,9 +19,7 @@ Where does that import actually go? The answer depends on who is resolving it �
 
 ## In development: the specifier resolves to Pyric
 
-Run `pyric dev` and load your page. The served page carries an import map, so when the browser reaches `firebase/firestore`, the map hands it Pyric's mirror instead of the Firebase SDK. Your `addDoc` call lands in a local backend with your rules enforced. No request leaves your machine.
-
-Using Vite instead? The plugin does the same swap one layer earlier — at module resolution, before bundling:
+With the Vite plugin, the swap happens at module resolution, before bundling:
 
 ```ts
 // vite.config.ts
@@ -29,7 +27,9 @@ import { pyric } from '@pyric/cli/vite';
 export default { plugins: [pyric()] };
 ```
 
-Because resolution happens before bundling, the swap reaches your dependencies too. A library that imports `firebase/firestore` on your behalf lands on the sandbox exactly like your own code.
+When the bundler reaches `firebase/firestore`, it gets Pyric's mirror instead of the Firebase SDK. Your `addDoc` call lands in a local backend with your rules enforced. No request leaves your machine. Because resolution happens before bundling, the swap reaches your dependencies too. A library that imports `firebase/firestore` on your behalf lands on the sandbox exactly like your own code.
+
+`pyric dev` does the same swap for a static page or a Node process: the served page carries an import map, so the browser makes the same substitution without Vite.
 
 One detail that surprises people: `initializeApp(firebaseConfig)` still works. The config is accepted and ignored — there is no project to talk to.
 

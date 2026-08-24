@@ -1,16 +1,17 @@
 /**
- * Pyric Studio shell (specs/shell.md): ONE bar — identity | nav | status —
- * plus one active surface. The bar navigates and reports; it does not act
- * (N1/N2): contextual controls live in the surface they act on, and global
- * settings, metadata, and maintenance live in Settings.
+ * Pyric Studio shell (specs/shell.md): site bar (Home | Docs | Studio) plus a
+ * service rail, then one active surface. The chrome navigates and reports; it
+ * does not act (N1/N2): contextual controls live in the surface they act on,
+ * and global settings, metadata, and maintenance live in Settings.
  */
 
 import './shell/shell.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import { DevSeedProvider, useDevSeed } from './dev/DevSeedProvider.js';
 import { EnvironmentProvider } from './shell/environment.js';
 import { ThemeProvider } from './shell/theme.js';
-import { useRoute } from './shell/router.js';
+import { hrefFor, useRoute } from './shell/router.js';
+import { appBase } from './shell/path.js';
 import { focusInlineCommand, isCommandK } from './shell/command-k.js';
 import { CommandOverlay } from './shell/CommandOverlay.js';
 import { ROUTE_IDS, ROUTES, findRoute, type RouteId } from './shell/routes.js';
@@ -23,15 +24,26 @@ import { RtdbSurface } from './features/rtdb/RtdbSurface.js';
 import { SettingsSurface } from './features/settings/SettingsSurface.js';
 import { AssuranceSurface } from './features/assurance/index.js';
 
+function siteHomeHref(): string {
+  return appBase();
+}
+
 /**
  * The docs site is static pages composed alongside Studio under the same
  * base (`<base>/docs`), not a Studio surface — so its "tab" is a plain
- * full-page link. The docs pages render the same shell bar with the tab
- * set linking back here, so navigation round-trips.
+ * full-page link. The docs pages render the same site bar, so navigation
+ * round-trips.
  */
 function docsHref(): string {
-  const base = (import.meta.env?.BASE_URL as string | undefined) ?? '/';
-  return `${base.endsWith('/') ? base : `${base}/`}docs`;
+  return `${appBase()}docs`;
+}
+
+function spaClick(navigate: () => void) {
+  return (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    navigate();
+  };
 }
 
 /**
@@ -124,7 +136,7 @@ function Surface({ id }: { id: string }) {
   }
 }
 
-function Shell({ brandLogoSrc }: { brandLogoSrc?: string }) {
+function Shell() {
   const [active, navigateRoute] = useRoute(ROUTE_IDS, 'home');
   const navigate = (id: RouteId) => navigateRoute(id);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -158,51 +170,62 @@ function Shell({ brandLogoSrc }: { brandLogoSrc?: string }) {
     if (onHome) setCommandOpen(false);
   }, [onHome]);
 
-  // On narrow screens the tab row scrolls; keep the active tab on
+  // On narrow screens the rail scrolls; keep the active surface on
   // screen when the route changes instead of letting it sit off-edge.
   useEffect(() => {
     document
-      .querySelector('.studio__nav [aria-current="page"]')
+      .querySelector('.studio__rail [aria-current="page"]')
       ?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [active]);
 
+  const rail = ROUTES.filter((route) => route.id !== 'home');
+
   return (
     <div className="studio" data-surface={active}>
-      <header className="studio__bar">
-        <div className="studio__bar-inner">
-          <span className="studio__brand" aria-label="Pyric Studio">
-            {brandLogoSrc ? (
-              <img src={brandLogoSrc} alt="" width="20" height="20" style={{ display: 'block', blockSize: '2rem', inlineSize: 'auto' }} />
-            ) : (
-              'pyric'
-            )}
-          </span>
-          <nav className="studio__nav" aria-label="Studio tabs">
-            {ROUTES.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                className="studio__nav-tab"
-                aria-current={r.id === active ? 'page' : undefined}
-                onClick={() => navigate(r.id)}
-              >
-                {r.label}
-              </button>
-            ))}
-            {/* Docs is not a Studio surface: the static docs pages are
-                composed alongside Studio at <base>/docs/ and render the
-                same shell bar themselves, so a plain full-page link IS
-                the tab (their bar links back to these routes) — rendered
-                only when the probe confirms docs are actually composed
-                here (see useDocsAvailable). */}
-            {docsAvailable ? (
-              <a className="studio__nav-tab" href={docsHref()}>
-                Docs
+      <header className="studio__chrome">
+        <div className="studio__bar">
+          <div className="studio__chrome-inner">
+            <nav className="studio__nav" aria-label="Site">
+              <a className="studio__brand" href={siteHomeHref()} aria-label="Pyric">
+                pyric
               </a>
-            ) : null}
-          </nav>
-          <StatusCluster />
+              <a className="studio__nav-tab" href={siteHomeHref()}>
+                Home
+              </a>
+              {docsAvailable ? (
+                <a className="studio__nav-tab" href={docsHref()}>
+                  Docs
+                </a>
+              ) : null}
+              <a
+                className="studio__nav-tab"
+                href={hrefFor({ tab: 'home' })}
+                aria-current={active === 'home' ? 'page' : true}
+                onClick={spaClick(() => navigate('home'))}
+              >
+                Studio
+              </a>
+            </nav>
+            <StatusCluster />
+          </div>
         </div>
+        <nav className="studio__rail" aria-label="Studio">
+          <div className="studio__chrome-inner">
+            <div className="studio__nav">
+              {rail.map((r) => (
+                <a
+                  key={r.id}
+                  className="studio__nav-tab"
+                  href={hrefFor({ tab: r.id })}
+                  aria-current={r.id === active ? 'page' : undefined}
+                  onClick={spaClick(() => navigate(r.id))}
+                >
+                  {r.label}
+                </a>
+              ))}
+            </div>
+          </div>
+        </nav>
       </header>
 
       <main className="studio__content" data-surface={active}>
@@ -216,12 +239,12 @@ function Shell({ brandLogoSrc }: { brandLogoSrc?: string }) {
   );
 }
 
-export function App({ brandLogoSrc }: { brandLogoSrc?: string } = {}) {
+export function App() {
   return (
     <ThemeProvider>
       <DevSeedProvider>
         <EnvironmentProvider mode="local">
-          <Shell brandLogoSrc={brandLogoSrc} />
+          <Shell />
         </EnvironmentProvider>
       </DevSeedProvider>
     </ThemeProvider>
