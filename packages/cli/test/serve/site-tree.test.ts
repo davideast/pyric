@@ -20,6 +20,7 @@ function siteFixture(): { publicDir: string; siteRoot: string } {
   const siteRoot = join(publicDir, 'site');
   mkdirSync(join(siteRoot, 'firestore'), { recursive: true });
   mkdirSync(join(siteRoot, 'storage'), { recursive: true });
+  mkdirSync(join(siteRoot, 'studio'), { recursive: true });
   mkdirSync(join(siteRoot, '_astro'), { recursive: true });
   writeFileSync(join(siteRoot, 'index.html'), '<!doctype html><head></head>HOME');
   writeFileSync(
@@ -27,10 +28,11 @@ function siteFixture(): { publicDir: string; siteRoot: string } {
     '<!doctype html><head></head>FIRESTORE',
   );
   writeFileSync(join(siteRoot, 'storage', 'index.html'), '<!doctype html><head></head>STORAGE');
+  writeFileSync(join(siteRoot, 'studio', 'index.html'), '<!doctype html><head></head>STUDIOHUB');
   writeFileSync(join(siteRoot, '_astro', 'app.js'), '// app');
   writeFileSync(
     join(siteRoot, 'studio-routes.json'),
-    JSON.stringify({ routes: ['firestore', 'storage'] }),
+    JSON.stringify({ routes: ['firestore', 'storage', 'studio'] }),
   );
   return { publicDir, siteRoot };
 }
@@ -82,6 +84,7 @@ describe('Astro site tree', () => {
     expect(await (await fetch(h.url + '/__pyric/ui/storage/uploads/logo.png')).text()).toContain('STORAGE');
 
     expect((await fetch(h.url + '/__pyric/ui/')).status).toBe(200);
+    expect(await (await fetch(h.url + '/__pyric/ui/studio/anything')).text()).toContain('STUDIOHUB');
     expect((await fetch(h.url + '/__pyric/ui/home/anything')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/ui/_astro/app.js')).status).toBe(200);
     expect((await fetch(h.url + '/__pyric/ui/_astro/missing.js')).status).toBe(404);

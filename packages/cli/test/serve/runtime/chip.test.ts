@@ -5,7 +5,7 @@ import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
 
 const manifest: PyricRuntimeManifest = {
-  studioUrl: '/__pyric/ui/',
+  studioUrl: '/__pyric/ui/studio',
   worker: { url: '/__pyric/sdk/worker.js', name: 'pyric-shared-worker', servedEpoch: 'bbbbbbbbbbbbbbbb' },
 };
 
@@ -48,7 +48,7 @@ describe('PyricRuntimeChip', () => {
     const { runtime, root } = setup({ initiallyOpen: true });
     const initialUpdate = root.querySelector<HTMLButtonElement>('[data-update-worker]')!;
     expect(initialUpdate.disabled).toBe(true);
-    expect(root.querySelector('[data-open-studio]')?.getAttribute('href')).toBe('/__pyric/ui/');
+    expect(root.querySelector('[data-open-studio]')?.getAttribute('href')).toBe('/__pyric/ui/studio');
     expect(root.querySelector('[data-open-studio]')?.getAttribute('target')).toBe('_blank');
 
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });

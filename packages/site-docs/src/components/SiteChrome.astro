@@ -1,0 +1,31 @@
+---
+import { withBase } from '../lib/content';
+import { PRIMARY_TABS, type PrimaryTabId } from '../lib/site-routes';
+
+interface Props {
+  current: PrimaryTabId;
+}
+
+const { current } = Astro.props;
+---
+
+<header class="studio__chrome">
+  <div class="studio__bar">
+    <div class="studio__chrome-inner">
+      <nav class="studio__nav" aria-label="Site">
+        <a class="studio__brand" href={withBase('/')} aria-label="Pyric">pyric</a>
+        {
+          PRIMARY_TABS.map((tab) => (
+            <a
+              class="studio__nav-tab"
+              href={withBase(tab.path)}
+              aria-current={tab.id === current ? 'page' : undefined}
+            >
+              {tab.label}
+            </a>
+          ))
+        }
+      </nav>
+    </div>
+  </div>
+</header>

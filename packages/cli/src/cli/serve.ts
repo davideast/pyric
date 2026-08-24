@@ -84,7 +84,7 @@ export interface ServeRuntime {
   payload: () => InitPayload;
   /** HTTP MCP endpoint when `--bridge` is on; null otherwise. */
   mcpUrl: string | null;
-  /** The Studio app URL (`/__pyric/ui/`) when `--ui` is on and the build is
+  /** The Studio hub URL (`/__pyric/ui/studio`) when `--ui` is on and the build is
    *  present; null otherwise. */
   uiUrl: string | null;
   /** Persistence summary (null when `--persist` is off). */
@@ -376,7 +376,7 @@ export async function startServe(opts: {
   };
   if (bundle.dispose) handle.server.once('close', bundle.dispose);
   handle.server.once('close', () => void closeOwnedResources());
-  const uiUrl = siteUiDir ? `${handle.url}/__pyric/ui/` : null;
+  const uiUrl = siteUiDir ? `${handle.url}/__pyric/ui/studio` : null;
   const docsUrl = siteUiDir ? `${handle.url}/__pyric/ui/docs/` : null;
 
   // Hot-reload: the static adapter observes the filesystem; the session owns

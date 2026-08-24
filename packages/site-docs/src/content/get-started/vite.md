@@ -34,7 +34,7 @@ Run your normal Vite development server:
 npm run dev
 ```
 
-Vite serves the application and Pyric Studio simultaneously on the exact same local origin. Access Studio at `/__pyric/ui/` or by clicking the floating runtime chip in the bottom-right corner of the browser.
+Vite serves the application and Pyric Studio simultaneously on the exact same local origin. Access Studio at `/__pyric/ui/studio` or by clicking the floating runtime chip in the bottom-right corner of the browser.
 
 ## Specify custom Security Rules
 

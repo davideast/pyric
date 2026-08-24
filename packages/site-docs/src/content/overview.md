@@ -1,5 +1,5 @@
 ---
-title: "Firebase that runs in your browser"
+title: "A local-first Firebase framework for agents"
 navLabel: "Overview"
 group: "Overview"
 section: ""
@@ -7,26 +7,34 @@ order: 10
 description: "Understand what Pyric is and what you get, in one short read."
 ---
 
-# Firebase that runs in your browser
+# A local-first Firebase framework for agents
 
-Pyric is Firestore, Auth, Realtime Database, Storage, and the Security Rules engine, implemented in TypeScript and running inside your app. In the browser, that means the page itself. The whole backend executes in the tab. In Node, it is the process your tests run in. Your code keeps its ordinary `firebase/*` imports. During development they resolve to Pyric. In production they resolve to Firebase. Nothing in your source changes.
+Pyric is a local Firebase development environment. Your code keeps its ordinary `firebase/*` imports. During development they resolve to a sandbox on your machine. In production they resolve to Firebase. Nothing in your source changes.
 
-That is the whole trick, and it starts with one command.
+A coding agent works that same sandbox: seed data, run queries, simulate a rules verdict, and check its own work. Nothing it does leaves your machine. Everything it does is inspectable, live, in the same event stream you watch.
+
+Start with a coding agent:
+
 ```bash
-npm install -D @pyric/cli
-npx pyric dev
+npx plugins add davideast/pyric
 ```
-No account. No cloud project. No emulator, no Java, no port to babysit. You have a local Firebase stack before your coffee is warm. Pyric records comparisons with production Firebase in its conformance reference, including documented divergences, unsupported APIs, and areas that have not been verified.
+
+Or from the terminal:
+
+```bash
+npm create pyric@latest my-app
+cd my-app
+npm install
+npm run dev
+```
+
+No account. No cloud project. Local writes cannot touch production. Pyric records comparisons with production Firebase in its conformance reference, including documented divergences, unsupported APIs, and areas that have not been verified.
 
 ## Build the app, prove the rules, ship the same code
 
 You build your app with five service workflows: sign in and manage users, store and query data, sync realtime data, store files, and receive messages. Every local operation produces a Security Rules verdict you can inspect.
 
 Then you ship. With the development resolver inactive, the same canonical imports load real Firebase. Before anything goes live, replay a captured session against the candidate Security Rules and learn which operations would change verdict. Pyric produces those local artifacts; `firebase-tools` or the Firebase Console deploys them.
-
-## Your agent works the same backend
-
-The backend is local state with a tool surface, so a coding agent can work on it the way you do. Point Claude Code, Cursor, or any MCP client at the sandbox and the agent can seed data, run queries, simulate a rules verdict before writing, and check its own work. Nothing it does leaves your machine. Everything it does is inspectable, live, in the same event stream you watch.
 
 ## It focuses on the hard parts
 
@@ -36,4 +44,4 @@ Pyric was built by working those parts until they gave, and what was learned is 
 
 ## Where to go next
 
-Start with [the quickstart](./get-started/start-building.md). If you came here for rules, go straight to [prove your rules protect the app](./secure/secure-it-with-rules.md).
+Start with [the quickstart](./get-started/start-building.md). If you came here for an agent, go to [connect an agent](./agent/set-up-your-agent.md). If you came here for rules, go straight to [prove your rules protect the app](./secure/secure-it-with-rules.md).

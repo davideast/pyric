@@ -6,7 +6,7 @@ import {
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
 
 const manifest: PyricRuntimeManifest = {
-  studioUrl: '/__pyric/ui/',
+  studioUrl: '/__pyric/ui/studio',
   worker: {
     url: '/__pyric/sdk/worker.js',
     name: 'pyric-shared-worker',

@@ -1,6 +1,6 @@
 /**
- * Pyric Studio shell chrome: the top bar (identity | nav | status), the
- * content-region frame that hosts every surface, the mobile nav/menu
+ * Pyric Studio shell chrome: the site bar (identity | Home/Docs/Studio | status),
+ * the Studio service rail, the content-region frame that hosts every surface,
  * scaffolding, the governance-mode toggle, the theme switch, the surface
  * placeholder, and the two overlay mounts (⌘K command palette, settings
  * modal chrome). Owned by `shell/` (App.tsx composes these pieces); imported
@@ -21,10 +21,11 @@
   --maxw: 820px;
   --wide: 1440px;
   --gutter: clamp(16px, 3vw, 32px);
+  --tab-gap: var(--space-4);
   height: 100vh;
   min-width: 0;
   display: grid;
-  grid-template-rows: 54px 1fr;
+  grid-template-rows: auto 1fr;
   overflow-x: hidden;
 }
 
@@ -35,34 +36,43 @@
   padding: 0 var(--gutter);
 }
 
-/* ── One bar: identity | nav | status (specs/shell.md) ───────────────── */
-/* The bar spans full width (the hairline runs edge to edge) but its CONTENT is
-   centered to the same wide column EVERY surface uses, so the brand + status
+/* ── Chrome: site bar + Studio rail (specs/shell.md) ─────────────────── */
+/* The chrome spans full width (the hairline runs edge to edge) but its CONTENT
+   is centered to the same wide column EVERY surface uses, so the brand + status
    line up with the content's left/right edges and never shift when switching
-   tabs. The inner row is the spec's grid: identity | nav | status. */
-.studio__bar {
+   surfaces. The inner row is identity | site nav | status; Studio pages sit
+   on a second rail so Home / Docs / Studio stay the only top-level tabs. */
+.studio__chrome {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
+}
+.studio__bar {
   min-width: 0;
 }
-.studio__bar-inner {
-  width: 100%;
-  max-width: var(--wide);
-  margin: 0 auto;
-  height: 54px;
-  display: grid;
-  grid-template-columns: auto 1fr auto; /* identity | nav | status */
+.studio__chrome-inner {
+  box-sizing: border-box;
+  width: min(var(--wide), calc(100% - 2 * var(--gutter)));
+  margin-inline: auto;
+  display: flex;
   align-items: center;
-  gap: var(--space-4);
-  padding: 0 var(--gutter);
+  column-gap: var(--tab-gap);
   min-width: 0;
+}
+.studio__bar .studio__chrome-inner {
+  height: 54px;
 }
 .studio__brand {
   font-family: var(--font-display, sans-serif);
   font-size: 1.0625rem;
   font-weight: 500;
   letter-spacing: -0.01em;
+  line-height: 1;
   color: var(--ink);
+  text-decoration: none;
+  flex: 0 0 auto;
 }
 
 /* Project + governance mode: the only session context the bar carries. */
@@ -86,16 +96,19 @@
   padding: 1px 6px;
 }
 
-/* Inline nav tabs: flex + gap, horizontal overflow scrolls — the bar never
-   grows a second row (N1). */
+/* Inline nav tabs: flex + column-gap. Tab boxes are the text; the
+   underline is therefore as wide as the label. */
 .studio__nav {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: flex-start;
-  gap: var(--space-1);
-  height: 100%;
+  column-gap: var(--tab-gap);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
   min-width: 0;
   overflow-x: auto;
+  flex: 1 1 auto;
   scrollbar-width: none;
 }
 .studio__nav::-webkit-scrollbar {
@@ -104,43 +117,50 @@
 .studio__nav-tab {
   appearance: none;
   background: transparent;
+  margin: 0;
   border: 0;
   border-bottom: 2px solid transparent;
+  flex: 0 0 auto;
   font: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  line-height: inherit;
   color: var(--muted);
-  padding: 0 12px;
-  height: 100%;
+  padding-inline: 0;
+  padding-block: 0;
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.12s, border-color 0.12s;
 }
-/* The Docs tab is an <a> (a full-page link to the composed /docs pages),
-   not a routed <button>; align the anchor box with the button tabs. */
 a.studio__nav-tab {
-  display: inline-flex;
-  align-items: center;
   text-decoration: none;
 }
 .studio__nav-tab:hover {
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
-.studio__nav-tab[aria-current="page"] {
+.studio__nav-tab[aria-current="page"],
+.studio__nav-tab[aria-current="true"] {
   color: var(--ink);
   border-bottom-color: var(--ink);
 }
 
-/* Narrow screens: the tab row scrolls. Make that legible instead of a
-   hard clip: snap points per tab, and an edge fade standing in for the
-   hidden scrollbar. The nav's own end padding sits under the fade at
-   full scroll, so no tab text ever fades. */
+.studio__rail {
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+.studio__rail .studio__chrome-inner {
+  height: 40px;
+}
+
+/* Narrow screens: the tab row scrolls. A trailing flex spacer keeps the
+   last label clear of the edge fade, so no tab text is masked. */
 @media (max-width: 760px) {
   .studio__nav {
     scroll-snap-type: x proximity;
-    padding-right: 28px;
-    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.75em), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.75em), transparent);
+  }
+  .studio__nav::after {
+    content: '';
+    flex: 0 0 1.75em;
   }
 
   .studio__nav-tab {
@@ -154,8 +174,10 @@ a.studio__nav-tab {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  align-self: center;
   gap: var(--space-2);
   min-width: 0;
+  flex: 0 0 auto;
 }
 
 .studio__status button.studio-chip {
@@ -382,12 +404,13 @@ a.studio__nav-tab {
 }
 
 /* ── Global ⌘K overlay: the command typeahead's second mount ──────────
-   Positioned BELOW the 54px bar — the bar stays visible and uncovered;
-   only the content region dims. The panel reuses the Home typeahead's own
-   classes (`.studio-home__command*`), so the two mounts share one look. */
+   Positioned BELOW the site bar and Studio rail — the chrome stays visible
+   and uncovered; only the content region dims. The panel reuses the Home
+   typeahead's own classes (`.studio-home__command*`), so the two mounts
+   share one look. */
 .studio__cmdk-backdrop {
   position: fixed;
-  top: 54px;
+  top: calc(54px + 40px + 2px);
   left: 0;
   right: 0;
   bottom: 0;
@@ -415,18 +438,12 @@ a.studio__nav-tab {
   .studio {
     --gutter: 16px;
     height: 100dvh;
-    grid-template-rows: 54px 1fr;
+    grid-template-rows: auto 1fr;
   }
 
   .studio__bar {
     position: relative;
     z-index: 10;
-  }
-  .studio__bar-inner {
-    max-width: none;
-    height: 54px;
-    padding-inline: 10px;
-    gap: 8px;
   }
   .studio__menu {
     display: none;
@@ -437,18 +454,15 @@ a.studio__nav-tab {
 
   /* Narrow: the status cluster keeps at most one chip's width; nav scrolls. */
   .studio__status {
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .studio__nav {
     justify-content: flex-start;
     overflow-x: auto;
-    padding-inline: 2px;
   }
   .studio__nav-tab {
     flex: 0 0 auto;
-    padding: 0 10px;
-    font-size: 13px;
   }
   .studio__nav-backdrop {
     display: none;

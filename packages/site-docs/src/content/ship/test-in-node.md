@@ -9,7 +9,7 @@ description: "Run your rules and data logic in a Node test suite, with no browse
 
 # Run the same backend in tests and scripts
 
-The backend that runs in your browser tab runs in a Node process the same way. That means your test suite gets a real Firestore with real rules enforcement, in-process, with nothing to start or tear down. No browser. No emulator. No port.
+The same local sandbox your app uses also runs in a Node process. That means your test suite gets a real Firestore with real rules enforcement, in-process, with nothing to start or tear down. No browser. No emulator. No port.
 
 ## A test harness against the sandbox
 

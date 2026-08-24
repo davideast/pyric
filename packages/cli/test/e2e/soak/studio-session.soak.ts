@@ -88,7 +88,7 @@ test('a full Studio session (tab browsing + writes) never kills the serve proces
     //    through the bridge relay (import-style traffic), with a mid-pass
     //    reload (peer churn: sockets die mid-flight).
     const mcp = { sid: null as string | null, id: 1 };
-    const tabs = ['Firestore', 'Auth', 'RTDB', 'Storage', 'Traffic', 'Settings', 'Home'];
+    const tabs = ['Firestore', 'Auth', 'RTDB', 'Storage', 'Traffic', 'Settings', 'Studio'];
     for (let pass = 0; pass < 2; pass++) {
       for (const tab of tabs) {
         await mcpWrite(serve.info.mcpUrl!, mcp, `soak/${tab.toLowerCase()}-${pass}`).catch(() => {});

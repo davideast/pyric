@@ -40,7 +40,7 @@ test('CLI serves Astro Studio deep links and shares the app worker generation an
   const studio = await context.newPage();
   const response = await studio.goto('/__pyric/ui/firestore/notes/astro-host');
   expect(response?.ok()).toBeTruthy();
-  await expect(studio.getByLabel('Studio tabs')).toBeVisible();
+  await expect(studio.getByRole('navigation', { name: 'Studio' })).toBeVisible();
   await expect(studio.getByText('Starting Pyric Studio…', { exact: true })).toHaveCount(0);
   expect(await studio.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
   expect(await studio.locator('link[rel="icon"]').getAttribute('href')).toBe(
@@ -63,7 +63,7 @@ test('an app-triggered worker replacement moves an open Studio page to the annou
   // replacement listener. The retirement announcement is one-shot, so wait
   // for both runtimes to finish mounting before sending it.
   await expect(app.locator('#status')).not.toHaveText('loading');
-  await expect(studio.getByLabel('Studio tabs')).toBeVisible();
+  await expect(studio.getByRole('navigation', { name: 'Studio' })).toBeVisible();
   await expect(studio.getByText('Starting Pyric Studio…', { exact: true })).toHaveCount(0);
 
   const nextGeneration = 'fedcba9876543210';

@@ -84,7 +84,7 @@ npm run dev
 
 During `vite dev`, the plugin swaps supported `firebase/*` modules at resolution time. The backend runs in a SharedWorker, so tabs on the same development origin use one local backend. Browser-local persistence uses IndexedDB.
 
-Pyric Studio is available on the Vite origin at `/__pyric/ui/`. It opens the same backend used by the application.
+Pyric Studio is available on the Vite origin at `/__pyric/ui/studio`. It opens the same backend used by the application.
 
 For a static application or a Node process, `pyric dev` provides the same development-only package swap without the Vite plugin. The [CLI reference](packages/cli/docs/reference/cli.md) documents those paths and every command.
 
@@ -114,7 +114,7 @@ Pyric documents the parts that differ locally, including supported behavior, Sec
 
 ## Monitor the local environment in Pyric Studio
 
-Pyric Studio shows local data, requests, authentication state, Security Rules verdicts, and denied operations. Open `/__pyric/ui/` on the development server and reproduce the failure. A denied request includes the path and verdict needed to correct the rule or the application code.
+Pyric Studio shows local data, requests, authentication state, Security Rules verdicts, and denied operations. Open `/__pyric/ui/studio` on the development server and reproduce the failure. A denied request includes the path and verdict needed to correct the rule or the application code.
 
 <img width="1512" height="947" alt="image" src="https://github.com/user-attachments/assets/cb4a219c-c5f0-4fb7-8904-996416c0a79c" />
 

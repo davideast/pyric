@@ -29,7 +29,6 @@ import {
   GUIDE_GROUP_LABELS,
 } from './nav-groups';
 import type { PyricExampleId } from '../examples/registry';
-export { SITE_TABS as STUDIO_TABS } from './site-routes';
 
 export { GUIDE_GROUP_LABELS };
 

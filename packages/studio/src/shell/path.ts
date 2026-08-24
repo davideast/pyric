@@ -5,7 +5,8 @@
  *
  *   base   the Vite app base (`import.meta.env.BASE_URL`): `/` in dev and the
  *          review build, `/__pyric/ui/` when packaged into `pyric dev --ui`.
- *   tab    the shell RouteId (first path segment); `router.ts` routes on it.
+ *   tab    the first path segment (`studio` is the hub; `router.ts` maps it
+ *          to the internal `home` RouteId).
  *   rest   in-service location: a Firestore doc/collection path, a Storage
  *          object path, or an Auth uid. `features/data/navigation.tsx` maps it.
  *   query  per-surface state: `inspect` (the Traffic rules-inspector focus). There is

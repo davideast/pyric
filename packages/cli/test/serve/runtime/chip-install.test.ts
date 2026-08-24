@@ -8,7 +8,7 @@ function setup(content?: string, studio = 'on') {
   const meta = content === undefined ? '' : `<meta name="pyric-runtime-chip" content="${content}" data-studio="${studio}">`;
   const dom = new JSDOM(`<!doctype html><head>${meta}</head><body></body>`, { url: 'http://localhost/' });
   const runtime = createPyricRuntimeStatus({
-    studioUrl: '/__pyric/ui/',
+    studioUrl: '/__pyric/ui/studio',
     worker: { url: '/__pyric/sdk/worker.js', name: 'pyric-shared-worker', servedEpoch: null },
   });
   const mounted = { element: dom.window.document.createElement('div'), dispose() {} };

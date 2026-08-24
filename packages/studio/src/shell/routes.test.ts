@@ -23,7 +23,7 @@ describe('Studio route registry', () => {
   it('is the ordered top-level tab contract (specs/shell.md)', () => {
     expect(ROUTE_IDS).toEqual(SHELL_ROUTES);
     expect(ROUTES.map((route) => route.label)).toEqual([
-      'Home',
+      'Studio',
       'Firestore',
       'Auth',
       'RTDB',

@@ -34,7 +34,7 @@ A denial event tells you the story in one object:
 
 That last field earns its place. A listener silently dropping documents because a read rule denies them is invisible in production. Here it is a row in the stream with a reason attached.
 
-If you are running `pyric dev --ui`, you do not have to write the subscription. The Traffic tab in Studio shows the same stream live, and a denial row opens into the rule, the path, and the data. The stream itself, and what else it can tell you, is covered in [see what's happening](../observe/see-whats-happening.md).
+If you are running with Studio on (the Vite plugin default), you do not have to write the subscription. The Traffic tab in Studio shows the same stream live, and a denial row opens into the rule, the path, and the data. The stream itself, and what else it can tell you, is covered in [see what's happening](../observe/see-whats-happening.md).
 
 ## The other kind of denial bug
 
