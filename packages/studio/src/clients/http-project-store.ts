@@ -14,39 +14,64 @@ import type {
   ProjectMeta,
   ProjectStore,
 } from '../ports.js';
-import { httpWorkspace } from './http-workspace.js';
+import { httpWorkspace, resolveSessionToken, getTabWriterId, type HttpWorkspaceOptions } from './http-workspace.js';
 
 function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/$/, '')}${path}`;
 }
 
-export function httpProjectStore(baseUrl: string): ProjectStore {
+export function httpProjectStore(
+  baseUrl: string,
+  options?: HttpWorkspaceOptions | string,
+): ProjectStore {
   const base = baseUrl;
+  const explicitToken = typeof options === 'string' ? options : options?.token;
+  const writerId = typeof options === 'object' ? options?.writerId : undefined;
+  const defaultWriterId = getTabWriterId(writerId);
+
+  async function getAuthHeaders(includeWriter = false): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {};
+    if (includeWriter) {
+      headers['x-pyric-writer'] = defaultWriterId;
+    }
+    const token = await resolveSessionToken(base, explicitToken);
+    if (token) {
+      headers['x-pyric-session-token'] = token;
+    }
+    return headers;
+  }
 
   return {
     async list() {
-      const res = await fetch(joinUrl(base, '/__pyric/projects'));
+      const headers = await getAuthHeaders(false);
+      const res = await fetch(joinUrl(base, '/__pyric/projects'), { headers });
       if (!res.ok) throw new Error(`projects.list() → ${res.status}`);
       return (await res.json()) as ProjectMeta[];
     },
 
     async open(id) {
+      const headers = await getAuthHeaders(false);
       const res = await fetch(
         joinUrl(base, `/__pyric/projects/${encodeURIComponent(id)}`),
+        { headers },
       );
       if (!res.ok) throw new Error(`projects.open(${id}) → ${res.status}`);
       const meta = (await res.json()) as ProjectMeta;
       const handle: ProjectHandle = {
         meta,
-        workspace: httpWorkspace(base),
+        workspace: httpWorkspace(base, options),
       };
       return handle;
     },
 
     async create(input) {
+      const headers = {
+        ...(await getAuthHeaders(true)),
+        'content-type': 'application/json',
+      };
       const res = await fetch(joinUrl(base, '/__pyric/projects'), {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify(input),
       });
       if (!res.ok) throw new Error(`projects.create() → ${res.status}`);
@@ -54,11 +79,15 @@ export function httpProjectStore(baseUrl: string): ProjectStore {
     },
 
     async update(id, patch) {
+      const headers = {
+        ...(await getAuthHeaders(true)),
+        'content-type': 'application/json',
+      };
       const res = await fetch(
         joinUrl(base, `/__pyric/projects/${encodeURIComponent(id)}`),
         {
           method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
+          headers,
           body: JSON.stringify(patch),
         },
       );
@@ -66,9 +95,10 @@ export function httpProjectStore(baseUrl: string): ProjectStore {
     },
 
     async remove(id) {
+      const headers = await getAuthHeaders(true);
       const res = await fetch(
         joinUrl(base, `/__pyric/projects/${encodeURIComponent(id)}`),
-        { method: 'DELETE' },
+        { method: 'DELETE', headers },
       );
       if (!res.ok) throw new Error(`projects.remove(${id}) → ${res.status}`);
     },
