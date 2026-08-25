@@ -178,7 +178,8 @@ async function handleAiProxy(
   res: ServerResponse,
   url: URL,
 ): Promise<void> {
-  if (req.method !== 'POST') {
+  const isPostMethod = req.method === 'POST';
+  if (!isPostMethod) {
     res.writeHead(405, { allow: 'POST' }).end('method not allowed');
     return;
   }
@@ -204,9 +205,12 @@ async function handleAiProxy(
 
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(req.headers)) {
-    if (value === undefined) continue;
-    if (AI_PROXY_STRIPPED_HEADERS.has(key.toLowerCase())) continue;
-    headers[key] = Array.isArray(value) ? value.join(', ') : value;
+    const isUndefinedValue = value === undefined;
+    if (isUndefinedValue) continue;
+    const isStrippedHeader = AI_PROXY_STRIPPED_HEADERS.has(key.toLowerCase());
+    if (isStrippedHeader) continue;
+    const isArrayValue = Array.isArray(value);
+    headers[key] = isArrayValue ? value.join(', ') : value;
   }
 
   let upstream: Response;
@@ -214,9 +218,10 @@ async function handleAiProxy(
     upstream = await fetch(target, { method: 'POST', headers, body });
   } catch (e) {
     res.writeHead(502, { 'content-type': 'text/plain' });
+    const isErrorInstance = e instanceof Error;
     res.end(
       `pyric dev ai-proxy: upstream ${target} unreachable: ` +
-        `${e instanceof Error ? e.message : String(e)}\n` +
+        `${isErrorInstance ? e.message : String(e)}\n` +
         'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
         `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
     );
@@ -225,9 +230,11 @@ async function handleAiProxy(
 
   const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
   const contentType = upstream.headers.get('content-type');
-  if (contentType) responseHeaders['content-type'] = contentType;
+  const hasContentType = Boolean(contentType);
+  if (hasContentType) responseHeaders['content-type'] = contentType!;
   res.writeHead(upstream.status, responseHeaders);
-  if (!upstream.body) {
+  const hasUpstreamBody = Boolean(upstream.body);
+  if (!hasUpstreamBody) {
     res.end();
     return;
   }
@@ -270,9 +277,12 @@ async function handleState(
   const section = url.searchParams.get('section');
   const writerId = (req.headers['x-pyric-writer'] as string | undefined) ?? '';
   try {
-    if (req.method === 'GET') {
-      const value = section ? state.readSection(section as StateSection) : state.load();
-      if (value === null) {
+    const isGetMethod = req.method === 'GET';
+    if (isGetMethod) {
+      const hasSection = Boolean(section);
+      const value = hasSection ? state.readSection(section as StateSection) : state.load();
+      const isValueMissing = value === null;
+      if (isValueMissing) {
         res.writeHead(404, { 'content-type': 'application/json' }).end('null');
         return;
       }
@@ -286,25 +296,34 @@ async function handleState(
       res.end(JSON.stringify(value));
       return;
     }
-    if (req.method === 'DELETE') {
-      if (writerId) lock.release(writerId);
+    const isDeleteMethod = req.method === 'DELETE';
+    if (isDeleteMethod) {
+      const hasWriterId = Boolean(writerId);
+      if (hasWriterId) lock.release(writerId);
       res.writeHead(204).end();
       return;
     }
-    if (req.method === 'PUT') {
+    const isPutMethod = req.method === 'PUT';
+    if (isPutMethod) {
       // Lock heartbeat — refresh/claim WITHOUT writing state. 423 if another
       // live tab holds it.
-      res.writeHead(lock.claim(writerId || 'anon', Date.now()) ? 204 : 423).end();
+      const isLockClaimed = lock.claim(writerId || 'anon', Date.now());
+      res.writeHead(isLockClaimed ? 204 : 423).end();
       return;
     }
-    if (req.method === 'POST') {
-      if (section !== 'firestore' && section !== 'auth') {
+    const isPostMethod = req.method === 'POST';
+    if (isPostMethod) {
+      const isFirestoreSection = section === 'firestore';
+      const isAuthSection = section === 'auth';
+      const isValidSection = isFirestoreSection || isAuthSection;
+      if (!isValidSection) {
         res.writeHead(400).end('section must be firestore|auth');
         return;
       }
       // Single-writer: the first page to flush claims the lock; a different
       // live page is refused (423) so it can't erase the writer's world.
-      if (!lock.claim(writerId || 'anon', Date.now())) {
+      const isLockClaimed = lock.claim(writerId || 'anon', Date.now());
+      if (!isLockClaimed) {
         res.writeHead(423, { 'content-type': 'text/plain' }).end(
           `another tab holds the persist writer lock (held by ${lock.holder()})`,
         );
@@ -318,8 +337,10 @@ async function handleState(
     res.writeHead(405, { allow: 'GET, POST, DELETE' }).end('method not allowed');
   } catch (e) {
     // StateFileError (corrupt/version) or bad body — surface, don't clobber.
-    res.writeHead(e instanceof StateFileError ? 409 : 400, { 'content-type': 'text/plain' });
-    res.end(e instanceof Error ? e.message : String(e));
+    const isStateFileError = e instanceof StateFileError;
+    res.writeHead(isStateFileError ? 409 : 400, { 'content-type': 'text/plain' });
+    const isErrorInstance = e instanceof Error;
+    res.end(isErrorInstance ? e.message : String(e));
   }
 }
 
@@ -349,9 +370,11 @@ async function handleCapture(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (req.method === 'GET') {
+  const isGetMethod = req.method === 'GET';
+  if (isGetMethod) {
     const body = capture.read();
-    if (body === null) {
+    const isBodyMissing = body === null;
+    if (isBodyMissing) {
       res.writeHead(404, { 'content-type': 'application/json' }).end('null');
       return;
     }
@@ -362,7 +385,8 @@ async function handleCapture(
     res.end(body);
     return;
   }
-  if (req.method !== 'POST') {
+  const isPostMethod = req.method === 'POST';
+  if (!isPostMethod) {
     res.writeHead(405, { allow: 'GET, POST' }).end('method not allowed');
     return;
   }
@@ -378,7 +402,8 @@ async function handleCapture(
     res.writeHead(204).end();
   } catch (e) {
     res.writeHead(400, { 'content-type': 'text/plain' });
-    res.end(e instanceof Error ? e.message : String(e));
+    const isErrorInstance = e instanceof Error;
+    res.end(isErrorInstance ? e.message : String(e));
   }
 }
 
@@ -423,7 +448,9 @@ export function createDenialThrottle(windowMs: number = DENIAL_THROTTLE_MS): {
   return {
     shouldPrint(key, now) {
       const last = lastPrinted.get(key);
-      if (last !== undefined && now - last < windowMs) return false;
+      const hasLastPrinted = last !== undefined;
+      const isWithinWindow = hasLastPrinted && now - last! < windowMs;
+      if (isWithinWindow) return false;
       lastPrinted.set(key, now);
       return true;
     },
@@ -435,17 +462,21 @@ type DenialThrottle = ReturnType<typeof createDenialThrottle>;
  *  then (when present) the request method/path, the auth uid, and any
  *  remediation guidance. A few lines, never a JSON dump. */
 export function formatDenialBlock(payload: DenialRelayPayload): string {
-  const message = typeof payload.message === 'string' ? payload.message : 'permission denied';
+  const isMessageString = typeof payload.message === 'string';
+  const message = isMessageString ? (payload.message as string) : 'permission denied';
   const lines = [`  ⚠ [pyric] denied: ${message}`];
   const ctx = payload.denialContext;
   const request = ctx?.request;
-  if (request?.method && request?.path) {
-    lines.push(`      ${request.method} ${request.path}`);
+  const hasMethodAndPath = Boolean(request?.method) && Boolean(request?.path);
+  if (hasMethodAndPath) {
+    lines.push(`      ${request!.method} ${request!.path}`);
   }
   const uid = ctx?.auth?.uid;
   lines.push(`      auth: ${uid ?? 'anonymous'}`);
-  const remediation = typeof payload.remediation === 'string' ? payload.remediation : ctx?.remediation;
-  if (remediation) lines.push(`      ${remediation}`);
+  const isRemediationString = typeof payload.remediation === 'string';
+  const remediation = isRemediationString ? (payload.remediation as string) : ctx?.remediation;
+  const hasRemediation = Boolean(remediation);
+  if (hasRemediation) lines.push(`      ${remediation}`);
   return lines.join('\n');
 }
 
@@ -458,17 +489,21 @@ async function handleDenials(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (req.method !== 'POST') {
+  const isPostMethod = req.method === 'POST';
+  if (!isPostMethod) {
     res.writeHead(405, { allow: 'POST' }).end('method not allowed');
     return;
   }
   try {
     const payload = (await collectBody(req)) as DenialRelayPayload;
-    const message = typeof payload.message === 'string' ? payload.message : 'permission denied';
+    const isMessageString = typeof payload.message === 'string';
+    const message = isMessageString ? (payload.message as string) : 'permission denied';
     const path = payload.denialContext?.request?.path ?? '';
-    const key = `${path} ${message}`;
-    if (logger && throttle.shouldPrint(key, Date.now())) {
-      logger.note(formatDenialBlock(payload));
+    const key = `${path}\0${message}`;
+    const hasLogger = Boolean(logger);
+    const shouldPrint = hasLogger && throttle.shouldPrint(key, Date.now());
+    if (shouldPrint) {
+      logger!.note(formatDenialBlock(payload));
     }
   } catch {
     /* malformed body — drop it; this is a diagnostics side channel */
@@ -478,12 +513,15 @@ async function handleDenials(
 
 function getHeader(req: IncomingMessage, name: string): string | undefined {
   const headers = req?.headers as Record<string, string | string[] | undefined> | Headers | undefined;
-  if (!headers) return undefined;
-  if (typeof (headers as Headers).get === 'function') {
+  const hasHeaders = Boolean(headers);
+  if (!hasHeaders) return undefined;
+  const hasGetMethod = typeof (headers as Headers).get === 'function';
+  if (hasGetMethod) {
     return (headers as Headers).get(name) ?? undefined;
   }
   const val = (headers as Record<string, string | string[] | undefined>)[name.toLowerCase()];
-  return Array.isArray(val) ? val.join(', ') : val;
+  const isValArray = Array.isArray(val);
+  return isValArray ? val.join(', ') : val;
 }
 
 export function createPyricNamespace(opts: NamespaceOptions) {
@@ -507,42 +545,64 @@ export function createPyricNamespace(opts: NamespaceOptions) {
   // init.json before this capability is disclosed to the served runtime.
   const activityToken = opts.activity ? randomBytes(24).toString('base64url') : undefined;
   return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
-    if (
-      studioRoutes &&
-      (url.pathname.startsWith('/__pyric/workspace') ||
-        url.pathname.startsWith('/__pyric/projects'))
-    ) {
-      return studioRoutes(req, res, url);
+    const hasStudioRoutes = Boolean(studioRoutes);
+    const isWorkspacePath = url.pathname.startsWith('/__pyric/workspace');
+    const isProjectsPath = url.pathname.startsWith('/__pyric/projects');
+    const isStudioPath = isWorkspacePath || isProjectsPath;
+    const shouldHandleStudio = hasStudioRoutes && isStudioPath;
+    if (shouldHandleStudio) {
+      return studioRoutes!(req, res, url);
     }
-    if (opts.state && url.pathname === '/__pyric/state') {
+    const hasStateStore = Boolean(opts.state);
+    const isStatePath = url.pathname === '/__pyric/state';
+    const isStateRoute = hasStateStore && isStatePath;
+    if (isStateRoute) {
       return handleState(opts.state!, writerLock, req, res, url).then(() => true);
     }
-    if (opts.capture && url.pathname === '/__pyric/capture') {
-      return handleCapture(opts.capture, req, res).then(() => true);
+    const hasCapture = Boolean(opts.capture);
+    const isCapturePath = url.pathname === '/__pyric/capture';
+    const isCaptureRoute = hasCapture && isCapturePath;
+    if (isCaptureRoute) {
+      return handleCapture(opts.capture!, req, res).then(() => true);
     }
-    if (opts.activity && url.pathname === '/__pyric/activity') {
-      return handleActivity(opts.activity, req, res, activityToken!).then(() => true);
+    const hasActivity = Boolean(opts.activity);
+    const isActivityPath = url.pathname === '/__pyric/activity';
+    const isActivityRoute = hasActivity && isActivityPath;
+    if (isActivityRoute) {
+      return handleActivity(opts.activity!, req, res, activityToken!).then(() => true);
     }
-    if (opts.events && url.pathname === '/__pyric/events') {
+    const hasEvents = Boolean(opts.events);
+    const isEventsPath = url.pathname === '/__pyric/events';
+    const isEventsRoute = hasEvents && isEventsPath;
+    if (isEventsRoute) {
       const reqToken =
         getHeader(req, 'x-pyric-session-token') ??
         getHeader(req, 'x-pyric-token') ??
         url.searchParams.get('token') ??
         url.searchParams.get('sessionToken');
-      if (sessionToken && reqToken && reqToken !== sessionToken) {
+      const hasSessionTokenConfig = Boolean(sessionToken);
+      const hasReqToken = Boolean(reqToken);
+      const isTokenMismatch = reqToken !== sessionToken;
+      const isUnauthorizedToken = hasSessionTokenConfig && hasReqToken && isTokenMismatch;
+      if (isUnauthorizedToken) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
-      opts.events.handle(req, res);
+      opts.events!.handle(req, res);
       return true;
     }
-    if (url.pathname === '/__pyric/ai-proxy' || url.pathname.startsWith('/__pyric/ai-proxy/')) {
+    const isAiProxyExact = url.pathname === '/__pyric/ai-proxy';
+    const isAiProxyPrefix = url.pathname.startsWith('/__pyric/ai-proxy/');
+    const isAiProxyRoute = isAiProxyExact || isAiProxyPrefix;
+    if (isAiProxyRoute) {
       return handleAiProxy(opts.aiProxyUpstream, req, res, url).then(() => true);
     }
-    if (url.pathname === '/__pyric/denials') {
+    const isDenialsPath = url.pathname === '/__pyric/denials';
+    if (isDenialsPath) {
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
     }
-    if (url.pathname === '/__pyric/init.json') {
+    const isInitJsonPath = url.pathname === '/__pyric/init.json';
+    if (isInitJsonPath) {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(
         JSON.stringify({
@@ -553,21 +613,25 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       );
       return true;
     }
-    if (url.pathname.startsWith('/__pyric/sdk/')) {
+    const isSdkPath = url.pathname.startsWith('/__pyric/sdk/');
+    if (isSdkPath) {
       // basename() flattens any traversal attempt — the sdk dir is flat.
       const file = join(opts.sdkDir, basename(url.pathname));
-      if (!existsSync(file)) {
+      const isFileMissing = !existsSync(file);
+      if (isFileMissing) {
         res.writeHead(404).end('not found');
         return true;
       }
-      const type = file.endsWith('.map') ? 'application/json' : 'text/javascript; charset=utf-8';
+      const isSourceMap = file.endsWith('.map');
+      const type = isSourceMap ? 'application/json' : 'text/javascript; charset=utf-8';
       // Immutable-friendly: bundle filenames are content-hashed chunks or
       // cache-keyed outputs; still no-store in dev for simplicity.
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
       pipeFileToResponse(file, res);
       return true;
     }
-    if (siteTree?.(req, res, url)) return true;
+    const isSiteTreeHandled = Boolean(siteTree?.(req, res, url));
+    if (isSiteTreeHandled) return true;
     return false; // unknown /__pyric/* → caller 404s
   };
 }
