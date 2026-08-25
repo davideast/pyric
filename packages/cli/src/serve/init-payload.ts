@@ -4,6 +4,8 @@ import type { AiEngineConfigWire } from './worker/protocol.js';
 export interface InitPayload {
   /** Per-server capability for the warning-only activity report endpoint. */
   activityToken?: string;
+  /** Per-boot session capability token required on workspace and project endpoints. */
+  sessionToken?: string;
   rules: string | null;
   rulesHash: string | null;
   databaseRules?: { rules: Record<string, unknown> } | null;
