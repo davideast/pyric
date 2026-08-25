@@ -234,7 +234,7 @@ async function handleAiProxy(
   if (hasContentType) responseHeaders['content-type'] = contentType!;
   res.writeHead(upstream.status, responseHeaders);
   const hasUpstreamBody = Boolean(upstream.body);
-  if (!hasUpstreamBody) {
+  if (!hasUpstreamBody || !upstream.body) {
     res.end();
     return;
   }
