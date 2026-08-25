@@ -33,12 +33,22 @@ import type {
   WorkspaceChange,
   WorkspaceStore,
 } from './store-types.js';
+import { isAllowedHost, isAllowedOrigin } from '../server.js';
+import type { WriterLock } from '../writer-lock.js';
 
 export interface StudioRouteOptions {
   /** The single-project file tree served at `/__pyric/workspace`. */
   workspace?: WorkspaceStore;
   /** The project list served at `/__pyric/projects`. */
   projects?: ProjectStore;
+  /** Per-boot session capability token required on workspace & project endpoints. */
+  sessionToken?: string;
+  /** Single-writer lock validator for file mutation & deletion endpoints. */
+  writerLock?: WriterLock;
+  /** Bound host for DNS rebinding guard. */
+  boundHost?: string;
+  /** Extra hostnames allowed for DNS rebinding/origin guard. */
+  allowedHosts?: string[];
 }
 
 /** Collect the raw request body as a UTF-8 string. */
@@ -207,6 +217,16 @@ async function handleProjects(
     .end('method not allowed');
 }
 
+function getHeader(req: IncomingMessage, name: string): string | undefined {
+  const headers = req.headers as Record<string, string | string[] | undefined> | Headers;
+  if (!headers) return undefined;
+  if (typeof (headers as Headers).get === 'function') {
+    return (headers as Headers).get(name) ?? undefined;
+  }
+  const val = (headers as Record<string, string | string[] | undefined>)[name.toLowerCase()];
+  return Array.isArray(val) ? val.join(', ') : val;
+}
+
 /**
  * Build a namespace fragment for the Studio storage routes. Returns a handler
  * shaped like the other `/__pyric/*` fragments: it resolves `true` when it
@@ -219,13 +239,62 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
     url: URL,
   ): Promise<boolean> => {
     try {
-      if (opts.workspace && url.pathname.startsWith('/__pyric/workspace')) {
-        await handleWorkspace(opts.workspace, req, res, url);
-        return true;
-      }
-      if (opts.projects && url.pathname.startsWith('/__pyric/projects')) {
-        await handleProjects(opts.projects, req, res, url);
-        return true;
+      const isWorkspaceRoute = opts.workspace && url.pathname.startsWith('/__pyric/workspace');
+      const isProjectsRoute = opts.projects && url.pathname.startsWith('/__pyric/projects');
+
+      if (isWorkspaceRoute || isProjectsRoute) {
+        const hostHeader = getHeader(req, 'host');
+        const originHeader = getHeader(req, 'origin');
+
+        // 1. Host and Origin guard (Requirement 1)
+        if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
+          return true;
+        }
+        if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+          return true;
+        }
+
+        // 2. Per-boot session capability token guard (Requirement 2)
+        if (opts.sessionToken) {
+          const reqToken =
+            getHeader(req, 'x-pyric-session-token') ??
+            getHeader(req, 'x-pyric-token') ??
+            url.searchParams.get('token') ??
+            url.searchParams.get('sessionToken');
+          if (!reqToken || reqToken !== opts.sessionToken) {
+            res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+            return true;
+          }
+        }
+
+        // 3. Single-writer lock guard for mutation endpoints (Requirement 4)
+        const isMutation = req.method === 'PUT' || req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
+        if (isMutation) {
+          const writerId =
+            getHeader(req, 'x-pyric-writer') ??
+            getHeader(req, 'x-pyric-writer-lock');
+          if (!writerId) {
+            res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: missing active writer lock header');
+            return true;
+          }
+          if (opts.writerLock) {
+            if (!opts.writerLock.claim(writerId, Date.now())) {
+              res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: another tab holds the writer lock');
+              return true;
+            }
+          }
+        }
+
+        if (isWorkspaceRoute) {
+          await handleWorkspace(opts.workspace!, req, res, url);
+          return true;
+        }
+        if (isProjectsRoute) {
+          await handleProjects(opts.projects!, req, res, url);
+          return true;
+        }
       }
     } catch (e) {
       if (!res.headersSent) sendError(res, e);

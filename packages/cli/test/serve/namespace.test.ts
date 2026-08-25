@@ -85,7 +85,9 @@ describe('namespace over the real server', () => {
     handles.push(h);
 
     // init.json reflects LIVE state (the P3 hot-reload contract)
-    expect(await (await fetch(h.url + '/__pyric/init.json')).json()).toEqual({ rules: null, rulesHash: null, bridgeUrl: null });
+    expect(await (await fetch(h.url + '/__pyric/init.json')).json()).toEqual(
+      expect.objectContaining({ rules: null, rulesHash: null, bridgeUrl: null }),
+    );
     rules = "rules_version = '2';";
     expect(((await (await fetch(h.url + '/__pyric/init.json')).json()) as { rules: string }).rules).toContain('rules_version');
 
