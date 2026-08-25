@@ -107,6 +107,12 @@ export interface NamespaceOptions {
    *  (disk-backed `WorkspaceStore`/`ProjectStore`, plus the SSE watch stream)
    *  that `@pyric/studio`'s `local` mode talks to. */
   studio?: StudioRouteOptions;
+  /** Per-boot session capability token required on workspace and project endpoints. */
+  sessionToken?: string;
+  /** Bound host for DNS rebinding guard. */
+  boundHost?: string;
+  /** Extra allowed hostnames. */
+  allowedHosts?: string[];
   /** The OpenAI-compatible upstream `/__pyric/ai-proxy` forwards to
    *  (pyric/ai — cdd-deltas #98.2). Falls back to the
    *  `PYRIC_AI_PROXY_UPSTREAM` env var, then `http://localhost:11434/v1`
@@ -470,9 +476,29 @@ async function handleDenials(
   res.writeHead(204).end();
 }
 
+function getHeader(req: IncomingMessage, name: string): string | undefined {
+  const headers = req?.headers as Record<string, string | string[] | undefined> | Headers | undefined;
+  if (!headers) return undefined;
+  if (typeof (headers as Headers).get === 'function') {
+    return (headers as Headers).get(name) ?? undefined;
+  }
+  const val = (headers as Record<string, string | string[] | undefined>)[name.toLowerCase()];
+  return Array.isArray(val) ? val.join(', ') : val;
+}
+
 export function createPyricNamespace(opts: NamespaceOptions) {
   const writerLock = createWriterLock();
-  const studioRoutes = opts.studio ? createStudioRoutes(opts.studio) : null;
+  const sessionToken = opts.sessionToken ?? randomBytes(24).toString('base64url');
+  const studioOptions: StudioRouteOptions | undefined = opts.studio
+    ? {
+        ...opts.studio,
+        sessionToken,
+        writerLock,
+        boundHost: opts.boundHost,
+        allowedHosts: opts.allowedHosts,
+      }
+    : undefined;
+  const studioRoutes = studioOptions ? createStudioRoutes(studioOptions) : null;
   const siteTree = opts.siteUiDir
     ? createSiteTreeHandler(opts.siteUiDir, opts.workerVersion)
     : null;
@@ -498,6 +524,15 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return handleActivity(opts.activity, req, res, activityToken!).then(() => true);
     }
     if (opts.events && url.pathname === '/__pyric/events') {
+      const reqToken =
+        getHeader(req, 'x-pyric-session-token') ??
+        getHeader(req, 'x-pyric-token') ??
+        url.searchParams.get('token') ??
+        url.searchParams.get('sessionToken');
+      if (sessionToken && reqToken && reqToken !== sessionToken) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+        return true;
+      }
       opts.events.handle(req, res);
       return true;
     }
@@ -509,7 +544,13 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     if (url.pathname === '/__pyric/init.json') {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(JSON.stringify({ ...opts.initPayload(), ...(activityToken ? { activityToken } : {}) }));
+      res.end(
+        JSON.stringify({
+          ...opts.initPayload(),
+          sessionToken,
+          ...(activityToken ? { activityToken } : {}),
+        }),
+      );
       return true;
     }
     if (url.pathname.startsWith('/__pyric/sdk/')) {
