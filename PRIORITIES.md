@@ -2,6 +2,9 @@
 
 As of 2026-07-14. pyric shipped its npm alpha and the feature set works — that is the problem. The first real user, a Firebase expert, loved the prototype tab, opened the docs, and backed off: overwhelmed by how much was there. They wanted a Vite plugin and didn't know one already existed; they later asked for a verify-before-production capability that also already existed. The system is objectively strong and subjectively too much. This season is not about building more. It is about making what exists easy to enter, simple to hold in your head, and safe to trust — and nothing else. When a proposal doesn't serve one of the three, it waits.
 
+## Multi-tenancy and Impersonation
+- Supporting utilities and features that make it easier for pyric to support multi-tenancy and for users to have features to enable impersonation.
+
 ## Top of Funnel
 
 **Test:** Does this reduce what a new user must learn or do before their first success with pyric?
