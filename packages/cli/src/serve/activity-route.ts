@@ -14,48 +14,60 @@ export async function handleActivity(
   res: ServerResponse,
   activityToken: string,
 ): Promise<void> {
-  if (req.method !== 'POST') {
+  const isPostMethod = req.method === 'POST';
+  if (!isPostMethod) {
     res.writeHead(405, { allow: 'POST' }).end('method not allowed');
     return;
   }
   const mediaType = req.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase();
-  if (mediaType !== 'application/json') {
+  const isJsonMediaType = mediaType === 'application/json';
+  if (!isJsonMediaType) {
     res.writeHead(415, { 'content-type': 'text/plain; charset=utf-8' })
       .end('content-type must be application/json');
     return;
   }
-  if (!hasTrustedOrigin(req)) {
+  const isOriginTrusted = hasTrustedOrigin(req);
+  if (!isOriginTrusted) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
       .end('cross-origin activity reports are not allowed');
     return;
   }
-  if (req.headers['x-pyric-activity-token'] !== activityToken) {
+  const isTokenValid = req.headers['x-pyric-activity-token'] === activityToken;
+  if (!isTokenValid) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
       .end('invalid activity capability');
     return;
   }
   try {
     const body = await collectActivityBody(req);
-    if (!isActivityIncident(body)) throw new Error('invalid activity incident');
+    const isValidIncident = isActivityIncident(body);
+    if (!isValidIncident) throw new Error('invalid activity incident');
     onIncident(body);
     res.writeHead(204).end();
   } catch (error) {
-    res.writeHead(error instanceof ActivityBodyTooLargeError ? 413 : 400, {
+    const isBodyTooLarge = error instanceof ActivityBodyTooLargeError;
+    res.writeHead(isBodyTooLarge ? 413 : 400, {
       'content-type': 'text/plain; charset=utf-8',
     });
-    res.end(error instanceof Error ? error.message : String(error));
+    const isErrorInstance = error instanceof Error;
+    res.end(isErrorInstance ? error.message : String(error));
   }
 }
 
 function hasTrustedOrigin(req: IncomingMessage): boolean {
   const origin = req.headers.origin;
-  if (origin === undefined) return false;
+  const isOriginMissing = origin === undefined;
+  if (isOriginMissing) return false;
   const host = req.headers.host;
-  if (!host) return false;
+  const isHostMissing = !host;
+  if (isHostMissing) return false;
   try {
     const parsed = new URL(origin);
-    const protocol = (req.socket as { encrypted?: boolean }).encrypted ? 'https:' : 'http:';
-    return parsed.protocol === protocol && parsed.host === host;
+    const isEncrypted = Boolean((req.socket as { encrypted?: boolean }).encrypted);
+    const protocol = isEncrypted ? 'https:' : 'http:';
+    const isProtocolMatch = parsed.protocol === protocol;
+    const isHostMatch = parsed.host === host;
+    return isProtocolMatch && isHostMatch;
   } catch {
     return false;
   }
@@ -63,7 +75,10 @@ function hasTrustedOrigin(req: IncomingMessage): boolean {
 
 async function collectActivityBody(req: IncomingMessage): Promise<unknown> {
   const declaredLength = Number(req.headers['content-length']);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_ACTIVITY_BODY_BYTES) {
+  const isLengthFinite = Number.isFinite(declaredLength);
+  const isExceedingMax = declaredLength > MAX_ACTIVITY_BODY_BYTES;
+  const isDeclaredTooLarge = isLengthFinite && isExceedingMax;
+  if (isDeclaredTooLarge) {
     req.resume();
     throw new ActivityBodyTooLargeError('activity incident exceeds 32 KiB');
   }
@@ -74,9 +89,11 @@ async function collectActivityBody(req: IncomingMessage): Promise<unknown> {
     let settled = false;
     req.on('data', (chunk: Buffer | string) => {
       if (settled) return;
-      const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      const isStringChunk = typeof chunk === 'string';
+      const bytes = isStringChunk ? Buffer.from(chunk) : chunk;
       size += bytes.byteLength;
-      if (size > MAX_ACTIVITY_BODY_BYTES) {
+      const isSizeTooLarge = size > MAX_ACTIVITY_BODY_BYTES;
+      if (isSizeTooLarge) {
         settled = true;
         chunks.length = 0;
         reject(new ActivityBodyTooLargeError('activity incident exceeds 32 KiB'));
@@ -102,61 +119,81 @@ async function collectActivityBody(req: IncomingMessage): Promise<unknown> {
 }
 
 function isActivityIncident(value: unknown): value is ActivityIncident {
-  if (!value || typeof value !== 'object') return false;
+  const isObjectValue = Boolean(value) && typeof value === 'object';
+  if (!isObjectValue) return false;
   const incident = value as Record<string, unknown>;
   const usage = incident.usage as Record<string, unknown> | undefined;
   const actor = incident.actor as Record<string, unknown> | undefined;
   const authLens = incident.authLens as Record<string, unknown> | undefined;
   const listenerBalance = incident.listenerBalance as Record<string, unknown> | undefined;
-  return typeof incident.fingerprint === 'string'
-    && incident.fingerprint.length <= 2_000
-    && (incident.pattern === 'repeated-read'
-      || incident.pattern === 'duplicate-listener'
-      || incident.pattern === 'listener-churn')
-    && (incident.confidence === 'medium' || incident.confidence === 'high')
-    && (incident.severity === 'warning' || incident.severity === 'critical')
-    && incident.service === 'firestore'
-    && (incident.method === 'get' || incident.method === 'list' || incident.method === 'listen')
-    && typeof incident.targetFingerprint === 'string'
-    && incident.targetFingerprint.length <= 2_000
-    && actor?.kind === 'app'
-    && Boolean(authLens)
-    && (authLens!.mode === 'app-session'
-      || authLens!.mode === 'anon'
-      || (authLens!.mode === 'as' && typeof authLens!.uid === 'string'))
-    && (incident.authUid === null || typeof incident.authUid === 'string')
-    && isNonNegativeInteger(incident.count)
-    && incident.count > 0
-    && isNonNegativeInteger(incident.windowMs)
-    && Array.isArray(incident.evidenceEventIds)
+
+  const isFingerprintValid = typeof incident.fingerprint === 'string' && incident.fingerprint.length <= 2_000;
+  const isPatternValid = incident.pattern === 'repeated-read'
+    || incident.pattern === 'duplicate-listener'
+    || incident.pattern === 'listener-churn';
+  const isConfidenceValid = incident.confidence === 'medium' || incident.confidence === 'high';
+  const isSeverityValid = incident.severity === 'warning' || incident.severity === 'critical';
+  const isServiceValid = incident.service === 'firestore';
+  const isMethodValid = incident.method === 'get' || incident.method === 'list' || incident.method === 'listen';
+  const isTargetFingerprintValid = typeof incident.targetFingerprint === 'string' && incident.targetFingerprint.length <= 2_000;
+  const isActorValid = actor?.kind === 'app';
+  const hasAuthLens = Boolean(authLens);
+  const isAuthModeValid = hasAuthLens && (authLens!.mode === 'app-session'
+    || authLens!.mode === 'anon'
+    || (authLens!.mode === 'as' && typeof authLens!.uid === 'string'));
+  const isAuthUidValid = incident.authUid === null || typeof incident.authUid === 'string';
+  const isCountValid = isNonNegativeInteger(incident.count) && incident.count > 0;
+  const isWindowMsValid = isNonNegativeInteger(incident.windowMs);
+  const isEvidenceIdsValid = Array.isArray(incident.evidenceEventIds)
     && incident.evidenceEventIds.length <= 8
-    && incident.evidenceEventIds.every((id) => typeof id === 'string')
-    && Boolean(usage)
-    && (usage!.unit === 'document-reads' || usage!.unit === 'listener-attaches')
-    && isNonNegativeInteger(usage!.lowerBound)
-    && usage!.lowerBound === incident.count
+    && incident.evidenceEventIds.every((id) => typeof id === 'string');
+  const hasUsage = Boolean(usage);
+  const isUsageUnitValid = hasUsage && (usage!.unit === 'document-reads' || usage!.unit === 'listener-attaches');
+  const isUsageLowerBoundValid = hasUsage && isNonNegativeInteger(usage!.lowerBound) && usage!.lowerBound === incident.count;
+  const isUsageLimitationsValid = hasUsage
     && Array.isArray(usage!.limitations)
     && usage!.limitations.length <= 8
     && usage!.limitations.every(
       (limitation) => typeof limitation === 'string' && limitation.length <= 500,
-    )
-    && (incident.sourceAttribution === 'app'
-      || (typeof incident.sourceAttribution === 'string'
-        && /^app [\w.-]{1,64}$/.test(incident.sourceAttribution)))
-    && (listenerBalance === undefined
-      || (isNonNegativeInteger(listenerBalance.attaches)
-        && isNonNegativeInteger(listenerBalance.detaches)
-        && isNonNegativeInteger(listenerBalance.active)
-        && (listenerBalance.isLowerBound === undefined
-          || typeof listenerBalance.isLowerBound === 'boolean')))
-    && (incident.pattern === 'repeated-read'
-      ? ((incident.method === 'get' || incident.method === 'list')
-        && usage!.unit === 'document-reads'
-        && listenerBalance === undefined)
-      : (incident.method === 'listen'
-        && usage!.unit === 'listener-attaches'
-        && listenerBalance !== undefined))
-    && hasGeneratedActivitySemantics(incident as unknown as ActivityIncident);
+    );
+  const isSourceAttributionValid = incident.sourceAttribution === 'app'
+    || (typeof incident.sourceAttribution === 'string'
+      && /^app [\w.-]{1,64}$/.test(incident.sourceAttribution));
+  const isListenerBalanceValid = listenerBalance === undefined
+    || (isNonNegativeInteger(listenerBalance.attaches)
+      && isNonNegativeInteger(listenerBalance.detaches)
+      && isNonNegativeInteger(listenerBalance.active)
+      && (listenerBalance.isLowerBound === undefined
+        || typeof listenerBalance.isLowerBound === 'boolean'));
+  const isPatternStructureValid = incident.pattern === 'repeated-read'
+    ? ((incident.method === 'get' || incident.method === 'list')
+      && usage!.unit === 'document-reads'
+      && listenerBalance === undefined)
+    : (incident.method === 'listen'
+      && usage!.unit === 'listener-attaches'
+      && listenerBalance !== undefined);
+  const hasSemantics = hasGeneratedActivitySemantics(incident as unknown as ActivityIncident);
+
+  return isFingerprintValid
+    && isPatternValid
+    && isConfidenceValid
+    && isSeverityValid
+    && isServiceValid
+    && isMethodValid
+    && isTargetFingerprintValid
+    && isActorValid
+    && isAuthModeValid
+    && isAuthUidValid
+    && isCountValid
+    && isWindowMsValid
+    && isEvidenceIdsValid
+    && isUsageUnitValid
+    && isUsageLowerBoundValid
+    && isUsageLimitationsValid
+    && isSourceAttributionValid
+    && isListenerBalanceValid
+    && isPatternStructureValid
+    && hasSemantics;
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

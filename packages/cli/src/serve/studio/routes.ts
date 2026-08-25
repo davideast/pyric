@@ -65,7 +65,8 @@ function readBody(req: IncomingMessage): Promise<string> {
 /** Collect + parse the request body as JSON (null on empty/invalid). */
 async function readJson<T>(req: IncomingMessage): Promise<T | null> {
   const raw = await readBody(req);
-  if (raw.trim() === '') return null;
+  const isRawEmpty = raw.trim() === '';
+  if (isRawEmpty) return null;
   try {
     return JSON.parse(raw) as T;
   } catch {
@@ -82,10 +83,13 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 }
 
 function sendError(res: ServerResponse, e: unknown): void {
-  const status =
-    e instanceof WorkspacePathError || e instanceof ProjectIdError ? 400 : 500;
+  const isPathError = e instanceof WorkspacePathError;
+  const isProjectIdError = e instanceof ProjectIdError;
+  const isKnownError = isPathError || isProjectIdError;
+  const status = isKnownError ? 400 : 500;
   res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
-  res.end(e instanceof Error ? e.message : String(e));
+  const isErrorInstance = e instanceof Error;
+  res.end(isErrorInstance ? e.message : String(e));
 }
 
 async function handleWorkspace(
@@ -95,7 +99,8 @@ async function handleWorkspace(
   url: URL,
 ): Promise<void> {
   // ── SSE watch ────────────────────────────────────────────────────────
-  if (url.pathname === '/__pyric/workspace/watch') {
+  const isWatchRoute = url.pathname === '/__pyric/workspace/watch';
+  if (isWatchRoute) {
     res.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-store',
@@ -118,8 +123,10 @@ async function handleWorkspace(
   }
 
   // ── list ─────────────────────────────────────────────────────────────
-  if (url.pathname === '/__pyric/workspace/list') {
-    if (req.method !== 'GET') {
+  const isListRoute = url.pathname === '/__pyric/workspace/list';
+  if (isListRoute) {
+    const isGetMethod = req.method === 'GET';
+    if (!isGetMethod) {
       res.writeHead(405, { allow: 'GET' }).end('method not allowed');
       return;
     }
@@ -130,13 +137,16 @@ async function handleWorkspace(
 
   // ── read / write / remove a single path ──────────────────────────────
   const path = url.searchParams.get('path');
-  if (path === null) {
+  const isPathMissing = path === null;
+  if (isPathMissing) {
     res.writeHead(400).end('missing ?path');
     return;
   }
-  if (req.method === 'GET') {
+  const isGetRequest = req.method === 'GET';
+  if (isGetRequest) {
     const content = await ws.read(path);
-    if (content === null) {
+    const isContentMissing = content === null;
+    if (isContentMissing) {
       res.writeHead(404).end('not found');
       return;
     }
@@ -147,13 +157,15 @@ async function handleWorkspace(
     res.end(content);
     return;
   }
-  if (req.method === 'PUT') {
+  const isPutRequest = req.method === 'PUT';
+  if (isPutRequest) {
     const body = await readBody(req);
     await ws.write(path, body);
     res.writeHead(204).end();
     return;
   }
-  if (req.method === 'DELETE') {
+  const isDeleteRequest = req.method === 'DELETE';
+  if (isDeleteRequest) {
     await ws.remove(path);
     res.writeHead(204).end();
     return;
@@ -171,12 +183,15 @@ async function handleProjects(
   const rest = url.pathname.slice('/__pyric/projects'.length);
   const id = rest.replace(/^\//, '');
 
-  if (id === '') {
-    if (req.method === 'GET') {
+  const isRootProjectsRoute = id === '';
+  if (isRootProjectsRoute) {
+    const isGetMethod = req.method === 'GET';
+    if (isGetMethod) {
       sendJson(res, 200, await store.list());
       return;
     }
-    if (req.method === 'POST') {
+    const isPostMethod = req.method === 'POST';
+    if (isPostMethod) {
       const body = await readJson<{ title?: string }>(req);
       const meta = await store.create({ title: body?.title });
       sendJson(res, 200, meta);
@@ -187,7 +202,8 @@ async function handleProjects(
   }
 
   // single project by id
-  if (req.method === 'GET') {
+  const isGetMethod = req.method === 'GET';
+  if (isGetMethod) {
     try {
       const handle = await store.open(decodeURIComponent(id));
       sendJson(res, 200, handle.meta);
@@ -196,18 +212,23 @@ async function handleProjects(
     }
     return;
   }
-  if (req.method === 'PATCH') {
+  const isPatchMethod = req.method === 'PATCH';
+  if (isPatchMethod) {
     const body = await readJson<Record<string, unknown>>(req);
     // Only forward known, mutable ProjectMeta fields — never `id`.
     const patch: Partial<Omit<ProjectMeta, 'id'>> = {};
-    if (body && typeof body.title === 'string') patch.title = body.title;
-    if (body && typeof body.createdAt === 'number') patch.createdAt = body.createdAt;
-    if (body && typeof body.updatedAt === 'number') patch.updatedAt = body.updatedAt;
+    const hasTitle = Boolean(body) && typeof body!.title === 'string';
+    if (hasTitle) patch.title = body!.title as string;
+    const hasCreatedAt = Boolean(body) && typeof body!.createdAt === 'number';
+    if (hasCreatedAt) patch.createdAt = body!.createdAt as number;
+    const hasUpdatedAt = Boolean(body) && typeof body!.updatedAt === 'number';
+    if (hasUpdatedAt) patch.updatedAt = body!.updatedAt as number;
     await store.update(decodeURIComponent(id), patch);
     res.writeHead(204).end();
     return;
   }
-  if (req.method === 'DELETE') {
+  const isDeleteMethod = req.method === 'DELETE';
+  if (isDeleteMethod) {
     await store.remove(decodeURIComponent(id));
     res.writeHead(204).end();
     return;
@@ -219,12 +240,15 @@ async function handleProjects(
 
 function getHeader(req: IncomingMessage, name: string): string | undefined {
   const headers = req.headers as Record<string, string | string[] | undefined> | Headers;
-  if (!headers) return undefined;
-  if (typeof (headers as Headers).get === 'function') {
+  const hasHeaders = Boolean(headers);
+  if (!hasHeaders) return undefined;
+  const hasGetMethod = typeof (headers as Headers).get === 'function';
+  if (hasGetMethod) {
     return (headers as Headers).get(name) ?? undefined;
   }
   const val = (headers as Record<string, string | string[] | undefined>)[name.toLowerCase()];
-  return Array.isArray(val) ? val.join(', ') : val;
+  const isValArray = Array.isArray(val);
+  return isValArray ? val.join(', ') : val;
 }
 
 /**
@@ -239,48 +263,71 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
     url: URL,
   ): Promise<boolean> => {
     try {
-      const isWorkspaceRoute = opts.workspace && url.pathname.startsWith('/__pyric/workspace');
-      const isProjectsRoute = opts.projects && url.pathname.startsWith('/__pyric/projects');
+      const hasWorkspaceStore = Boolean(opts.workspace);
+      const isWorkspacePath = url.pathname.startsWith('/__pyric/workspace');
+      const isWorkspaceRoute = hasWorkspaceStore && isWorkspacePath;
 
-      if (isWorkspaceRoute || isProjectsRoute) {
+      const hasProjectsStore = Boolean(opts.projects);
+      const isProjectsPath = url.pathname.startsWith('/__pyric/projects');
+      const isProjectsRoute = hasProjectsStore && isProjectsPath;
+
+      const isStudioRoute = isWorkspaceRoute || isProjectsRoute;
+
+      if (isStudioRoute) {
         const hostHeader = getHeader(req, 'host');
         const originHeader = getHeader(req, 'origin');
 
         // 1. Host and Origin guard (Requirement 1)
-        if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+        const isHostAllowed = isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts);
+        if (!isHostAllowed) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
           return true;
         }
-        if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+
+        const hasOriginHeader = Boolean(originHeader);
+        const isOriginAllowed = isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts);
+        const isOriginInvalid = hasOriginHeader && !isOriginAllowed;
+        if (isOriginInvalid) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
           return true;
         }
 
         // 2. Per-boot session capability token guard (Requirement 2)
-        if (opts.sessionToken) {
+        const hasSessionTokenConfig = Boolean(opts.sessionToken);
+        if (hasSessionTokenConfig) {
           const reqToken =
             getHeader(req, 'x-pyric-session-token') ??
             getHeader(req, 'x-pyric-token') ??
             url.searchParams.get('token') ??
             url.searchParams.get('sessionToken');
-          if (!reqToken || reqToken !== opts.sessionToken) {
+          const hasReqToken = Boolean(reqToken);
+          const isTokenMatching = reqToken === opts.sessionToken;
+          const isTokenValid = hasReqToken && isTokenMatching;
+          if (!isTokenValid) {
             res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
             return true;
           }
         }
 
         // 3. Single-writer lock guard for mutation endpoints (Requirement 4)
-        if (opts.writerLock) {
-          const isMutation = req.method === 'PUT' || req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
+        const hasWriterLockConfig = Boolean(opts.writerLock);
+        if (hasWriterLockConfig) {
+          const isPutMethod = req.method === 'PUT';
+          const isPostMethod = req.method === 'POST';
+          const isPatchMethod = req.method === 'PATCH';
+          const isDeleteMethod = req.method === 'DELETE';
+          const isMutation = isPutMethod || isPostMethod || isPatchMethod || isDeleteMethod;
           if (isMutation) {
             const writerId =
               getHeader(req, 'x-pyric-writer') ??
               getHeader(req, 'x-pyric-writer-lock');
-            if (!writerId) {
+            const hasWriterId = Boolean(writerId);
+            if (!hasWriterId) {
               res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: missing active writer lock header');
               return true;
             }
-            if (!opts.writerLock.claim(writerId, Date.now())) {
+            const isWriterLockClaimed = opts.writerLock!.claim(writerId!, Date.now());
+            if (!isWriterLockClaimed) {
               res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: another tab holds the writer lock');
               return true;
             }
@@ -297,10 +344,12 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
         }
       }
     } catch (e) {
-      if (!res.headersSent) sendError(res, e);
+      const areHeadersSent = res.headersSent;
+      if (!areHeadersSent) sendError(res, e);
       else res.end();
       return true;
     }
     return false;
   };
 }
+
