@@ -270,16 +270,16 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
         }
 
         // 3. Single-writer lock guard for mutation endpoints (Requirement 4)
-        const isMutation = req.method === 'PUT' || req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
-        if (isMutation) {
-          const writerId =
-            getHeader(req, 'x-pyric-writer') ??
-            getHeader(req, 'x-pyric-writer-lock');
-          if (!writerId) {
-            res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: missing active writer lock header');
-            return true;
-          }
-          if (opts.writerLock) {
+        if (opts.writerLock) {
+          const isMutation = req.method === 'PUT' || req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
+          if (isMutation) {
+            const writerId =
+              getHeader(req, 'x-pyric-writer') ??
+              getHeader(req, 'x-pyric-writer-lock');
+            if (!writerId) {
+              res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: missing active writer lock header');
+              return true;
+            }
             if (!opts.writerLock.claim(writerId, Date.now())) {
               res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: another tab holds the writer lock');
               return true;
