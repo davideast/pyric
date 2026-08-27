@@ -52,6 +52,12 @@ export class WritePlane {
     this.state.notifyWrite();
   }
 
+  setDefaultPolicy(policy: 'allow' | 'deny'): void {
+    this.state.rules.setDefaultPolicy(policy);
+    this.cancelDeniedListeners();
+    this.state.notifyWrite();
+  }
+
   getActiveRules(): { rules: Record<string, unknown> } | null {
     const isRulesNull = this.state.activeRules === null;
     let result: { rules: Record<string, unknown> } | null = null;

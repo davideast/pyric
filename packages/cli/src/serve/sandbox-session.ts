@@ -35,6 +35,7 @@ export interface SandboxSessionOptions {
   bridgeUrl?: () => string | null;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
+  permissive?: boolean;
   logger?: ServeLogger;
   activity?: (incident: ActivityIncident) => void;
 }
@@ -97,6 +98,13 @@ export async function createSandboxSession(
     databaseRules: database.rules,
     databaseRulesHash: database.rulesHash,
   };
+  if (!database.sourcePath) {
+    if (options.permissive) {
+      options.logger?.note('  ⓘ RTDB permissive mode active — client reads/writes are open by default.');
+    } else {
+      options.logger?.note('  ⚠ no database.rules.json found — client RTDB reads/writes default to DENY (matching production Firebase). Use --permissive for open prototyping.');
+    }
+  }
   const events = createEventHub();
   const capture: CaptureStore | undefined = (options.capture ?? true)
     ? createCaptureStore(options.projectDir)
@@ -164,6 +172,7 @@ export async function createSandboxSession(
       : seedUsers,
     messaging: true,
     ai: options.ai ?? null,
+    permissive: Boolean(options.permissive),
   });
 
   const summary: SandboxSessionSummary = {

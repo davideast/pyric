@@ -95,11 +95,19 @@ export interface EvalContext {
   updates?: { path: string; value: unknown }[];
 }
 
+export type RtdbDefaultPolicy = 'allow' | 'deny';
+
 export class RulesEvaluator {
   private compiled: CompiledRtdbRules | null = null;
+  private defaultPolicy: RtdbDefaultPolicy = 'allow';
+
+  /** Set default access policy when no rules are loaded ('allow' or 'deny'). */
+  setDefaultPolicy(policy: RtdbDefaultPolicy): void {
+    this.defaultPolicy = policy;
+  }
 
   /** Replace the deployed rules. `null` clears (sandbox returns to
-   *  default-allow). */
+   *  configured default policy). */
   setRules(rulesJson: { rules: Record<string, unknown> } | null): void {
     if (rulesJson === null) {
       this.compiled = null;
@@ -161,6 +169,14 @@ export class RulesEvaluator {
       }
     }
     if (this.compiled === null) {
+      if (this.defaultPolicy === 'deny') {
+        return {
+          check: 'no-rule',
+          reasons: ['No RTDB rules loaded; default deny.'],
+          errorCode: 'NO_MATCHING_RULE',
+          errorMessage: 'No RTDB rules loaded; default deny.',
+        };
+      }
       return {
         check: 'allow',
         reasons: ['No RTDB rules loaded; default allow.'],

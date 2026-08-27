@@ -226,4 +226,57 @@ service cloud.firestore {
     await session.close();
     expect(response.ended).toBe(true);
   });
+
+  it('loads database.rules.json automatically when present in project root', async () => {
+    const root = project();
+    writeFileSync(join(root, 'database.rules.json'), JSON.stringify({
+      rules: { '.read': 'auth != null', '.write': 'auth != null' },
+    }));
+
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+
+    expect(session.summary.rules.database.sourcePath).toBe(join(root, 'database.rules.json'));
+    expect(session.payload().databaseRules).toEqual({
+      rules: { '.read': 'auth != null', '.write': 'auth != null' },
+    });
+
+    await session.close();
+  });
+
+  it('exposes permissive flag in payload and logs appropriate notices', async () => {
+    const root = project();
+    const notes: string[] = [];
+    const logger = {
+      note: (msg: string) => notes.push(msg),
+      error: () => {},
+    };
+
+    // Default: permissive is false, logs deny notice
+    const sessionDefault = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      logger,
+    });
+    expect(sessionDefault.payload().permissive).toBe(false);
+    expect(notes.some((n) => n.includes('default to DENY'))).toBe(true);
+    await sessionDefault.close();
+
+    // Permissive: permissive is true, logs permissive notice
+    notes.length = 0;
+    const sessionPermissive = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      permissive: true,
+      logger,
+    });
+    expect(sessionPermissive.payload().permissive).toBe(true);
+    expect(notes.some((n) => n.includes('permissive mode active'))).toBe(true);
+    await sessionPermissive.close();
+  });
 });

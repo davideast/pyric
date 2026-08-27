@@ -140,10 +140,11 @@ if (!useWorker) try {
     diagnostics.rulesDeployed = true;
     diagnostics.rulesHash = payload.rulesHash;
   }
-  if (payload.databaseRules) {
-    rtdbSandbox.setRules(getDatabase(sandbox), payload.databaseRules);
+  const effectiveDatabaseRules = payload.databaseRules ?? (payload.permissive ? null : rtdbSandbox.DEFAULT_DENY_RULES);
+  if (effectiveDatabaseRules) {
+    rtdbSandbox.setRules(getDatabase(sandbox), effectiveDatabaseRules);
     diagnostics.databaseRulesDeployed = true;
-    diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
+    diagnostics.databaseRulesHash = payload.databaseRulesHash ?? 'default-deny';
   }
   // Open the ONE per-sandbox storage service eagerly: the FIRST open wins the
   // rules AND the project-scoped IDB name (`pyric-storage:<projectKey>`,

@@ -146,6 +146,8 @@ export async function startServe(opts: {
    *  (the served project's file tree) + `/__pyric/projects` (single-project
    *  store over `cwd`). The Studio app's `local` mode talks to these. */
   ui?: boolean;
+  /** Explicit opt-in to permissive mode (default-allow RTDB rules when unconfigured). */
+  permissive?: boolean;
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
 }): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
@@ -304,6 +306,7 @@ export async function startServe(opts: {
       studio: opts.ui ? { siteUiDir } : false,
       bridgeUrl: () => mount && origin.port > 0 ? mount.wsUrl(origin) : null,
       activity: (incident) => logger.note(formatActivityWarning(incident)),
+      permissive: opts.permissive,
       logger,
     });
   } catch (error) {
@@ -723,6 +726,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       watch: parsed.flags.get('no-watch') ? false : undefined,
       persist: Boolean(parsed.flags.get('persist')),
       fresh: Boolean(parsed.flags.get('fresh')),
+      permissive: Boolean(parsed.flags.get('permissive')),
       // --ui mounts the Pyric Studio storage routes (workspace + projects).
       ui: uiOn,
       // --no-capture disables the default-on session capture. The pattern

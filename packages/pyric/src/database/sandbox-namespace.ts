@@ -7,10 +7,37 @@ import type { Database } from './types.js';
 // Mirrors `pyric/firestore`'s `sandbox` namespace — explicit
 // per-package sandbox lifecycle.
 
+export const DEFAULT_DENY_RTDB_RULES: { rules: Record<string, unknown> } = {
+  rules: {
+    '.read': false,
+    '.write': false,
+  },
+};
+
+export const DEFAULT_OPEN_RTDB_RULES: { rules: Record<string, unknown> } = {
+  rules: {
+    '.read': true,
+    '.write': true,
+  },
+};
+
 export const sandbox = {
+  DEFAULT_DENY_RULES: DEFAULT_DENY_RTDB_RULES,
+  DEFAULT_OPEN_RULES: DEFAULT_OPEN_RTDB_RULES,
+
+  /**
+   * Set the default access policy when no rules are loaded ('allow' or 'deny').
+   * In 'deny' mode (matching production Firebase), all client reads and writes
+   * without rules are rejected with PERMISSION_DENIED.
+   */
+  setDefaultPolicy(db: Database, policy: 'allow' | 'deny'): void {
+    const target = targetOf(db);
+    target.backend.setDefaultPolicy(policy);
+  },
+
   /**
    * Replace deployed rules. Pass `null` to clear (sandbox returns to
-   * default-allow). Rules are evaluated through the existing
+   * default policy). Rules are evaluated through the existing
    * RTDB rules simulator — the same engine used by the rules tooling.
    *
    * @example
