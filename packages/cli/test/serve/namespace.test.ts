@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPyricNamespace } from '../../src/serve/namespace.js';
+import { createPyricNamespace, createEventHub } from '../../src/serve/namespace.js';
 import { injectServeTags } from '../../src/serve/html-injection.js';
 import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
+import { createStateStore } from '../../src/serve/state-store.js';
+import { diskWorkspace } from '../../src/serve/studio/index.js';
 
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-ns-'));
@@ -151,5 +153,122 @@ describe('namespace over the real server', () => {
     const del = await fetch(h.url + '/__pyric/capture', { method: 'DELETE' });
     expect(del.status).toBe(405);
     expect(del.headers.get('allow')).toBe('GET, POST');
+  });
+
+  it('serves session capability token in /__pyric/init.json', async () => {
+    const { site, sdk } = fixture();
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+    });
+    const h = await startStaticServer({
+      publicDir: site,
+      port: 0,
+      host: '127.0.0.1',
+      logger: silentServeLogger(),
+      namespaceHandler: ns,
+    });
+    handles.push(h);
+
+    const init = (await (await fetch(h.url + '/__pyric/init.json')).json()) as { sessionToken: string };
+    expect(typeof init.sessionToken).toBe('string');
+    expect(init.sessionToken.length).toBeGreaterThan(10);
+  });
+
+  it('enforces host and origin guards and token validation on /__pyric/events', async () => {
+    const { site, sdk } = fixture();
+    const events = createEventHub();
+    const token = 'events-test-token-123';
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      events,
+      sessionToken: token,
+      boundHost: '127.0.0.1',
+    });
+    const h = await startStaticServer({
+      publicDir: site,
+      port: 0,
+      host: '127.0.0.1',
+      logger: silentServeLogger(),
+      namespaceHandler: ns,
+    });
+    handles.push(h);
+
+    try {
+      // 1. Rejected if unapproved Host
+      const badHostRes = await fetch(`${h.url}/__pyric/events`, {
+        headers: { host: 'attacker.example.com' },
+      });
+      expect(badHostRes.status).toBe(403);
+
+      // 2. Rejected if unapproved Origin
+      const badOriginRes = await fetch(`${h.url}/__pyric/events`, {
+        headers: { origin: 'http://malicious-site.example.com' },
+      });
+      expect(badOriginRes.status).toBe(403);
+
+      // 3. Rejected if wrong token provided
+      const badTokenRes = await fetch(`${h.url}/__pyric/events?token=wrong-token`, {
+        headers: { origin: h.url },
+      });
+      expect(badTokenRes.status).toBe(401);
+
+      // 4. Allowed without token for in-page runtime hot-reload
+      const controller = new AbortController();
+      const allowedRes = await fetch(`${h.url}/__pyric/events`, {
+        headers: { origin: h.url },
+        signal: controller.signal,
+      });
+      expect(allowedRes.status).toBe(200);
+      expect(allowedRes.headers.get('content-type')).toContain('text/event-stream');
+      controller.abort();
+    } finally {
+      events.close();
+    }
+  });
+
+  it('isolates state persistence writer lock from studio workspace writer lock', async () => {
+    const { site, sdk } = fixture();
+    const ws = diskWorkspace(site);
+    const stateStore = createStateStore(site);
+
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      state: stateStore,
+      studio: { workspace: ws },
+      sessionToken: 'ns-session-token',
+    });
+    const h = await startStaticServer({
+      publicDir: site,
+      port: 0,
+      host: '127.0.0.1',
+      logger: silentServeLogger(),
+      namespaceHandler: ns,
+    });
+    handles.push(h);
+
+    // Tab 1 claims state writer lock on /__pyric/state
+    const stateLockRes = await fetch(`${h.url}/__pyric/state`, {
+      method: 'PUT',
+      headers: {
+        'x-pyric-writer': 'tab-1-state-holder',
+        'x-pyric-session-token': 'ns-session-token',
+      },
+    });
+    expect(stateLockRes.status).toBe(204);
+
+    // Tab 2 writes a workspace file on /__pyric/workspace
+    // Should NOT be locked out by Tab 1's state lock
+    const wsRes = await fetch(`${h.url}/__pyric/workspace?path=state-isolate.txt`, {
+      method: 'PUT',
+      headers: {
+        'x-pyric-session-token': 'ns-session-token',
+        'x-pyric-writer': 'tab-2-studio-writer',
+      },
+      body: 'hello from studio',
+    });
+    expect(wsRes.status).toBe(204);
   });
 });

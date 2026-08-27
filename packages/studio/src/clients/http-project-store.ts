@@ -51,8 +51,9 @@ export function httpProjectStore(
     },
 
     async create(input) {
-      const headers = {
-        ...(await getAuthHeaders(true)),
+      const authHeaders = await getAuthHeaders(true);
+      const headers: Record<string, string> = {
+        ...authHeaders,
         'content-type': 'application/json',
       };
       const res = await fetch(joinUrl(base, '/__pyric/projects'), {
@@ -65,8 +66,9 @@ export function httpProjectStore(
     },
 
     async update(id, patch) {
-      const headers = {
-        ...(await getAuthHeaders(true)),
+      const authHeaders = await getAuthHeaders(true);
+      const headers: Record<string, string> = {
+        ...authHeaders,
         'content-type': 'application/json',
       };
       const res = await fetch(
