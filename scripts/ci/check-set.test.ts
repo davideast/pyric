@@ -12,11 +12,26 @@ describe('PR check-set selection', () => {
     })).toBe('release-only');
   });
 
-  test('uses the docs proof only for authored Markdown content', () => {
+  test('uses the docs proof only for authored Markdown content and internal repo docs', () => {
     expect(selectPrCheckSet({
       event: 'pull_request',
       labels: [],
       paths: [changed('packages/site-docs/src/content/get-started.md')],
+    })).toBe('docs-only');
+    expect(selectPrCheckSet({
+      event: 'pull_request',
+      labels: [],
+      paths: [changed('PRIORITIES.md')],
+    })).toBe('docs-only');
+    expect(selectPrCheckSet({
+      event: 'pull_request',
+      labels: [],
+      paths: [changed('CONTEXT.md'), changed('AGENTS.md')],
+    })).toBe('docs-only');
+    expect(selectPrCheckSet({
+      event: 'pull_request',
+      labels: [],
+      paths: [changed('.github/pull_request_template.md')],
     })).toBe('docs-only');
   });
 
