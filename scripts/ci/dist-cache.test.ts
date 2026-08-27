@@ -18,6 +18,7 @@ function jobBlock(id: string): string {
 describe('CI dist cache', () => {
   test('every always-on job that needs the build goes through restore-dist', () => {
     for (const id of [
+      'build-packages',
       'build-and-test',
       'library-tests',
       'conformance-suite',

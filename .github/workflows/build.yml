@@ -55,8 +55,8 @@ jobs:
           CI_PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: bun scripts/ci/plan.ts
 
-  build-and-test:
-    name: Build all packages + run tests
+  build-packages:
+    name: Build workspace packages
     runs-on: ubuntu-latest
     needs: plan
     if: needs.plan.outputs.check-set == 'full'
@@ -95,6 +95,26 @@ jobs:
         # their annotations stale until the contract is updated deliberately.
         run: bun run tool:parity:check
 
+  build-and-test:
+    name: Build all packages + run tests
+    runs-on: ubuntu-latest
+    needs: [plan, build-packages]
+    if: needs.plan.outputs.check-set == 'full'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+
+      - name: Build packages (site omitted)
+        uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
+
       - name: Run CLI tests
         # Deliberately unpaired: the CLI suite is load-sensitive under CPU
         # contention (verify replays flip verdicts when the suite shares a
@@ -106,7 +126,7 @@ jobs:
   library-tests:
     name: Run library + UI tests
     runs-on: ubuntu-latest
-    needs: plan
+    needs: [plan, build-packages]
     if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
@@ -136,7 +156,7 @@ jobs:
   conformance-suite:
     name: Conformance suite
     runs-on: ubuntu-latest
-    needs: plan
+    needs: [plan, build-packages]
     if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
@@ -157,7 +177,7 @@ jobs:
   browser-conformance:
     name: Served app + SharedWorker conformance
     runs-on: ubuntu-latest
-    needs: plan
+    needs: [plan, build-packages]
     if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
@@ -222,7 +242,7 @@ jobs:
   conformance-gates:
     name: Conformance gates
     runs-on: ubuntu-latest
-    needs: plan
+    needs: [plan, build-packages]
     if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
@@ -389,7 +409,7 @@ jobs:
     name: CI / required
     runs-on: ubuntu-latest
     if: always()
-    needs: [plan, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, release-contract, packaging, install-matrix, standalone]
+    needs: [plan, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, release-contract, packaging, install-matrix, standalone]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
