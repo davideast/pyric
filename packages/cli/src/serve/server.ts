@@ -134,6 +134,23 @@ export function isAllowedUpgrade(
   );
 }
 
+/**
+ * Extract a header value case-insensitively from either Node's IncomingMessage headers
+ * or Fetch API Headers object.
+ */
+export function getHeader(
+  req: { headers?: Record<string, string | string[] | undefined> | Headers },
+  name: string,
+): string | undefined {
+  const headers = req?.headers;
+  if (!headers) return undefined;
+  if (typeof (headers as Headers).get === 'function') {
+    return (headers as Headers).get(name) ?? undefined;
+  }
+  const val = (headers as Record<string, string | string[] | undefined>)[name.toLowerCase()];
+  return Array.isArray(val) ? val.join(', ') : val;
+}
+
 export interface ServeHandle {
   port: number;
   host: string;

@@ -14,7 +14,7 @@ import type {
   ProjectMeta,
   ProjectStore,
 } from '../ports.js';
-import { httpWorkspace, resolveSessionToken, getTabWriterId, type HttpWorkspaceOptions } from './http-workspace.js';
+import { httpWorkspace, createAuthHeaders, type HttpWorkspaceOptions } from './http-workspace.js';
 
 function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/$/, '')}${path}`;
@@ -25,21 +25,7 @@ export function httpProjectStore(
   options?: HttpWorkspaceOptions | string,
 ): ProjectStore {
   const base = baseUrl;
-  const explicitToken = typeof options === 'string' ? options : options?.token;
-  const writerId = typeof options === 'object' ? options?.writerId : undefined;
-  const defaultWriterId = getTabWriterId(writerId);
-
-  async function getAuthHeaders(includeWriter = false): Promise<Record<string, string>> {
-    const headers: Record<string, string> = {};
-    if (includeWriter) {
-      headers['x-pyric-writer'] = defaultWriterId;
-    }
-    const token = await resolveSessionToken(base, explicitToken);
-    if (token) {
-      headers['x-pyric-session-token'] = token;
-    }
-    return headers;
-  }
+  const getAuthHeaders = (includeWriter = false) => createAuthHeaders(base, options, includeWriter);
 
   return {
     async list() {

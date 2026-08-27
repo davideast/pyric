@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { diskWorkspace, diskProjectStore, createStudioRoutes } from '../../src/serve/studio/index.js';
 import { createWriterLock } from '../../src/serve/writer-lock.js';
 import { startStaticServer } from '../../src/serve/server.js';
-import { createPyricNamespace } from '../../src/serve/namespace.js';
-import { httpWorkspace } from '../../../studio/src/clients/http-workspace.js';
+import { createPyricNamespace, createEventHub } from '../../src/serve/namespace.js';
+import { createStateStore } from '../../src/serve/state-store.js';
+import { httpWorkspace, resolveSessionToken } from '../../../studio/src/clients/http-workspace.js';
 import { httpProjectStore } from '../../../studio/src/clients/http-project-store.js';
 
 let dir: string;
@@ -308,6 +309,181 @@ describe('Defense-in-Depth Authorization & Mutation Guard', () => {
       await clientProjects.remove(projectMeta.id);
     } finally {
       await serverHandle.stop();
+    }
+  });
+
+  it('enforces origin and session capability token on workspace event stream (/__pyric/workspace/watch)', async () => {
+    const ws = diskWorkspace(dir);
+    const token = 'sse-test-token-abcdef';
+    const namespace = createPyricNamespace({
+      sdkDir: dir,
+      initPayload: () => ({
+        rules: null,
+        rulesHash: null,
+        storageRules: null,
+        storageRulesHash: null,
+        bridgeUrl: null,
+        seed: null,
+      }),
+      studio: { workspace: ws },
+      sessionToken: token,
+    });
+
+    const serverHandle = await startStaticServer({
+      publicDir: dir,
+      port: 0,
+      namespaceHandler: namespace,
+    });
+
+    try {
+      // 1. Rejected if unapproved Origin (Requirement 1)
+      const badOriginRes = await fetch(`${serverHandle.url}/__pyric/workspace/watch?token=${token}`, {
+        headers: { origin: 'http://malicious-site.example.com' },
+      });
+      expect(badOriginRes.status).toBe(403);
+
+      // 2. Rejected if missing token (Requirement 2)
+      const noTokenRes = await fetch(`${serverHandle.url}/__pyric/workspace/watch`, {
+        headers: { origin: serverHandle.url },
+      });
+      expect(noTokenRes.status).toBe(401);
+
+      // 3. Rejected if invalid token (Requirement 2)
+      const badTokenRes = await fetch(`${serverHandle.url}/__pyric/workspace/watch?token=wrong-token`, {
+        headers: { origin: serverHandle.url },
+      });
+      expect(badTokenRes.status).toBe(401);
+
+      // 4. Allowed if valid token and origin
+      const controller = new AbortController();
+      const allowedRes = await fetch(`${serverHandle.url}/__pyric/workspace/watch?token=${token}`, {
+        headers: { origin: serverHandle.url },
+        signal: controller.signal,
+      });
+      expect(allowedRes.status).toBe(200);
+      expect(allowedRes.headers.get('content-type')).toContain('text/event-stream');
+      controller.abort();
+    } finally {
+      await serverHandle.stop();
+    }
+  });
+
+  it('enforces origin and token validation on /__pyric/events', async () => {
+    const events = createEventHub();
+    const token = 'events-token-123';
+    const namespace = createPyricNamespace({
+      sdkDir: dir,
+      initPayload: () => ({
+        rules: null,
+        rulesHash: null,
+        storageRules: null,
+        storageRulesHash: null,
+        bridgeUrl: null,
+        seed: null,
+      }),
+      events,
+      sessionToken: token,
+    });
+
+    const serverHandle = await startStaticServer({
+      publicDir: dir,
+      port: 0,
+      namespaceHandler: namespace,
+    });
+
+    try {
+      // 1. Rejected if unapproved Origin
+      const badOriginRes = await fetch(`${serverHandle.url}/__pyric/events`, {
+        headers: { origin: 'http://malicious-site.example.com' },
+      });
+      expect(badOriginRes.status).toBe(403);
+
+      // 2. Rejected if wrong token provided
+      const badTokenRes = await fetch(`${serverHandle.url}/__pyric/events?token=wrong-token`, {
+        headers: { origin: serverHandle.url },
+      });
+      expect(badTokenRes.status).toBe(401);
+
+      // 3. Allowed without token for in-page runtime hot-reload
+      const controller = new AbortController();
+      const allowedRes = await fetch(`${serverHandle.url}/__pyric/events`, {
+        headers: { origin: serverHandle.url },
+        signal: controller.signal,
+      });
+      expect(allowedRes.status).toBe(200);
+      expect(allowedRes.headers.get('content-type')).toContain('text/event-stream');
+      controller.abort();
+    } finally {
+      events.close();
+      await serverHandle.stop();
+    }
+  });
+
+  it('isolates state persistence writer lock from studio workspace writer lock', async () => {
+    const ws = diskWorkspace(dir);
+    const stateStore = createStateStore(dir);
+
+    const namespace = createPyricNamespace({
+      sdkDir: dir,
+      initPayload: () => ({
+        rules: null,
+        rulesHash: null,
+        storageRules: null,
+        storageRulesHash: null,
+        bridgeUrl: null,
+        seed: null,
+      }),
+      state: stateStore,
+      studio: { workspace: ws },
+      sessionToken: 'test-session-token',
+    });
+
+    const serverHandle = await startStaticServer({
+      publicDir: dir,
+      port: 0,
+      namespaceHandler: namespace,
+    });
+
+    try {
+      // Tab 1 claims state writer lock on /__pyric/state
+      const stateLockRes = await fetch(`${serverHandle.url}/__pyric/state`, {
+        method: 'PUT',
+        headers: {
+          'x-pyric-writer': 'tab-1-state-holder',
+          'x-pyric-session-token': 'test-session-token',
+        },
+      });
+      expect(stateLockRes.status).toBe(204);
+
+      // Tab 2 modifies a workspace file on /__pyric/workspace
+      // Should NOT be locked out by Tab 1's state lock
+      const wsClient = httpWorkspace(serverHandle.url, {
+        token: 'test-session-token',
+        writerId: 'tab-2-studio-writer',
+      });
+      await wsClient.write('independent-lock.txt', 'hello from studio');
+      expect(await wsClient.read('independent-lock.txt')).toBe('hello from studio');
+    } finally {
+      await serverHandle.stop();
+    }
+  });
+
+  it('does not leak activityToken as fallback sessionToken in client resolver', async () => {
+    // Mock server returning only activityToken
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(JSON.stringify({ activityToken: 'leaked-activity-token-123' }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    });
+
+    try {
+      const resolved = await resolveSessionToken(`http://localhost:${server.port}`);
+      expect(resolved).toBeNull();
+    } finally {
+      server.stop();
     }
   });
 });
