@@ -217,6 +217,10 @@ async function handleProjects(
     .end('method not allowed');
 }
 
+function isWorkspaceMutation(method?: string): boolean {
+  return method === 'PUT' || method === 'POST' || method === 'PATCH' || method === 'DELETE';
+}
+
 /**
  * Build a namespace fragment for the Studio storage routes. Returns a handler
  * shaped like the other `/__pyric/*` fragments: it resolves `true` when it
@@ -250,9 +254,7 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
         if (opts.sessionToken) {
           const reqToken =
             getHeader(req, 'x-pyric-session-token') ??
-            getHeader(req, 'x-pyric-token') ??
-            url.searchParams.get('token') ??
-            url.searchParams.get('sessionToken');
+            url.searchParams.get('token');
           if (!reqToken || reqToken !== opts.sessionToken) {
             res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
             return true;
@@ -260,20 +262,15 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
         }
 
         // 3. Single-writer lock guard for mutation endpoints (Requirement 4)
-        if (opts.writerLock) {
-          const isMutation = req.method === 'PUT' || req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
-          if (isMutation) {
-            const writerId =
-              getHeader(req, 'x-pyric-writer') ??
-              getHeader(req, 'x-pyric-writer-lock');
-            if (!writerId) {
-              res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: missing active writer lock header');
-              return true;
-            }
-            if (!opts.writerLock.claim(writerId, Date.now())) {
-              res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: another tab holds the writer lock');
-              return true;
-            }
+        if (opts.writerLock && isWorkspaceMutation(req.method)) {
+          const writerId = getHeader(req, 'x-pyric-writer');
+          if (!writerId) {
+            res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: missing active writer lock header');
+            return true;
+          }
+          if (!opts.writerLock.claim(writerId, Date.now())) {
+            res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: another tab holds the writer lock');
+            return true;
           }
         }
 

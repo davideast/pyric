@@ -480,16 +480,17 @@ export function createPyricNamespace(opts: NamespaceOptions) {
   const stateWriterLock = createWriterLock();
   const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();
   const sessionToken = opts.sessionToken ?? randomBytes(24).toString('base64url');
-  const studioOptions: StudioRouteOptions | undefined = opts.studio
-    ? {
-        ...opts.studio,
-        sessionToken,
-        writerLock: studioWriterLock,
-        boundHost: opts.boundHost,
-        allowedHosts: opts.allowedHosts,
-      }
-    : undefined;
-  const studioRoutes = studioOptions ? createStudioRoutes(studioOptions) : null;
+  let studioRoutes: ((req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>) | null = null;
+  if (opts.studio) {
+    const studioOptions: StudioRouteOptions = {
+      ...opts.studio,
+      sessionToken,
+      writerLock: studioWriterLock,
+      boundHost: opts.boundHost,
+      allowedHosts: opts.allowedHosts,
+    };
+    studioRoutes = createStudioRoutes(studioOptions);
+  }
   const siteTree = opts.siteUiDir
     ? createSiteTreeHandler(opts.siteUiDir, opts.workerVersion)
     : null;
@@ -515,16 +516,17 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return handleActivity(opts.activity, req, res, activityToken!).then(() => true);
     }
     if (opts.events && url.pathname === '/__pyric/events') {
+      const hostHeader = getHeader(req, 'host');
       const originHeader = getHeader(req, 'origin');
+      if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
+        return true;
+      }
       if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
         res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
         return true;
       }
-      const reqToken =
-        getHeader(req, 'x-pyric-session-token') ??
-        getHeader(req, 'x-pyric-token') ??
-        url.searchParams.get('token') ??
-        url.searchParams.get('sessionToken');
+      const reqToken = getHeader(req, 'x-pyric-session-token') ?? url.searchParams.get('token');
       if (sessionToken && reqToken && reqToken !== sessionToken) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;

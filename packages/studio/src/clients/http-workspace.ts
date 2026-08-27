@@ -38,17 +38,37 @@ export function getTabWriterId(explicitWriterId?: string): string {
   return defaultTabWriterId;
 }
 
+function normalizeWorkspaceOptions(options?: HttpWorkspaceOptions | string): {
+  token?: string;
+  writerId?: string;
+} {
+  if (typeof options === 'string') {
+    return { token: options };
+  }
+  return {
+    token: options?.token,
+    writerId: options?.writerId,
+  };
+}
+
 export async function resolveSessionToken(baseUrl: string, explicitToken?: string): Promise<string | null> {
   if (explicitToken) return explicitToken;
   const key = baseUrl.replace(/\/$/, '');
-  let promise = tokenCache.get(key);
-  if (!promise) {
-    promise = fetch(joinUrl(key, '/__pyric/init.json'))
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: any) => (data?.sessionToken ?? null) as string | null)
-      .catch(() => null);
-    tokenCache.set(key, promise);
-  }
+  const cached = tokenCache.get(key);
+  if (cached) return cached;
+
+  const promise = fetch(joinUrl(key, '/__pyric/init.json'))
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data: any) => (typeof data?.sessionToken === 'string' ? data.sessionToken : null))
+    .catch(() => null)
+    .then((token) => {
+      if (!token) {
+        tokenCache.delete(key);
+      }
+      return token;
+    });
+
+  tokenCache.set(key, promise);
   return promise;
 }
 
@@ -58,8 +78,7 @@ export async function createAuthHeaders(
   includeWriter = false,
 ): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
-  const explicitToken = typeof options === 'string' ? options : options?.token;
-  const writerId = typeof options === 'object' ? options?.writerId : undefined;
+  const { token: explicitToken, writerId } = normalizeWorkspaceOptions(options);
   if (includeWriter) {
     headers['x-pyric-writer'] = getTabWriterId(writerId);
   }
@@ -75,7 +94,7 @@ export function httpWorkspace(
   options?: HttpWorkspaceOptions | string,
 ): WorkspaceStore {
   const base = baseUrl;
-  const explicitToken = typeof options === 'string' ? options : options?.token;
+  const { token: explicitToken } = normalizeWorkspaceOptions(options);
   const getAuthHeaders = (includeWriter = false) => createAuthHeaders(base, options, includeWriter);
 
   return {

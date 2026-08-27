@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import { join } from 'node:path';
 import ts from 'typescript';
 
-test('mirror-owned AI data types remain mutually assignable with firebase/ai', () => {
+test('mirror-owned AI data types remain mutually assignable with firebase/ai', { timeout: 30_000 }, () => {
   const contract = join(import.meta.dir, 'types.contract.ts');
   const program = ts.createProgram([contract], {
     module: ts.ModuleKind.ES2022,
@@ -18,4 +18,4 @@ test('mirror-owned AI data types remain mutually assignable with firebase/ai', (
   );
 
   expect(diagnostics).toEqual([]);
-}, { timeout: 30_000 });
+});
