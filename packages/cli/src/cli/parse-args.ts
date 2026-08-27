@@ -32,6 +32,7 @@ const BOOLEAN_FLAGS = new Set([
   'persist',
   'fresh',
   'force',
+  'allow-inlined-sdk',
   'help',
   'version',
 ]);

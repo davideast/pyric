@@ -16,6 +16,8 @@
  * only `spawnDevChild` touches the process table.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
 
@@ -227,6 +229,57 @@ const FORCE_KILL_AFTER_MS = 2_000;
 
 const SHELL_OPERATORS = new Set(['&&', '||', '|', ';', '&']);
 
+export const INLINED_FIREBASE_FINGERPRINTS: readonly string[] = [
+  'identitytoolkit.googleapis.com',
+  'firestore.googleapis.com',
+  'securetoken.googleapis.com',
+  'firebasedatabase.app',
+];
+
+export interface InlinedSdkDetection {
+  file: string;
+  fingerprints: string[];
+}
+
+export function findTargetScriptFiles(argv: string[], cwd: string): string[] {
+  const files: string[] = [];
+  for (const arg of argv) {
+    if (typeof arg !== 'string' || arg.startsWith('-')) continue;
+    if (/\.(js|mjs|cjs)$/.test(arg)) {
+      const resolved = isAbsolute(arg) ? arg : resolve(cwd, arg);
+      if (existsSync(resolved)) {
+        try {
+          if (statSync(resolved).isFile()) {
+            files.push(resolved);
+          }
+        } catch {}
+      }
+    }
+  }
+  return files;
+}
+
+export function detectInlinedSdkInFile(filePath: string): string[] {
+  try {
+    const content = readFileSync(filePath, 'utf8');
+    return INLINED_FIREBASE_FINGERPRINTS.filter((fp) => content.includes(fp));
+  } catch {
+    return [];
+  }
+}
+
+export function detectInlinedSdkInPlan(plan: SandboxChildPlan, cwd: string): InlinedSdkDetection[] {
+  const files = findTargetScriptFiles(plan.argv, cwd);
+  const detections: InlinedSdkDetection[] = [];
+  for (const file of files) {
+    const fingerprints = detectInlinedSdkInFile(file);
+    if (fingerprints.length > 0) {
+      detections.push({ file, fingerprints });
+    }
+  }
+  return detections;
+}
+
 export interface SandboxChildHandle {
   exited: Promise<number>;
   signal(sig: NodeJS.Signals): void;
@@ -242,7 +295,12 @@ export type DevChildHandle = SandboxChildHandle;
  */
 export function spawnSandboxChild(
   plan: SandboxChildPlan,
-  opts: { cwd: string; env: NodeJS.ProcessEnv; json: boolean },
+  opts: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    json: boolean;
+    allowInlinedSdk?: boolean;
+  },
 ): SandboxChildHandle {
   const parts = [...plan.argv];
   const env: NodeJS.ProcessEnv = { ...opts.env };
@@ -256,7 +314,35 @@ export function spawnSandboxChild(
     env[key] = val;
   }
 
-  // 2. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
+  // 2. Pre-flight check: Scan backend entry point scripts for inlined Firebase SDK signatures
+  const inlinedDetections = detectInlinedSdkInPlan({ argv: parts, label: plan.label }, opts.cwd);
+  if (inlinedDetections.length > 0) {
+    const target = opts.json ? process.stderr : process.stdout;
+    const relFiles = inlinedDetections.map((d) => relative(opts.cwd, d.file) || d.file);
+    if (opts.allowInlinedSdk) {
+      target.write(
+        `  ⚠ --allow-inlined-sdk: ${relFiles.join(', ')} bundles the Firebase SDK. ` +
+          `Operations will not be sandboxed and may reach live Google Cloud endpoints.\n`,
+      );
+    } else {
+      process.stderr.write(
+        `\npyric sandbox: ${relFiles.join(', ')} bundles the real Firebase SDK, which bypasses the local sandbox.\n` +
+          `Its operations will reach LIVE Google Cloud endpoints instead of the local sandbox.\n\n` +
+          `To fix this, configure your bundler to mark Firebase modules as external:\n` +
+          `  • esbuild: --external:firebase --external:firebase-admin --external:@google-cloud/*\n` +
+          `  • tsup: --external firebase --external firebase-admin\n` +
+          `  • webpack: externals: ['firebase', 'firebase-admin', '@google-cloud/firestore']\n\n` +
+          `To bypass this safety check, run with --allow-inlined-sdk.\n\n`,
+      );
+      return {
+        exited: Promise.resolve(1),
+        signal() {},
+        child: { pid: undefined, exitCode: 1 } as unknown as ChildProcess,
+      };
+    }
+  }
+
+  // 3. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
   const hasShellOperators = parts.some((token) => SHELL_OPERATORS.has(token));
 
   // 3. Warn if runtime is bun or deno

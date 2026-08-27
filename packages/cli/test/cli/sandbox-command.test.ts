@@ -194,4 +194,41 @@ describe('pyric sandbox command execution', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 15_000);
+
+  it('blocks execution of backend script with inlined Firebase SDK signatures by default', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-bundle-block-'));
+    try {
+      writeFileSync(
+        join(dir, 'server.js'),
+        'console.log("inlined firestore.googleapis.com"); process.exit(0);',
+      );
+      const { code, stderr } = runCli(
+        ['sandbox', '--no-open', 'node', 'server.js'],
+        dir,
+      );
+      expect(code).toBe(1);
+      expect(stderr).toContain('bundles the real Firebase SDK');
+      expect(stderr).toContain('--allow-inlined-sdk');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows execution of backend script with inlined SDK when --allow-inlined-sdk is passed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-bundle-allow-'));
+    try {
+      writeFileSync(
+        join(dir, 'server.js'),
+        'console.log("inlined firestore.googleapis.com"); process.exit(0);',
+      );
+      const { code, stdout, stderr } = runCli(
+        ['sandbox', '--no-open', '--allow-inlined-sdk', 'node', 'server.js'],
+        dir,
+      );
+      expect(code).toBe(0);
+      expect(stdout).toContain('--allow-inlined-sdk: server.js bundles the Firebase SDK');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

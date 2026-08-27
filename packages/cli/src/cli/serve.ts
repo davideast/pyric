@@ -146,6 +146,8 @@ export async function startServe(opts: {
    *  (the served project's file tree) + `/__pyric/projects` (single-project
    *  store over `cwd`). The Studio app's `local` mode talks to these. */
   ui?: boolean;
+  /** Allow inlined Firebase SDK code without halting execution. */
+  allowInlinedSdk?: boolean;
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
 }): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
@@ -216,7 +218,7 @@ export async function startServe(opts: {
   // rather than serving it. A pyric SANDBOX build (`vite build --mode
   // development`) carries the marker and bundles pyric's in-page adapters, so it
   // is trusted and the scan is skipped (marker present → no real SDK to find).
-  if (!hasSandboxBuildMarker(publicDir)) {
+  if (!opts.allowInlinedSdk && hosting?.public && !hasSandboxBuildMarker(publicDir)) {
     const inlined = scanForInlinedFirebase(publicDir);
     if (inlined.length > 0) {
       throw new Error(
@@ -723,6 +725,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       watch: parsed.flags.get('no-watch') ? false : undefined,
       persist: Boolean(parsed.flags.get('persist')),
       fresh: Boolean(parsed.flags.get('fresh')),
+      allowInlinedSdk: Boolean(parsed.flags.get('allow-inlined-sdk')),
       // --ui mounts the Pyric Studio storage routes (workspace + projects).
       ui: uiOn,
       // --no-capture disables the default-on session capture. The pattern
@@ -910,6 +913,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     devChild = spawnSandboxChild(plan, {
       cwd,
       json,
+      allowInlinedSdk: Boolean(parsed.flags.get('allow-inlined-sdk')),
       env: buildChildEnv(process.env, {
         serveUrl: runtime.handle.url,
         registerUrl: registerModuleUrl(),
