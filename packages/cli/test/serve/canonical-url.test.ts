@@ -22,7 +22,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServe, serveJsonLine, type ServeRuntime } from '../../src/cli/serve.js';
-import { buildChildEnv } from '../../src/cli/dev-runner.js';
+import { buildChildEnv } from '../../src/cli/sandbox-runner.js';
 import { silentServeLogger } from '../../src/serve/server.js';
 import { discoverServe, canonicalServeUrl } from '../../src/serve/discovery.js';
 

@@ -40,11 +40,25 @@ function isBooleanFlag(key: string): boolean {
   return BOOLEAN_FLAGS.has(key) || key.startsWith('no-');
 }
 
-const SHORT_ALIASES: ReadonlyMap<string, { key: string; takesValue: boolean }> = new Map([
-  ['p', { key: 'port', takesValue: true }],
-  ['h', { key: 'help', takesValue: false }],
-  ['v', { key: 'version', takesValue: false }],
+const SHORT_VALUE_ALIASES: ReadonlyMap<string, string> = new Map([
+  ['p', 'port'],
 ]);
+
+function consumeFlag(
+  flags: Map<string, FlagValue>,
+  key: string,
+  argv: string[],
+  currentIndex: number,
+  canTakeValue: boolean,
+): number {
+  const next = argv[currentIndex + 1];
+  if (canTakeValue && next !== undefined && !next.startsWith('-')) {
+    setFlag(flags, key, next);
+    return currentIndex + 1;
+  }
+  setFlag(flags, key, true);
+  return currentIndex;
+}
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const flags = new Map<string, FlagValue>();
@@ -60,7 +74,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
     if (arg === '--') {
       // Everything after a bare `--` belongs to the child command, verbatim
-      // — never parsed as flags (`pyric dev -- npm start --port 3000`).
+      // — never parsed as flags (`pyric sandbox -- npm start --port 3000`).
       passthrough.push(...argv.slice(i + 1).filter((a): a is string => a !== undefined));
       break;
     }
@@ -75,29 +89,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
         setFlag(flags, arg.slice(2, eq), arg.slice(eq + 1));
       } else {
         const key = arg.slice(2);
-        const next = argv[i + 1];
-        if (!isBooleanFlag(key) && next && !next.startsWith('-')) {
-          setFlag(flags, key, next);
-          i += 1;
-        } else {
-          setFlag(flags, key, true);
-        }
+        i = consumeFlag(flags, key, argv, i, !isBooleanFlag(key));
       }
     } else if (arg.startsWith('-') && arg !== '-') {
       const raw = arg.slice(1);
-      const alias = SHORT_ALIASES.get(raw);
-      if (alias) {
-        if (alias.takesValue) {
-          const next = argv[i + 1];
-          if (next && !next.startsWith('-')) {
-            setFlag(flags, alias.key, next);
-            i += 1;
-          } else {
-            setFlag(flags, alias.key, true);
-          }
-        } else {
-          setFlag(flags, alias.key, true);
-        }
+      const longKey = SHORT_VALUE_ALIASES.get(raw);
+      if (longKey !== undefined) {
+        i = consumeFlag(flags, longKey, argv, i, true);
       } else {
         setFlag(flags, raw, true);
       }
@@ -112,7 +110,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function isExecutionSubcommand(subcommand: string | null): boolean {
-  return subcommand === 'sandbox' || subcommand === 'dev';
+  return subcommand === 'sandbox';
 }
 
 function setFlag(flags: Map<string, FlagValue>, key: string, value: string | boolean): void {

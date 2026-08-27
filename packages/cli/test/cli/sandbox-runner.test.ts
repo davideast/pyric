@@ -5,34 +5,28 @@
  * module URL, and the `[dev]` line prefixer.
  */
 import { describe, it, expect } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import {
   buildChildEnv,
   createLinePrefixer,
-  detectPackageManager,
   formatStartupEnvExport,
   parseCommandString,
-  readDevScript,
   registerModuleUrl,
-  resolveDevChild,
   resolveSandboxChild,
   waitForSandboxPeer,
-} from '../../src/cli/dev-runner.js';
+} from '../../src/cli/sandbox-runner.js';
 
 describe('parseArgs `--` passthrough', () => {
   it('collects everything after -- verbatim, never as flags', () => {
-    const parsed = parseArgs(['dev', '--bridge', '--', 'npm', 'start', '--port', '3000']);
-    expect(parsed.subcommand).toBe('dev');
+    const parsed = parseArgs(['sandbox', '--bridge', '--', 'npm', 'start', '--port', '3000']);
+    expect(parsed.subcommand).toBe('sandbox');
     expect(parsed.flags.get('bridge')).toBe(true);
     expect(parsed.passthrough).toEqual(['npm', 'start', '--port', '3000']);
     expect(parsed.flags.has('port')).toBe(false);
   });
 
   it('is empty without --', () => {
-    expect(parseArgs(['dev', '--json']).passthrough).toEqual([]);
+    expect(parseArgs(['sandbox', '--json']).passthrough).toEqual([]);
   });
 
   it('collects positional command and arguments under sandbox without --', () => {
@@ -136,36 +130,6 @@ describe('resolveSandboxChild precedence', () => {
       explicitCommand: ['node', 'x.js'],
     });
     expect(plan?.argv).toEqual(['node', 'x.js']);
-  });
-});
-
-describe('detectPackageManager / readDevScript', () => {
-  it('sniffs lockfiles, defaulting to npm', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-pm-'));
-    try {
-      expect(detectPackageManager(dir)).toBe('npm');
-      writeFileSync(join(dir, 'yarn.lock'), '');
-      expect(detectPackageManager(dir)).toBe('yarn');
-      writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
-      expect(detectPackageManager(dir)).toBe('pnpm');
-      writeFileSync(join(dir, 'bun.lock'), '');
-      expect(detectPackageManager(dir)).toBe('bun');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('reads scripts.dev, tolerating missing/invalid package.json', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-devscript-'));
-    try {
-      expect(readDevScript(dir)).toBeNull();
-      writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { dev: 'vite dev' } }));
-      expect(readDevScript(dir)).toBe('vite dev');
-      writeFileSync(join(dir, 'package.json'), '{not json');
-      expect(readDevScript(dir)).toBeNull();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
   });
 });
 

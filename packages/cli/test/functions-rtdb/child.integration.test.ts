@@ -12,7 +12,7 @@ import {
 import {
   buildChildEnv,
   registerModuleUrl,
-} from '../../src/cli/dev-runner.js';
+} from '../../src/cli/sandbox-runner.js';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { connectRemoteSandbox, type RemoteSandbox } from '../../src/remote/index.js';
 import { silentServeLogger } from '../../src/serve/server.js';
