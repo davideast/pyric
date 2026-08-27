@@ -52,7 +52,7 @@ test.beforeAll(async () => {
   const proc = spawn(
     process.execPath,
     // --no-cache: test the worker/entry bundles as built, never a warm cache.
-    [CLI_PATH, 'dev', '--no-open', '--port', '0', '--json', '--no-cache'],
+    [CLI_PATH, 'sandbox', '--no-open', '--port', '0', '--json', '--no-cache'],
     { cwd: DEMO_DIR, env: { ...process.env, CI: '1' }, stdio: ['ignore', 'pipe', 'pipe'] },
   );
   child = proc;

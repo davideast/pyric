@@ -21,7 +21,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE
     ? undefined
     : {
-        command: 'node ../../../dist/cli/index.js dev --port 5180 --no-open --no-cache',
+        command: 'node ../../../dist/cli/index.js sandbox --port 5180 --no-open --no-cache',
         cwd: 'fixture',
         url: 'http://127.0.0.1:5180',
         reuseExistingServer: true,

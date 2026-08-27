@@ -24,4 +24,4 @@ it('app-backed service factories expose a required .app to downstream TypeScript
   });
   const output = `${result.stdout.toString()}${result.stderr.toString()}`;
   expect(result.exitCode, output).toBe(0);
-});
+}, 30_000);

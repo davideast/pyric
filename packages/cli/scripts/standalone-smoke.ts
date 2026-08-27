@@ -57,7 +57,7 @@ check('firestore rules validate', validate.code === 0);
 // ── Embedded serve (the headline path) ────────────────────────────────
 writeFileSync(join(work, 'index.html'), '<!doctype html><html><body>smoke</body></html>');
 const PORT = 5310;
-const child = spawn(BIN, ['dev', '--port', String(PORT), '--no-open', '--no-watch', '--ui', '--json'], {
+const child = spawn(BIN, ['sandbox', '--port', String(PORT), '--no-open', '--no-watch', '--ui', '--json'], {
   cwd: work,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
