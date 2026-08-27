@@ -18,7 +18,7 @@ import { collectBody } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { pipeFileToResponse, type ServeLogger } from './server.js';
+import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
 import { handleActivity } from './activity-route.js';
 import { createSiteTreeHandler } from './site-tree.js';
@@ -476,24 +476,15 @@ async function handleDenials(
   res.writeHead(204).end();
 }
 
-function getHeader(req: IncomingMessage, name: string): string | undefined {
-  const headers = req?.headers as Record<string, string | string[] | undefined> | Headers | undefined;
-  if (!headers) return undefined;
-  if (typeof (headers as Headers).get === 'function') {
-    return (headers as Headers).get(name) ?? undefined;
-  }
-  const val = (headers as Record<string, string | string[] | undefined>)[name.toLowerCase()];
-  return Array.isArray(val) ? val.join(', ') : val;
-}
-
 export function createPyricNamespace(opts: NamespaceOptions) {
-  const writerLock = createWriterLock();
+  const stateWriterLock = createWriterLock();
+  const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();
   const sessionToken = opts.sessionToken ?? randomBytes(24).toString('base64url');
   const studioOptions: StudioRouteOptions | undefined = opts.studio
     ? {
         ...opts.studio,
         sessionToken,
-        writerLock,
+        writerLock: studioWriterLock,
         boundHost: opts.boundHost,
         allowedHosts: opts.allowedHosts,
       }
@@ -515,7 +506,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return studioRoutes(req, res, url);
     }
     if (opts.state && url.pathname === '/__pyric/state') {
-      return handleState(opts.state!, writerLock, req, res, url).then(() => true);
+      return handleState(opts.state!, stateWriterLock, req, res, url).then(() => true);
     }
     if (opts.capture && url.pathname === '/__pyric/capture') {
       return handleCapture(opts.capture, req, res).then(() => true);
@@ -524,6 +515,11 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return handleActivity(opts.activity, req, res, activityToken!).then(() => true);
     }
     if (opts.events && url.pathname === '/__pyric/events') {
+      const originHeader = getHeader(req, 'origin');
+      if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+        return true;
+      }
       const reqToken =
         getHeader(req, 'x-pyric-session-token') ??
         getHeader(req, 'x-pyric-token') ??

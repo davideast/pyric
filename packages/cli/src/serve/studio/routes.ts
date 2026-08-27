@@ -33,7 +33,7 @@ import type {
   WorkspaceChange,
   WorkspaceStore,
 } from './store-types.js';
-import { isAllowedHost, isAllowedOrigin } from '../server.js';
+import { isAllowedHost, isAllowedOrigin, getHeader } from '../server.js';
 import type { WriterLock } from '../writer-lock.js';
 
 export interface StudioRouteOptions {
@@ -215,16 +215,6 @@ async function handleProjects(
   res
     .writeHead(405, { allow: 'GET, PATCH, DELETE' })
     .end('method not allowed');
-}
-
-function getHeader(req: IncomingMessage, name: string): string | undefined {
-  const headers = req.headers as Record<string, string | string[] | undefined> | Headers;
-  if (!headers) return undefined;
-  if (typeof (headers as Headers).get === 'function') {
-    return (headers as Headers).get(name) ?? undefined;
-  }
-  const val = (headers as Record<string, string | string[] | undefined>)[name.toLowerCase()];
-  return Array.isArray(val) ? val.join(', ') : val;
 }
 
 /**

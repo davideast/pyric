@@ -23,8 +23,12 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/$/, '')}${path}`;
 }
 
-let cachedInitTokenPromise: Promise<string | null> | null = null;
+const tokenCache = new Map<string, Promise<string | null>>();
 let defaultTabWriterId: string | null = null;
+
+export function resetSessionTokenCache(): void {
+  tokenCache.clear();
+}
 
 export function getTabWriterId(explicitWriterId?: string): string {
   if (explicitWriterId) return explicitWriterId;
@@ -36,13 +40,34 @@ export function getTabWriterId(explicitWriterId?: string): string {
 
 export async function resolveSessionToken(baseUrl: string, explicitToken?: string): Promise<string | null> {
   if (explicitToken) return explicitToken;
-  if (!cachedInitTokenPromise) {
-    cachedInitTokenPromise = fetch(joinUrl(baseUrl, '/__pyric/init.json'))
+  const key = baseUrl.replace(/\/$/, '');
+  let promise = tokenCache.get(key);
+  if (!promise) {
+    promise = fetch(joinUrl(key, '/__pyric/init.json'))
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: any) => (data?.sessionToken ?? data?.activityToken ?? null) as string | null)
+      .then((data: any) => (data?.sessionToken ?? null) as string | null)
       .catch(() => null);
+    tokenCache.set(key, promise);
   }
-  return cachedInitTokenPromise;
+  return promise;
+}
+
+export async function createAuthHeaders(
+  baseUrl: string,
+  options?: HttpWorkspaceOptions | string,
+  includeWriter = false,
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  const explicitToken = typeof options === 'string' ? options : options?.token;
+  const writerId = typeof options === 'object' ? options?.writerId : undefined;
+  if (includeWriter) {
+    headers['x-pyric-writer'] = getTabWriterId(writerId);
+  }
+  const token = await resolveSessionToken(baseUrl, explicitToken);
+  if (token) {
+    headers['x-pyric-session-token'] = token;
+  }
+  return headers;
 }
 
 export function httpWorkspace(
@@ -51,20 +76,7 @@ export function httpWorkspace(
 ): WorkspaceStore {
   const base = baseUrl;
   const explicitToken = typeof options === 'string' ? options : options?.token;
-  const writerId = typeof options === 'object' ? options?.writerId : undefined;
-  const defaultWriterId = getTabWriterId(writerId);
-
-  async function getAuthHeaders(includeWriter = false): Promise<Record<string, string>> {
-    const headers: Record<string, string> = {};
-    if (includeWriter) {
-      headers['x-pyric-writer'] = defaultWriterId;
-    }
-    const token = await resolveSessionToken(base, explicitToken);
-    if (token) {
-      headers['x-pyric-session-token'] = token;
-    }
-    return headers;
-  }
+  const getAuthHeaders = (includeWriter = false) => createAuthHeaders(base, options, includeWriter);
 
   return {
     async read(path) {
