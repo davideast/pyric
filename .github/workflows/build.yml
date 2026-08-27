@@ -21,8 +21,8 @@ permissions:
   contents: read
 
 env:
-  # Flip to "enforce" after five audited shadow decisions.
-  CI_SELECTION_MODE: shadow
+  # Active enforcement: PRs execute only the check set determined by scripts/ci/plan.ts.
+  CI_SELECTION_MODE: enforce
 
 concurrency:
   # A new push to the same branch/PR cancels the in-flight run instead of

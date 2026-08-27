@@ -16,6 +16,16 @@ const RELEASE_WRAPPERS = new Set([
   'scripts/publish-alpha.sh',
 ]);
 const AUTHORED_DOC_MARKDOWN = /^packages\/site-docs\/src\/content\/.+\.md$/;
+const INTERNAL_REPO_DOCS = new Set([
+  'PRIORITIES.md',
+  'CONTEXT.md',
+  'AGENTS.md',
+  '.github/pull_request_template.md',
+]);
+
+function isDocMarkdown(path: string): boolean {
+  return AUTHORED_DOC_MARKDOWN.test(path) || INTERNAL_REPO_DOCS.has(path);
+}
 
 function everyPathMatches(
   paths: readonly ChangedPath[],
@@ -33,6 +43,6 @@ export function selectPrCheckSet(input: CheckSetInput): PrCheckSet {
     return 'full';
   }
   if (everyPathMatches(input.paths, (path) => RELEASE_WRAPPERS.has(path))) return 'release-only';
-  if (everyPathMatches(input.paths, (path) => AUTHORED_DOC_MARKDOWN.test(path))) return 'docs-only';
+  if (everyPathMatches(input.paths, isDocMarkdown)) return 'docs-only';
   return 'full';
 }
