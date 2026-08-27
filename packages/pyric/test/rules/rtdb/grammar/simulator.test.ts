@@ -173,4 +173,58 @@ describe('evaluateRtdbExpression', () => {
     const missingBody = { ...baseCtx, newData: new DataSnapshot({ title: 't' }) };
     expect(evalExpr("newData.hasChildren(['title', 'body'])", missingBody)).toBe(false);
   });
+
+  describe('scientific notation evaluation', () => {
+    test('evaluates scientific notation comparisons correctly', () => {
+      const under1k = { ...baseCtx, data: new DataSnapshot(500) };
+      const over1k = { ...baseCtx, data: new DataSnapshot(1500) };
+      expect(evalExpr('data.val() < 1e3', under1k)).toBe(true);
+      expect(evalExpr('data.val() < 1e3', over1k)).toBe(false);
+    });
+
+    test('evaluates scientific notation with decimals and negative exponents', () => {
+      const smallVal = { ...baseCtx, data: new DataSnapshot(0.015) };
+      expect(evalExpr('data.val() === 1.5e-2', smallVal)).toBe(true);
+    });
+
+    test('preserves subtraction precedence with scientific notation', () => {
+      const fiveHundred = { ...baseCtx, data: new DataSnapshot(500) };
+      expect(evalExpr('data.val() === 1e3 - 500', fiveHundred)).toBe(true);
+    });
+  });
+
+  describe('single-quoted string escape resolution', () => {
+    test('resolves newline and tab escapes', () => {
+      const newlineData = { ...baseCtx, data: new DataSnapshot('hello\nworld') };
+      expect(evalExpr("data.val() === 'hello\\nworld'", newlineData)).toBe(true);
+
+      const tabData = { ...baseCtx, data: new DataSnapshot('col1\tcol2') };
+      expect(evalExpr("data.val() === 'col1\\tcol2'", tabData)).toBe(true);
+    });
+
+    test('resolves escaped single quotes and backslashes', () => {
+      const apostropheData = { ...baseCtx, data: new DataSnapshot("it's a test") };
+      expect(evalExpr("data.val() === 'it\\'s a test'", apostropheData)).toBe(true);
+
+      const slashData = { ...baseCtx, data: new DataSnapshot('a\\b') };
+      expect(evalExpr("data.val() === 'a\\\\b'", slashData)).toBe(true);
+    });
+
+    test('resolves carriage return and double quotes', () => {
+      const crData = { ...baseCtx, data: new DataSnapshot('line1\r\nline2') };
+      expect(evalExpr("data.val() === 'line1\\r\\nline2'", crData)).toBe(true);
+
+      const quoteData = { ...baseCtx, data: new DataSnapshot('he said "hi"') };
+      expect(evalExpr("data.val() === 'he said \\\"hi\\\"'", quoteData)).toBe(true);
+    });
+
+    test('single-quoted and double-quoted string literals evaluate to identical values', () => {
+      expect(evalExpr("'a\\nb\\tc'", baseCtx)).toBe(evalExpr('"a\\nb\\tc"', baseCtx));
+    });
+
+    test('preserves unrecognized escape sequences safely without throwing', () => {
+      const unrecognized = { ...baseCtx, data: new DataSnapshot('\\z') };
+      expect(evalExpr("data.val() === '\\z'", unrecognized)).toBe(true);
+    });
+  });
 });

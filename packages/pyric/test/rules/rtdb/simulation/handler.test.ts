@@ -970,4 +970,44 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
     });
     expect(partial.success && partial.data.allowed).toBe(false);
   });
+
+  test('enforces validate rule with single-quoted string escape sequence', () => {
+    const expr = (raw: string) => ({
+      raw,
+      parsed: { raw, valid: true, errors: [], warnings: [], referencedIdentifiers: ['newData'] },
+    });
+    const rules: RtdbNode = {
+      path: '/',
+      pathVariables: [],
+      children: [
+        {
+          path: '/logs',
+          pathVariables: [],
+          write: expr('true'),
+          validate: expr("newData.val() === 'line1\\nline2'"),
+          children: [],
+        },
+      ],
+    };
+
+    // Passing write with exact newline
+    const allowResult = handler.execute(rules, {
+      operation: 'write',
+      path: '/logs',
+      auth: { uid: 'user1', token: {} },
+      mockData: {},
+      newData: 'line1\nline2',
+    });
+    expect(allowResult.success && allowResult.data.allowed).toBe(true);
+
+    // Denied write with literal backslash n
+    const denyResult = handler.execute(rules, {
+      operation: 'write',
+      path: '/logs',
+      auth: { uid: 'user1', token: {} },
+      mockData: {},
+      newData: 'line1\\nline2',
+    });
+    expect(denyResult.success && denyResult.data.allowed).toBe(false);
+  });
 });
