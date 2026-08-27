@@ -67,36 +67,28 @@ import {
 } from './service-worker-channel.js';
 import { createServiceWorkerRelay } from './service-worker-relay.js';
 import { createWorkerRetirement } from './retirement.js';
+import { createContextResolver } from './context-resolver.js';
 
 declare const __PYRIC_WORKER_VERSION__: string;
 const workerEpoch = typeof __PYRIC_WORKER_VERSION__ !== 'undefined'
   ? __PYRIC_WORKER_VERSION__
   : 'dev';
 const workerScope = self as unknown as SharedWorkerGlobalScope;
+const contextResolver = createContextResolver(buildCtx);
 const retirement = createWorkerRetirement({
   closeWorker: () => workerScope.close(),
-  beforeAnnounce: async () => { await _ctx?.captureFlush?.(); },
+  beforeAnnounce: async () => { await contextResolver.current()?.captureFlush?.(); },
 });
 
 // ─── Singleton context ────────────────────────────────────────────────────
 
-// `_ctx` is the RESOLVED context, kept for the synchronous `close` handler.
-// The build is memoized as a PROMISE (`_ctxPromise`) — NOT as the resolved
-// value — because init is async (it awaits `/__pyric/init.json` + persistence
-// restore). The first messages arrive in a BURST (the authState sub, the first
-// firestore sub, an op — possibly across two tabs at once); if each re-checked
-// only the resolved `_ctx` they would every one start a fresh init and build a
-// SEPARATE sandbox, so a listener and a write could bind to different
-// instances and never see each other. The promise memo guarantees ONE init.
-let _ctx: HostCtx | null = null;
-let _ctxPromise: Promise<HostCtx> | null = null;
-
 /**
  * Return the shared context, memoizing the in-flight init promise so
- * concurrent first messages await ONE build (see `_ctxPromise` above).
+ * concurrent first messages await ONE build. If initialization rejects,
+ * the rejection is cleared so subsequent connection attempts can retry.
  */
 function getCtx(): Promise<HostCtx> {
-  return (_ctxPromise ??= buildCtx());
+  return contextResolver.get();
 }
 
 /**
@@ -125,7 +117,6 @@ async function buildCtx(): Promise<HostCtx> {
         ? (url) => new EventSource(url) as unknown as EventSourceLike
         : null,
   });
-  _ctx = ctx; // publish the resolved ctx for the synchronous close handler
   return ctx;
 }
 
@@ -188,7 +179,8 @@ workerScope.onconnect = (e: MessageEvent) => {
   // best-effort; subscriptions also GC when the worker itself dies.
   port.addEventListener('close', () => {
     retirement.disconnect(port);
-    if (_ctx) void cleanupPortWithDisconnect(_ctx, port as unknown as PortLike).catch(() => undefined);
+    const resolvedCtx = contextResolver.current();
+    if (resolvedCtx) void cleanupPortWithDisconnect(resolvedCtx, port as unknown as PortLike).catch(() => undefined);
   });
 };
 
