@@ -4,7 +4,7 @@
  *
  * Subcommands:
  *   pyric bridge [--port N] [--project ID]
- *   pyric dev [--port N] [--host H] [--no-cache] [--bridge] [--ui] [--seed FILE] [--no-watch] [--no-open] [--no-capture] [--no-run] [--json] [--persist] [--fresh] [-- <cmd>]
+ *   pyric sandbox [command...] [--port N] [--host H] [--no-cache] [--bridge] [--ui] [--seed FILE] [--no-watch] [--no-open] [--no-capture] [--no-run] [--json] [--persist] [--fresh] [-- <cmd>]
  *   pyric init [dir] [--template web|node] [--name N] [--force] [--json]
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
@@ -60,7 +60,7 @@ clients (Claude Code, Cursor, ...).
 
 USAGE
   pyric bridge [flags]
-  pyric dev [flags] [-- <cmd>]
+  pyric sandbox [command...] [flags]
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
@@ -83,16 +83,14 @@ USAGE
 
 COMMANDS
   bridge                     Start the HTTP+WebSocket bridge external MCP clients point at.
-  dev                        Serve the app locally with the pyric sandbox standing in for
-                             Firebase — unmodified firebase/* imports hit an in-page sandbox
-                             with your firestore.rules deployed. Also runs your own dev
-                             command (\`-- <cmd>\`, else the package.json \`dev\` script) with
-                             unchanged firebase-admin/firebase imports routed to the
-                             sandbox (PYRIC_SANDBOX + \`--import @pyric/cli/register\`). A
-                             firebase.json Functions source is discovered automatically;
+  sandbox [command...]       Run an application command or script inside the local Firebase sandbox
+                             with unmodified firebase/* and firebase-admin/* imports routed to the
+                             in-memory mirror. When [command...] is omitted, runs the command
+                             configured in pyric.json; if none is configured, runs the sandbox host only.
+                             A firebase.json Functions source is discovered automatically;
                              supported RTDB onValueCreated exports run in isolated Node.
   init [dir]                 Scaffold a pyric project. --template=web (default; Vite app
-                             on \`@pyric/cli/vite\`), static (\`pyric dev\`), or node.
+                             on \`@pyric/cli/vite\`), static (\`pyric sandbox\`), or node.
                              --name=NAME --force (overwrite scaffold files) --json (machine
                              output on stdout). Never prompts; rerunning is safe.
                              Greenfield shortcut: \`npm create pyric [dir]\`.
@@ -102,15 +100,15 @@ COMMANDS
                              bun install. Standalone binary only.
   mcp                        Stdio MCP server for editors (Cursor / Claude /
                              Antigravity). Hosts a headless in-process sandbox,
-                             or attaches to a running \`pyric dev --bridge\`
+                             or attaches to a running \`pyric sandbox --bridge\`
                              (found via .pyric/serve.json) for shared-live Studio.
   snapshot [--out=FILE]      Promote lived sandbox state (live dev --persist, else
                              .pyric/state/state.json) to a committable fixture that
-                             \`pyric dev --seed FILE\` re-serves. Passwords are redacted
+                             \`pyric sandbox --seed FILE\` re-serves. Passwords are redacted
                              by default (--include-passwords keeps them). --port, --force, --json.
   verify [fixture|dir]       Replay a captured sandbox session against candidate rules
                              for the Firestore/RTDB services present in the fixture.
-                             No arg replays the latest \`pyric dev\` capture
+                             No arg replays the latest \`pyric sandbox\` capture
                              (.pyric/last-session.json). --service filters services.
                              --engine sandbox (default), rules-test-api, or both.
                              Hosted Rules Test API verification is Firestore-only
@@ -135,7 +133,7 @@ COMMANDS
   database rules validate    Validate Realtime Database rules expressions.
   database rules simulate    Run the local Realtime Database rules simulator.
   database rules generate    Compile a constraints module to database.rules.json.
-CORE FLAGS (dev)
+CORE FLAGS (sandbox)
   --port             Port to serve on. Default 3473 — "FIRE" on a phone keypad (scans forward when taken;
                      macOS AirPlay squats 5000).
   --host             Host to bind. Default localhost.
@@ -337,7 +335,7 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       return parsed.subcommand === null ? 0 : 1;
     case 'bridge':
       return await runBridge(parsed);
-    case 'dev':
+    case 'sandbox':
       const { runServe } = await import('./serve.js');
       return runServe(parsed);
     case 'snapshot':

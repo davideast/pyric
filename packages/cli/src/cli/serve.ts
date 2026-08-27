@@ -28,6 +28,7 @@ import { formatActivityWarning } from '../serve/activity-warning.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
+import { readPyricConfig, type PyricConfig } from './pyric-config.js';
 import {
   buildChildEnv,
   detectPackageManager,
@@ -35,6 +36,7 @@ import {
   readDevScript,
   registerModuleUrl,
   resolveDevChild,
+  resolveSandboxChild,
   spawnDevChild,
   waitForSandboxPeer,
   type DevChildHandle,
@@ -170,6 +172,27 @@ export async function startServe(opts: {
   } catch (e) {
     if (!(e instanceof Error) || !e.message.includes('no firebase.json')) throw e;
     logger.note('  ⚠ no firebase.json found — serving the current directory without hosting config');
+  }
+
+  const pyricConfig = await readPyricConfig(opts.cwd);
+  if (pyricConfig.rules) {
+    if (!config) config = {};
+    if (typeof pyricConfig.rules === 'string') {
+      config.firestore = { rules: pyricConfig.rules, ...config.firestore };
+    } else {
+      if (pyricConfig.rules.firestore) {
+        config.firestore = { rules: pyricConfig.rules.firestore, ...config.firestore };
+      }
+      if (pyricConfig.rules.database) {
+        config.database = { rules: pyricConfig.rules.database, ...config.database };
+      }
+      if (pyricConfig.rules.storage) {
+        config.storage = {
+          rules: pyricConfig.rules.storage,
+          ...(typeof config.storage === 'object' && !Array.isArray(config.storage) ? config.storage : {}),
+        };
+      }
+    }
   }
 
   const hosting = extractHosting(config);
@@ -598,8 +621,22 @@ export function installServeProcessGuard(
 
 /** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
 export async function runServe(parsed: ParsedArgs): Promise<number> {
+  const cwd = process.cwd();
+  let pyricConfig: PyricConfig = {};
+  try {
+    pyricConfig = await readPyricConfig(cwd);
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
+
   const flagPort = parsed.flags.get('port');
-  const port = typeof flagPort === 'string' ? Number(flagPort) : 3473;
+  const port =
+    typeof flagPort === 'string'
+      ? Number(flagPort)
+      : typeof flagPort === 'number'
+        ? flagPort
+        : pyricConfig.port ?? 3473;
   if (!Number.isFinite(port) || port < 0 || port > 65535) {
     process.stderr.write(`pyric: invalid --port '${flagPort}'.\n`);
     return 1;
@@ -610,7 +647,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   const only = parsed.flags.get('only');
   if (typeof only === 'string' && only !== 'hosting') {
     process.stderr.write(
-      `pyric: --only '${only}' is not supported — pyric dev v1 serves hosting (with the in-page sandbox standing in for firestore/auth).\n`,
+      `pyric: --only '${only}' is not supported — pyric sandbox serves hosting (with the in-page sandbox standing in for firestore/auth).\n`,
     );
     return 1;
   }
@@ -623,7 +660,6 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // Resolve the child plan BEFORE the server starts: a planned child implies
   // the bridge (see bridgeEnabledFor) — the child's injected PYRIC_SANDBOX
   // is useless without the /__pyric/sandbox WS mount.
-  const cwd = process.cwd();
   let functionsProject: FunctionsRtdbProject | null;
   let functionsProjectId: string | null = null;
   try {
@@ -634,6 +670,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       functionsProjectId =
         (typeof flagProject === 'string' ? flagProject : undefined) ??
         process.env.PYRIC_PROJECT ??
+        pyricConfig.project ??
         rc?.projects?.default ??
         'demo-project';
     }
@@ -641,12 +678,19 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
-  const plan = resolveDevChild({
-    passthrough: parsed.passthrough ?? [],
+
+  const explicitCommand =
+    parsed.passthrough && parsed.passthrough.length > 0
+      ? parsed.passthrough
+      : parsed.positional.length > 0
+        ? parsed.positional
+        : null;
+
+  const plan = resolveSandboxChild({
+    explicitCommand,
+    configCommand: pyricConfig.command,
     noRun: Boolean(parsed.flags.get('no-run')),
     json,
-    devScript: readDevScript(cwd),
-    packageManager: detectPackageManager(cwd),
   });
   const bridgeOn = bridgeEnabledFor(parsed.flags, plan, functionsProject);
 
@@ -675,7 +719,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       project:
         typeof parsed.flags.get('project') === 'string'
           ? (parsed.flags.get('project') as string)
-          : process.env.PYRIC_PROJECT ?? functionsProjectId ?? undefined,
+          : process.env.PYRIC_PROJECT ?? pyricConfig.project ?? functionsProjectId ?? undefined,
     });
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`);
@@ -838,6 +882,11 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
           `  ⚠ no browser tab connected after 30s — starting your command anyway; sandbox ops will fail until ${runtime.handle.url} is open.\n`,
         );
       }
+    } else if (!json) {
+      info.write(
+        `  ⓘ Auto-open is disabled (--no-open/CI). The pyric sandbox is browser-resident: ` +
+          `open ${runtime.handle.url} to connect if your command performs Firebase operations.\n`,
+      );
     }
     info.write(
       `✔ run      \`${plan.label}\` — firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
