@@ -61,6 +61,7 @@ The feedback loop: local builds, tests, and CI should surface useful results qui
 
 **Now:**
 - Measure recent GitHub Actions runs and identify the critical path
+- Activate enforced CI check-set selection to bypass heavy matrix jobs on pure documentation changes
 - Shorten pull-request feedback time by removing redundant work and improving parallelism and caching
 - Keep release confidence intact while making the common local and CI loops faster
 
