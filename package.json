@@ -10,9 +10,6 @@
     "packages/create-pyric/templates/chat/functions",
     "examples/inpage-todo-app"
   ],
-  "overrides": {
-    "firebase": "12.13.0"
-  },
   "scripts": {
     "build": "bash scripts/build.sh",
     "knip": "knip --no-progress",
