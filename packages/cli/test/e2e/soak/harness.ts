@@ -94,7 +94,7 @@ export async function startSoakServe(
 
   const args = [
     CLI_PATH,
-    'dev',
+    'sandbox',
     '--ui',
     '--bridge',
     '--no-open',

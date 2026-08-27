@@ -13,7 +13,7 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: `bun ${cli} dev --port 4288 --no-open -- bun x next dev --port 4289`,
+    command: `bun ${cli} sandbox --port 4288 --no-open -- bun x next dev --port 4289`,
     url: 'http://127.0.0.1:4289',
     reuseExistingServer: true,
     timeout: 60_000,

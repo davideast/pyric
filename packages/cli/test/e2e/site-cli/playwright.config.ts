@@ -17,7 +17,7 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: `bun ${cli} dev --ui --no-open --no-capture --no-watch --host 127.0.0.1 --port 5201`,
+    command: `bun ${cli} sandbox --ui --no-open --no-capture --no-watch --host 127.0.0.1 --port 5201`,
     cwd: fixture,
     env: { ...process.env, HOME: testHome, USERPROFILE: testHome },
     url: 'http://127.0.0.1:5201/__pyric/ui/',
