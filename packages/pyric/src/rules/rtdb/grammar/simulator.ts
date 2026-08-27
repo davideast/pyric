@@ -29,6 +29,32 @@ function safeMemberRead(recv: unknown, key: string): unknown {
   return (recv as Record<string, unknown>)[key] ?? null;
 }
 
+/** Process standard escape sequences in single-quoted string literals. */
+function processStringEscapes(raw: string): string {
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (c !== '\\' || i === raw.length - 1) {
+      out += c;
+      continue;
+    }
+    const next = raw[++i];
+    switch (next) {
+      case '\\': out += '\\'; break;
+      case '\'': out += '\''; break;
+      case '"':  out += '"';  break;
+      case 'n':  out += '\n'; break;
+      case 'r':  out += '\r'; break;
+      case 't':  out += '\t'; break;
+      case 'b':  out += '\b'; break;
+      case 'f':  out += '\f'; break;
+      case '/':  out += '/';  break;
+      default:   out += '\\' + next; break;
+    }
+  }
+  return out;
+}
+
 export interface EvalContext {
   auth: SimulatedAuth | null;
   data: DataSnapshot;
@@ -289,7 +315,8 @@ function getEvalSemantics(): Semantics {
 
     literal(node) { return (node as any).eval(); },
 
-    number_float(_int, _dot, _frac) { return parseFloat(this.sourceString); },
+    number_float(_int, _dot, _frac, _exp) { return parseFloat(this.sourceString); },
+    number_exp(_digits, _exp) { return parseFloat(this.sourceString); },
     number_int(_digits) { return parseInt(this.sourceString, 10); },
     number(node) { return (node as any).eval(); },
 
@@ -297,7 +324,7 @@ function getEvalSemantics(): Semantics {
       return JSON.parse(this.sourceString);
     },
     string_single(_open, chars, _close) {
-      return chars.children.map((c: any) => c.sourceString).join('');
+      return processStringEscapes(chars.sourceString);
     },
     string(node) { return (node as any).eval(); },
 

@@ -63,8 +63,11 @@ export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {
     | null
 
   number
-    = digit+ "." digit+  -- float
-    | digit+              -- int
+    = digit+ "." digit+ exponent?  -- float
+    | digit+ exponent              -- exp
+    | digit+                       -- int
+
+  exponent = ("e" | "E") ("+" | "-")? digit+
 
   string
     = "\\"" doubleStringChar* "\\""  -- double

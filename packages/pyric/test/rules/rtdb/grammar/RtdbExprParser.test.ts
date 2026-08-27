@@ -109,4 +109,33 @@ describe('parseExpression', () => {
     expect(result.referencedIdentifiers).toContain('auth');
     expect(result.referencedIdentifiers).toContain('newData');
   });
+
+  describe('scientific notation parsing', () => {
+    test('parses integer with exponent', () => {
+      expect(parseExpression('data.val() < 1e3').valid).toBe(true);
+      expect(parseExpression('data.val() === 2E5').valid).toBe(true);
+      expect(parseExpression('data.val() > 10e0').valid).toBe(true);
+    });
+
+    test('parses scientific notation with negative exponent', () => {
+      expect(parseExpression('data.val() === 1e-3').valid).toBe(true);
+      expect(parseExpression('data.val() === 5E-2').valid).toBe(true);
+    });
+
+    test('parses scientific notation with positive exponent sign', () => {
+      expect(parseExpression('data.val() === 1e+3').valid).toBe(true);
+      expect(parseExpression('data.val() === 2E+4').valid).toBe(true);
+    });
+
+    test('parses float base with exponent', () => {
+      expect(parseExpression('newData.val() >= 1.5e-2').valid).toBe(true);
+      expect(parseExpression('newData.val() <= 2.0E+3').valid).toBe(true);
+    });
+
+    test('rejects incomplete exponent syntax cleanly', () => {
+      expect(parseExpression('1e').valid).toBe(false);
+      expect(parseExpression('1e+').valid).toBe(false);
+      expect(parseExpression('1.5e-').valid).toBe(false);
+    });
+  });
 });
