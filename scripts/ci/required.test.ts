@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { requiredFailures } from './required.ts';
 
 const success = {
+  'build-packages': 'success',
   'build-and-test': 'success',
   'library-tests': 'success',
   'conformance-suite': 'success',
@@ -30,7 +31,7 @@ describe('required CI result', () => {
     expect(requiredFailures({
       checkSet: 'release-only',
       requirePackaging: false,
-      results: { ...success, 'build-and-test': 'skipped', 'library-tests': 'skipped', 'conformance-suite': 'skipped', 'browser-conformance': 'skipped', 'conformance-gates': 'skipped', 'release-contract': 'success' },
+      results: { ...success, 'build-packages': 'skipped', 'build-and-test': 'skipped', 'library-tests': 'skipped', 'conformance-suite': 'skipped', 'browser-conformance': 'skipped', 'conformance-gates': 'skipped', 'release-contract': 'success' },
     })).toEqual([]);
   });
 
