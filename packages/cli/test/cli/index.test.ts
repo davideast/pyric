@@ -67,7 +67,7 @@ describe('retained pyric command surface', () => {
 
     expect(code).toBe(0);
     expect(stderr).toBe('');
-    for (const command of ['init', 'dev', 'bridge', 'mcp', 'snapshot', 'verify', 'vendor']) {
+    for (const command of ['init', 'sandbox', 'bridge', 'mcp', 'snapshot', 'verify', 'vendor']) {
       expect(stdout).toMatch(new RegExp(`^\\s+(?:pyric )?${command}\\b`, 'm'));
     }
   });
@@ -337,15 +337,16 @@ describe('service command hierarchy', () => {
   });
 });
 
-describe('pyric dev command surface', () => {
-  it('rejects the removed serve spelling instead of retaining an alias', async () => {
-    expect((await runDispatch(['serve'])).code).toBe(1);
+describe('pyric sandbox command surface', () => {
+  it('rejects the removed dev spelling instead of retaining an alias', async () => {
+    expect((await runDispatch(['dev'])).code).toBe(1);
   });
 
-  it('advertises dev and never serve', async () => {
+  it('advertises sandbox and never dev or serve', async () => {
     const { code, stdout } = await runDispatch(['--help']);
     expect(code).toBe(0);
-    expect(stdout).toContain('pyric dev [flags]');
+    expect(stdout).toContain('pyric sandbox [command...]');
+    expect(stdout).not.toContain('pyric dev');
     expect(stdout).not.toContain('pyric serve');
   });
 });

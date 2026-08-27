@@ -14,9 +14,11 @@ import {
   createLinePrefixer,
   detectPackageManager,
   formatStartupEnvExport,
+  parseCommandString,
   readDevScript,
   registerModuleUrl,
   resolveDevChild,
+  resolveSandboxChild,
   waitForSandboxPeer,
 } from '../../src/cli/dev-runner.js';
 
@@ -33,52 +35,107 @@ describe('parseArgs `--` passthrough', () => {
     expect(parseArgs(['dev', '--json']).passthrough).toEqual([]);
   });
 
-  it('handles a trailing bare --', () => {
-    expect(parseArgs(['dev', '--']).passthrough).toEqual([]);
+  it('collects positional command and arguments under sandbox without --', () => {
+    const parsed = parseArgs(['sandbox', '--port', '4000', 'next', 'dev', '--turbo']);
+    expect(parsed.subcommand).toBe('sandbox');
+    expect(parsed.flags.get('port')).toBe('4000');
+    expect(parsed.positional).toEqual(['next', 'dev', '--turbo']);
+    expect(parsed.flags.has('turbo')).toBe(false);
+  });
+
+  it('collects node flags under sandbox without --', () => {
+    const parsed = parseArgs(['sandbox', 'node', '-e', 'console.log(1)']);
+    expect(parsed.subcommand).toBe('sandbox');
+    expect(parsed.positional).toEqual(['node', '-e', 'console.log(1)']);
+    expect(parsed.flags.has('e')).toBe(false);
+  });
+
+  it('maps -p 4000 to port flag and preserves child command', () => {
+    const parsed = parseArgs(['sandbox', '-p', '4000', 'next', 'dev']);
+    expect(parsed.subcommand).toBe('sandbox');
+    expect(parsed.flags.get('port')).toBe('4000');
+    expect(parsed.positional).toEqual(['next', 'dev']);
   });
 });
 
-describe('resolveDevChild precedence', () => {
+describe('parseCommandString', () => {
+  it('tokenizes standard commands by space', () => {
+    expect(parseCommandString('next dev')).toEqual(['next', 'dev']);
+    expect(parseCommandString('npm run dev:server')).toEqual(['npm', 'run', 'dev:server']);
+  });
+
+  it('preserves double and single quoted strings', () => {
+    expect(parseCommandString('node -e "console.log(1)"')).toEqual([
+      'node',
+      '-e',
+      'console.log(1)',
+    ]);
+    expect(parseCommandString("node -e 'console.log(2)'")).toEqual([
+      'node',
+      '-e',
+      'console.log(2)',
+    ]);
+  });
+});
+
+describe('resolveSandboxChild precedence', () => {
   const base = {
+    explicitCommand: null as string[] | null,
     passthrough: [] as string[],
+    configCommand: null as string | null,
     noRun: false,
     json: false,
-    devScript: null as string | null,
-    packageManager: 'npm' as const,
   };
 
-  it('explicit -- command wins over the dev script', () => {
-    const plan = resolveDevChild({ ...base, passthrough: ['node', 'server.js'], devScript: 'vite' });
+  it('explicit CLI command wins over pyric.json config command', () => {
+    const plan = resolveSandboxChild({
+      ...base,
+      explicitCommand: ['node', 'server.js'],
+      configCommand: 'next dev',
+    });
     expect(plan).toEqual({ argv: ['node', 'server.js'], label: 'node server.js' });
   });
 
-  it('falls back to the dev script via the detected package manager', () => {
-    const plan = resolveDevChild({ ...base, devScript: 'vite dev', packageManager: 'bun' });
-    expect(plan).toEqual({ argv: ['bun', 'run', 'dev'], label: 'bun run dev' });
+  it('passthrough -- command wins over pyric.json config command', () => {
+    const plan = resolveSandboxChild({
+      ...base,
+      passthrough: ['node', 'server.js'],
+      configCommand: 'next dev',
+    });
+    expect(plan).toEqual({ argv: ['node', 'server.js'], label: 'node server.js' });
   });
 
-  it('no -- and no dev script → host-only', () => {
-    expect(resolveDevChild(base)).toBeNull();
+  it('falls back to pyric.json configCommand when no CLI command is given', () => {
+    const plan = resolveSandboxChild({ ...base, configCommand: 'next dev --port 3000' });
+    expect(plan).toEqual({ argv: ['next', 'dev', '--port', '3000'], label: 'next dev --port 3000' });
   });
 
-  it('--no-run forces host-only, even with -- and a dev script', () => {
+  it('no explicit command and no config command → host-only (null)', () => {
+    expect(resolveSandboxChild(base)).toBeNull();
+  });
+
+  it('--no-run forces host-only, even with an explicit command and config', () => {
     expect(
-      resolveDevChild({ ...base, noRun: true, passthrough: ['npm', 'start'], devScript: 'vite' }),
+      resolveSandboxChild({
+        ...base,
+        noRun: true,
+        explicitCommand: ['npm', 'start'],
+        configCommand: 'next dev',
+      }),
     ).toBeNull();
   });
 
-  it('--json defaults to host-only (skips the dev script)', () => {
-    expect(resolveDevChild({ ...base, json: true, devScript: 'vite' })).toBeNull();
+  it('--json defaults to host-only (skips configCommand)', () => {
+    expect(resolveSandboxChild({ ...base, json: true, configCommand: 'next dev' })).toBeNull();
   });
 
-  it('--json with an explicit -- command still runs it', () => {
-    const plan = resolveDevChild({ ...base, json: true, passthrough: ['node', 'x.js'] });
+  it('--json with an explicit command still runs it', () => {
+    const plan = resolveSandboxChild({
+      ...base,
+      json: true,
+      explicitCommand: ['node', 'x.js'],
+    });
     expect(plan?.argv).toEqual(['node', 'x.js']);
-  });
-
-  it('a dev script that itself runs pyric dev is skipped (no recursion)', () => {
-    expect(resolveDevChild({ ...base, devScript: 'pyric dev --bridge' })).toBeNull();
-    expect(resolveDevChild({ ...base, devScript: 'rimraf dist && pyric dev' })).toBeNull();
   });
 });
 

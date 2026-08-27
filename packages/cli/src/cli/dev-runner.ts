@@ -94,36 +94,63 @@ export interface DevChildPlan {
 }
 
 /**
+ * Tokenize a command string into an argv array, preserving quoted strings.
+ */
+export function parseCommandString(cmd: string): string[] {
+  const parts: string[] = [];
+  const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(cmd)) !== null) {
+    if (match[1] !== undefined) {
+      parts.push(match[1]);
+    } else if (match[2] !== undefined) {
+      parts.push(match[2]);
+    } else {
+      parts.push(match[0]);
+    }
+  }
+  return parts;
+}
+
+/**
  * Decide what (if anything) to run after the host is up.
  *
- * Matrix:
- *   --no-run                → null, always
- *   `-- <cmd>`              → that command (wins over everything else)
- *   --json (no `--`)        → null (machine mode defaults to host-only)
- *   package.json dev script → `<pm> run dev`
- *   none of the above       → null (host-only, today's behavior)
- *
- * A `dev` script that itself invokes `pyric dev` is treated as absent —
- * running it would recurse forever (pyric dev → npm run dev → pyric dev …).
+ * Precedence:
+ *   --no-run                                → null, always
+ *   explicit CLI command (args or `--`)     → that command (wins over everything else)
+ *   --json (with no explicit command)       → null (machine mode defaults to host-only)
+ *   pyric.json `command`                    → parsed command argv
+ *   none of the above                       → null (host-only)
  */
-export function resolveDevChild(opts: {
-  passthrough: string[];
-  noRun: boolean;
-  json: boolean;
-  devScript: string | null;
-  packageManager: PackageManager;
+export function resolveSandboxChild(opts: {
+  explicitCommand?: string[] | null;
+  passthrough?: string[];
+  configCommand?: string | null;
+  noRun?: boolean;
+  json?: boolean;
+  devScript?: string | null;
+  packageManager?: PackageManager;
 }): DevChildPlan | null {
   if (opts.noRun) return null;
-  if (opts.passthrough.length > 0) {
-    return { argv: [...opts.passthrough], label: opts.passthrough.join(' ') };
+  const cmd =
+    opts.explicitCommand && opts.explicitCommand.length > 0
+      ? opts.explicitCommand
+      : opts.passthrough && opts.passthrough.length > 0
+        ? opts.passthrough
+        : null;
+  if (cmd) {
+    return { argv: [...cmd], label: cmd.join(' ') };
   }
   if (opts.json) return null;
-  if (opts.devScript && !/(^|[\s;&|])pyric\s+dev\b/.test(opts.devScript)) {
-    const label = `${opts.packageManager} run dev`;
-    return { argv: [opts.packageManager, 'run', 'dev'], label };
+  if (opts.configCommand && opts.configCommand.trim().length > 0) {
+    const trimmed = opts.configCommand.trim();
+    const argv = parseCommandString(trimmed);
+    return { argv, label: trimmed };
   }
   return null;
 }
+
+export const resolveDevChild = resolveSandboxChild;
 
 // ─── Environment for the child (pure) ──────────────────────────────────────
 
@@ -236,16 +263,52 @@ export function spawnDevChild(
   plan: DevChildPlan,
   opts: { cwd: string; env: NodeJS.ProcessEnv; json: boolean },
 ): DevChildHandle {
-  const [command, ...args] = plan.argv;
-  const child = spawn(command!, args, {
-    cwd: opts.cwd,
-    env: opts.env,
-    stdio: ['inherit', 'pipe', 'pipe'],
-    // Own a process group so shutdown reaches package-manager grandchildren
-    // (for example `bun run dev` -> `node server.js`) rather than orphaning
-    // the actual dev server when only the runner exits.
-    detached: process.platform !== 'win32',
-  });
+  const parts = [...plan.argv];
+  const env: NodeJS.ProcessEnv = { ...opts.env };
+
+  // 1. Extract leading KEY=VAL assignments (e.g. PORT=8080 node server.js)
+  while (parts.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(parts[0]!)) {
+    const token = parts.shift()!;
+    const eq = token.indexOf('=');
+    const key = token.slice(0, eq);
+    const val = token.slice(eq + 1);
+    env[key] = val;
+  }
+
+  // 2. Check for shell operators (&&, ||, |, ;) in the command
+  const hasShellOperators =
+    plan.label.includes('&&') ||
+    plan.label.includes('||') ||
+    plan.label.includes('|') ||
+    plan.label.includes(';');
+
+  // 3. Warn if runtime is bun or deno
+  if (parts.length > 0 && (parts[0] === 'bun' || parts[0] === 'deno')) {
+    const runner = parts[0];
+    const target = opts.json ? process.stderr : process.stdout;
+    target.write(
+      `  ⚠ ${runner} detected: pyric intercepts Firebase imports via Node.js module loader hooks (NODE_OPTIONS="--import ..."). ` +
+        `${runner} does not evaluate Node loader hooks — SDK calls in this process will not reach the pyric sandbox. ` +
+        `Use \`node\` (or \`npx tsx\`) to run with the sandbox swap.\n`,
+    );
+  }
+
+  const [command, ...args] = parts;
+  const child = hasShellOperators
+    ? spawn(plan.label, [], {
+        cwd: opts.cwd,
+        env,
+        stdio: ['inherit', 'pipe', 'pipe'],
+        shell: true,
+        detached: process.platform !== 'win32',
+      })
+    : spawn(command!, args, {
+        cwd: opts.cwd,
+        env,
+        stdio: ['inherit', 'pipe', 'pipe'],
+        shell: process.platform === 'win32',
+        detached: process.platform !== 'win32',
+      });
 
   const outTarget = opts.json ? process.stderr : process.stdout;
   const out = createLinePrefixer('[dev] ', (line) => outTarget.write(line));
