@@ -333,7 +333,7 @@ describe('runServe host-only environment export', () => {
       return true;
     }) as typeof process.stdout.write;
     try {
-      const parsed = parseArgs(['dev', '--port', '0', '--no-open', '--no-run', '--no-cache']);
+      const parsed = parseArgs(['sandbox', '--port', '0', '--no-open', '--no-run', '--no-cache']);
       const code = await runServe(parsed);
       expect(code).toBe(0);
       expect(stdout).toContain('export PYRIC_SANDBOX="remote:http://');

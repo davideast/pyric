@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import type { ViteDevServer } from 'vite';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
-import { registerModuleUrl } from '../cli/dev-runner.js';
+import { registerModuleUrl } from '../cli/sandbox-runner.js';
 import {
   discoverFunctionsRtdbProject,
   type FunctionsRtdbProject,

@@ -31,16 +31,13 @@ import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
 import {
   buildChildEnv,
-  detectPackageManager,
   formatStartupEnvExport,
-  readDevScript,
   registerModuleUrl,
-  resolveDevChild,
   resolveSandboxChild,
-  spawnDevChild,
+  spawnSandboxChild,
   waitForSandboxPeer,
-  type DevChildHandle,
-} from './dev-runner.js';
+  type SandboxChildHandle,
+} from './sandbox-runner.js';
 import {
   createFunctionsDevelopmentRuntime,
   createHttpFunctionsPeerReadiness,
@@ -178,19 +175,18 @@ export async function startServe(opts: {
   if (pyricConfig.rules) {
     if (!config) config = {};
     if (typeof pyricConfig.rules === 'string') {
-      config.firestore = { rules: pyricConfig.rules, ...config.firestore };
+      config.firestore = { ...config.firestore, rules: pyricConfig.rules };
     } else {
       if (pyricConfig.rules.firestore) {
-        config.firestore = { rules: pyricConfig.rules.firestore, ...config.firestore };
+        config.firestore = { ...config.firestore, rules: pyricConfig.rules.firestore };
       }
       if (pyricConfig.rules.database) {
-        config.database = { rules: pyricConfig.rules.database, ...config.database };
+        config.database = { ...config.database, rules: pyricConfig.rules.database };
       }
       if (pyricConfig.rules.storage) {
-        config.storage = {
-          rules: pyricConfig.rules.storage,
-          ...(typeof config.storage === 'object' && !Array.isArray(config.storage) ? config.storage : {}),
-        };
+        const baseStorage =
+          typeof config.storage === 'object' && !Array.isArray(config.storage) ? config.storage : {};
+        config.storage = { ...baseStorage, rules: pyricConfig.rules.storage };
       }
     }
   }
@@ -619,6 +615,36 @@ export function installServeProcessGuard(
   };
 }
 
+function resolveServePort(flagPort: unknown, configPort?: number): number {
+  if (typeof flagPort === 'string') return Number(flagPort);
+  if (typeof flagPort === 'number') return flagPort;
+  if (typeof configPort === 'number') return configPort;
+  return 3473;
+}
+
+function resolveProjectIdentifier(
+  flagProject?: unknown,
+  envProject?: string,
+  configProject?: string,
+  rcDefault?: string,
+): string {
+  if (typeof flagProject === 'string' && flagProject.length > 0) return flagProject;
+  if (typeof envProject === 'string' && envProject.length > 0) return envProject;
+  if (typeof configProject === 'string' && configProject.length > 0) return configProject;
+  if (typeof rcDefault === 'string' && rcDefault.length > 0) return rcDefault;
+  return 'demo-project';
+}
+
+function resolveExplicitCommand(parsed: ParsedArgs): string[] | null {
+  if (parsed.passthrough && parsed.passthrough.length > 0) {
+    return parsed.passthrough;
+  }
+  if (parsed.positional.length > 0) {
+    return parsed.positional;
+  }
+  return null;
+}
+
 /** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
 export async function runServe(parsed: ParsedArgs): Promise<number> {
   const cwd = process.cwd();
@@ -631,12 +657,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   }
 
   const flagPort = parsed.flags.get('port');
-  const port =
-    typeof flagPort === 'string'
-      ? Number(flagPort)
-      : typeof flagPort === 'number'
-        ? flagPort
-        : pyricConfig.port ?? 3473;
+  const port = resolveServePort(flagPort, pyricConfig.port);
   if (!Number.isFinite(port) || port < 0 || port > 65535) {
     process.stderr.write(`pyric: invalid --port '${flagPort}'.\n`);
     return 1;
@@ -667,24 +688,19 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     if (functionsProject) {
       const flagProject = parsed.flags.get('project');
       const rc = await readFirebaseRc(cwd);
-      functionsProjectId =
-        (typeof flagProject === 'string' ? flagProject : undefined) ??
-        process.env.PYRIC_PROJECT ??
-        pyricConfig.project ??
-        rc?.projects?.default ??
-        'demo-project';
+      functionsProjectId = resolveProjectIdentifier(
+        flagProject,
+        process.env.PYRIC_PROJECT,
+        pyricConfig.project,
+        rc?.projects?.default,
+      );
     }
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
 
-  const explicitCommand =
-    parsed.passthrough && parsed.passthrough.length > 0
-      ? parsed.passthrough
-      : parsed.positional.length > 0
-        ? parsed.positional
-        : null;
+  const explicitCommand = resolveExplicitCommand(parsed);
 
   const plan = resolveSandboxChild({
     explicitCommand,
@@ -758,7 +774,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     void openBrowser(targetUrl);
   }
 
-  let devChild: DevChildHandle | null = null;
+  let devChild: SandboxChildHandle | null = null;
   let functionsRuntime: FunctionsDevelopmentRuntime | null = null;
   let resolveFunctionsExit!: (code: number) => void;
   const functionsExited = new Promise<number>((resolve) => { resolveFunctionsExit = resolve; });
@@ -891,7 +907,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     info.write(
       `✔ run      \`${plan.label}\` — firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
     );
-    devChild = spawnDevChild(plan, {
+    devChild = spawnSandboxChild(plan, {
       cwd,
       json,
       env: buildChildEnv(process.env, {

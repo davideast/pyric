@@ -6,7 +6,7 @@ import {
   type FunctionsRtdbChildReady,
   type SpawnFunctionsRtdbChildOptions,
 } from './child.js';
-import { buildChildEnv, createLinePrefixer } from '../cli/dev-runner.js';
+import { buildChildEnv, createLinePrefixer } from '../cli/sandbox-runner.js';
 
 const INITIAL_PEER_TIMEOUT_MS = 30_000;
 const RELOAD_PEER_TIMEOUT_MS = 5_000;

@@ -7,7 +7,6 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface PyricRulesConfig {
@@ -37,19 +36,6 @@ export async function readPyricConfig(cwd: string = process.cwd()): Promise<Pyri
     throw e;
   }
   try {
-    return JSON.parse(raw) as PyricConfig;
-  } catch (e) {
-    throw new Error(
-      `pyric: failed to parse pyric.json: ${e instanceof Error ? e.message : String(e)}`,
-    );
-  }
-}
-
-export function readPyricConfigSync(cwd: string = process.cwd()): PyricConfig {
-  const path = join(cwd, 'pyric.json');
-  if (!existsSync(path)) return {};
-  try {
-    const raw = readFileSync(path, 'utf-8');
     return JSON.parse(raw) as PyricConfig;
   } catch (e) {
     throw new Error(

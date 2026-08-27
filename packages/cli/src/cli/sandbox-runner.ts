@@ -16,8 +16,6 @@
  * only `spawnDevChild` touches the process table.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
 
@@ -63,35 +61,14 @@ export async function waitForSandboxPeer(
 
 // ─── Child-command resolution (pure) ───────────────────────────────────────
 
-export type PackageManager = 'bun' | 'pnpm' | 'yarn' | 'npm';
-
-/** Lockfile sniff, mirroring how init/vendor pick their install hints. */
-export function detectPackageManager(cwd: string): PackageManager {
-  if (existsSync(join(cwd, 'bun.lock')) || existsSync(join(cwd, 'bun.lockb'))) return 'bun';
-  if (existsSync(join(cwd, 'pnpm-lock.yaml'))) return 'pnpm';
-  if (existsSync(join(cwd, 'yarn.lock'))) return 'yarn';
-  return 'npm';
-}
-
-/** The project's `dev` script, or null (no package.json / no script). */
-export function readDevScript(cwd: string): string | null {
-  try {
-    const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8')) as {
-      scripts?: Record<string, unknown>;
-    };
-    const dev = pkg.scripts?.dev;
-    return typeof dev === 'string' && dev.trim().length > 0 ? dev : null;
-  } catch {
-    return null;
-  }
-}
-
-export interface DevChildPlan {
-  /** argv to spawn — argv[0] is the executable, no shell. */
+export interface SandboxChildPlan {
+  /** argv to spawn — argv[0] is the executable. */
   argv: string[];
   /** Human-readable command for the pre-spawn line. */
   label: string;
 }
+
+export type DevChildPlan = SandboxChildPlan;
 
 /**
  * Tokenize a command string into an argv array, preserving quoted strings.
@@ -112,6 +89,14 @@ export function parseCommandString(cmd: string): string[] {
   return parts;
 }
 
+export interface ResolveSandboxChildOptions {
+  explicitCommand?: string[] | null;
+  passthrough?: string[];
+  configCommand?: string | null;
+  noRun?: boolean;
+  json?: boolean;
+}
+
 /**
  * Decide what (if anything) to run after the host is up.
  *
@@ -122,35 +107,30 @@ export function parseCommandString(cmd: string): string[] {
  *   pyric.json `command`                    → parsed command argv
  *   none of the above                       → null (host-only)
  */
-export function resolveSandboxChild(opts: {
-  explicitCommand?: string[] | null;
-  passthrough?: string[];
-  configCommand?: string | null;
-  noRun?: boolean;
-  json?: boolean;
-  devScript?: string | null;
-  packageManager?: PackageManager;
-}): DevChildPlan | null {
+export function resolveSandboxChild(opts: ResolveSandboxChildOptions): SandboxChildPlan | null {
   if (opts.noRun) return null;
-  const cmd =
-    opts.explicitCommand && opts.explicitCommand.length > 0
-      ? opts.explicitCommand
-      : opts.passthrough && opts.passthrough.length > 0
-        ? opts.passthrough
-        : null;
-  if (cmd) {
-    return { argv: [...cmd], label: cmd.join(' ') };
+
+  let activeCommand: string[] | null = null;
+  if (opts.explicitCommand && opts.explicitCommand.length > 0) {
+    activeCommand = opts.explicitCommand;
+  } else if (opts.passthrough && opts.passthrough.length > 0) {
+    activeCommand = opts.passthrough;
   }
+
+  if (activeCommand !== null) {
+    return { argv: [...activeCommand], label: activeCommand.join(' ') };
+  }
+
   if (opts.json) return null;
+
   if (opts.configCommand && opts.configCommand.trim().length > 0) {
     const trimmed = opts.configCommand.trim();
     const argv = parseCommandString(trimmed);
     return { argv, label: trimmed };
   }
+
   return null;
 }
-
-export const resolveDevChild = resolveSandboxChild;
 
 // ─── Environment for the child (pure) ──────────────────────────────────────
 
@@ -242,27 +222,28 @@ export function createLinePrefixer(
 
 // ─── Spawn + lifecycle ─────────────────────────────────────────────────────
 
-export interface DevChildHandle {
-  /** Resolves with the exit code to propagate once the child is gone. */
+/** How long a signalled child may linger before SIGKILL. */
+const FORCE_KILL_AFTER_MS = 2_000;
+
+const SHELL_OPERATORS = new Set(['&&', '||', '|', ';', '&']);
+
+export interface SandboxChildHandle {
   exited: Promise<number>;
-  /** Forward a signal (Ctrl-C / SIGTERM). Marks the exit as user-initiated
-   *  so the propagated code is 0, and SIGKILLs a child that lingers. */
   signal(sig: NodeJS.Signals): void;
   child: ChildProcess;
 }
 
-/** How long a signalled child may linger before SIGKILL. */
-const FORCE_KILL_AFTER_MS = 2_000;
+export type DevChildHandle = SandboxChildHandle;
 
 /**
  * Spawn the child with inherited stdin and `[dev]`-prefixed stdout/stderr.
  * In `--json` mode ALL child output goes to stderr — stdout carries exactly
  * the one machine line (the serve --json contract).
  */
-export function spawnDevChild(
-  plan: DevChildPlan,
+export function spawnSandboxChild(
+  plan: SandboxChildPlan,
   opts: { cwd: string; env: NodeJS.ProcessEnv; json: boolean },
-): DevChildHandle {
+): SandboxChildHandle {
   const parts = [...plan.argv];
   const env: NodeJS.ProcessEnv = { ...opts.env };
 
@@ -275,12 +256,8 @@ export function spawnDevChild(
     env[key] = val;
   }
 
-  // 2. Check for shell operators (&&, ||, |, ;) in the command
-  const hasShellOperators =
-    plan.label.includes('&&') ||
-    plan.label.includes('||') ||
-    plan.label.includes('|') ||
-    plan.label.includes(';');
+  // 2. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
+  const hasShellOperators = parts.some((token) => SHELL_OPERATORS.has(token));
 
   // 3. Warn if runtime is bun or deno
   if (parts.length > 0 && (parts[0] === 'bun' || parts[0] === 'deno')) {
@@ -294,21 +271,24 @@ export function spawnDevChild(
   }
 
   const [command, ...args] = parts;
-  const child = hasShellOperators
-    ? spawn(plan.label, [], {
-        cwd: opts.cwd,
-        env,
-        stdio: ['inherit', 'pipe', 'pipe'],
-        shell: true,
-        detached: process.platform !== 'win32',
-      })
-    : spawn(command!, args, {
-        cwd: opts.cwd,
-        env,
-        stdio: ['inherit', 'pipe', 'pipe'],
-        shell: process.platform === 'win32',
-        detached: process.platform !== 'win32',
-      });
+  let child: ChildProcess;
+  if (hasShellOperators) {
+    child = spawn(plan.label, [], {
+      cwd: opts.cwd,
+      env,
+      stdio: ['inherit', 'pipe', 'pipe'],
+      shell: true,
+      detached: process.platform !== 'win32',
+    });
+  } else {
+    child = spawn(command!, args, {
+      cwd: opts.cwd,
+      env,
+      stdio: ['inherit', 'pipe', 'pipe'],
+      shell: process.platform === 'win32',
+      detached: process.platform !== 'win32',
+    });
+  }
 
   const outTarget = opts.json ? process.stderr : process.stdout;
   const out = createLinePrefixer('[dev] ', (line) => outTarget.write(line));
@@ -330,7 +310,7 @@ export function spawnDevChild(
 
   const exited = new Promise<number>((resolve) => {
     child.once('error', (e) => {
-      process.stderr.write(`pyric dev: failed to run \`${plan.label}\`: ${e.message}\n`);
+      process.stderr.write(`pyric sandbox: failed to run \`${plan.label}\`: ${e.message}\n`);
       resolve(1);
     });
     child.once('exit', (code, signal) => {
@@ -364,3 +344,5 @@ export function spawnDevChild(
     },
   };
 }
+
+export const spawnDevChild = spawnSandboxChild;

@@ -102,7 +102,7 @@ exports.makeUppercase = onValueCreated(
       let stderr = '';
       command = spawn('node', [
         cliEntry,
-        'dev',
+        'sandbox',
         '--port=0',
         '--host=127.0.0.1',
         '--no-open',
@@ -202,7 +202,7 @@ export const makeUppercase = onValueCreated(
     let stdout = '';
     let stderr = '';
     command = spawn('node', [
-      cliEntry, 'dev', '--port=0', '--host=127.0.0.1', '--no-open', '--no-capture',
+      cliEntry, 'sandbox', '--port=0', '--host=127.0.0.1', '--no-open', '--no-capture',
     ], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     command.stdout?.setEncoding('utf8');
     command.stderr?.setEncoding('utf8');
@@ -303,7 +303,7 @@ exports.stampPresence = onValueCreated('/presence/{uid}/state', async (event) =>
     let stdout = '';
     let stderr = '';
     command = spawn('node', [
-      cliEntry, 'dev', '--port=0', '--host=127.0.0.1', '--no-open', '--no-capture',
+      cliEntry, 'sandbox', '--port=0', '--host=127.0.0.1', '--no-open', '--no-capture',
     ], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     command.stdout?.setEncoding('utf8');
     command.stderr?.setEncoding('utf8');
@@ -401,7 +401,7 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
     let stdout = '';
     const blockedCommand = spawn('node', [
       cliEntry,
-      'dev',
+      'sandbox',
       '--port=0',
       '--host=127.0.0.1',
       '--no-open',
@@ -465,11 +465,8 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
       hosting: { public: 'public' },
       functions: { source: 'functions' },
     }));
-    writeFileSync(join(cwd, 'package.json'), JSON.stringify({
-      private: true,
-      scripts: {
-        dev: `node -e "require('node:fs').writeFileSync('dev-child.pid', String(process.pid)); setTimeout(() => {}, 60000)"`,
-      },
+    writeFileSync(join(cwd, 'pyric.json'), JSON.stringify({
+      command: `node -e "require('node:fs').writeFileSync('dev-child.pid', String(process.pid)); setTimeout(() => {}, 60000)"`,
     }));
     writeFileSync(join(cwd, 'functions/package.json'), JSON.stringify({
       name: 'fatal-functions',
@@ -482,7 +479,7 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
     let stderr = '';
     const fatalCommand = spawn('node', [
       cliEntry,
-      'dev',
+      'sandbox',
       '--port=0',
       '--host=127.0.0.1',
       '--no-open',

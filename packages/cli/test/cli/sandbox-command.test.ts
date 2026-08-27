@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -153,4 +153,45 @@ describe('pyric sandbox command execution', () => {
     expect(code).toBe(0);
     expect(stdout).toContain('READ_ENV:alpha123');
   });
+
+  it('executes inline code containing logical operators (||) without breaking arguments', () => {
+    const { code, stdout } = runCli([
+      'sandbox',
+      '--no-open',
+      'node',
+      '-e',
+      'console.log("OPERATOR_TEST:" + (false || "fallback_value"))',
+    ]);
+    expect(code).toBe(0);
+    expect(stdout).toContain('OPERATOR_TEST:fallback_value');
+  });
+
+  it('runs in host-only mode when no command or config is provided', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-cli-host-'));
+    try {
+      const child = spawn('bun', [CLI_ENTRY, 'sandbox', '--no-open', '--no-run', '--port', '4933'], {
+        cwd: dir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      child.stdout?.setEncoding('utf8');
+      let stdout = '';
+      child.stdout?.on('data', (chunk: string) => {
+        stdout += chunk;
+      });
+
+      const start = Date.now();
+      while (!stdout.includes('export PYRIC_SANDBOX="remote:http://localhost:4933"') && Date.now() - start < 10_000) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      expect(stdout).toContain('export PYRIC_SANDBOX="remote:http://localhost:4933"');
+      child.kill('SIGINT');
+      const code = await new Promise<number>((resolve) => {
+        child.once('exit', (exit) => resolve(exit ?? 0));
+      });
+      expect(code).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
 });

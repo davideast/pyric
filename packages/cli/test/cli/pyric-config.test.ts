@@ -2,23 +2,13 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readPyricConfig, readPyricConfigSync } from '../../src/cli/pyric-config.js';
+import { readPyricConfig } from '../../src/cli/pyric-config.js';
 
 describe('pyric-config', () => {
-  it('returns empty defaults when pyric.json does not exist (async)', async () => {
+  it('returns empty defaults when pyric.json does not exist', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'pyric-config-none-'));
     try {
       const config = await readPyricConfig(tmp);
-      expect(config).toEqual({});
-    } finally {
-      rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it('returns empty defaults when pyric.json does not exist (sync)', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'pyric-config-none-'));
-    try {
-      const config = readPyricConfigSync(tmp);
       expect(config).toEqual({});
     } finally {
       rmSync(tmp, { recursive: true, force: true });
@@ -42,9 +32,6 @@ describe('pyric-config', () => {
       expect(config.port).toBe(4400);
       expect(config.rules).toBe('security/firestore.rules');
       expect(config.project).toBe('my-project');
-
-      const configSync = readPyricConfigSync(tmp);
-      expect(configSync).toEqual(config);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -77,7 +64,6 @@ describe('pyric-config', () => {
     try {
       writeFileSync(join(tmp, 'pyric.json'), '{ malformed');
       expect(readPyricConfig(tmp)).rejects.toThrow('pyric: failed to parse pyric.json');
-      expect(() => readPyricConfigSync(tmp)).toThrow('pyric: failed to parse pyric.json');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

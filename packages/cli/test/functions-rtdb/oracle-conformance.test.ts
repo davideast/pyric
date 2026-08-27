@@ -28,7 +28,7 @@ import {
   spawnFunctionsRtdbChild,
   type FunctionsRtdbChildEvent,
 } from '../../src/functions-rtdb/child.js';
-import { buildChildEnv, registerModuleUrl } from '../../src/cli/dev-runner.js';
+import { buildChildEnv, registerModuleUrl } from '../../src/cli/sandbox-runner.js';
 import { startServe } from '../../src/cli/serve.js';
 import { connectRemoteSandbox } from '../../src/remote/index.js';
 import { silentServeLogger } from '../../src/serve/server.js';

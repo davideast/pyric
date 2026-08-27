@@ -2,7 +2,7 @@
   "schema": "pyric.cli.release-contract.v1",
   "commands": [
     "bridge",
-    "dev",
+    "sandbox",
     "init",
     "vendor",
     "mcp",
