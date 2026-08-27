@@ -221,12 +221,13 @@ export function applyServeInit(
       };
     }
   }
-  if (payload.databaseRules) {
+  const effectiveDatabaseRules = payload.databaseRules ?? (payload.permissive ? null : rtdbSandbox.DEFAULT_DENY_RULES);
+  if (effectiveDatabaseRules) {
     const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
-    rtdbSandbox.setRules(rtdb, payload.databaseRules);
+    rtdbSandbox.setRules(rtdb, effectiveDatabaseRules);
     ctx.activeRules ??= {};
     ctx.activeRules.database = {
-      source: payload.databaseRules,
+      source: effectiveDatabaseRules,
       updatedAt: Date.now(),
       status: 'active',
       messages: [],

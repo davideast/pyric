@@ -174,22 +174,22 @@ export async function loadProjectDatabaseRules(
   config: FirebaseJson | null,
 ): Promise<LoadedDatabaseRules> {
   const configured = config?.database?.rules;
-  if (!configured) {
-    return {
-      rules: null,
-      rulesHash: null,
-      sourcePath: null,
-      databaseUrl: config?.database?.url ?? null,
-    };
-  }
-
-  const path = isAbsolute(configured) ? configured : join(cwd, configured);
+  const rel = configured ?? 'database.rules.json';
+  const path = isAbsolute(rel) ? rel : join(cwd, rel);
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(`pyric dev: firebase.json points database.rules at ${path}, but it does not exist.`);
+      if (configured) {
+        throw new Error(`pyric dev: firebase.json points database.rules at ${path}, but it does not exist.`);
+      }
+      return {
+        rules: null,
+        rulesHash: null,
+        sourcePath: null,
+        databaseUrl: config?.database?.url ?? null,
+      };
     }
     throw e;
   }

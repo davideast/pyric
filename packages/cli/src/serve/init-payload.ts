@@ -11,6 +11,8 @@ export interface InitPayload {
   databaseRules?: { rules: Record<string, unknown> } | null;
   databaseRulesHash?: string | null;
   databaseUrl?: string | null;
+  /** Explicit opt-in to permissive default access when rules are unconfigured. */
+  permissive?: boolean;
   /** Storage rules are installed once, before the first Storage operation. */
   storageRules: string | null;
   storageRulesHash: string | null;

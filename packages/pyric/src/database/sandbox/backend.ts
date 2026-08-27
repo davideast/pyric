@@ -42,6 +42,7 @@ export class RtdbBackend {
   getPriority(path: string): Priority { return this.state.priorities.get(path); }
   setData(seed: Record<string, JsonValue>): void { this.writes.setData(seed); }
   setRules(rules: { rules: Record<string, unknown> } | null): void { this.writes.setRules(rules); }
+  setDefaultPolicy(policy: 'allow' | 'deny'): void { this.writes.setDefaultPolicy(policy); }
   getActiveRules(): { rules: Record<string, unknown> } | null { return this.writes.getActiveRules(); }
   snapshotState(): JsonValue { return this.writes.snapshotState(); }
 

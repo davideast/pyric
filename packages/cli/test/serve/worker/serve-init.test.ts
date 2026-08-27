@@ -715,3 +715,40 @@ describe('buildWorkerCtx — boot-time hydration + reset non-resurrection', () =
     expect(ctxB.sandbox.history().some((e) => e.kind === 'write')).toBe(false);
   });
 });
+
+describe('applyServeInit — Realtime Database default security policy', () => {
+  it('enforces default-deny when database rules are unconfigured', async () => {
+    const ctx = await makeCtx();
+    applyServeInit(ctx, { ...basePayload, databaseRules: null, permissive: false }, { fetch: recordingFetch() });
+
+    const port = fakePort();
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 'rtdb-write-1',
+      method: 'rtdb.set',
+      path: '/items/item1',
+      value: { title: 'secret' },
+    });
+
+    const res = getRes(port, 'rtdb-write-1');
+    expect(res.ok).toBe(false);
+    expect((res as { error: { message: string } }).error.message).toContain('PERMISSION_DENIED');
+  });
+
+  it('allows open access when permissive mode is explicitly enabled', async () => {
+    const ctx = await makeCtx();
+    applyServeInit(ctx, { ...basePayload, databaseRules: null, permissive: true }, { fetch: recordingFetch() });
+
+    const port = fakePort();
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 'rtdb-write-2',
+      method: 'rtdb.set',
+      path: '/items/item2',
+      value: { title: 'open' },
+    });
+
+    const res = getRes(port, 'rtdb-write-2');
+    expect(res.ok).toBe(true);
+  });
+});
