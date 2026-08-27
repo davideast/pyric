@@ -85,8 +85,8 @@ function runBuildScript(script: string): string | null {
 }
 
 function ensureWorkspaceBuild(): string | null {
-  const toolsDeployEntry = join(REPO_ROOT, 'packages', 'cli', 'dist', 'deploy', 'index.d.ts');
-  if (!existsSync(toolsDeployEntry)) {
+  const cliEntry = join(REPO_ROOT, 'packages', 'cli', 'dist', 'cli', 'index.js');
+  if (!existsSync(cliEntry)) {
     const toolsProblem = runBuildScript('build:cli');
     if (toolsProblem) return `build:cli failed before probes ran:\n   ${toolsProblem}`;
   }
@@ -99,20 +99,51 @@ function ensureWorkspaceBuild(): string | null {
   return null;
 }
 
-function runProbe(entry: RegisteredCheck): ProbeOutcome {
-  const probePath = join(REPO_ROOT, entry.probe);
-  if (!existsSync(probePath)) return { entry, kind: 'missing' };
+interface ProbeResult {
+  kind: 'conforming' | 'infrastructure' | 'live-contradiction' | 'missing';
+  detail?: string;
+}
+
+async function executeProbe(probe: string): Promise<ProbeResult> {
+  const probePath = join(REPO_ROOT, probe);
+  if (!existsSync(probePath)) return { kind: 'missing' };
   try {
-    execFileSync('bun', ['test', entry.probe], { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    return { entry, kind: 'conforming' };
+    const proc = Bun.spawn(['bun', 'test', probe], {
+      cwd: REPO_ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (exitCode === 0) return { kind: 'conforming' };
+    const output = `${stdout}\n${stderr}`;
+    return {
+      kind: isInfrastructureFailure(output) ? 'infrastructure' : 'live-contradiction',
+      detail: tail(output),
+    };
   } catch (error) {
     const output = commandOutput(error);
     return {
-      entry,
       kind: isInfrastructureFailure(output) ? 'infrastructure' : 'live-contradiction',
       detail: tail(output),
     };
   }
+}
+
+async function runAllProbes(checks: RegisteredCheck[]): Promise<ProbeOutcome[]> {
+  const uniqueProbes = [...new Set(checks.map((c) => c.probe))];
+  const probeResults = new Map<string, ProbeResult>();
+  await Promise.all(uniqueProbes.map(async (probe) => {
+    const result = await executeProbe(probe);
+    probeResults.set(probe, result);
+  }));
+  return checks.map((entry) => {
+    const result = probeResults.get(entry.probe)!;
+    return { entry, kind: result.kind, detail: result.detail };
+  });
 }
 
 const foundationOk = structural.length === 0 && integrityProblems.length === 0;
@@ -123,7 +154,7 @@ if (foundationOk) {
   const buildFailure = buildProblem ?? undefined;
   outcomes = buildFailure
     ? checks.map((entry) => ({ entry, kind: 'infrastructure' as const, detail: buildFailure }))
-    : checks.map(runProbe);
+    : await runAllProbes(checks);
 }
 
 const conforming = outcomes.filter((outcome) => outcome.kind === 'conforming');
