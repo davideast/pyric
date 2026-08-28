@@ -175,6 +175,54 @@ service cloud.firestore {
     await session.close();
   });
 
+  it('dynamically discovers and reloads newly created database.rules.json when unconfigured at boot', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+
+    expect(session.summary.rules.database.sourcePath).toBeNull();
+    expect(session.payload().databaseRules).toBeNull();
+
+    const rulesPath = join(root, 'database.rules.json');
+    writeFileSync(rulesPath, JSON.stringify({
+      rules: { '.read': true, '.write': true },
+    }));
+
+    const reloaded = await session.reloadDatabaseRules();
+    expect(reloaded.kind).toBe('reloaded');
+    expect(session.payload().databaseRules).toEqual({ rules: { '.read': true, '.write': true } });
+
+    await session.close();
+  });
+
+  it('supports multi-database array configs in firebase.json', async () => {
+    const root = project();
+    const rulesPath = join(root, 'main-db.rules.json');
+    writeFileSync(rulesPath, JSON.stringify({
+      rules: { '.read': true },
+    }));
+
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: {
+        database: [
+          { target: 'main', rules: 'main-db.rules.json', url: 'https://main-db.firebaseio.com' },
+          { target: 'analytics', rules: 'analytics.rules.json' },
+        ],
+      },
+      sdk: { dir: join(root, 'sdk') },
+    });
+
+    expect(session.summary.rules.database.sourcePath).toBe(rulesPath);
+    expect(session.payload().databaseRules).toEqual({ rules: { '.read': true } });
+    expect(session.payload().databaseUrl).toBe('https://main-db.firebaseio.com');
+
+    await session.close();
+  });
+
   it('serves one live init payload with late-bound host facts', async () => {
     const root = project();
     let bridgeUrl: string | null = null;

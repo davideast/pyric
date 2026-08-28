@@ -173,9 +173,13 @@ export async function loadProjectDatabaseRules(
   cwd: string,
   config: FirebaseJson | null,
 ): Promise<LoadedDatabaseRules> {
-  const configured = config?.database?.rules;
+  const block = config?.database;
+  const entries = block ? (Array.isArray(block) ? block : [block]) : [];
+  const configuredEntry = entries.find((e) => e && typeof e === 'object' && e.rules);
+  const configured = configuredEntry?.rules;
   const rel = configured ?? 'database.rules.json';
   const path = isAbsolute(rel) ? rel : join(cwd, rel);
+  const databaseUrl = entries.find((e) => e && typeof e === 'object' && e.url)?.url ?? null;
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
@@ -188,7 +192,7 @@ export async function loadProjectDatabaseRules(
         rules: null,
         rulesHash: null,
         sourcePath: null,
-        databaseUrl: config?.database?.url ?? null,
+        databaseUrl,
       };
     }
     throw e;
@@ -209,7 +213,7 @@ export async function loadProjectDatabaseRules(
     rules,
     rulesHash: rulesHashOf(raw),
     sourcePath: path,
-    databaseUrl: config?.database?.url ?? null,
+    databaseUrl,
   };
 }
 
