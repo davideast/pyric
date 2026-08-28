@@ -68,6 +68,7 @@ import {
 import { createServiceWorkerRelay } from './service-worker-relay.js';
 import { createWorkerRetirement } from './retirement.js';
 import { createContextResolver } from './context-resolver.js';
+import { createPortLifecycleManager } from './port-lifecycle.js';
 
 declare const __PYRIC_WORKER_VERSION__: string;
 const workerEpoch = typeof __PYRIC_WORKER_VERSION__ !== 'undefined'
@@ -75,6 +76,7 @@ const workerEpoch = typeof __PYRIC_WORKER_VERSION__ !== 'undefined'
   : 'dev';
 const workerScope = self as unknown as SharedWorkerGlobalScope;
 const contextResolver = createContextResolver(buildCtx);
+const portLifecycle = createPortLifecycleManager();
 const retirement = createWorkerRetirement({
   closeWorker: () => workerScope.close(),
   beforeAnnounce: async () => { await contextResolver.current()?.captureFlush?.(); },
@@ -86,9 +88,12 @@ const retirement = createWorkerRetirement({
  * Return the shared context, memoizing the in-flight init promise so
  * concurrent first messages await ONE build. If initialization rejects,
  * the rejection is cleared so subsequent connection attempts can retry.
+ * Any ports that closed while initialization was in flight are drained immediately.
  */
-function getCtx(): Promise<HostCtx> {
-  return contextResolver.get();
+async function getCtx(): Promise<HostCtx> {
+  const ctx = await contextResolver.get();
+  portLifecycle.drainClosedPorts(ctx);
+  return ctx;
 }
 
 /**
@@ -163,9 +168,16 @@ workerScope.onconnect = (e: MessageEvent) => {
     // cannot overtake an already-posted mutation, and later frames see the
     // disconnected-port tombstone instead of touching the shared backend.
     messageQueue = messageQueue.then(async () => {
+      const portLike = port as unknown as PortLike;
+      if (portLifecycle.isPortClosed(portLike)) {
+        return;
+      }
       try {
         const ctx = await getCtx();
-        await handleMessage(ctx, port as unknown as PortLike, ev.data);
+        if (portLifecycle.isPortClosed(portLike)) {
+          return;
+        }
+        await handleMessage(ctx, portLike, ev.data);
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error('[pyric worker] message handler error:', (e as Error)?.stack ?? e, 'msg:', ev.data);
@@ -179,8 +191,7 @@ workerScope.onconnect = (e: MessageEvent) => {
   // best-effort; subscriptions also GC when the worker itself dies.
   port.addEventListener('close', () => {
     retirement.disconnect(port);
-    const resolvedCtx = contextResolver.current();
-    if (resolvedCtx) void cleanupPortWithDisconnect(resolvedCtx, port as unknown as PortLike).catch(() => undefined);
+    portLifecycle.onPortClosed(port as unknown as PortLike, contextResolver.current());
   });
 };
 
