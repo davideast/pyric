@@ -3,6 +3,7 @@ import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
+  getAdminDatabase,
   get,
   set,
   ref as dbRef,
@@ -41,10 +42,11 @@ describe('RTDB sandbox default security policy', () => {
     expect(readError).toBeInstanceOf(Error);
     expect((readError as Error).message).toContain('PERMISSION_DENIED');
 
-    // Admin bypass via sandbox namespace succeeds despite deny policy
-    rtdbSandbox.setData(db, { '/users/alice': { name: 'Alice Admin' } });
-    const snapshot = rtdbSandbox.snapshotState(db);
-    expect(snapshot).toEqual({ users: { alice: { name: 'Alice Admin' } } });
+    // Admin handle bypass via getAdminDatabase succeeds despite deny policy
+    const adminDb = getAdminDatabase(sandbox);
+    await set(dbRef(adminDb, '/users/alice'), { name: 'Alice Admin' });
+    const adminSnap = await get(dbRef(adminDb, '/users/alice'));
+    expect(adminSnap.val()).toEqual({ name: 'Alice Admin' });
 
     // .info paths remain readable even under deny policy
     const infoSnap = await get(dbRef(db, '/.info/serverTimeOffset'));

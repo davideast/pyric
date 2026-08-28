@@ -216,16 +216,15 @@ export async function createSandboxSession(
   });
 
   const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
+    if (!firestore.sourcePath) return { kind: 'not-configured' };
     try {
-      const updated = await loadProjectRules(options.projectDir, options.firebaseConfig);
-      if (!updated.sourcePath || !updated.rules || !updated.rulesHash) {
-        return { kind: 'not-configured' };
-      }
-      firestore.sourcePath = updated.sourcePath;
-      live.rules = updated.rules;
-      live.rulesHash = updated.rulesHash;
-      events.broadcast('rules-changed', { rules: updated.rules, rulesHash: updated.rulesHash });
-      return { kind: 'reloaded', rulesHash: updated.rulesHash, clients: events.clientCount() };
+      const raw = await readFile(firestore.sourcePath, 'utf8');
+      const rules = prepareRulesSource(raw, firestore.sourcePath);
+      const rulesHash = rulesHashOf(rules);
+      live.rules = rules;
+      live.rulesHash = rulesHash;
+      events.broadcast('rules-changed', { rules, rulesHash });
+      return { kind: 'reloaded', rulesHash, clients: events.clientCount() };
     } catch (error) {
       return { kind: 'rejected', error: error instanceof Error ? error : new Error(String(error)) };
     }

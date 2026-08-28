@@ -158,6 +158,8 @@ CORE FLAGS (sandbox)
   --no-capture       Don't write the session capture. dev writes
                      .pyric/last-session.json by default so \`pyric verify\`
                      can replay your session; --no-capture disables it.
+  --permissive       Allow unauthenticated Realtime Database reads and writes when no
+                     rules file is present. For local prototyping only.
   --allowed-host H   Allow an extra Host header past the DNS-rebinding guard
                      (comma-separated; localhost/127.0.0.1 always allowed).
   --persist          Persist sandbox state (docs + auth users) to

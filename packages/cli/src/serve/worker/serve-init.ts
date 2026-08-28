@@ -221,17 +221,20 @@ export function applyServeInit(
       };
     }
   }
-  const effectiveDatabaseRules = payload.databaseRules ?? (payload.permissive ? null : rtdbSandbox.DEFAULT_DENY_RULES);
-  if (effectiveDatabaseRules) {
-    const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
-    rtdbSandbox.setRules(rtdb, effectiveDatabaseRules);
+  const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
+  if (payload.databaseRules) {
+    rtdbSandbox.setRules(rtdb, payload.databaseRules);
     ctx.activeRules ??= {};
     ctx.activeRules.database = {
-      source: effectiveDatabaseRules,
+      source: payload.databaseRules,
       updatedAt: Date.now(),
       status: 'active',
       messages: [],
     };
+  } else if (payload.permissive) {
+    rtdbSandbox.setDefaultPolicy(rtdb, 'allow');
+  } else {
+    rtdbSandbox.setDefaultPolicy(rtdb, 'deny');
   }
 
   // 1b. Storage rules — deployed ONCE, here, before any storage op can run.
