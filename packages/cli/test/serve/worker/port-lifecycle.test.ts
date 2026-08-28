@@ -23,8 +23,9 @@ describe('PortLifecycleManager', () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(unsubscribed).toBe(true);
+    expect(unsubscribed).toBe(true);
     expect(ctx.subs.has(port)).toBe(false);
-    expect(manager.isPortClosed(port)).toBe(false);
+    expect(manager.isPortClosed(port)).toBe(true);
   });
 
   it('queues closed port when context is null and drains it upon resolution', async () => {
@@ -50,7 +51,8 @@ describe('PortLifecycleManager', () => {
 
     expect(unsubscribed).toBe(true);
     expect(ctx.subs.has(port)).toBe(false);
-    expect(manager.isPortClosed(port)).toBe(false);
+    // Port remains permanently marked closed so in-flight queued frames are ignored
+    expect(manager.isPortClosed(port)).toBe(true);
   });
 
   it('drops messages when isPortClosed is true', () => {
@@ -60,8 +62,5 @@ describe('PortLifecycleManager', () => {
     expect(manager.isPortClosed(port)).toBe(false);
     manager.onPortClosed(port, null);
     expect(manager.isPortClosed(port)).toBe(true);
-
-    manager.clear();
-    expect(manager.isPortClosed(port)).toBe(false);
   });
 });

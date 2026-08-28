@@ -14,15 +14,15 @@ export interface PortLifecycleManager {
   drainClosedPorts(ctx: HostCtx): void;
   /** Check whether a port has already closed before processing queued messages. */
   isPortClosed(port: PortLike): boolean;
-  /** Reset all tracked closed ports (for testing or worker teardown). */
-  clear(): void;
 }
 
 export function createPortLifecycleManager(): PortLifecycleManager {
+  const closedPorts = new Set<PortLike>();
   const pendingClosedPorts = new Set<PortLike>();
 
   return {
     onPortClosed(port: PortLike, currentCtx: HostCtx | null): void {
+      closedPorts.add(port);
       if (currentCtx !== null) {
         void cleanupPortWithDisconnect(currentCtx, port).catch(() => undefined);
       } else {
@@ -39,11 +39,7 @@ export function createPortLifecycleManager(): PortLifecycleManager {
     },
 
     isPortClosed(port: PortLike): boolean {
-      return pendingClosedPorts.has(port);
-    },
-
-    clear(): void {
-      pendingClosedPorts.clear();
+      return closedPorts.has(port);
     },
   };
 }

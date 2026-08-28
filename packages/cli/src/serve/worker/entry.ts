@@ -137,6 +137,7 @@ workerScope.onconnect = (e: MessageEvent) => {
   const port = e.ports[0];
   port.start();
   retirement.connect(port);
+  void getCtx().catch(() => undefined);
 
   let messageQueue = Promise.resolve();
   port.onmessage = (ev: MessageEvent<InboundMessage>) => {
