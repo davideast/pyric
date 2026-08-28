@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { initializeApp, cert, deleteApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import type { ServiceAccount } from 'firebase-admin/app';
+import { resolvedAdminVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // messaging-send-* observations belong to the 'messaging-admin' surface.
@@ -35,9 +36,7 @@ if (!b64) {
 const sa = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')) as ServiceAccount & { project_id?: string };
 const projectId = (sa.projectId ?? sa.project_id)!;
 
-const adminSdkVersion = (
-  JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('firebase-admin/package.json')), 'utf8')) as { version: string }
-).version;
+const adminSdkVersion = resolvedAdminVersion();
 
 const app = initializeApp({ credential: cert(sa) }, 'messaging-send-probes');
 const ENDPOINT = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;

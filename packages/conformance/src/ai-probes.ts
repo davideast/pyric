@@ -30,6 +30,7 @@
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolvedFirebaseVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // ai-* observations belong to the 'ai' surface.
@@ -43,10 +44,7 @@ if (!rawConfig) {
 const config = JSON.parse(rawConfig) as { apiKey: string; projectId: string };
 const { apiKey, projectId } = config;
 
-const fbPkg = JSON.parse(
-  readFileSync(fileURLToPath(import.meta.resolve('firebase/package.json')), 'utf8'),
-) as { version: string };
-const fbSdkVersion = fbPkg.version;
+const fbSdkVersion = resolvedFirebaseVersion();
 
 const API_VERSION = 'v1beta';
 const BASE = `https://firebasevertexai.googleapis.com/${API_VERSION}/projects/${projectId}`;

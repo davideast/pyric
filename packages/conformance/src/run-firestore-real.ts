@@ -20,6 +20,7 @@ import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { chromium } from '@playwright/test';
 import { acquireRunLock } from './storage-stdlib-real-lock.ts';
+import { resolvedFirebaseVersion } from './package-version.ts';
 import {
   FIREBASE_API,
   accessHeaders,
@@ -617,16 +618,14 @@ async function run(): Promise<void> {
     if (!behavior || !browserBehavior || !probeRulesetName || !restoreVerified) {
       throw new Error('probe did not complete with verified rules restoration');
     }
-    const firebasePackage = JSON.parse(
-      readFileSync(fileURLToPath(await import.meta.resolve('firebase/package.json')), 'utf8'),
-    ) as { version: string };
+    const fbSdkVersion = resolvedFirebaseVersion();
     const observation = {
       name: 'firestore-transaction-contention-retries',
       matrixRow: 'firestore #93',
       rowIds: ['firestore#93'],
       description: 'Two authenticated Web SDK clients contend on transaction read documents; captures callback retries, fresh reads, maxAttempts exhaustion, and the terminal error shape.',
       observedAt: new Date().toISOString(),
-      fbSdkVersion: firebasePackage.version,
+      fbSdkVersion,
       projectId: sa.project_id,
       inputDigest: createHash('sha256').update(content).digest('hex'),
       lifecycle: {
@@ -651,7 +650,7 @@ async function run(): Promise<void> {
       ],
       description: 'Real-Chromium production capture for persistence preconditions, offline pending writes, explicit cache behavior, snapshot synchronization, and Firestore-only termination.',
       observedAt: new Date().toISOString(),
-      fbSdkVersion: firebasePackage.version,
+      fbSdkVersion,
       projectId: sa.project_id,
       inputDigest: createHash('sha256').update(content).digest('hex'),
       lifecycle: {
@@ -673,7 +672,7 @@ async function run(): Promise<void> {
       ...previousRulesObservation,
       description: 'Authenticated Web SDK operations against temporarily deployed production rules verify getAfter()/existsAfter() target, existence, and cross-document atomic projection semantics. The hosted Rules Test API limitation is retained separately in diagnostics.',
       observedAt: new Date().toISOString(),
-      fbSdkVersion: firebasePackage.version,
+      fbSdkVersion,
       projectId: sa.project_id,
       lifecycle: {
         originalRulesetName: snapshot.release.rulesetName,

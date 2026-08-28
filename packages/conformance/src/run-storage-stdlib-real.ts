@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readObservationLinkage } from './observation-linkage.ts';
+import { resolvedFirebaseVersion } from './package-version.ts';
 import {
   accessHeaders,
   FIREBASE_API,
@@ -452,7 +453,7 @@ async function run(): Promise<void> {
         ? 'Real-resource Storage-to-Firestore advanced behavior for return types, evaluation order, path boundaries, helper composition, and independence from the Firestore ruleset.'
         : 'Real-resource Storage-to-Firestore lookup behavior for one/two/three distinct documents, repeated paths, get+exists composition, short-circuiting, and missing documents.',
       observedAt: new Date().toISOString(),
-      fbSdkVersion: (JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('firebase/package.json')), 'utf8')) as { version: string }).version,
+      fbSdkVersion: resolvedFirebaseVersion(),
       projectId: sa.project_id,
       bucket: config.storageBucket,
       behavior,

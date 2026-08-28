@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolvedFirebaseVersion } from './package-version.ts';
 import type { ProjectScope } from '../../../packages/pyric/src/project-scope.ts';
 import {
   TestFirestoreRulesHandler,
@@ -30,11 +31,6 @@ type Diagnostic = { notes?: string[]; issues?: unknown[]; httpStatus?: number; e
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
 const REQUEST_COUNTS: Record<ProbeId, number> = { p0: 12, p1: 14, p2: 1 };
-
-function resolvedFirebaseVersion(): string {
-  const path = fileURLToPath(import.meta.resolve('firebase/package.json'));
-  return (JSON.parse(readFileSync(path, 'utf8')) as { version: string }).version;
-}
 
 export function selectedProbes(args: string[]): ProbeId[] {
   const values = args.flatMap((arg, index) => {

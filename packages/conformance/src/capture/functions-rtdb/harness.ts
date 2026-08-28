@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { resolvePackageVersion } from '../../package-version.ts';
 import { cert, deleteApp, initializeApp } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 import { probe as exactProbe } from '../../../probes/functions-rtdb/functions-rtdb-onvaluecreated-exact-create.ts';
@@ -62,10 +63,7 @@ function need(name: string): string {
 }
 
 function packageVersion(specifier: string): string {
-  const path = fileURLToPath(import.meta.resolve(`${specifier}/package.json`));
-  const meta = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown };
-  if (typeof meta.version !== 'string') throw new Error(`${specifier} package has no version`);
-  return meta.version;
+  return resolvePackageVersion(specifier);
 }
 
 function firebase(args: string[], env: Record<string, string>): void {

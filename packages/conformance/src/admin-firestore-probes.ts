@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
 import { probe } from '../probes/firestore/admin-firestore-document-snapshot-get.ts';
+import { resolvedAdminVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ID = 'admin-firestore-document-snapshot-get';
@@ -17,11 +18,6 @@ interface ObservationEnvelope {
   observedAt: string;
   adminSdkVersion: string;
   behavior: Record<string, unknown>;
-}
-
-function installedAdminVersion(): string {
-  const packagePath = fileURLToPath(import.meta.resolve('firebase-admin/package.json'));
-  return (JSON.parse(readFileSync(packagePath, 'utf8')) as { version: string }).version;
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -52,7 +48,7 @@ async function capture(record: Probe, adminSdkVersion: string): Promise<Observat
   };
 }
 
-const adminSdkVersion = installedAdminVersion();
+const adminSdkVersion = resolvedAdminVersion();
 const actual = await capture(probe, adminSdkVersion);
 
 if (process.argv.includes('--write')) {

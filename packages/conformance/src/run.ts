@@ -179,6 +179,7 @@ import {
 } from 'pyric/rules/internal/rtdb';
 import { createRtdbDisconnectProbes } from './capture/rtdb-disconnect/probes.ts';
 import { loadRtdbClimbProbes } from './capture/rtdb-climb/load-probes.ts';
+import { resolvedFirebaseVersion } from './package-version.ts';
 
 // ─── Setup ────────────────────────────────────────────────────────────
 
@@ -806,11 +807,8 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
 }
 
 const config = await loadConfig();
-// Resolve the firebase package via Node's resolver so we don't care
-// where it's hoisted in the workspace.
-const fbPkgPath = await import.meta.resolve('firebase/package.json');
-const fbPkg = JSON.parse(readFileSync(fileURLToPath(fbPkgPath), 'utf8')) as { version: string };
-const FB_SDK_VERSION = fbPkg.version;
+// Resolve the firebase package version via the centralized walk-up resolver.
+const FB_SDK_VERSION = resolvedFirebaseVersion();
 
 const appName = `pyric-oracle-${Date.now()}`;
 const app = initializeApp(config, appName);

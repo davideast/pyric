@@ -9,6 +9,7 @@ import {
   observeCrossTabAuthAfterPersistenceSignal,
   type AuthStorageSignal,
 } from './cross-tab-auth-observer.js';
+import { resolvedFirebaseVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBSERVATION = join(HERE, '..', 'observations', 'app', 'app-production-multi-app-topology.json');
@@ -24,10 +25,7 @@ if (!rawConfig) {
   throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG is required; run oracle:plan before this production capture.');
 }
 const config = JSON.parse(rawConfig) as { apiKey: string; projectId: string };
-const firebasePackage = JSON.parse(readFileSync(
-  fileURLToPath(import.meta.resolve('firebase/package.json')),
-  'utf8',
-)) as { version: string };
+const firebasePackage = { version: resolvedFirebaseVersion() };
 
 const browserSource = String.raw`
 import { initializeApp, deleteApp } from 'firebase/app';

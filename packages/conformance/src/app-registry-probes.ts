@@ -37,6 +37,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
+import { resolvedFirebaseVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PROBES_DIR = join(HERE, '..', 'probes', 'app');
@@ -64,16 +65,6 @@ async function loadProbes(): Promise<LoadedProbe[]> {
     loaded.push({ id, probe: mod.probe });
   }
   return loaded;
-}
-
-/** Resolved (installed) firebase version — what the observation-version guard
- *  (check-observation-versions.ts) compares every app-registry-* observation's
- *  `fbSdkVersion` against. */
-function resolvedFirebaseVersion(): string {
-  const pkgPath = fileURLToPath(import.meta.resolve('firebase/package.json'));
-  const meta = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
-  if (!meta.version) throw new Error('could not resolve installed firebase version');
-  return meta.version;
 }
 
 /** Every probe assumes an empty app registry on entry and must leave one behind

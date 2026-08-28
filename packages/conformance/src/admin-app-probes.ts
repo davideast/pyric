@@ -36,6 +36,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
+import { resolvedAdminVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // admin-app-* observations and probes both live under the 'auth' surface
@@ -65,16 +66,6 @@ async function loadProbes(): Promise<LoadedProbe[]> {
     loaded.push({ id, probe: mod.probe });
   }
   return loaded;
-}
-
-/** Resolved (installed) firebase-admin version — what the observation-version
- *  guard (check-observation-versions.ts) compares every admin-app-*
- *  observation's `adminSdkVersion` against. */
-function resolvedAdminVersion(): string {
-  const pkgPath = fileURLToPath(import.meta.resolve('firebase-admin/package.json'));
-  const meta = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
-  if (!meta.version) throw new Error('could not resolve installed firebase-admin version');
-  return meta.version;
 }
 
 /** Every probe assumes an empty app registry on entry and must leave one
