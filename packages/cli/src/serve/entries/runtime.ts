@@ -144,7 +144,7 @@ if (!useWorker) try {
   if (payload.databaseRules) {
     rtdbSandbox.setRules(db, payload.databaseRules);
     diagnostics.databaseRulesDeployed = true;
-    diagnostics.databaseRulesHash = payload.databaseRulesHash;
+    diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
   } else if (payload.permissive) {
     rtdbSandbox.setDefaultPolicy(db, 'allow');
   } else {
