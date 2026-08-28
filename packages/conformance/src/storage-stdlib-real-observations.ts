@@ -2,15 +2,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readObservationLinkage } from './observation-linkage.ts';
+import { resolvedFirebaseVersion } from './package-version.ts';
 import { type RequestBudget } from './storage-stdlib-real-budget.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
-
-function resolvedFirebaseVersion(): string {
-  const packagePath = fileURLToPath(import.meta.resolve('firebase/package.json'));
-  return (JSON.parse(readFileSync(packagePath, 'utf8')) as { version: string }).version;
-}
 
 export function writeStorageObservations(values: Array<Record<string, unknown>>): void {
   mkdirSync(OBS_DIR, { recursive: true });

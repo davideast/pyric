@@ -17,29 +17,19 @@
  * Usage: bun run packages/conformance/src/check-observation-versions.ts
  * Exit codes: 0 all match, 1 a mismatch / missing field / unresolvable package.
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { loadObservations } from './ledger.ts';
+import {
+  resolvedAdminVersion,
+  resolvedFirebaseVersion,
+  resolvedFunctionsVersion,
+} from './package-version.ts';
 
-/** Resolved (installed) version of `pkg` from its own package.json. */
-function resolvedVersion(pkg: string): string {
-  try {
-    const pkgPath = fileURLToPath(import.meta.resolve(`${pkg}/package.json`));
-    const meta = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: unknown };
-    if (typeof meta.version === 'string' && meta.version.length > 0) return meta.version;
-  } catch {
-    // fall through to the shared error below
-  }
-  console.error(`✗ Could not read the version of the installed ${pkg} package.`);
-  process.exit(1);
-}
-
-const resolved = resolvedVersion('firebase');
+const resolved = resolvedFirebaseVersion();
 // `admin-*` observations are captured against `firebase-admin` (the admin SDK),
 // not the firebase JS SDK, and are versioned by `adminSdkVersion`. They vouch
 // for admin behavior, so they must track the installed firebase-admin version.
-const resolvedAdmin = resolvedVersion('firebase-admin');
-const resolvedFunctions = resolvedVersion('firebase-functions');
+const resolvedAdmin = resolvedAdminVersion();
+const resolvedFunctions = resolvedFunctionsVersion();
 const observations = loadObservations();
 
 const missing: string[] = [];

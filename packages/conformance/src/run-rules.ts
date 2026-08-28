@@ -49,22 +49,15 @@ import {
   firestoreScenarioInputDigest,
   type FirestoreScenarioInputDigest,
 } from './firestore-rules-input-digest.ts';
+import { resolvedFirebaseVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-firestore-* observations belong to the native 'firestore-rules' surface.
 const OBS_DIR = join(HERE, '..', 'observations', 'firestore-rules');
 
-/** Resolved (installed) firebase version — the value the observation-version
- *  guard (check-observation-versions.ts) compares every observation against.
- *  The Rules Test API is a REST surface with no client SDK, but the envelope
+/** The Rules Test API is a REST surface with no client SDK, but the envelope
  *  carries `fbSdkVersion` for consistency with the rest of the oracle and to
  *  keep the version guard green once captures land. */
-function resolvedFirebaseVersion(): string {
-  const pkgPath = fileURLToPath(import.meta.resolve('firebase/package.json'));
-  const meta = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
-  if (!meta.version) throw new Error('could not resolve installed firebase version');
-  return meta.version;
-}
 
 interface Observation {
   name: string;

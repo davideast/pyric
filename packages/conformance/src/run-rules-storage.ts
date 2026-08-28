@@ -45,19 +45,11 @@ import {
   type StorageScenario,
 } from '../rules-corpus/storage/index.ts';
 import { readObservationLinkage } from './observation-linkage.ts';
+import { resolvedFirebaseVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-storage-* observations belong to the native 'storage-rules' surface.
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
-
-/** Resolved (installed) firebase version — the value the observation-version
- *  guard compares every observation against. */
-function resolvedFirebaseVersion(): string {
-  const pkgPath = fileURLToPath(import.meta.resolve('firebase/package.json'));
-  const meta = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
-  if (!meta.version) throw new Error('could not resolve installed firebase version');
-  return meta.version;
-}
 
 interface Observation {
   name: string;

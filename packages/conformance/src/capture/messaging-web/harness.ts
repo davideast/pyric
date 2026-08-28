@@ -75,6 +75,7 @@ import { initializeApp, cert, deleteApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import type { ServiceAccount } from 'firebase-admin/app';
 import { pathToFileURL } from 'node:url';
+import { resolvedAdminVersion, resolvedFirebaseVersion } from '../../package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..', '..', '..');
@@ -133,15 +134,11 @@ if (webConfig.projectId !== projectId) {
   console.error(`✗ Config mismatch: web config is for ${webConfig.projectId}, service account for ${projectId}. Token registration requires the same project.`);
   process.exit(1);
 }
-const fbSdkVersion = (
-  JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('firebase/package.json')), 'utf8')) as { version: string }
-).version;
+const fbSdkVersion = resolvedFirebaseVersion();
 // The deleteToken→UNREGISTERED capture spans both planes: a client deleteToken
 // and a server send. The send transport is firebase-admin, so that one
 // observation additionally records adminSdkVersion.
-const adminSdkVersion = (
-  JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('firebase-admin/package.json')), 'utf8')) as { version: string }
-).version;
+const adminSdkVersion = resolvedAdminVersion();
 
 // ─── Build the app with config injected ─────────────────────────────────
 const define = {

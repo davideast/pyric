@@ -63,6 +63,7 @@ import {
   type RtdbScenario,
   type RtdbTestCase,
 } from '../rules-corpus/rtdb/index.ts';
+import { resolvedFirebaseVersion } from './package-version.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..', '..');
@@ -98,15 +99,6 @@ interface Observation {
 interface ObservationLinkage {
   matrixRow: string;
   rowIds: string[];
-}
-
-/** Resolved (installed) firebase version — the value check-observation-versions.ts
- *  compares every observation against. */
-function resolvedFirebaseVersion(): string {
-  const pkgPath = fileURLToPath(import.meta.resolve('firebase/package.json'));
-  const meta = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
-  if (!meta.version) throw new Error('could not resolve installed firebase version');
-  return meta.version;
 }
 
 /** Absolute path an observation for `scenario` writes to. */
