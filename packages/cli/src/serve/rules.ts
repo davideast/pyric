@@ -169,17 +169,38 @@ export async function loadProjectStorageRules(
   return { rules, rulesHash: rulesHashOf(rules), sourcePath: path };
 }
 
+function normalizeDatabaseEntries(block: unknown): Array<Record<string, unknown>> {
+  if (!block) {
+    return [];
+  }
+  if (Array.isArray(block)) {
+    return block.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null);
+  }
+  if (typeof block === 'object' && block !== null) {
+    return [block as Record<string, unknown>];
+  }
+  return [];
+}
+
+function hasConfiguredRules(entry: Record<string, unknown>): entry is Record<string, unknown> & { rules: string } {
+  return typeof entry.rules === 'string';
+}
+
+function hasConfiguredUrl(entry: Record<string, unknown>): entry is Record<string, unknown> & { url: string } {
+  return typeof entry.url === 'string';
+}
+
 export async function loadProjectDatabaseRules(
   cwd: string,
   config: FirebaseJson | null,
 ): Promise<LoadedDatabaseRules> {
-  const block = config?.database;
-  const entries = block ? (Array.isArray(block) ? block : [block]) : [];
-  const configuredEntry = entries.find((e) => e && typeof e === 'object' && e.rules);
+  const entries = normalizeDatabaseEntries(config?.database);
+  const configuredEntry = entries.find(hasConfiguredRules);
   const configured = configuredEntry?.rules;
   const rel = configured ?? 'database.rules.json';
   const path = isAbsolute(rel) ? rel : join(cwd, rel);
-  const databaseUrl = entries.find((e) => e && typeof e === 'object' && e.url)?.url ?? null;
+  const urlEntry = entries.find(hasConfiguredUrl);
+  const databaseUrl = urlEntry?.url ?? null;
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
