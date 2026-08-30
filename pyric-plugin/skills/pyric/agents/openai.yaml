@@ -1,0 +1,4 @@
+interface:
+  display_name: "Start Pyric"
+  short_description: "Install and connect the current Pyric sandbox"
+  default_prompt: "Use $pyric to install the current Pyric CLI, start its sandbox bridge, and verify the app is connected."

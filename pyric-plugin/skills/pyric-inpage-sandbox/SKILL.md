@@ -1,7 +1,7 @@
 ---
 name: pyric-inpage-sandbox
 description: >-
-  Embed Pyric's in-page Firestore, Storage, and Auth sandbox directly into standalone HTML pages, browser widgets, or UI artifacts without a CLI, backend, or Vite dev server. Use when building client-only prototypes, standalone HTML artifacts, or browser demos that require a functioning local Firestore and Storage database with real-time listeners, security rules, and document seeding. Don't use when developing a standard Vite or Node application (use pyric-start instead) or when auditing an existing Firebase app (use improve-firebase).
+  Embed Pyric's in-page Firestore, Storage, and Auth sandbox directly into standalone HTML pages, browser widgets, or UI artifacts without a CLI, backend, or Vite dev server. Use when building client-only prototypes, standalone HTML artifacts, or browser demos that require a functioning local Firestore and Storage database with real-time listeners, security rules, and document seeding. Don't use when developing a standard Vite or Node application (use pyric instead) or when auditing an existing Firebase app (use improve-firebase).
 ---
 
 # Embed Pyric In-Page Sandbox (No CLI or Dev Server)

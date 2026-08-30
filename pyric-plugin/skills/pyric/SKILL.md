@@ -1,5 +1,5 @@
 ---
-name: pyric-start
+name: pyric
 description: Install the current Pyric CLI, start this project's sandbox bridge, and open the app so the in-page sandbox connects. Use before asking an agent to work with Firestore, Auth, or another Firebase service through Pyric.
 ---
 
