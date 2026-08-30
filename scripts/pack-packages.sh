@@ -25,6 +25,10 @@
 
 set -euo pipefail
 
+# macOS adds AppleDouble entries for extended attributes unless this is set.
+# Those entries become visible package files when npm publishes a tarball.
+export COPYFILE_DISABLE=1
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="$ROOT/dist/packages"
 
@@ -63,11 +67,9 @@ mkdir -p "$OUT_DIR"
 echo ""
 echo "━━━ Phase 2: pack ━━━"
 
-# The npm-facing README for the core packages is the ROOT readme (the
-# branded one npmjs renders for `latest`); each package keeps its own
-# README.md in the source tree as the in-repo doc. COPY, never symlink —
-# `npm pack` does not follow symlinks. The original is restored even on
-# failure (RETURN trap), so the working tree stays clean.
+# The npm-facing README for the core packages is the root README. Each package
+# keeps its own README.md in the source tree. Replace the README only inside the
+# extracted tarball so packing never mutates the working tree.
 ROOT_README_PACKAGES=("pyric" "pyric-admin" "@pyric/cli")
 
 uses_root_readme() {
@@ -86,21 +88,6 @@ pack_one() {
   version=$(jq -r '.version' "$ROOT/$pkg_dir/package.json")
   echo "▸ packing $name@$version"
 
-  local swapped=0
-  restore_readme() {
-    if [ "$swapped" -eq 1 ]; then
-      mv "$ROOT/$pkg_dir/README.md.orig" "$ROOT/$pkg_dir/README.md"
-      swapped=0
-    fi
-  }
-  trap restore_readme RETURN
-  if uses_root_readme "$name"; then
-    mv "$ROOT/$pkg_dir/README.md" "$ROOT/$pkg_dir/README.md.orig"
-    cp "$ROOT/README.md" "$ROOT/$pkg_dir/README.md"
-    swapped=1
-    echo "    (README: root readme swapped in for npm)"
-  fi
-
   # npm pack writes <flattened-name>-<version>.tgz (scope removed,
   # `/` replaced by `-`). Capture the produced filename via npm's
   # stdout output.
@@ -108,17 +95,27 @@ pack_one() {
   tarball=$(cd "$ROOT/$pkg_dir" && npm pack --silent --pack-destination "$OUT_DIR")
   local full="$OUT_DIR/$tarball"
 
-  # Post-process: rewrite workspace:* → ^<version> via the shared helper
-  # so the tarball is installable by any non-workspace consumer.
+  # Post-process the extracted package once when it needs the root README or
+  # concrete workspace dependency versions.
   # Do not use `grep -q` here. GNU tar reports SIGPIPE when grep exits after
   # the first match; with `pipefail` that makes the condition falsely report
   # that the manifest contains no workspace dependency.
+  local has_workspace_deps=0
   if tar -xzOf "$full" package/package.json | grep 'workspace:' >/dev/null; then
+    has_workspace_deps=1
+  fi
+  if uses_root_readme "$name" || [ "$has_workspace_deps" -eq 1 ]; then
     local tmp
     tmp=$(mktemp -d)
     tar -xzf "$full" -C "$tmp"
-    node "$ROOT/scripts/lib/rewrite-workspace-deps.mjs" \
-      "$tmp/package/package.json" "$ROOT"
+    if uses_root_readme "$name"; then
+      cp "$ROOT/README.md" "$tmp/package/README.md"
+      echo "    (README: root README added to npm tarball)"
+    fi
+    if [ "$has_workspace_deps" -eq 1 ]; then
+      node "$ROOT/scripts/lib/rewrite-workspace-deps.mjs" \
+        "$tmp/package/package.json" "$ROOT"
+    fi
     (cd "$tmp" && tar -czf "$full" package)
     rm -rf "$tmp"
   fi
