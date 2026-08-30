@@ -23,20 +23,20 @@ Antigravity CLI and OpenCode use the standalone skill installer:
 
 ```bash
 # Antigravity CLI
-npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent antigravity-cli
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric --agent antigravity-cli
 
 # OpenCode
-npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric-start --agent opencode
+npx skills add https://github.com/davideast/pyric/tree/main/pyric-plugin/skills/pyric --agent opencode
 ```
 
 Then invoke the skill:
 
 | Agent | Enter |
 |---|---|
-| Codex | `$pyric-start` |
-| Claude Code | `/pyric:pyric-start` |
-| Antigravity CLI | `/pyric-start` |
-| OpenCode | `/pyric-start` |
+| Codex | `$pyric` |
+| Claude Code | `/pyric:pyric` |
+| Antigravity CLI | `/pyric` |
+| OpenCode | `/pyric` |
 
 The leading `$` or `/` is part of the command.
 

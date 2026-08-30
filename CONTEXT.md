@@ -40,7 +40,7 @@ Examples live in `examples/`: `vite-sandbox-app`, `nextjs-sandbox-app`,
 `inpage-todo-app`, `admin-playground`, `ai-chat`, `playground-next`,
 `prelease-pyric`. Only some are workspace members; the root `package.json`
 `workspaces` array is the list. The cross-agent Pyric plugin lives in
-`pyric-plugin/` and ships three skills: `pyric-start`, `improve-firebase`,
+`pyric-plugin/` and ships three skills: `pyric`, `improve-firebase`,
 and `pyric-inpage-sandbox`. Repository-local agent skills live in
 `.agents/skills/`. `clones/` holds read-only upstream checkouts
 (`firebase-js-sdk`, `firebase-tools-ui`) used as reference, not as
