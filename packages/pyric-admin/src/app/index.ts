@@ -179,7 +179,7 @@ function initializeAmbientApp(name: string): PyricAdminApp {
   if (env === undefined || env.trim() === '') {
     throw new Error(
       'pyric-admin/app is a sandbox-only mirror and no sandbox is active. ' +
-        'Run under `pyric dev`, set PYRIC_SANDBOX with @pyric/cli/register, ' +
+        'Run under `pyric sandbox`, set PYRIC_SANDBOX with @pyric/cli/register, ' +
         'or load firebase-admin/app without Pyric activation for production.',
     );
   }
@@ -201,7 +201,7 @@ function initializeAmbientApp(name: string): PyricAdminApp {
     throw new Error(
       `pyric-admin: PYRIC_SANDBOX=${env} is set but no remote sandbox ` +
         "factory is installed (globalThis[Symbol.for('pyric.remote.sandboxFactory')] is absent). " +
-        'Run your server under `pyric dev`, or add `--import @pyric/cli/register` to NODE_OPTIONS.',
+        'Run your server under `pyric sandbox`, or add `--import @pyric/cli/register` to NODE_OPTIONS.',
     );
   }
 
@@ -223,7 +223,7 @@ function parsePyricSandboxEnv(env: string): RemoteSandboxFactoryOptions {
     if (url === '') {
       throw new Error(
         'pyric-admin: PYRIC_SANDBOX=remote: has an empty url. Use ' +
-          'PYRIC_SANDBOX=remote to auto-discover the running `pyric dev`, ' +
+          'PYRIC_SANDBOX=remote to auto-discover the running `pyric sandbox`, ' +
           'or PYRIC_SANDBOX=remote:<url> with the host url.',
       );
     }
@@ -231,7 +231,7 @@ function parsePyricSandboxEnv(env: string): RemoteSandboxFactoryOptions {
   }
   throw new Error(
     `pyric-admin: unrecognized PYRIC_SANDBOX value "${env}". Supported ` +
-      'values: "1", "true", "remote" (auto-discover the running `pyric dev`), or "remote:<url>".',
+      'values: "1", "true", "remote" (auto-discover the running `pyric sandbox`), or "remote:<url>".',
   );
 }
 

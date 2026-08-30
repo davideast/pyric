@@ -25,7 +25,7 @@ the project's package manager.
 
 ## Start one launcher
 
-1. Inspect `package.json`, the lockfile, `vite.config.*`, and `firebase.json`.
+1. Inspect `package.json`, the lockfile, `vite.config.*`, `firebase.json`, and `pyric.json`.
 2. If the directory has no application yet, scaffold the current Vite template with
    `npm create pyric@latest`. Do not use a globally installed `pyric` executable.
 3. For an existing project, install or update the development dependency with its package manager:
@@ -35,12 +35,16 @@ the project's package manager.
    - **Vite:** Edit the existing Vite configuration in place. Import `pyric` from
      `@pyric/cli/vite` and ensure the existing `plugins` array contains one
      `pyric({ bridge: true })` call. Do not add a second `plugins` property. Start the existing
-     dev script, such as `npm run dev` or `bun run dev`. Do not also start `pyric dev`.
-   - **Existing non-Vite app:** Preserve its development command. If its script starts with
-     `pyric dev`, add `--bridge --persist --json` before the child-command separator (`--`).
-     Run that script with the project's package manager.
+     dev script, such as `npm run dev` or `bun run dev`. Do not also start `pyric sandbox`.
+   - **Existing non-Vite app:** Preserve its development command. Replace any retired
+     `pyric dev` or `pyric serve` launcher with `pyric sandbox`. Put Pyric flags before the
+     first child command token. Use `--` to separate the child command when it could be
+     mistaken for a Pyric flag. A complete command looks like
+     `pyric sandbox --bridge --persist --json -- <command>`. If `pyric.json` defines
+     `command`, pass that command explicitly after `--` because `--json` without an explicit
+     command starts only the sandbox host. Run the script with the project's package manager.
    - **No existing development command:** Run the project-local CLI with
-     `npx --no-install pyric dev --bridge --persist --json`.
+     `npx --no-install pyric sandbox --bridge --persist --json`.
 5. Keep the URL printed by the launcher.
 6. Keep the dev server running in the background. Avoid restarting it after the bridge connects.
 

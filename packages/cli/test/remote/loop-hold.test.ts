@@ -247,7 +247,7 @@ describe('remote core — version-skew stamp on attach', () => {
       await node.core.ready;
       await node.channel.op({ method: 'getVersion' });
     });
-    expect(logged.filter((l) => l.includes('restart pyric dev'))).toEqual([]);
+    expect(logged.filter((l) => l.includes('Restart pyric sandbox'))).toEqual([]);
   });
 
   it('an ABSENT stamp (old server) stays silent', async () => {
@@ -265,7 +265,7 @@ describe('remote core — version-skew stamp on attach', () => {
       });
       await node.core.ready;
     });
-    expect(logged.filter((l) => l.includes('restart pyric dev'))).toEqual([]);
+    expect(logged.filter((l) => l.includes('Restart pyric sandbox'))).toEqual([]);
   });
 
   it('a mismatched stamp warns ONCE and enriches timeout errors', async () => {
@@ -291,12 +291,12 @@ describe('remote core — version-skew stamp on attach', () => {
         const message = (err as Error).message;
         expect(message).toContain('timed out');
         expect(message).toContain('9.9.9-skew');
-        expect(message).toContain('restart pyric dev and reload the browser tab');
+        expect(message).toContain('Restart pyric sandbox and reload the browser tab');
       }
     });
-    const warnings = logged.filter((l) => l.includes('restart pyric dev'));
+    const warnings = logged.filter((l) => l.includes('Restart pyric sandbox'));
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('pyric dev is running version 9.9.9-skew');
+    expect(warnings[0]).toContain('pyric sandbox is running version 9.9.9-skew');
   });
 });
 
@@ -317,8 +317,8 @@ describe('remote core — version-skew guidance on Unknown method', () => {
     } catch (err) {
       const message = (err as Error).message;
       expect(message).toContain('Unknown method: storage.notShippedYet');
-      expect(message).toContain('the running sandbox may predate this feature');
-      expect(message).toContain('restart pyric dev');
+      expect(message).toContain('The running sandbox may predate this feature');
+      expect(message).toContain('Restart pyric sandbox');
       expect(message).toContain('close other open pages');
     }
   });

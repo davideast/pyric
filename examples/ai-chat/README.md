@@ -2,12 +2,12 @@
 
 The graduation demo for pyric's AI surface, and the witness artifact for it:
 one chat app, written entirely against the upstream `firebase/ai` API, that
-runs unchanged under `pyric dev` on two answer engines.
+runs unchanged under `pyric sandbox` on two answer engines.
 
 The app imports only `firebase/app` and `firebase/ai`. It uses
 `getGenerativeModel`, streaming via `generateContentStream`, multi-turn
 history via `ChatSession`, and a function-calling round trip with a
-`get_weather` tool. Under `pyric dev` the import map serves the pyric mirror
+`get_weather` tool. Under `pyric sandbox` the import map serves the pyric mirror
 for those imports; no app code changes.
 
 ## Run
@@ -16,11 +16,11 @@ From this directory, with the repo built (`bun run build:cli` at the
 root):
 
 ```sh
-node ../../packages/cli/dist/cli/index.js dev --no-open
+node ../../packages/cli/dist/cli/index.js sandbox --no-open
 ```
 
-Or, with `@pyric/cli` installed, run `pyric dev`. Open the printed URL
-(serve picks a free port).
+Or, with `@pyric/cli` installed, run `pyric sandbox`. Open the printed URL.
+The sandbox server picks a free port.
 
 ## The two modes
 
@@ -65,7 +65,7 @@ ollama pull qwen3:4b
 ## Why this exists
 
 This page is the destination of the AI surface work: the oracle capture app
-shape running unchanged under `pyric dev` on the scripted engine, and the
+shape running unchanged under `pyric sandbox` on the scripted engine, and the
 same app answered by a real local model through an OpenAI-compatible server.
 The e2e smoke test at
 `packages/cli/test/e2e/ai-demo.pw.ts` boots serve on this directory,

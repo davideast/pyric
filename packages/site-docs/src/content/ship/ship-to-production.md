@@ -32,7 +32,7 @@ Index builds are long-running on Firebase's side; the Firebase CLI starts them a
 
 ## Learn what flips before production does
 
-This is the step the others earn. While you worked, `pyric dev` captured the session to `.pyric/last-session.json`: every write, every identity, every timestamp. Replay that session against the rules you are about to ship:
+While you worked, `pyric sandbox` captured the session to `.pyric/last-session.json`. It includes every write, identity, and timestamp. Replay that session against the rules you are about to ship:
 ```bash
 pyric verify --rules firestore=firestore.rules
 ```
@@ -65,7 +65,7 @@ Use `firebase-tools` (or the Console) for production shipping. Preview channels 
 - **CI / local**: a service account via `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`.
 - **Fallback**: ambient application-default credentials.
 
-The full flag list is in the CLI reference.
+The full flag list is in the [CLI reference](../reference/cli.md).
 
 ## Where to go next
 

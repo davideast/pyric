@@ -412,7 +412,7 @@ describe('runInit', () => {
 
     // Missing Pyric development scripts + deps added.
     expect(written.scripts.bridge).toBe('pyric bridge');
-    expect(written.scripts.dev).toBe('pyric dev --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts');
+    expect(written.scripts.dev).toBe('pyric sandbox --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts');
     expect(Object.keys(written.scripts).some((name) => name.startsWith('deploy'))).toBe(false);
     expect(written.dependencies.firebase).toBe('^12.12.0');
     expect(written.dependencies.pyric).toBeUndefined();
@@ -437,7 +437,7 @@ describe('runInit', () => {
         private: true,
         scripts: {
           start: 'node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
-          dev: 'pyric dev --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
+          dev: 'pyric sandbox --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
           bridge: 'pyric bridge',
         },
         dependencies: { firebase: '^12.12.0' },

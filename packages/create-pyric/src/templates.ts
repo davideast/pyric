@@ -7,7 +7,7 @@
  * toolchain, no graduation cliff — the sandbox↔Firebase swap is environmental
  * (dev vs build), never a code edit (the design rationale section 9).
  *
- * `static` is the serve-era scaffold (no bundler): a static app `pyric dev`
+ * `static` is the no-bundler scaffold. A static app run by `pyric sandbox`
  * runs against the in-page sandbox via a runtime import map. For pre-built /
  * retrofit apps, or anyone who wants zero build step.
  *
@@ -181,7 +181,7 @@ const WEB_INDEX_HTML = (name: string): string => `<!doctype html>
 </html>
 `;
 
-const WEB_APP_JS = `// Canonical firebase/* imports. Under \`pyric dev\` they are served by the
+const WEB_APP_JS = `// Canonical firebase/* imports. Under \`pyric sandbox\` they are served by the
 // in-page pyric sandbox (the config below is ignored); under any standard
 // bundler/pipeline the same imports resolve to the real \`firebase\` package.
 // Graduation changes where you run this code, never the code itself.
@@ -203,7 +203,7 @@ import {
 
 const app = initializeApp({
   // Graduation: your real web-app config from the Firebase console
-  // (see .env.example). Unused while developing under \`pyric dev\`.
+  // (see .env.example). Unused while developing under \`pyric sandbox\`.
   apiKey: 'demo',
   authDomain: 'demo.firebaseapp.com',
   projectId: 'demo',
@@ -257,7 +257,7 @@ onSnapshot(collection(db, 'posts'), (snap) => {
 const WEB_RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Owner-based from line 1 — \`pyric dev\` hot-reloads this file and
+    // Owner-based from line 1. \`pyric sandbox\` hot-reloads this file and
     // ships a sign-in helper, so safe rules are cheap to iterate. These
     // deploy as-is.
     match /posts/{postId} {
@@ -295,7 +295,7 @@ const WEB_SEED_JSON = `{
 `;
 
 const WEB_ENV_EXAMPLE = `# Graduation config — your real Firebase web app (console → project settings).
-# Unused under \`pyric dev\`; wire it into public/app.js (or a bundler env)
+# Unused under \`pyric sandbox\`; wire it into public/app.js (or a bundler env)
 # when you deploy against the real backend.
 FIREBASE_API_KEY=
 FIREBASE_AUTH_DOMAIN=
@@ -315,14 +315,14 @@ sandbox — no Firebase project, credentials, or emulators.
   popup sign-in via the helper dialog.
 - **Agent:** \`bun run dev:agent\` — same, plus the MCP bridge on the dev-server
   origin (\`/__pyric/mcp\`).
-- **Persist (optional):** \`pyric dev --persist --seed seed.json\` — data and
+- **Persist (optional):** \`pyric sandbox --persist --seed seed.json\` keeps data and
   test users survive reloads and restarts in \`.pyric/state/state.json\`
   (plain JSON; gitignored). Promote lived state to a committable fixture
-  with \`pyric snapshot\`, then re-serve it: \`pyric dev --seed pyric-state.json\`.
+  with \`pyric snapshot\`, then load it again: \`pyric sandbox --seed pyric-state.json\`.
 - **Graduate:** fill \`.env\` from the Firebase console and point the config in
   \`public/app.js\` at it, then run \`npx firebase-tools deploy\`. Bare
   \`firebase/*\` imports need a bundler
-  (e.g. \`vite build\`) or an import map in production — \`pyric dev\`
+  (e.g. \`vite build\`) or an import map in production. \`pyric sandbox\`
   provides the map in dev.
 
 The app code uses canonical \`firebase/*\` imports everywhere. Switching
@@ -668,7 +668,7 @@ import { pyric } from '@pyric/cli/vite';
 // sandbox and deploys + hot-reloads firestore.rules — no Firebase project,
 // credentials, or emulators. \`vite build\` (mode production) ships the real
 // firebase package; the swap never reaches the deployed artifact. For a
-// self-contained sandbox preview you can serve under \`pyric dev\`, build with a
+// self-contained sandbox preview you can serve under \`pyric sandbox\`, build with a
 // non-production mode: \`vite build --mode development\` (see the \`build:sandbox\`
 // script). That output is marked and can never be deployed.
 export default defineConfig({
@@ -755,10 +755,8 @@ in-process sandbox — no Firebase project, credentials, or emulators.
 > between the sandbox and real Firebase is \`vite dev\` vs \`vite build\`, never
 > what you wrote.
 
-The plugin is dev-only: SharedWorker multi-tab sync, \`--persist\`, capture, and
-the MCP bridge (all available today under \`pyric dev\`) arrive in the plugin in
-later releases. For a pre-built / no-build app, use \`pyric init --template static\`
-+ \`pyric dev\`.
+The plugin is development-only. For a pre-built or no-build app, use
+\`pyric init --template static\` and \`pyric sandbox\`.
 `;
 
 let chatAssets: ReturnType<typeof loadAssetTemplate> | undefined;
@@ -804,7 +802,7 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
   node: {
     scripts: {
       start: 'node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
-      dev: 'pyric dev --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
+      dev: 'pyric sandbox --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
      bridge: 'pyric bridge',
     },
     dependencies: { firebase: '^12.12.0' },
@@ -822,13 +820,13 @@ export const TEMPLATES: Record<TemplateName, ScaffoldTemplate> = {
     ],
     nextSteps: ['bun install', 'bun run dev', 'bun start  # production: real Firebase'],
   },
-  // static — the serve-era, no-bundler scaffold: a static app `pyric dev`
+  // static: the no-bundler scaffold run by `pyric sandbox`
   // runs against the in-page sandbox via a runtime import map. For pre-built /
   // retrofit apps, or anyone who wants zero build step.
   static: {
     scripts: {
-      dev: 'pyric dev --seed seed.json',
-     'dev:agent': 'pyric dev --bridge --seed seed.json',
+      dev: 'pyric sandbox --seed seed.json',
+     'dev:agent': 'pyric sandbox --bridge --seed seed.json',
     },
     dependencies: { firebase: '^12.12.0' },
     devDependencies: { '@pyric/cli': '*' },

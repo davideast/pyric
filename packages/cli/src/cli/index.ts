@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * `pyric` CLI — front door to the bridge + project tooling.
+ * `pyric` CLI front door to the bridge and project tooling.
  *
  * Subcommands:
  *   pyric bridge [--port N] [--project ID]
- *   pyric sandbox [command...] [--port N] [--host H] [--no-cache] [--bridge] [--ui] [--seed FILE] [--no-watch] [--no-open] [--no-capture] [--no-run] [--json] [--persist] [--fresh] [-- <cmd>]
+ *   pyric sandbox [flags] [--] [command...]
  *   pyric init [dir] [--template web|node] [--name N] [--force] [--json]
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
@@ -55,12 +55,12 @@ const VERSION = pyricVersion();
 
 function printUsage(): void {
   process.stdout.write(`pyric ${VERSION}
-Firebase for agents — bridge an in-browser pyric sandbox to external MCP
+Firebase for agents. Bridge an in-browser Pyric sandbox to external MCP
 clients (Claude Code, Cursor, ...).
 
 USAGE
   pyric bridge [flags]
-  pyric sandbox [command...] [flags]
+  pyric sandbox [flags] [--] [command...]
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
@@ -102,7 +102,7 @@ COMMANDS
                              Antigravity). Hosts a headless in-process sandbox,
                              or attaches to a running \`pyric sandbox --bridge\`
                              (found via .pyric/serve.json) for shared-live Studio.
-  snapshot [--out=FILE]      Promote lived sandbox state (live dev --persist, else
+  snapshot [--out=FILE]      Promote lived sandbox state (live sandbox --persist, else
                              .pyric/state/state.json) to a committable fixture that
                              \`pyric sandbox --seed FILE\` re-serves. Passwords are redacted
                              by default (--include-passwords keeps them). --port, --force, --json.
@@ -134,28 +134,26 @@ COMMANDS
   database rules simulate    Run the local Realtime Database rules simulator.
   database rules generate    Compile a constraints module to database.rules.json.
 CORE FLAGS (sandbox)
-  --port             Port to serve on. Default 3473 — "FIRE" on a phone keypad (scans forward when taken;
-                     macOS AirPlay squats 5000).
+  --port             Port to serve on. Default 3473. Pyric scans forward when
+                     the selected port is taken.
   --host             Host to bind. Default localhost.
   --no-cache         Rebuild the served pyric SDK bundles (skip ~/.pyric/serve-cache).
   --only hosting     Accepted for firebase-serve parity (hosting is all v1 serves).
-  --bridge           Also mount the MCP bridge on the serve origin — agents point
+  --bridge           Also mount the MCP bridge on the serve origin. Agents point
                      at http://<host>:<port>/__pyric/mcp and drive the sandbox
                      living in the served page. --project labels health/audit.
-  --ui               Also serve the unified site at <url>/__pyric/ui/ (Studio
-                     hub at /__pyric/ui/studio) and mount its disk-backed
-                     workspace + project data routes. Auto-opens Studio
-                     instead of the served page. Needs a full build so the
-                     app assets are present.
-  --seed FILE        JSON map of "collection/doc" → fields, loaded admin-style.
+  --ui               Open Studio instead of the served page. Studio and docs
+                     are served by default at <url>/__pyric/ui/.
+  --no-ui            Do not serve Studio, docs, workspace, or project routes.
+  --seed FILE        JSON map of "collection/doc" to fields, loaded with admin access.
                      Also accepts a pyric state file (from \`pyric snapshot\`,
-                     detected by its version key) — seeds docs + auth users.
-                     into the page sandbox before app code runs.
+                     detected by its version key). Seeds documents and auth users
+                     before application code runs.
   --no-watch         Disable firestore.rules hot-reload (on by default).
-  --no-open          Don't auto-open the browser. dev opens the served page
+  --no-open          Don't auto-open the browser. sandbox opens the served page
                      by default (the sandbox is browser-resident); auto-open
                      is already suppressed under --json, no TTY, and CI.
-  --no-capture       Don't write the session capture. dev writes
+  --no-capture       Don't write the session capture. sandbox writes
                      .pyric/last-session.json by default so \`pyric verify\`
                      can replay your session; --no-capture disables it.
   --permissive       Allow unauthenticated Realtime Database reads and writes when no
@@ -163,31 +161,38 @@ CORE FLAGS (sandbox)
   --allowed-host H   Allow an extra Host header past the DNS-rebinding guard
                      (comma-separated; localhost/127.0.0.1 always allowed).
   --persist          Persist sandbox state (docs + auth users) to
-                     .pyric/state/state.json — survives reloads and dev
+                     .pyric/state/state.json. It survives reloads and sandbox
                      restarts. Once a state file exists it wins; --seed
                      applies only on the first (state-less) run. Ephemeral
                      is the default.
   --fresh            Requires --persist: discard the existing state file and
                      re-seed from scratch (escape hatch when you've edited
-                     seed.json). Without --persist, --fresh errors — there is
+                     seed.json). Without --persist, --fresh errors because there is
                      no state file to discard. Half-reset warning: a browser
                      tab that already has sandbox data in IndexedDB keeps it
                      and writes it back to the new file; also clear the
-                     browser store (Studio → Settings → Reset, or an
+                     browser store in Studio under Settings, Reset, or use an
                      incognito window) for a full reset.
-  -- <cmd>           Run <cmd> once the host is up, with PYRIC_SANDBOX set and
+  [command...]       Run a command once the host is up, with PYRIC_SANDBOX set and
                      NODE_OPTIONS extended with --import @pyric/cli/register
-                     so firebase-admin/firebase resolve to the sandbox. When
-                     omitted, the package.json \`dev\` script runs (via the
-                     detected package manager); no script → host-only.
-  --no-run           Don't run the project's dev command (for users with their
-                     own process manager). A declared Functions source still
-                     runs. --json skips the dev command unless a \`-- <cmd>\`
-                     is given explicitly.
+                     so firebase-admin/firebase resolve to the sandbox. Put
+                     Pyric flags before the command. A bare -- separates the
+                     command and its flags. When omitted, pyric.json#command
+                     runs. With no configured command, the host runs alone.
+  --no-run           Don't run an explicit or configured command. A declared
+                     Functions source still runs.
   --json             One machine-readable line on stdout ({url, port, mcpUrl,
                      rulesHash, persist, restoredDocs, restoredUsers}); the
-                     banner moves to stderr. Readiness probe:
+                     banner moves to stderr. A pyric.json command is skipped
+                     unless a command is supplied explicitly. Readiness probe:
                      GET <url>/__pyric/init.json → 200 (live rules hash).
+
+PROJECT CONFIG (pyric.json)
+  command            Default child command. An explicit CLI command overrides it.
+  port               Default sandbox port. --port overrides it.
+  project            Project label. --project, then PYRIC_PROJECT, override it.
+  rules              Firestore rules path, or an object with firestore,
+                     database, and storage paths.
 
 CORE FLAGS (bridge)
   --port             Port to bind on 127.0.0.1. Default 5174. Env: PYRIC_PORT.

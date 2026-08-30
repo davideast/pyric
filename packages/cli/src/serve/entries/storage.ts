@@ -66,7 +66,7 @@ export function connectStorageEmulator(
   _options?: unknown,
 ): void {
   console.info(
-    '[pyric dev] pyric replaces the Firebase emulator; connectStorageEmulator is a no-op.',
+    '[pyric sandbox] Pyric replaces the Firebase emulator; connectStorageEmulator is a no-op.',
   );
   if (!useWorker) ip.connectStorageEmulator(storage as FirebaseStorage, _host, _port, _options as never);
 }

@@ -109,12 +109,18 @@ No application imports change. Continue using `firebase/app`, `firebase/auth`, `
 
 ## Use a static application or Node process
 
-`pyric dev` provides the same development-only package swap outside the Vite plugin:
+`pyric sandbox` provides the same development-only package swap outside the Vite plugin:
 ```bash
 npm install --save-dev @pyric/cli
-npx pyric dev
+npx pyric sandbox
 ```
-It can serve static files or start an existing development command. The CLI guide covers those paths. [Test in Node](../ship/test-in-node.md) covers an in-process sandbox for tests and scripts.
+It can serve static files or start an existing development command. Put Pyric flags before the child command and use `--` to mark the boundary when needed:
+
+```bash
+npx pyric sandbox --bridge -- npm run dev
+```
+
+You can also set `command`, `port`, `project`, and rules paths in `pyric.json`. See the [CLI reference](../reference/cli.md). [Test in Node](../ship/test-in-node.md) covers an in-process sandbox for tests and scripts.
 
 ## What remains local
 

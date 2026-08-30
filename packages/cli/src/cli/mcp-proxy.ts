@@ -1,6 +1,6 @@
 /**
  * `pyric mcp-proxy` — a stdio MCP server that relays to a RUNNING
- * `pyric dev --bridge`'s HTTP MCP endpoint.
+ * the HTTP MCP endpoint from `pyric sandbox --bridge`.
  *
  * Why this exists: the agent plugin declares one static stdio command, while
  * serve's endpoint is `http://localhost:<PORT>/__pyric/mcp` with a runtime
@@ -84,12 +84,12 @@ export async function runMcpProxy(
   if (!found) {
     // Hybrid mode (design rationale): no dev server to attach to, so host the
     // sandbox IN this process. Zero setup, no browser tab required. A running
-    // `pyric dev --bridge` upgrades to the shared-live experience on reconnect.
+    // `pyric sandbox --bridge` upgrades to the shared session on reconnect.
     log(
-      'no running `pyric dev --bridge` found (looked for .pyric/serve.json and ports ' +
+      'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json and ports ' +
         `${SCAN_PORTS.join(', ')}); starting a headless in-process sandbox (zero-setup).\n` +
         '  Data persists to .pyric/state/headless.json. For a shared-live Studio\n' +
-        '  session, start `pyric dev --bridge` BEFORE connecting the agent (a dev server\n' +
+        '  session, start `pyric sandbox --bridge` before connecting the agent (a sandbox host\n' +
         '  started mid-session does not yet adopt this headless data).',
     );
     const headless =

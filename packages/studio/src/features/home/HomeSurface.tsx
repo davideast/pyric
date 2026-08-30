@@ -271,7 +271,7 @@ function OnboardingCards() {
           writes show up in the feed, attributed.
         </span>
         <code className="studio-home__snippet">
-          {bridgeOn ? `${origin}/__pyric/mcp` : 'pyric dev --bridge  # then <url>/__pyric/mcp'}
+          {bridgeOn ? `${origin}/__pyric/mcp` : 'pyric sandbox --bridge  # then <url>/__pyric/mcp'}
         </code>
       </section>
       <section className="studio-card studio-home__onboard" aria-label="Seed data">
@@ -280,7 +280,7 @@ function OnboardingCards() {
           Start from a fixture, or create documents by hand in the Firestore
           browser.
         </span>
-        <code className="studio-home__snippet">pyric dev --seed seed.json</code>
+        <code className="studio-home__snippet">pyric sandbox --seed seed.json</code>
         <RouteLink className="studio-home__onboard-link" target={{ tab: 'firestore' }}>
           open Firestore →
         </RouteLink>
@@ -298,7 +298,7 @@ function OnboardingCards() {
               Serve your repo&apos;s rules file and every denial becomes a
               debuggable event.
             </span>
-            <code className="studio-home__snippet">pyric dev --rules firestore.rules</code>
+            <code className="studio-home__snippet">pyric.json: {`{"rules":"firestore.rules"}`}</code>
           </>
         )}
       </section>

@@ -179,7 +179,7 @@ describe('pyric init v2 — web template ↔ example dogfood stay in sync', () =
       expect([f, scaffolded]).toEqual([f, example]);
     }
     // the web template has no seed.json — seeding is a plugin (M2) feature, not
-    // a scaffolded file. (The `static` template keeps seed.json for pyric dev.)
+    // a scaffolded file. The `static` template keeps seed.json for `pyric sandbox`.
     expect(existsSync(join(dir, 'seed.json'))).toBe(false);
   });
 });
@@ -210,7 +210,7 @@ describe('pyric init v2 — nextjs template ↔ example dogfood stay in sync', (
 });
 
 describe('pyric init v2 — static template (serve-era, no bundler)', () => {
-  it('scaffolds the static public/ app served by pyric dev', async () => {
+  it('scaffolds the static public/ app served by pyric sandbox', async () => {
     const dir = tmp();
     const c = capture();
     expect(await runInit(args([], { template: 'static', json: true }), c.deps(dir))).toBe(0);
@@ -231,7 +231,7 @@ describe('pyric init v2 — static template (serve-era, no bundler)', () => {
     expect(fb.hosting.public).toBe('public'); // not a build output
 
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-    expect(pkg.scripts.dev).toContain('pyric dev');
+    expect(pkg.scripts.dev).toContain('pyric sandbox');
     expect(pkg.scripts['dev:agent']).toContain('--bridge');
 
     // seed shape matches the --seed contract (path → fields)
@@ -327,7 +327,7 @@ describe('pyric init v2 — CLI surface', () => {
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
     expect(pkg.dependencies.firebase).toMatch(/^\^/);
     expect(pkg.dependencies.pyric).toBeUndefined();
-    expect(pkg.scripts.dev).toContain('pyric dev');
+    expect(pkg.scripts.dev).toContain('pyric sandbox');
     expect(pkg.scripts.start).toContain('node');
   });
 
@@ -441,7 +441,7 @@ describe('pyric init output contract', () => {
         'src/main.ts': '4a28c312cff4db2b3445012b61bf886629ca4c5ea5e3a860d3834e38a9633848',
         'src/vite-env.d.ts': '65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5',
         'tsconfig.json': '5bb892360953642d2644a442a81abbad91e62be2f7fcb646505cc7f33a6bcc08',
-        'vite.config.ts': 'fd229518462c98b4b2874b5580762a98a9ef8bc5f1b94ed6f93bbefdedb3ad49',
+        'vite.config.ts': '81505482f0526dc599ee013674544d4ed7ed97cbb5339a44b79663ec8233bd6a',
       },
       node: {
         '.env.example': '20b0fec5308501f75cab4d6026678eefbbbef0001bfabaa17c66d92e67c9d582',
@@ -449,18 +449,18 @@ describe('pyric init output contract', () => {
         'firebase.json': 'e817f89d2f9776ba460ec062be7d40f827b8f910d740cff2522b72232f1cdf5a',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '9028ecbf9580fee3a04afae28223bad887df81c814d14d2ebe983d30f3a49080',
-        'package.json': '7d57614df14281e451465b0286ee7e702bf3dac8d16e36c16a86c029d7aeb46f',
+        'package.json': '848f65db327982161b5543c9364db8fce32849ece24e073c98d8e878147eef69',
         'src/app.ts': '7833e1f764904c9e800cd5728ab0cc68df0347d9b5e6a2084be79f75b35958e5',
         'src/seed.ts': '6f04998f57b899fa7189706553645247f4b354715e899bb8070269b0564c1124',
       },
       static: {
-        '.env.example': '18c3e06dc3745d958ab69b314618808d7b0d0f31fad4db05552bf5c9c6613c92',
+        '.env.example': 'f01f3221a1ec03cbc44664ae0f7518c259018fd3f88dac75fdbb8c233f967ed1',
         '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
         'firebase.json': 'da40b786caed050b30a5bb108c6e369376477e89a8e08e09c105445ef01bd0fd',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
-        'firestore.rules': '75a93ddd7994180a083b2f3337538eb0bcff8fa775c2edd72a13bce051dbc9f3',
-        'package.json': '0daea34dba4cabb58b1dd8172dd166b44d21108cad0894f396caab4a21c9e571',
-        'public/app.js': '6e6b85c76d17e3f5d637afd8162233822b21c311a6f7d33ae02996d5565a3ed7',
+        'firestore.rules': 'd47e64a0acc67a12f4f0c7170b99b4d30bd4011f396ec846f15c77b2bda49550',
+        'package.json': 'e15cba94909a39c33422144da4685de4d93faca5f1c093fd050f728100c59713',
+        'public/app.js': 'b6dd3753f8385a78518ada97886319201f4f01705d13fef3dfc17a337f595cb9',
         'public/index.html': 'a878cd6b5508217014e966a8f18ffb8be7789118602acc1c8108df244d2bef4e',
         'seed.json': 'd7d4bed7b5b88e4c30720647f630a83769edbb7eb379e5bcec05403e15148935',
       },

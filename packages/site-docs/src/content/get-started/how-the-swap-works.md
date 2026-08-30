@@ -29,7 +29,7 @@ export default { plugins: [pyric()] };
 
 When the bundler reaches `firebase/firestore`, it gets Pyric's mirror instead of the Firebase SDK. Your `addDoc` call lands in a local backend with your rules enforced. No request leaves your machine. Because resolution happens before bundling, the swap reaches your dependencies too. A library that imports `firebase/firestore` on your behalf lands on the sandbox exactly like your own code.
 
-`pyric dev` does the same swap for a static page or a Node process: the served page carries an import map, so the browser makes the same substitution without Vite.
+`pyric sandbox` does the same swap for a static page or a Node process. The served page carries an import map, so the browser makes the same substitution without Vite.
 
 One detail that surprises people: `initializeApp(firebaseConfig)` still works. The config is accepted and ignored — there is no project to talk to.
 
@@ -53,7 +53,7 @@ A SharedWorker can outlive a Vite module update, so a refreshed page may otherwi
 
 ## Node processes
 
-For a Node child process, `pyric dev` sets `PYRIC_SANDBOX` and preloads `@pyric/cli/register`, which maps `firebase/*` to `pyric/*` and `firebase-admin/*` to `pyric-admin/*` for that process. Same rule as the browser: activation present, sandbox; activation absent, Firebase.
+For a Node child process, `pyric sandbox` sets `PYRIC_SANDBOX` and preloads `@pyric/cli/register`, which maps `firebase/*` to `pyric/*` and `firebase-admin/*` to `pyric-admin/*` for that process. The rule is the same as the browser. With activation present, it uses the sandbox. Without activation, it uses Firebase.
 
 ## Prove which one you're on
 

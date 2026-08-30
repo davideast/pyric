@@ -18,13 +18,13 @@ Console to ship rules, indexes, hosting, and functions to a real project.
 
 | Command | What it does |
 |---|---|
-| `pyric init [dir]` | Scaffold a pyric project — never prompts, idempotent, safe to rerun. `--template web` (default) creates a Vite app with canonical `firebase/*` imports; `--template static` creates a no-bundler app; `--template node` creates a script-style project. Run any template through `pyric dev` for sandbox resolution; inactive production tooling loads Firebase directly. Also `--name`, `--force` (overwrite scaffold-owned files), and `--json` (machine result on stdout). |
+| `pyric init [dir]` | Scaffold a Pyric project. `--template web` (default) creates a Vite app, `--template static` creates a no-bundler app, and `--template node` creates a script project. Also supports `--name`, `--force`, and `--json`. |
 | `pyric bridge` | Stand up an HTTP+WebSocket bridge an MCP client (Claude Code, Cursor) connects to (sandbox mode only) |
-| `pyric dev` | Local dev server with the pyric sandbox standing in for Firebase: serves `hosting.public`, resolves unmodified `firebase/*` imports to a pyric sandbox via a served import map, deploys + hot-reloads `firestore.rules` (SSE), opens an emulator-style sign-in helper for `signInWithPopup`/`signInWithRedirect`. The sandbox runs in a **SharedWorker by default** — one backend shared by every tab of the origin (live cross-tab sync), kept in the browser's IndexedDB so **your sandbox data — Firestore docs, auth users, RTDB, storage objects, and the traffic history — survives a refresh/restart by default** (see the persistence guide's coverage matrix for the exact tiers); a per-tab in-page sandbox is the fallback when SharedWorker is unavailable. Flags + exit codes: [CLI reference](docs/reference/cli.md#pyric-dev); persistence, ephemeral runs, clearing data, and SharedWorker tips: [persistence & multi-tab](docs/how-to/serve-persistence-and-multi-tab.md) |
-| `pyric snapshot` | Promote lived sandbox state (live `dev --persist`, else `.pyric/state/state.json`) to a committable fixture; `pyric dev --seed <fixture>` re-serves it (docs + users). `--out`, `--port`, `--force`, `--json` |
+| `pyric sandbox [flags] [--] [command...]` | Start the local Firebase sandbox. It can serve a static app, run a child process, mount the MCP bridge, and serve Studio. See the [CLI reference](https://pyric.dev/docs/reference/cli/). |
+| `pyric snapshot` | Promote saved sandbox state to a committable fixture. Load it with `pyric sandbox --seed <fixture>`. Supports `--out`, `--port`, `--force`, and `--json`. |
 | `pyric verify` | Replay a captured sandbox session against candidate rules (`--engine sandbox\|rules-test-api\|both`). Hosted Rules Test API needs SA/ADC via `FIREBASE_SA_BASE64` / `GOOGLE_APPLICATION_CREDENTIALS` |
 | `pyric can-i-use <feature>` | Query the canonical conformance model for availability, behaviour fidelity, assurance eligibility, caveats, and evidence. Only an exact canonical feature name exits 0; ambiguous names, spelling suggestions, and missing features exit 1. Accepts `--json`. |
-| `pyric mcp` | Start the stdio MCP server; attach to `pyric dev --bridge` when available or host a headless sandbox |
+| `pyric mcp` | Start the stdio MCP server. It attaches to `pyric sandbox --bridge` when available or hosts a headless sandbox. |
 | `pyric firestore rules lint <path>` | Lint a Firestore rules file |
 | `pyric firestore rules validate <path>` | Validate Firestore rules structure |
 | `pyric firestore rules simulate` | Run the local Firestore rules simulator |
@@ -38,8 +38,7 @@ Console to ship rules, indexes, hosting, and functions to a real project.
 | `pyric database rules generate` | Compile a constraints module to local `database.rules.json` without contacting production |
 
 Every command's full flags, defaults, exit codes, and environment variables are
-in the **[CLI reference](docs/reference/cli.md)**. Task guides and the rest of
-the docs are indexed in **[docs/](docs/README.md)**.
+in the **[CLI reference](https://pyric.dev/docs/reference/cli/)**.
 
 ### Persistence caveats (documented limits)
 
@@ -62,19 +61,19 @@ the docs are indexed in **[docs/](docs/README.md)**.
   any delete-all) that empties a non-empty state first preserves the prior
   file at `.pyric/state/state.json.bak`.
 
-### Agent onboarding (init → dev → MCP)
+### Agent onboarding
 
 Three parseable steps, no flags to discover:
 
 ```bash
 pyric init myapp --json        # → {..., "nextSteps": [...]}
 cd myapp && bun install
-bun run dev:agent              # pyric dev --bridge --seed seed.json
+bun run dev:agent              # pyric sandbox --bridge --seed seed.json
 ```
 
 Readiness probe: `GET <url>/__pyric/init.json` → 200 once serving (body
 carries the live rules hash). MCP endpoint: `<url>/__pyric/mcp`. With
-`pyric dev --json`, stdout's single line carries `{url, port, mcpUrl,
+`pyric sandbox --json`, stdout's single line carries `{url, port, mcpUrl,
 rulesHash}`.
 
 ## Programmatic subpaths

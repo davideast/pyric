@@ -56,7 +56,7 @@ export function prepareRulesSource(raw: string, sourcePath: string): string {
     const resolved = resolveModulesBrowser(raw);
     if (!resolved.success) {
       throw new Error(
-        `pyric dev: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
+        `pyric sandbox: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
       );
     }
     source = resolved.data.resolved;
@@ -65,13 +65,13 @@ export function prepareRulesSource(raw: string, sourcePath: string): string {
   if (lint.parseError) {
     const { line, column } = lint.parseError;
     throw new Error(
-      `pyric dev: ${sourcePath} failed to parse (line ${line}, col ${column}) — fix the rules before serving.`,
+      `pyric sandbox: ${sourcePath} failed to parse (line ${line}, col ${column}). Fix the rules before serving.`,
     );
   }
   const errors = lint.warnings.filter((w) => w.severity === 'error');
   if (errors.length > 0) {
     throw new Error(
-      `pyric dev: ${sourcePath} has ${errors.length} rules error(s):\n` +
+      `pyric sandbox: ${sourcePath} has ${errors.length} rules error(s):\n` +
         errors.map((e) => `  - ${e.message}`).join('\n'),
     );
   }
@@ -98,7 +98,7 @@ export async function loadProjectRules(
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       if (configured) {
-        throw new Error(`pyric dev: firebase.json points firestore.rules at ${path}, but it does not exist.`);
+        throw new Error(`pyric sandbox: firebase.json points firestore.rules at ${path}, but it does not exist.`);
       }
       return { rules: null, rulesHash: null, sourcePath: null };
     }
@@ -119,7 +119,7 @@ export function prepareStorageRulesSource(raw: string, sourcePath: string): stri
     const resolved = resolveModulesBrowser(raw, { sourceFile: sourcePath });
     if (!resolved.success) {
       throw new Error(
-        `pyric dev: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
+        `pyric sandbox: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
       );
     }
     source = resolved.data.resolved;
@@ -128,7 +128,7 @@ export function prepareStorageRulesSource(raw: string, sourcePath: string): stri
     parseStorageRules(source);
   } catch (e) {
     throw new Error(
-      `pyric dev: ${sourcePath} failed to parse: ${e instanceof Error ? e.message : String(e)} — fix the rules before serving.`,
+      `pyric sandbox: ${sourcePath} failed to parse: ${e instanceof Error ? e.message : String(e)}. Fix the rules before serving.`,
     );
   }
   return source;
@@ -159,7 +159,7 @@ export async function loadProjectStorageRules(
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       if (configured) {
-        throw new Error(`pyric dev: firebase.json points storage.rules at ${path}, but it does not exist.`);
+        throw new Error(`pyric sandbox: firebase.json points storage.rules at ${path}, but it does not exist.`);
       }
       return { rules: null, rulesHash: null, sourcePath: null };
     }
@@ -207,7 +207,7 @@ export async function loadProjectDatabaseRules(
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       if (configured) {
-        throw new Error(`pyric dev: firebase.json points database.rules at ${path}, but it does not exist.`);
+        throw new Error(`pyric sandbox: firebase.json points database.rules at ${path}, but it does not exist.`);
       }
       return {
         rules: null,
@@ -223,11 +223,11 @@ export async function loadProjectDatabaseRules(
   try {
     parsed = JSON.parse(stripJsonComments(raw));
   } catch (e) {
-    throw new Error(`pyric dev: ${path} failed to parse as RTDB rules JSON: ${e instanceof Error ? e.message : String(e)}`);
+    throw new Error(`pyric sandbox: ${path} failed to parse as RTDB rules JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
   const rules = parseRtdbRulesJson(
     parsed,
-    () => new Error(`pyric dev: ${path} must contain a top-level "rules" object.`),
+    () => new Error(`pyric sandbox: ${path} must contain a top-level "rules" object.`),
   );
 
   return {

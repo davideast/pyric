@@ -103,8 +103,8 @@ function acceptedNoOp(name: string): void {
   if (cacheNoticeShown) return;
   cacheNoticeShown = true;
   console.info(
-    `[pyric dev] ${name}(): client cache/persistence settings are accepted but unused — ` +
-      'the pyric sandbox is the source of truth. Durable state is the worker store / `pyric dev --persist`.',
+    `[pyric sandbox] ${name}(): client cache and persistence settings are accepted but unused. ` +
+      'The Pyric sandbox is the source of truth. Durable state is the worker store or `pyric sandbox --persist`.',
   );
 }
 
@@ -184,7 +184,7 @@ export async function enableNetwork(_db?: unknown): Promise<void> {
 export async function terminate(db?: unknown): Promise<void> {
   if (useWorker) {
     console.info(
-      '[pyric dev] terminate(): the SharedWorker-hosted sandbox is shared across every tab; ' +
+      '[pyric sandbox] terminate(): the SharedWorker-hosted sandbox is shared across every tab; ' +
         'it is not torn down by a single tab calling terminate().',
     );
     return;

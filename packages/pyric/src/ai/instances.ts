@@ -91,7 +91,7 @@ export function getAI(target?: Sandbox | FirebaseApp, options?: AIOptions): AI {
     return sandboxAI(target, options);
   }
   throw new TypeError(
-    'pyric/ai is a sandbox-only mirror. Package resolution must leave firebase/ai unchanged for production; activate pyric dev or @pyric/cli/register before importing to select the sandbox.',
+    'pyric/ai is a sandbox-only mirror. Package resolution must leave firebase/ai unchanged for production; activate pyric sandbox or @pyric/cli/register before importing to select the sandbox.',
   );
 }
 

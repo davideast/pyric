@@ -80,7 +80,7 @@ export function getAuth(target?: Sandbox | FirebaseApp): Auth {
     return handle;
   }
   throw new TypeError(
-    'pyric/auth is a sandbox-only mirror. Package resolution must leave firebase/auth unchanged for production; activate pyric dev or @pyric/cli/register before importing to select the sandbox.',
+    'pyric/auth is a sandbox-only mirror. Package resolution must leave firebase/auth unchanged for production; activate pyric sandbox or @pyric/cli/register before importing to select the sandbox.',
   );
 }
 

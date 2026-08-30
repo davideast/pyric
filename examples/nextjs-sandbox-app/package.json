@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "private": true,
-  "description": "Reference example: a Next.js app wrapped with @pyric/cli/next — `pyric dev -- next dev` runs against the local sandbox, `next build` ships real Firebase. This is the shape `pyric init --template nextjs` scaffolds.",
+  "description": "Reference example for a Next.js app wrapped with @pyric/cli/next. `pyric sandbox -- next dev` runs against the local sandbox, and `next build` ships real Firebase. This is the shape `pyric init --template nextjs` scaffolds.",
   "scripts": {
     "dev": "pyric sandbox -- next dev",
     "dev:direct": "next dev",

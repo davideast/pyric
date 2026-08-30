@@ -125,7 +125,7 @@ if (useWorker && typeof document !== 'undefined') {
           ? ' This is the only connected page — reload it to pick up the new worker.'
           : '';
       console.warn(
-        `[pyric dev] the SharedWorker is running OLDER code (build ${runningVersion}) than what is now `
+        `[pyric sandbox] the SharedWorker is running older code (build ${runningVersion}) than what is now `
           + `served (build ${servedVersion}). A SharedWorker can't hot-update — CLOSE ALL TABS of this origin `
           + 'and reopen to load the new worker. (All tabs share one worker, so a partial reload leaves '
           + `the old code running for everyone.)${othersHint}`,

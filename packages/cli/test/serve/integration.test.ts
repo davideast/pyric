@@ -185,7 +185,7 @@ describe('pyric dev end-to-end (HTTP)', () => {
     );
     await expect(
       startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() }),
-    ).rejects.toThrow(/bundles the REAL firebase SDK/);
+    ).rejects.toThrow(/bundles the real Firebase SDK/);
   }, 30_000);
 
   it('TRUSTS a marked sandbox build even when an asset carries a fingerprint', async () => {

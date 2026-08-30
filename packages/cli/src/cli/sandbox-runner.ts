@@ -1,5 +1,6 @@
 /**
- * The `pyric dev` child runner — "one command, not two" (adoption design):
+ * The `pyric sandbox` child runner starts the configured application command
+ * after the host is ready:
  * after the host is up, run the user's OWN dev command with the environment
  * activated so their unchanged firebase-admin/firebase imports resolve to the
  * pyric sandbox:
@@ -7,10 +8,9 @@
  *   PYRIC_SANDBOX=remote:<serve url>          (the activator)
  *   NODE_OPTIONS += --import @pyric/cli/register   (the substitution seam)
  *
- * Child-command precedence: explicit `pyric dev -- <cmd>` wins; else the
- * project package.json `dev` script (via the detected package manager); else
- * host-only (today's behavior). `--no-run` forces host-only; `--json`
- * defaults to host-only (an explicit `--` still wins — agents can opt in).
+ * Child-command precedence: `--no-run`, an explicit command, `--json`, the
+ * `pyric.json` command, then host-only. An explicit command still runs with
+ * `--json`.
  *
  * Everything decision-shaped here is pure and exported for the unit suite;
  * only `spawnDevChild` touches the process table.
@@ -21,7 +21,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 
 /**
  * Wait (bounded) for a browser tab to register as the bridge's sandbox peer
- * before the child spawns. `pyric dev` opens the tab and spawns the child in
+ * before the child spawns. `pyric sandbox` opens the tab and spawns the child in
  * the same breath; a child whose first line is a sandbox op otherwise races
  * the tab's boot and dies on the no-tab fail-fast — the exact first-run of
  * the two-command story. Polls `/__pyric/health` (`sandboxConnected`).

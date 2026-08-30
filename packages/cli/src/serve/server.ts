@@ -266,7 +266,7 @@ async function handleRequest(
   if (!isAllowedHost(req.headers.host, opts.host ?? 'localhost', opts.allowedHosts)) {
     logger.note(`  ✖ 403 blocked Host '${req.headers.host}' (DNS-rebinding guard)`);
     res.writeHead(403, { 'content-type': 'text/plain' }).end(
-      `pyric dev: refused request for Host '${req.headers.host ?? ''}'. ` +
+      `pyric sandbox: refused request for Host '${req.headers.host ?? ''}'. ` +
         'Only localhost is allowed; use --allowed-host to add one.',
     );
     return;

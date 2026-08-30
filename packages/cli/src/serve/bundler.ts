@@ -52,7 +52,7 @@ export function defaultSdkEntries(): Record<string, string> {
     if (existsSync(js)) return js;
     const ts = join(here, 'entries', `${name}.ts`);
     if (existsSync(ts)) return ts;
-    throw new Error(`pyric dev: missing SDK entry '${name}' next to ${here}`);
+    throw new Error(`pyric sandbox: missing SDK entry '${name}' next to ${here}`);
   };
   return {
     ai: pick('ai'),
@@ -94,7 +94,7 @@ export function pyricPackageRoot(): string {
   }
   const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name?: string };
   if (pkg.name !== 'pyric') {
-    throw new Error(`pyric dev: expected to resolve the pyric package, found '${pkg.name}' at ${dir}`);
+    throw new Error(`pyric sandbox: expected to resolve the pyric package, found '${pkg.name}' at ${dir}`);
   }
   return dir;
 }
@@ -131,7 +131,7 @@ export const NODE_BUILTIN_RE = /^(node:)?(url|fs|path)$/;
  *  through its own resolveId/load + optimizeDeps esbuild pass, instead of
  *  re-deriving them. */
 export const NODE_BUILTIN_SHIMS: Record<string, string> = {
-  fs: `const no = () => { throw new Error('pyric dev: fs is not available in the browser'); };
+  fs: `const no = () => { throw new Error('pyric sandbox: fs is not available in the browser'); };
 export const readFileSync = no; export const existsSync = () => false;
 export const readdirSync = no; export const writeFileSync = no; export const mkdirSync = no;
 export default { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync };`,
@@ -315,13 +315,13 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
       // self-identify as the sandbox shim, not the real Firebase SDK.
       chunkNames: 'pyric-sandbox-[hash]',
       banner: {
-        js: '/* pyric dev: pyric sandbox shim serving firebase/* — NOT the real Firebase SDK */',
+        js: '/* pyric sandbox shim serving firebase/*. This is not the real Firebase SDK. */',
       },
       plugins: [pyricResolvePlugin(), nodeShimPlugin()],
     });
     if (result.errors.length > 0) {
       throw new Error(
-        `pyric dev: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
+        `pyric sandbox: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
       );
     }
     writeFileSync(join(outDir, '.complete'), new Date().toISOString());
@@ -348,7 +348,7 @@ export function workerEntryPath(): string {
   if (existsSync(js)) return js;
   const ts = join(here, 'worker', 'entry.ts');
   if (existsSync(ts)) return ts;
-  throw new Error(`pyric dev: missing SharedWorker entry next to ${here}`);
+  throw new Error(`pyric sandbox: missing SharedWorker entry next to ${here}`);
 }
 
 export interface WorkerBundleOptions {
@@ -371,7 +371,7 @@ const WORKER_EPOCH_FILE = '.worker-epoch';
 function readWorkerBundleEpoch(outDir: string): string {
   const epoch = readFileSync(join(outDir, WORKER_EPOCH_FILE), 'utf8').trim();
   if (!/^[a-f0-9]{16}$/.test(epoch)) {
-    throw new Error(`pyric dev: invalid SharedWorker epoch in ${join(outDir, WORKER_EPOCH_FILE)}`);
+    throw new Error(`pyric sandbox: invalid SharedWorker epoch in ${join(outDir, WORKER_EPOCH_FILE)}`);
   }
   return epoch;
 }
@@ -479,18 +479,18 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<WorkerBun
     // with the resulting epoch (same width, so the sourcemap stays aligned).
     define: { __PYRIC_WORKER_VERSION__: JSON.stringify(WORKER_EPOCH_PLACEHOLDER) },
     banner: {
-      js: '/* pyric dev: SharedWorker sandbox host serving firebase/* — NOT the real Firebase SDK */',
+      js: '/* pyric sandbox SharedWorker host serving firebase/*. This is not the real Firebase SDK. */',
     },
     plugins: [pyricResolvePlugin(), nodeShimPlugin()],
   });
   if (result.errors.length > 0) {
     throw new Error(
-      `pyric dev: SharedWorker bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
+      `pyric sandbox: SharedWorker bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
     );
   }
   const canonicalSource = readFileSync(outFile, 'utf8');
   if (!canonicalSource.includes(WORKER_EPOCH_PLACEHOLDER)) {
-    throw new Error('pyric dev: SharedWorker bundle omitted its epoch placeholder');
+    throw new Error('pyric sandbox: SharedWorker bundle omitted its epoch placeholder');
   }
   const epochHash = createHash('sha256').update(canonicalSource);
   if (opts.epochSalt) epochHash.update('\0').update(opts.epochSalt);

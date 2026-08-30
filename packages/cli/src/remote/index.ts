@@ -5,7 +5,7 @@
  * Server-side Node code (ultimately `pyric-admin`'s remote dispatch arm)
  * reaches the ONE sandbox the app + Studio + agent share:
  *
- *   Node process ──ws──> `pyric dev --bridge` ──ws──> browser tab
+ *   Node process -> `pyric sandbox --bridge` -> browser tab
  *                 (attach/consumer leg)        (peer leg)
  *                                        ──MessagePort──> SharedWorker
  *
@@ -320,7 +320,7 @@ export function createRemoteSandboxCore(
           reject(
             remoteError(
               'deadline-exceeded',
-              `remote sandbox op timed out after ${opTimeoutMs}ms (op: ${payload.method}) — is pyric dev still running?` +
+              `remote sandbox op timed out after ${opTimeoutMs}ms (op: ${payload.method}). Is pyric sandbox still running?` +
                 // A version-skewed old worker accepts frames it cannot
                 // handle and never responds — a timeout is its signature.
                 (versionSkewGuidance ? ` ${versionSkewGuidance}` : ''),
@@ -379,8 +379,8 @@ export function createRemoteSandboxCore(
           msg.serveVersion !== cliVersion()
         ) {
           versionSkewGuidance =
-            `pyric dev is running version ${msg.serveVersion}, this client is ` +
-            `${cliVersion()} — restart pyric dev and reload the browser tab.`;
+            `pyric sandbox is running version ${msg.serveVersion}, this client is ` +
+            `${cliVersion()}. Restart pyric sandbox and reload the browser tab.`;
           process.stderr.write(`pyric: ${versionSkewGuidance}\n`);
         }
         if (msg.peerConnected) readyResolve();
@@ -405,7 +405,7 @@ export function createRemoteSandboxCore(
             // Version skew: a live tab whose SharedWorker predates this op.
             // Other open pages of this origin keep the old worker alive.
             message +=
-              ' — the running sandbox may predate this feature; restart pyric dev ' +
+              '. The running sandbox may predate this feature. Restart pyric sandbox ' +
               'and close other open pages of this origin, then reload.';
           }
           call.reject(remoteError(code, message, msg.error?.denialContext, (msg.error as any)?.envelope));
@@ -721,7 +721,7 @@ export function createRemoteSandboxHandle(opts: {
     enablePersistence: () =>
       throwMember(
         'enablePersistence',
-        'the browser worker owns persistence; it is already enabled by `pyric dev`',
+        'the browser worker owns persistence; it is already enabled by `pyric sandbox`',
       ),
     flush: () =>
       throwMember('flush()', 'the browser worker owns persistence and flushes itself'),
@@ -742,7 +742,7 @@ export function createRemoteSandboxHandle(opts: {
 // ─── connect ───────────────────────────────────────────────────────────────
 
 /**
- * Discover the running `pyric dev --bridge`, attach to its bridge WS as a
+ * Discover the running `pyric sandbox --bridge`, attach to its bridge WS as a
  * worker-relay CONSUMER (never a peer — attaching cannot kick the browser
  * tab out of last-connection-wins), and return the typed remote handle.
  *
@@ -770,7 +770,7 @@ export async function connectRemoteSandbox(
     if (!found) {
       throw remoteError(
         'not-found',
-        'no running `pyric dev --bridge` found (looked for .pyric/serve.json in ' +
+        'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json in ' +
           `${cwd} and the default ports) — start your dev server with the bridge enabled and retry.`,
       );
     }
@@ -953,7 +953,7 @@ export function createLazyRemoteSandbox(
     // Before discovery the URL is unknown; op-level errors always carry the
     // real URL (they come from the inner connect), and `serveUrl` is patched
     // to the discovered value as soon as the first connect succeeds.
-    serveUrl: options.url?.replace(/\/$/, '') ?? '<pyric dev url (pending discovery)>',
+    serveUrl: options.url?.replace(/\/$/, '') ?? '<pyric sandbox url (pending discovery)>',
     close() {
       if (closed) return;
       closed = true;

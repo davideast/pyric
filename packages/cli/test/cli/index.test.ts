@@ -345,7 +345,7 @@ describe('pyric sandbox command surface', () => {
   it('advertises sandbox and never dev or serve', async () => {
     const { code, stdout } = await runDispatch(['--help']);
     expect(code).toBe(0);
-    expect(stdout).toContain('pyric sandbox [command...]');
+    expect(stdout).toContain('pyric sandbox [flags] [--] [command...]');
     expect(stdout).not.toContain('pyric dev');
     expect(stdout).not.toContain('pyric serve');
   });

@@ -62,7 +62,7 @@ for (const finding of result.findings) {
 }
 ```
 The paragraph after a code block returns at the group beat. Inline
-code like `pyric dev --persist` participates in the line, not the
+code like `pyric sandbox --persist` participates in the line, not the
 rhythm.
 ```bash
 # pre + pre: two code blocks at the group beat

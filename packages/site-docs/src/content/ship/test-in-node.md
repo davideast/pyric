@@ -71,17 +71,17 @@ import { initializeApp } from 'pyric-admin/app';
 
 const app = initializeApp({ sandbox: initializeSandbox() });
 ```
-Or with zero changed lines. Under `pyric dev`, the activated
+Or with zero changed lines. Under `pyric sandbox`, the activated
 `@pyric/cli/register` resolver maps canonical `firebase-admin/*` imports to
 `pyric-admin/*` and a bare `initializeApp()` uses the sandbox. With activation
 absent, normal package resolution loads `firebase-admin` directly. Your source
 carries no Pyric identifiers at all.
 
-`pyric dev` sets that variable and preloads the resolver for the development command it runs. A guard refuses sandbox routing when `NODE_ENV` is `production`, so the swap cannot follow you to production execution.
+`pyric sandbox` sets that variable and preloads the resolver for the development command it runs. A guard refuses sandbox routing when `NODE_ENV` is `production`, so the swap cannot follow you to production execution.
 
 ## One backend across app, Node, and agent
 
-Under `pyric dev` the backend lives in a SharedWorker in the browser, and a Node process can attach to it remotely: the admin handle relays operations over the dev server's bridge to that same worker. Your open tab, your script, and an agent on the MCP bridge all see one pool of documents and users, live.
+Under `pyric sandbox` the backend lives in a SharedWorker in the browser. A Node process can attach to it remotely. The admin handle relays operations over the sandbox server's bridge to that same worker. Your open tab, your script, and an agent on the MCP bridge all see one pool of documents and users.
 
 It is a relay, so it has edges worth knowing:
 
