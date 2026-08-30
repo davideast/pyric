@@ -1,5 +1,5 @@
 /**
- * `pyric dev` — local dev server with the pyric sandbox standing in for
+ * `pyric sandbox` is the local server with the Pyric sandbox standing in for
  * Firebase. Feels like `firebase serve` (banner, labeled lines, port 3473,
  * SIGINT shutdown) with the sandbox-flavored extras firebase can't do: the
  * served page runs an in-browser backend, your `firestore.rules` deploy into
@@ -59,7 +59,7 @@ interface HostingConfig {
   rewrites?: Array<{ source?: string; destination?: string }>;
 }
 
-/** Extract the single hosting config `pyric dev` v1 supports. Arrays
+/** Extract the single hosting config `pyric sandbox` supports. Arrays
  *  (multi-site) take the first entry with a warning — multi-site is out of
  *  scope (plan section 6). */
 export function extractHosting(config: FirebaseJson | null): HostingConfig | null {
@@ -158,7 +158,7 @@ export async function startServe(opts: {
   // Fail fast instead of pretending to reset something.
   if (opts.fresh && !opts.persist) {
     throw new Error(
-      'pyric dev: --fresh requires --persist (it discards .pyric/state/state.json). ' +
+      'pyric sandbox: --fresh requires --persist (it discards .pyric/state/state.json). ' +
         'Browser-stored data is cleared from Studio → Settings → Reset, or DevTools → Clear site data.',
     );
   }
@@ -195,7 +195,7 @@ export async function startServe(opts: {
 
   const hosting = extractHosting(config);
   if (Array.isArray(config?.hosting) && (config.hosting as unknown[]).length > 1) {
-    logger.note('  ⚠ multiple hosting sites configured — pyric dev v1 serves the first entry only');
+    logger.note('  ⚠ multiple hosting sites configured. pyric sandbox serves the first entry only');
   }
   const publicDir = resolve(opts.cwd, hosting?.public ?? '.');
   if (!existsSync(publicDir)) {
@@ -205,16 +205,16 @@ export async function startServe(opts: {
     const looksLikeBuildOutput = /(^|[\\/])(dist|build|out)$/.test(publicDir);
     const hint = looksLikeBuildOutput
       ? `\n  No build yet? Run \`bun run dev\` for the live sandbox dev server, ` +
-        `or \`bun run build\` then \`pyric dev\` to preview the production build.`
+        `or \`bun run build\` then \`pyric sandbox\` to preview the production build.`
       : '';
-    throw new Error(`pyric dev: hosting.public directory does not exist: ${publicDir}${hint}`);
+    throw new Error(`pyric sandbox: hosting.public directory does not exist: ${publicDir}${hint}`);
   }
 
   // The import map can only remap BARE `firebase/*` specifiers. A plain bundler
   // build (`vite build`) inlines the real SDK into the app chunk, leaving
   // nothing to intercept — the page would then talk to REAL Firebase endpoints
   // with the sandbox's fake credentials while the injected banner claims
-  // otherwise. That hole is structural, so `pyric dev` REFUSES such a dist
+  // otherwise. That hole is structural, so `pyric sandbox` refuses such a dist
   // rather than serving it. A pyric SANDBOX build (`vite build --mode
   // development`) carries the marker and bundles pyric's in-page adapters, so it
   // is trusted and the scan is skipped (marker present → no real SDK to find).
@@ -222,14 +222,14 @@ export async function startServe(opts: {
     const inlined = scanForInlinedFirebase(publicDir);
     if (inlined.length > 0) {
       throw new Error(
-        `pyric dev: ${inlined[0]} bundles the REAL firebase SDK, so this dist cannot be ` +
+        `pyric sandbox: ${inlined[0]} bundles the real Firebase SDK, so this dist cannot be ` +
           `sandboxed — its firebase/* calls would reach LIVE Google endpoints, not the ` +
           `pyric sandbox. Two ways forward:\n` +
-          `  (a) plain \`pyric dev\` runs the child dev-server flow (the @pyric/cli/vite ` +
+          `  (a) \`pyric sandbox -- <command>\` runs the child server with the @pyric/cli/vite ` +
           `plugin swaps firebase/* live) — use \`bun run dev\`;\n` +
           `  (b) rebuild as a self-contained sandbox bundle and serve THAT: ` +
           `\`vite build --mode development\` (or pyric({ swapInBuild: true })) then ` +
-          `\`pyric dev\`.\n` +
+          `\`pyric sandbox\`.\n` +
           `A plain \`vite build\` is your production build — deploy it, don't sandbox it.`,
       );
     }
@@ -313,9 +313,9 @@ export async function startServe(opts: {
     bundle.dispose?.();
     if (error instanceof SandboxSeedError) {
       if (error.kind === 'read') {
-        throw new Error(`pyric dev: failed to read --seed ${error.path}: ${error.detail}`);
+        throw new Error(`pyric sandbox: failed to read --seed ${error.path}: ${error.detail}`);
       }
-      throw new Error(`pyric dev: --seed must be a JSON object of "collection/doc" → fields, ${error.detail}`);
+      throw new Error(`pyric sandbox: --seed must be a JSON object of "collection/doc" to fields, ${error.detail}`);
     }
     throw error;
   }
@@ -569,7 +569,7 @@ export function bridgeEnabledFromFlags(flags: { get(key: string): unknown }): bo
  * A dev child also implies the bridge: the runner injects
  * `PYRIC_SANDBOX=remote:<url>` into the child, whose remote client dials the
  * `/__pyric/sandbox` WS — without the bridge mount that upgrade 404s and
- * plain `pyric dev -- <cmd>` (or a detected dev script) breaks its own
+ * `pyric sandbox -- <cmd>` breaks its own
  * child. Pure + exported for unit coverage.
  */
 export function bridgeEnabledFor(
@@ -582,7 +582,7 @@ export function bridgeEnabledFor(
 
 /**
  * Process-level last line of defense for the dev server: a single bad
- * request/WS interaction must never take `pyric dev` down. Node kills the
+ * request/WS interaction must never take `pyric sandbox` down. Node kills the
  * process on an unhandled rejection (default `--unhandled-rejections=throw`
  * since v15) and on any uncaught exception — and the serve process hosts
  * long-lived, browser-driven machinery (WS peers, SSE streams, file watchers,
@@ -600,13 +600,13 @@ export function installServeProcessGuard(
     reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
   const onRejection = (reason: unknown): void => {
     log(
-      `  ✖ pyric dev: UNHANDLED REJECTION (the server was kept alive — please report this):\n` +
+      `  ✖ pyric sandbox: unhandled rejection. The server was kept alive. Please report this:\n` +
         `    ${describe(reason).split('\n').join('\n    ')}`,
     );
   };
   const onException = (err: unknown): void => {
     log(
-      `  ✖ pyric dev: UNCAUGHT EXCEPTION (the server was kept alive — please report this):\n` +
+      `  ✖ pyric sandbox: uncaught exception. The server was kept alive. Please report this:\n` +
         `    ${describe(err).split('\n').join('\n    ')}`,
     );
   };
@@ -671,7 +671,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   const only = parsed.flags.get('only');
   if (typeof only === 'string' && only !== 'hosting') {
     process.stderr.write(
-      `pyric: --only '${only}' is not supported — pyric sandbox serves hosting (with the in-page sandbox standing in for firestore/auth).\n`,
+      `pyric: --only '${only}' is not supported. pyric sandbox serves hosting with the in-page sandbox standing in for Firestore and Auth.\n`,
     );
     return 1;
   }
@@ -755,7 +755,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // (the banner went to stderr). Readiness probe: GET /__pyric/init.json.
   if (json) process.stdout.write(serveJsonLine(runtime) + '\n');
 
-  // Footgun guard (hybrid-MCP plan Phase 3): plain `dev` mounts no MCP bridge,
+  // A host-only sandbox mounts no MCP bridge unless one is needed.
   // so a `pyric mcp-proxy` in an editor cannot attach. Nudge toward --bridge.
   if (!bridgeOn && !json) {
     process.stderr.write(
@@ -857,7 +857,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     if (result.kind === 'no-peer') {
       process.stderr.write(
         `  ⚠ functions not started — no browser tab connected after 30s. ` +
-          `Open ${runtime.handle.url} and restart pyric dev.\n`,
+          `Open ${runtime.handle.url} and restart pyric sandbox.\n`,
       );
     } else if (result.kind === 'failed') {
       process.stderr.write(`${result.error.message}\n`);
@@ -874,16 +874,15 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       for (const unsupported of ready.unsupportedTriggers) {
         process.stderr.write(
           `  ⚠ functions export ${unsupported.exportName} uses unsupported trigger ` +
-            `${unsupported.eventType}; it will not run in pyric dev.\n`,
+            `${unsupported.eventType}; it will not run in pyric sandbox.\n`,
         );
       }
     }
   }
 
-  // The child runner ("one command, not two"): run the user's own dev
-  // command with the sandbox environment injected. Precedence: `-- <cmd>`
-  // wins; else the package.json dev script; else host-only. --no-run forces
-  // host-only; --json defaults to host-only (explicit `--` still wins).
+  // Run the explicit or configured command with the sandbox environment.
+  // `--no-run` forces host-only. `--json` skips the configured command, but an
+  // explicit command still runs.
   // (`plan` was resolved above so it could imply the bridge mount.)
   if (plan) {
     const info = json ? process.stderr : process.stdout;
@@ -964,7 +963,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     if (functionsRuntime) {
       void functionsExited.then((code) => {
         if (!settled && !shuttingDown) {
-          process.stderr.write(`pyric dev: Functions child exited unexpectedly (code ${code}).\n`);
+          process.stderr.write(`pyric sandbox: Functions child exited unexpectedly (code ${code}).\n`);
           finish(code === 0 ? 1 : code);
         }
       });

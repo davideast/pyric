@@ -37,7 +37,7 @@ await db.collection('posts').doc('hello').set({ title: 'Hello' });
 ```
 
 For unchanged server source, keep `firebase-admin/*` imports and run the
-development command through `pyric dev`. Production runs the same source
+development command through `pyric sandbox`. Production runs the same source
 without sandbox activation and therefore resolves Firebase Admin directly.
 
 ## Documentation

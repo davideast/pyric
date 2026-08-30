@@ -9,7 +9,7 @@ description: "Run real auth flows against a local user database, seed test users
 
 # Run Firebase Authentication locally
 
-The auth code you would write against Firebase works as-is under `pyric dev`, and the users it creates live in your sandbox. Auth is v1 in Pyric: the surface is tested against recorded production behavior, so what signs in here signs in there.
+The auth code you would write against Firebase works as-is under `pyric sandbox`, and the users it creates live in your sandbox. Auth is v1 in Pyric. The surface is tested against recorded production behavior, so what signs in here signs in there.
 ```ts
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 
@@ -34,7 +34,7 @@ import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 await signInWithPopup(auth, new GoogleAuthProvider());
 ```
-Under `pyric dev`, that call opens an account picker instead of a Google window. Pick an existing sandbox identity or create one on the spot, with a display name and custom claims if you want them.
+Under `pyric sandbox`, that call opens an account picker instead of a Google window. Pick an existing sandbox identity or create one with a display name and custom claims.
 
 No OAuth app, no consent screen, and the identity flows into your rules like any other. `signInWithRedirect` and `getRedirectResult` follow the same path.
 

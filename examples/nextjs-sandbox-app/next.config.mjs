@@ -19,7 +19,7 @@ const nextConfig = {
   ],
 };
 
-// Under development mode (`pyric dev -- next dev`), withPyric maps client-side
+// Under development mode (`pyric sandbox -- next dev`), withPyric maps client-side
 // firebase/* SDK imports to Pyric sandbox adapters via Webpack/Turbopack aliases,
 // externalizes server-side firebase and firebase-admin imports for Node loader
 // hooks (@pyric/cli/register), and proxies /__pyric/* bridge traffic.

@@ -15,7 +15,7 @@ function deleteTimeoutError(): Error & { code: string } {
   return Object.assign(
     new Error(
       'Timed out waiting for SharedWorker app cleanup acknowledgment. ' +
-      'Close all tabs using this pyric dev origin so the worker can restart.',
+      'Close all tabs using this pyric sandbox origin so the worker can restart.',
     ),
     { code: 'app/delete-timeout' },
   );

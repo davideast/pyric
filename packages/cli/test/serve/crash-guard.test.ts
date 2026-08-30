@@ -51,7 +51,7 @@ describe('installServeProcessGuard', () => {
 
     emitter.emit('unhandledRejection', new Error('boom-rejection'));
     expect(logs).toHaveLength(1);
-    expect(logs[0]).toContain('UNHANDLED REJECTION');
+    expect(logs[0]).toContain('unhandled rejection');
     expect(logs[0]).toContain('boom-rejection');
     expect(logs[0]).toContain('kept alive');
   });
@@ -63,7 +63,7 @@ describe('installServeProcessGuard', () => {
 
     emitter.emit('uncaughtException', new Error('boom-exception'));
     expect(logs).toHaveLength(1);
-    expect(logs[0]).toContain('UNCAUGHT EXCEPTION');
+    expect(logs[0]).toContain('uncaught exception');
     expect(logs[0]).toContain('boom-exception');
   });
 

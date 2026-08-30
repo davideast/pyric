@@ -115,7 +115,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
     return { [TARGET_SYMBOL]: t };
   }
   throw new TypeError(
-    'pyric/firestore is a sandbox-only mirror. Package resolution must leave firebase/firestore unchanged for production; activate pyric dev or @pyric/cli/register before importing to select the sandbox.',
+    'pyric/firestore is a sandbox-only mirror. Package resolution must leave firebase/firestore unchanged for production; activate pyric sandbox or @pyric/cli/register before importing to select the sandbox.',
   );
 }
 

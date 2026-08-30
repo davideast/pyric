@@ -15,7 +15,7 @@ Realtime Database is one JSON tree that many clients watch at once. In Pyric it 
 
 ## Store and read
 
-Under `pyric dev`, your `firebase/database` imports resolve to the sandbox:
+Under `pyric sandbox`, your `firebase/database` imports resolve to the sandbox:
 ```ts
 import { getDatabase, ref, set, get, onValue } from 'firebase/database';
 
@@ -30,7 +30,7 @@ onValue(ref(db, 'status'), (snap) => {
   renderPresence(snap.val());
 });
 ```
-`push` appends with chronologically sortable IDs, `update` patches, `remove` deletes. This path runs the same under `pyric dev` and the Vite plugin — both swap `firebase/database` for the sandbox, and both run your `onValueCreated` functions against it, so a write here can trip a trigger just like production. In Node, import the same functions from `pyric/database` and hand `getDatabase` a sandbox:
+`push` appends with chronologically sortable IDs, `update` patches, and `remove` deletes. This path runs the same under `pyric sandbox` and the Vite plugin. Both swap `firebase/database` for the sandbox and run your `onValueCreated` functions against it. In Node, import the same functions from `pyric/database` and give `getDatabase` a sandbox:
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getDatabase, ref, set } from 'pyric/database';
@@ -60,7 +60,7 @@ Either both paths change or neither does. Queries take one `orderBy`, so multi-f
 
 ## Run your onValueCreated functions locally
 
-Both `pyric dev` and the Vite plugin read the `functions` block in `firebase.json` and run your `onValueCreated` triggers in an isolated Node process against the same sandbox your app writes to. No option is required — the block is enough. Other trigger kinds (HTTPS, callable, scheduled, Firestore) log a warning and are skipped for now.
+Both `pyric sandbox` and the Vite plugin read the `functions` block in `firebase.json` and run your `onValueCreated` triggers in an isolated Node process against the same sandbox your app writes to. No option is required. The block is enough. Other trigger kinds such as HTTPS, callable, scheduled, and Firestore log a warning and are skipped for now.
 
 The plugin's `functions` option tunes or disables this:
 ```ts
@@ -78,7 +78,7 @@ export default {
 ```
 Each field wins over its environment variable, which wins over firebase files, which win over the default. `region` beats `PYRIC_FUNCTIONS_RTDB_REGION` (default `us-central1`). `instance` replaces the derived `<projectId>-default-rtdb` name, where the project id comes from `PYRIC_PROJECT`, then `.firebaserc`, then `demo-project`.
 
-Under the plugin, saving a file in the functions source directory restarts the process, like a redeploy: `↻ [pyric] functions reloaded`. In-flight executions in the old process can drop, writes that land during the swap are treated as existing data by the new process (they do not fire), and a save that fails to load takes functions down until the next good save — unlike rules, there is no last-good process to keep serving. `functions: { watch: false }` turns the reload off, matching `pyric dev`, where editing a function needs a server restart.
+Under the plugin, saving a file in the functions source directory restarts the process, like a redeploy: `↻ [pyric] functions reloaded`. In-flight executions in the old process can drop. Writes that land during the swap are treated as existing data by the new process and do not fire. A save that fails to load takes functions down until the next good save. Unlike rules, there is no last-good process to keep serving. `functions: { watch: false }` turns the reload off, matching `pyric sandbox`, where editing a function needs a server restart.
 
 Running functions also mounts the agent bridge the process uses to reach the sandbox. That changes nothing about how your app runs: the page stays on the multi-tab SharedWorker path, and the bridge relays through it.
 

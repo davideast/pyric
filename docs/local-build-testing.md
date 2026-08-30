@@ -99,7 +99,7 @@ owns backend selection (ADR-001). Two ways to activate the swap:
   (i.e. `vite`). `pyric()` maps supported `firebase/*` imports to the
   workspace `pyric/*` mirrors while the dev server runs; a production
   `vite build` ships real Firebase.
-- **`pyric dev`** (serves static/pre-built apps via import maps, runs Node
+- **`pyric sandbox`** (serves static/pre-built apps via import maps, runs Node
   children with the register preloaded, hosts Studio/bridge):
 
   ```bash
@@ -108,7 +108,7 @@ owns backend selection (ADR-001). Two ways to activate the swap:
   ```
 
 The iteration loop: edit source in `packages/*` → `bun run build` in the
-touched package(s) → restart `vite dev` / `pyric dev`. Both resolve the
+touched package(s) -> restart `vite dev` / `pyric sandbox`. Both resolve the
 mirrors and the plugin at server start from `dist/`, so a restart (not just a
 browser reload) picks up the rebuild.
 
@@ -174,4 +174,4 @@ run it first when a consumer-only bug report comes in.
 | Works in-repo, breaks for npm users | Vendored tarballs (then `test:packaging`) |
 | Reproducing a runtime/sandbox bug from an app | Workspace resolution |
 | Vite-specific resolution/swap issues | Workspace resolution first; confirm on tarballs before closing |
-| Bin/CLI behavior (`pyric dev`, `init`, Studio serving) | Either — but confirm fixes on the standalone binary, which is what `vendor`-based users run |
+| Bin/CLI behavior (`pyric sandbox`, `init`, Studio serving) | Either, but confirm fixes on the standalone binary, which is what `vendor`-based users run |

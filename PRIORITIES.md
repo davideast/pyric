@@ -16,7 +16,7 @@ The on-ramp: the CLI working reliably across platforms, the agent plugins, the V
 
 **Now:**
 - Vite-plugin hero path, documented as a first-class entry (#124)
-- `pyric dev` opens Studio by default; context-aware landing (#125)
+- `pyric sandbox` opens Studio by default; context-aware landing (#125)
 - CLI cross-platform reliability, Windows cold-start first (#126)
 - npx cold-start diet (lazy-load the agent ML stack; ~924MB today) (#127)
 - Agent-first path (plugin → bridge) covered end to end (#128)

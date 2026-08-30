@@ -12,7 +12,7 @@ export interface ParsedArgs {
   subcommand: string | null;
   flags: Map<string, FlagValue>;
   positional: string[];
-  /** Everything after a bare `--`, verbatim (e.g. `pyric dev -- npm start`).
+  /** Everything after a bare `--`, verbatim (e.g. `pyric sandbox -- npm start`).
    *  Optional so hand-built ParsedArgs literals stay valid. */
   passthrough?: string[];
 }

@@ -67,7 +67,7 @@ export function mountAuthHelperDialog(helper: ServeAuthHelper): void {
     h2.textContent = `Sign in with ${provider}`;
     const p = document.createElement('p');
     p.textContent =
-      'pyric dev sign-in helper — pick a test account or add one. Custom claims let rules using request.auth.token.* run against this identity.';
+      'pyric sandbox sign-in helper. Pick a test account or add one. Custom claims let rules using request.auth.token.* run against this identity.';
     dialog.append(h2, p);
 
     if (snap.identities.length > 0) {

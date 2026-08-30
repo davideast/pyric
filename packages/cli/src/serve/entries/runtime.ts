@@ -217,7 +217,7 @@ if (!useWorker) try {
       readOnly = true;
       diagnostics.persistReadOnly = true;
       console.warn(
-        '[pyric dev] another tab is the persist writer — THIS tab is read-only ' +
+        '[pyric sandbox] another tab is the persist writer. This tab is read-only ' +
           '(your changes here will NOT be saved). Close the other tab and reload to take over.',
       );
     };
@@ -293,7 +293,7 @@ if (!useWorker) try {
             if (res.status === 423) lostWriterLock();
             else if (res.ok) diagnostics.lastFlushAt = Date.now();
           },
-          (e) => console.warn('[pyric dev] auth state flush failed:', e),
+          (e) => console.warn('[pyric sandbox] auth state flush failed:', e),
         );
       }, 500);
     });
@@ -358,7 +358,7 @@ if (!useWorker) try {
     if (existing) {
       diagnostics.seedSkipped = true;
       console.info(
-        '[pyric dev] --seed skipped: the sandbox already has restored data — the fixture would ' +
+        '[pyric sandbox] --seed skipped because the sandbox already has restored data. The fixture would ' +
           'have overwritten it. Use `--persist --fresh` to discard existing state and re-seed.',
       );
     } else {
@@ -372,7 +372,7 @@ if (!useWorker) try {
   diagnostics.initError = e instanceof Error ? e.message : String(e);
   runtimeStatus.reportError(e, 'runtime');
   console.error(
-    '[pyric dev] init failed — the sandbox is running WITHOUT your project rules:',
+    '[pyric sandbox] init failed. The sandbox is running without your project rules:',
     diagnostics.initError,
   );
 }
@@ -395,7 +395,7 @@ if (!useWorker && activityTokenFromPayload) {
 // Source says `firebase/*`; what runs is the pyric sandbox — say so loudly
 // once, and explain any stack frame that points into /__pyric/sdk/. ────────
 console.info(
-  `[pyric dev] firebase/* on this page is served by the pyric sandbox` +
+  `[pyric sandbox] firebase/* on this page is served by the Pyric sandbox` +
     (useWorker
       ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
       : diagnostics.rulesHash || diagnostics.databaseRulesHash || diagnostics.storageRulesHash
@@ -410,7 +410,7 @@ function explainSandboxFrame(stackOrUrl: string | undefined): boolean {
   if (!provenanceHintShown) {
     provenanceHintShown = true;
     console.info(
-      '[pyric dev] the error above originates in the pyric sandbox shim serving firebase/*, ' +
+      '[pyric sandbox] the error above originates in the Pyric sandbox shim serving firebase/*, ' +
         'not the real Firebase SDK — behavior can differ where COMPAT coverage is incomplete.',
     );
   }
@@ -457,7 +457,7 @@ async function connectBridgePeer(rawUrl: string): Promise<void> {
     connectBridge(sandbox, { url });
   }
   diagnostics.bridgeConnected = true;
-  console.info('[pyric dev] sandbox registered with the MCP bridge at', url);
+  console.info('[pyric sandbox] sandbox registered with the MCP bridge at', url);
 }
 if (bridgeUrlFromPayload) {
   // In-page path: bridgeUrlFromPayload came from the (already-blocking) init
@@ -466,7 +466,7 @@ if (bridgeUrlFromPayload) {
     await connectBridgePeer(bridgeUrlFromPayload);
   } catch (e) {
     runtimeStatus.reportError(e, 'runtime');
-    console.error('[pyric dev] bridge connect failed:', e instanceof Error ? e.message : String(e));
+    console.error('[pyric sandbox] bridge connect failed:', e instanceof Error ? e.message : String(e));
   }
 } else if (useWorker) {
   // Worker path: the worker owns serve-init, so the page skipped the init.json
@@ -481,7 +481,7 @@ if (bridgeUrlFromPayload) {
       if (url) await connectBridgePeer(url);
     } catch (e) {
       runtimeStatus.reportError(e, 'runtime');
-      console.error('[pyric dev] bridge connect failed:', e instanceof Error ? e.message : String(e));
+      console.error('[pyric sandbox] bridge connect failed:', e instanceof Error ? e.message : String(e));
     }
   })();
 }
@@ -552,10 +552,10 @@ if (!useWorker && typeof EventSource !== 'undefined') {
       if (lint.parseError) throw new Error(JSON.stringify(lint.parseError));
       diagnostics.rulesDeployed = true;
       diagnostics.rulesHash = rulesHash;
-      console.info(`[pyric dev] firestore.rules hot-reloaded (hash ${rulesHash})`);
+      console.info(`[pyric sandbox] firestore.rules hot-reloaded (hash ${rulesHash})`);
     } catch (err) {
       runtimeStatus.reportError(err, 'runtime');
-      console.error('[pyric dev] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
+      console.error('[pyric sandbox] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
     }
   });
   events.addEventListener('rtdb-rules-update', (e) => {
@@ -572,7 +572,7 @@ if (!useWorker && typeof EventSource !== 'undefined') {
         newHash = rulesHash;
       }
       diagnostics.databaseRulesHash = newHash;
-      console.info(`[pyric dev] database.rules.json hot-reloaded (hash ${rulesHash})`);
+      console.info(`[pyric sandbox] database.rules.json hot-reloaded (hash ${rulesHash})`);
     } catch (err) {
       runtimeStatus.reportError(err, 'runtime');
       const isErrorInstance = err instanceof Error;
@@ -580,7 +580,7 @@ if (!useWorker && typeof EventSource !== 'undefined') {
       if (isErrorInstance) {
         errorMessage = (err as Error).message;
       }
-      console.error('[pyric dev] database rules hot-reload failed:', errorMessage);
+      console.error('[pyric sandbox] database rules hot-reload failed:', errorMessage);
     }
   });
 }

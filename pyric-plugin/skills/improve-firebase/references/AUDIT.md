@@ -202,4 +202,4 @@ Discovery samples structure and field presence. It does not authorize data acces
 
 ### Captured journeys as a regression corpus
 
-The default `pyric dev` capture is unusually valuable because it binds actual application requests, identities, Rules, and resulting state into one replayable fixture. Rank a missing capture for a primary security or revenue journey higher than additional static style findings. A small corpus covering owner, non-owner, signed-out, privileged, and failure paths often produces more release confidence than a large ungrounded rules-test inventory.
+The default `pyric sandbox` capture is valuable because it binds actual application requests, identities, Rules, and resulting state into one replayable fixture. Rank a missing capture for a primary security or revenue journey higher than additional static style findings. A small corpus covering owner, non-owner, signed-out, privileged, and failure paths often produces more release confidence than a large ungrounded rules-test inventory.

@@ -31,7 +31,7 @@ The repository is a Bun workspace with these principal packages:
 | `packages/cli` | `@pyric/cli` | `pyric` binary, Vite/Node resolution seams, bridge, verify, assurance |
 | `packages/create-pyric` | `create-pyric` | `npm create pyric` scaffolder |
 | `packages/ui` | `@pyric/ui` | Headless React components and hooks |
-| `packages/studio` | `@pyric/studio` | Studio console application, mounted by the Astro site and served by `pyric dev --ui` |
+| `packages/studio` | `@pyric/studio` | Studio console application, mounted by the Astro site and served by `pyric sandbox --ui` |
 | `packages/site-docs` | `@pyric/site-docs` | The one Astro site: documentation plus the Studio shell |
 | `packages/conformance` | `@pyric/conformance` | Private evidence graph: surfaces, registry, observations, probes, rigs, gates |
 | `packages/playground` | `@pyric/playground` | Private browser agent playground |
@@ -162,14 +162,14 @@ Browser development:
 
 - `@pyric/cli/vite` maps supported `firebase/*` imports to `pyric/*` while
   Vite is serving development code.
-- `pyric dev` serves import maps that point a pre-built/static application at
+- `pyric sandbox` serves import maps that point a pre-built/static application at
   the same sandbox mirrors.
 - A normal production Vite build leaves the development swap inactive and
   includes Firebase directly.
 
 Node development:
 
-- `pyric dev` runs the child command with `PYRIC_SANDBOX` set and
+- `pyric sandbox` runs the child command with `PYRIC_SANDBOX` set and
   `@pyric/cli/register` preloaded through `NODE_OPTIONS`.
 - The active resolver maps `firebase/*` to `pyric/*` and `firebase-admin/*` to
   `pyric-admin/*`.
@@ -187,7 +187,7 @@ The binary is `pyric`. General commands are:
 ```text
 pyric bridge
 pyric can-i-use <feature> [--json]
-pyric dev
+pyric sandbox
 pyric init
 pyric vendor
 pyric snapshot
@@ -223,7 +223,7 @@ pyric database rules generate [--config <path>] [--out <path>]
 text that is the practical reference for flags. `packages/cli/src/cli/service-commands.ts`
 owns the service-first hierarchy.
 
-`pyric dev` defaults to port 3473 and opens the served page, or Studio under
+`pyric sandbox` defaults to port 3473 and opens the served page, or Studio under
 `--ui`. It runs the project's own dev command (`-- <cmd>`, otherwise the
 `package.json` `dev` script) with `PYRIC_SANDBOX` set, discovers a Functions
 source from `firebase.json`, hot-reloads Firestore and Realtime Database rules,
@@ -257,7 +257,7 @@ receive separate service containers and Auth/listener sessions over that one
 backend. A second Firebase configuration in the same runtime is rejected rather
 than silently creating another persistence domain.
 
-`pyric dev --bridge` mounts MCP on the development server and routes calls to
+`pyric sandbox --bridge` mounts MCP on the sandbox server and routes calls to
 the same sandbox as the open application and Studio. `pyric bridge` provides a
 standalone sandbox bridge. `pyric mcp` is the stdio editor front: it attaches to
 a running development bridge when possible or hosts a headless sandbox.

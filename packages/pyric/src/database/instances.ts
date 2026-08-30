@@ -119,7 +119,7 @@ export function getAdminDatabase(target: Sandbox | SandboxContext | FirebaseApp)
 
 function packageResolutionError(): TypeError {
   return new TypeError(
-    'pyric/database is a sandbox-only mirror. Package resolution must leave firebase/database unchanged for production; activate pyric dev or @pyric/cli/register before importing to select the sandbox.',
+    'pyric/database is a sandbox-only mirror. Package resolution must leave firebase/database unchanged for production; activate pyric sandbox or @pyric/cli/register before importing to select the sandbox.',
   );
 }
 

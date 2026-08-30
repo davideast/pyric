@@ -4,7 +4,7 @@ Every agent-callable tool in this repo, **sourced**. Tools are plain
 `ToolHandler` objects produced by per-package factories — you compose them
 into whatever runtime you use. They reach an agent two ways:
 
-1. **`pyric dev --bridge`** (or `pyric bridge`) — exposes the **default sandbox
+1. **`pyric sandbox --bridge`** (or `pyric bridge`) exposes the **default sandbox
    registry** over MCP; the [Pyric agent plugin](../pyric-plugin/README.md)
    auto-wires it. Forwarded + in-process names are pinned in
    `packages/cli/src/bridge/server/mcp-contract.ts` (**29** tools today).
@@ -93,12 +93,12 @@ provide the data source:
 `firestore_discover_paths` · `firestore_find_collection_group`
 
 These exist in `@pyric/cli/discover` but are **not** registered on the default
-`pyric bridge` / `pyric dev --bridge` surface.
+`pyric bridge` / `pyric sandbox --bridge` surface.
 
 ## Assurance — `createAssuranceTools` (`@pyric/cli/assurance`)
 
 Available for applications that compose their own tool registry, but **not**
-registered on the default `pyric bridge` / `pyric dev --bridge` surface:
+registered on the default `pyric bridge` / `pyric sandbox --bridge` surface:
 
 `firebase_assurance_attach` · `firebase_assurance_start` ·
 `firebase_assurance_map` · `firebase_assurance_define` ·

@@ -15,7 +15,7 @@ Your backend is local state. That changes what you can do with it. You can seed 
 
 The fastest path is a fixture file served at startup:
 ```bash
-pyric dev --seed fixtures/onboarding.json
+pyric sandbox --seed fixtures/onboarding.json
 ```
 A fixture carries documents and auth users, so the app opens onto a populated backend with people already signed up. The seed applies only into an empty sandbox; if earlier data exists, it is skipped and a console line says why.
 
@@ -34,12 +34,12 @@ await adminDb.collection('notes').doc('n1').set({ ownerId: 'alice', title: 'firs
 
 You've been working interactively: signing in test users, creating documents, getting the data into exactly the shape you want. Don't rebuild that by hand. Promote it:
 ```bash
-pyric dev --persist        # work in the app; state persists as you go
+pyric sandbox --persist    # work in the app; state persists as you go
 pyric snapshot --out fixtures/onboarding.json
 ```
 `pyric snapshot` reads the live dev server and writes a committable fixture with both documents and users. Passwords are redacted by default, so the file is safe to commit, and the redaction round-trips: re-served users still sign in through the helper. Commit it, and everyone on the team, plus CI, starts from the same place:
 ```bash
-pyric dev --seed fixtures/onboarding.json
+pyric sandbox --seed fixtures/onboarding.json
 ```
 ## Reset between tests
 
@@ -65,7 +65,7 @@ Writes through `aliceDb` evaluate with `request.auth.uid == 'alice'`. The `token
 
 ## Replay a captured session
 
-While you work, `pyric dev` records the session to `.pyric/last-session.json` by default: every write, with its real identity, real server timestamps, real auto-ids. A replay re-issues those writes against a fresh sandbox and a candidate ruleset and reports what changed:
+While you work, `pyric sandbox` records the session to `.pyric/last-session.json` by default. It includes every write with its identity, server timestamps, and generated IDs. A replay reissues those writes against a fresh sandbox and a candidate ruleset and reports what changed:
 ```bash
 pyric verify --rules firestore=firestore.rules
 ```

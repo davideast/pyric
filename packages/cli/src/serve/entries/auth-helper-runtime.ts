@@ -13,7 +13,7 @@ export function resolveServeAuthFlow(
 ): Promise<UserCredential> {
   if (!resolver) {
     return Promise.reject(
-      new Error('pyric dev provider helper is not initialized; load /__pyric/sdk/init.js first'),
+      new Error('pyric sandbox provider helper is not initialized; load /__pyric/sdk/init.js first'),
     );
   }
   return kind === 'popup' ? resolver.openPopup(request) : resolver.openRedirect(request);

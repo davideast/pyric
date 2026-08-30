@@ -6,13 +6,13 @@
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json]
  *
  * Source preference:
- *   1. LIVE state from a running `pyric dev --persist`
+ *   1. Live state from a running `pyric sandbox --persist`
  *      (`GET /__pyric/state` — `--port`, else the 3473+ scan window),
  *   2. else the on-disk `.pyric/state/state.json`,
  *   3. else exit 2 with a clear message.
  *
  * The output is a `PyricStateFile` envelope — directly re-servable:
- * `pyric dev --seed <out>` (the state-file shape is detected by its
+ * `pyric sandbox --seed <out>` (the state-file shape is detected by its
  * `version` key and seeds docs + users).
  */
 import { existsSync, writeFileSync } from 'node:fs';
@@ -44,7 +44,7 @@ async function fetchLive(port: number): Promise<LiveState | null> {
     if (!body || typeof body !== 'object' || !('version' in body)) return null;
     return { envelope: body, projectDir: res.headers.get('x-pyric-project-dir') };
   } catch {
-    return null; // nothing listening / not a pyric dev — fall through
+    return null; // No Pyric sandbox is listening. Fall through.
   }
 }
 
@@ -110,7 +110,7 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
   }
   if (!envelope) {
     err.write(
-      'pyric snapshot: no state found — no `pyric dev --persist` is running here and ' +
+      'pyric snapshot: no state found. No `pyric sandbox --persist` is running here and ' +
         'no .pyric/state/state.json exists. Run with --persist (and use the app) first.\n',
     );
     return 2;
@@ -158,7 +158,7 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
   if (redactedCount > 0) {
     report.write(`  ⓘ redacted ${redactedCount} password(s) — re-run with --include-passwords to keep them\n`);
   }
-  report.write(`  Re-serve it: pyric dev --seed ${typeof outFlag === 'string' ? outFlag : 'pyric-state.json'}\n`);
+  report.write(`  Re-serve it: pyric sandbox --seed ${typeof outFlag === 'string' ? outFlag : 'pyric-state.json'}\n`);
   if (json) out.write(JSON.stringify({ out: outPath, docs, users, source, redactedPasswords: redactedCount }) + '\n');
   return 0;
 }

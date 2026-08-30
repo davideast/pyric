@@ -24,7 +24,7 @@ const nextConfig = {
   ],
 };
 
-// Under development mode (\`pyric dev -- next dev\`), withPyric maps client-side
+// Under development mode (\`pyric sandbox -- next dev\`), withPyric maps client-side
 // firebase/* SDK imports to Pyric sandbox adapters via Webpack/Turbopack aliases,
 // externalizes server-side firebase and firebase-admin imports for Node loader
 // hooks (@pyric/cli/register), and proxies /__pyric/* bridge traffic.
@@ -63,7 +63,7 @@ const NEXTJS_TSCONFIG_JSON = `{
 `;
 
 const NEXTJS_ENV_EXAMPLE = `# Your real Firebase application configuration from the Firebase Console.
-# UNUSED in local development under \`pyric dev\` (the Pyric sandbox stands in);
+# UNUSED in local development under \`pyric sandbox\` (the Pyric sandbox stands in);
 # USED by \`next build\` for production cloud builds. Next.js exposes environment
 # variables prefixed with \`NEXT_PUBLIC_\` to client-side code in the browser.
 NEXT_PUBLIC_FIREBASE_API_KEY=
@@ -473,19 +473,19 @@ function buildReadme(projectName: string): string {
   return `# ${projectName}
 
 A Firebase web application built with Next.js and wrapped with \`@pyric/cli/next\` (\`withPyric\`).
-In development, the application runs entirely on Pyric's local sandbox—requiring
+In development, the application runs entirely on Pyric's local sandbox and requires
 zero Firebase projects, service account keys, or cloud emulators.
 
-- **Develop:** \`npm run dev\` or \`bun run dev\` — executes \`pyric dev -- next dev\`. The \`withPyric\` wrapper substitutes client SDK imports with local sandbox mirrors via Webpack and Turbopack aliases, intercepts server-side API requests via \`@pyric/cli/register\`, and proxies WebSocket bridge connection traffic automatically.
-- **Build for production:** \`npm run build\` or \`bun run build\` — executing \`next build\` in production mode activates identity passthrough in \`withPyric\`, compiling standard Firebase and Firebase Admin SDKs untouched with zero runtime overhead.
-- **Start:** \`npm start\` or \`bun run start\` — serves your built Next.js production server.
+- **Develop:** \`npm run dev\` or \`bun run dev\` executes \`pyric sandbox -- next dev\`. The \`withPyric\` wrapper substitutes client SDK imports with local sandbox mirrors via Webpack and Turbopack aliases, intercepts server-side API requests via \`@pyric/cli/register\`, and proxies WebSocket bridge traffic automatically.
+- **Build for production:** \`npm run build\` or \`bun run build\` executes \`next build\`. Production mode makes \`withPyric\` an identity passthrough and compiles the standard Firebase and Firebase Admin SDKs without sandbox code.
+- **Start:** \`npm start\` or \`bun run start\` serves your built Next.js production server.
 - **Deploy:** \`npx firebase-tools deploy\` (via Firebase Web Frameworks) after production build, or deploy standard built artifacts directly to Vercel and cloud compute platforms.
 `;
 }
 
 export const NEXTJS_TEMPLATE: ScaffoldTemplate = {
   scripts: {
-    dev: 'pyric dev -- next dev',
+    dev: 'pyric sandbox -- next dev',
     'dev:direct': 'next dev',
     build: 'next build',
     start: 'next start',

@@ -13,9 +13,9 @@ Pyric connects your coding agent on your machine to the same sandbox your app an
 
 Start the bridge, then keep the served app open in a browser tab:
 ```bash
-pyric dev --bridge
+pyric sandbox --bridge
 ```
-`pyric dev` records the running server in `.pyric/serve.json`. The `pyric mcp` process used by Claude Code, Cursor, Codex, or another MCP client reads that pointer and proxies tool calls to `/__pyric/mcp`. The browser tab is the peer that owns the sandbox state, so forwarded data tools need that tab to stay open. Rules-only tools such as linting and module resolution run in the MCP process and do not need the tab.
+`pyric sandbox` records the running server in `.pyric/serve.json`. The `pyric mcp` process used by Claude Code, Cursor, Codex, or another MCP client reads that pointer and proxies tool calls to `/__pyric/mcp`. The browser tab is the peer that owns the sandbox state, so forwarded data tools need that tab to stay open. Rules-only tools such as linting and module resolution run in the MCP process and do not need the tab.
 
 If you have not configured the client yet, follow [Connect an agent to the sandbox](./set-up-your-agent.md).
 

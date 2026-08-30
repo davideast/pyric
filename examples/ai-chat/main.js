@@ -1,5 +1,5 @@
 // A chat app written against the upstream Firebase AI API: 'firebase/app'
-// and 'firebase/ai' are the ONLY imports. Under `pyric dev` the import map
+// and 'firebase/ai' are the ONLY imports. Under `pyric sandbox` the import map
 // serves the pyric mirror for these; the same file, built for production,
 // talks to real Firebase AI.
 import { initializeApp } from 'firebase/app';

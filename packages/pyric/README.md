@@ -34,7 +34,7 @@ const snap = await getDocs(collection(db, 'posts'));
 ```
 
 Application code normally keeps canonical `firebase/*` imports.
-`@pyric/cli/vite`, `pyric dev`, or `@pyric/cli/register` activates development
+`@pyric/cli/vite`, `pyric sandbox`, or `@pyric/cli/register` activates development
 resolution to these mirrors. With activation absent, production loads Firebase
 directly; `pyric` contains no production dispatch.
 

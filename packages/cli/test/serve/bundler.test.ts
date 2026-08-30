@@ -343,7 +343,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     for (const f of result.files) {
       const src = readFileSync(f, 'utf8');
       // provenance banner on every served bundle
-      expect(src).toContain('NOT the real Firebase SDK');
+      expect(src).toContain('not the real Firebase SDK');
       if (!f.endsWith('/app-ai-passthrough.js')) {
         expect(src).not.toMatch(/from\s*["']firebase\//);
       }
@@ -481,7 +481,7 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
     // can fail at module evaluation before the worker connects.
     expect(src).not.toContain('readFileSync');
     // Provenance banner + the connect wiring that makes it a SharedWorker host.
-    expect(src).toContain('NOT the real Firebase SDK');
+    expect(src).toContain('not the real Firebase SDK');
     expect(src).toContain('onconnect');
 
     // Marker cache: a second call without noCache returns the same file fast.

@@ -19,10 +19,10 @@ Confirm versions from the lockfile and installed package. Inspect the exports us
 Identify one development launcher:
 
 - Vite should keep one existing `plugins` array with one `pyric({ bridge: true })` when agent access is needed, then use the normal Vite dev script.
-- A project launched by `pyric dev` should place Pyric flags before the `--` child-command separator.
+- A project launched by `pyric sandbox` should place Pyric flags before the first child command token. Use `--` as an explicit separator when needed.
 - Next.js should use `withPyric` and the project's documented local CLI launch. Read the installed wrapper types before proposing options because Vite-only options do not automatically apply to Next.
 
-Flag duplicate `plugins` properties, duplicate Pyric plugin entries, Vite and `pyric dev` running as competing launchers, or a static MCP URL that bypasses the plugin's stdio discovery.
+Flag duplicate `plugins` properties, duplicate Pyric plugin entries, Vite and `pyric sandbox` running as competing launchers, or a static MCP URL that bypasses the plugin's stdio discovery.
 
 When a server is already running, inspect `/__pyric/health`. Agent data-plane work requires `sandboxConnected: true`; a listening server alone is not enough. Do not start or restart a server solely to increase audit depth.
 

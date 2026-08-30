@@ -30,12 +30,12 @@ export default withPyric(nextConfig);
 
 ## Supervise your development server
 
-Prefix your development start command with `pyric dev` in `package.json`:
+Prefix your development start command with `pyric sandbox` in `package.json`:
 
 ```json
 {
   "scripts": {
-    "dev": "pyric dev -- next dev",
+    "dev": "pyric sandbox -- next dev",
     "build": "next build",
     "start": "next start"
   }
@@ -74,7 +74,7 @@ export async function GET() {
 }
 ```
 
-When `pyric dev` supervises your Next.js process, server components and API routes automatically resolve Firebase Admin calls over the WebSocket bridge to your open browser tab.
+When `pyric sandbox` supervises your Next.js process, server components and API routes automatically resolve Firebase Admin calls over the WebSocket bridge to your open browser tab.
 
 ## Configure or disable the runtime chip
 
