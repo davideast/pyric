@@ -27,11 +27,6 @@ export interface ContextResolver<T> {
    * or currently in-flight.
    */
   current(): T | null;
-
-  /**
-   * Reset the resolver state. Useful for test isolation or worker teardown.
-   */
-  reset(): void;
 }
 
 export function createContextResolver<T>(factory: () => Promise<T>): ContextResolver<T> {
@@ -60,11 +55,6 @@ export function createContextResolver<T>(factory: () => Promise<T>): ContextReso
 
     current(): T | null {
       return value;
-    },
-
-    reset(): void {
-      value = null;
-      inFlight = null;
     },
   };
 }

@@ -17,7 +17,7 @@ export interface PortLifecycleManager {
 }
 
 export function createPortLifecycleManager(): PortLifecycleManager {
-  const closedPorts = new Set<PortLike>();
+  const closedPorts = new WeakSet<PortLike>();
   const pendingClosedPorts = new Set<PortLike>();
 
   return {

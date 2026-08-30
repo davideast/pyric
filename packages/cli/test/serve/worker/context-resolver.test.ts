@@ -72,21 +72,4 @@ describe('context-resolver', () => {
     expect(cached).toBe(recovered);
     expect(attempts).toBe(2);
   });
-
-  it('resets memoized state on reset()', async () => {
-    let counter = 0;
-    const resolver = createContextResolver(async () => {
-      counter++;
-      return { count: counter };
-    });
-
-    const first = await resolver.get();
-    expect(first.count).toBe(1);
-
-    resolver.reset();
-    expect(resolver.current()).toBeNull();
-
-    const second = await resolver.get();
-    expect(second.count).toBe(2);
-  });
 });

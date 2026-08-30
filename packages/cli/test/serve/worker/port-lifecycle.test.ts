@@ -4,7 +4,6 @@ import { createPortLifecycleManager } from '../../../src/serve/worker/port-lifec
 
 describe('PortLifecycleManager', () => {
   it('cleans up port immediately when context is already resolved', async () => {
-    let cleanedPort: PortLike | null = null;
     const ctx = {
       subs: new Map(),
       disconnect: new Map(),
@@ -22,7 +21,6 @@ describe('PortLifecycleManager', () => {
     // Wait a tick for void promise
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(unsubscribed).toBe(true);
     expect(unsubscribed).toBe(true);
     expect(ctx.subs.has(port)).toBe(false);
     expect(manager.isPortClosed(port)).toBe(true);
