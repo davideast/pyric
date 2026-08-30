@@ -92,7 +92,7 @@ async function bundleSdkAndWorker(): Promise<string> {
   // bundleSdk computes its OWN outDir under a cache root (keyed by content
   // hash) — it doesn't take an arbitrary target dir. Point its cache root at
   // a scratch dir under dist/, build once (noCache: true, this is a one-shot
-  // site build, not `pyric dev`'s warm-start path), then copy the bundle's
+  // site build, not `pyric sandbox`'s warm-start path), then copy the bundle's
   // files into the site's __pyric/sdk/.
   const scratchCache = join(ROOT, 'dist', '.site-sdk-cache');
   rmSync(scratchCache, { recursive: true, force: true });

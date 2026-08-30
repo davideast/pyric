@@ -2,7 +2,7 @@
 
 The data-management and debugging console for the pyric sandbox — the "Firebase
 console for Pyric". Astro consumes Studio as a React application and serves it
-from the public site or from `pyric dev --ui`.
+from the public site or from `pyric sandbox --ui`.
 
 Studio is **cross-service** (Firestore / Auth / Storage / RTDB over one event
 stream) and **agentic-dev-focused**: an Action Center digest of what changed,
@@ -27,7 +27,7 @@ builds. The standalone agent Playground is developed separately.
 
 `createStudioEnvironment(mode)` is the single wiring seam:
 
-- **`local`** — `pyric dev --ui`: disk via the pyric devr. Ships first.
+- **`local`**: `pyric sandbox --ui`, with disk access through the Pyric sandbox server. Ships first.
 - **`browser`** — browser-persisted state over the same ports. Future.
 - **`hosted`** — a remote API behind the same ports. Future.
 
