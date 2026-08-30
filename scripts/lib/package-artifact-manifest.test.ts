@@ -3,7 +3,10 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createPackageArtifactManifest } from './package-artifact-manifest.mjs';
+import {
+  assertPackageArtifactHygiene,
+  createPackageArtifactManifest,
+} from './package-artifact-manifest.mjs';
 
 const workDirs: string[] = [];
 
@@ -42,7 +45,9 @@ describe('package artifact manifest', () => {
     );
 
     const tarball = join(outDir, 'example-pkg-1.2.3.tgz');
-    const packed = spawnSync('tar', ['-czf', tarball, '-C', join(root, 'packed'), 'package']);
+    const packed = spawnSync('tar', ['-czf', tarball, '-C', join(root, 'packed'), 'package'], {
+      env: { ...process.env, COPYFILE_DISABLE: '1' },
+    });
     expect(packed.status).toBe(0);
 
     const manifest = createPackageArtifactManifest({
@@ -57,5 +62,24 @@ describe('package artifact manifest', () => {
       readFileSync(join(packageDir, 'package.json'), 'utf8'),
     ).exports;
     expect(Object.keys(sourceExports)).toContain('./removed');
+  });
+
+  test('rejects macOS metadata and temporary README files', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-artifact-hygiene-'));
+    workDirs.push(root);
+    const packedDir = join(root, 'packed/package');
+    mkdirSync(packedDir, { recursive: true });
+    writeFileSync(join(packedDir, 'package.json'), '{}');
+    writeFileSync(join(packedDir, '._package.json'), 'metadata');
+    writeFileSync(join(packedDir, 'README.md.orig'), 'temporary readme');
+
+    const tarball = join(root, 'package.tgz');
+    const packed = spawnSync('tar', ['-czf', tarball, '-C', join(root, 'packed'), 'package'], {
+      env: { ...process.env, COPYFILE_DISABLE: '1' },
+    });
+    expect(packed.status).toBe(0);
+
+    expect(() => assertPackageArtifactHygiene(tarball)).toThrow('package/._package.json');
+    expect(() => assertPackageArtifactHygiene(tarball)).toThrow('package/README.md.orig');
   });
 });

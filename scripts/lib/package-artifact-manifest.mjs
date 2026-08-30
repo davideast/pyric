@@ -3,22 +3,52 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
-function readTarEntry(tarballPath, entryPath) {
+function readTarEntries(tarballPath) {
   const archive = gunzipSync(readFileSync(tarballPath));
+  const entries = [];
   for (let offset = 0; offset + 512 <= archive.length; ) {
     const header = archive.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
     const name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
     const prefix = header.subarray(345, 500).toString('utf8').replace(/\0.*$/, '');
     const path = prefix ? `${prefix}/${name}` : name;
     const sizeText = header.subarray(124, 136).toString('ascii').replace(/\0.*$/, '').trim();
     const size = sizeText ? Number.parseInt(sizeText, 8) : 0;
     const contentsOffset = offset + 512;
-    if (path === entryPath) {
-      return archive.subarray(contentsOffset, contentsOffset + size).toString('utf8');
-    }
+    entries.push({ path, contents: archive.subarray(contentsOffset, contentsOffset + size) });
     offset = contentsOffset + Math.ceil(size / 512) * 512;
   }
+  return entries;
+}
+
+function readTarEntry(tarballPath, entryPath) {
+  const entry = readTarEntries(tarballPath).find(({ path }) => path === entryPath);
+  if (entry) return entry.contents.toString('utf8');
   throw new Error(`${entryPath} not found in ${tarballPath}`);
+}
+
+export function assertPackageArtifactHygiene(tarballPath) {
+  const forbidden = readTarEntries(tarballPath)
+    .map(({ path }) => path)
+    .filter((path) =>
+      path
+        .split('/')
+        .some(
+          (segment) =>
+            segment.startsWith('._') ||
+            segment === '.DS_Store' ||
+            segment === '__MACOSX' ||
+            segment === 'README.md.orig',
+        ),
+    );
+
+  if (forbidden.length > 0) {
+    throw new Error(
+      `${tarballPath} contains forbidden package files:\n${forbidden
+        .map((path) => `  - ${path}`)
+        .join('\n')}`,
+    );
+  }
 }
 
 /**
@@ -40,6 +70,7 @@ export function createPackageArtifactManifest({
       const flatName = sourceManifest.name.replace(/^@/, '').replace(/\//g, '-');
       const file = `${flatName}-${sourceManifest.version}.tgz`;
       const fullPath = join(outDir, file);
+      assertPackageArtifactHygiene(fullPath);
       const packedManifest = JSON.parse(readTarEntry(fullPath, 'package/package.json'));
 
       return {
