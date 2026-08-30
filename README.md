@@ -86,7 +86,7 @@ During `vite dev`, the plugin swaps supported `firebase/*` modules at resolution
 
 Pyric Studio is available on the Vite origin at `/__pyric/ui/studio`. It opens the same backend used by the application.
 
-For a static application or a Node process, `pyric dev` provides the same development-only package swap without the Vite plugin. The [CLI reference](packages/cli/docs/reference/cli.md) documents those paths and every command.
+For a static application or a Node process, `pyric sandbox` provides the same development-only package swap without the Vite plugin. The [CLI reference](packages/site-docs/src/content/reference/cli.md) documents those paths and every command.
 
 ## Keep using official Firebase SDKs
 
