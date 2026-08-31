@@ -96,11 +96,100 @@ function wireAppPersistence(
   });
 }
 
+const activeAuthInstances = new Set<ReturnType<typeof pyricGetAuth>>();
+const authChangeListeners = new Set<(user: any) => void>();
+
+export function registerActiveAuth(auth: ReturnType<typeof pyricGetAuth>): () => void {
+  activeAuthInstances.add(auth);
+  const unsub = (A.onAuthStateChanged as any)(auth, (user: any) => {
+    for (const l of authChangeListeners) l(user);
+  });
+  return () => {
+    activeAuthInstances.delete(auth);
+    unsub();
+  };
+}
+
+export function subscribeToActiveAuth(listener: (user: any) => void): () => void {
+  authChangeListeners.add(listener);
+  for (const auth of activeAuthInstances) {
+    if (auth.currentUser) {
+      listener(auth.currentUser);
+      break;
+    }
+  }
+  return () => authChangeListeners.delete(listener);
+}
+
+export function getActiveAuthUser(): { uid: string; email?: string | null; displayName?: string | null } | null {
+  for (const auth of activeAuthInstances) {
+    if (auth.currentUser) {
+      return {
+        uid: auth.currentUser.uid,
+        email: auth.currentUser.email,
+        displayName: auth.currentUser.displayName,
+      };
+    }
+  }
+  return null;
+}
+
+export async function switchAllAuthUsers(uid: string): Promise<void> {
+  const promises: Promise<any>[] = [];
+  for (const auth of activeAuthInstances) {
+    if (useWorker) {
+      promises.push(restorePortSession(auth as never, uid));
+    } else {
+      try {
+        ipAuth.sandbox.restoreSession(auth, uid);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  await Promise.all(promises);
+}
+
+export async function signOutAllAuths(): Promise<void> {
+  const promises: Promise<any>[] = [];
+  for (const auth of activeAuthInstances) {
+    if (useWorker) {
+      promises.push(wc.signOut(auth as never));
+    } else {
+      promises.push(ipAuth.signOut(auth));
+    }
+  }
+  await Promise.all(promises);
+}
+
+export async function commitCredentialToAllAuths(identity: {
+  uid: string;
+  email?: string | null;
+  displayName?: string | null;
+  customClaims?: Record<string, unknown>;
+  providerId?: string;
+}): Promise<void> {
+  const promises: Promise<any>[] = [];
+  for (const auth of activeAuthInstances) {
+    if (useWorker) {
+      promises.push(acceptProviderCredential(auth as never, {
+        uid: identity.uid,
+        email: identity.email ?? null,
+        displayName: identity.displayName ?? null,
+        customClaims: identity.customClaims ?? {},
+        providerId: identity.providerId ?? 'password',
+      }));
+    }
+  }
+  await Promise.all(promises);
+}
+
 export const getAuth = ((app?: FirebaseApp) => {
   const resolved = app ?? getApp();
   if (!useWorker) {
     const handle = pyricGetAuth(resolved);
     wireAppPersistence(resolved, handle);
+    registerActiveAuth(handle);
     return handle;
   }
   const existing = workerAuthByApp.get(resolved);
@@ -111,6 +200,7 @@ export const getAuth = ((app?: FirebaseApp) => {
   }) as unknown as ReturnType<typeof pyricGetAuth>;
   workerAuthByApp.set(resolved, handle);
   wireAppPersistence(resolved, handle);
+  registerActiveAuth(handle);
   return handle;
 }) as typeof pyricGetAuth;
 

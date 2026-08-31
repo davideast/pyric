@@ -19,8 +19,24 @@ const PROVIDER_LABEL: Record<string, string> = {
 };
 
 const STYLE = `
-  dialog[data-pyric-auth] { border: 1px solid #2a2a35; border-radius: 12px; background: #16161d;
-    color: #e8e8ee; font: 14px/1.45 system-ui, sans-serif; padding: 20px; width: min(420px, 92vw); }
+  dialog[data-pyric-auth] {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    width: min(420px, 92vw);
+    max-height: 90vh;
+    overflow-y: auto;
+    border: 1px solid #2a2a35;
+    border-radius: 12px;
+    background: #16161d;
+    color: #e8e8ee;
+    font: 14px/1.45 system-ui, sans-serif;
+    padding: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    z-index: 2147483647;
+  }
   dialog[data-pyric-auth]::backdrop { background: rgb(0 0 0 / 0.6); }
   dialog[data-pyric-auth] h2 { margin: 0 0 4px; font-size: 16px; }
   dialog[data-pyric-auth] p { margin: 0 0 14px; font-size: 12px; color: #9a9aa8; }
@@ -61,6 +77,11 @@ export function mountAuthHelperDialog(helper: ServeAuthHelper): void {
       return;
     }
     const provider = PROVIDER_LABEL[snap.request.providerId] ?? snap.request.providerId;
+    const existingForm = dialog.querySelector('form');
+    const savedEmail = existingForm?.querySelector<HTMLInputElement>('input[type="email"]')?.value;
+    const savedName = existingForm?.querySelector<HTMLInputElement>('input[type="text"]')?.value;
+    const savedClaims = existingForm?.querySelector<HTMLTextAreaElement>('textarea')?.value;
+
     dialog.replaceChildren();
 
     const h2 = document.createElement('h2');
@@ -90,12 +111,15 @@ export function mountAuthHelperDialog(helper: ServeAuthHelper): void {
     email.type = 'email';
     email.placeholder = 'email@example.com';
     email.required = true;
+    if (savedEmail) email.value = savedEmail;
     const name = document.createElement('input');
     name.type = 'text';
     name.placeholder = 'Display name (optional)';
+    if (savedName) name.value = savedName;
     const claims = document.createElement('textarea');
     claims.rows = 3;
     claims.placeholder = 'Custom claims JSON (optional)\ne.g. { "admin": true }';
+    if (savedClaims) claims.value = savedClaims;
     const err = document.createElement('div');
     err.className = 'err';
     const row = document.createElement('div');

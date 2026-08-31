@@ -12,6 +12,11 @@ export interface InstallPyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
   document: Document;
   listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
+  switchUser?: (uid: string) => Promise<void> | void;
+  signOut?: () => Promise<void> | void;
+  openCreateUser?: () => void;
+  getCurrentUser?: () => { uid: string; email?: string | null; displayName?: string | null } | null;
+  subscribeAuth?: (listener: (user: { uid: string; email?: string | null; displayName?: string | null } | null) => void) => () => void;
   mount?: (options: PyricRuntimeChipOptions) => PyricRuntimeChip;
 }
 
@@ -20,12 +25,18 @@ export function installPyricRuntimeChip(
   options: InstallPyricRuntimeChipOptions,
 ): PyricRuntimeChip | null {
   const config = readPyricRuntimeChipConfig(options.document);
-  if (!config || options.document.querySelector('[data-pyric-runtime-chip-host]')) return null;
+  const existing = options.document.querySelector('[data-pyric-runtime-chip-host], pyric-runtime-chip');
+  if (!config || existing) return null;
   return (options.mount ?? mountPyricRuntimeChip)({
     runtime: options.runtime,
     document: options.document,
     initiallyOpen: config.initiallyOpen,
     listUsers: options.listUsers,
+    switchUser: options.switchUser,
+    signOut: options.signOut,
+    openCreateUser: options.openCreateUser,
+    getCurrentUser: options.getCurrentUser,
+    subscribeAuth: options.subscribeAuth,
     ...(config.studioEnabled ? {} : { studioUrl: null }),
   });
 }
