@@ -155,9 +155,12 @@ export {
   inMemoryPersistence,
   browserSessionPersistence,
   browserLocalPersistence,
-  // Auth lens (Pyric Studio — admin / impersonation / app-session)
+  // Auth lens (Pyric Studio & Runtime Chip — admin / impersonation / app-session)
   setLens,
   getLens,
+  subscribeLens,
+  AUTH_LENS_STORAGE_KEY,
+  hydrateLensFromStorage,
   // Storage (Pyric Studio data browse): worker-backed FirebaseStorage mirror
   getStorage,
   ref,

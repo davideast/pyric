@@ -259,26 +259,87 @@ export function wirePort(port: ClientPort): void {
 // ops (`auth.*`) and `getVersion` are NEVER lensed — they operate the worker's
 // session, not data — so the lens is stamped only on the data-op path.
 
+export const AUTH_LENS_STORAGE_KEY = 'pyric:auth-lens';
+
+/** Read persisted auth lens from sessionStorage safely. */
+export function hydrateLensFromStorage(): AuthLens | undefined {
+  if (typeof sessionStorage === 'undefined') return undefined;
+  try {
+    const raw = sessionStorage.getItem(AUTH_LENS_STORAGE_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as AuthLens;
+    if (parsed && typeof parsed === 'object' && parsed.mode && parsed.mode !== 'app-session') {
+      return parsed;
+    }
+    sessionStorage.removeItem(AUTH_LENS_STORAGE_KEY);
+    return undefined;
+  } catch {
+    try {
+      sessionStorage.removeItem(AUTH_LENS_STORAGE_KEY);
+    } catch {
+      // Ignore storage restrictions
+    }
+    return undefined;
+  }
+}
+
 /** Module-level default lens. `undefined` ⇒ the worker treats the op as the
  *  app's session (the additive default — existing senders omit `actAs`).
  *
  *  Exported as a LIVE binding: family modules read it to stamp the lens onto
  *  subscriptions (`onSnapshot`, `rtdbOnValue`), and see `setLens(...)` updates
  *  through this one singleton. */
-export let _defaultLens: AuthLens | undefined;
+export let _defaultLens: AuthLens | undefined = hydrateLensFromStorage();
+
+const lensListeners = new Set<(lens: AuthLens | undefined) => void>();
+
+/**
+ * Register a listener for auth lens mutations.
+ * Returns an unsubscribe function that removes the listener.
+ */
+export function subscribeLens(listener: (lens: AuthLens | undefined) => void): () => void {
+  lensListeners.add(listener);
+  return () => {
+    lensListeners.delete(listener);
+  };
+}
 
 /**
  * Set the default auth lens applied to subsequent Firestore DATA ops from this
- * client (Pyric Studio). Pass `{ mode: 'as', uid }` to read/write AS a user
+ * client (Pyric Studio & Runtime Chip). Pass `{ mode: 'as', uid }` to read/write AS a user
  * (rules apply), `{ mode: 'admin' }` for the admin lens, or
  * `{ mode: 'app-session' }` / `undefined` to revert to the app's own session.
  *
  * The lens is process-wide for this client module (one served page = one
  * worker port), mirroring how Studio drives a single active identity at a time.
  * Auth ops are unaffected — they always operate the real session.
+ *
+ * Persists to sessionStorage under AUTH_LENS_STORAGE_KEY when non-default,
+ * and removes key when cleared or reverted to app-session.
+ * Notifies all registered subscribeLens listeners.
  */
 export function setLens(lens: AuthLens | undefined): void {
-  _defaultLens = lens && lens.mode === 'app-session' ? undefined : lens;
+  _defaultLens = lens && lens.mode !== 'app-session' ? lens : undefined;
+
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      if (_defaultLens === undefined) {
+        sessionStorage.removeItem(AUTH_LENS_STORAGE_KEY);
+      } else {
+        sessionStorage.setItem(AUTH_LENS_STORAGE_KEY, JSON.stringify(_defaultLens));
+      }
+    } catch {
+      // Ignore quota or disabled storage restrictions
+    }
+  }
+
+  for (const listener of [...lensListeners]) {
+    try {
+      listener(_defaultLens);
+    } catch (err) {
+      console.error('Error in subscribeLens listener:', err);
+    }
+  }
 }
 
 /** The active default lens (read-only view), for Studio UI to reflect state. */

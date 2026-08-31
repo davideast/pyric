@@ -6,9 +6,12 @@ import {
 import { readPyricRuntimeChipConfig } from './chip-config.js';
 import type { PyricRuntimeStatus } from './status.js';
 
+import type { AuthUserRecord } from 'pyric/auth';
+
 export interface InstallPyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
   document: Document;
+  listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
   mount?: (options: PyricRuntimeChipOptions) => PyricRuntimeChip;
 }
 
@@ -22,6 +25,7 @@ export function installPyricRuntimeChip(
     runtime: options.runtime,
     document: options.document,
     initiallyOpen: config.initiallyOpen,
+    listUsers: options.listUsers,
     ...(config.studioEnabled ? {} : { studioUrl: null }),
   });
 }

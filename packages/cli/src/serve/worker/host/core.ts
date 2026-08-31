@@ -45,7 +45,7 @@ import {
   getAdminDatabase as pyricGetAdminDatabase,
   type Database,
 } from 'pyric/database';
-import type { AuthLens, EventProvenance } from 'pyric/sandbox';
+import type { AuthLens, AuthState, EventProvenance } from 'pyric/sandbox';
 import type { MintedSession } from 'pyric/auth';
 
 import type {
@@ -220,16 +220,26 @@ export function lensDb(ctx: HostCtx, actAs?: AuthLens): Firestore {
   return handle;
 }
 
-export function authStateForLens(actAs: Extract<AuthLens, { mode: 'as' }>): { uid: string; token?: Record<string, unknown> } {
-  return actAs.token === undefined
-    ? { uid: actAs.uid }
-    : { uid: actAs.uid, token: actAs.token };
+export function authStateForLens(actAs: Extract<AuthLens, { mode: 'as' }>): { uid: string; token?: Record<string, unknown>; tenant?: string } {
+  const state: { uid: string; token?: Record<string, unknown>; tenant?: string } = { uid: actAs.uid };
+  if (actAs.token !== undefined) state.token = actAs.token;
+  if (actAs.tenant !== undefined) state.tenant = actAs.tenant;
+  return state;
 }
 
 export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
-  return actAs.token === undefined
-    ? actAs.uid
-    : `${actAs.uid}:${JSON.stringify(actAs.token)}`;
+  const parts = [actAs.uid];
+  if (actAs.tenant !== undefined) parts.push(`tenant:${actAs.tenant}`);
+  if (actAs.token !== undefined) parts.push(JSON.stringify(actAs.token));
+  return parts.join(':');
+}
+
+export function lensForAuth(auth: AuthState): AuthLens {
+  if (auth === null || auth === undefined) return { mode: 'anon' };
+  const lens: Extract<AuthLens, { mode: 'as' }> = { mode: 'as', uid: auth.uid };
+  if (auth.token !== undefined) lens.token = auth.token;
+  if (auth.tenant !== undefined) lens.tenant = auth.tenant;
+  return lens;
 }
 
 /** Cache key for a real port session; claims are part of authorization identity. */

@@ -56,7 +56,19 @@ if (localAuth) authSandbox.setAuthFlowResolver(localAuth, resolver);
 
 if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   mountAuthHelperDialog(helper);
-  installPyricRuntimeChip({ runtime: getPyricRuntimeStatus(), document });
+  installPyricRuntimeChip({
+    runtime: getPyricRuntimeStatus(),
+    document,
+    listUsers: async () => {
+      if (workerAuth) {
+        return listUsers(workerAuth);
+      }
+      if (localAuth) {
+        return authSandbox.listUsers(localAuth);
+      }
+      return [];
+    },
+  });
 }
 
 export {};
