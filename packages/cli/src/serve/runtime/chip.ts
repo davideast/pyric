@@ -234,7 +234,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     existingHost.remove();
   }
 
-  const host = documentLike.createElement('div');
+  let host: HTMLElement;
+  try {
+    host = documentLike.createElement('pyric-runtime-chip');
+  } catch {
+    host = documentLike.createElement('div');
+  }
   host.setAttribute('data-pyric-runtime-chip-host', '');
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>${styles}</style><div class="announcer" role="status" aria-live="polite" aria-atomic="true"></div><div data-view></div>`;
