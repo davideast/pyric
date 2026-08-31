@@ -11,7 +11,7 @@ import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
 import { EvalError } from './eval-error.js';
 import { UnsupportedError } from './unsupported-error.js';
-import { makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
+import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import type { SimulationContext } from './evaluation-context.js';
 import { evaluate, isKnownGlobal, resolveIdentifier } from './evaluator.js';
 import { evaluateHashingMethod } from './hashing-builtins.js';
@@ -73,7 +73,7 @@ export function evaluateFunctionCall(
       const pathStr = String(argVal);
       const normalized = normalizeDocumentPath(pathStr);
       const segments = normalized.split('/').filter(Boolean);
-      if (segments.length === 0 || segments.length % 2 !== 0) {
+      if (!isDocumentPath(segments)) {
         throw new EvalError(
           `getAfter() requires a path pointing to a document (even segment count), got '${normalized}'`,
         );
@@ -104,7 +104,7 @@ export function evaluateFunctionCall(
       const pathStr = String(argVal);
       const normalized = normalizeDocumentPath(pathStr);
       const segments = normalized.split('/').filter(Boolean);
-      if (segments.length === 0 || segments.length % 2 !== 0) {
+      if (!isDocumentPath(segments)) {
         return false;
       }
       if (pathStr === ctx.afterStatePath.toString()) {

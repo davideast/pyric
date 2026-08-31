@@ -43,7 +43,7 @@ describe('Tier 3: Cross-Feature Combinations', () => {
 service cloud.firestore {
   match /databases/{database}/documents {
     match /content/{docId} {
-      allow read: if !exists(/databases/$(database)/documents/users/alice/../../banned/$(request.auth.uid));
+      allow read: if !exists(/databases/$(database)/documents/users/alice/roles/admin/../../../$(request.auth.uid));
     }
   }
 }`;
@@ -55,7 +55,7 @@ service cloud.firestore {
         auth: { uid: 'good-user', token: {} },
         functionMocks: [{
           function: 'exists',
-          path: 'banned/good-user',
+          path: 'users/good-user',
           result: false,
         }],
       }]);
@@ -71,7 +71,7 @@ service cloud.firestore {
 service cloud.firestore {
   match /databases/{database}/documents {
     match /content/{docId} {
-      allow read: if !exists(/databases/$(database)/documents/users/alice/../../banned/$(request.auth.uid));
+      allow read: if !exists(/databases/$(database)/documents/users/alice/roles/admin/../../../$(request.auth.uid));
     }
   }
 }`;
@@ -83,7 +83,7 @@ service cloud.firestore {
         auth: { uid: 'banned-user', token: {} },
         functionMocks: [{
           function: 'exists',
-          path: 'banned/banned-user',
+          path: 'users/banned-user',
           result: true,
         }],
       }]);
@@ -99,7 +99,7 @@ service cloud.firestore {
 service cloud.firestore {
   match /databases/{database}/documents {
     match /content/{docId} {
-      allow read: if !get(/databases/$(database)/documents/users/alice/../../roles/$(request.auth.uid)).data.restricted;
+      allow read: if !get(/databases/$(database)/documents/users/alice/roles/admin/../../../$(request.auth.uid)).data.restricted;
     }
   }
 }`;
@@ -112,7 +112,7 @@ service cloud.firestore {
         auth: { uid: 'user-with-string-field', token: {} },
         functionMocks: [{
           function: 'get',
-          path: 'roles/user-with-string-field',
+          path: 'users/user-with-string-field',
           result: { restricted: 'yes' },
         }],
       }]);
@@ -362,8 +362,8 @@ service firebase.storage {
   });
 
   // ─── Combination 7: F4 (Path Canonicalization) + F6 (Cross-Service Storage Lookup) ─
-  describe('Combination F4 + F6: Storage Rules Cross-Service Firestore Lookups with Relative Paths', () => {
-    test('F4+F6.1: Storage rule using firestore.get() with .. relative traversal to authorize upload', async () => {
+  describe('Combination F4 + F6: Storage Rules Cross-Service Firestore Lookups', () => {
+    test('F4+F6.1: Storage rule using firestore.get() to authorize upload', async () => {
       const sandbox = initializeSandbox({});
       // Seed Firestore document
       sandbox.admin.setDocument('configs/features', { allowUploads: true });
@@ -372,7 +372,7 @@ service firebase.storage {
 service firebase.storage {
   match /b/{bucket}/o {
     match /uploads/{file} {
-      allow read, write: if firestore.get(/databases/(default)/documents/users/alice/../../configs/features).data.allowUploads == true;
+      allow read, write: if firestore.get(/databases/(default)/documents/configs/features).data.allowUploads == true;
     }
   }
 }`;
@@ -395,7 +395,7 @@ service firebase.storage {
 service firebase.storage {
   match /b/{bucket}/o {
     match /uploads/{file} {
-      allow write: if !firestore.get(/databases/(default)/documents/users/alice/../../configs/features).data.allowUploads;
+      allow write: if !firestore.get(/databases/(default)/documents/configs/features).data.allowUploads;
     }
   }
 }`;

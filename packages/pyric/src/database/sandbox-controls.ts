@@ -8,16 +8,19 @@ import { TARGET_SYMBOL, targetOf } from './routing.js';
 
 export type RtdbRulesJson = { rules: Record<string, unknown> };
 
-function backendOf(target: LocalSandbox | object): RtdbBackend {
+/** Target accepting either a LocalSandbox root or a branded Database handle. */
+export type RtdbTarget = LocalSandbox | { [TARGET_SYMBOL]: unknown };
+
+function backendOf(target: RtdbTarget): RtdbBackend {
   if (target && typeof target === 'object' && TARGET_SYMBOL in target) {
     return targetOf(target).backend;
   }
   return getOrCreateBackend(target as LocalSandbox);
 }
 
-/** Set default access policy when no rules are loaded ('allow' or 'deny'). */
+/** Set default access policy when no rules are loaded ('allow' or 'deny'). Internal test/dev harness control. */
 export function setDefaultPolicy(
-  target: LocalSandbox | object,
+  target: RtdbTarget,
   policy: 'allow' | 'deny',
 ): void {
   backendOf(target).setDefaultPolicy(policy);
@@ -25,27 +28,27 @@ export function setDefaultPolicy(
 
 /** Replace the active RTDB rules. Pass `null` to restore default deny. */
 export function setRules(
-  target: LocalSandbox | object,
+  target: RtdbTarget,
   rules: RtdbRulesJson | null,
 ): void {
   backendOf(target).setRules(rules);
 }
 
 /** Read the currently active rules as detached JSON. */
-export function getActiveRules(target: LocalSandbox | object): RtdbRulesJson | null {
+export function getActiveRules(target: RtdbTarget): RtdbRulesJson | null {
   return backendOf(target).getActiveRules();
 }
 
 /** Replace RTDB data in bulk without applying security rules. */
 export function setData(
-  target: LocalSandbox | object,
+  target: RtdbTarget,
   data: Record<string, unknown>,
 ): void {
   backendOf(target).setData(data as Record<string, JsonValue>);
 }
 
 /** Snapshot the complete RTDB tree without applying security rules. */
-export function snapshotState(target: LocalSandbox | object): JsonValue {
+export function snapshotState(target: RtdbTarget): JsonValue {
   return backendOf(target).snapshotState();
 }
 

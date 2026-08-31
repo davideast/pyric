@@ -63,6 +63,18 @@ function hasValidateRule(n: RtdbNode): boolean {
   return n.children.some(hasValidateRule);
 }
 
+function shouldValidateSiblingSubtree(
+  currentSegments: readonly string[],
+  hasLocalDeletion: boolean,
+  allWritePaths: readonly string[][],
+): boolean {
+  return (
+    currentSegments.length > 0 ||
+    hasLocalDeletion ||
+    allWritePaths.some((wp) => wp.length === 1)
+  );
+}
+
 function findFailingValidate(
   node: RtdbNode,
   data: DataSnapshot,
@@ -170,7 +182,7 @@ function findFailingValidate(
 
           if (
             hasValidateRule(child) &&
-            (currentSegments.length > 0 || hasLocalDeletion || allWritePaths.some((wp) => wp.length === 1))
+            shouldValidateSiblingSubtree(currentSegments, hasLocalDeletion, allWritePaths)
           ) {
             for (const key of snapshotChildKeys(newData)) {
               if (writeKeys.has(key)) continue;
@@ -209,7 +221,7 @@ function findFailingValidate(
             if (
               newData.child(key).exists() &&
               hasValidateRule(child) &&
-              (currentSegments.length > 0 || hasLocalDeletion || allWritePaths.some((wp) => wp.length === 1))
+              shouldValidateSiblingSubtree(currentSegments, hasLocalDeletion, allWritePaths)
             ) {
               const failure = walk(
                 child,

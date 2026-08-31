@@ -2,6 +2,16 @@ import type { SimulationContext, SimResource } from './evaluation-context.js';
 import { EvalError } from './eval-error.js';
 import { Path } from './wrappers/path.js';
 
+/**
+ * Check if a path or segment list points to a document (non-empty, even segment count).
+ */
+export function isDocumentPath(segmentsOrPath: string | readonly string[]): boolean {
+  const segments = typeof segmentsOrPath === 'string'
+    ? segmentsOrPath.split('/').filter(Boolean)
+    : segmentsOrPath;
+  return segments.length > 0 && segments.length % 2 === 0;
+}
+
 export function normalizeDocumentPath(rawPath: string): string {
   let cleaned = rawPath.replace(/\$\(database\)/g, '(default)');
   const dbPrefix = '/databases/(default)/documents/';
@@ -19,10 +29,10 @@ export function normalizeDocumentPath(rawPath: string): string {
 
   for (const seg of rawSegments) {
     if (seg === '..') {
-      if (stack.length > 0) {
+      if (stack.length > 1) {
         stack.pop();
       }
-      // When stack is empty, .. is clamped at document root.
+      // When stack.length <= 1, .. is clamped to prevent escaping collection or document root.
     } else {
       stack.push(seg);
     }
@@ -44,7 +54,7 @@ export function makeGetResource(relPath: string, data: Record<string, unknown>):
 export function resolveGet(rawPath: string, context: SimulationContext): SimResource {
   const path = normalizeDocumentPath(rawPath);
   const segments = path.split('/').filter(Boolean);
-  if (segments.length === 0 || segments.length % 2 !== 0) {
+  if (!isDocumentPath(segments)) {
     throw new EvalError(
       `get() requires a path pointing to a document (even segment count), got '${path}'`,
     );
@@ -68,7 +78,7 @@ export function resolveGet(rawPath: string, context: SimulationContext): SimReso
 export function resolveExists(rawPath: string, context: SimulationContext): boolean {
   const path = normalizeDocumentPath(rawPath);
   const segments = path.split('/').filter(Boolean);
-  if (segments.length === 0 || segments.length % 2 !== 0) {
+  if (!isDocumentPath(segments)) {
     return false;
   }
   if (context.mockDocuments.has(path)) return true;
