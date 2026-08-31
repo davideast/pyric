@@ -126,5 +126,5 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
   if (await closeBtn.isVisible()) {
     await closeBtn.click();
   }
-  await expect(chipHost.locator('[data-identity-badge]')).toHaveText('⚡ bypass');
+  await expect(chipHost.locator('[data-identity-badge]')).toHaveText('bypass rules');
 });

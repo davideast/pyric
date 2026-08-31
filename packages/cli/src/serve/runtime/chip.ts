@@ -126,8 +126,8 @@ const styles = `
     text-overflow: ellipsis;
   }
   .dot { background: var(--pyric-accent); border-radius: 50%; height: 8px; width: 8px; }
-  .dot.error { background: var(--pyric-error); box-shadow: 0 0 0 3px rgba(240,160,160,.12); }
   .signal.update { color: var(--pyric-warning); }
+  .signal.bypass { color: #8f7fe8; font-weight: 500; }
   .chevron { color: var(--pyric-muted); height: 14px; width: 14px; }
   .panel {
     background: var(--pyric-bg);
@@ -337,7 +337,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
     let identitySignalHtml = '';
     if (isAdmin) {
-      identitySignalHtml = '<span class="signal update" data-identity-badge>⚡ bypass</span>';
+      identitySignalHtml = '<span class="signal bypass" data-identity-badge>bypass rules</span>';
     } else if (lens?.mode === 'as') {
       const label = lens.uid;
       identitySignalHtml = `<span class="signal" data-identity-badge title="as: ${escapeAttribute(label)}">as: ${escapeAttribute(label)}</span>`;

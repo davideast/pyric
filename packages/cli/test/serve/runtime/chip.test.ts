@@ -262,7 +262,7 @@ describe('PyricRuntimeChip', () => {
     expect(badge?.textContent).toBe('as: alice');
 
     setCurrentLens({ mode: 'admin' });
-    expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('⚡ bypass');
+    expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('bypass rules');
 
     setCurrentLens(undefined);
     expect(root.querySelector('[data-identity-badge]')).toBeNull();

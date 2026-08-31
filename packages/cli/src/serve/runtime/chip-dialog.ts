@@ -74,22 +74,12 @@ export const DIALOG_STYLES = `
   .current-identity-banner {
     display: flex; align-items: center; justify-content: space-between; padding: 10px 12px;
     border-radius: 8px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--pyric-border-soft, #2a2a35);
-    margin-bottom: 12px; gap: 8px; min-height: 48px; box-sizing: border-box;
+    margin-bottom: 12px; gap: 8px; height: 50px; min-height: 50px; max-height: 50px; box-sizing: border-box;
   }
   .current-identity-info { display: flex; align-items: center; gap: 8px; overflow: hidden; }
   .current-identity-text { display: flex; flex-direction: column; overflow: hidden; }
   .current-identity-name { font-weight: 500; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .current-identity-uid { font-size: 10px; color: var(--pyric-muted, #89899f); font-family: "JetBrains Mono", ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .admin-bypass-banner {
-    display: flex; align-items: center; justify-content: space-between; padding: 8px 12px;
-    border-radius: 8px; background: rgba(230, 199, 156, 0.1); border: 1px solid rgba(230, 199, 156, 0.35);
-    color: var(--pyric-warning, #e6c79c); margin-bottom: 12px; font-size: 10px; font-family: "JetBrains Mono", ui-monospace, monospace;
-  }
-  .admin-bypass-toggle {
-    cursor: pointer; font-weight: 600; padding: 3px 8px; border-radius: 4px;
-    background: rgba(230, 199, 156, 0.2); border: 1px solid var(--pyric-warning, #e6c79c); color: #fff; font-size: 10px;
-    font-family: inherit;
-  }
   .section-heading { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--pyric-muted, #89899f); margin-bottom: 8px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 600; }
   .user-search-container { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; margin-bottom: 12px; }
   .user-search-box {
@@ -129,7 +119,7 @@ export const DIALOG_STYLES = `
   .badge { font-size: 9px; font-weight: 500; padding: 1px 5px; border-radius: 4px; text-transform: uppercase; font-family: "JetBrains Mono", ui-monospace, monospace; }
   .badge-provider { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--pyric-border-soft, #2a2a35); color: #b0b0cc; }
   .badge-tenant { background: rgba(100, 160, 255, 0.1); border: 1px solid rgba(100, 160, 255, 0.3); color: #82b1ff; }
-  .badge-claims { background: rgba(230, 199, 156, 0.1); border: 1px solid rgba(230, 199, 156, 0.3); color: var(--pyric-warning, #e6c79c); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge-claims { background: rgba(143, 127, 232, 0.12); border: 1px solid rgba(143, 127, 232, 0.35); color: #8f7fe8; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .user-search-empty {
     display: flex; align-items: center; justify-content: center; height: 100%; width: 100%;
     text-align: center; color: var(--pyric-muted, #89899f); font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -138,21 +128,28 @@ export const DIALOG_STYLES = `
   .dialog-footer-actions {
     display: flex; align-items: center; justify-content: space-between;
     border-top: 1px solid var(--pyric-border-soft, #2a2a35); padding-top: 14px; margin-top: auto;
+    height: 50px; min-height: 50px; max-height: 50px; box-sizing: border-box;
   }
   .dialog-footer-actions .button,
   .current-identity-banner .button {
-    align-items: center; background: transparent; border: 1px solid var(--pyric-border-soft, #2a2a35);
-    border-radius: 4px; color: var(--pyric-muted, #89899f); cursor: pointer; display: inline-flex;
-    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; justify-content: center;
-    letter-spacing: .06em; min-height: 34px; padding: 6px 12px; text-decoration: none;
-    text-transform: uppercase; transition: border-color 0.15s, color 0.15s, background 0.15s;
+    align-items: center; appearance: none; background: #24242c; border: 1px solid #2a2a35;
+    border-radius: 6px; color: #fbfbfe; cursor: pointer; display: inline-flex;
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; justify-content: center;
+    letter-spacing: .04em; min-height: 32px; padding: 6px 14px; text-decoration: none;
+    text-transform: uppercase; transition: border-color 0.12s, color 0.12s, background 0.12s;
+    min-width: 120px; box-sizing: border-box; text-align: center;
   }
   .dialog-footer-actions .button:hover:not(:disabled),
   .current-identity-banner .button:hover:not(:disabled) {
-    border-color: #3a3a48; color: var(--pyric-text, #fbfbfe);
+    border-color: #3a3a48; background: #2a2a34; color: #ffffff;
   }
-  .dialog-footer-actions .button.active {
-    background: rgba(230, 199, 156, .1); border-color: rgba(230, 199, 156, .4); color: var(--pyric-warning, #e6c79c);
+  .dialog-footer-actions .button.active,
+  .dialog-footer-actions .button[aria-pressed="true"] {
+    background: #1e1b2e; border-color: rgba(143, 127, 232, 0.5); color: #8f7fe8; font-weight: 600;
+  }
+  .dialog-footer-actions .button.active:hover,
+  .dialog-footer-actions .button[aria-pressed="true"]:hover {
+    background: rgba(143, 127, 232, 0.18); border-color: #8f7fe8; color: #9f91ff;
   }
 `;
 
@@ -192,11 +189,6 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
         <button type="button" class="button" data-action-signout style="display: none;">Sign Out</button>
       </div>
 
-      <div class="admin-bypass-banner" data-admin-banner style="display: none;">
-        <span><strong>RULES BYPASS ACTIVE</strong> (Firebase Admin SDK)</span>
-        <button type="button" class="admin-bypass-toggle" data-admin-disable>Disable</button>
-      </div>
-
       <div class="section-heading">Switch Sandbox Identity</div>
       <div class="user-search-container" data-user-search-container></div>
 
@@ -214,8 +206,6 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
   const identityName = dialog.querySelector<HTMLElement>('[data-identity-name]')!;
   const identityUid = dialog.querySelector<HTMLElement>('[data-identity-uid]')!;
   const signOutBtn = dialog.querySelector<HTMLButtonElement>('[data-action-signout]')!;
-  const adminBanner = dialog.querySelector<HTMLElement>('[data-admin-banner]')!;
-  const adminDisableBtn = dialog.querySelector<HTMLButtonElement>('[data-admin-disable]')!;
   const createUserBtn = dialog.querySelector<HTMLButtonElement>('[data-action-create-user]')!;
   const toggleAdminBtn = dialog.querySelector<HTMLButtonElement>('[data-action-toggle-admin]')!;
 
@@ -235,23 +225,25 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
     const lens = getLens();
     const isAdmin = lens?.mode === 'admin';
 
+    identityName.textContent = user
+      ? userDisplayLabel(user as AuthUserRecord)
+      : 'Unauthenticated Guest';
+
     if (user) {
-      identityName.textContent = userDisplayLabel(user as AuthUserRecord);
-      identityUid.textContent = user.uid;
+      identityUid.textContent = isAdmin ? `${user.uid} · rules bypassed` : user.uid;
       signOutBtn.style.display = 'inline-flex';
     } else {
-      identityName.textContent = 'Unauthenticated Guest';
-      identityUid.textContent = 'No active session';
+      identityUid.textContent = isAdmin ? 'No active session · rules bypassed' : 'No active session';
       signOutBtn.style.display = 'none';
     }
 
     if (isAdmin) {
-      adminBanner.style.display = 'flex';
       toggleAdminBtn.classList.add('active');
+      toggleAdminBtn.setAttribute('aria-pressed', 'true');
       toggleAdminBtn.textContent = 'Bypass Active';
     } else {
-      adminBanner.style.display = 'none';
       toggleAdminBtn.classList.remove('active');
+      toggleAdminBtn.setAttribute('aria-pressed', 'false');
       toggleAdminBtn.textContent = 'Bypass Rules';
     }
   };
@@ -351,11 +343,6 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
     await onSignOut();
     updateState();
     close();
-  });
-
-  adminDisableBtn.addEventListener('click', () => {
-    onToggleAdminBypass(false);
-    updateState();
   });
 
   toggleAdminBtn.addEventListener('click', () => {
