@@ -13,16 +13,16 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
   expect(initialLog).toEqual([null]);
 
   // Verify exactly 1 runtime chip is mounted on the page
-  const chipHost = page.locator('pyric-runtime-chip');
+  const chipHost = page.locator('[data-pyric-runtime-chip-host]');
   await expect(chipHost).toBeAttached();
-  const chipCount = await page.locator('pyric-runtime-chip, [data-pyric-runtime-chip-host]').count();
+  const chipCount = await page.locator('[data-pyric-runtime-chip-host]').count();
   expect(chipCount).toBe(1);
 
   // Verify no unauthorized button-primary styling exists
   await expect(chipHost.locator('.button-primary')).toHaveCount(0);
 
   const openImpersonateDialog = async () => {
-    const openBar = chipHost.locator('[data-toggle-open]');
+    const openBar = chipHost.locator('[data-expand]');
     if (await openBar.isVisible()) {
       await openBar.click();
     }
@@ -122,9 +122,9 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
   await chipDialog.locator('[data-close-impersonate]').click();
 
   // Minimize panel to check collapsed bar
-  const closeBtn = chipHost.locator('[data-toggle-close]');
+  const closeBtn = chipHost.locator('[data-collapse]');
   if (await closeBtn.isVisible()) {
     await closeBtn.click();
   }
-  await expect(chipHost.locator('.bar-badge.admin-bypass')).toHaveText('⚡ RULES BYPASS');
+  await expect(chipHost.locator('[data-identity-badge]')).toHaveText('⚡ bypass');
 });

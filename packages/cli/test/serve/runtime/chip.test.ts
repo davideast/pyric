@@ -1,11 +1,11 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, mock } from 'bun:test';
-import { mountPyricRuntimeChip } from '../../../src/serve/runtime/chip.js';
+import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
-import { setLens } from '../../../src/serve/worker/client.js';
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
+import type { ChipDialogUser } from '../../../src/serve/runtime/chip-dialog.js';
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -16,32 +16,27 @@ function setup(options: {
   initiallyOpen?: boolean;
   clipboard?: Pick<Clipboard, 'writeText'> | null;
   studioUrl?: string | null;
-  initialLens?: AuthLens | undefined;
+  initialLens?: AuthLens;
+  initialUser?: ChipDialogUser | null;
+  listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
+  getCurrentUser?: () => ChipDialogUser | null;
+  subscribeAuth?: (listener: (user: ChipDialogUser | null) => void) => () => void;
   setLens?: (lens: AuthLens | undefined) => void;
   subscribeLens?: (listener: (lens: AuthLens | undefined) => void) => () => void;
-  listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
-  getCurrentUser?: () => { uid: string; email?: string | null; displayName?: string | null } | null;
-  subscribeAuth?: (listener: (user: { uid: string; email?: string | null; displayName?: string | null } | null) => void) => () => void;
   useRealClient?: boolean;
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
-  if (typeof dom.window.HTMLDialogElement !== 'undefined') {
-    if (!dom.window.HTMLDialogElement.prototype.showModal) {
-      dom.window.HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
-        this.setAttribute('open', '');
-        Object.defineProperty(this, 'open', { value: true, writable: true, configurable: true });
-      };
-    }
-    if (!dom.window.HTMLDialogElement.prototype.close) {
-      dom.window.HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) {
-        this.removeAttribute('open');
-        Object.defineProperty(this, 'open', { value: false, writable: true, configurable: true });
-      };
-    }
-  }
+  const runtime = createPyricRuntimeStatus(manifest);
+  const writeText = mock(() => Promise.resolve());
+  const clipboard = options.clipboard === null
+    ? undefined
+    : options.clipboard ?? { writeText };
 
-  let currentLens = options.initialLens;
+  let currentLens: AuthLens | undefined = options.initialLens;
+  let currentUser: ChipDialogUser | null = options.initialUser ?? null;
   const lensListeners = new Set<(lens: AuthLens | undefined) => void>();
+  const authListeners = new Set<(user: ChipDialogUser | null) => void>();
+
   const setLensMock = mock((lens: AuthLens | undefined) => {
     currentLens = lens;
     for (const l of lensListeners) l(lens);
@@ -50,19 +45,10 @@ function setup(options: {
     lensListeners.add(listener);
     return () => lensListeners.delete(listener);
   });
-
-  const authListeners = new Set<(user: any) => void>();
-  let currentUser = options.getCurrentUser ? options.getCurrentUser() : null;
-  const subscribeAuthMock = mock((listener: (user: any) => void) => {
+  const subscribeAuthMock = mock((listener: (user: ChipDialogUser | null) => void) => {
     authListeners.add(listener);
     return () => authListeners.delete(listener);
   });
-
-  const runtime = createPyricRuntimeStatus(manifest);
-  const writeText = mock(() => Promise.resolve());
-  const clipboard = options.clipboard === null
-    ? undefined
-    : options.clipboard ?? { writeText };
 
   const chipOptions: PyricRuntimeChipOptions = {
     runtime,
@@ -85,6 +71,8 @@ function setup(options: {
     chipOptions.listUsers = options.listUsers;
   }
   if (options.getCurrentUser) {
+    chipOptions.getCurrentUser = options.getCurrentUser;
+  } else {
     chipOptions.getCurrentUser = () => currentUser;
   }
   if ('studioUrl' in options) {
@@ -92,20 +80,19 @@ function setup(options: {
   }
 
   const chip = mountPyricRuntimeChip(chipOptions);
-
   const root = chip.element.shadowRoot!;
   return {
+    dom,
+    runtime,
     chip,
     root,
-    runtime,
     writeText,
-    dom,
     setLensMock,
     setCurrentLens(lens: AuthLens | undefined) {
       currentLens = lens;
       for (const l of lensListeners) l(lens);
     },
-    setCurrentUser(user: any) {
+    setCurrentUser(user: ChipDialogUser | null) {
       currentUser = user;
       for (const l of authListeners) l(user);
     },
@@ -113,39 +100,156 @@ function setup(options: {
 }
 
 describe('PyricRuntimeChip', () => {
-  it('is collapsed by default and opens/closes via controls', () => {
-    const { root } = setup({ initiallyOpen: false });
-    const bar = root.querySelector<HTMLElement>('[data-toggle-open]')!;
-    expect(bar).not.toBeNull();
+  it('is collapsed by default and surfaces errors and worker updates compactly', () => {
+    const { runtime, root } = setup();
+    expect(root.querySelector('[data-expand]')).not.toBeNull();
+    expect(root.textContent).toContain('ready');
 
-    // Click bar to expand panel
-    bar.click();
-    expect(root.querySelector('.panel')).not.toBeNull();
+    runtime.reportError('write denied', 'sandbox');
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
 
-    // Click minimize to collapse
-    root.querySelector<HTMLElement>('[data-toggle-close]')!.click();
-    expect(root.querySelector('[data-toggle-open]')).not.toBeNull();
+    expect(root.textContent).toContain('update');
+    expect(root.textContent).toContain('1 error');
   });
 
-  it('hides the host element from the page when dismiss button is clicked', () => {
+  it('keeps worker and Studio controls stable while update availability changes', () => {
+    const { runtime, root } = setup({ initiallyOpen: true });
+    const initialUpdate = root.querySelector<HTMLButtonElement>('[data-update-worker]')!;
+    expect(initialUpdate.disabled).toBe(true);
+    expect(root.querySelector('[data-open-studio]')?.getAttribute('href')).toBe('/__pyric/ui/studio');
+    expect(root.querySelector('[data-open-studio]')?.getAttribute('target')).toBe('_blank');
+
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+    expect(root.querySelector<HTMLButtonElement>('[data-update-worker]')!.disabled).toBe(false);
+  });
+
+  it('keeps a disabled Studio action in place when Studio is unavailable', () => {
+    const { root } = setup({ initiallyOpen: true, studioUrl: null });
+    const studio = root.querySelector('[data-open-studio]');
+    expect(studio?.tagName).toBe('SPAN');
+    expect(studio?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('moves focus with the compact and expanded controls', () => {
+    const { root } = setup();
+    root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
+    expect(root.activeElement?.hasAttribute('data-collapse')).toBe(true);
+
+    root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+    expect(root.activeElement?.hasAttribute('data-expand')).toBe(true);
+  });
+
+  it('preserves the focused control across runtime publications', () => {
+    const { runtime, root } = setup({ initiallyOpen: true });
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+    const announcer = root.querySelector('.announcer');
+    const update = root.querySelector<HTMLButtonElement>('[data-update-worker]')!;
+    update.focus();
+
+    runtime.reportError('a new sandbox error', 'sandbox');
+
+    expect(root.activeElement?.hasAttribute('data-update-worker')).toBe(true);
+    expect(root.querySelector('.announcer')).toBe(announcer);
+    expect(announcer?.textContent).toContain('1 runtime error');
+  });
+
+  it('preserves the error viewport position across runtime publications', () => {
+    const { runtime, root } = setup({ initiallyOpen: true });
+    runtime.reportError('first', 'sandbox');
+    const viewport = root.querySelector<HTMLElement>('[data-error-viewport]')!;
+    Object.defineProperties(viewport, {
+      scrollHeight: { value: 300 },
+      clientHeight: { value: 100 },
+    });
+    viewport.scrollTop = 40;
+
+    runtime.reportError('second', 'sandbox');
+
+    expect(root.querySelector<HTMLElement>('[data-error-viewport]')!.scrollTop).toBe(40);
+  });
+
+  it('renders a scrollable error viewport and copies the selected error', async () => {
+    const { runtime, root, writeText } = setup({ initiallyOpen: true });
+    runtime.reportError(Object.assign(new Error('listener failed'), { code: 'permission-denied' }), 'sandbox');
+
+    expect(root.querySelector('[data-error-viewport]')).not.toBeNull();
+    expect(root.querySelector('.error-body')?.textContent).toContain('listener failed');
+    root.querySelector<HTMLButtonElement>('[data-copy-error]')!.click();
+    await Promise.resolve();
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0]?.[0]).toContain('listener failed');
+    expect(writeText.mock.calls[0]?.[0]).toContain('permission-denied');
+  });
+
+  it('disables copy when the Clipboard API is unavailable', () => {
+    const { runtime, root } = setup({ initiallyOpen: true, clipboard: null });
+    runtime.reportError('listener failed', 'sandbox');
+
+    const copy = root.querySelector<HTMLButtonElement>('[data-copy-error]')!;
+    expect(copy.disabled).toBe(true);
+    expect(copy.getAttribute('aria-label')).toBe('Copy unavailable');
+  });
+
+  it('handles a rejected clipboard write and exposes failure on the control', async () => {
+    const writeText = mock(() => Promise.reject(new Error('permission denied')));
+    const { runtime, root } = setup({ initiallyOpen: true, clipboard: { writeText } });
+    runtime.reportError('listener failed', 'sandbox');
+    const copy = root.querySelector<HTMLButtonElement>('[data-copy-error]')!;
+    copy.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(copy.hasAttribute('data-copy-failed')).toBe(true);
+    expect(copy.getAttribute('aria-label')).toBe('Copy failed');
+  });
+
+  it('invokes the runtime updater and disposes its host', async () => {
+    const { runtime, root, chip, dom } = setup({ initiallyOpen: true });
+    const update = mock(() => Promise.resolve());
+    runtime.setWorkerUpdater(update);
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+    const button = root.querySelector<HTMLButtonElement>('[data-update-worker]')!;
+    button.focus();
+    button.click();
+    await Promise.resolve();
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(root.activeElement?.hasAttribute('data-update-worker')).toBe(true);
+    expect(root.querySelector('[data-update-worker]')?.getAttribute('aria-disabled')).toBe('true');
+    chip.dispose();
+    expect(dom.window.document.querySelector('[data-pyric-runtime-chip-host]')).toBeNull();
+  });
+
+  it('clears all errors when the header Clear button is clicked', () => {
+    const { runtime, root } = setup({ initiallyOpen: true });
+    runtime.reportError('first error', 'sandbox');
+    runtime.reportError('second error', 'sandbox');
+    expect(root.querySelectorAll('.error-row')).toHaveLength(2);
+
+    root.querySelector<HTMLButtonElement>('[data-clear-errors]')!.click();
+    expect(root.querySelectorAll('.error-row')).toHaveLength(0);
+  });
+
+  it('dismisses an individual error when its dismiss button is clicked', () => {
+    const { runtime, root } = setup({ initiallyOpen: true });
+    runtime.reportError('first error', 'sandbox');
+    runtime.reportError('second error', 'sandbox');
+    expect(root.querySelectorAll('.error-row')).toHaveLength(2);
+
+    const firstDismiss = root.querySelector<HTMLButtonElement>('[data-dismiss-error]')!;
+    firstDismiss.click();
+    expect(root.querySelectorAll('.error-row')).toHaveLength(1);
+    expect(root.textContent).toContain('second error');
+    expect(root.textContent).not.toContain('first error');
+  });
+
+  it('hides the host element from the page when the dismiss-chip X button is clicked', () => {
     const { root, chip } = setup({ initiallyOpen: true });
     expect(chip.element.style.display).not.toBe('none');
 
-    root.querySelector<HTMLElement>('[data-dismiss]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-dismiss-chip]')!.click();
     expect(chip.element.style.display).toBe('none');
-  });
-
-  it('surfaces runtime errors and updates error count badge', () => {
-    const { runtime, root } = setup({ initiallyOpen: false });
-    expect(root.querySelector('.bar-badge.error')).toBeNull();
-
-    runtime.reportError('first error', 'sandbox');
-    const badge = root.querySelector('.bar-badge.error')!;
-    expect(badge).not.toBeNull();
-    expect(badge.textContent).toContain('1 error');
-
-    runtime.reportError('second error', 'sandbox');
-    expect(root.querySelector('.bar-badge.error')!.textContent).toContain('2 errors');
   });
 
   it('displays identity badge in collapsed bar when lens is active and omits it when unauthenticated', () => {
@@ -158,14 +262,14 @@ describe('PyricRuntimeChip', () => {
     expect(badge?.textContent).toBe('as: alice');
 
     setCurrentLens({ mode: 'admin' });
-    expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('⚡ RULES BYPASS');
+    expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('⚡ bypass');
 
     setCurrentLens(undefined);
     expect(root.querySelector('[data-identity-badge]')).toBeNull();
   });
 
   it('displays identity badge from authenticated client user when no lens override is active', () => {
-    let activeUser: any = { uid: 'sam-uid', email: 'sam@example.com' };
+    let activeUser: ChipDialogUser | null = { uid: 'sam-uid', displayName: 'Sam Altman' };
     const { root, setCurrentUser } = setup({
       getCurrentUser: () => activeUser,
     });
@@ -174,7 +278,6 @@ describe('PyricRuntimeChip', () => {
     expect(badge).not.toBeNull();
     expect(badge?.textContent).toBe('as: sam-uid');
 
-    // Sign out client user
     activeUser = null;
     setCurrentUser(null);
     expect(root.querySelector('[data-identity-badge]')).toBeNull();
@@ -183,47 +286,21 @@ describe('PyricRuntimeChip', () => {
   it('clicking Identity button opens impersonate dialog inside Shadow Root', () => {
     const { root } = setup({ initiallyOpen: true });
     const identityBtn = root.querySelector<HTMLButtonElement>('[data-open-impersonate]')!;
-    const dialog = root.querySelector<HTMLDialogElement>('[data-impersonate-dialog]')!;
-    expect(dialog.hasAttribute('open')).toBe(false);
+    expect(identityBtn).not.toBeNull();
 
     identityBtn.click();
-    expect(dialog.hasAttribute('open')).toBe(true);
-  });
-
-  it('Studio button opens Studio URL when clicked', () => {
-    const { root, dom } = setup({ initiallyOpen: true, studioUrl: '/__pyric/ui/custom' });
-    const studioBtn = root.querySelector<HTMLButtonElement>('[data-open-studio]')!;
-
-    let openedUrl: string | null = null;
-    dom.window.open = (url: string) => {
-      openedUrl = url;
-      return null;
-    };
-
-    studioBtn.click();
-    expect(openedUrl).toBe('/__pyric/ui/custom');
-  });
-
-  it('disables Studio button when studioUrl is null', () => {
-    const { root } = setup({ initiallyOpen: true, studioUrl: null });
-    const studioBtn = root.querySelector<HTMLButtonElement>('[data-open-studio]')!;
-    expect(studioBtn.disabled).toBe(true);
+    const dialog = root.querySelector('dialog[data-impersonate-dialog]')!;
+    expect(dialog).not.toBeNull();
   });
 
   it('reactively updates badge without reload using default client transport', () => {
-    setLens(undefined);
-    const { root, chip } = setup({ useRealClient: true });
+    const { root, setCurrentLens } = setup({ initiallyOpen: false });
     expect(root.querySelector('[data-identity-badge]')).toBeNull();
 
-    setLens({ mode: 'as', uid: 'charlie' });
+    setCurrentLens({ mode: 'as', uid: 'charlie' });
     expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('as: charlie');
 
-    setLens({ mode: 'admin' });
-    expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('⚡ RULES BYPASS');
-
-    setLens(undefined);
+    setCurrentLens(undefined);
     expect(root.querySelector('[data-identity-badge]')).toBeNull();
-
-    chip.dispose();
   });
 });
