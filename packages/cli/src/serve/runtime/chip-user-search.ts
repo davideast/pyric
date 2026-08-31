@@ -143,7 +143,6 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
       data-user-search-listbox
       role="listbox"
       aria-label="Matching users"
-      style="display: none;"
     ></ul>
   `;
 
@@ -212,7 +211,6 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
 
     if (currentMatches.length === 0) {
       listbox.innerHTML = '<li class="user-search-empty" role="presentation">No matching users found in sandbox</li>';
-      listbox.style.display = 'block';
       input.setAttribute('aria-expanded', 'true');
       return;
     }
@@ -305,14 +303,15 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
       if (highlightedIndex >= 0 && highlightedIndex < currentMatches.length) {
         e.preventDefault();
         const selected = currentMatches[highlightedIndex];
-        listbox.style.display = 'none';
-        input.setAttribute('aria-expanded', 'false');
         onSelect(selected);
       }
     } else if (e.key === 'Escape') {
-      e.stopPropagation();
-      listbox.style.display = 'none';
-      input.setAttribute('aria-expanded', 'false');
+      if (input.value) {
+        e.stopPropagation();
+        input.value = '';
+        clearBtn.style.display = 'none';
+        renderMatches();
+      }
     }
   });
 
@@ -337,19 +336,12 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
     const idx = Number(target.getAttribute('data-user-index'));
     if (!Number.isNaN(idx) && currentMatches[idx]) {
       const selected = currentMatches[idx];
-      listbox.style.display = 'none';
-      input.setAttribute('aria-expanded', 'false');
       onSelect(selected);
     }
   });
 
-  const onDocumentClick = (e: MouseEvent) => {
-    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-    const isInside = (path as unknown[]).includes(container) || container.contains(e.target as Node);
-    if (!isInside) {
-      listbox.style.display = 'none';
-      input.setAttribute('aria-expanded', 'false');
-    }
+  const onDocumentClick = () => {
+    // In-dialog listbox remains stably mounted for zero layout shift
   };
 
   document.addEventListener('click', onDocumentClick);

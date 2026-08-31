@@ -39,93 +39,121 @@ export const DIALOG_STYLES = `
     all: initial; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     margin: 0; padding: 0; border: 1px solid var(--pyric-border, #33333f); border-radius: 12px;
     background: var(--pyric-content, #16161a); color: var(--pyric-text, #fbfbfe);
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 13px; line-height: 1.45; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
-    width: min(460px, 92vw); max-height: 88vh; overflow: hidden; z-index: 2147483647;
+    width: min(440px, 92vw); height: 480px; overflow: hidden; z-index: 2147483647;
   }
   .impersonate-dialog::backdrop { background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(2px); }
-  .impersonate-dialog-panel { display: flex; flex-direction: column; max-height: 88vh; overflow-y: auto; padding: 20px; box-sizing: border-box; }
+  .impersonate-dialog-panel {
+    display: flex; flex-direction: column; height: 100%; padding: 20px; box-sizing: border-box; overflow: hidden;
+  }
   .impersonate-dialog header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-  .impersonate-dialog h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .impersonate-dialog h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .dialog-close {
+    align-items: center;
+    background: transparent;
+    border: 1px solid var(--pyric-border-soft, #2a2a35);
+    border-radius: 50%;
+    color: var(--pyric-muted, #89899f);
+    cursor: pointer;
+    display: inline-flex;
+    height: 26px;
+    width: 26px;
+    justify-content: center;
+    padding: 0;
+    font-size: 11px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    line-height: 1;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .dialog-close:hover {
+    border-color: #4a4a58;
+    color: var(--pyric-text, #fbfbfe);
+    background: rgba(255, 255, 255, 0.05);
+  }
   .current-identity-banner {
     display: flex; align-items: center; justify-content: space-between; padding: 10px 12px;
     border-radius: 8px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--pyric-border-soft, #2a2a35);
-    margin-bottom: 14px; gap: 8px;
+    margin-bottom: 12px; gap: 8px; min-height: 48px; box-sizing: border-box;
   }
   .current-identity-info { display: flex; align-items: center; gap: 8px; overflow: hidden; }
-  .identity-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .identity-status-dot.online { background: var(--pyric-accent, #19cc61); box-shadow: 0 0 6px rgba(25, 204, 97, 0.4); }
-  .identity-status-dot.offline { background: var(--pyric-muted, #89899f); }
   .current-identity-text { display: flex; flex-direction: column; overflow: hidden; }
   .current-identity-name { font-weight: 500; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .current-identity-uid { font-size: 10px; color: var(--pyric-muted, #89899f); font-family: ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .btn-signout {
-    padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(240, 160, 160, 0.3);
-    background: rgba(240, 160, 160, 0.08); color: var(--pyric-error, #f0a0a0); font-size: 11px;
-    cursor: pointer; white-space: nowrap; transition: all 0.15s ease;
-  }
-  .btn-signout:hover { background: rgba(240, 160, 160, 0.2); border-color: var(--pyric-error, #f0a0a0); }
+  .current-identity-uid { font-size: 10px; color: var(--pyric-muted, #89899f); font-family: "JetBrains Mono", ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .admin-bypass-banner {
     display: flex; align-items: center; justify-content: space-between; padding: 8px 12px;
-    border-radius: 8px; background: rgba(230, 199, 156, 0.12); border: 1px solid rgba(230, 199, 156, 0.4);
-    color: var(--pyric-warning, #e6c79c); margin-bottom: 14px; font-size: 11px;
+    border-radius: 8px; background: rgba(230, 199, 156, 0.1); border: 1px solid rgba(230, 199, 156, 0.35);
+    color: var(--pyric-warning, #e6c79c); margin-bottom: 12px; font-size: 10px; font-family: "JetBrains Mono", ui-monospace, monospace;
   }
   .admin-bypass-toggle {
     cursor: pointer; font-weight: 600; padding: 3px 8px; border-radius: 4px;
     background: rgba(230, 199, 156, 0.2); border: 1px solid var(--pyric-warning, #e6c79c); color: #fff; font-size: 10px;
+    font-family: inherit;
   }
-  .section-heading { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--pyric-muted, #89899f); margin-bottom: 8px; font-weight: 600; }
-  .user-search-container { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .section-heading { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--pyric-muted, #89899f); margin-bottom: 8px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 600; }
+  .user-search-container { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; margin-bottom: 12px; }
   .user-search-box {
     display: flex; align-items: center; gap: 8px; background: rgba(0, 0, 0, 0.25);
-    border: 1px solid var(--pyric-border-soft, #2a2a35); border-radius: 8px; padding: 6px 10px; box-sizing: border-box;
+    border: 1px solid var(--pyric-border-soft, #2a2a35); border-radius: 6px; padding: 6px 10px; box-sizing: border-box;
   }
   .user-search-box:focus-within { border-color: #4a4a58; }
-  .user-search-icon { font-size: 14px; color: var(--pyric-muted, #89899f); }
-  .user-search-input { all: initial; flex: 1; color: var(--pyric-text, #fbfbfe); font-family: inherit; font-size: 12px; }
-  .user-search-clear-btn { all: initial; color: var(--pyric-muted, #89899f); font-size: 12px; cursor: pointer; padding: 2px 4px; }
+  .user-search-icon { font-size: 13px; color: var(--pyric-muted, #89899f); }
+  .user-search-input { all: initial; flex: 1; color: var(--pyric-text, #fbfbfe); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }
+  .user-search-clear-btn { all: initial; color: var(--pyric-muted, #89899f); font-size: 11px; cursor: pointer; padding: 2px 4px; font-family: "JetBrains Mono", ui-monospace, monospace; }
   .user-search-clear-btn:hover { color: var(--pyric-text, #fbfbfe); }
-  .filter-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .filter-chips { display: flex; flex-wrap: wrap; gap: 5px; min-height: 24px; align-items: center; }
   .filter-chip {
-    all: initial; font-family: inherit; font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: 12px;
+    all: initial; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: 12px;
     background: rgba(255, 255, 255, 0.04); border: 1px solid var(--pyric-border-soft, #2a2a35);
     color: var(--pyric-muted, #89899f); cursor: pointer; transition: all 0.15s ease;
   }
   .filter-chip:hover { border-color: var(--pyric-muted, #89899f); color: var(--pyric-text, #fbfbfe); }
   .filter-chip.selected { background: rgba(255, 255, 255, 0.1); border-color: #555566; color: var(--pyric-text, #fbfbfe); }
   .user-search-listbox {
-    all: initial; list-style: none; max-height: 180px; overflow-y: auto;
-    border: 1px solid var(--pyric-border-soft, #2a2a35); border-radius: 8px; background: #121215;
-    padding: 4px; display: flex; flex-direction: column; gap: 3px; box-sizing: border-box;
+    list-style: none; flex: 1; min-height: 180px; max-height: 180px; overflow-y: auto;
+    border: 1px solid var(--pyric-border-soft, #2a2a35); border-radius: 6px; background: #121215;
+    padding: 4px; display: flex; flex-direction: column; gap: 3px; box-sizing: border-box; margin: 0;
   }
+  .user-search-listbox::-webkit-scrollbar { width: 6px; }
+  .user-search-listbox::-webkit-scrollbar-thumb { background: #33333f; border-radius: 3px; }
   .user-search-item {
-    all: initial; display: flex; align-items: center; justify-content: space-between; padding: 6px 8px;
-    border-radius: 6px; color: var(--pyric-text, #fbfbfe); font-family: inherit; font-size: 12px;
+    display: flex; align-items: center; justify-content: space-between; padding: 6px 8px;
+    border-radius: 4px; color: var(--pyric-text, #fbfbfe); font-family: inherit; font-size: 12px;
     cursor: pointer; box-sizing: border-box; transition: background 0.1s ease;
   }
   .user-search-item:hover, .user-search-item.highlighted { background: rgba(255, 255, 255, 0.08); }
   .user-item-main { display: flex; flex-direction: column; overflow: hidden; }
-  .user-item-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .user-item-email, .user-item-uid { font-size: 10px; color: var(--pyric-muted, #89899f); font-family: ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .user-item-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+  .user-item-email, .user-item-uid { font-size: 10px; color: var(--pyric-muted, #89899f); font-family: "JetBrains Mono", ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .user-item-badges { display: flex; gap: 4px; flex-shrink: 0; }
-  .badge { font-size: 9px; font-weight: 500; padding: 1px 5px; border-radius: 4px; text-transform: uppercase; }
+  .badge { font-size: 9px; font-weight: 500; padding: 1px 5px; border-radius: 4px; text-transform: uppercase; font-family: "JetBrains Mono", ui-monospace, monospace; }
   .badge-provider { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--pyric-border-soft, #2a2a35); color: #b0b0cc; }
   .badge-tenant { background: rgba(100, 160, 255, 0.1); border: 1px solid rgba(100, 160, 255, 0.3); color: #82b1ff; }
   .badge-claims { background: rgba(230, 199, 156, 0.1); border: 1px solid rgba(230, 199, 156, 0.3); color: var(--pyric-warning, #e6c79c); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .user-search-empty { all: initial; display: block; padding: 14px; text-align: center; color: var(--pyric-muted, #89899f); font-family: inherit; font-size: 11px; }
-  .dialog-footer-actions { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--pyric-border-soft, #2a2a35); padding-top: 14px; margin-top: 6px; }
-  .btn-create-user {
-    display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px;
-    border: 1px dashed var(--pyric-border, #33333f); background: rgba(255, 255, 255, 0.04);
-    color: var(--pyric-text, #fbfbfe); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s ease;
+  .user-search-empty {
+    display: flex; align-items: center; justify-content: center; height: 100%; width: 100%;
+    text-align: center; color: var(--pyric-muted, #89899f); font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; letter-spacing: 0.02em; padding: 14px; box-sizing: border-box;
   }
-  .btn-create-user:hover { background: rgba(255, 255, 255, 0.08); border-color: #4a4a58; }
-  .btn-admin-bypass {
-    padding: 6px 10px; border-radius: 6px; border: 1px solid var(--pyric-border-soft, #2a2a35);
-    background: transparent; color: var(--pyric-muted, #89899f); font-size: 11px; cursor: pointer; transition: all 0.15s ease;
+  .dialog-footer-actions {
+    display: flex; align-items: center; justify-content: space-between;
+    border-top: 1px solid var(--pyric-border-soft, #2a2a35); padding-top: 14px; margin-top: auto;
   }
-  .btn-admin-bypass:hover { color: var(--pyric-warning, #e6c79c); border-color: var(--pyric-warning, #e6c79c); }
-  .btn-admin-bypass.active { background: rgba(230, 199, 156, 0.15); border-color: var(--pyric-warning, #e6c79c); color: var(--pyric-warning, #e6c79c); font-weight: 600; }
+  .dialog-footer-actions .button,
+  .current-identity-banner .button {
+    align-items: center; background: transparent; border: 1px solid var(--pyric-border-soft, #2a2a35);
+    border-radius: 4px; color: var(--pyric-muted, #89899f); cursor: pointer; display: inline-flex;
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; justify-content: center;
+    letter-spacing: .06em; min-height: 34px; padding: 6px 12px; text-decoration: none;
+    text-transform: uppercase; transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .dialog-footer-actions .button:hover:not(:disabled),
+  .current-identity-banner .button:hover:not(:disabled) {
+    border-color: #3a3a48; color: var(--pyric-text, #fbfbfe);
+  }
+  .dialog-footer-actions .button.active {
+    background: rgba(230, 199, 156, .1); border-color: rgba(230, 199, 156, .4); color: var(--pyric-warning, #e6c79c);
+  }
 `;
 
 export function createChipDialogController(options: ChipDialogOptions): ChipDialogController {
@@ -156,17 +184,16 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
 
       <div class="current-identity-banner" data-current-identity-banner>
         <div class="current-identity-info">
-          <span class="identity-status-dot offline" data-identity-dot></span>
           <div class="current-identity-text">
             <span class="current-identity-name" data-identity-name>Unauthenticated Guest</span>
             <span class="current-identity-uid" data-identity-uid>No active session</span>
           </div>
         </div>
-        <button type="button" class="btn-signout" data-action-signout style="display: none;">Sign Out</button>
+        <button type="button" class="button" data-action-signout style="display: none;">Sign Out</button>
       </div>
 
       <div class="admin-bypass-banner" data-admin-banner style="display: none;">
-        <span>⚡ <strong>RULES BYPASS ACTIVE</strong> (Firebase Admin SDK)</span>
+        <span><strong>RULES BYPASS ACTIVE</strong> (Firebase Admin SDK)</span>
         <button type="button" class="admin-bypass-toggle" data-admin-disable>Disable</button>
       </div>
 
@@ -174,12 +201,8 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
       <div class="user-search-container" data-user-search-container></div>
 
       <footer class="dialog-footer-actions">
-        <button type="button" class="btn-create-user" data-action-create-user>
-          <span>+</span> Create New User
-        </button>
-        <button type="button" class="btn-admin-bypass" data-action-toggle-admin>
-          ⚡ Rules Bypass
-        </button>
+        <button type="button" class="button" data-action-create-user>New User</button>
+        <button type="button" class="button" data-action-toggle-admin>Bypass Rules</button>
       </footer>
     </div>
   `;
@@ -188,7 +211,6 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
 
   const searchContainer = dialog.querySelector<HTMLElement>('[data-user-search-container]')!;
   const closeButton = dialog.querySelector<HTMLButtonElement>('[data-close-impersonate]')!;
-  const identityDot = dialog.querySelector<HTMLElement>('[data-identity-dot]')!;
   const identityName = dialog.querySelector<HTMLElement>('[data-identity-name]')!;
   const identityUid = dialog.querySelector<HTMLElement>('[data-identity-uid]')!;
   const signOutBtn = dialog.querySelector<HTMLButtonElement>('[data-action-signout]')!;
@@ -214,12 +236,10 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
     const isAdmin = lens?.mode === 'admin';
 
     if (user) {
-      identityDot.className = 'identity-status-dot online';
       identityName.textContent = userDisplayLabel(user as AuthUserRecord);
       identityUid.textContent = user.uid;
-      signOutBtn.style.display = 'inline-block';
+      signOutBtn.style.display = 'inline-flex';
     } else {
-      identityDot.className = 'identity-status-dot offline';
       identityName.textContent = 'Unauthenticated Guest';
       identityUid.textContent = 'No active session';
       signOutBtn.style.display = 'none';
@@ -228,11 +248,11 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
     if (isAdmin) {
       adminBanner.style.display = 'flex';
       toggleAdminBtn.classList.add('active');
-      toggleAdminBtn.textContent = '⚡ Bypass Active';
+      toggleAdminBtn.textContent = 'Bypass Active';
     } else {
       adminBanner.style.display = 'none';
       toggleAdminBtn.classList.remove('active');
-      toggleAdminBtn.textContent = '⚡ Rules Bypass';
+      toggleAdminBtn.textContent = 'Bypass Rules';
     }
   };
 

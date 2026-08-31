@@ -91,7 +91,7 @@ describe('chip-dialog', () => {
     const signOutBtn = controller.element.querySelector<HTMLButtonElement>('[data-action-signout]')!;
 
     expect(nameEl.textContent).toBe('David East');
-    expect(signOutBtn.style.display).toBe('inline-block');
+    expect(signOutBtn.style.display).toBe('inline-flex');
 
     // Switch to null (guest)
     currentUser = null;
