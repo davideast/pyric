@@ -9,6 +9,7 @@ export interface UserSearchController {
   setUsers(users: AuthUserRecord[]): void;
   reset(): void;
   focus(): void;
+  dispose?(): void;
 }
 
 export function userDisplayLabel(user: AuthUserRecord): string {
@@ -342,12 +343,16 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
     }
   });
 
-  document.addEventListener('click', (e: MouseEvent) => {
-    if (!container.contains(e.target as Node)) {
+  const onDocumentClick = (e: MouseEvent) => {
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    const isInside = (path as unknown[]).includes(container) || container.contains(e.target as Node);
+    if (!isInside) {
       listbox.style.display = 'none';
       input.setAttribute('aria-expanded', 'false');
     }
-  });
+  };
+
+  document.addEventListener('click', onDocumentClick);
 
   return {
     setUsers(users: AuthUserRecord[]) {
@@ -367,6 +372,9 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
     },
     focus() {
       input.focus();
+    },
+    dispose() {
+      document.removeEventListener('click', onDocumentClick);
     },
   };
 }

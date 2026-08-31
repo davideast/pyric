@@ -96,10 +96,10 @@ function wireAppPersistence(
   });
 }
 
-const activeAuthInstances = new Set<ReturnType<typeof pyricGetAuth>>();
+const activeAuthInstances = new Set<any>();
 const authChangeListeners = new Set<(user: any) => void>();
 
-export function registerActiveAuth(auth: ReturnType<typeof pyricGetAuth>): () => void {
+export function registerActiveAuth(auth: any): () => void {
   activeAuthInstances.add(auth);
   const unsub = (A.onAuthStateChanged as any)(auth, (user: any) => {
     for (const l of authChangeListeners) l(user);
@@ -179,6 +179,19 @@ export async function commitCredentialToAllAuths(identity: {
         customClaims: identity.customClaims ?? {},
         providerId: identity.providerId ?? 'password',
       }));
+    } else {
+      try {
+        ipAuth.sandbox.seedUsers(auth as never, [{
+          uid: identity.uid,
+          email: identity.email ?? '',
+          password: 'synthetic-password',
+          displayName: identity.displayName ?? undefined,
+          customClaims: identity.customClaims ?? {},
+          providerId: identity.providerId ?? 'password',
+        }]);
+      } catch {
+        // Ignore seeding errors on fallback
+      }
     }
   }
   await Promise.all(promises);

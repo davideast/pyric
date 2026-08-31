@@ -84,11 +84,11 @@ const styles = `
     --pyric-error: #f0a0a0;
     all: initial;
     position: fixed;
-    bottom: 16px;
-    right: 16px;
+    bottom: 20px;
+    right: 20px;
     z-index: 2147483647;
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 12px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
     line-height: 1.4;
     color: var(--pyric-text);
   }
@@ -106,12 +106,12 @@ const styles = `
     gap: 8px;
     background: var(--pyric-bg);
     border: 1px solid var(--pyric-border);
-    border-radius: 9999px;
+    border-radius: 999px;
     padding: 4px 10px 4px 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .38);
     cursor: pointer;
     user-select: none;
-    transition: background 0.15s ease, border-color 0.15s ease;
+    transition: border-color 0.15s ease;
   }
 
   .bar:hover {
@@ -315,27 +315,30 @@ const styles = `
   }
 
   .button {
-    all: initial;
-    font-family: inherit;
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--pyric-text);
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid var(--pyric-border-soft);
+    align-items: center;
+    background: #262630;
+    border: 1px solid var(--pyric-border);
     border-radius: 6px;
-    padding: 4px 10px;
+    color: var(--pyric-muted);
     cursor: pointer;
-    transition: all 0.15s ease;
+    display: inline-flex;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    height: 28px;
+    justify-content: center;
+    line-height: 1;
+    padding: 0 10px;
+    text-decoration: none;
   }
 
-  .button:hover {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: #4a4a5a;
+  .button:hover:not(:disabled) {
+    border-color: #3a3a48;
+    color: var(--pyric-text);
   }
 
   .button:disabled {
-    opacity: 0.4;
     cursor: not-allowed;
+    opacity: .42;
   }
 
   .dialog-close {
@@ -355,8 +358,24 @@ const styles = `
   ${DIALOG_STYLES}
 `;
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRuntimeChip {
   const doc = options.document ?? document;
+  const existingHost = doc.querySelector<HTMLElement>(
+    '[data-pyric-runtime-chip-host], pyric-runtime-chip',
+  );
+  if (existingHost) {
+    existingHost.remove();
+  }
+
   const host = doc.createElement('pyric-runtime-chip');
   host.setAttribute('data-pyric-runtime-chip-host', '');
   const shadow = host.attachShadow({ mode: 'open' });
@@ -426,9 +445,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (isAdmin) {
       identityBadgeHtml = '<span class="bar-badge admin-bypass" data-identity-badge>⚡ RULES BYPASS</span>';
     } else if (lens?.mode === 'as') {
-      identityBadgeHtml = `<span class="bar-badge identity" data-identity-badge title="as: ${lens.uid}">as: ${lens.uid}</span>`;
+      const safeUid = escapeHtml(lens.uid);
+      identityBadgeHtml = `<span class="bar-badge identity" data-identity-badge title="as: ${safeUid}">as: ${safeUid}</span>`;
     } else if (user) {
-      identityBadgeHtml = `<span class="bar-badge identity" data-identity-badge title="as: ${user.uid}">as: ${user.uid}</span>`;
+      const safeUid = escapeHtml(user.uid);
+      identityBadgeHtml = `<span class="bar-badge identity" data-identity-badge title="as: ${safeUid}">as: ${safeUid}</span>`;
     }
 
     if (!isOpen) {

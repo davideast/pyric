@@ -64,23 +64,34 @@ function setup(options: {
     ? undefined
     : options.clipboard ?? { writeText };
 
-  const chip = mountPyricRuntimeChip({
+  const chipOptions: PyricRuntimeChipOptions = {
     runtime,
     document: dom.window.document,
-    ...(!options.useRealClient
-      ? {
-          getLens: () => currentLens,
-          setLens: options.setLens ?? setLensMock,
-          subscribeLens: options.subscribeLens ?? subscribeLensMock,
-        }
-      : {}),
-    ...(clipboard ? { clipboard } : {}),
-    ...(options.initiallyOpen === undefined ? {} : { initiallyOpen: options.initiallyOpen }),
-    ...(options.listUsers ? { listUsers: options.listUsers } : {}),
-    ...(options.getCurrentUser ? { getCurrentUser: () => currentUser } : {}),
     subscribeAuth: options.subscribeAuth ?? subscribeAuthMock,
-    ...('studioUrl' in options ? { studioUrl: options.studioUrl } : {}),
-  });
+  };
+
+  if (!options.useRealClient) {
+    chipOptions.getLens = () => currentLens;
+    chipOptions.setLens = options.setLens ?? setLensMock;
+    chipOptions.subscribeLens = options.subscribeLens ?? subscribeLensMock;
+  }
+  if (clipboard) {
+    chipOptions.clipboard = clipboard;
+  }
+  if (options.initiallyOpen !== undefined) {
+    chipOptions.initiallyOpen = options.initiallyOpen;
+  }
+  if (options.listUsers) {
+    chipOptions.listUsers = options.listUsers;
+  }
+  if (options.getCurrentUser) {
+    chipOptions.getCurrentUser = () => currentUser;
+  }
+  if ('studioUrl' in options) {
+    chipOptions.studioUrl = options.studioUrl;
+  }
+
+  const chip = mountPyricRuntimeChip(chipOptions);
 
   const root = chip.element.shadowRoot!;
   return {

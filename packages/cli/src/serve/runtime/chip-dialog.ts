@@ -1,6 +1,10 @@
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
-import { createUserSearchController, type UserSearchController } from './chip-user-search.js';
+import {
+  createUserSearchController,
+  userDisplayLabel,
+  type UserSearchController,
+} from './chip-user-search.js';
 
 export interface ChipDialogUser {
   uid: string;
@@ -211,7 +215,7 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
 
     if (user) {
       identityDot.className = 'identity-status-dot online';
-      identityName.textContent = user.displayName || user.email || user.uid;
+      identityName.textContent = userDisplayLabel(user as AuthUserRecord);
       identityUid.textContent = user.uid;
       signOutBtn.style.display = 'inline-block';
     } else {
@@ -352,6 +356,7 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
     close,
     updateState,
     dispose() {
+      searchController.dispose?.();
       dialog.remove();
     },
   };

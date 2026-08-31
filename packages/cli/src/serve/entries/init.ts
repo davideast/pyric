@@ -26,6 +26,7 @@ import {
   commitCredentialToAllAuths,
   getActiveAuthUser,
   subscribeToActiveAuth,
+  registerActiveAuth,
 } from './auth.js';
 import { sandbox } from './runtime.js';
 import { useWorker, workerDb } from './worker-runtime.js';
@@ -37,6 +38,8 @@ import { getPyricRuntimeStatus } from '../runtime/status.js';
 
 const localAuth = useWorker ? null : getAuth(sandbox);
 const workerAuth = useWorker && workerDb ? getWorkerAuth(workerDb) : null;
+if (workerAuth) registerActiveAuth(workerAuth);
+if (localAuth) registerActiveAuth(localAuth);
 const helper = workerAuth
   ? new ServeAuthHelper({
       list: async () => (await listUsers(workerAuth)).map((user) => ({
@@ -87,14 +90,10 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
     },
     switchUser: async (uid: string) => {
       await switchAllAuthUsers(uid);
-      if (workerAuth) await restorePortSession(workerAuth, uid);
-      else if (localAuth) authSandbox.restoreSession(localAuth, uid);
       setLens(undefined);
     },
     signOut: async () => {
       await signOutAllAuths();
-      if (workerAuth) await workerSignOut(workerAuth);
-      else if (localAuth) await localSignOut(localAuth);
       setLens(undefined);
     },
     openCreateUser: async () => {
@@ -112,7 +111,6 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
           providerId: 'password',
         };
         await commitCredentialToAllAuths(identity);
-        if (workerAuth) await acceptProviderCredential(workerAuth, identity);
         await switchAllAuthUsers(identity.uid);
         setLens(undefined);
       } catch (err) {
