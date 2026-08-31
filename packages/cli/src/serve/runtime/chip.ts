@@ -325,7 +325,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         ? 'Sandbox starting'
         : snapshot.mode === 'in-page'
           ? 'In-page sandbox'
-          : 'Worker current';
+          : 'Worker version';
     const epochs = snapshot.updateAvailable
       ? `${snapshot.runningEpoch?.slice(0, 8) ?? 'unknown'} → ${snapshot.servedEpoch?.slice(0, 8) ?? 'unknown'}`
       : snapshot.runningEpoch?.slice(0, 8) ?? '';
@@ -347,22 +347,23 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
 
     view.innerHTML = `${open ? `
-      <section class="panel" role="dialog" aria-label="Pyric runtime">
+      <section class="panel" role="dialog" aria-label="pyric">
         <header class="panel-header">
-          <div class="panel-title"><span class="brand-mark">&gt;_</span><strong>Pyric runtime</strong>${identitySignalHtml}${errorCount > 0 ? `<span class="count">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span><button class="clear-button" type="button" data-clear-errors aria-label="Clear all errors">Clear</button>` : ''}</div>
+          <div class="panel-title"><span class="brand-mark">&gt;_</span><strong>pyric</strong>${errorCount > 0 ? `<span class="count">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span><button class="clear-button" type="button" data-clear-errors aria-label="Clear all errors">Clear</button>` : ''}</div>
           <div class="panel-controls">
-            <button class="icon-button" type="button" data-collapse aria-label="Minimize Pyric runtime">${icons.minimize}</button>
-            <button class="icon-button" type="button" data-dismiss-chip aria-label="Dismiss Pyric runtime from page">${icons.close}</button>
+            <button class="icon-button" type="button" data-collapse aria-label="Minimize pyric">${icons.minimize}</button>
+            <button class="icon-button" type="button" data-dismiss-chip aria-label="Dismiss pyric from page">${icons.close}</button>
           </div>
         </header>
-        <div class="worker-state"><span class="state-label${snapshot.updateAvailable ? ' available' : ''}"><span class="mini-dot"></span>${workerLabel}</span><span class="epochs">${epochs}</span></div>
+        <div class="worker-state"><span class="state-label${snapshot.updateAvailable ? ' available' : ''}">${workerLabel}</span><span class="epochs">${epochs}</span></div>
         <div class="worker-state-col" data-ai-status>
           <div class="worker-state-row">
-            <span class="state-label"><span class="mini-dot"></span>AI engine</span>
+            <span class="state-label">AI engine</span>
             <span class="epochs">${aiState.primary}</span>
           </div>
           ${aiState.subline ? `<div class="worker-state-subline">${aiState.subline}</div>` : ''}
         </div>
+        <div class="worker-state"><span class="state-label">Rules</span><span class="epochs" style="${isAdmin ? 'color: #8f7fe8; font-weight: 500;' : ''}">${isAdmin ? 'bypassed' : 'enforced'}</span></div>
         <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
         <div class="actions">
           <button class="button" type="button" data-open-impersonate>Identity</button>
@@ -373,8 +374,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         </div>
       </section>
     ` : `
-      <button class="chip" type="button" data-expand aria-label="Open Pyric runtime" aria-expanded="false">
-        <span class="brand"><span class="dot${errorCount > 0 ? ' error' : ''}"></span><span class="brand-label">Pyric</span></span>
+      <button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">
+        <span class="brand"><span class="dot${errorCount > 0 ? ' error' : ''}"></span><span class="brand-label">pyric</span></span>
         <span class="signals">${identitySignalHtml}${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : '<span class="signal">ready</span>'}${icons.chevron}</span>
       </button>
     `}`;
