@@ -119,6 +119,7 @@ export function filterUsers(
 
 export function createUserSearchController(options: UserSearchOptions): UserSearchController {
   const { container, onSelect } = options;
+  const documentLike = container.ownerDocument;
 
   container.innerHTML = `
     <div class="user-search-box">
@@ -344,7 +345,7 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
     // In-dialog listbox remains stably mounted for zero layout shift
   };
 
-  document.addEventListener('click', onDocumentClick);
+  documentLike.addEventListener('click', onDocumentClick);
 
   return {
     setUsers(users: AuthUserRecord[]) {
@@ -366,7 +367,7 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
       input.focus();
     },
     dispose() {
-      document.removeEventListener('click', onDocumentClick);
+      documentLike.removeEventListener('click', onDocumentClick);
     },
   };
 }
