@@ -3,7 +3,20 @@
 As of 2026-07-14. pyric shipped its npm alpha and the feature set works — that is the problem. The first real user, a Firebase expert, loved the prototype tab, opened the docs, and backed off: overwhelmed by how much was there. They wanted a Vite plugin and didn't know one already existed; they later asked for a verify-before-production capability that also already existed. The system is objectively strong and subjectively too much. This season is not about building more. It is about making what exists easy to enter, simple to hold in your head, and safe to trust — and nothing else. When a proposal doesn't serve one of the three, it waits.
 
 ## Multi-tenancy and Impersonation
-- Supporting utilities and features that make it easier for pyric to support multi-tenancy and for users to have features to enable impersonation.
+
+**Test:** Does this enable developers to test multi-tenant boundaries or switch and impersonate authenticated tenant identities during local development and testing without manual token manipulation?
+
+The multi-tenant and impersonation capability: Firebase projects serving enterprise or SaaS customers rely on Google Cloud Identity Platform multi-tenancy (`request.auth.token.firebase.tenant`) and rapid user switching. Developers need the local runtime and security rules engine to natively isolate tenant scopes, evaluate tenant claims without verbose manual token mocking, and seamlessly switch active impersonation identities in the UI.
+
+**Counts:** normalizing tenant identity claims (`request.auth.token.firebase.tenant`) across the rules engine and sandbox; runtime UI controls and accessible modals to switch, impersonate, or inspect tenant identities; persisting active impersonation lenses across reloads; characterization tests for multi-tenant rules evaluation.
+**Doesn't count:** server-side multi-tenant provisioning outside the local dev sandbox; custom identity providers or OAuth redirection flows; aesthetic UI redesigns that do not advance identity switching.
+
+**Now:**
+- Token normalization: support explicit `tenant` on `AuthState` and `AuthLens` and normalize `request.auth.token.firebase.tenant` in sandbox context assembly (assessment e3fc2b8d)
+- Accessible Modal primitive: promote and harden focus-trapping `Modal` in `@pyric/ui/primitives` with focus restoration
+- Client transport lens persistence: hydrate and persist auth lens in `sessionStorage` (`pyric:auth-lens`) and provide reactive subscription API
+- Runtime chip impersonation: embed accessible dialog in runtime chip Shadow DOM to switch between App Session, Admin Bypass, and Impersonated User with tenant and claims
+
 
 ## Top of Funnel
 

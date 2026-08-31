@@ -18,5 +18,5 @@
  * names should reflect that.
  */
 export type AuthState =
-  | { uid: string; token?: Record<string, unknown> }
+  | { uid: string; token?: Record<string, unknown>; tenant?: string }
   | null;

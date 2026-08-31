@@ -27,32 +27,84 @@ import { SandboxError } from './types/errors.js';
 import type { Sandbox } from './types/service.js';
 import { immutableOperationContext } from './operation-record.js';
 
+/**
+ * Normalize AuthState during SandboxContextImpl context assembly.
+ * Automatically projects top-level `tenant` into `token.firebase.tenant`
+ * while preserving custom claims and explicit nested token overrides.
+ * Never mutates original input.
+ */
+export function normalizeAuthState(auth: AuthState): AuthState {
+  if (auth === null) return null;
+
+  if (auth.tenant === undefined) {
+    if (auth.token === undefined) {
+      return { uid: auth.uid };
+    }
+    return {
+      uid: auth.uid,
+      token: structuredClone(auth.token),
+    };
+  }
+
+  const token = auth.token !== undefined ? structuredClone(auth.token) : {};
+  const existingFirebase = token.firebase;
+
+  let normalizedFirebase: Record<string, unknown>;
+  if (
+    typeof existingFirebase === 'object' &&
+    existingFirebase !== null &&
+    !Array.isArray(existingFirebase)
+  ) {
+    const fbObj = existingFirebase as Record<string, unknown>;
+    normalizedFirebase = {
+      ...fbObj,
+      tenant: fbObj.tenant !== undefined ? fbObj.tenant : auth.tenant,
+    };
+  } else {
+    normalizedFirebase = { tenant: auth.tenant };
+  }
+
+  token.firebase = normalizedFirebase;
+
+  return {
+    uid: auth.uid,
+    tenant: auth.tenant,
+    token,
+  };
+}
+
 function authLensFor(auth: AuthState): AuthLens {
   if (auth === null) return { mode: 'anon' };
-  return auth.token === undefined
-    ? { mode: 'as', uid: auth.uid }
-    : { mode: 'as', uid: auth.uid, token: auth.token };
+  const lens: Extract<AuthLens, { mode: 'as' }> = { mode: 'as', uid: auth.uid };
+  if (auth.token !== undefined) lens.token = auth.token;
+  if (auth.tenant !== undefined) lens.tenant = auth.tenant;
+  return lens;
 }
 
 export class SandboxContextImpl implements SandboxContext {
+  public readonly auth: AuthState;
+  public readonly operationContext: OperationContext;
+
   constructor(
     public readonly sandbox: Sandbox,
-    public readonly auth: AuthState,
+    auth: AuthState,
     operationContext?: OperationContext,
   ) {
+    validateAuthState(auth);
+    const normalized = normalizeAuthState(auth);
+    this.auth = normalized;
     this.operationContext = immutableOperationContext(operationContext ?? {
       source: { kind: 'unattributed' },
-      authLens: authLensFor(auth),
+      authLens: authLensFor(normalized),
     });
   }
 
-  public readonly operationContext: OperationContext;
-
   withAuth(auth: AuthState): SandboxContext {
     validateAuthState(auth);
-    return new SandboxContextImpl(this.sandbox, auth, {
+    const normalized = normalizeAuthState(auth);
+    return new SandboxContextImpl(this.sandbox, normalized, {
       source: this.operationContext.source,
-      authLens: authLensFor(auth),
+      authLens: authLensFor(normalized),
       ...(this.operationContext.planId === undefined
         ? {}
         : { planId: this.operationContext.planId }),
@@ -105,6 +157,14 @@ export function validateAuthState(auth: unknown): asserts auth is AuthState {
       'invalid-argument',
       'withAuth() requires `uid` to be a non-empty string.',
     );
+  }
+  if ('tenant' in obj && obj.tenant !== undefined) {
+    if (typeof obj.tenant !== 'string' || obj.tenant.length === 0) {
+      throw new SandboxError(
+        'invalid-argument',
+        'withAuth() requires `tenant` (when present) to be a non-empty string.',
+      );
+    }
   }
   if ('token' in obj && obj.token !== undefined) {
     if (obj.token === null || typeof obj.token !== 'object' || Array.isArray(obj.token)) {

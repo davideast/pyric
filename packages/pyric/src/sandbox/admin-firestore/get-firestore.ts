@@ -67,7 +67,23 @@ export function getFirestore(ctx: SandboxContext): SandboxFirestore {
  *  arm pins on every op/sub. Never absent — see {@link getFirestore}. */
 export function lensForAuth(auth: AuthState): AuthLens {
   if (auth === null || auth === undefined) return { mode: 'anon' };
-  return auth.token === undefined
-    ? { mode: 'as', uid: auth.uid }
-    : { mode: 'as', uid: auth.uid, token: auth.token };
+  const lens: Extract<AuthLens, { mode: 'as' }> = { mode: 'as', uid: auth.uid };
+  if (auth.token !== undefined) lens.token = auth.token;
+  if (auth.tenant !== undefined) lens.tenant = auth.tenant;
+  return lens;
 }
+
+export function authStateForLens(actAs: Extract<AuthLens, { mode: 'as' }>): AuthState {
+  const state: Extract<AuthState, { uid: string }> = { uid: actAs.uid };
+  if (actAs.token !== undefined) state.token = actAs.token;
+  if (actAs.tenant !== undefined) state.tenant = actAs.tenant;
+  return state;
+}
+
+export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
+  const parts = [actAs.uid];
+  if (actAs.tenant !== undefined) parts.push(`tenant:${actAs.tenant}`);
+  if (actAs.token !== undefined) parts.push(JSON.stringify(actAs.token));
+  return parts.join(':');
+}
+

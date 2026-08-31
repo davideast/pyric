@@ -11,6 +11,7 @@ import {
   initializeSandbox,
   SandboxContextImpl,
   SandboxError,
+  normalizeAuthState,
   type Sandbox,
 } from '../../src/sandbox/index.js';
 
@@ -89,6 +90,169 @@ describe('Sandbox.withAuth', () => {
     }
     expect(err).toBeInstanceOf(SandboxError);
     expect((err as SandboxError).code).toBe('invalid-argument');
+  });
+
+  it('normalizes top-level tenant into token.firebase.tenant', () => {
+    const sandbox = initializeSandbox();
+    const ctx = sandbox.withAuth({ uid: 'alice', tenant: 'tenant-123' });
+    expect(ctx.auth).toEqual({
+      uid: 'alice',
+      tenant: 'tenant-123',
+      token: {
+        firebase: { tenant: 'tenant-123' },
+      },
+    });
+    expect(ctx.operationContext.authLens).toEqual({
+      mode: 'as',
+      uid: 'alice',
+      tenant: 'tenant-123',
+      token: {
+        firebase: { tenant: 'tenant-123' },
+      },
+    });
+  });
+
+  it('preserves custom claims alongside tenant in token', () => {
+    const sandbox = initializeSandbox();
+    const ctx = sandbox.withAuth({
+      uid: 'alice',
+      tenant: 'tenant-123',
+      token: { role: 'admin', tier: 'enterprise' },
+    });
+    expect(ctx.auth).toEqual({
+      uid: 'alice',
+      tenant: 'tenant-123',
+      token: {
+        role: 'admin',
+        tier: 'enterprise',
+        firebase: { tenant: 'tenant-123' },
+      },
+    });
+  });
+
+  it('preserves explicit nested token.firebase.tenant over top-level tenant', () => {
+    const sandbox = initializeSandbox();
+    const ctx = sandbox.withAuth({
+      uid: 'alice',
+      tenant: 'tenant-top',
+      token: {
+        firebase: { tenant: 'tenant-override', sign_in_provider: 'google.com' },
+      },
+    });
+    expect(ctx.auth).toEqual({
+      uid: 'alice',
+      tenant: 'tenant-top',
+      token: {
+        firebase: { tenant: 'tenant-override', sign_in_provider: 'google.com' },
+      },
+    });
+  });
+
+  it('preserves explicit non-tenant firebase sub-claims while adding tenant', () => {
+    const sandbox = initializeSandbox();
+    const ctx = sandbox.withAuth({
+      uid: 'alice',
+      tenant: 'tenant-alpha',
+      token: {
+        firebase: { sign_in_provider: 'password' },
+      },
+    });
+    expect(ctx.auth).toEqual({
+      uid: 'alice',
+      tenant: 'tenant-alpha',
+      token: {
+        firebase: { sign_in_provider: 'password', tenant: 'tenant-alpha' },
+      },
+    });
+  });
+
+  it('does not synthesize empty firebase or tenant when tenant is omitted', () => {
+    const sandbox = initializeSandbox();
+    const ctx = sandbox.withAuth({ uid: 'alice' });
+    expect(ctx.auth).toEqual({ uid: 'alice' });
+    expect('tenant' in (ctx.auth ?? {})).toBe(false);
+    expect('token' in (ctx.auth ?? {})).toBe(false);
+  });
+
+  it('does not mutate caller input objects', () => {
+    const sandbox = initializeSandbox();
+    const inputToken = { role: 'editor' };
+    const inputAuth = { uid: 'alice', tenant: 'tenant-xyz', token: inputToken };
+
+    const ctx = sandbox.withAuth(inputAuth);
+
+    // Input object and nested token remain unmodified
+    expect(inputToken).toEqual({ role: 'editor' });
+    expect('firebase' in inputToken).toBe(false);
+    expect(inputAuth).toEqual({
+      uid: 'alice',
+      tenant: 'tenant-xyz',
+      token: { role: 'editor' },
+    });
+
+    // Mutating inputToken afterwards does not affect context
+    inputToken.role = 'tampered';
+    expect((ctx.auth?.token as Record<string, unknown>).role).toBe('editor');
+  });
+
+  it('throws when tenant is empty string or non-string', () => {
+    const sandbox = initializeSandbox();
+    expect(() => {
+      sandbox.withAuth({ uid: 'alice', tenant: '' });
+    }).toThrow(SandboxError);
+
+    expect(() => {
+      // @ts-expect-error — exercising bad argument
+      sandbox.withAuth({ uid: 'alice', tenant: 123 });
+    }).toThrow(SandboxError);
+  });
+});
+
+describe('normalizeAuthState', () => {
+  it('returns null when input is null', () => {
+    expect(normalizeAuthState(null)).toBeNull();
+  });
+
+  it('leaves non-tenant auth intact without synthesizing firebase token', () => {
+    const result = normalizeAuthState({ uid: 'bob' });
+    expect(result).toEqual({ uid: 'bob' });
+    expect('tenant' in (result ?? {})).toBe(false);
+    expect('token' in (result ?? {})).toBe(false);
+  });
+
+  it('clones token on non-tenant auth to guarantee isolation', () => {
+    const token = { admin: true };
+    const result = normalizeAuthState({ uid: 'admin', token });
+    expect(result).toEqual({ uid: 'admin', token: { admin: true } });
+    expect(result?.token).not.toBe(token);
+  });
+
+  it('projects tenant to token.firebase.tenant when tenant is provided', () => {
+    const result = normalizeAuthState({ uid: 'carol', tenant: 'tenant-acme' });
+    expect(result).toEqual({
+      uid: 'carol',
+      tenant: 'tenant-acme',
+      token: {
+        firebase: { tenant: 'tenant-acme' },
+      },
+    });
+  });
+
+  it('explicit nested token.firebase.tenant overrides top-level tenant', () => {
+    const result = normalizeAuthState({
+      uid: 'carol',
+      tenant: 'tenant-acme',
+      token: {
+        firebase: { tenant: 'explicit-override', provider: 'saml' },
+      },
+    });
+    expect(result).toEqual({
+      uid: 'carol',
+      tenant: 'tenant-acme',
+      token: {
+        firebase: { tenant: 'explicit-override', provider: 'saml' },
+      },
+    });
   });
 });
 
