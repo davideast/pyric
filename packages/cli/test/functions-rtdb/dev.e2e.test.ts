@@ -142,6 +142,7 @@ exports.makeUppercase = onValueCreated(
         expect(code).toBe(0);
         expect(stdout).toContain('Shutting down...');
         expect(stderr).not.toContain('Functions child exited unexpectedly');
+        expect(stderr).not.toContain('FIREBASE_CONFIG and GCLOUD_PROJECT environment variables are missing');
       } finally {
         observer?.close();
         observer = undefined;
