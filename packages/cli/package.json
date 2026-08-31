@@ -73,6 +73,10 @@
       "types": "./dist/next/index.d.ts",
       "import": "./dist/next/index.js"
     },
+    "./bundler": {
+      "types": "./dist/bundler/index.d.ts",
+      "import": "./dist/bundler/index.js"
+    },
     "./serve/worker": {
       "types": "./dist/serve/worker/index.d.ts",
       "import": "./dist/serve/worker/index.js"
