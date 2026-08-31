@@ -67,36 +67,33 @@ import {
 } from './service-worker-channel.js';
 import { createServiceWorkerRelay } from './service-worker-relay.js';
 import { createWorkerRetirement } from './retirement.js';
+import { createContextResolver } from './context-resolver.js';
+import { createPortLifecycleManager } from './port-lifecycle.js';
 
 declare const __PYRIC_WORKER_VERSION__: string;
 const workerEpoch = typeof __PYRIC_WORKER_VERSION__ !== 'undefined'
   ? __PYRIC_WORKER_VERSION__
   : 'dev';
 const workerScope = self as unknown as SharedWorkerGlobalScope;
+const contextResolver = createContextResolver(buildCtx);
+const portLifecycle = createPortLifecycleManager();
 const retirement = createWorkerRetirement({
   closeWorker: () => workerScope.close(),
-  beforeAnnounce: async () => { await _ctx?.captureFlush?.(); },
+  beforeAnnounce: async () => { await contextResolver.current()?.captureFlush?.(); },
 });
 
 // ─── Singleton context ────────────────────────────────────────────────────
 
-// `_ctx` is the RESOLVED context, kept for the synchronous `close` handler.
-// The build is memoized as a PROMISE (`_ctxPromise`) — NOT as the resolved
-// value — because init is async (it awaits `/__pyric/init.json` + persistence
-// restore). The first messages arrive in a BURST (the authState sub, the first
-// firestore sub, an op — possibly across two tabs at once); if each re-checked
-// only the resolved `_ctx` they would every one start a fresh init and build a
-// SEPARATE sandbox, so a listener and a write could bind to different
-// instances and never see each other. The promise memo guarantees ONE init.
-let _ctx: HostCtx | null = null;
-let _ctxPromise: Promise<HostCtx> | null = null;
-
 /**
  * Return the shared context, memoizing the in-flight init promise so
- * concurrent first messages await ONE build (see `_ctxPromise` above).
+ * concurrent first messages await ONE build. If initialization rejects,
+ * the rejection is cleared so subsequent connection attempts can retry.
+ * Any ports that closed while initialization was in flight are drained immediately.
  */
-function getCtx(): Promise<HostCtx> {
-  return (_ctxPromise ??= buildCtx());
+async function getCtx(): Promise<HostCtx> {
+  const ctx = await contextResolver.get();
+  portLifecycle.drainClosedPorts(ctx);
+  return ctx;
 }
 
 /**
@@ -125,7 +122,6 @@ async function buildCtx(): Promise<HostCtx> {
         ? (url) => new EventSource(url) as unknown as EventSourceLike
         : null,
   });
-  _ctx = ctx; // publish the resolved ctx for the synchronous close handler
   return ctx;
 }
 
@@ -141,6 +137,7 @@ workerScope.onconnect = (e: MessageEvent) => {
   const port = e.ports[0];
   port.start();
   retirement.connect(port);
+  void getCtx().catch(() => undefined);
 
   let messageQueue = Promise.resolve();
   port.onmessage = (ev: MessageEvent<InboundMessage>) => {
@@ -172,9 +169,16 @@ workerScope.onconnect = (e: MessageEvent) => {
     // cannot overtake an already-posted mutation, and later frames see the
     // disconnected-port tombstone instead of touching the shared backend.
     messageQueue = messageQueue.then(async () => {
+      const portLike = port as unknown as PortLike;
+      if (portLifecycle.isPortClosed(portLike)) {
+        return;
+      }
       try {
         const ctx = await getCtx();
-        await handleMessage(ctx, port as unknown as PortLike, ev.data);
+        if (portLifecycle.isPortClosed(portLike)) {
+          return;
+        }
+        await handleMessage(ctx, portLike, ev.data);
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error('[pyric worker] message handler error:', (e as Error)?.stack ?? e, 'msg:', ev.data);
@@ -188,7 +192,7 @@ workerScope.onconnect = (e: MessageEvent) => {
   // best-effort; subscriptions also GC when the worker itself dies.
   port.addEventListener('close', () => {
     retirement.disconnect(port);
-    if (_ctx) void cleanupPortWithDisconnect(_ctx, port as unknown as PortLike).catch(() => undefined);
+    portLifecycle.onPortClosed(port as unknown as PortLike, contextResolver.current());
   });
 };
 
