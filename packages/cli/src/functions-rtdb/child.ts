@@ -97,34 +97,128 @@ function isChildMessage(value: unknown): value is FunctionsRtdbChildMessage {
   return typeof value === 'object' && value !== null && 'type' in value;
 }
 
+export interface FunctionsChildEnvOptions {
+  baseEnv: NodeJS.ProcessEnv;
+  entry: string;
+  instance: string;
+  location: string;
+  databaseHost: string;
+  projectId: string;
+}
+
+/**
+ * Resolve the project identifier for the functions child process.
+ *
+ * Precedence:
+ * 1. Explicit options.projectId
+ * 2. baseEnv.PYRIC_PROJECT
+ * 3. Instance prefix when formatted as `<projectId>-default-rtdb`
+ * 4. Default fallback to 'demo-project'
+ */
+export function resolveChildProjectId(
+  explicitProjectId?: string,
+  instance?: string,
+  baseEnv?: NodeJS.ProcessEnv,
+): string {
+  if (typeof explicitProjectId === 'string' && explicitProjectId.length > 0) {
+    return explicitProjectId;
+  }
+
+  const pyricProject = baseEnv?.PYRIC_PROJECT;
+  if (typeof pyricProject === 'string' && pyricProject.length > 0) {
+    return pyricProject;
+  }
+
+  if (typeof instance === 'string' && instance.length > 0) {
+    const stripped = instance.replace(/-default-rtdb$/, '');
+    if (stripped.length > 0) {
+      return stripped;
+    }
+  }
+
+  return 'demo-project';
+}
+
+/**
+ * Resolve the database host, defaulting to 'firebasedatabase.app'.
+ */
+export function resolveChildDatabaseHost(databaseHost?: string): string {
+  if (typeof databaseHost === 'string' && databaseHost.length > 0) {
+    return databaseHost;
+  }
+  return 'firebasedatabase.app';
+}
+
+/**
+ * Resolve the filesystem path to the child entrypoint module.
+ */
+export function resolveChildModulePath(childModuleUrl?: string | URL): string {
+  if (!childModuleUrl) {
+    return fileURLToPath(new URL('./child.js', import.meta.url));
+  }
+  if (typeof childModuleUrl === 'string' && !childModuleUrl.startsWith('file:')) {
+    return resolve(childModuleUrl);
+  }
+  return fileURLToPath(childModuleUrl);
+}
+
+/**
+ * Assemble the child process environment variables.
+ *
+ * Guaranteed child-only synthetic sandbox metadata:
+ * - GCLOUD_PROJECT is set to the resolved sandbox project ID
+ * - FIREBASE_CONFIG is set to synthetic JSON with projectId, databaseURL, and storageBucket
+ *
+ * Explicit control flow ensures that host environment cannot pollute or route
+ * sandbox functions execution to a production Firebase/GCP project.
+ */
+export function buildFunctionsChildEnv(options: FunctionsChildEnvOptions): NodeJS.ProcessEnv {
+  const { baseEnv, entry, instance, location, databaseHost, projectId } = options;
+
+  const resolvedEntry = resolve(entry);
+  const databaseURL = `https://${instance}.${databaseHost}`;
+  const storageBucket = `${projectId}.appspot.com`;
+
+  const syntheticFirebaseConfig = JSON.stringify({
+    projectId,
+    databaseURL,
+    storageBucket,
+  });
+
+  const childEnv: NodeJS.ProcessEnv = {
+    ...baseEnv,
+    PYRIC_FUNCTIONS_RTDB_CHILD: '1',
+    PYRIC_FUNCTIONS_ENTRY: resolvedEntry,
+    PYRIC_FUNCTIONS_INSTANCE: instance,
+    PYRIC_FUNCTIONS_LOCATION: location,
+    PYRIC_FUNCTIONS_DATABASE_HOST: databaseHost,
+    GCLOUD_PROJECT: projectId,
+    FIREBASE_CONFIG: syntheticFirebaseConfig,
+  };
+
+  return childEnv;
+}
+
 /** Spawn the real Firebase Functions SDK in an isolated Node process. */
 export function spawnFunctionsRtdbChild(
   options: SpawnFunctionsRtdbChildOptions,
 ): FunctionsRtdbChildHandle {
-  const childModuleUrl = options.childModuleUrl ?? new URL('./child.js', import.meta.url);
-  const childModulePath = typeof childModuleUrl === 'string' && !childModuleUrl.startsWith('file:')
-    ? resolve(childModuleUrl)
-    : fileURLToPath(childModuleUrl);
-  const projectId = options.projectId ?? options.instance.replace(/-default-rtdb$/, '') ?? 'demo-project';
-  const databaseHost = options.databaseHost ?? 'firebasedatabase.app';
-  const databaseURL = `https://${options.instance}.${databaseHost}`;
-  const firebaseConfig = JSON.stringify({
+  const childModulePath = resolveChildModulePath(options.childModuleUrl);
+  const projectId = resolveChildProjectId(options.projectId, options.instance, options.env);
+  const databaseHost = resolveChildDatabaseHost(options.databaseHost);
+  const childEnv = buildFunctionsChildEnv({
+    baseEnv: options.env,
+    entry: options.entry,
+    instance: options.instance,
+    location: options.location,
+    databaseHost,
     projectId,
-    databaseURL,
-    storageBucket: `${projectId}.appspot.com`,
   });
-  const child = spawn(options.nodeExecutable ?? 'node', [childModulePath], {
+
+  const nodeExecutable = options.nodeExecutable ?? 'node';
+  const child = spawn(nodeExecutable, [childModulePath], {
     cwd: options.cwd,
-    env: {
-      ...options.env,
-      PYRIC_FUNCTIONS_RTDB_CHILD: '1',
-      PYRIC_FUNCTIONS_ENTRY: resolve(options.entry),
-      PYRIC_FUNCTIONS_INSTANCE: options.instance,
-      PYRIC_FUNCTIONS_LOCATION: options.location,
-      PYRIC_FUNCTIONS_DATABASE_HOST: databaseHost,
-      GCLOUD_PROJECT: options.env.GCLOUD_PROJECT ?? projectId,
-      FIREBASE_CONFIG: options.env.FIREBASE_CONFIG ?? firebaseConfig,
-    },
+    env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
 
