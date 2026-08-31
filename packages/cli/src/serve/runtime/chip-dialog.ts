@@ -165,7 +165,7 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
     getLens,
   } = options;
 
-  const dialog = document.createElement('dialog');
+  const dialog = shadowRoot.ownerDocument.createElement('dialog');
   dialog.className = 'impersonate-dialog';
   dialog.setAttribute('data-impersonate-dialog', '');
   dialog.setAttribute('aria-modal', 'true');
@@ -250,7 +250,11 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
 
   const close = (): void => {
     if (dialog.open) {
-      dialog.close();
+      if (typeof dialog.close === 'function') {
+        dialog.close();
+      } else {
+        dialog.removeAttribute('open');
+      }
     }
     searchController.reset();
 

@@ -268,8 +268,14 @@ export function hydrateLensFromStorage(): AuthLens | undefined {
     const raw = sessionStorage.getItem(AUTH_LENS_STORAGE_KEY);
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as AuthLens;
-    // Only admin bypass persists across reload. User identities are owned by real auth sessions.
-    if (parsed && typeof parsed === 'object' && parsed.mode === 'admin') {
+    if (
+      parsed
+      && typeof parsed === 'object'
+      && (
+        parsed.mode === 'admin'
+        || (parsed.mode === 'as' && typeof parsed.uid === 'string')
+      )
+    ) {
       return parsed;
     }
     sessionStorage.removeItem(AUTH_LENS_STORAGE_KEY);
@@ -315,8 +321,9 @@ export function subscribeLens(listener: (lens: AuthLens | undefined) => void): (
  * worker port), mirroring how Studio drives a single active identity at a time.
  * Auth ops are unaffected — they always operate the real session.
  *
- * Persists admin mode to sessionStorage under AUTH_LENS_STORAGE_KEY,
- * and removes key when cleared or reverted to app-session / user session.
+ * Persists active admin and impersonation lenses to sessionStorage under
+ * AUTH_LENS_STORAGE_KEY, and removes the key when cleared or reverted to the
+ * app session.
  * Notifies all registered subscribeLens listeners.
  */
 export function setLens(lens: AuthLens | undefined): void {
@@ -330,7 +337,7 @@ export function setLens(lens: AuthLens | undefined): void {
 
   if (typeof sessionStorage !== 'undefined') {
     try {
-      if (_defaultLens && _defaultLens.mode === 'admin') {
+      if (_defaultLens) {
         sessionStorage.setItem(AUTH_LENS_STORAGE_KEY, JSON.stringify(_defaultLens));
       } else {
         sessionStorage.removeItem(AUTH_LENS_STORAGE_KEY);
