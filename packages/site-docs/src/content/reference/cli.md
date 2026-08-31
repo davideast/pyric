@@ -15,8 +15,6 @@ description: "Syntax, flags, configuration, and command selection for pyric sand
 pyric sandbox [flags] [--] [command...]
 ```
 
-`dev` and `serve` are not aliases. Use `sandbox`.
-
 Put every Pyric flag before the first child command token. After the first child command token, every remaining argument belongs to the child. A bare `--` makes the boundary explicit.
 
 ```bash

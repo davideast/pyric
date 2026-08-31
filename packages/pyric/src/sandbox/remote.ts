@@ -78,7 +78,7 @@ export interface RemoteSandboxChannel {
  */
 export interface RemoteSandbox extends Sandbox {
   readonly [REMOTE_SANDBOX]: true;
-  /** Base URL of the `pyric dev` this handle is attached to (used in
+  /** Base URL of the `pyric sandbox` this handle is attached to (used in
    *  error guidance: "open <serveUrl> in a browser and retry"). */
   readonly serveUrl: string;
   /** The raw worker op/sub relay channel. */
@@ -100,7 +100,7 @@ export const REMOTE_SANDBOX_FACTORY = Symbol.for('pyric.remote.sandboxFactory');
 
 /** Options accepted by the ambient remote-sandbox factory. */
 export interface RemoteSandboxFactoryOptions {
-  /** Explicit `pyric dev` base URL (from `PYRIC_SANDBOX=remote:<url>`).
+  /** Explicit `pyric sandbox` base URL (from `PYRIC_SANDBOX=remote:<url>`).
    *  When omitted the factory discovers the running host itself (the
    *  `.pyric/serve.json` locator protocol). */
   url?: string;

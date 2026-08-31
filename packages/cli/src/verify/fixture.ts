@@ -27,7 +27,7 @@ export interface PyricVerifyFixture {
    *  SharedWorker's `instanceId`). Purely additive: `pyric verify` ignores it.
    *  Present only on captures written by the worker's capture flush; used by
    *  boot-time event hydration to SKIP priming a capture that belongs to a
-   *  DIFFERENT instance (e.g. another browser profile sharing one `pyric dev`),
+   *  DIFFERENT instance (e.g. another browser profile sharing one `pyric sandbox`),
    *  so someone else's session never shows up as yours. Absent on older /
    *  standalone captures → hydration primes best-effort. */
   capturedBy?: string;

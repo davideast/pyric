@@ -15,7 +15,7 @@
 /**
  * Minimal web-storage-like contract the session persistence controller
  * reads/writes. Matches the `localStorage` / `sessionStorage` browser
- * API subset that `pyric dev`'s `SessionStore` already uses, so
+ * API subset that `pyric sandbox`'s `SessionStore` already uses, so
  * browsers pass real storages and tests pass in-memory Map-backed fakes.
  *
  * Why the minimal subset (get/set/remove) instead of the full

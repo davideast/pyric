@@ -2023,7 +2023,7 @@ export const firestoreRegistry = {
           rowRef: "149",
           featureKeys: ["setLogLevel"],
           api: "setLogLevel",
-          behavior: "Accepted no-op — the sandbox has no modular-SDK-style logger to wire a level into; it uses host-level `console` logging directly, gated by `pyric dev`'s own flags, not this call",
+          behavior: "Accepted no-op. The sandbox has no modular-SDK-style logger to wire a level into. It uses host-level `console` logging directly, gated by `pyric sandbox`'s own flags, not this call",
           status: "diverged-documented",
           statusNote: "accepted no-op; no sandbox logger wired",
         }),

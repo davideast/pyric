@@ -59,7 +59,7 @@ export function useAuthApi(): AuthApi {
 /**
  * Provide an auth API bundle to the subtree. Pyric Studio supplies the
  * in-process bundle for dev-seed review and the SharedWorker client bundle under
- * `pyric dev --ui`.
+ * `pyric sandbox --ui`.
  */
 export function AuthApiProvider({
   value,

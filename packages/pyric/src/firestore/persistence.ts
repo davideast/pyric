@@ -191,7 +191,7 @@ const TAB_MANAGER_SYMBOL: unique symbol = Symbol('pyric/firestore/tabManager');
 const GC_SYMBOL: unique symbol = Symbol('pyric/firestore/gc');
 
 /** Opaque tab-manager config token. Inert — persistence is always on,
- *  and the SharedWorker/`pyric dev` path already is the one shared
+ *  and the SharedWorker/`pyric sandbox` path already is the one shared
  *  store every tab talks to, so there is no separate multi-tab mode
  *  to opt into. Carries the requested kind only for debugging. */
 export interface PersistentTabManager {
@@ -409,7 +409,7 @@ export type LogLevel = 'debug' | 'verbose' | 'info' | 'warn' | 'error' | 'silent
 /**
  * Accepted no-op: the sandbox has no modular-SDK-style logger to wire
  * a level into (it uses host-level `console` logging directly, gated
- * by `pyric dev`'s own flags, not this call). Exists purely so app
+ * by `pyric sandbox`'s own flags, not this call). Exists purely so app
  * code that calls this defensively at startup doesn't crash on a
  * missing export.
  */
