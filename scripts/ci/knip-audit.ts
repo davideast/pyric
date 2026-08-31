@@ -20,9 +20,6 @@ export interface KnipRawFileIssue {
   dependencies?: KnipRawDependencyIssue[];
   devDependencies?: KnipRawDependencyIssue[];
   optionalPeerDependencies?: KnipRawDependencyIssue[];
-  unlisted?: Array<{ name: string; filePath?: string }>;
-  binaries?: Array<{ name: string; filePath?: string }>;
-  unresolved?: Array<{ name: string; filePath?: string }>;
   exports?: KnipRawExportIssue[];
   types?: KnipRawExportIssue[];
   duplicates?: unknown[];
@@ -38,9 +35,7 @@ export interface NormalizedFinding {
     | 'unused-dependency'
     | 'unused-dev-dependency'
     | 'unused-export'
-    | 'unused-type'
-    | 'unlisted-dependency'
-    | 'unresolved-import';
+    | 'unused-type';
   file: string;
   name: string;
   packageJsonPath?: string;
@@ -52,7 +47,6 @@ export interface CategorizedFindings {
   prFindings: NormalizedFinding[];
   legacyFindings: NormalizedFinding[];
   isPrContext: boolean;
-  totalIssueFilesCount: number;
 }
 
 export function normalizePath(filePath: string): string {
@@ -62,6 +56,13 @@ export function normalizePath(filePath: string): string {
     normalized = normalized.slice(root.length + 1);
   }
   return normalized.replace(/^\.\//, '');
+}
+
+function resolveFindingPath(explicitPath: string | undefined, defaultPath: string): string {
+  if (explicitPath) {
+    return normalizePath(explicitPath);
+  }
+  return defaultPath;
 }
 
 export function parseKnipReport(report: KnipRawReport): NormalizedFinding[] {
@@ -79,7 +80,7 @@ export function parseKnipReport(report: KnipRawReport): NormalizedFinding[] {
     }
 
     for (const dep of rawItem.dependencies || []) {
-      const pkgPath = dep.packageJsonPath ? normalizePath(dep.packageJsonPath) : itemFile;
+      const pkgPath = resolveFindingPath(dep.packageJsonPath, itemFile);
       findings.push({
         type: 'unused-dependency',
         file: pkgPath,
@@ -89,7 +90,7 @@ export function parseKnipReport(report: KnipRawReport): NormalizedFinding[] {
     }
 
     for (const dep of rawItem.devDependencies || []) {
-      const pkgPath = dep.packageJsonPath ? normalizePath(dep.packageJsonPath) : itemFile;
+      const pkgPath = resolveFindingPath(dep.packageJsonPath, itemFile);
       findings.push({
         type: 'unused-dev-dependency',
         file: pkgPath,
@@ -98,21 +99,13 @@ export function parseKnipReport(report: KnipRawReport): NormalizedFinding[] {
       });
     }
 
-    for (const u of rawItem.unlisted || []) {
-      const filePath = u.filePath ? normalizePath(u.filePath) : itemFile;
+    for (const dep of rawItem.optionalPeerDependencies || []) {
+      const pkgPath = resolveFindingPath(dep.packageJsonPath, itemFile);
       findings.push({
-        type: 'unlisted-dependency',
-        file: filePath,
-        name: u.name,
-      });
-    }
-
-    for (const u of rawItem.unresolved || []) {
-      const filePath = u.filePath ? normalizePath(u.filePath) : itemFile;
-      findings.push({
-        type: 'unresolved-import',
-        file: filePath,
-        name: u.name,
+        type: 'unused-dependency',
+        file: pkgPath,
+        name: dep.name,
+        packageJsonPath: pkgPath,
       });
     }
 
@@ -142,15 +135,13 @@ export function parseKnipReport(report: KnipRawReport): NormalizedFinding[] {
 export function categorizeFindings(
   findings: readonly NormalizedFinding[],
   changedPaths: readonly string[],
-  isPrContext: boolean,
-  totalIssueFilesCount: number
+  isPrContext: boolean
 ): CategorizedFindings {
   if (!isPrContext || changedPaths.length === 0) {
     return {
       prFindings: [],
       legacyFindings: [...findings],
       isPrContext,
-      totalIssueFilesCount,
     };
   }
 
@@ -173,7 +164,6 @@ export function categorizeFindings(
     prFindings,
     legacyFindings,
     isPrContext,
-    totalIssueFilesCount,
   };
 }
 
@@ -228,23 +218,10 @@ export function formatMarkdownReport(categorized: CategorizedFindings): string {
         }
         lines.push('');
       }
-
-      const otherFindings = prFindings.filter(
-        (f) => f.type === 'unlisted-dependency' || f.type === 'unresolved-import'
-      );
-      if (otherFindings.length > 0) {
-        lines.push('### Unlisted / Unresolved Items in PR');
-        lines.push('| File | Item | Issue Type |');
-        lines.push('| --- | --- | --- |');
-        for (const item of otherFindings) {
-          const kind = item.type === 'unlisted-dependency' ? 'unlisted dependency' : 'unresolved import';
-          lines.push(`| \`${item.file}\` | \`${item.name}\` | ${kind} |`);
-        }
-        lines.push('');
-      }
     }
   } else {
-    lines.push(`ℹ️ **Workspace Audit Summary (${findingsTotalCount(prFindings.concat(legacyFindings))} total findings across workspace)**`);
+    const totalCount = prFindings.length + legacyFindings.length;
+    lines.push(`ℹ️ **Workspace Audit Summary (${totalCount} total findings across workspace)**`);
     lines.push('');
   }
 
@@ -257,9 +234,6 @@ export function formatMarkdownReport(categorized: CategorizedFindings): string {
   const legacyUnusedExports = legacyFindings.filter(
     (f) => f.type === 'unused-export' || f.type === 'unused-type'
   ).length;
-  const legacyOther = legacyFindings.filter(
-    (f) => f.type === 'unlisted-dependency' || f.type === 'unresolved-import'
-  ).length;
 
   lines.push('<details>');
   lines.push(
@@ -269,9 +243,6 @@ export function formatMarkdownReport(categorized: CategorizedFindings): string {
   lines.push(`- **Unused files:** ${legacyUnusedFiles}`);
   lines.push(`- **Unused dependencies:** ${legacyUnusedDeps}`);
   lines.push(`- **Unused exports & types:** ${legacyUnusedExports}`);
-  if (legacyOther > 0) {
-    lines.push(`- **Unlisted & unresolved:** ${legacyOther}`);
-  }
   lines.push('');
   lines.push('*Pre-existing legacy debt in unchanged files is non-blocking.*');
   lines.push('</details>');
@@ -282,15 +253,11 @@ export function formatMarkdownReport(categorized: CategorizedFindings): string {
   return lines.join('\n');
 }
 
-function findingsTotalCount(findings: readonly NormalizedFinding[]): number {
-  return findings.length;
-}
-
 export function getChangedPathsFromGit(): { paths: string[]; isPrContext: boolean } {
   const eventName = process.env.CI_EVENT_NAME || process.env.GITHUB_EVENT_NAME;
   const baseSha = process.env.CI_BASE_SHA || process.env.GITHUB_BASE_SHA;
   const headSha = process.env.CI_HEAD_SHA || process.env.GITHUB_HEAD_SHA;
-  const isPr = eventName === 'pull_request' || (Boolean(baseSha) && Boolean(headSha));
+  const isCiPr = eventName === 'pull_request' || (Boolean(baseSha) && Boolean(headSha));
 
   if (baseSha && headSha) {
     try {
@@ -315,21 +282,21 @@ export function getChangedPathsFromGit(): { paths: string[]; isPrContext: boolea
           if (curr) paths.push(curr);
         }
       }
-      return { paths, isPrContext: isPr };
+      return { paths, isPrContext: isCiPr };
     } catch {
       // Fall through to git diff fallback
     }
   }
 
-  // Fallback git diff if in git repo and PR context or local
+  // Fallback git diff if in local branch against origin/main or main
   try {
     const output = execFileSync('git', ['diff', '--name-only', 'origin/main...HEAD'], {
       encoding: 'utf8',
     });
     const paths = output.split('\n').filter((p) => p.trim().length > 0);
-    return { paths, isPrContext: isPr };
+    return { paths, isPrContext: isCiPr || paths.length > 0 };
   } catch {
-    return { paths: [], isPrContext: isPr };
+    return { paths: [], isPrContext: isCiPr };
   }
 }
 
@@ -357,28 +324,19 @@ export function runKnipAudit(): string {
 
   const findings = parseKnipReport(rawReport);
   const { paths: changedPaths, isPrContext } = getChangedPathsFromGit();
-  const categorized = categorizeFindings(
-    findings,
-    changedPaths,
-    isPrContext,
-    rawReport.issues?.length || 0
-  );
+  const categorized = categorizeFindings(findings, changedPaths, isPrContext);
 
   return formatMarkdownReport(categorized);
 }
 
 function main(): void {
+  let reportMarkdown: string;
   try {
-    const reportMarkdown = runKnipAudit();
+    reportMarkdown = runKnipAudit();
     console.log(reportMarkdown);
-
-    const summaryFile = process.env.GITHUB_STEP_SUMMARY;
-    if (summaryFile) {
-      appendFileSync(summaryFile, reportMarkdown + '\n');
-    }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    const fallbackReport = [
+    reportMarkdown = [
       '## ✂️ Advisory Knip Audit',
       '',
       `⚠️ Advisory audit step encountered an error: ${errorMsg}`,
@@ -386,12 +344,12 @@ function main(): void {
       '---',
       '*Note: This check is strictly advisory and non-blocking.*',
     ].join('\n');
-
     console.error('Knip audit error:', err);
-    const summaryFile = process.env.GITHUB_STEP_SUMMARY;
-    if (summaryFile) {
-      appendFileSync(summaryFile, fallbackReport + '\n');
-    }
+  }
+
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryFile) {
+    appendFileSync(summaryFile, reportMarkdown + '\n');
   }
 
   // Always exit code 0 so CI build pipeline is never blocked

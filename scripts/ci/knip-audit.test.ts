@@ -14,21 +14,20 @@ describe('knip-audit', () => {
     expect(normalizePath('packages\\cli\\src\\index.ts')).toBe('packages/cli/src/index.ts');
   });
 
-  test('parseKnipReport correctly extracts unused files, dependencies, exports, and types', () => {
+  test('parseKnipReport correctly extracts unused files, dependencies, peer dependencies, exports, and types', () => {
     const rawReport: KnipRawReport = {
       issues: [
         {
           file: 'packages/cli/package.json',
           dependencies: [{ name: 'lodash', packageJsonPath: 'packages/cli/package.json' }],
           devDependencies: [{ name: '@types/lodash', packageJsonPath: 'packages/cli/package.json' }],
+          optionalPeerDependencies: [{ name: 'peer-dep', packageJsonPath: 'packages/cli/package.json' }],
         },
         {
           file: 'packages/cli/src/foo.ts',
           files: [{ name: 'packages/cli/src/unused-file.ts' }],
           exports: [{ name: 'unusedFunc', line: 12, col: 4 }],
           types: [{ name: 'UnusedType', line: 20, col: 2 }],
-          unlisted: [{ name: 'express', filePath: 'packages/cli/src/foo.ts' }],
-          unresolved: [{ name: './missing-import', filePath: 'packages/cli/src/foo.ts' }],
         },
       ],
     };
@@ -46,6 +45,13 @@ describe('knip-audit', () => {
       type: 'unused-dev-dependency',
       file: 'packages/cli/package.json',
       name: '@types/lodash',
+      packageJsonPath: 'packages/cli/package.json',
+    });
+
+    expect(findings).toContainEqual({
+      type: 'unused-dependency',
+      file: 'packages/cli/package.json',
+      name: 'peer-dep',
       packageJsonPath: 'packages/cli/package.json',
     });
 
@@ -70,18 +76,6 @@ describe('knip-audit', () => {
       line: 20,
       col: 2,
     });
-
-    expect(findings).toContainEqual({
-      type: 'unlisted-dependency',
-      file: 'packages/cli/src/foo.ts',
-      name: 'express',
-    });
-
-    expect(findings).toContainEqual({
-      type: 'unresolved-import',
-      file: 'packages/cli/src/foo.ts',
-      name: './missing-import',
-    });
   });
 
   test('categorizeFindings separates PR findings from legacy workspace debt', () => {
@@ -105,7 +99,7 @@ describe('knip-audit', () => {
     ];
 
     const changedPaths = ['packages/cli/src/modified.ts', 'packages/cli/package.json'];
-    const result = categorizeFindings(findings, changedPaths, true, 2);
+    const result = categorizeFindings(findings, changedPaths, true);
 
     expect(result.prFindings).toHaveLength(2);
     expect(result.prFindings.map((f) => f.name)).toEqual(['newUnusedExport', 'unused-pkg']);
@@ -123,7 +117,7 @@ describe('knip-audit', () => {
       },
     ];
 
-    const categorized = categorizeFindings(findings, ['packages/cli/src/clean.ts'], true, 1);
+    const categorized = categorizeFindings(findings, ['packages/cli/src/clean.ts'], true);
     const markdown = formatMarkdownReport(categorized);
 
     expect(markdown).toContain('## ✂️ Advisory Knip Audit');
@@ -148,7 +142,7 @@ describe('knip-audit', () => {
       },
     ];
 
-    const categorized = categorizeFindings(findings, ['packages/cli/src/new.ts', 'packages/cli/package.json'], true, 2);
+    const categorized = categorizeFindings(findings, ['packages/cli/src/new.ts', 'packages/cli/package.json'], true);
     const markdown = formatMarkdownReport(categorized);
 
     expect(markdown).toContain('## ✂️ Advisory Knip Audit');
