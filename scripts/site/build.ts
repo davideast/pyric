@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, rmSync, cpSync, readFileSync, writeFileSync } fr
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { $ } from 'bun';
+import { buildSiteWithCache } from './cache.ts';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DIST = join(ROOT, 'dist', 'site');
@@ -54,17 +55,16 @@ async function buildSite(): Promise<void> {
   const studioDir = join(ROOT, 'packages', 'studio');
   await $`bun run --cwd ${studioDir} build:ports`;
 
-  const siteDir = join(ROOT, 'packages', 'site-docs');
-  await $`bun run --cwd ${siteDir} build`.env({
-    ...process.env,
-    DOCS_BASE: '/',
-    STUDIO_STATIC: '1',
+  await buildSiteWithCache({
+    base: '/',
+    studioStatic: true,
+    outDir: DIST,
   });
-  const siteDist = join(siteDir, 'dist');
+
+  const siteDist = join(ROOT, 'packages', 'site-docs', 'dist');
   if (!existsSync(join(siteDist, 'studio-routes.json')) || !existsSync(join(siteDist, 'docs'))) {
     throw new Error(`build-site: Astro build did not produce the unified site at ${siteDist}`);
   }
-  cpSync(siteDist, DIST, { recursive: true });
 }
 
 // ─── SDK + SharedWorker bundles ────────────────────────────────────────

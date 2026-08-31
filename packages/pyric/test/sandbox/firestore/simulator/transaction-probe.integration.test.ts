@@ -488,7 +488,7 @@ function escape(s: string): string {
 // ─── Test ────────────────────────────────────────────────────────────────
 
 describe.skipIf(!RUN || !KEY)('transaction grammar probe (Item 4.6)', () => {
-  test('runs prompts × models × N and writes report', { timeout: 600_000 }, async () => {
+  test('runs prompts × models × N and writes report', async () => {
     const results = await runAll();
 
     expect(results).toHaveLength(MODELS.length * PROMPTS.length * N_RUNS);

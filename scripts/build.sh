@@ -16,10 +16,15 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 BUILD_SITE=true
+FORCE_CLEAN=false
+
 for arg in "$@"; do
   case "$arg" in
     --packages-only)
       BUILD_SITE=false
+      ;;
+    --clean|--force|--no-cache)
+      FORCE_CLEAN=true
       ;;
     *)
       echo "Unknown build option: $arg" >&2
@@ -27,6 +32,10 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+if [ "${BUILD_CLEAN:-0}" = "1" ]; then
+  FORCE_CLEAN=true
+fi
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -56,6 +65,10 @@ emit_stubs() {
 
 # ── Phase 0: Clean all dist/ directories ───────────────────────────────
 echo "━━━ Phase 0: Clean ━━━"
+if $FORCE_CLEAN; then
+  echo "  Cleaning site build cache"
+  bun run scripts/site/cache.ts clear
+fi
 for dir in packages/*/; do
   if [ -d "${dir}dist" ]; then
     echo "  Cleaning ${dir}dist/"
@@ -94,13 +107,11 @@ build_pkg "studio"
 echo ""
 echo "━━━ Phase 3: Astro site ━━━"
 if $BUILD_SITE; then
-  echo "▸ Building packages/site-docs (base /__pyric/ui/)"
-  rm -rf packages/site-docs/dist
-  DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build
-  echo "▸ Embedding Astro site → packages/cli/dist/serve/site-ui/"
-  rm -rf packages/cli/dist/serve/site-ui
-  mkdir -p packages/cli/dist/serve/site-ui
-  cp -R packages/site-docs/dist/. packages/cli/dist/serve/site-ui/
+  CACHE_FLAGS=""
+  if $FORCE_CLEAN; then
+    CACHE_FLAGS="--force"
+  fi
+  bun run scripts/site/cache.ts build --base /__pyric/ui/ --out packages/cli/dist/serve/site-ui $CACHE_FLAGS
 else
   echo "▸ Skipped for packages-only build"
 fi
