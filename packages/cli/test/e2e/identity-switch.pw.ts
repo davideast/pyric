@@ -63,6 +63,10 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
   expect(aliceUid).toBeTruthy();
 
   // Collapsed bar badge displays Alice's identity
+  const collapseBtn = chipHost.locator('[data-collapse]');
+  if (await collapseBtn.isVisible()) {
+    await collapseBtn.click();
+  }
   await expect(chipHost.locator('[data-identity-badge]')).toHaveText(`as: ${aliceUid}`);
 
   // Create User 2: Bob

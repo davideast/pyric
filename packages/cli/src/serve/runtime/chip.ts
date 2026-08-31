@@ -334,16 +334,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const lens = getLensFn();
     const user = options.getCurrentUser ? options.getCurrentUser() : clientUser;
     const isAdmin = lens?.mode === 'admin';
+    const activeUid = lens?.mode === 'as' ? lens.uid : user?.uid;
 
     let identitySignalHtml = '';
-    if (isAdmin) {
+    if (activeUid) {
+      identitySignalHtml = `<span class="signal" data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`;
+    } else if (isAdmin) {
       identitySignalHtml = '<span class="signal bypass" data-identity-badge>bypass rules</span>';
-    } else if (lens?.mode === 'as') {
-      const label = lens.uid;
-      identitySignalHtml = `<span class="signal" data-identity-badge title="as: ${escapeAttribute(label)}">as: ${escapeAttribute(label)}</span>`;
-    } else if (user) {
-      const label = user.uid;
-      identitySignalHtml = `<span class="signal" data-identity-badge title="as: ${escapeAttribute(label)}">as: ${escapeAttribute(label)}</span>`;
     }
 
     view.innerHTML = `${open ? `
@@ -364,10 +361,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           ${aiState.subline ? `<div class="worker-state-subline">${aiState.subline}</div>` : ''}
         </div>
         <div class="worker-state"><span class="state-label">Rules</span><span class="epochs" style="${isAdmin ? 'color: #8f7fe8; font-weight: 500;' : ''}">${isAdmin ? 'bypassed' : 'enforced'}</span></div>
+        ${activeUid ? `<div class="worker-state"><span class="state-label">Identity</span><span class="epochs" data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span></div>` : ''}
         <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
         <div class="actions">
-          <button class="button" type="button" data-open-impersonate>Identity</button>
           <button class="button update" type="button" data-update-worker ${snapshot.updateAvailable ? '' : 'disabled'} aria-disabled="${snapshot.updateAvailable && !snapshot.updatingWorker ? 'false' : 'true'}">${snapshot.updatingWorker ? 'Updating…' : 'Update worker'}</button>
+          <button class="button" type="button" data-open-impersonate>Identity</button>
           ${studioUrl
             ? `<a class="button" data-open-studio href="${escapeAttribute(studioUrl)}" target="_blank" rel="noopener noreferrer">Studio${icons.external}</a>`
             : `<span class="button" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio${icons.external}</span>`}
@@ -376,7 +374,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ` : `
       <button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">
         <span class="brand"><span class="dot${errorCount > 0 ? ' error' : ''}"></span><span class="brand-label">pyric</span></span>
-        <span class="signals">${identitySignalHtml}${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : '<span class="signal">ready</span>'}${icons.chevron}</span>
+        <span class="signals">${identitySignalHtml}${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : ''}${icons.chevron}</span>
       </button>
     `}`;
 

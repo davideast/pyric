@@ -103,7 +103,7 @@ describe('PyricRuntimeChip', () => {
   it('is collapsed by default and surfaces errors and worker updates compactly', () => {
     const { runtime, root } = setup();
     expect(root.querySelector('[data-expand]')).not.toBeNull();
-    expect(root.textContent).toContain('ready');
+    expect(root.textContent).toContain('pyric');
 
     runtime.reportError('write denied', 'sandbox');
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
