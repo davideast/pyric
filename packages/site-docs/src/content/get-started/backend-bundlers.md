@@ -88,9 +88,42 @@ export default defineConfig({
 });
 ```
 
+### If you use Vite for Node backend builds (`vite.config.ts`)
+
+In Vite, external dependencies for SSR / Node backend builds are configured under `build.rollupOptions.external`:
+
+```ts
+import { defineConfig } from 'vite';
+import { pyricExternals } from '@pyric/cli/bundler';
+
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      external: pyricExternals.vite,
+    },
+  },
+});
+```
+
+> [!NOTE]
+> For standard frontend Vite applications, use the dedicated [`@pyric/cli/vite`](/docs/get-started/vite) plugin instead, which handles dev-server interception automatically.
+
+### If you use Webpack (`webpack.config.js`)
+
+Webpack accepts regular expression arrays under `externals`:
+
+```js
+import { pyricExternals } from '@pyric/cli/bundler';
+
+export default {
+  target: 'node',
+  externals: pyricExternals.webpack,
+};
+```
+
 ### If you use a custom predicate
 
-For bundlers that support function-based external resolution (such as Rollup, Rolldown, Vite, or Webpack), use `isPyricExternal`:
+For bundlers that support function-based external resolution (such as Rollup or Rolldown), use `isPyricExternal`:
 
 ```ts
 import { isPyricExternal } from '@pyric/cli/bundler';
