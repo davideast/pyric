@@ -35,12 +35,7 @@ import {
   type DataSnapshot,
   type DatabaseReference,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 /** Collect the matched keys (in iteration order) from a snapshot. */
 function snapKeys(snap: DataSnapshot): string[] {

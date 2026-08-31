@@ -18,12 +18,7 @@ import {
   get,
   increment,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 describe('DB-GAP — increment()', () => {
   it('increment against a missing field starts from 0', async () => {

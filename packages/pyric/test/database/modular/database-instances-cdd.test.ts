@@ -8,6 +8,7 @@ import {
   ref,
   set,
   TARGET_SYMBOL,
+  sandbox as rtdbSandbox,
 } from '../../../src/database/index.js';
 
 describe('RTDB CDD database instance cases', () => {
@@ -29,6 +30,7 @@ describe('RTDB CDD database instance cases', () => {
     const sandbox = initializeSandbox();
     const first = getDatabase(sandbox.withAuth({ uid: 'first' }));
     const second = getDatabase(sandbox.withAuth({ uid: 'second' }));
+    rtdbSandbox.setDefaultPolicy(first, 'allow');
     await set(ref(first, 'shared'), { ok: true });
     expect((await get(ref(second, 'shared'))).val()).toEqual({ ok: true });
   });
@@ -36,6 +38,8 @@ describe('RTDB CDD database instance cases', () => {
   it('rtdb-modular#99 routes each reference to its owning target', async () => {
     const first = getDatabase(initializeSandbox().withAuth({ uid: 'first' }));
     const second = getDatabase(initializeSandbox().withAuth({ uid: 'second' }));
+    rtdbSandbox.setDefaultPolicy(first, 'allow');
+    rtdbSandbox.setDefaultPolicy(second, 'allow');
     await set(ref(first, 'owned'), 1);
     await set(ref(second, 'owned'), 2);
     expect((await get(ref(first, 'owned'))).val()).toBe(1);

@@ -25,7 +25,7 @@ import { RulesFloat } from './wrappers/float.js';
 import { EvalError } from './eval-error.js';
 import { UnsupportedError } from './unsupported-error.js';
 
-export { EvalError } from './eval-error.js';
+export { EvalError, EvalError as RuleEvalError } from './eval-error.js';
 export { UnsupportedError } from './unsupported-error.js';
 
 // ═══ Simulation Context ═══
@@ -71,7 +71,9 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       return evaluateBinaryOp(expr.op, expr.left, expr.right, ctx, scope);
 
     case 'unaryOp': {
-      if (expr.op === '!') return !evaluate(expr.operand, ctx, scope);
+      if (expr.op === '!') {
+        return !requireBoolean(evaluate(expr.operand, ctx, scope), expr.operand);
+      }
       if (expr.op === '-') {
         const v = evaluate(expr.operand, ctx, scope);
         // RULES-B5: negating a float stays a float (`-1.5 is float`); negating

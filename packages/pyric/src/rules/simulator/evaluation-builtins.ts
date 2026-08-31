@@ -71,15 +71,21 @@ export function evaluateFunctionCall(
       // doesn't touch.
       const argVal = evaluate(args[0], ctx, scope);
       const pathStr = String(argVal);
+      const normalized = normalizeDocumentPath(pathStr);
+      const segments = normalized.split('/').filter(Boolean);
+      if (segments.length === 0 || segments.length % 2 !== 0) {
+        throw new EvalError(
+          `getAfter() requires a path pointing to a document (even segment count), got '${normalized}'`,
+        );
+      }
       if (pathStr === ctx.afterStatePath.toString()) {
         // RULES-B8: getAfter() of a doc that won't exist post-write (delete,
         // or projected-null) ERRORS like get() — guard with existsAfter().
         if (ctx.afterState === null) {
           throw new EvalError(`getAfter() of non-existent document '${pathStr}' (guard with existsAfter() first)`);
         }
-        return makeGetResource(normalizeDocumentPath(pathStr), ctx.afterState);
+        return makeGetResource(normalized, ctx.afterState);
       }
-      const normalized = normalizeDocumentPath(pathStr);
       if (ctx.batchProjection?.has(normalized)) {
         const projected = ctx.batchProjection.get(normalized)!;
         if (projected === null) {
@@ -96,10 +102,14 @@ export function evaluateFunctionCall(
       // through to exists().
       const argVal = evaluate(args[0], ctx, scope);
       const pathStr = String(argVal);
+      const normalized = normalizeDocumentPath(pathStr);
+      const segments = normalized.split('/').filter(Boolean);
+      if (segments.length === 0 || segments.length % 2 !== 0) {
+        return false;
+      }
       if (pathStr === ctx.afterStatePath.toString()) {
         return ctx.existsAfter;
       }
-      const normalized = normalizeDocumentPath(pathStr);
       if (ctx.batchProjection?.has(normalized)) {
         return ctx.batchProjection.get(normalized) !== null;
       }

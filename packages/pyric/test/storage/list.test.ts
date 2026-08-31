@@ -18,13 +18,22 @@ import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getStorageSandbox, ref, uploadBytes, listAll } from '../../src/storage/index.js';
 
+const OPEN_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+
 function uniqueDbName(label: string): string {
   return `pyric-storage-test-${label}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function freshStorage(label: string) {
   const sandbox = initializeSandbox({});
-  return getStorageSandbox(sandbox, { dbName: uniqueDbName(label) });
+  return getStorageSandbox(sandbox, { dbName: uniqueDbName(label), rules: OPEN_RULES });
 }
 
 describe('listAll', () => {

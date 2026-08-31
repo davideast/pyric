@@ -18,12 +18,7 @@ import {
   set,
   get,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 describe('DB-B10 — DataSnapshot shape matches the modular oracle', () => {
   it('exposes size (getter), priority, exportVal; NOT numChildren()', async () => {

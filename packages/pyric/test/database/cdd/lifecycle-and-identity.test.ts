@@ -57,6 +57,7 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
     const sandbox = initializeSandbox();
     const first = api.getDatabase(sandbox.withAuth({ uid: 'first' }));
     const second = api.getDatabase(sandbox.withAuth({ uid: 'second' }));
+    api.databaseSandbox.setDefaultPolicy(first, 'allow');
     const target = api.ref(first, 'presence/client');
     await api.set(target, 'online');
     await api.onDisconnect(target).set('offline');
@@ -69,12 +70,16 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
     expect((await api.get(target)).val()).toBe('online');
 
     const writer = initializeApp({ projectId: 'cdd-m82' }, 'cdd-m82-writer');
-    const writerTarget = api.ref(api.getDatabase(writer), 'presence/app');
+    const writerDb = api.getDatabase(writer);
+    api.databaseSandbox.setDefaultPolicy(writerDb, 'allow');
+    const writerTarget = api.ref(writerDb, 'presence/app');
     await api.set(writerTarget, 'online');
     await api.onDisconnect(writerTarget).set('offline');
     await deleteApp(writer);
     const observer = initializeApp({ projectId: 'cdd-m82' }, 'cdd-m82-observer');
-    expect((await api.get(api.ref(api.getDatabase(observer), 'presence/app'))).val()).toBe('offline');
+    const observerDb = api.getDatabase(observer);
+    api.databaseSandbox.setDefaultPolicy(observerDb, 'allow');
+    expect((await api.get(api.ref(observerDb, 'presence/app'))).val()).toBe('offline');
     await deleteApp(observer);
   });
   row('M83', () => assertDisconnectPriority(disconnectOperationsObservation.outcomes.setWithPriority));
@@ -233,11 +238,11 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
   row('96', () => expect(() => api.getDatabase({} as never)).toThrow(/package resolution/i));
   row('97', () => expect(() => api.getDatabase()).toThrow(/default sandbox app registry|no firebase app|package resolution/i));
   row('98', async () => {
-    const sandbox = initializeSandbox(); const a = api.getDatabase(sandbox); const b = api.getDatabase(sandbox); await api.set(api.ref(a, 'x'), 1);
+    const sandbox = initializeSandbox(); const a = api.getDatabase(sandbox); const b = api.getDatabase(sandbox); api.databaseSandbox.setDefaultPolicy(a, 'allow'); await api.set(api.ref(a, 'x'), 1);
     expect((await api.get(api.ref(b, 'x'))).val()).toBe(1);
   });
   row('99', async () => {
-    const a = api.getDatabase(initializeSandbox().withAuth({ uid: 'a' })); const b = api.getDatabase(initializeSandbox().withAuth({ uid: 'b' })); await api.set(api.ref(a, 'x'), 1); await api.set(api.ref(b, 'x'), 2);
+    const a = api.getDatabase(initializeSandbox().withAuth({ uid: 'a' })); const b = api.getDatabase(initializeSandbox().withAuth({ uid: 'b' })); api.databaseSandbox.setDefaultPolicy(a, 'allow'); api.databaseSandbox.setDefaultPolicy(b, 'allow'); await api.set(api.ref(a, 'x'), 1); await api.set(api.ref(b, 'x'), 2);
     expect([(await api.get(api.ref(a, 'x'))).val(), (await api.get(api.ref(b, 'x'))).val()]).toEqual([1, 2]);
     expect(api.ref(a, 'x').isEqual(api.ref(b, 'x'))).toBe(false);
   });

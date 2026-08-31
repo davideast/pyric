@@ -9,6 +9,7 @@ import {
   set,
   setPriority,
   setWithPriority,
+  sandbox as rtdbSandbox,
 } from '../../../src/database/index.js';
 
 const priorityObservation = (JSON.parse(readFileSync(join(
@@ -20,7 +21,9 @@ const priorityObservation = (JSON.parse(readFileSync(join(
 
 function setup() {
   const sandbox = initializeSandbox();
-  return getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  rtdbSandbox.setDefaultPolicy(db, 'allow');
+  return db;
 }
 
 describe('priority metadata value-listener fanout', () => {

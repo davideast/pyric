@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
+  sandbox as databaseSandbox,
   type DataSnapshot,
 } from '../../../src/database/index.js';
 
@@ -36,6 +37,7 @@ export function load(name: string): Record<string, unknown> {
 export function setup() {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  databaseSandbox.setDefaultPolicy(db, 'allow');
   return { sandbox, db };
 }
 

@@ -233,7 +233,7 @@ export class WritePlane {
     });
     for (const update of updates) {
       if (this.state.rules.evaluate('write', update.path, {
-        auth, mockData, newData: update.value, ...(updates.length > 1 ? { updates } : {}),
+        auth, mockData, newData: update.value, updates,
       }).check !== 'allow') throw permissionDenied();
     }
   }
@@ -252,7 +252,7 @@ export class WritePlane {
       const at = Date.now();
       const before = this.state.tree.read(update.path);
       const evaluation = this.state.rules.evaluate('write', update.path, {
-        auth, mockData, newData: update.value, ...(multiPath ? { updates } : {}),
+        auth, mockData, newData: update.value, updates,
       });
       const fields = {
         at, durationMs: Date.now() - at, origin: 'batch' as const,

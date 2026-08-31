@@ -31,11 +31,20 @@ import {
   updateMetadata,
 } from '../../src/storage/index.js';
 
+const OPEN_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+
 function uniqueDbName(label: string): string {
   return `pyric-storage-errcode-${label}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function freshStorage(label: string, rules?: string) {
+function freshStorage(label: string, rules: string = OPEN_RULES) {
   const sandbox = initializeSandbox({});
   return getStorageSandbox(sandbox, { dbName: uniqueDbName(label), rules });
 }

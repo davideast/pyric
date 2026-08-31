@@ -30,7 +30,7 @@ import {
   type PersistenceBackend,
 } from '../../src/sandbox/index.js';
 import {
-  getDatabase,
+  getDatabase as baseGetDatabase,
   ref,
   set,
   setWithPriority,
@@ -39,6 +39,12 @@ import {
   sandbox as rtdbSandbox,
 } from '../../src/database/index.js';
 import { RtdbBackend } from '../../src/database/sandbox/backend.js';
+
+function getDatabase(target: Parameters<typeof baseGetDatabase>[0]) {
+  const db = baseGetDatabase(target);
+  rtdbSandbox.setDefaultPolicy(db, 'allow');
+  return db;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -256,6 +262,7 @@ describe('rtdb persistence — restore notifies live listeners', () => {
 
   it('restoreTree fires an attached onValue listener with the restored value', () => {
     const backend = new RtdbBackend();
+    backend.setDefaultPolicy('allow');
     const fires: Array<{ val: unknown; exists: boolean }> = [];
     // Attach a plain-ref value listener (admin auth) at /rooms/general.
     backend.onValue({ mode: 'admin' } as never, '/rooms/general', (snap) => {

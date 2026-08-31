@@ -4,10 +4,9 @@
  * grow their own copy of the same dispatch.
  *
  * Behavior:
- *   - No rules configured → allow. The v1 scope's session-archive
- *     ruleset is opt-in; bare `getStorage` with no `rules` option
- *     keeps the open-by-default semantics consistent with the
- *     pre-Slice-8 surface.
+ *   - No rules configured → deny. Matches Firebase production fail-closed
+ *     security invariants: bare `getStorage` with no `rules` option
+ *     rejects client operations with `storage/unauthorized`.
  *   - Rules configured → call `evaluateStorageRules`. Throw
  *     `storage/unauthorized` with the evaluator's `reasons` joined
  *     into the message on denial.
@@ -16,9 +15,8 @@
  * permission governs both download and list, so `list.ts` enforces a
  * `read` check on the scanned prefix path. A previous v1 scope build
  * silently bypassed list — that contradicted the rules-enforcement
- * contract (a denied tree was still enumerable). With no rules
- * configured the check is a no-op (open-by-default), so the
- * session-archive demo is unaffected.
+ * contract (a denied tree was still enumerable). When no rules are
+ * configured the check fails closed (default-deny).
  *
  * Studio observability (storage-denial-events): every enforcement
  * decision — allow, deny, AND admin-plane bypass — lands on the
@@ -71,11 +69,9 @@ export function enforceRules(
     return;
   }
   if (!service.rules) {
-    // Open-by-default: no rules configured, no evaluation happened.
-    // Still emit `allow` for parity — an unrestricted op is legitimately
-    // "allowed", just never evaluated.
-    emitOperation(target, input, 'allow', undefined, 'user', false, boundProvenance);
-    return;
+    const reasons = ['No Storage rules configured; default deny.'];
+    emitOperation(target, input, 'deny', reasons, 'user', false, boundProvenance);
+    throw unauthorized(input.request.method, input.request.path, ' — No Storage rules configured; default deny.');
   }
   const evaluationInput = target ? withCanonicalRulesPath(input, target.bucket) : input;
   const result = evaluateStorageRules(

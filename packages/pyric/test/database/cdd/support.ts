@@ -55,6 +55,7 @@ export * from '../../../src/database/index.js';
 export function setup() {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  databaseSandbox.setDefaultPolicy(db, 'allow');
   return { sandbox, db, root: ref(db) };
 }
 

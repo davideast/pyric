@@ -23,12 +23,7 @@ import {
   limitToFirst,
   limitToLast,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 describe('DB-B5 — constraint-conflict validation', () => {
   it('multiple orderBy calls throw', () => {

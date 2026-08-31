@@ -248,7 +248,10 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
         if (typeof a !== 'number') return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
         return -a;
       }
-      return !truthy(a);
+      if (typeof a !== 'boolean') {
+        throw new RuleEvalError(`Unary '!' expects a boolean, got ${describeType(a)}.`);
+      }
+      return !a;
     }
     case 'ternary': {
       const c = evalExpr(expr.cond, ctx);

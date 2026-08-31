@@ -14,6 +14,7 @@ import {
 export async function assertTransactionAbortContract(): Promise<void> {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  databaseSandbox.setDefaultPolicy(db, 'allow');
   const target = ref(db, 'counter');
   await set(target, 100);
   const events: unknown[] = [];
@@ -30,6 +31,7 @@ export async function assertApplyLocallyContract(): Promise<void> {
   for (const applyLocally of [true, false]) {
     const sandbox = initializeSandbox();
     const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    databaseSandbox.setDefaultPolicy(db, 'allow');
     const target = ref(db, 'counter');
     await set(target, 1);
     const events: unknown[] = [];
@@ -85,6 +87,7 @@ export async function assertTransactionContentionBoundary(): Promise<void> {
   const sandbox = initializeSandbox();
   const first = getDatabase(sandbox.withAuth({ uid: 'alice' }));
   const second = getDatabase(sandbox.withAuth({ uid: 'bob' }));
+  databaseSandbox.setDefaultPolicy(first, 'allow');
   const target = ref(first, 'counter');
   await set(target, 0);
   const calls = [0, 0];

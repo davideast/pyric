@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getDatabase, type DataSnapshot } from '../../../src/database/index.js';
+import { getDatabase, sandbox as databaseSandbox, type DataSnapshot } from '../../../src/database/index.js';
 
 const OBS_DIR = join(
   import.meta.dir,
@@ -17,10 +17,13 @@ export function loadObservation(name: string): Record<string, any> {
 
 export function setup() {
   const sandbox = initializeSandbox();
+  const first = getDatabase(sandbox.withAuth({ uid: 'first' }));
+  const second = getDatabase(sandbox.withAuth({ uid: 'second' }));
+  databaseSandbox.setDefaultPolicy(first, 'allow');
   return {
     sandbox,
-    first: getDatabase(sandbox.withAuth({ uid: 'first' })),
-    second: getDatabase(sandbox.withAuth({ uid: 'second' })),
+    first,
+    second,
   };
 }
 

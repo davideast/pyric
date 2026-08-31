@@ -2,34 +2,51 @@
 import type { LocalSandbox } from 'pyric/sandbox';
 
 import { getOrCreateBackend } from './sandbox/backend-for.js';
+import type { RtdbBackend } from './sandbox/backend.js';
 import type { JsonValue } from './sandbox/data-tree.js';
+import { TARGET_SYMBOL, targetOf } from './routing.js';
 
 export type RtdbRulesJson = { rules: Record<string, unknown> };
 
-/** Replace the active RTDB rules. Pass `null` to restore default allow. */
+function backendOf(target: LocalSandbox | object): RtdbBackend {
+  if (target && typeof target === 'object' && TARGET_SYMBOL in target) {
+    return targetOf(target).backend;
+  }
+  return getOrCreateBackend(target as LocalSandbox);
+}
+
+/** Set default access policy when no rules are loaded ('allow' or 'deny'). */
+export function setDefaultPolicy(
+  target: LocalSandbox | object,
+  policy: 'allow' | 'deny',
+): void {
+  backendOf(target).setDefaultPolicy(policy);
+}
+
+/** Replace the active RTDB rules. Pass `null` to restore default deny. */
 export function setRules(
-  sandbox: LocalSandbox,
+  target: LocalSandbox | object,
   rules: RtdbRulesJson | null,
 ): void {
-  getOrCreateBackend(sandbox).setRules(rules);
+  backendOf(target).setRules(rules);
 }
 
 /** Read the currently active rules as detached JSON. */
-export function getActiveRules(sandbox: LocalSandbox): RtdbRulesJson | null {
-  return getOrCreateBackend(sandbox).getActiveRules();
+export function getActiveRules(target: LocalSandbox | object): RtdbRulesJson | null {
+  return backendOf(target).getActiveRules();
 }
 
 /** Replace RTDB data in bulk without applying security rules. */
 export function setData(
-  sandbox: LocalSandbox,
+  target: LocalSandbox | object,
   data: Record<string, unknown>,
 ): void {
-  getOrCreateBackend(sandbox).setData(data as Record<string, JsonValue>);
+  backendOf(target).setData(data as Record<string, JsonValue>);
 }
 
 /** Snapshot the complete RTDB tree without applying security rules. */
-export function snapshotState(sandbox: LocalSandbox): JsonValue {
-  return getOrCreateBackend(sandbox).snapshotState();
+export function snapshotState(target: LocalSandbox | object): JsonValue {
+  return backendOf(target).snapshotState();
 }
 
 /**

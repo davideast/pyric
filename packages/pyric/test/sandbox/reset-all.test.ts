@@ -18,7 +18,13 @@ import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from '../../src/sandbox/index.js';
 import { getInternalEnv } from '../../src/sandbox/internal/sandbox-impl.js';
 import { getAuth, sandbox as authSandbox } from '../../src/auth/index.js';
-import { getDatabase, ref as rtdbRef, set as rtdbSet, get as rtdbGet } from '../../src/database/index.js';
+import {
+  getDatabase,
+  ref as rtdbRef,
+  set as rtdbSet,
+  get as rtdbGet,
+  sandbox as rtdbSandbox,
+} from '../../src/database/index.js';
 import { getStorageSandbox, getStorageService } from '../../src/storage/service.js';
 
 function uniqueDbName(label: string): string {
@@ -41,6 +47,7 @@ describe('Sandbox.resetAll', () => {
 
     // RTDB tree.
     const rtdb = getDatabase(sandbox);
+    rtdbSandbox.setDefaultPolicy(rtdb, 'allow');
     await rtdbSet(rtdbRef(rtdb, '/presence/u1'), { online: true });
 
     // Storage object (unique DB per test run; fake-indexeddb persists names

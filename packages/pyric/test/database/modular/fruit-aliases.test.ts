@@ -21,12 +21,7 @@ import {
   enableLogging,
   refFromURL,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 describe('RTDB low-hanging-fruit exports (issue #149)', () => {
   it('all six symbols are importable (were missing exports before)', () => {

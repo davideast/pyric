@@ -61,7 +61,16 @@ function uniqueDbName(label: string): string {
   return `pyric-storage-oracle-${label}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function freshStorage(label: string, rules?: string) {
+const OPEN_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+
+function freshStorage(label: string, rules: string = OPEN_RULES) {
   const sandbox = initializeSandbox({});
   return getStorageSandbox(sandbox, { dbName: uniqueDbName(label), rules });
 }

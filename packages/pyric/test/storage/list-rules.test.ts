@@ -71,11 +71,10 @@ describe('ST-B2 — listAll enforces rules', () => {
     expect(listed.items.map((i) => i.name)).toEqual(['s1.json']);
   });
 
-  it('is a no-op when no rules are configured (open-by-default)', async () => {
+  it('denies listAll and uploads when no rules are configured (closed-by-default)', async () => {
     const sandbox = initializeSandbox({});
     const storage = getStorageSandbox(sandbox, { dbName: uniqueDbName('norules') });
-    await uploadBytes(ref(storage, 'x/a.bin'), new Blob(['a']));
-    const listed = await listAll(ref(storage, 'x'));
-    expect(listed.items.map((i) => i.name)).toEqual(['a.bin']);
+    await expect(uploadBytes(ref(storage, 'x/a.bin'), new Blob(['a']))).rejects.toThrow(/unauthorized/);
+    await expect(listAll(ref(storage, 'x'))).rejects.toThrow(/unauthorized/);
   });
 });

@@ -99,7 +99,7 @@ export type RtdbDefaultPolicy = 'allow' | 'deny';
 
 export class RulesEvaluator {
   private compiled: CompiledRtdbRules | null = null;
-  private defaultPolicy: RtdbDefaultPolicy = 'allow';
+  private defaultPolicy: RtdbDefaultPolicy = 'deny';
 
   /** Set default access policy when no rules are loaded ('allow' or 'deny'). */
   setDefaultPolicy(policy: RtdbDefaultPolicy): void {
@@ -122,7 +122,7 @@ export class RulesEvaluator {
   }
 
   /**
-   * Evaluate one op. Default-allow when no rules are loaded.
+   * Evaluate one op. Default-deny when no rules are loaded.
    *
    * Errors from the underlying simulator (grammar mismatches, etc.)
    * surface as `'no-rule'` — they're treated as deny by user-mode
