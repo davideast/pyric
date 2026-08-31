@@ -39,13 +39,7 @@ export function isPyricExternal(id: string): boolean {
   if (typeof id !== 'string' || id.length === 0) {
     return false;
   }
-  return (
-    id === 'firebase-admin' ||
-    id.startsWith('firebase-admin/') ||
-    id === 'firebase' ||
-    id.startsWith('firebase/') ||
-    id.startsWith('@firebase/')
-  );
+  return pyricRollupExternals.some((regex) => regex.test(id));
 }
 
 /**
@@ -58,5 +52,4 @@ export const pyricExternals = Object.freeze({
   webpack: pyricRollupExternals,
   esbuild: pyricEsbuildExternals,
   tsup: pyricEsbuildExternals,
-  isExternal: isPyricExternal,
 });

@@ -36,6 +36,7 @@
     "./discover",
     "./vite",
     "./next",
+    "./bundler",
     "./serve/worker",
     "./remote",
     "./register",

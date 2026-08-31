@@ -99,7 +99,6 @@ describe('bundler externalization presets and predicate', () => {
       expect(pyricExternals.webpack).toBe(pyricRollupExternals);
       expect(pyricExternals.esbuild).toBe(pyricEsbuildExternals);
       expect(pyricExternals.tsup).toBe(pyricEsbuildExternals);
-      expect(pyricExternals.isExternal).toBe(isPyricExternal);
     });
   });
 });
