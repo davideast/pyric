@@ -3,7 +3,7 @@ import 'fake-indexeddb/auto';
 import { initializeApp } from 'pyric/app';
 import { doc, getDoc, getFirestore, setDoc } from 'pyric/firestore';
 import { getBytes, getStorage, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
-import { resolveClientApp } from '../../src/sandbox/internal/client-app.js';
+import { resolveClientApp } from '../../dist/sandbox/internal/client-app.js';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
 
 const OPEN_STORAGE_RULES = `rules_version = '2';

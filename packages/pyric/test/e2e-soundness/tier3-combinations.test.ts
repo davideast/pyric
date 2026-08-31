@@ -43,7 +43,7 @@ describe('Tier 3: Cross-Feature Combinations', () => {
 service cloud.firestore {
   match /databases/{database}/documents {
     match /content/{docId} {
-      allow read: if !exists(/databases/$(database)/documents/users/alice/../banned/$(request.auth.uid));
+      allow read: if !exists(/databases/$(database)/documents/users/alice/../../banned/$(request.auth.uid));
     }
   }
 }`;
@@ -71,7 +71,7 @@ service cloud.firestore {
 service cloud.firestore {
   match /databases/{database}/documents {
     match /content/{docId} {
-      allow read: if !exists(/databases/$(database)/documents/users/alice/../banned/$(request.auth.uid));
+      allow read: if !exists(/databases/$(database)/documents/users/alice/../../banned/$(request.auth.uid));
     }
   }
 }`;
@@ -99,7 +99,7 @@ service cloud.firestore {
 service cloud.firestore {
   match /databases/{database}/documents {
     match /content/{docId} {
-      allow read: if !get(/databases/$(database)/documents/users/alice/../roles/$(request.auth.uid)).data.restricted;
+      allow read: if !get(/databases/$(database)/documents/users/alice/../../roles/$(request.auth.uid)).data.restricted;
     }
   }
 }`;
@@ -295,11 +295,12 @@ service cloud.firestore {
 service firebase.storage {
   match /b/{bucket}/o {
     match /{allPaths=**} {
-      allow write: if request.auth != null && !request.auth.token.revoked;
+      allow read, write: if request.auth != null && !request.auth.token.revoked;
     }
   }
 }`;
-      const goodUserStorage = getStorageSandbox(sandbox.withAuth({ uid: 'alice', token: { revoked: false } }), {
+      const configuredSandbox = initializeSandbox();
+      const goodUserStorage = getStorageSandbox(configuredSandbox.withAuth({ uid: 'alice', token: { revoked: false } }), {
         dbName,
         rules,
       });
@@ -308,7 +309,7 @@ service firebase.storage {
       expect(await blob.text()).toBe('hello');
 
       // Missing claim `revoked` -> strict NOT fails closed
-      const missingClaimStorage = getStorageSandbox(sandbox.withAuth({ uid: 'bob', token: {} }), {
+      const missingClaimStorage = getStorageSandbox(configuredSandbox.withAuth({ uid: 'bob', token: {} }), {
         dbName,
         rules,
       });
@@ -371,7 +372,7 @@ service firebase.storage {
 service firebase.storage {
   match /b/{bucket}/o {
     match /uploads/{file} {
-      allow write: if firestore.get(/databases/(default)/documents/users/alice/../configs/features).data.allowUploads == true;
+      allow read, write: if firestore.get(/databases/(default)/documents/users/alice/../../configs/features).data.allowUploads == true;
     }
   }
 }`;
@@ -394,7 +395,7 @@ service firebase.storage {
 service firebase.storage {
   match /b/{bucket}/o {
     match /uploads/{file} {
-      allow write: if !firestore.get(/databases/(default)/documents/users/alice/../configs/features).data.allowUploads;
+      allow write: if !firestore.get(/databases/(default)/documents/users/alice/../../configs/features).data.allowUploads;
     }
   }
 }`;

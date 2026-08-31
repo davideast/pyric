@@ -19,10 +19,10 @@ export function normalizeDocumentPath(rawPath: string): string {
 
   for (const seg of rawSegments) {
     if (seg === '..') {
-      if (stack.length > 1) {
+      if (stack.length > 0) {
         stack.pop();
       }
-      // When stack.length is 1 (collection root) or 0 (document root), .. is clamped.
+      // When stack is empty, .. is clamped at document root.
     } else {
       stack.push(seg);
     }

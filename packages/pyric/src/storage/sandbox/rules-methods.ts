@@ -1,3 +1,4 @@
+import { normalizeDocumentPath } from '../../rules/simulator/document-lookups.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import type { Expr } from './rules.js';
 import { evalExpr, type EvalCtx } from './rules-evaluator.js';
@@ -177,14 +178,16 @@ function buildFirestoreDocPath(
       `Storage rules may access only the default Firestore database, got ${parts[1]}`,
     );
   }
-  const docSegments = parts.slice(3);
+  const rawDocPath = '/' + parts.join('/');
+  const normalized = normalizeDocumentPath(rawDocPath);
+  const docSegments = normalized.split('/').filter(Boolean);
   // A document path is collection/doc pairs — an even, non-zero segment count.
   if (docSegments.length === 0 || docSegments.length % 2 !== 0) {
     throw new RuleEvalError(
-      `Firestore path does not point at a document (needs an even segment count): ${docSegments.join('/')}`,
+      `Firestore path does not point at a document (needs an even segment count): ${normalized}`,
     );
   }
-  return docSegments.join('/');
+  return normalized;
 }
 
 /**

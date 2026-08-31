@@ -392,19 +392,24 @@ service firebase.storage {
     test('F3.B4: deleting entire container node when parent requires children fails validation', () => {
       const rules = compileRtdbRules({
         rules: {
-          container: {
+          parent: {
             ".write": "auth != null",
             ".validate": "newData.hasChildren()",
+            container: {
+              ".write": "auth != null",
+            },
           },
         },
       });
 
       const result = handler.execute(rules, {
         operation: 'write',
-        path: '/container',
+        path: '/parent/container',
         auth: { uid: 'u1', token: {} },
         mockData: {
-          container: { child1: true },
+          parent: {
+            container: { child1: true },
+          },
         },
         newData: null, // delete container
       });
@@ -500,7 +505,7 @@ service firebase.storage {
     });
 
     test('F4.B3: alternating .. and names resolve to correct destination', () => {
-      const path = normalizeDocumentPath('/databases/(default)/documents/col/doc/sub/doc2/../doc3/../../doc4');
+      const path = normalizeDocumentPath('/databases/(default)/documents/col/doc/sub/doc2/../doc3/../../../doc4');
       expect(path).toBe('col/doc4');
     });
 
