@@ -55,6 +55,31 @@ jobs:
           CI_PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: bun scripts/ci/plan.ts
 
+  knip-audit:
+    name: Advisory Knip audit
+    runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.check-set == 'full'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+
+      - name: Run Advisory Knip Audit
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bun scripts/ci/knip-audit.ts
+
   build-packages:
     name: Build workspace packages
     runs-on: ubuntu-latest
