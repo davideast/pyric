@@ -24,6 +24,9 @@ import {
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
 const childModule = join(cliRoot, 'dist/functions-rtdb/child.js');
+const firebaseFunctionsPkg = existsSync(join(repoRoot, 'packages/conformance/node_modules/firebase-functions'))
+  ? join(repoRoot, 'packages/conformance/node_modules/firebase-functions')
+  : join(repoRoot, 'node_modules/firebase-functions');
 
 let fixtureDir: string;
 let runtime: ServeRuntime;
@@ -90,7 +93,7 @@ exports.unsupportedInstance = onValueCreated(
 `,
   );
   symlinkSync(
-    join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+    firebaseFunctionsPkg,
     join(fixtureDir, 'functions/node_modules/firebase-functions'),
   );
   mkdirSync(join(fixtureDir, 'functions-esm/node_modules'), { recursive: true });
@@ -114,7 +117,7 @@ export const makeUppercase = onValueCreated(
 `,
   );
   symlinkSync(
-    join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+    firebaseFunctionsPkg,
     join(fixtureDir, 'functions-esm/node_modules/firebase-functions'),
   );
 

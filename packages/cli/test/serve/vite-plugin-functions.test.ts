@@ -25,6 +25,9 @@ import { connectFunctionsWorkerPeer, createFunctionsWorkerHostCtx } from '../fun
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
 const builtChild = join(cliRoot, 'dist/functions-rtdb/child.js');
+const firebaseFunctionsPkg = existsSync(join(repoRoot, 'packages/conformance/node_modules/firebase-functions'))
+  ? join(repoRoot, 'packages/conformance/node_modules/firebase-functions')
+  : join(repoRoot, 'node_modules/firebase-functions');
 
 let server: ViteDevServer | undefined;
 let peer: { close(): Promise<void> } | undefined;
@@ -120,7 +123,7 @@ exports.makeUppercase = onValueCreated(
 `,
     );
     symlinkSync(
-      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      firebaseFunctionsPkg,
       join(cwd, 'functions/node_modules/firebase-functions'),
     );
 
@@ -323,7 +326,7 @@ exports.echoMeta = onValueCreated(
 `,
     );
     symlinkSync(
-      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      firebaseFunctionsPkg,
       join(cwd, 'functions/node_modules/firebase-functions'),
     );
 
@@ -450,7 +453,7 @@ exports.noop = onValueCreated('/messages/{pushId}/original', () => {});
 `,
     );
     symlinkSync(
-      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      firebaseFunctionsPkg,
       join(cwd, 'functions/node_modules/firebase-functions'),
     );
 

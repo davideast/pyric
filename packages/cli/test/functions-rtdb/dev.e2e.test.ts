@@ -20,6 +20,9 @@ import {
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
 const cliEntry = join(cliRoot, 'dist/cli/index.js');
+const firebaseFunctionsPkg = existsSync(join(repoRoot, 'packages/conformance/node_modules/firebase-functions'))
+  ? join(repoRoot, 'packages/conformance/node_modules/firebase-functions')
+  : join(repoRoot, 'node_modules/firebase-functions');
 
 let command: ChildProcess | undefined;
 let peer: { close(): Promise<void> } | undefined;
@@ -94,7 +97,7 @@ exports.makeUppercase = onValueCreated(
 );
 `);
       symlinkSync(
-        join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+        firebaseFunctionsPkg,
         join(cwd, 'functions/node_modules/firebase-functions'),
       );
 
@@ -180,7 +183,7 @@ export const makeUppercase = onValueCreated(
 );
 `);
     symlinkSync(
-      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      firebaseFunctionsPkg,
       join(cwd, 'functions/node_modules/firebase-functions'),
     );
 
@@ -297,7 +300,7 @@ exports.stampPresence = onValueCreated('/presence/{uid}/state', async (event) =>
 });
 `);
     symlinkSync(
-      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      firebaseFunctionsPkg,
       join(cwd, 'functions/node_modules/firebase-functions'),
     );
 

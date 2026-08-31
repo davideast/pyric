@@ -30,6 +30,9 @@ import {
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
 const childModule = join(cliRoot, 'dist/functions-rtdb/child.js');
+const firebaseFunctionsPkg = existsSync(join(repoRoot, 'packages/conformance/node_modules/firebase-functions'))
+  ? join(repoRoot, 'packages/conformance/node_modules/firebase-functions')
+  : join(repoRoot, 'node_modules/firebase-functions');
 
 let fixtureDir: string;
 let runtime: ServeRuntime;
@@ -92,7 +95,7 @@ export const notifyOnReply = onValueCreated(
 `,
   );
   symlinkSync(
-    join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+    firebaseFunctionsPkg,
     join(fixtureDir, 'functions/node_modules/firebase-functions'),
   );
   symlinkSync(

@@ -1,12 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { chromium } from '@playwright/test';
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startSoakServe } from './harness.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const FIREBASE_FUNCTIONS = resolve(HERE, '../../../../conformance/node_modules/firebase-functions');
+const conformanceFunctions = resolve(HERE, '../../../../conformance/node_modules/firebase-functions');
+const rootFunctions = resolve(HERE, '../../../../../node_modules/firebase-functions');
+const FIREBASE_FUNCTIONS = existsSync(conformanceFunctions) ? conformanceFunctions : rootFunctions;
 
 test('an unchanged onValueCreated function shares RTDB state with the app and Studio', async () => {
   const serve = await startSoakServe({

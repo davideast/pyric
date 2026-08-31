@@ -47,6 +47,9 @@ type AssertionSpec = { observation: string; assert(local: Behavior, production: 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
 const childModule = join(cliRoot, 'dist/functions-rtdb/child.js');
+const firebaseFunctionsPkg = existsSync(join(repoRoot, 'packages/conformance/node_modules/firebase-functions'))
+  ? join(repoRoot, 'packages/conformance/node_modules/firebase-functions')
+  : join(repoRoot, 'node_modules/firebase-functions');
 const EXACT_NEGATIVE_OBSERVATION_MS = 1_000;
 const STARTUP_OBSERVATION_MS = 15_000;
 
@@ -111,7 +114,7 @@ async function runFixtureOnce(): Promise<RuntimeOutcomes> {
   }));
   writeFileSync(join(cwd, 'functions/index.cjs'), LOCAL_FIXTURE_SOURCE);
   symlinkSync(
-    join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+    firebaseFunctionsPkg,
     join(cwd, 'functions/node_modules/firebase-functions'),
   );
 
