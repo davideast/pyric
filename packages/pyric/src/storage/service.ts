@@ -124,7 +124,7 @@ export interface StorageOptions {
    * origin-scoped, so without this every project served on the same
    * localhost port shared one storage database (issue #359). Ignored when
    * an explicit `dbName` is given; only honored on the FIRST call per
-   * `Sandbox`. Hosts pass their project identity here (`pyric dev` passes
+   * `Sandbox`. Hosts pass their project identity here (`pyric sandbox` passes
    * the served project's key; app handles pass `options.projectId`).
    */
   projectId?: string;

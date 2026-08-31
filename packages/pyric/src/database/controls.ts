@@ -69,7 +69,7 @@ export function forceWebSockets(): void {
  *
  * Accepted no-op: the sandbox has no modular-SDK-style logger to wire a
  * level/sink into (it uses host-level `console` logging directly, gated
- * by `pyric dev`'s own flags — matching `pyric/firestore`'s
+ * by `pyric sandbox`'s own flags — matching `pyric/firestore`'s
  * `setLogLevel`). Accepted so init code that calls it compiles + runs.
  */
 export function enableLogging(

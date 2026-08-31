@@ -37,7 +37,7 @@ the project's package manager.
      `pyric({ bridge: true })` call. Do not add a second `plugins` property. Start the existing
      dev script, such as `npm run dev` or `bun run dev`. Do not also start `pyric sandbox`.
    - **Existing non-Vite app:** Preserve its development command. Replace any retired
-     `pyric dev` or `pyric serve` launcher with `pyric sandbox`. Put Pyric flags before the
+     Pyric launcher with `pyric sandbox`. Put Pyric flags before the
      first child command token. Use `--` to separate the child command when it could be
      mistaken for a Pyric flag. A complete command looks like
      `pyric sandbox --bridge --persist --json -- <command>`. If `pyric.json` defines

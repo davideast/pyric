@@ -25,7 +25,7 @@ function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOpt
 /**
  * Higher-order configuration wrapper for Next.js (`next.config.js` or `next.config.mjs`).
  *
- * During development mode (`pyric dev` or non-production NODE_ENV):
+ * During development mode (`pyric sandbox` or non-production NODE_ENV):
  *   - Applies Webpack and Turbopack alias mappings to swap `firebase/*` imports
  *     for Pyric local sandbox mirrors on client components.
  *   - Adds `firebase` and `firebase-admin` to `serverExternalPackages` to prevent
