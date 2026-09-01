@@ -1,0 +1,109 @@
+{
+  "name": "rules-storage-error-absorption-and-direction",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#133"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"error-absorption-and-or\" (STORAGE-P4-ERROR-ABSORPTION). Storage && absorbs commutatively like Firestore: !(error && false) allows; (error && false) == false allows; error && true and true && error propagate to DENY.",
+  "observedAt": "2026-09-01T05:01:30.031Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "!(error && false) \u2192 absorbed to false, negated \u2192 ALLOW": "ALLOW",
+    "(error && false) == false \u2192 ALLOW": "ALLOW",
+    "!(false && error) \u2192 short-circuit control \u2192 ALLOW": "ALLOW",
+    "error && true \u2192 propagates \u2192 DENY": "DENY",
+    "true && error \u2192 propagates \u2192 DENY (commutative twin)": "DENY",
+    "(error || true) == true \u2192 ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "!(error && false) \u2192 absorbed to false, negated \u2192 ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 22,
+              "currentOffset": 201,
+              "endOffset": 201
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "(error && false) == false \u2192 ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 10,
+              "column": 22,
+              "currentOffset": 357,
+              "endOffset": 357
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "!(false && error) \u2192 short-circuit control \u2192 ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 22,
+              "currentOffset": 524,
+              "endOffset": 524
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "error && true \u2192 propagates \u2192 DENY": {
+      "notes": [
+        "Error: storage.rules line [18], column [26]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 18,
+          "column": 26,
+          "currentOffset": 686,
+          "endOffset": 686
+        }
+      }
+    },
+    "true && error \u2192 propagates \u2192 DENY (commutative twin)": {
+      "notes": [
+        "Error: storage.rules line [22], column [34]. Divide by zero error."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 22,
+          "column": 34,
+          "currentOffset": 857,
+          "endOffset": 857
+        }
+      }
+    },
+    "(error || true) == true \u2192 ALLOW": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 26,
+              "column": 22,
+              "currentOffset": 1001,
+              "endOffset": 1001
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}
