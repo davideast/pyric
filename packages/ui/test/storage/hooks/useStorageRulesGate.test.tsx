@@ -168,7 +168,7 @@ describe('useStorageRulesGate', () => {
     expect(result.current.verdicts['users/bob/b.txt'].write).toBe(false);
   });
 
-  it('no rules configured → source "none", everything allows (open-by-default parity)', async () => {
+  it('no rules configured → source "none", everything denies (fail-closed parity)', async () => {
     const sandbox = initializeSandbox({});
     const storage = getStorageSandbox(sandbox, {
       dbName: uniqueDbName('norules'),
@@ -176,9 +176,11 @@ describe('useStorageRulesGate', () => {
     const { result } = renderHook(runHook, { storage });
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(result.current.source).toBe('none');
-    // Mirrors enforce.ts: no rules → allow. The real op agrees.
-    expect(result.current.verdictFor('anywhere/x.txt').write).toBe(true);
-    await uploadBytes(ref(storage, 'anywhere/x.txt'), new Blob(['x']));
+    // Mirrors enforce.ts: no rules → deny. The real op agrees.
+    expect(result.current.verdictFor('anywhere/x.txt').write).toBe(false);
+    await expect(
+      uploadBytes(ref(storage, 'anywhere/x.txt'), new Blob(['x'])),
+    ).rejects.toMatchObject({ code: 'storage/unauthorized' });
   });
 
   it('explicit rules option wins over the sandbox ruleset; malformed source → error (fails open)', async () => {

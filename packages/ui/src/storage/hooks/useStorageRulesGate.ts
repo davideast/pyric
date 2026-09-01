@@ -18,9 +18,8 @@ export type StorageRulesGateStatus = 'idle' | 'loading' | 'ready' | 'error';
  * - `'sandbox'` — the ruleset deployed on the sandbox handle
  *   (`getStorageSandbox(ctx, { rules })`), read off the handle's
  *   `StorageService`.
- * - `'none'` — no rules reachable. Every verdict allows
- *   (open-by-default, the same semantics `pyric/storage`'s
- *   enforcement layer applies when no rules are configured).
+ * - `'none'` — no rules reachable. Once resolution completes, every verdict
+ *   denies, matching `pyric/storage`'s fail-closed enforcement.
  */
 export type StorageRulesSource = 'option' | 'sandbox' | 'none';
 
@@ -89,10 +88,8 @@ export interface UseStorageRulesGateResult {
   /**
    * Evaluate an arbitrary path under the current ruleset + identity.
    * Pure and synchronous once `status` is `'ready'`; before that
-   * (and whenever no rules are reachable) it returns the allow-all
-   * verdict — the gate FAILS OPEN, because affordances are advisory
-   * and the real enforcement (sandbox throw / server denial) stays
-   * authoritative.
+   * it returns the allow-all verdict. A ready rules-less handle returns the
+   * deny-all verdict, matching the enforcement layer's default.
    */
   verdictFor: (path: string) => StorageGateVerdict;
   /** Rules-resolution failure (e.g. a malformed `rules` string). */
@@ -108,6 +105,18 @@ const ALLOW_ALL: StorageGateVerdict = Object.freeze({
   reasons: Object.freeze({
     read: [] as string[],
     write: [] as string[],
+  }) as StorageGateVerdict['reasons'],
+});
+
+/** Shared fail-closed verdict for a ready handle with no deployed rules. */
+const DENY_ALL: StorageGateVerdict = Object.freeze({
+  read: false,
+  write: false,
+  delete: false,
+  upload: false,
+  reasons: Object.freeze({
+    read: ['No Storage rules configured; default deny.'],
+    write: ['No Storage rules configured; default deny.'],
   }) as StorageGateVerdict['reasons'],
 });
 
@@ -212,7 +221,7 @@ export function useStorageRulesGate(
 
   const verdictFor = useCallback(
     (path: string): StorageGateVerdict => {
-      if (rules == null) return ALLOW_ALL;
+      if (rules == null) return status === 'ready' ? DENY_ALL : ALLOW_ALL;
       const objectPath = normalizeStoragePath(path);
       const bucket = target?.bucket ?? 'pyric-default';
       const rulesPath = objectPath === '' ? `b/${bucket}/o` : `b/${bucket}/o/${objectPath}`;
@@ -243,7 +252,7 @@ export function useStorageRulesGate(
         },
       };
     },
-    [rules, target?.bucket, identity, writeSize, writeContentType],
+    [rules, status, target?.bucket, identity, writeSize, writeContentType],
   );
 
   const pathsKey = typeof paths === 'string' ? paths : (paths ?? []).join('\n');

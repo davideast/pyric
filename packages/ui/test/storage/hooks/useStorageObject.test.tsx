@@ -13,6 +13,7 @@ import {
 } from 'pyric/storage';
 import { useStorageObject } from '../../../src/storage/hooks/useStorageObject.js';
 import { renderHook, waitFor, act } from '../../helpers/render-hook.js';
+import { OPEN_STORAGE_RULES } from '../open-storage-rules.js';
 
 function uniqueDbName(label: string): string {
   return `pyric-ui-object-${label}-${Math.random().toString(36).slice(2, 10)}`;
@@ -20,7 +21,10 @@ function uniqueDbName(label: string): string {
 
 function makeStorage(label: string): FirebaseStorage {
   const sandbox = initializeSandbox({});
-  return getStorageSandbox(sandbox, { dbName: uniqueDbName(label) });
+  return getStorageSandbox(sandbox, {
+    dbName: uniqueDbName(label),
+    rules: OPEN_STORAGE_RULES,
+  });
 }
 
 type HookProps = { storage: FirebaseStorage | null; path: string | null };
@@ -184,7 +188,10 @@ service firebase.storage {
       // handle can read NOTHING, so force the asymmetry via a
       // size-conditioned rule instead: reads allowed, but the object
       // is deleted between metadata load and blob load.
-      const storage = getStorageSandbox(sandbox, { dbName });
+      const storage = getStorageSandbox(sandbox, {
+        dbName,
+        rules: OPEN_STORAGE_RULES,
+      });
       await uploadBytes(ref(storage, 'a.txt'), new Blob(['a']));
 
       const { result } = renderHook(runHook, { storage, path: 'a.txt' });

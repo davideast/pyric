@@ -14,24 +14,13 @@
  */
 import { initializeApp } from 'pyric/app';
 import { getStorage, ref, uploadBytes } from 'pyric/storage';
-import { initializeSandbox } from 'pyric/sandbox';
-import { createAppForSandbox } from 'pyric/app/internal';
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
-
-const OPEN_RULES = `
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{path=**} { allow read, write: if true; }
-  }
-}`;
+import { createConfiguredStorageApp } from '../entry-path-support/storage.ts';
 
 export async function run(): Promise<void> {
   // Keep the public quickstart initialization in the critical path while the
   // harness supplies the project rules that production normally deploys.
   initializeApp({ projectId: 'entry-path-project' });
-  const sandbox = initializeSandbox();
-  getAdminStorageSandbox(sandbox, { rules: OPEN_RULES });
-  const app = createAppForSandbox(sandbox, { projectId: 'entry-path-project' }, 'entry-path-storage');
+  const app = createConfiguredStorageApp();
   const storage = getStorage(app);
   const storageRef = ref(storage, 'entry-path/quickstart.txt');
 
