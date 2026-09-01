@@ -196,6 +196,13 @@ describe('sideEffects survives a real tree-shaking pass', () => {
     expect(output).toContain('registerHooks');
     expect(output).toContain('PYRIC_SANDBOX');
     expect(output).toContain('pyric.remote.sandboxFactory');
+    // TA.4: the handshake beacon lives in `register/beacon.ts`, reached only
+    // by a static import from the listed entry. That edge is what keeps it
+    // inside the allowlist's protection — a beacon pruned out of the bundle
+    // would leave `pyric dev`'s watchdog warning about every child forever.
+    expect(output).toContain('register: beacon');
+    expect(output).toContain('/__pyric/beacon');
+    expect(output).toContain('emitBeacon');
   }, 60_000);
 
   it('keeps the pyric/app/register swap entry', async () => {

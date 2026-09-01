@@ -23,7 +23,7 @@ import {
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { INLINE_FINGERPRINT_HOSTS } from '../google-endpoints.js';
-import type { InitPayload } from '../serve/namespace.js';
+import { formatBeaconReceipt, type InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { injectServeTags } from '../serve/html-injection.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
@@ -33,11 +33,15 @@ import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
 import {
   buildChildEnv,
+  describeInterlock,
+  formatInterlockLine,
   formatStartupEnvExport,
   registerModuleUrl,
   resolveSandboxChild,
   spawnSandboxChild,
+  startBeaconWatchdog,
   waitForSandboxPeer,
+  type BeaconWatchdog,
   type SandboxChildHandle,
 } from './sandbox-runner.js';
 import {
@@ -90,6 +94,9 @@ export interface ServeRuntime {
   uiUrl: string | null;
   /** Persistence summary (null when `--persist` is off). */
   persist: { restoredDocs: number; restoredUsers: number } | null;
+  /** How many handshake beacons pyric-launched children have posted to
+   *  `/__pyric/beacon` so far — the interlock watchdog's only input. */
+  beaconCount: () => number;
 }
 
 /** The `--json` stdout contract — one line, keep stable; agents parse this.
@@ -153,6 +160,11 @@ export async function startServe(opts: {
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
 }): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
+
+  // Handshake beacons received from pyric-launched children (TA.4). Counted
+  // here because the namespace route lives in this server; `runServe`'s
+  // watchdog reads it back off the returned runtime.
+  let beaconsSeen = 0;
 
   // --fresh only means anything against the state.json file `--persist`
   // maintains — without `--persist` there is no file to discard, so
@@ -308,6 +320,10 @@ export async function startServe(opts: {
       studio: opts.ui ? { siteUiDir } : false,
       bridgeUrl: () => mount && origin.port > 0 ? mount.wsUrl(origin) : null,
       activity: (incident) => logger.note(formatActivityWarning(incident)),
+      beacon: (report) => {
+        beaconsSeen += 1;
+        logger.note(formatBeaconReceipt(report));
+      },
       permissive: opts.permissive,
       logger,
     });
@@ -562,7 +578,15 @@ export async function startServe(opts: {
   logger.note('');
   logger.note('  ⚠ the pyric sandbox runs IN the served page — keep the browser tab open.');
   logger.note('    Firestore/auth data and persistence stop when no page is open.');
-  return { handle, publicDir, payload, uiUrl, mcpUrl: mount ? mount.mcpUrl(origin) : null, persist: persistSummary };
+  return {
+    handle,
+    publicDir,
+    payload,
+    uiUrl,
+    mcpUrl: mount ? mount.mcpUrl(origin) : null,
+    persist: persistSummary,
+    beaconCount: () => beaconsSeen,
+  };
 }
 
 /**
@@ -788,6 +812,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   }
 
   let devChild: SandboxChildHandle | null = null;
+  let beaconWatchdog: BeaconWatchdog | null = null;
   let functionsRuntime: FunctionsDevelopmentRuntime | null = null;
   let resolveFunctionsExit!: (code: number) => void;
   const functionsExited = new Promise<number>((resolve) => { resolveFunctionsExit = resolve; });
@@ -810,6 +835,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     ]);
   const stopAfterSignal = async (): Promise<number> => {
     (json ? process.stderr : process.stdout).write('\nShutting down...\n');
+    beaconWatchdog?.stop();
     if (devChild && devChild.child.exitCode === null) devChild.signal(await signal);
     await functionsRuntime?.close().catch(() => undefined);
     await runtime.handle.stop().catch(() => undefined);
@@ -919,13 +945,39 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     info.write(
       `✔ run      \`${plan.label}\` — firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
     );
-    devChild = spawnSandboxChild(plan, {
-      cwd,
-      json,
-      env: buildChildEnv(process.env, {
-        serveUrl: runtime.handle.url,
-        registerUrl: registerModuleUrl(),
-      }),
+    const childEnv = buildChildEnv(process.env, {
+      serveUrl: runtime.handle.url,
+      registerUrl: registerModuleUrl(),
+    });
+    // The interlock status line: what we are handing the child, stated before
+    // it starts — guard mode, whether NODE_OPTIONS really carries the register
+    // import, and where the child's handshake beacon will land. All of it is
+    // knowable from the env we just assembled, so it prints alongside the
+    // other startup checks rather than waiting on the child.
+    const interlock = describeInterlock(childEnv, registerModuleUrl());
+    info.write(formatInterlockLine(interlock));
+    devChild = spawnSandboxChild(plan, { cwd, json, env: childEnv });
+    // …and the warn-only watchdog for the other half: a child that is still
+    // alive well after launch and has never posted a beacon is very likely
+    // NOT intercepted. It says so once and does nothing else — see
+    // `startBeaconWatchdog` for why this never escalates to a kill.
+    //
+    // The signal is a COUNT DELTA rather than a pid match, deliberately. The
+    // process that loads register is often a grandchild (`npm run dev` → node,
+    // `next dev` → its worker), so `devChild.child.pid` is frequently not the
+    // pid in the beacon; matching on it would warn about perfectly healthy
+    // launches. The delta's known imprecision is the other direction — the
+    // functions runtime's own register-preloaded child also beacons, and it
+    // starts BEFORE this line, so its beacon is already inside the baseline;
+    // only one restarting inside the grace window could mask a real miss.
+    // Erring toward silence is the right bias for a warn-only check.
+    const beaconsAtSpawn = runtime.beaconCount();
+    beaconWatchdog = startBeaconWatchdog({
+      label: plan.label,
+      beacon: interlock.beacon,
+      sawBeacon: () => runtime.beaconCount() > beaconsAtSpawn,
+      isAlive: () => devChild !== null && devChild.child.exitCode === null,
+      warn: (line) => void process.stderr.write(`${line}\n`),
     });
   } else if (!json) {
     process.stdout.write(
@@ -943,6 +995,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       if (settled) return;
       settled = true;
       void (async () => {
+        beaconWatchdog?.stop();
         await functionsRuntime?.close().catch(() => undefined);
         if (devChild && devChild.child.exitCode === null) {
           devChild.signal('SIGTERM');

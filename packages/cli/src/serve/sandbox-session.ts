@@ -14,6 +14,7 @@ import {
   rulesHashOf,
 } from './rules.js';
 import { createEventHub, createPyricNamespace } from './namespace.js';
+import type { BeaconReport } from '../register/beacon.js';
 import { diskProjectStore, diskWorkspace } from './studio/index.js';
 import type { ServeLogger } from './server.js';
 import {
@@ -38,6 +39,9 @@ export interface SandboxSessionOptions {
   permissive?: boolean;
   logger?: ServeLogger;
   activity?: (incident: ActivityIncident) => void;
+  /** Receives one handshake beacon per pyric-launched child — the dev
+   *  server's only positive proof that the register module reached it. */
+  beacon?: (report: BeaconReport) => void;
 }
 
 export interface SandboxSessionSummary {
@@ -212,6 +216,7 @@ export async function createSandboxSession(
     workerVersion: options.sdk.workerVersion,
     aiProxyUpstream: options.aiProxyUpstream,
     activity: options.activity,
+    beacon: options.beacon,
     logger: options.logger,
   });
 

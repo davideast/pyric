@@ -22,6 +22,11 @@
  * reports — or, under `PYRIC_GUARD=block`, refuses — egress from this process
  * to live Google/Firebase endpoints. See that module for the policy and the
  * `PYRIC_GUARD` / `PYRIC_GUARD_ALLOW` knobs.
+ *
+ * Finally it emits the HANDSHAKE BEACON (`./beacon.js`) — one structured
+ * stderr line plus, when the activator carries a bridge URL, a fire-and-forget
+ * `POST /__pyric/beacon`. That is how `pyric dev` learns that interception
+ * actually reached this child rather than assuming it did.
  */
 import Module from 'node:module';
 import { readFileSync } from 'node:fs';
@@ -29,7 +34,8 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mapFirebaseSpecifier } from './mapping.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
-import { installNetGuard } from './net-guard.js';
+import { installNetGuard, parseGuardMode } from './net-guard.js';
+import { emitBeacon } from './beacon.js';
 import { remoteSandbox } from '../remote/index.js';
 
 /** The shared seam with pyric-admin's ambient init: a synchronous factory
@@ -110,9 +116,15 @@ function activate(): void {
   // — let alone blocking — its perfectly legitimate Google traffic would be
   // actively harmful. `PYRIC_SANDBOX` plus no refusal is the only state in
   // which "traffic to live Google is a bug" is a true statement.
-  installNetGuard();
+  const guard = installNetGuard();
+
+  // Whether module resolution is actually being intercepted. Both branches
+  // below install SOMETHING, but a runtime with neither API installs nothing
+  // — and that is precisely the state the beacon exists to make visible.
+  let hooksInstalled = false;
 
   if (typeof moduleApi.registerHooks === 'function') {
+    hooksInstalled = true;
     moduleApi.registerHooks({
       resolve(specifier, context, nextResolve) {
         const mapped = mapFirebaseSpecifier(specifier, context.parentURL);
@@ -139,6 +151,7 @@ function activate(): void {
         'falling back to module.register: ESM imports of firebase-admin/firebase are rewritten, ' +
         "but CJS require('firebase-admin') is NOT intercepted. Upgrade Node to >= 22.15 for full coverage.\n",
     );
+    hooksInstalled = typeof moduleApi.register === 'function';
     moduleApi.register?.(new URL('./hooks.js', import.meta.url));
   }
 
@@ -151,6 +164,20 @@ function activate(): void {
     `@pyric/cli/register: active — firebase-admin/firebase imports now resolve to the ` +
       `pyric sandbox (PYRIC_SANDBOX=${process.env.PYRIC_SANDBOX}).\n`,
   );
+
+  // LAST: the handshake beacon, after the guard, the hooks and the factory
+  // global are all in place. Its whole claim is "interception is live in this
+  // process", so it must not be able to run before that is true. See
+  // `./beacon.js` for the two channels and why the POST is fire-and-forget.
+  // `installNetGuard` returns null only for `PYRIC_GUARD=off` here (the
+  // `PYRIC_SANDBOX` gate it shares with us already passed), so re-parsing the
+  // env is the honest way to name the mode in force either way.
+  emitBeacon({
+    pid: process.pid,
+    guard: guard?.mode ?? parseGuardMode(process.env.PYRIC_GUARD),
+    hooks: hooksInstalled,
+    sandbox: process.env.PYRIC_SANDBOX ?? '',
+  });
 }
 
 /** Whether this process's firebase-admin/firebase imports are being rewritten

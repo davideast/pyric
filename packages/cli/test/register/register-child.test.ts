@@ -9,7 +9,8 @@
  * dist/register/index.js and the pyric mirrors' dist output.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createServer, type Server } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -38,10 +39,46 @@ function runNode(
   const res = spawnSync('node', ['--import', registerUrl, script], {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, NODE_ENV: undefined, PYRIC_SANDBOX: undefined, PYRIC_SANDBOX_FORCE: undefined, ...env },
+    env: {
+      ...process.env,
+      NODE_ENV: undefined,
+      PYRIC_SANDBOX: undefined,
+      PYRIC_SANDBOX_FORCE: undefined,
+      PYRIC_GUARD: undefined,
+      ...env,
+    },
     timeout: 30_000,
   });
   return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+}
+
+/** Same launch, non-blocking — required whenever this process must SERVE the
+ *  child while it runs (the beacon POST). */
+function runNodeAsync(
+  script: string,
+  env: Record<string, string | undefined>,
+  cwd: string = fixtureDir,
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  const child = spawn('node', ['--import', registerUrl, script], {
+    cwd,
+    env: {
+      ...process.env,
+      NODE_ENV: undefined,
+      PYRIC_SANDBOX: undefined,
+      PYRIC_SANDBOX_FORCE: undefined,
+      PYRIC_GUARD: undefined,
+      ...env,
+    } as NodeJS.ProcessEnv,
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (c: string) => { stdout += c; });
+  child.stderr.on('data', (c: string) => { stderr += c; });
+  return new Promise((resolve) => {
+    child.once('exit', (status) => resolve({ status, stdout, stderr }));
+  });
 }
 
 beforeAll(() => {
@@ -210,6 +247,22 @@ console.log(JSON.stringify({
 `;
   writeFileSync(join(fixtureDir, 'probe.mjs'), probeSource);
   writeFileSync(join(inactiveFixtureDir, 'probe.mjs'), probeSource);
+
+  // Beacon fixture (TA.4-A): touches nothing, just lingers long enough for
+  // the fire-and-forget POST to land before the process exits.
+  const beaconSource = `await new Promise((r) => setTimeout(r, 1200));
+console.log('BEACON_FIXTURE_OK');
+`;
+  writeFileSync(join(fixtureDir, 'beacon.mjs'), beaconSource);
+  writeFileSync(join(inactiveFixtureDir, 'beacon.mjs'), beaconSource);
+
+  // A plain CJS entry point with NO Next.js anywhere in sight — the
+  // entry-point-agnostic production refusal (TA.4-C) has to hold here too.
+  writeFileSync(
+    join(inactiveFixtureDir, 'plain.cjs'),
+    `console.log('PLAIN_CJS_OK:' + (globalThis[Symbol.for('pyric.remote.sandboxFactory')] === undefined));
+`,
+  );
 });
 
 afterAll(() => {
@@ -302,4 +355,115 @@ describe('@pyric/cli/register (child process)', () => {
       factory: 'function',
     });
   });
+
+  /**
+   * TA.4-C — the NODE_ENV=production refusal is a property of the ACTIVATOR,
+   * not of any entry point: it is gated on `PYRIC_SANDBOX` alone, so it holds
+   * for a bare CJS script with no Next.js, no bundler and no framework config
+   * in the picture. The passthrough is the single existing
+   * `PYRIC_SANDBOX_FORCE=1` flag that `next/guard.ts:isProductionPassthrough`
+   * also reads — there is deliberately no second override.
+   */
+  it('refuses NODE_ENV=production for a plain CJS entry point too (no Next anywhere)', () => {
+    const res = runNode(
+      'plain.cjs',
+      { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', NODE_ENV: 'production' },
+      inactiveFixtureDir,
+    );
+    expect(res.status).toBe(0);
+    expect(res.stderr).toContain('refusing to activate under NODE_ENV=production');
+    expect(res.stderr).not.toContain('@pyric/cli/register: beacon');
+    expect(res.stdout).toContain('PLAIN_CJS_OK:true');
+  });
+
+  it('honours PYRIC_SANDBOX_FORCE=1 for a plain CJS entry point', () => {
+    const res = runNode(
+      'plain.cjs',
+      {
+        PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000',
+        NODE_ENV: 'production',
+        PYRIC_SANDBOX_FORCE: '1',
+      },
+      inactiveFixtureDir,
+    );
+    expect(res.status).toBe(0);
+    expect(res.stderr).toContain('@pyric/cli/register: beacon ACTIVE');
+    expect(res.stdout).toContain('PLAIN_CJS_OK:false');
+  });
+});
+
+/**
+ * TA.4-A — the handshake beacon. Two channels: the structured stderr line
+ * (always) and the POST to `/__pyric/beacon` (whenever the child env carries
+ * a bridge URL). Both prove the same thing — interception is installed in
+ * THIS process — so the parent can observe it without guessing.
+ */
+describe('@pyric/cli/register beacon (child process)', () => {
+  it('writes one structured beacon line on activation', () => {
+    const res = runNode('beacon.mjs', { PYRIC_SANDBOX: 'local', PYRIC_GUARD: 'block' });
+    expect(res.status).toBe(0);
+    const line = res.stderr.split('\n').find((l) => l.includes('@pyric/cli/register: beacon'));
+    expect(line).toBeDefined();
+    expect(line).toContain('beacon ACTIVE');
+    expect(line).toMatch(/pid=\d+/);
+    expect(line).toContain('guard=block');
+    expect(line).toContain('hooks=1');
+    // `local` carries no bridge URL — the line says so rather than guessing.
+    expect(line).toContain('bridge=none');
+  });
+
+  it('emits no beacon at all without the activator', () => {
+    const res = runNode('beacon.mjs', {}, inactiveFixtureDir);
+    expect(res.status).toBe(0);
+    expect(res.stderr).not.toContain('@pyric/cli/register: beacon');
+  });
+
+  it('POSTs the report to /__pyric/beacon on the bridge from PYRIC_SANDBOX', async () => {
+    const received: Array<{ url: string; method: string; body: string }> = [];
+    const server: Server = createServer((req, res) => {
+      let raw = '';
+      req.setEncoding('utf8');
+      req.on('data', (c: string) => { raw += c; });
+      req.on('end', () => {
+        received.push({ url: req.url ?? '', method: req.method ?? '', body: raw });
+        res.writeHead(204).end();
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      // ASYNC spawn, deliberately: `spawnSync` would block this process's
+      // event loop for the child's whole lifetime, so the listener above
+      // could never accept the beacon it is here to receive.
+      const res = await runNodeAsync('beacon.mjs', {
+        PYRIC_SANDBOX: `remote:http://127.0.0.1:${port}`,
+        PYRIC_GUARD: 'warn',
+      });
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain('BEACON_FIXTURE_OK');
+      expect(received).toHaveLength(1);
+      expect(received[0]!.method).toBe('POST');
+      expect(received[0]!.url).toBe('/__pyric/beacon');
+      const report = JSON.parse(received[0]!.body) as {
+        pid: number;
+        guard: string;
+        hooks: boolean;
+      };
+      expect(report.guard).toBe('warn');
+      expect(report.hooks).toBe(true);
+      expect(report.pid).toBeGreaterThan(0);
+      // The stderr fallback carries the same facts, always.
+      expect(res.stderr).toContain(`bridge=http://127.0.0.1:${port}/__pyric/beacon`);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  }, 30_000);
+
+  it('survives a bridge that refuses the beacon — the child still runs', () => {
+    // Port 1 is reliably not listening; the POST must fail silently.
+    const res = runNode('beacon.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:1' });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('BEACON_FIXTURE_OK');
+    expect(res.stderr).toContain('@pyric/cli/register: beacon ACTIVE');
+  }, 30_000);
 });
