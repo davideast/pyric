@@ -121,6 +121,18 @@ describe('chip-user-search', () => {
 
       expect(input).toBeDefined();
       expect(chips.length).toBeGreaterThan(0);
+      expect([...chips].find((chip) => chip.textContent === 'All')?.getAttribute('aria-pressed')).toBe('true');
+
+      const admins = [...chips].find((chip) => chip.textContent === 'Admins')!;
+      admins.click();
+      const updatedChips = [...container.querySelectorAll<HTMLButtonElement>('.filter-chip')];
+      expect(updatedChips.find((chip) => chip.textContent === 'Admins')?.getAttribute('aria-pressed')).toBe('true');
+      expect(updatedChips.find((chip) => chip.textContent === 'All')?.getAttribute('aria-pressed')).toBe('false');
+      updatedChips.find((chip) => chip.textContent === 'Admins')?.click();
+      expect(
+        [...container.querySelectorAll<HTMLButtonElement>('.filter-chip')]
+          .find((chip) => chip.textContent === 'All')?.getAttribute('aria-pressed'),
+      ).toBe('true');
 
       // Focus input triggers candidate rendering
       input.focus();

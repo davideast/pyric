@@ -1,36 +1,28 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { JSDOM } from 'jsdom';
 import {
-  createChipDialogController as createChipDialogControllerImpl,
+  createChipDialogController,
   DIALOG_STYLES,
 } from '../../../src/serve/runtime/chip-dialog.js';
-import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
+import type {
+  RuntimeIdentity,
+  RuntimeIdentityBindings,
+} from '../../../src/serve/runtime/identity.js';
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
 
-function createChipDialogController(options: {
-  shadowRoot: ShadowRoot;
-  listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
-  onSwitchUser: (uid: string) => Promise<void> | void;
-  onSignOut: () => Promise<void> | void;
-  onOpenCreateUser: () => void;
-  onToggleAdminBypass: (enable: boolean) => void;
-  getCurrentUser: () => RuntimeIdentity | null;
-  getLens: () => AuthLens | undefined;
-}) {
-  return createChipDialogControllerImpl({
-    shadowRoot: options.shadowRoot,
-    identity: {
-      listUsers: options.listUsers ?? (() => []),
-      switchUser: options.onSwitchUser,
-      signOut: options.onSignOut,
-      openCreateUser: options.onOpenCreateUser,
-      getCurrentUser: options.getCurrentUser,
-      subscribeAuth: () => () => {},
-    },
-    onToggleAdminBypass: options.onToggleAdminBypass,
-    getLens: options.getLens,
-  });
+function identity(
+  overrides: Partial<RuntimeIdentityBindings> = {},
+): RuntimeIdentityBindings {
+  return {
+    listUsers: () => [],
+    switchUser: () => {},
+    signOut: () => {},
+    openCreateUser: () => {},
+    getCurrentUser: () => null,
+    subscribeAuth: () => () => {},
+    ...overrides,
+  };
 }
 
 describe('chip-dialog', () => {
@@ -89,11 +81,8 @@ describe('chip-dialog', () => {
     let currentUser: RuntimeIdentity | null = { uid: 'user-1', email: 'u1@example.com' };
     const controller = createChipDialogController({
       shadowRoot,
-      getCurrentUser: () => currentUser,
+      identity: identity({ getCurrentUser: () => currentUser }),
       getLens: () => undefined,
-      onSwitchUser: () => {},
-      onSignOut: () => {},
-      onOpenCreateUser: () => {},
       onToggleAdminBypass: () => {},
     });
 
@@ -110,11 +99,8 @@ describe('chip-dialog', () => {
     let currentUser: RuntimeIdentity | null = { uid: 'user-1', displayName: 'David East' };
     const controller = createChipDialogController({
       shadowRoot,
-      getCurrentUser: () => currentUser,
+      identity: identity({ getCurrentUser: () => currentUser }),
       getLens: () => undefined,
-      onSwitchUser: () => {},
-      onSignOut: () => {},
-      onOpenCreateUser: () => {},
       onToggleAdminBypass: () => {},
     });
 
@@ -136,11 +122,11 @@ describe('chip-dialog', () => {
     const onSignOut = mock(() => {});
     const controller = createChipDialogController({
       shadowRoot,
-      getCurrentUser: () => ({ uid: 'user-1' }),
+      identity: identity({
+        getCurrentUser: () => ({ uid: 'user-1' }),
+        signOut: onSignOut,
+      }),
       getLens: () => undefined,
-      onSwitchUser: () => {},
-      onSignOut,
-      onOpenCreateUser: () => {},
       onToggleAdminBypass: () => {},
     });
 
@@ -157,12 +143,11 @@ describe('chip-dialog', () => {
     const onSwitchUser = mock((_uid: string) => {});
     const controller = createChipDialogController({
       shadowRoot,
-      listUsers: () => mockUsers,
-      getCurrentUser: () => null,
+      identity: identity({
+        listUsers: () => mockUsers,
+        switchUser: onSwitchUser,
+      }),
       getLens: () => undefined,
-      onSwitchUser,
-      onSignOut: () => {},
-      onOpenCreateUser: () => {},
       onToggleAdminBypass: () => {},
     });
 
@@ -183,11 +168,8 @@ describe('chip-dialog', () => {
     const onOpenCreateUser = mock(() => {});
     const controller = createChipDialogController({
       shadowRoot,
-      getCurrentUser: () => null,
+      identity: identity({ openCreateUser: onOpenCreateUser }),
       getLens: () => undefined,
-      onSwitchUser: () => {},
-      onSignOut: () => {},
-      onOpenCreateUser,
       onToggleAdminBypass: () => {},
     });
 
@@ -207,11 +189,8 @@ describe('chip-dialog', () => {
 
     const controller = createChipDialogController({
       shadowRoot,
-      getCurrentUser: () => null,
+      identity: identity(),
       getLens: () => currentLens,
-      onSwitchUser: () => {},
-      onSignOut: () => {},
-      onOpenCreateUser: () => {},
       onToggleAdminBypass,
     });
 
@@ -225,11 +204,8 @@ describe('chip-dialog', () => {
   it('safely restores focus to trigger button upon close without failing if trigger is detached', async () => {
     const controller = createChipDialogController({
       shadowRoot,
-      getCurrentUser: () => null,
+      identity: identity(),
       getLens: () => undefined,
-      onSwitchUser: () => {},
-      onSignOut: () => {},
-      onOpenCreateUser: () => {},
       onToggleAdminBypass: () => {},
     });
 
@@ -253,11 +229,8 @@ describe('chip-dialog', () => {
   it('supports repeated open and close cycles without stale dialog state', async () => {
     const controller = createChipDialogController({
       shadowRoot,
-      getCurrentUser: () => null,
+      identity: identity(),
       getLens: () => undefined,
-      onSwitchUser: () => {},
-      onSignOut: () => {},
-      onOpenCreateUser: () => {},
       onToggleAdminBypass: () => {},
     });
 
@@ -279,12 +252,11 @@ describe('chip-dialog', () => {
     const onSwitchUser = mock((_uid: string) => {});
     const controller = createChipDialogController({
       shadowRoot,
-      listUsers: () => users,
-      getCurrentUser: () => null,
+      identity: identity({
+        listUsers: () => users,
+        switchUser: onSwitchUser,
+      }),
       getLens: () => undefined,
-      onSwitchUser,
-      onSignOut: () => {},
-      onOpenCreateUser: () => {},
       onToggleAdminBypass: () => {},
     });
 
@@ -299,11 +271,8 @@ describe('chip-dialog', () => {
     const onToggleAdminBypass = mock((_enable: boolean) => {});
     const controller = createChipDialogController({
       shadowRoot,
-      getCurrentUser: () => null,
+      identity: identity(),
       getLens: () => undefined,
-      onSwitchUser: () => {},
-      onSignOut: () => {},
-      onOpenCreateUser: () => {},
       onToggleAdminBypass,
     });
     const toggle = controller.element.querySelector<HTMLButtonElement>('[data-action-toggle-admin]')!;

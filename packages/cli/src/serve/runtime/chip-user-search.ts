@@ -202,7 +202,9 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
       const button = documentLike.createElement('button');
       button.type = 'button';
       button.className = 'filter-chip';
-      if (activeFilter === category.id) button.classList.add('selected');
+      const isSelected = activeFilter === category.id;
+      if (isSelected) button.classList.add('selected');
+      button.setAttribute('aria-pressed', String(isSelected));
       button.dataset.filter = category.id ?? '';
       button.textContent = category.label;
       filterChipsEl.append(button);

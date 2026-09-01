@@ -283,6 +283,17 @@ describe('PyricRuntimeChip', () => {
     expect(root.querySelector('[data-identity-badge]')).toBeNull();
   });
 
+  it('shows authenticated identity and rules bypass as independent collapsed signals', () => {
+    const { root } = setup({
+      initialUser: { uid: 'sam-uid' },
+      initialLens: { mode: 'admin' },
+    });
+
+    const signals = [...root.querySelectorAll('[data-identity-badge]')]
+      .map((element) => element.textContent);
+    expect(signals).toEqual(['as: sam-uid', 'bypass rules']);
+  });
+
   it('keeps a dedicated Identity row mounted across authentication changes', () => {
     const { root, setCurrentUser } = setup({ initiallyOpen: true });
     const initialRows = root.querySelectorAll('.worker-state');

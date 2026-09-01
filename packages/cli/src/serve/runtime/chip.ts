@@ -322,14 +322,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const isAdmin = lens?.mode === 'admin';
     const activeUid = lens?.mode === 'as' ? lens.uid : user?.uid;
 
-    let identitySignalHtml = '';
+    const identitySignals: string[] = [];
     let identityStateHtml = '<span class="epochs" data-identity-state>App session</span>';
     if (activeUid) {
-      identitySignalHtml = `<span class="signal" data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`;
+      identitySignals.push(`<span class="signal" data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`);
       identityStateHtml = `<span class="epochs" data-identity-state data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`;
-    } else if (isAdmin) {
-      identitySignalHtml = '<span class="signal bypass" data-identity-badge>bypass rules</span>';
     }
+    if (isAdmin) {
+      identitySignals.push('<span class="signal bypass" data-identity-badge>bypass rules</span>');
+    }
+    const identitySignalHtml = identitySignals.join('');
 
     view.innerHTML = `${open ? `
       <section class="panel" role="dialog" aria-label="pyric">
