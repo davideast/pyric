@@ -486,3 +486,166 @@ describe('evaluateStorageRules — user-defined functions', () => {
 });
 
 type StorageResourceLike = { size: number; contentType?: string; metadata?: Record<string, string> } | null;
+
+// ─── CEL commutative error absorption for && / || ─────────────────
+//
+// RULES-B3 (captured: rules-firestore-error-absorption-and-or,
+// rules-storage-ternary-and-error-absorption): && and || are COMMUTATIVE
+// error-absorbing operators, not JS left-to-right short-circuit. If either
+// operand uniquely determines the result (false for &&, true for ||), an
+// error in the other operand is absorbed. Top-level `error && false` is
+// DENY either way (false denies too), so every distinguishing case below
+// CONSUMES the operator's result (`!(...)`, `(...) == false`).
+//
+// Absorption applies to genuine rule-evaluation errors — RuleError values
+// AND thrown RuleEvalErrors (e.g. firestore.get without a capability).
+// It must NOT apply to:
+//   - resource-limit exhaustion (the 2-lookup Firestore cap, call depth):
+//     production fails the whole evaluation closed (budget precedent), and
+//   - unsupported / compile-reject constructs (undefined function, wrong
+//     arity, unresolved import): production rejects the ruleset at deploy,
+//     so no local verdict may absorb them into an allow.
+describe('evaluateStorageRules — CEL error absorption in && / ||', () => {
+  const path = 'b/pyric-default/o/docs/d1.json';
+
+  function evalCond(
+    cond: string,
+    opts: {
+      docs?: Record<string, Record<string, unknown>>;
+      auth?: { uid: string; token?: Record<string, unknown> } | null;
+    } = {},
+  ): { allowed: boolean; reasons: string[] } {
+    const rules = parseStorageRules(`service firebase.storage {
+      match /b/{bucket}/o {
+        match /docs/{docId} { allow read: if ${cond}; }
+      }
+    }`);
+    const docs = opts.docs;
+    const lookup = docs
+      ? {
+          get(p: string) { return p in docs ? docs[p]! : null; },
+          exists(p: string) { return p in docs; },
+        }
+      : undefined;
+    return evaluateStorageRules(
+      rules,
+      {
+        request: {
+          auth: opts.auth === undefined ? { uid: 'alice' } : opts.auth,
+          method: 'read' as never,
+          path,
+        },
+        resource: { size: 1 },
+      },
+      undefined,
+      lookup,
+    );
+  }
+
+  // `request.nope` is a genuine runtime error value: "Property nope is
+  // undefined on object."
+
+  it('(a) !(error && false) → ALLOW (false RHS absorbs the LHS error)', () => {
+    expect(evalCond('!(request.nope && false)').allowed).toBe(true);
+  });
+
+  it('(b) (error && false) == false → ALLOW (absorbed result is the boolean false)', () => {
+    expect(evalCond('(request.nope && false) == false').allowed).toBe(true);
+  });
+
+  it('(c) false && error → still false (LHS determines; RHS unevaluated)', () => {
+    expect(evalCond('!(false && request.nope)').allowed).toBe(true);
+    // Top-level form is a plain condition-false deny, not an error deny.
+    const top = evalCond('false && request.nope');
+    expect(top.allowed).toBe(false);
+  });
+
+  it('(d) error || true → ALLOW (pin: commutative absorption in ||)', () => {
+    expect(evalCond('request.nope || true').allowed).toBe(true);
+  });
+
+  it('(e) true || error → ALLOW (pin: short-circuit control)', () => {
+    expect(evalCond('true || request.nope').allowed).toBe(true);
+  });
+
+  it('error && true → DENY through a consumer (error propagates)', () => {
+    // Neither operand determines && (true does not); the error propagates
+    // and denies even though the `!` would otherwise flip a boolean.
+    expect(evalCond('!(request.nope && true)').allowed).toBe(false);
+  });
+
+  it('error || false → DENY through a consumer (error propagates)', () => {
+    expect(evalCond('(request.nope || false) == false').allowed).toBe(false);
+  });
+
+  it('(error && false) || true → ALLOW (nested absorption)', () => {
+    expect(evalCond('(request.nope && false) || true').allowed).toBe(true);
+  });
+
+  // (f) A thrown RuleEvalError participates in absorption. With NO lookup
+  // capability injected, firestore.exists() throws — a local capability
+  // limitation whose production evaluation is position-local, so a
+  // determining operand absorbs it exactly like a RuleError value.
+  it('(f) thrown RuleEvalError absorbs: !(firestore.exists(...) && false) with no capability → ALLOW', () => {
+    expect(
+      evalCond('!(firestore.exists(/databases/(default)/documents/users/alice) && false)').allowed,
+    ).toBe(true);
+  });
+
+  it('(f2) but without a determining operand, the same throw still denies', () => {
+    expect(
+      evalCond('!(firestore.exists(/databases/(default)/documents/users/alice) && true)').allowed,
+    ).toBe(false);
+  });
+
+  // (g) Unabsorbable classes still fail closed even when the other operand
+  // would determine the result.
+  it('(g) resource-limit (3rd distinct Firestore path) is NOT absorbed by && false', () => {
+    const docs = { 'g/p0': { ok: true }, 'g/p1': { ok: true }, 'g/p2': { ok: true } };
+    const r = evalCond(
+      'firestore.exists(/databases/(default)/documents/g/p0)'
+      + ' && firestore.exists(/databases/(default)/documents/g/p1)'
+      + ' && !(firestore.exists(/databases/(default)/documents/g/p2) && false)',
+      { docs },
+    );
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/limit/i);
+  });
+
+  it('(g2) undefined function (compile-reject class) is NOT absorbed by && false', () => {
+    const r = evalCond('!(missing() && false)');
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('missing');
+  });
+
+  it('(g3) call-depth exhaustion (resource class) is NOT absorbed by && false', () => {
+    const rules = parseStorageRules(`service firebase.storage {
+      function loop() { return loop(); }
+      match /b/{bucket}/o {
+        match /docs/{docId} { allow read: if !(loop() && false); }
+      }
+    }`);
+    const r = evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'read' as never, path },
+      resource: { size: 1 },
+    });
+    expect(r.allowed).toBe(false);
+  });
+
+  // Strict-boolean operands (RULES-B6, captured:
+  // rules-firestore-strict-boolean-control-flow): a non-boolean &&/||
+  // operand is a TYPE ERROR — absorbable like any evaluation error, never
+  // silently coerced truthy/falsy.
+  it('non-boolean && operand is an absorbable type error: !(1 && false) → ALLOW', () => {
+    expect(evalCond('!(1 && false)').allowed).toBe(true);
+  });
+
+  it('non-boolean && operand errors when undetermined: (1 && true) || !(1 && true) → DENY', () => {
+    // Discriminator: truthy-coercion would make `1 && true` → true → ALLOW.
+    expect(evalCond('(1 && true) || !(1 && true)').allowed).toBe(false);
+  });
+
+  it('non-boolean || operand errors when undetermined: (false || 1) || !(false || 1) → DENY', () => {
+    expect(evalCond('(false || 1) || !(false || 1)').allowed).toBe(false);
+  });
+});
