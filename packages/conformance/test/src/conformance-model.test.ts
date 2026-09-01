@@ -17,12 +17,12 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1136);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1138);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
-      numerator: 136, denominator: 140, ratio: 136 / 140, percent: 97.1,
+      numerator: 137, denominator: 140, ratio: 137 / 140, percent: 97.9,
     });
     expect(model.rulesLanguage.storageScorecard.score).toEqual({
       numerator: 67, denominator: 69, ratio: 67 / 69, percent: 97.1,
@@ -154,8 +154,8 @@ describe('multi-axis conformance model', () => {
   it('derives fidelity from rules-construct status when no registry row exists', () => {
     expect(one('firestore-rules/debug')).toMatchObject({
       availability: 'available',
-      fidelity: 'diverged',
-      assurance: 'ineligible',
+      fidelity: 'conforms',
+      assurance: 'eligible',
     });
   });
 
