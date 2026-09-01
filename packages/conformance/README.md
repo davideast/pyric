@@ -61,7 +61,12 @@ packages/conformance/
                      DELETING a baselined registry row. The coverage ratchet
                      fails on any baseline row that disappears — whatever its
                      status — unless it is listed here, so a `bug` row can never
-                     be quietly dropped to shrink the denominator.
+                     be quietly dropped to shrink the denominator. Each entry is
+                     a grant for ONE removal: it must be baselined and actually
+                     gone from the registry, and the ratchet fails on any entry
+                     that is stale (row still present, or an id the baseline
+                     never had). Delete the entry in the PR that spends it —
+                     a leftover grant silently pre-authorizes the next deletion.
   rules-language/    the per-engine Rules-language axis. One hand-enumerated
                      construct snapshot per engine (firestore.json, storage.json,
                      rtdb.json). Coverage and simulator capability are derived in

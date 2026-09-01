@@ -31,6 +31,19 @@ say() {
   printf '%s\n' "$1" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 }
 
+# ENGINE_PATHS is a hardcoded list, so a rename upstream would silently retire
+# the gate: nothing would ever match again and every engine change would sail
+# through. Fail loudly on drift instead. Paths are repo-relative, so anchor them
+# at the worktree top level rather than trusting the caller's cwd.
+REPO_TOP="$(git rev-parse --show-toplevel)"
+for path in "${ENGINE_PATHS[@]}"; do
+  if [ ! -e "${REPO_TOP}/${path%/}" ]; then
+    say "❌ CONFORMANCE COUPLING GATE — CONFIGURATION DRIFT"
+    say "ENGINE_PATHS entry '${path}' no longer exists — update the gate."
+    exit 1
+  fi
+done
+
 # CI checks out at depth 1 for most jobs; recover just enough history to reach
 # a merge base rather than requiring every caller to deepen the checkout.
 resolve_base() {
@@ -44,16 +57,29 @@ resolve_base() {
 }
 
 if ! resolve_base; then
+  # In CI an unreachable base means the checkout is wrong (fetch-depth) or the
+  # base ref is gone — never that the branch is clean. Passing there would make
+  # the gate advisory exactly when it is load-bearing, so fail closed. Locally,
+  # a detached or history-less checkout is routine: warn and stay out of the way.
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    say "❌ CONFORMANCE COUPLING GATE — UNRESOLVABLE BASE"
+    say "No merge base with '${BASE_REF}' is reachable, so this gate cannot verify anything."
+    say "Remedy: check out with 'fetch-depth: 0' and pass the PR base as BASE_REF."
+    exit 1
+  fi
   echo "conformance-coupling-gate: no merge base with '${BASE_REF}' is reachable; nothing to compare." >&2
   exit 0
 fi
 
 MERGE_BASE="$(git merge-base "$BASE_REF" HEAD)"
-CHANGED="$(git diff --name-only "${MERGE_BASE}...HEAD")"
 
 engine_changed=()
 evidence_changed=0
-while IFS= read -r file; do
+# core.quotePath=false plus NUL-delimited output: a default `diff --name-only`
+# C-quotes any non-ASCII path ("packages/pyric/src/rules/\303\251valuate.ts"),
+# which matches no case arm and would let a renamed-to-Unicode engine file slip
+# past the gate entirely.
+while IFS= read -r -d '' file; do
   [ -n "$file" ] || continue
   case "$file" in
     "$EVIDENCE_PATH"*)
@@ -74,15 +100,29 @@ while IFS= read -r file; do
         ;;
     esac
   done
-done <<<"$CHANGED"
+done < <(git -c core.quotePath=false diff --name-only -z "${MERGE_BASE}...HEAD")
 
 # No engine movement, or evidence moved with it: nothing to say.
 if [ "${#engine_changed[@]}" -eq 0 ] || [ "$evidence_changed" -gt 0 ]; then
   exit 0
 fi
 
-EXEMPTION="$(git log --format='%B' "${MERGE_BASE}..HEAD" |
-  grep -E '^Conformance-Exempt:[[:space:]]*[^[:space:]]' | head -n 1 || true)"
+# A waiver must be a real git TRAILER, not any line that happens to start with
+# the token: grepping the raw body lets prose ("Conformance-Exempt: ..." pasted
+# mid-paragraph, a quoted review note, a revert of an exempt commit) waive the
+# gate. `git interpret-trailers --parse` applies git's own trailer-block rules,
+# so only the structured last-paragraph form counts. One commit at a time —
+# concatenated bodies would let one commit's prose join another's trailer block.
+EXEMPTION=''
+while IFS= read -r sha; do
+  [ -n "$sha" ] || continue
+  trailer="$(git show -s --format='%B' "$sha" | git interpret-trailers --parse |
+    grep -E '^Conformance-Exempt:[[:space:]]*[^[:space:]]' | head -n 1 || true)"
+  if [ -n "$trailer" ]; then
+    EXEMPTION="$trailer"
+    break
+  fi
+done < <(git rev-list "${MERGE_BASE}..HEAD")
 
 if [ -n "$EXEMPTION" ]; then
   say "⚠️ CONFORMANCE COUPLING GATE — EXEMPT"
