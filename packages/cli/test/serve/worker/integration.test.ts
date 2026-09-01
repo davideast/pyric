@@ -25,7 +25,7 @@ describe('client↔host round-trip (gate repro)', () => {
   });
   afterEach(() => restoreSW());
 
-  it('clears the client mirror when an existing disabled user cannot be restored', async () => {
+  it('clears observer state and worker authorization when a disabled user cannot be restored', async () => {
     const { db } = await connectClient();
     const auth = client.getAuth(db);
     const alice = await client.createUserWithEmailAndPassword(
@@ -37,10 +37,21 @@ describe('client↔host round-trip (gate repro)', () => {
       email: 'disabled-switch@example.com',
       disabled: true,
     });
+    const aliceNote = client.doc(db, 'notes/alice-before-disabled-switch');
+    await client.setDoc(aliceNote, { uid: alice.user.uid });
+    const authStates: Array<string | null> = [];
+    const unsubscribe = client.onAuthStateChanged(auth, (user) => {
+      authStates.push(user?.uid ?? null);
+    });
+    await sleep();
 
     expect(auth.currentUser?.uid).toBe(alice.user.uid);
     expect(await client.restorePortSession(auth, disabled.uid)).toBeNull();
     expect(auth.currentUser).toBeNull();
+    await sleep();
+    expect(authStates.at(-1)).toBeNull();
+    await expect(client.getDoc(aliceNote)).rejects.toMatchObject({ code: 'permission-denied' });
+    unsubscribe();
   });
 
   it('createUser → onSnapshot(where uid + orderBy createdAt) → addDoc delivers to the client', async () => {

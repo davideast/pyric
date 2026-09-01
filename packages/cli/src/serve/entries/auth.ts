@@ -26,8 +26,7 @@ import type { SessionMode } from './session-store.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { registerAppCleanup } from 'pyric/app/internal';
 import { workerClientForApp } from './app-client.js';
-import { createActiveAuthRegistry } from './active-auth-registry.js';
-import type { RuntimeIdentity } from '../runtime/identity.js';
+import { registerActiveAuth } from './active-auth.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -97,94 +96,6 @@ function wireAppPersistence(
     if (user) store.save(user.uid);
     else store.clear();
   });
-}
-
-const activeAuthRegistry = createActiveAuthRegistry<any>((auth, listener) => (
-  (A.onAuthStateChanged as any)(auth, listener)
-));
-
-export function registerActiveAuth(auth: any): () => void {
-  return activeAuthRegistry.register(auth);
-}
-
-export function subscribeToActiveAuth(listener: (user: any) => void): () => void {
-  return activeAuthRegistry.subscribe(listener);
-}
-
-export function getActiveAuthUser(): RuntimeIdentity | null {
-  for (const auth of activeAuthRegistry.auths()) {
-    if (auth.currentUser) {
-      return {
-        uid: auth.currentUser.uid,
-        email: auth.currentUser.email,
-        displayName: auth.currentUser.displayName,
-      };
-    }
-  }
-  return null;
-}
-
-export async function switchAllAuthUsers(uid: string): Promise<void> {
-  const promises: Promise<any>[] = [];
-  for (const auth of activeAuthRegistry.auths()) {
-    if (useWorker) {
-      promises.push(restorePortSession(auth as never, uid));
-    } else {
-      try {
-        ipAuth.sandbox.restoreSession(auth, uid);
-      } catch {
-        // ignore
-      }
-    }
-  }
-  await Promise.all(promises);
-}
-
-export async function signOutAllAuths(): Promise<void> {
-  const promises: Promise<any>[] = [];
-  for (const auth of activeAuthRegistry.auths()) {
-    if (useWorker) {
-      promises.push(wc.signOut(auth as never));
-    } else {
-      promises.push(ipAuth.signOut(auth));
-    }
-  }
-  await Promise.all(promises);
-}
-
-export async function commitCredentialToAllAuths(identity: {
-  uid: string;
-  email?: string | null;
-  displayName?: string | null;
-  customClaims?: Record<string, unknown>;
-  providerId?: string;
-}): Promise<void> {
-  const promises: Promise<any>[] = [];
-  for (const auth of activeAuthRegistry.auths()) {
-    if (useWorker) {
-      promises.push(acceptProviderCredential(auth as never, {
-        uid: identity.uid,
-        email: identity.email ?? null,
-        displayName: identity.displayName ?? null,
-        customClaims: identity.customClaims ?? {},
-        providerId: identity.providerId ?? 'password',
-      }));
-    } else {
-      try {
-        ipAuth.sandbox.seedUsers(auth as never, [{
-          uid: identity.uid,
-          email: identity.email ?? '',
-          password: 'synthetic-password',
-          displayName: identity.displayName ?? undefined,
-          customClaims: identity.customClaims ?? {},
-          providerId: identity.providerId ?? 'password',
-        }]);
-      } catch {
-        // Ignore seeding errors on fallback
-      }
-    }
-  }
-  await Promise.all(promises);
 }
 
 export const getAuth = ((app?: FirebaseApp) => {

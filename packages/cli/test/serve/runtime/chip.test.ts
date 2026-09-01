@@ -6,6 +6,7 @@ import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.j
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
 import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
+import type { RuntimeIdentityBindings } from '../../../src/serve/runtime/identity.js';
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -50,10 +51,14 @@ function setup(options: {
     return () => authListeners.delete(listener);
   });
 
+  const identity: Partial<RuntimeIdentityBindings> = {
+    subscribeAuth: options.subscribeAuth ?? subscribeAuthMock,
+    getCurrentUser: options.getCurrentUser ?? (() => currentUser),
+  };
   const chipOptions: PyricRuntimeChipOptions = {
     runtime,
     document: dom.window.document,
-    subscribeAuth: options.subscribeAuth ?? subscribeAuthMock,
+    identity,
   };
 
   if (!options.useRealClient) {
@@ -68,12 +73,7 @@ function setup(options: {
     chipOptions.initiallyOpen = options.initiallyOpen;
   }
   if (options.listUsers) {
-    chipOptions.listUsers = options.listUsers;
-  }
-  if (options.getCurrentUser) {
-    chipOptions.getCurrentUser = options.getCurrentUser;
-  } else {
-    chipOptions.getCurrentUser = () => currentUser;
+    identity.listUsers = options.listUsers;
   }
   if ('studioUrl' in options) {
     chipOptions.studioUrl = options.studioUrl;

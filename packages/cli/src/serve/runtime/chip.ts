@@ -1,5 +1,4 @@
 import type { AuthLens } from 'pyric/sandbox';
-import type { AuthUserRecord } from 'pyric/auth';
 import type {
   PyricRuntimeError,
   PyricRuntimeSnapshot,
@@ -10,7 +9,7 @@ import {
   DIALOG_STYLES,
   type ChipDialogController,
 } from './chip-dialog.js';
-import type { RuntimeIdentity } from './identity.js';
+import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
 import {
   getLens as defaultGetLens,
   setLens as defaultSetLens,
@@ -24,18 +23,8 @@ export interface PyricRuntimeChipOptions {
   initiallyOpen?: boolean;
   /** Override Studio availability. Omitted uses the runtime manifest URL. */
   studioUrl?: string | null;
-  /** Optional sandbox user provider. */
-  listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
-  /** Optional handler to perform authentic user switching on client auth handles. */
-  switchUser?: (uid: string) => Promise<void> | void;
-  /** Optional handler to sign out active client auth handles. */
-  signOut?: () => Promise<void> | void;
-  /** Triggers the existing Auth Helper Dialog (<dialog data-pyric-auth>). */
-  openCreateUser?: () => void;
-  /** Returns the active client user session. */
-  getCurrentUser?: () => RuntimeIdentity | null;
-  /** Subscribes to client auth state transitions (onAuthStateChanged). */
-  subscribeAuth?: (listener: (user: RuntimeIdentity | null) => void) => () => void;
+  /** Optional identity integration. Missing operations use lens/no-op fallbacks. */
+  identity?: Partial<RuntimeIdentityBindings>;
   /** Injectable lens getter (defaults to worker client getLens). */
   getLens?: () => AuthLens | undefined;
   /** Injectable lens setter (defaults to worker client setLens). */
@@ -256,38 +245,36 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const getLensFn = options.getLens ?? defaultGetLens;
   const setLensFn = options.setLens ?? defaultSetLens;
   const subscribeLensFn = options.subscribeLens ?? defaultSubscribeLens;
-  const readCurrentUser = (fallback: RuntimeIdentity | null): RuntimeIdentity | null => {
-    if (options.getCurrentUser) return options.getCurrentUser();
-    return fallback;
+  const providedIdentity = options.identity;
+  let clientUser: RuntimeIdentity | null = null;
+  const readCurrentUser = (): RuntimeIdentity | null => {
+    if (providedIdentity?.getCurrentUser) return providedIdentity.getCurrentUser();
+    return clientUser;
   };
-  let clientUser = readCurrentUser(null);
+  clientUser = readCurrentUser();
 
-  const dialogController: ChipDialogController = createChipDialogController({
-    shadowRoot: root,
-    listUsers: options.listUsers,
-    onSwitchUser: async (uid) => {
-      if (options.switchUser) {
-        await options.switchUser(uid);
-      } else {
-        setLensFn({ mode: 'as', uid });
-      }
-      clientUser = readCurrentUser(null);
+  const identity: RuntimeIdentityBindings = {
+    listUsers: providedIdentity?.listUsers ?? (() => []),
+    switchUser: async (uid) => {
+      if (providedIdentity?.switchUser) await providedIdentity.switchUser(uid);
+      else setLensFn({ mode: 'as', uid });
+      clientUser = readCurrentUser();
       render();
     },
-    onSignOut: async () => {
-      if (options.signOut) {
-        await options.signOut();
-      } else {
-        setLensFn(undefined);
-      }
+    signOut: async () => {
+      if (providedIdentity?.signOut) await providedIdentity.signOut();
+      else setLensFn(undefined);
       clientUser = null;
       render();
     },
-    onOpenCreateUser: () => {
-      if (options.openCreateUser) {
-        options.openCreateUser();
-      }
-    },
+    openCreateUser: providedIdentity?.openCreateUser ?? (() => {}),
+    getCurrentUser: readCurrentUser,
+    subscribeAuth: providedIdentity?.subscribeAuth ?? (() => () => {}),
+  };
+
+  const dialogController: ChipDialogController = createChipDialogController({
+    shadowRoot: root,
+    identity,
     onToggleAdminBypass: (enable) => {
       if (enable) {
         setLensFn({ mode: 'admin' });
@@ -296,7 +283,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       }
       render();
     },
-    getCurrentUser: () => readCurrentUser(clientUser),
     getLens: () => getLensFn(),
   });
 
@@ -332,7 +318,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const aiState = aiEngineState();
 
     const lens = getLensFn();
-    const user = readCurrentUser(clientUser);
+    const user = readCurrentUser();
     const isAdmin = lens?.mode === 'admin';
     const activeUid = lens?.mode === 'as' ? lens.uid : user?.uid;
 
@@ -456,13 +442,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     render();
   });
 
-  let unsubAuth: (() => void) | undefined;
-  if (options.subscribeAuth) {
-    unsubAuth = options.subscribeAuth((user) => {
-      clientUser = user;
-      render();
-    });
-  }
+  const unsubAuth = identity.subscribeAuth((user) => {
+    clientUser = user;
+    render();
+  });
 
   render();
 
@@ -471,7 +454,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     dispose() {
       unsubscribe();
       unsubLens();
-      unsubAuth?.();
+      unsubAuth();
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
       dialogController.dispose();
       host.remove();

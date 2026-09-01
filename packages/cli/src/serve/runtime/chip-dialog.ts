@@ -1,6 +1,6 @@
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
-import type { RuntimeIdentity } from './identity.js';
+import type { RuntimeIdentityBindings } from './identity.js';
 import {
   createUserSearchController,
   userDisplayLabel,
@@ -9,12 +9,8 @@ import {
 
 export interface ChipDialogOptions {
   shadowRoot: ShadowRoot;
-  listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
-  onSwitchUser: (uid: string) => Promise<void> | void;
-  onSignOut: () => Promise<void> | void;
-  onOpenCreateUser: () => void;
+  identity: RuntimeIdentityBindings;
   onToggleAdminBypass: (enable: boolean) => void;
-  getCurrentUser: () => RuntimeIdentity | null;
   getLens: () => AuthLens | undefined;
 }
 
@@ -86,7 +82,12 @@ export const DIALOG_STYLES = `
   .user-search-input { all: initial; flex: 1; color: var(--pyric-text, #fbfbfe); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }
   .user-search-clear-btn { all: initial; color: var(--pyric-muted, #89899f); font-size: 11px; cursor: pointer; padding: 2px 4px; font-family: "JetBrains Mono", ui-monospace, monospace; }
   .user-search-clear-btn:hover { color: var(--pyric-text, #fbfbfe); }
-  .filter-chips { display: flex; flex-wrap: wrap; gap: 5px; min-height: 24px; align-items: center; }
+  .filter-chips {
+    display: flex; flex-wrap: nowrap; gap: 5px; height: 24px; min-height: 24px; max-height: 24px;
+    align-items: center; overflow-x: auto; overflow-y: hidden;
+  }
+  .filter-chips::-webkit-scrollbar { height: 3px; }
+  .filter-chips::-webkit-scrollbar-thumb { background: #33333f; border-radius: 3px; }
   .filter-chip {
     all: initial; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: 12px;
     background: rgba(255, 255, 255, 0.04); border: 1px solid var(--pyric-border-soft, #2a2a35);
@@ -151,12 +152,8 @@ export const DIALOG_STYLES = `
 export function createChipDialogController(options: ChipDialogOptions): ChipDialogController {
   const {
     shadowRoot,
-    listUsers,
-    onSwitchUser,
-    onSignOut,
-    onOpenCreateUser,
+    identity,
     onToggleAdminBypass,
-    getCurrentUser,
     getLens,
   } = options;
 
@@ -210,13 +207,13 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
   const searchController: UserSearchController = createUserSearchController({
     container: searchContainer,
     onSelect: async (user) => {
-      await onSwitchUser(user.uid);
+      await identity.switchUser(user.uid);
       close();
     },
   });
 
   const updateState = (): void => {
-    const user = getCurrentUser();
+    const user = identity.getCurrentUser();
     const lens = getLens();
     const isAdmin = lens?.mode === 'admin';
 
@@ -288,13 +285,11 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
       dialog.setAttribute('open', '');
     }
 
-    if (listUsers) {
-      try {
-        const users = await listUsers();
-        searchController.setUsers(users);
-      } catch {
-        searchController.setUsers([]);
-      }
+    try {
+      const users = await identity.listUsers();
+      searchController.setUsers(users);
+    } catch {
+      searchController.setUsers([]);
     }
 
     searchController.focus();
@@ -342,7 +337,7 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
   });
 
   signOutBtn.addEventListener('click', async () => {
-    await onSignOut();
+    await identity.signOut();
     updateState();
     close();
   });
@@ -356,7 +351,7 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
 
   createUserBtn.addEventListener('click', () => {
     close();
-    onOpenCreateUser();
+    identity.openCreateUser();
   });
 
   return {

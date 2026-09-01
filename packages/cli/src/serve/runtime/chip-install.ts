@@ -5,19 +5,12 @@ import {
 } from './chip.js';
 import { readPyricRuntimeChipConfig } from './chip-config.js';
 import type { PyricRuntimeStatus } from './status.js';
-
-import type { AuthUserRecord } from 'pyric/auth';
-import type { RuntimeIdentity } from './identity.js';
+import type { RuntimeIdentityBindings } from './identity.js';
 
 export interface InstallPyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
   document: Document;
-  listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
-  switchUser?: (uid: string) => Promise<void> | void;
-  signOut?: () => Promise<void> | void;
-  openCreateUser?: () => void;
-  getCurrentUser?: () => RuntimeIdentity | null;
-  subscribeAuth?: (listener: (user: RuntimeIdentity | null) => void) => () => void;
+  identity?: Partial<RuntimeIdentityBindings>;
   mount?: (options: PyricRuntimeChipOptions) => PyricRuntimeChip;
 }
 
@@ -28,16 +21,13 @@ export function installPyricRuntimeChip(
   const config = readPyricRuntimeChipConfig(options.document);
   const existing = options.document.querySelector('[data-pyric-runtime-chip-host], pyric-runtime-chip');
   if (!config || existing) return null;
-  return (options.mount ?? mountPyricRuntimeChip)({
+  const chipOptions: PyricRuntimeChipOptions = {
     runtime: options.runtime,
     document: options.document,
     initiallyOpen: config.initiallyOpen,
-    listUsers: options.listUsers,
-    switchUser: options.switchUser,
-    signOut: options.signOut,
-    openCreateUser: options.openCreateUser,
-    getCurrentUser: options.getCurrentUser,
-    subscribeAuth: options.subscribeAuth,
-    ...(config.studioEnabled ? {} : { studioUrl: null }),
-  });
+    identity: options.identity,
+  };
+  if (!config.studioEnabled) chipOptions.studioUrl = null;
+  const mount = options.mount ?? mountPyricRuntimeChip;
+  return mount(chipOptions);
 }

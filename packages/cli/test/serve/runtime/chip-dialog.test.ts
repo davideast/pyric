@@ -1,13 +1,45 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { JSDOM } from 'jsdom';
 import {
-  createChipDialogController,
+  createChipDialogController as createChipDialogControllerImpl,
+  DIALOG_STYLES,
 } from '../../../src/serve/runtime/chip-dialog.js';
 import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
 
+function createChipDialogController(options: {
+  shadowRoot: ShadowRoot;
+  listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
+  onSwitchUser: (uid: string) => Promise<void> | void;
+  onSignOut: () => Promise<void> | void;
+  onOpenCreateUser: () => void;
+  onToggleAdminBypass: (enable: boolean) => void;
+  getCurrentUser: () => RuntimeIdentity | null;
+  getLens: () => AuthLens | undefined;
+}) {
+  return createChipDialogControllerImpl({
+    shadowRoot: options.shadowRoot,
+    identity: {
+      listUsers: options.listUsers ?? (() => []),
+      switchUser: options.onSwitchUser,
+      signOut: options.onSignOut,
+      openCreateUser: options.onOpenCreateUser,
+      getCurrentUser: options.getCurrentUser,
+      subscribeAuth: () => () => {},
+    },
+    onToggleAdminBypass: options.onToggleAdminBypass,
+    getLens: options.getLens,
+  });
+}
+
 describe('chip-dialog', () => {
+  it('keeps the asynchronously populated filter row at a fixed non-wrapping height', () => {
+    expect(DIALOG_STYLES).toMatch(/\.filter-chips\s*\{[^}]*height:\s*24px/);
+    expect(DIALOG_STYLES).toMatch(/\.filter-chips\s*\{[^}]*flex-wrap:\s*nowrap/);
+    expect(DIALOG_STYLES).toMatch(/\.filter-chips\s*\{[^}]*overflow-x:\s*auto/);
+  });
+
   let dom: JSDOM;
   let shadowRoot: ShadowRoot;
   let triggerButton: HTMLButtonElement;

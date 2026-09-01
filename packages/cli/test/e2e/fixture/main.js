@@ -10,6 +10,16 @@ import {
 
 const app = initializeApp({ apiKey: 'demo', projectId: 'demo' });
 const auth = getAuth(app);
+const namedApp = initializeApp(
+  { apiKey: 'demo', projectId: 'demo' },
+  'fanout-observer',
+);
+const namedAuth = getAuth(namedApp);
+
+window.__namedAuthLog = [];
+onAuthStateChanged(namedAuth, (user) => {
+  window.__namedAuthLog.push(user ? user.uid : null);
+});
 
 window.__registerThenDeleteNamedAuth = async () => {
   const namedApp = initializeApp(

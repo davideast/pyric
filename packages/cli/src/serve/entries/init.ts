@@ -21,7 +21,7 @@ import {
   getActiveAuthUser,
   subscribeToActiveAuth,
   registerActiveAuth,
-} from './auth.js';
+} from './active-auth.js';
 import { sandbox } from './runtime.js';
 import { useWorker, workerDb } from './worker-runtime.js';
 import { ServeAuthHelper, customClaimsFromTokenClaims } from './auth-helper-core.js';
@@ -74,60 +74,62 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   installPyricRuntimeChip({
     runtime: getPyricRuntimeStatus(),
     document,
-    listUsers: async () => {
-      if (workerAuth) {
-        return listUsers(workerAuth);
-      }
-      if (localAuth) {
-        return authSandbox.listUsers(localAuth);
-      }
-      return [];
-    },
-    switchUser: async (uid: string) => {
-      await switchAllAuthUsers(uid);
-      setLens(undefined);
-    },
-    signOut: async () => {
-      await signOutAllAuths();
-      setLens(undefined);
-    },
-    openCreateUser: async () => {
-      try {
-        const cred = await helper.promptCreateUser('password');
-        const tokenResult = await cred.user.getIdTokenResult();
-        const customClaims = customClaimsFromTokenClaims(
-          (tokenResult.claims ?? {}) as Record<string, unknown>,
-        );
-        const identity = {
-          uid: cred.user.uid,
-          email: cred.user.email,
-          displayName: cred.user.displayName,
-          customClaims,
-          providerId: 'password',
-        };
-        await commitCredentialToAllAuths(identity);
-        await switchAllAuthUsers(identity.uid);
+    identity: {
+      listUsers: async () => {
+        if (workerAuth) {
+          return listUsers(workerAuth);
+        }
+        if (localAuth) {
+          return authSandbox.listUsers(localAuth);
+        }
+        return [];
+      },
+      switchUser: async (uid: string) => {
+        await switchAllAuthUsers(uid);
         setLens(undefined);
-      } catch (err) {
-        console.error('[pyric] openCreateUser error:', err);
-      }
-    },
-    getCurrentUser: () => {
-      const active = getActiveAuthUser();
-      if (active) return active;
-      if (workerAuth?.currentUser) {
-        return projectRuntimeIdentity(workerAuth.currentUser);
-      }
-      if (localAuth?.currentUser) {
-        return projectRuntimeIdentity(localAuth.currentUser);
-      }
-      return null;
-    },
-    subscribeAuth: (listener) => {
-      const unsubActive = subscribeToActiveAuth((user) => {
-        listener(projectRuntimeIdentity(user));
-      });
-      return unsubActive;
+      },
+      signOut: async () => {
+        await signOutAllAuths();
+        setLens(undefined);
+      },
+      openCreateUser: async () => {
+        try {
+          const cred = await helper.promptCreateUser('password');
+          const tokenResult = await cred.user.getIdTokenResult();
+          const customClaims = customClaimsFromTokenClaims(
+            (tokenResult.claims ?? {}) as Record<string, unknown>,
+          );
+          const identity = {
+            uid: cred.user.uid,
+            email: cred.user.email,
+            displayName: cred.user.displayName,
+            customClaims,
+            providerId: 'password',
+          };
+          await commitCredentialToAllAuths(identity);
+          await switchAllAuthUsers(identity.uid);
+          setLens(undefined);
+        } catch (err) {
+          console.error('[pyric] openCreateUser error:', err);
+        }
+      },
+      getCurrentUser: () => {
+        const active = getActiveAuthUser();
+        if (active) return active;
+        if (workerAuth?.currentUser) {
+          return projectRuntimeIdentity(workerAuth.currentUser);
+        }
+        if (localAuth?.currentUser) {
+          return projectRuntimeIdentity(localAuth.currentUser);
+        }
+        return null;
+      },
+      subscribeAuth: (listener) => {
+        const unsubActive = subscribeToActiveAuth((user) => {
+          listener(projectRuntimeIdentity(user));
+        });
+        return unsubActive;
+      },
     },
   });
 }
