@@ -37,3 +37,4 @@ export {
   type UpdateHighlightKind,
   type UseUpdateHighlightsOptions,
 } from './hooks/useUpdateHighlights.js';
+export { Modal, type ModalProps } from './Modal.js';
