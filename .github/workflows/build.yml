@@ -252,6 +252,11 @@ jobs:
         # and the worker-owned AI boundary. These are blocking oracle claims.
         run: bun run --cwd packages/cli test:app-conformance
 
+      - name: Runtime identity conformance
+        # Pins authentic client Auth synchronization, direct user-to-user
+        # transitions, user creation, and explicit sign-out through the chip.
+        run: bun run --cwd packages/cli test:identity-conformance
+
       - name: CLI-hosted Studio
         run: bun run --cwd packages/cli test:site-cli
 

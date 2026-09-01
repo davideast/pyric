@@ -13,6 +13,7 @@ import * as client from '../../../src/serve/worker/index.js';
 
 /** Runtime exports of the public worker package subpath, frozen. */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
+  'AUTH_LENS_STORAGE_KEY',
   'PRESENCE_HEARTBEAT_INTERVAL_MS', 'PRESENCE_STALE_MS',
   'PYRIC_WORKER_GENERATION_KEY', 'PYRIC_WORKER_NAME', 'PYRIC_WORKER_URL', 'RtdbOnDisconnect',
   'acceptProviderCredential', 'addDoc', 'adminClearUsers', 'adminCreateUser',
@@ -28,7 +29,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'getAggregateFromServer', 'getAuth', 'getBlob', 'getBytes', 'getCountFromServer',
   'getDoc', 'getDocs', 'getDownloadURL', 'getFirestore', 'getIdToken', 'getIdTokenResult', 'getLens',
   'getMetadata', 'getProviderConfig', 'getRulesStatus', 'getSnapshot',
-  'getStorage', 'getWorkerInstanceId', 'getWorkerVersion', 'importWorkerState',
+  'getStorage', 'getWorkerInstanceId', 'getWorkerVersion', 'hydrateLensFromStorage', 'importWorkerState',
   'increment', 'inMemoryPersistence', 'limit', 'limitToLast', 'listAll',
   'listRootCollections', 'listSubcollections', 'listUsers', 'listWorkerBranches',
   'mintPresenceClientId',
@@ -45,7 +46,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'setFirestoreRules', 'setLens', 'setOpIssuer', 'setPersistence',
   'setProviderConfig', 'setRules', 'signInAnonymously',
   'signInWithEmailAndPassword', 'signOut', 'startAfter', 'startAt', 'startPresence',
-  'subscribeEvents', 'subscribePresence',
+  'subscribeEvents', 'subscribeLens', 'subscribePresence',
   'sum', 'switchWorkerBranch', 'updateDoc', 'uploadBytes', 'uploadString', 'uploadBytesResumable', 'where', 'workerNameForEpoch',
   'writeBatch',
 ];

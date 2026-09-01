@@ -1,8 +1,12 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, mock } from 'bun:test';
-import { mountPyricRuntimeChip } from '../../../src/serve/runtime/chip.js';
+import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
+import type { AuthLens } from 'pyric/sandbox';
+import type { AuthUserRecord } from 'pyric/auth';
+import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
+import type { RuntimeIdentityBindings } from '../../../src/serve/runtime/identity.js';
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -13,6 +17,14 @@ function setup(options: {
   initiallyOpen?: boolean;
   clipboard?: Pick<Clipboard, 'writeText'> | null;
   studioUrl?: string | null;
+  initialLens?: AuthLens;
+  initialUser?: RuntimeIdentity | null;
+  listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
+  getCurrentUser?: () => RuntimeIdentity | null;
+  subscribeAuth?: (listener: (user: RuntimeIdentity | null) => void) => () => void;
+  setLens?: (lens: AuthLens | undefined) => void;
+  subscribeLens?: (listener: (lens: AuthLens | undefined) => void) => () => void;
+  useRealClient?: boolean;
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
   const runtime = createPyricRuntimeStatus(manifest);
@@ -20,22 +32,78 @@ function setup(options: {
   const clipboard = options.clipboard === null
     ? undefined
     : options.clipboard ?? { writeText };
-  const chip = mountPyricRuntimeChip({
+
+  let currentLens: AuthLens | undefined = options.initialLens;
+  let currentUser: RuntimeIdentity | null = options.initialUser ?? null;
+  const lensListeners = new Set<(lens: AuthLens | undefined) => void>();
+  const authListeners = new Set<(user: RuntimeIdentity | null) => void>();
+
+  const setLensMock = mock((lens: AuthLens | undefined) => {
+    currentLens = lens;
+    for (const l of lensListeners) l(lens);
+  });
+  const subscribeLensMock = mock((listener: (lens: AuthLens | undefined) => void) => {
+    lensListeners.add(listener);
+    return () => lensListeners.delete(listener);
+  });
+  const subscribeAuthMock = mock((listener: (user: RuntimeIdentity | null) => void) => {
+    authListeners.add(listener);
+    return () => authListeners.delete(listener);
+  });
+
+  const identity: Partial<RuntimeIdentityBindings> = {
+    subscribeAuth: options.subscribeAuth ?? subscribeAuthMock,
+    getCurrentUser: options.getCurrentUser ?? (() => currentUser),
+  };
+  const chipOptions: PyricRuntimeChipOptions = {
     runtime,
     document: dom.window.document,
-    ...(clipboard ? { clipboard } : {}),
-    ...(options.initiallyOpen === undefined ? {} : { initiallyOpen: options.initiallyOpen }),
-    ...('studioUrl' in options ? { studioUrl: options.studioUrl } : {}),
-  });
+    identity,
+  };
+
+  if (!options.useRealClient) {
+    chipOptions.getLens = () => currentLens;
+    chipOptions.setLens = options.setLens ?? setLensMock;
+    chipOptions.subscribeLens = options.subscribeLens ?? subscribeLensMock;
+  }
+  if (clipboard) {
+    chipOptions.clipboard = clipboard;
+  }
+  if (options.initiallyOpen !== undefined) {
+    chipOptions.initiallyOpen = options.initiallyOpen;
+  }
+  if (options.listUsers) {
+    identity.listUsers = options.listUsers;
+  }
+  if ('studioUrl' in options) {
+    chipOptions.studioUrl = options.studioUrl;
+  }
+
+  const chip = mountPyricRuntimeChip(chipOptions);
   const root = chip.element.shadowRoot!;
-  return { dom, runtime, chip, root, writeText };
+  return {
+    dom,
+    runtime,
+    chip,
+    root,
+    writeText,
+    setLensMock,
+    setCurrentLens(lens: AuthLens | undefined) {
+      currentLens = lens;
+      for (const l of lensListeners) l(lens);
+    },
+    setCurrentUser(user: RuntimeIdentity | null) {
+      currentUser = user;
+      for (const l of authListeners) l(user);
+    },
+  };
 }
 
 describe('PyricRuntimeChip', () => {
   it('is collapsed by default and surfaces errors and worker updates compactly', () => {
     const { runtime, root } = setup();
     expect(root.querySelector('[data-expand]')).not.toBeNull();
-    expect(root.textContent).toContain('ready');
+    expect(root.textContent).toContain('pyric');
 
     runtime.reportError('write denied', 'sandbox');
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
@@ -183,5 +251,118 @@ describe('PyricRuntimeChip', () => {
     root.querySelector<HTMLButtonElement>('[data-dismiss-chip]')!.click();
     expect(chip.element.style.display).toBe('none');
   });
-});
 
+  it('displays identity badge in collapsed bar when lens is active and omits it when unauthenticated', () => {
+    const { root, setCurrentLens } = setup({
+      initialLens: { mode: 'as', uid: 'alice' },
+    });
+
+    const badge = root.querySelector('[data-identity-badge]');
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe('as: alice');
+
+    setCurrentLens({ mode: 'admin' });
+    expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('bypass rules');
+
+    setCurrentLens(undefined);
+    expect(root.querySelector('[data-identity-badge]')).toBeNull();
+  });
+
+  it('displays identity badge from authenticated client user when no lens override is active', () => {
+    let activeUser: RuntimeIdentity | null = { uid: 'sam-uid', displayName: 'Sam Altman' };
+    const { root, setCurrentUser } = setup({
+      getCurrentUser: () => activeUser,
+    });
+
+    const badge = root.querySelector('[data-identity-badge]');
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe('as: sam-uid');
+
+    activeUser = null;
+    setCurrentUser(null);
+    expect(root.querySelector('[data-identity-badge]')).toBeNull();
+  });
+
+  it('shows authenticated identity and rules bypass as independent collapsed signals', () => {
+    const { root } = setup({
+      initialUser: { uid: 'sam-uid' },
+      initialLens: { mode: 'admin' },
+    });
+
+    const signals = [...root.querySelectorAll('[data-identity-badge]')]
+      .map((element) => element.textContent);
+    expect(signals).toEqual(['as: sam-uid', 'bypass rules']);
+  });
+
+  it('keeps a dedicated Identity row mounted across authentication changes', () => {
+    const { root, setCurrentUser } = setup({ initiallyOpen: true });
+    const initialRows = root.querySelectorAll('.worker-state');
+    const initialIdentityRow = root.querySelector('[data-identity-state]');
+
+    expect(initialIdentityRow?.textContent).toBe('App session');
+
+    setCurrentUser({ uid: 'alice' });
+
+    expect(root.querySelectorAll('.worker-state')).toHaveLength(initialRows.length);
+    expect(root.querySelector('[data-identity-state]')?.textContent).toBe('as: alice');
+  });
+
+  it('reattaches the same host after an Astro document swap', () => {
+    const { dom, chip, root } = setup({ initiallyOpen: true });
+    const host = chip.element;
+    const shadowRoot = host.shadowRoot;
+
+    host.remove();
+    dom.window.document.dispatchEvent(new dom.window.Event('astro:after-swap'));
+
+    expect(dom.window.document.body.contains(host)).toBe(true);
+    expect(host.shadowRoot).toBe(shadowRoot);
+    expect(root.querySelector('[data-open-impersonate]')).not.toBeNull();
+
+    chip.dispose();
+    dom.window.document.dispatchEvent(new dom.window.Event('astro:after-swap'));
+    expect(dom.window.document.body.contains(host)).toBe(false);
+  });
+
+  it('clicking Identity button opens impersonate dialog inside Shadow Root', () => {
+    const { root } = setup({ initiallyOpen: true });
+    const identityBtn = root.querySelector<HTMLButtonElement>('[data-open-impersonate]')!;
+    expect(identityBtn).not.toBeNull();
+
+    identityBtn.click();
+    const dialog = root.querySelector('dialog[data-impersonate-dialog]')!;
+    expect(dialog).not.toBeNull();
+  });
+
+  it('reactively updates badge without reload using default client transport', () => {
+    const { root, setCurrentLens } = setup({ initiallyOpen: false });
+    expect(root.querySelector('[data-identity-badge]')).toBeNull();
+
+    setCurrentLens({ mode: 'as', uid: 'charlie' });
+    expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('as: charlie');
+
+    setCurrentLens(undefined);
+    expect(root.querySelector('[data-identity-badge]')).toBeNull();
+  });
+
+  it('renders hostile identity values as text', () => {
+    const maliciousUid = '<script>alert("xss")</script><img data-injected src=x>';
+    const { root } = setup({ initialLens: { mode: 'as', uid: maliciousUid } });
+
+    expect(root.querySelector('[data-identity-badge]')?.textContent).toContain(maliciousUid);
+    expect(root.querySelector('script')).toBeNull();
+    expect(root.querySelector('[data-injected]')).toBeNull();
+  });
+
+  it('handles rapid lens publications and stops reacting after disposal', () => {
+    const { chip, root, setCurrentLens } = setup();
+    for (let index = 0; index < 50; index += 1) {
+      setCurrentLens({ mode: 'as', uid: `user-${index}` });
+      expect(root.querySelector('[data-identity-badge]')?.textContent).toContain(`user-${index}`);
+    }
+
+    chip.dispose();
+    setCurrentLens({ mode: 'as', uid: 'detached-user' });
+    expect(root.textContent).not.toContain('detached-user');
+  });
+});

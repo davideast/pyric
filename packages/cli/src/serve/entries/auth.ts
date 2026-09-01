@@ -24,7 +24,9 @@ import { customClaimsFromTokenClaims } from './auth-helper-core.js';
 import { resolveServeAuthFlow } from './auth-helper-runtime.js';
 import type { SessionMode } from './session-store.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
+import { registerAppCleanup } from 'pyric/app/internal';
 import { workerClientForApp } from './app-client.js';
+import { registerActiveAuth } from './active-auth.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -101,6 +103,8 @@ export const getAuth = ((app?: FirebaseApp) => {
   if (!useWorker) {
     const handle = pyricGetAuth(resolved);
     wireAppPersistence(resolved, handle);
+    const releaseActiveAuth = registerActiveAuth(handle);
+    registerAppCleanup(resolved, releaseActiveAuth);
     return handle;
   }
   const existing = workerAuthByApp.get(resolved);
@@ -111,6 +115,10 @@ export const getAuth = ((app?: FirebaseApp) => {
   }) as unknown as ReturnType<typeof pyricGetAuth>;
   workerAuthByApp.set(resolved, handle);
   wireAppPersistence(resolved, handle);
+  const releaseActiveAuth = registerActiveAuth(handle);
+  // Match Firebase's cached-service lifecycle: getAuth(deletedApp) still
+  // returns its existing handle, but that handle no longer joins chip fan-out.
+  registerAppCleanup(resolved, releaseActiveAuth);
   return handle;
 }) as typeof pyricGetAuth;
 

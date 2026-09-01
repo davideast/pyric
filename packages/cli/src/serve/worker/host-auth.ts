@@ -213,7 +213,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         } catch {
           session = null;
         }
-        if (session) setPortSession(ctx, port, session);
+        setPortSession(ctx, port, session);
         ok(port, msg.id, session ? serializeUser(session.user) : null);
       } catch (e) { fail(port, msg.id, e); }
       break;

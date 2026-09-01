@@ -86,6 +86,11 @@ export class ServeAuthHelper {
     return { openPopup: open, openRedirect: open };
   }
 
+  promptCreateUser(providerId = 'password'): Promise<UserCredential> {
+    const open = this.resolver().openPopup;
+    return open({ providerId, authType: 'signIn' });
+  }
+
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);

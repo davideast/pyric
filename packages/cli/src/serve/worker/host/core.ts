@@ -220,16 +220,18 @@ export function lensDb(ctx: HostCtx, actAs?: AuthLens): Firestore {
   return handle;
 }
 
-export function authStateForLens(actAs: Extract<AuthLens, { mode: 'as' }>): { uid: string; token?: Record<string, unknown> } {
-  return actAs.token === undefined
-    ? { uid: actAs.uid }
-    : { uid: actAs.uid, token: actAs.token };
+export function authStateForLens(actAs: Extract<AuthLens, { mode: 'as' }>): { uid: string; token?: Record<string, unknown>; tenant?: string } {
+  const state: { uid: string; token?: Record<string, unknown>; tenant?: string } = { uid: actAs.uid };
+  if (actAs.token !== undefined) state.token = actAs.token;
+  if (actAs.tenant !== undefined) state.tenant = actAs.tenant;
+  return state;
 }
 
 export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
-  return actAs.token === undefined
-    ? actAs.uid
-    : `${actAs.uid}:${JSON.stringify(actAs.token)}`;
+  const parts = [actAs.uid];
+  if (actAs.tenant !== undefined) parts.push(`tenant:${actAs.tenant}`);
+  if (actAs.token !== undefined) parts.push(JSON.stringify(actAs.token));
+  return parts.join(':');
 }
 
 /** Cache key for a real port session; claims are part of authorization identity. */

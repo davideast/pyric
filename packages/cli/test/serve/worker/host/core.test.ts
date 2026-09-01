@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import type { InboundMessage } from '../../../../src/serve/worker/protocol.js';
-import { opProvenance } from '../../../../src/serve/worker/host/core.js';
+import {
+  opProvenance,
+  lensCacheKey,
+  authStateForLens,
+} from '../../../../src/serve/worker/host/core.js';
 
 describe('opProvenance', () => {
   const cases: Array<{
@@ -87,4 +91,41 @@ describe('opProvenance', () => {
       expect(opProvenance(testCase.message, testCase.journeyId)).toEqual(testCase.expected);
     });
   }
+});
+describe('host worker lens resolution and caching isolation', () => {
+  it('lensCacheKey distinguishes handles across tenants and claims for same UID', () => {
+    const keyNoTenant = lensCacheKey({ mode: 'as', uid: 'user1' });
+    const keyTenantA = lensCacheKey({ mode: 'as', uid: 'user1', tenant: 'tenant-a' });
+    const keyTenantB = lensCacheKey({ mode: 'as', uid: 'user1', tenant: 'tenant-b' });
+    const keyWithClaims = lensCacheKey({
+      mode: 'as',
+      uid: 'user1',
+      tenant: 'tenant-a',
+      token: { role: 'admin' },
+    });
+
+    expect(keyNoTenant).toBe('user1');
+    expect(keyTenantA).toBe('user1:tenant:tenant-a');
+    expect(keyTenantB).toBe('user1:tenant:tenant-b');
+    expect(keyWithClaims).toBe('user1:tenant:tenant-a:{"role":"admin"}');
+
+    const keys = new Set([keyNoTenant, keyTenantA, keyTenantB, keyWithClaims]);
+    expect(keys.size).toBe(4);
+  });
+
+  it('authStateForLens maps tenant into AuthState correctly', () => {
+    const state = authStateForLens({
+      mode: 'as',
+      uid: 'user1',
+      tenant: 'tenant-xyz',
+      token: { role: 'analyst' },
+    });
+
+    expect(state).toEqual({
+      uid: 'user1',
+      tenant: 'tenant-xyz',
+      token: { role: 'analyst' },
+    });
+  });
+
 });

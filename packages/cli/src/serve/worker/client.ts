@@ -26,7 +26,7 @@
  */
 
 // Shared core: lens/issuer controls + the handle and snapshot types.
-export { setLens, getLens, setOpIssuer } from './client/core.js';
+export { setLens, getLens, subscribeLens, AUTH_LENS_STORAGE_KEY, hydrateLensFromStorage, setOpIssuer } from './client/core.js';
 export type {
   ClientDb,
   ClientRtdb,

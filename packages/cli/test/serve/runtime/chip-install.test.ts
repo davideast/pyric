@@ -19,11 +19,27 @@ function setup(content?: string, studio = 'on') {
 describe('installPyricRuntimeChip', () => {
   it('mounts the configured chip once with its initial state', () => {
     const { dom, runtime, mount, mounted } = setup('expanded');
-    const installed = installPyricRuntimeChip({ runtime, document: dom.window.document, mount });
+    const identity = {
+      listUsers: () => [],
+      switchUser: () => {},
+      signOut: () => {},
+      openCreateUser: () => {},
+      getCurrentUser: () => null,
+      subscribeAuth: () => () => {},
+    };
+    const installed = installPyricRuntimeChip({
+      runtime,
+      document: dom.window.document,
+      identity,
+      mount,
+    });
 
     expect(installed).toBe(mounted);
     expect(mount).toHaveBeenCalledTimes(1);
-    expect(mount.mock.calls[0]?.[0]).toMatchObject({ runtime, initiallyOpen: true });
+    const mountedOptions = mount.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    expect(mountedOptions).toMatchObject({ runtime, initiallyOpen: true, identity });
+    expect(mountedOptions).not.toHaveProperty('listUsers');
+    expect(mountedOptions).not.toHaveProperty('switchUser');
   });
 
   it('does not mount when explicitly configured off via metadata', () => {

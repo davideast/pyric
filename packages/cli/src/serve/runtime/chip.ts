@@ -1,8 +1,20 @@
+import type { AuthLens } from 'pyric/sandbox';
 import type {
   PyricRuntimeError,
   PyricRuntimeSnapshot,
   PyricRuntimeStatus,
 } from './status.js';
+import {
+  createChipDialogController,
+  DIALOG_STYLES,
+  type ChipDialogController,
+} from './chip-dialog.js';
+import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
+import {
+  getLens as defaultGetLens,
+  setLens as defaultSetLens,
+  subscribeLens as defaultSubscribeLens,
+} from '../worker/client/core.js';
 
 export interface PyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
@@ -11,6 +23,14 @@ export interface PyricRuntimeChipOptions {
   initiallyOpen?: boolean;
   /** Override Studio availability. Omitted uses the runtime manifest URL. */
   studioUrl?: string | null;
+  /** Optional identity integration. Missing operations use lens/no-op fallbacks. */
+  identity?: Partial<RuntimeIdentityBindings>;
+  /** Injectable lens getter (defaults to worker client getLens). */
+  getLens?: () => AuthLens | undefined;
+  /** Injectable lens setter (defaults to worker client setLens). */
+  setLens?: (lens: AuthLens | undefined) => void;
+  /** Injectable lens subscription (defaults to worker client subscribeLens). */
+  subscribeLens?: (listener: (lens: AuthLens | undefined) => void) => () => void;
 }
 
 export interface PyricRuntimeChip {
@@ -89,9 +109,14 @@ const styles = `
   .brand-label { font-size: 11px; }
   .signals { color: var(--pyric-muted); font-size: 10px; gap: 8px; }
   .signal { gap: 4px; white-space: nowrap; }
+  .signal[data-identity-badge] {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .dot { background: var(--pyric-accent); border-radius: 50%; height: 8px; width: 8px; }
-  .dot.error { background: var(--pyric-error); box-shadow: 0 0 0 3px rgba(240,160,160,.12); }
   .signal.update { color: var(--pyric-warning); }
+  .signal.bypass { color: #8f7fe8; font-weight: 500; }
   .chevron { color: var(--pyric-muted); height: 14px; width: 14px; }
   .panel {
     background: var(--pyric-bg);
@@ -133,7 +158,7 @@ const styles = `
   .error-body code { color: #d7d7df; display: block; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
   .error-meta { color: var(--pyric-muted); font: 9px/1.4 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; }
   .empty { align-items: center; color: var(--pyric-muted); display: flex; font: 11px/1.5 ui-monospace, monospace; min-height: 57px; padding: 12px; }
-  .actions { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; min-height: 56px; padding: 10px 12px; }
+  .actions { display: grid; gap: 8px; grid-template-columns: repeat(3, 1fr); min-height: 56px; padding: 10px 12px; }
   .button { align-items: center; background: transparent; border: 1px solid var(--pyric-border-soft); border-radius: 4px; color: var(--pyric-muted); display: inline-flex; font-size: 10px; justify-content: center; letter-spacing: .06em; min-height: 34px; padding: 6px 8px; text-decoration: none; text-transform: uppercase; }
   button.button { cursor: pointer; }
   .button:hover:not(:disabled):not([aria-disabled="true"]), a.button:hover { border-color: #3a3a48; color: var(--pyric-text); }
@@ -150,6 +175,8 @@ const styles = `
     .chip, .panel { animation: pyric-enter 120ms ease-out; transform-origin: bottom right; }
     @keyframes pyric-enter { from { opacity: 0; transform: translateY(4px) scale(.98); } }
   }
+
+  ${DIALOG_STYLES}
 `;
 
 const icons = {
@@ -161,7 +188,7 @@ const icons = {
 };
 
 function escapeAttribute(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
 export function formatPyricRuntimeError(error: PyricRuntimeError): string {
@@ -189,7 +216,19 @@ function renderErrors(snapshot: PyricRuntimeSnapshot, canCopy: boolean): string 
 /** Mount the framework-independent runtime chip in an isolated shadow root. */
 export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRuntimeChip {
   const documentLike = options.document ?? document;
-  const host = documentLike.createElement('div');
+  const existingHost = documentLike.querySelector<HTMLElement>(
+    '[data-pyric-runtime-chip-host], pyric-runtime-chip',
+  );
+  if (existingHost) {
+    existingHost.remove();
+  }
+
+  let host: HTMLElement;
+  try {
+    host = documentLike.createElement('pyric-runtime-chip');
+  } catch {
+    host = documentLike.createElement('div');
+  }
   host.setAttribute('data-pyric-runtime-chip-host', '');
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>${styles}</style><div class="announcer" role="status" aria-live="polite" aria-atomic="true"></div><div data-view></div>`;
@@ -203,6 +242,50 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let open = options.initiallyOpen ?? false;
   let snapshot = options.runtime.getSnapshot();
 
+  const getLensFn = options.getLens ?? defaultGetLens;
+  const setLensFn = options.setLens ?? defaultSetLens;
+  const subscribeLensFn = options.subscribeLens ?? defaultSubscribeLens;
+  const providedIdentity = options.identity;
+  let clientUser: RuntimeIdentity | null = null;
+  const readCurrentUser = (): RuntimeIdentity | null => {
+    if (providedIdentity?.getCurrentUser) return providedIdentity.getCurrentUser();
+    return clientUser;
+  };
+  clientUser = readCurrentUser();
+
+  const identity: RuntimeIdentityBindings = {
+    listUsers: providedIdentity?.listUsers ?? (() => []),
+    switchUser: async (uid) => {
+      if (providedIdentity?.switchUser) await providedIdentity.switchUser(uid);
+      else setLensFn({ mode: 'as', uid });
+      clientUser = readCurrentUser();
+      render();
+    },
+    signOut: async () => {
+      if (providedIdentity?.signOut) await providedIdentity.signOut();
+      else setLensFn(undefined);
+      clientUser = null;
+      render();
+    },
+    openCreateUser: providedIdentity?.openCreateUser ?? (() => {}),
+    getCurrentUser: readCurrentUser,
+    subscribeAuth: providedIdentity?.subscribeAuth ?? (() => () => {}),
+  };
+
+  const dialogController: ChipDialogController = createChipDialogController({
+    shadowRoot: root,
+    identity,
+    onToggleAdminBypass: (enable) => {
+      if (enable) {
+        setLensFn({ mode: 'admin' });
+      } else {
+        setLensFn(undefined);
+      }
+      render();
+    },
+    getLens: () => getLensFn(),
+  });
+
   const render = (next = snapshot): void => {
     const active = root.activeElement;
     const oldViewport = view.querySelector<HTMLElement>('[data-error-viewport]');
@@ -213,7 +296,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         }
       : null;
     const activeCopyId = active?.getAttribute('data-copy-error');
-    const activeControl = ['data-expand', 'data-collapse', 'data-update-worker', 'data-open-studio']
+    const activeControl = ['data-expand', 'data-collapse', 'data-update-worker', 'data-open-studio', 'data-open-impersonate']
       .find((attribute) => active?.hasAttribute(attribute));
     const focusToken = activeCopyId !== null && activeCopyId !== undefined
       ? { attribute: 'data-copy-error', value: activeCopyId }
@@ -228,41 +311,60 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         ? 'Sandbox starting'
         : snapshot.mode === 'in-page'
           ? 'In-page sandbox'
-          : 'Worker current';
+          : 'Worker version';
     const epochs = snapshot.updateAvailable
       ? `${snapshot.runningEpoch?.slice(0, 8) ?? 'unknown'} → ${snapshot.servedEpoch?.slice(0, 8) ?? 'unknown'}`
       : snapshot.runningEpoch?.slice(0, 8) ?? '';
     const aiState = aiEngineState();
 
+    const lens = getLensFn();
+    const user = readCurrentUser();
+    const isAdmin = lens?.mode === 'admin';
+    const activeUid = lens?.mode === 'as' ? lens.uid : user?.uid;
+
+    const identitySignals: string[] = [];
+    let identityStateHtml = '<span class="epochs" data-identity-state>App session</span>';
+    if (activeUid) {
+      identitySignals.push(`<span class="signal" data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`);
+      identityStateHtml = `<span class="epochs" data-identity-state data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`;
+    }
+    if (isAdmin) {
+      identitySignals.push('<span class="signal bypass" data-identity-badge>bypass rules</span>');
+    }
+    const identitySignalHtml = identitySignals.join('');
+
     view.innerHTML = `${open ? `
-      <section class="panel" role="dialog" aria-label="Pyric runtime">
+      <section class="panel" role="dialog" aria-label="pyric">
         <header class="panel-header">
-          <div class="panel-title"><span class="brand-mark">&gt;_</span><strong>Pyric runtime</strong>${errorCount > 0 ? `<span class="count">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span><button class="clear-button" type="button" data-clear-errors aria-label="Clear all errors">Clear</button>` : ''}</div>
+          <div class="panel-title"><span class="brand-mark">&gt;_</span><strong>pyric</strong>${errorCount > 0 ? `<span class="count">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span><button class="clear-button" type="button" data-clear-errors aria-label="Clear all errors">Clear</button>` : ''}</div>
           <div class="panel-controls">
-            <button class="icon-button" type="button" data-collapse aria-label="Minimize Pyric runtime">${icons.minimize}</button>
-            <button class="icon-button" type="button" data-dismiss-chip aria-label="Dismiss Pyric runtime from page">${icons.close}</button>
+            <button class="icon-button" type="button" data-collapse aria-label="Minimize pyric">${icons.minimize}</button>
+            <button class="icon-button" type="button" data-dismiss-chip aria-label="Dismiss pyric from page">${icons.close}</button>
           </div>
         </header>
-        <div class="worker-state"><span class="state-label${snapshot.updateAvailable ? ' available' : ''}"><span class="mini-dot"></span>${workerLabel}</span><span class="epochs">${epochs}</span></div>
+        <div class="worker-state"><span class="state-label${snapshot.updateAvailable ? ' available' : ''}">${workerLabel}</span><span class="epochs">${epochs}</span></div>
         <div class="worker-state-col" data-ai-status>
           <div class="worker-state-row">
-            <span class="state-label"><span class="mini-dot"></span>AI engine</span>
+            <span class="state-label">AI engine</span>
             <span class="epochs">${aiState.primary}</span>
           </div>
           ${aiState.subline ? `<div class="worker-state-subline">${aiState.subline}</div>` : ''}
         </div>
+        <div class="worker-state"><span class="state-label">Rules</span><span class="epochs" style="${isAdmin ? 'color: #8f7fe8; font-weight: 500;' : ''}">${isAdmin ? 'bypassed' : 'enforced'}</span></div>
+        <div class="worker-state"><span class="state-label">Identity</span>${identityStateHtml}</div>
         <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
         <div class="actions">
           <button class="button update" type="button" data-update-worker ${snapshot.updateAvailable ? '' : 'disabled'} aria-disabled="${snapshot.updateAvailable && !snapshot.updatingWorker ? 'false' : 'true'}">${snapshot.updatingWorker ? 'Updating…' : 'Update worker'}</button>
+          <button class="button" type="button" data-open-impersonate>Identity</button>
           ${studioUrl
             ? `<a class="button" data-open-studio href="${escapeAttribute(studioUrl)}" target="_blank" rel="noopener noreferrer">Studio${icons.external}</a>`
             : `<span class="button" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio${icons.external}</span>`}
         </div>
       </section>
     ` : `
-      <button class="chip" type="button" data-expand aria-label="Open Pyric runtime" aria-expanded="false">
-        <span class="brand"><span class="dot${errorCount > 0 ? ' error' : ''}"></span><span class="brand-label">Pyric</span></span>
-        <span class="signals">${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : '<span class="signal">ready</span>'}${icons.chevron}</span>
+      <button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">
+        <span class="brand"><span class="dot${errorCount > 0 ? ' error' : ''}"></span><span class="brand-label">pyric</span></span>
+        <span class="signals">${identitySignalHtml}${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : ''}${icons.chevron}</span>
       </button>
     `}`;
 
@@ -302,6 +404,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       if (!snapshot.updateAvailable || snapshot.updatingWorker) return;
       void options.runtime.updateWorker().catch(() => { /* status records and renders the failure */ });
     });
+    root.querySelector('[data-open-impersonate]')?.addEventListener('click', (e) => {
+      void dialogController.open(e.currentTarget as HTMLElement);
+    });
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-copy-error]')) {
       button.addEventListener('click', () => {
         const error = snapshot.errors.find((item) => item.id === button.dataset.copyError);
@@ -329,11 +434,31 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   documentLike.body.append(host);
+  const reattachAfterAstroSwap = (): void => {
+    if (!host.isConnected) documentLike.body.append(host);
+  };
+  documentLike.addEventListener('astro:after-swap', reattachAfterAstroSwap);
   const unsubscribe = options.runtime.subscribe(render);
+
+  const unsubLens = subscribeLensFn(() => {
+    render();
+  });
+
+  const unsubAuth = identity.subscribeAuth((user) => {
+    clientUser = user;
+    render();
+  });
+
+  render();
+
   return {
     element: host,
     dispose() {
       unsubscribe();
+      unsubLens();
+      unsubAuth();
+      documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
+      dialogController.dispose();
       host.remove();
     },
   };
