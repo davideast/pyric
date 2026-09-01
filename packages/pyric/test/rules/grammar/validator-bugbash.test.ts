@@ -190,3 +190,67 @@ service cloud.firestore {
     });
   });
 });
+
+// ─── T2.4C — duplicate function declarations are a compile-blocking error ───
+//
+// Production rejects duplicate function definitions at compile time, and the
+// write gate (write/handler.ts) blocks only CRITICAL validator findings —
+// the old 'medium' severity folded to a warning that deployed anyway. Scope
+// is the MERGED lexical scope: a child match block redeclaring a parent-scope
+// function is just as rejected as two siblings in one block.
+
+describe('QUA-3 — production severity and merged scope', () => {
+  test('sibling duplicates are critical', () => {
+    const findings = validateRules(wrap(`
+      function helper() { return true; }
+      function helper() { return false; }
+      match /items/{id} { allow read: if helper(); }
+    `));
+    const dups = findings.filter(f => f.code === 'QUA-3');
+    expect(dups.length).toBe(1);
+    expect(dups[0].severity).toBe('critical');
+  });
+
+  test('child match redeclaring a parent-scope function is caught', () => {
+    const findings = validateRules(wrap(`
+      function isOk() { return request.auth != null; }
+      match /items/{id} {
+        function isOk() { return true; }
+        allow read: if isOk();
+      }
+    `));
+    const dups = findings.filter(f => f.code === 'QUA-3');
+    expect(dups.length).toBe(1);
+    expect(dups[0].severity).toBe('critical');
+    expect(dups[0].message).toContain('isOk');
+    expect(dups[0].message).toContain('enclosing');
+  });
+
+  test('grandchild redeclaration across two levels is caught', () => {
+    const findings = validateRules(wrap(`
+      function isOk() { return request.auth != null; }
+      match /teams/{teamId} {
+        allow read: if isOk();
+        match /items/{id} {
+          function isOk() { return true; }
+          allow read: if isOk();
+        }
+      }
+    `));
+    expect(findings.filter(f => f.code === 'QUA-3').length).toBe(1);
+  });
+
+  test('same name in two SIBLING match blocks is legal (disjoint scopes)', () => {
+    const findings = validateRules(wrap(`
+      match /a/{id} {
+        function isOk() { return true; }
+        allow read: if isOk();
+      }
+      match /b/{id} {
+        function isOk() { return request.auth != null; }
+        allow read: if isOk();
+      }
+    `));
+    expect(findings.filter(f => f.code === 'QUA-3').length).toBe(0);
+  });
+});

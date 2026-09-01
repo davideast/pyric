@@ -95,7 +95,14 @@ const HALLUCINATED_GLOBALS: Record<string, string> = {
   undefined:  '`undefined` does not exist in rules — use `null`',
 };
 
-const VALID_MATH_METHODS = new Set(['abs', 'ceil', 'floor', 'round', 'sqrt', 'pow', 'isNaN']);
+/**
+ * The math-namespace functions production Firestore actually compiles.
+ * Notably ABSENT: `isInfinite` — reference docs list it, but production
+ * rejects it at compile (`Function not found error: Name: [math.isInfinite]`).
+ * Exported so the stdlib-modules drift test can assert the documented
+ * catalog never re-grows a name this validator rejects.
+ */
+export const VALID_MATH_METHODS = new Set(['abs', 'ceil', 'floor', 'round', 'sqrt', 'pow', 'isNaN']);
 
 
 /**
@@ -121,6 +128,21 @@ const WRONG_CONTEXT_PATHS: WrongPath[] = [
   { receiver: 'resource', property: 'id',
     suggestion: '`resource.id` is not available — capture the document id with `/{docId}` in the match path' },
 ];
+
+/**
+ * Auth-token claims that are typed BOOL in production. Comparing one
+ * against a STRING literal compiles fine (CEL is dynamically typed) but
+ * the comparison is cross-type, so `== "true"` is always false and
+ * `!= "true"` is always true — the latter silently opens the rule.
+ * WRONG_CONTEXT_PATHS can't express this: it matches `receiver.property`
+ * at depth 2, while token claims live at `request.auth.token.<claim>`
+ * and the bug is in the *comparison*, not the path itself.
+ *
+ * Only claims verifiably typed bool belong here. `email_verified` is the
+ * documented one (`request.auth.token.email_verified: bool`).
+ * `firebase.sign_in_provider` is a string — deliberately NOT listed.
+ */
+const BOOL_TOKEN_CLAIMS = new Set(['email_verified']);
 
 /**
  * Built-in CEL methods that, when accessed without parentheses, are
@@ -275,6 +297,37 @@ function isWrongContextPath(expr: Expression): { suggestion: string } | undefine
   return WRONG_CONTEXT_PATHS.find(p => p.receiver === recv && p.property === prop);
 }
 
+/** Is `expr` a member access spelling exactly `request.auth.token.<claim>`
+ *  for a claim in BOOL_TOKEN_CLAIMS? */
+function boolTokenClaimName(expr: Expression): string | undefined {
+  if (expr.type !== 'memberAccess' || !BOOL_TOKEN_CLAIMS.has(expr.property)) return undefined;
+  const token = expr.object;
+  if (token.type !== 'memberAccess' || token.property !== 'token') return undefined;
+  const auth = token.object;
+  if (auth.type !== 'memberAccess' || auth.property !== 'auth') return undefined;
+  return auth.object.type === 'identifier' && auth.object.name === 'request'
+    ? expr.property
+    : undefined;
+}
+
+/**
+ * `request.auth.token.email_verified == "true"` (or `!=`, either operand
+ * order). The claim is a bool; a string literal can never equal it, so the
+ * comparison is a constant — `==` always denies, `!=` always allows.
+ */
+function boolTokenClaimStringComparison(
+  expr: Expression,
+): { claim: string; op: string; literal: string } | undefined {
+  if (expr.type !== 'binaryOp' || (expr.op !== '==' && expr.op !== '!=')) return undefined;
+  for (const [side, other] of [[expr.left, expr.right], [expr.right, expr.left]] as const) {
+    const claim = boolTokenClaimName(side);
+    if (claim && other.type === 'literal' && typeof other.value === 'string') {
+      return { claim, op: expr.op, literal: other.value };
+    }
+  }
+  return undefined;
+}
+
 function isLengthPropertyAccessOnMethod(expr: Expression): boolean {
   return expr.type === 'memberAccess' && expr.property === 'length' && expr.object.type === 'methodCall';
 }
@@ -398,6 +451,21 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
           fix: wrongContextMatch.suggestion,
         });
       }
+    }
+
+    const boolClaim = boolTokenClaimStringComparison(expr);
+    if (boolClaim) {
+      const { claim, op, literal } = boolClaim;
+      emit('BOOL_TOKEN_CLAIM', `${claim}|${op}|${literal}`, loc, {
+        rule: 'BOOL_TOKEN_CLAIM',
+        severity: 'error',
+        message:
+          `\`request.auth.token.${claim}\` is a bool, but it is compared against the string ` +
+          `"${literal}" — a cross-type comparison that is always ${op === '==' ? 'false (rule always denies)' : 'true (rule silently allows)'}. ` +
+          `Compare against the boolean literal instead: \`request.auth.token.${claim} ${op} true\`.`,
+        location: loc,
+        fix: `Drop the quotes: \`request.auth.token.${claim} ${op} ${literal === 'false' ? 'false' : 'true'}\`.`,
+      });
     }
 
     if (isLengthPropertyAccessOnMethod(expr)) {

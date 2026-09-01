@@ -773,7 +773,14 @@ export interface LintOptions {
    * block linting of a valid current ruleset.
    */
   previousSource?: string;
-  /** Set to true when validating in a local emulator or testing environment where debug() is permitted. */
+  /**
+   * Set to true ONLY when linting sources that will never deploy (e.g. an
+   * emulator-only scratch ruleset) and `debug()` should be tolerated.
+   * Production Firestore rejects `debug()` at compile time
+   * (`Function not found error: Name: [debug]`), so the linter rejects it
+   * by default — including when `testCases` is supplied. This flag is an
+   * explicit caller choice; it is never inferred from other options.
+   */
   allowDebug?: boolean;
 }
 
@@ -842,8 +849,15 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   // Rule 8: Get duplication (same get()-containing function called multiple times)
   checkGetDuplication(allRules, allFunctions, warnings);
 
-  // Rule 9: Hallucinations — JS-style code that parses but fails at runtime
-  warnings.push(...checkHallucinations(ast, { allowDebug: options.allowDebug || Boolean(options.testCases && options.testCases.length > 0) }));
+  // Rule 9: Hallucinations — JS-style code that parses but fails at runtime.
+  // `allowDebug` is an EXPLICIT caller opt-in only. It used to be implied by
+  // a non-empty `testCases` array, which silently disabled the debug()
+  // rejection in any lint run that also carried a test suite — exactly the
+  // authoring path that feeds the write gate. Production rejects debug() at
+  // compile (`Function not found error: Name: [debug]`), so the default must
+  // reject; a caller that genuinely lints emulator-only sources can still
+  // pass `allowDebug: true`.
+  warnings.push(...checkHallucinations(ast, { allowDebug: options.allowDebug }));
 
   // Rule 9.5: Always-true predicates and recursive-wildcard open rules.
   // Severity: error so deployRules refuses to swap. The agent's #1

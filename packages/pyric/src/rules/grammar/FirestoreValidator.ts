@@ -26,7 +26,7 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   // SEC-4: Check for default deny
   checkDefaultDeny(rootMatch, findings);
 
-  // QUA-3: Duplicate function names
+  // QUA-3: Duplicate function names (production compile rejection — critical)
   checkDuplicateFunctions(rootMatch, findings);
 
   // QUA-4: Unused functions
@@ -385,23 +385,45 @@ function collectAllFunctions(match: MatchBlock): Set<string> {
 }
 
 // ---- QUA-3: Duplicate functions ----
+//
+// T2.4C — production REJECTS duplicate function declarations at compile
+// time, so this is severity 'critical': the write gate
+// (`write/handler.ts`) blocks only critical validator findings, and
+// 'medium' folded to a mere warning that deployed anyway. The scope is
+// the MERGED lexical scope (every ancestor match block plus the current
+// one), matching evaluation scoping at `walkMatch`'s `localScope`:
+// production rejects a child-block redefinition of a parent-scope
+// function, not just two siblings in one block.
+//
+// The code stays QUA-3 (already registered and asserted by consumers);
+// `DUPLICATE_FUNCTION` was considered and rejected — the module
+// resolver already uses that name for its own error code
+// (`modules/resolver-core.ts`), and colliding would make mixed issue
+// lists ambiguous.
 
 function checkDuplicateFunctions(match: MatchBlock, findings: ValidationFinding[]) {
-  checkDupsInScope(match.functions, match.path.raw, findings);
-  for (const child of match.children) checkDuplicateFunctions(child, findings);
+  checkDupsInScope(match, new Set<string>(), findings);
 }
 
-function checkDupsInScope(fns: FunctionDef[], path: string, findings: ValidationFinding[]) {
-  const seen = new Set<string>();
-  for (const fn of fns) {
-    if (seen.has(fn.name)) {
+function checkDupsInScope(match: MatchBlock, inherited: ReadonlySet<string>, findings: ValidationFinding[]) {
+  const path = match.path.raw;
+  const local = new Set<string>();
+  for (const fn of match.functions) {
+    if (local.has(fn.name)) {
       findings.push({
-        code: 'QUA-3', severity: 'medium', path,
-        message: `Duplicate function '${fn.name}' in scope at ${path}`,
+        code: 'QUA-3', severity: 'critical', path,
+        message: `Duplicate function '${fn.name}' in scope at ${path} — production rejects duplicate function declarations at compile time`,
+      });
+    } else if (inherited.has(fn.name)) {
+      findings.push({
+        code: 'QUA-3', severity: 'critical', path,
+        message: `Function '${fn.name}' at ${path} redeclares a function from an enclosing match scope — production rejects duplicate function declarations at compile time`,
       });
     }
-    seen.add(fn.name);
+    local.add(fn.name);
   }
+  const merged = new Set([...inherited, ...local]);
+  for (const child of match.children) checkDupsInScope(child, merged, findings);
 }
 
 // ---- QUA-4: Unused functions ----

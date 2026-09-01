@@ -22,6 +22,7 @@ import {
   suggestKey,
 } from '../../src/rules/stdlib-modules.js';
 import { STDLIB_SERVICE_CONTRACTS } from '../../src/rules/modules/stdlib-services.generated.js';
+import { VALID_MATH_METHODS } from '../../src/rules/linter/hallucinations.js';
 
 // Re-import the source-of-truth constants. These are the same sets
 // the engine + linter actually use at runtime — keeping the drift
@@ -93,6 +94,48 @@ describe('STDLIB_MODULES — drift check against runtime constants', () => {
     for (const method of KNOWN_BUILTIN_METHODS) {
       const found = typeMethodSigs.some((sig) => sig.includes(`.${method}(`));
       expect(found, `KNOWN_BUILTIN_METHOD missing from type-methods data: ${method}`).toBe(true);
+    }
+  });
+
+  it('never documents a math-namespace function the linter rejects (T2.4B drift guard)', () => {
+    // The math.isInfinite incident: the catalog documented (and exemplified)
+    // a function production rejects at compile. Guard the whole catalog text —
+    // signatures, descriptions, examples, notes — so any `math.<fn>(` mention
+    // must name a function in the validator's accept-set.
+    const catalogText = JSON.stringify(STDLIB_MODULES);
+    const mentioned = new Set<string>();
+    for (const m of catalogText.matchAll(/\bmath\.([A-Za-z_]\w*)\(/g)) {
+      mentioned.add(m[1]!);
+    }
+    expect(mentioned.size, 'math drift guard parsed zero mentions — regex regressed').toBeGreaterThan(0);
+    for (const fn of mentioned) {
+      expect(
+        VALID_MATH_METHODS.has(fn),
+        `stdlib catalog documents math.${fn}() but the linter rejects it (production compile failure)`,
+      ).toBe(true);
+    }
+    // And the reverse direction: every accepted math function stays documented.
+    const mathModule = findModuleByKey('math')!;
+    const documented = new Set(
+      mathModule.entries
+        .map((e) => e.signature.match(/^math\.([A-Za-z_]\w*)\(/)?.[1])
+        .filter((n): n is string => Boolean(n)),
+    );
+    for (const fn of VALID_MATH_METHODS) {
+      expect(documented.has(fn), `VALID_MATH_METHODS has ${fn} but the math module does not document it`).toBe(true);
+    }
+  });
+
+  it('every language-namespace entry signature uses its own module key as the namespace', () => {
+    // General form of the drift guard: a `math` module documenting
+    // `timestamp.foo(...)` (or vice versa) is a mis-filed signature that
+    // the per-namespace accept-set checks above would silently miss.
+    for (const m of STDLIB_MODULES) {
+      if (m.kind !== 'language-namespace' || m.key === 'builtins') continue;
+      for (const e of m.entries) {
+        const ns = e.signature.match(/^([A-Za-z_]\w*)\./)?.[1];
+        expect(ns, `module ${m.key} entry "${e.signature}" is not namespace-prefixed`).toBe(m.key);
+      }
     }
   });
 

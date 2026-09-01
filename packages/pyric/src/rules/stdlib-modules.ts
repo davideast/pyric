@@ -85,9 +85,9 @@ const BUILTINS_MODULE: StdlibModuleDefinition = {
   key: 'builtins',
   kind: 'language-namespace',
   description:
-    'Top-level functions always in scope inside rules — get, exists, getAfter, debug. Called bare, no namespace prefix.',
+    'Top-level functions always in scope inside rules — get, exists, getAfter. Called bare, no namespace prefix. (debug() is docs-only: production rejects it at compile.)',
   purpose:
-    'The four built-in functions Firestore Rules ships with at the top level. They are NOT inside a namespace — call `get(path)`, not `firestore.get(path)`. Used to read other documents (cross-document gates), check existence, peek at post-write state, and print debug values.',
+    'The built-in functions Firestore Rules ships with at the top level. They are NOT inside a namespace — call `get(path)`, not `firestore.get(path)`. Used to read other documents (cross-document gates), check existence, and peek at post-write state.',
   whenToUse:
     'Reach for `builtins` any time a rule needs information that isn\'t already on `request` or `resource`. Most common: `get(path)` to read another document\'s fields inside a predicate.',
   entries: [
@@ -116,11 +116,11 @@ const BUILTINS_MODULE: StdlibModuleDefinition = {
         'Only meaningful inside transactions / batched writes. Outside a batch, equivalent to `get`.',
     },
     {
-      signature: 'debug(value: any): bool',
+      signature: 'debug(value: any): REJECTED',
       description:
-        'Print `value` to the Firestore emulator/test runner log and return true. No-op in production. Useful for narrowing why a rule denies during local development.',
+        'DO NOT USE. Although Firebase reference docs list `debug()`, production Firestore REJECTS rulesets that call it at compile time (`Function not found error: Name: [debug]`). The linter and local simulator reject it for the same reason.',
       notes:
-        'Always returns true — wrapping it in a predicate (`if debug(resource.data.x) && otherCondition`) shows the value without changing rule outcome.',
+        'Remove any debug() wrapper before deploying — evaluate the inner expression directly. There is no deployable logging primitive in rules.',
     },
   ],
   relatedKeys: ['request', 'resource', 'path'],
@@ -132,11 +132,11 @@ const MATH: StdlibModuleDefinition = {
   key: 'math',
   kind: 'language-namespace',
   description:
-    'Numeric helpers — abs, ceil, floor, round, sqrt, pow, isInfinite, isNaN. Use when rules need to coerce or bound numbers.',
+    'Numeric helpers — abs, ceil, floor, round, sqrt, pow, isNaN. Use when rules need to coerce or bound numbers.',
   purpose:
     'The `math` namespace exposes a small set of numeric utilities for use inside rule predicates. Functions are called as `math.<fn>(...)`. Always in scope; no import needed.',
   whenToUse:
-    'Reach for `math` whenever a rule needs to round, bound, or guard against non-finite numbers in a user-supplied field.',
+    'Reach for `math` whenever a rule needs to round, bound, or guard against NaN in a user-supplied field.',
   entries: [
     { signature: 'math.abs(n: number): number', description: 'Absolute value of `n`.' },
     { signature: 'math.ceil(n: number): int', description: 'Smallest integer >= `n`.' },
@@ -145,15 +145,15 @@ const MATH: StdlibModuleDefinition = {
     { signature: 'math.sqrt(n: number): number', description: 'Square root of `n`. Negative input returns NaN.' },
     { signature: 'math.pow(base: number, exp: number): number', description: '`base` raised to `exp`.' },
     {
-      signature: 'math.isInfinite(n: number): bool',
-      description: 'True if `n` is +Infinity or -Infinity.',
-      notes: 'Pairs with `math.isNaN` for safe numeric guards before arithmetic.',
+      signature: 'math.isNaN(n: number): bool',
+      description: 'True if `n` is NaN.',
+      notes:
+        'There is NO isInfinite function in the math namespace — production Firestore rejects it at compile time (`Function not found error: Name: [math.isInfinite]`), despite it appearing in some Firebase reference material.',
     },
-    { signature: 'math.isNaN(n: number): bool', description: 'True if `n` is NaN.' },
   ],
   examples: [
     `allow update: if math.ceil(request.resource.data.score) <= 100;`,
-    `allow create: if !math.isNaN(request.resource.data.lat) && !math.isInfinite(request.resource.data.lat);`,
+    `allow create: if !math.isNaN(request.resource.data.lat);`,
   ],
   relatedKeys: ['hashing'],
 };

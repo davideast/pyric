@@ -127,10 +127,13 @@ export function evaluateFunctionCall(
       }
       return resolveExists(pathStr, ctx);
     }
-    case 'debug': {
-      const val = evaluate(args[0], ctx, scope);
-      return val; // debug() returns its argument
-    }
+    // NOTE: `debug()` is deliberately NOT handled here. Production Firestore
+    // rejects it at compile ("Function not found error: Name: [debug]" —
+    // captured acceptance probe for firestore.function.debug), so the local
+    // evaluator must fail it the same way. Falling through to the
+    // user-defined lookup below yields `EvalError('Unknown function: debug')`,
+    // the exact message the conformance rejection-signature normalizer maps
+    // to `function-not-found:debug`.
     // RULES-B5 / RULES-B6: type-conversion builtins follow CEL's strict
     // semantics, not JS coercion. `String()` routes a RulesFloat through its
     // `.toString()` so `string(1.0)` → "1.0" (decimal preserved); bare ints

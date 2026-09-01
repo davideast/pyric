@@ -138,7 +138,10 @@ describe('Firestore Expression Parser', () => {
     test('math.ceil', () => valid('math.ceil(3.2)'));
     test('math.floor', () => valid('math.floor(3.8)'));
     test('math.round', () => valid('math.round(3.5)'));
-    test('math.isInfinite', () => valid('!math.isInfinite(1)'));
+    // NOTE: math.isInfinite is deliberately absent — production Firestore
+    // rejects it at compile ("Function not found error: Name: [math.isInfinite]").
+    // It still PARSES (grammar has no function table), but it must never be
+    // exercised as a valid namespaced function; the linter/evaluator reject it.
     test('math.isNaN', () => valid('!math.isNaN(1)'));
     test('hashing.sha256', () => valid("hashing.sha256('test'.toUtf8())"));
     test('hashing.md5', () => valid("hashing.md5('test'.toUtf8())"));
