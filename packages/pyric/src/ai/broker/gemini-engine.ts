@@ -190,7 +190,7 @@ export class GeminiEngine implements AnswerEngine {
       throw new AiBrokerError(
         errorEnvelope(
           response.status,
-          `Gemini API returned status ${response.status}: ${errorText}`,
+          `Gemini API returned status ${response.status}: ${redactUrl(errorText)}`,
           'INTERNAL',
         ),
       );

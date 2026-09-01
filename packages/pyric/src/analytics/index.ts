@@ -18,10 +18,18 @@ import { deferredEntry, type DeferredApi } from '../deferred/entry.js';
 export { PyricDeferredApiError } from '../deferred/entry.js';
 
 export const {
-  getAnalytics, getGoogleAnalyticsClientId, initializeAnalytics, isSupported, logEvent,
+  getAnalytics, getGoogleAnalyticsClientId, initializeAnalytics, logEvent,
   setAnalyticsCollectionEnabled, setConsent, setCurrentScreen, setDefaultEventParameters,
   setUserId, setUserProperties, settings,
 } = deferredEntry('analytics');
+
+/**
+ * The one deferred symbol that answers instead of throwing: the real SDK
+ * resolves a boolean, and a deferred entry IS unsupported, so the standard
+ * `isSupported().then(ok => ok && get…(app))` guard must run — not crash.
+ */
+export const isSupported = async (): Promise<boolean> => false;
+
 
 // Type declarations. Aliased to the deferred placeholder so a consumer's own
 // annotations keep type-checking: every deferred call returns `never`, which is

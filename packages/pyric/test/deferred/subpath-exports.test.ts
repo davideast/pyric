@@ -105,3 +105,17 @@ describe('deferred firebase subpaths resolve but throw on use', () => {
     });
   }
 });
+
+describe('isSupported guards resolve instead of throwing', () => {
+  // The standard Firebase pattern `isSupported().then(ok => ok && getX(app))`
+  // must not crash at the guard itself: the real SDK resolves a boolean, and a
+  // deferred entry IS unsupported, so the honest answer is `false`.
+  for (const subpath of ['analytics', 'remote-config'] as const) {
+    test(`pyric/${subpath} isSupported() resolves false`, async () => {
+      const mod = (await import(`pyric/${subpath}`)) as {
+        isSupported: () => Promise<boolean>;
+      };
+      await expect(mod.isSupported()).resolves.toBe(false);
+    });
+  }
+});

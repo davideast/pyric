@@ -12,7 +12,9 @@
  * only the key VALUE must be redacted.
  */
 import { describe, expect, it } from 'bun:test';
-import { AiBrokerError, GeminiEngine } from '../../src/ai/broker/index.js';
+import { AiBrokerError, GeminiEngine, type GenerateContentRequest } from '../../src/ai/broker/index.js';
+
+const EMPTY_REQUEST: GenerateContentRequest = { contents: [] };
 
 const FAKE_KEY = 'test-key-SECRET123';
 
@@ -38,7 +40,7 @@ async function captureError(fn: () => Promise<unknown>): Promise<AiBrokerError> 
 describe('GeminiEngine: API key redaction on upstream failure', () => {
   it('generateContent: does not leak the API key when the upstream connection fails', async () => {
     const engine = engineWithFailingFetch();
-    const err = await captureError(() => engine.generateContent({ contents: [] } as any, 'gemini-2.5-flash'));
+    const err = await captureError(() => engine.generateContent(EMPTY_REQUEST, 'gemini-2.5-flash'));
 
     expect(err.message).not.toContain(FAKE_KEY);
     expect(err.envelope.error.message).not.toContain(FAKE_KEY);
@@ -48,7 +50,7 @@ describe('GeminiEngine: API key redaction on upstream failure', () => {
 
   it('streamGenerateContent: does not leak the API key when the upstream connection fails', async () => {
     const engine = engineWithFailingFetch();
-    const stream = engine.streamGenerateContent({ contents: [] } as any, 'gemini-2.5-flash');
+    const stream = engine.streamGenerateContent(EMPTY_REQUEST, 'gemini-2.5-flash');
     const err = await captureError(() => stream.next());
 
     expect(err.message).not.toContain(FAKE_KEY);
@@ -57,8 +59,26 @@ describe('GeminiEngine: API key redaction on upstream failure', () => {
 
   it('countTokens: does not leak the API key when the upstream connection fails', async () => {
     const engine = engineWithFailingFetch();
-    const err = await captureError(() => engine.countTokens({ contents: [] } as any, 'gemini-2.5-flash'));
+    const err = await captureError(() => engine.countTokens(EMPTY_REQUEST, 'gemini-2.5-flash'));
 
+    expect(err.message).not.toContain(FAKE_KEY);
+    expect(err.envelope.error.message).not.toContain(FAKE_KEY);
+  });
+
+  it('does not leak the API key when the upstream returns a non-OK status', async () => {
+    // A proxy or gateway error page can echo the key-bearing request URL back
+    // in its body; that body is interpolated into the thrown error message.
+    const engine = new GeminiEngine({
+      apiKey: FAKE_KEY,
+      fetch: (async () =>
+        new Response(
+          `upstream proxy error: https://generativelanguage.googleapis.com/v1beta/models/x:generateContent?key=${FAKE_KEY} refused`,
+          { status: 502 },
+        )) as unknown as typeof fetch,
+    });
+    const err = await captureError(() => engine.generateContent(EMPTY_REQUEST, 'gemini-2.5-flash'));
+
+    expect(err.message).toContain('status 502');
     expect(err.message).not.toContain(FAKE_KEY);
     expect(err.envelope.error.message).not.toContain(FAKE_KEY);
   });
