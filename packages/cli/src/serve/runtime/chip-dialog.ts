@@ -1,16 +1,11 @@
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
+import type { RuntimeIdentity } from './identity.js';
 import {
   createUserSearchController,
   userDisplayLabel,
   type UserSearchController,
 } from './chip-user-search.js';
-
-export interface ChipDialogUser {
-  uid: string;
-  email?: string | null;
-  displayName?: string | null;
-}
 
 export interface ChipDialogOptions {
   shadowRoot: ShadowRoot;
@@ -19,7 +14,7 @@ export interface ChipDialogOptions {
   onSignOut: () => Promise<void> | void;
   onOpenCreateUser: () => void;
   onToggleAdminBypass: (enable: boolean) => void;
-  getCurrentUser: () => ChipDialogUser | null;
+  getCurrentUser: () => RuntimeIdentity | null;
   getLens: () => AuthLens | undefined;
 }
 

@@ -7,6 +7,7 @@ import { readPyricRuntimeChipConfig } from './chip-config.js';
 import type { PyricRuntimeStatus } from './status.js';
 
 import type { AuthUserRecord } from 'pyric/auth';
+import type { RuntimeIdentity } from './identity.js';
 
 export interface InstallPyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
@@ -15,8 +16,8 @@ export interface InstallPyricRuntimeChipOptions {
   switchUser?: (uid: string) => Promise<void> | void;
   signOut?: () => Promise<void> | void;
   openCreateUser?: () => void;
-  getCurrentUser?: () => { uid: string; email?: string | null; displayName?: string | null } | null;
-  subscribeAuth?: (listener: (user: { uid: string; email?: string | null; displayName?: string | null } | null) => void) => () => void;
+  getCurrentUser?: () => RuntimeIdentity | null;
+  subscribeAuth?: (listener: (user: RuntimeIdentity | null) => void) => () => void;
   mount?: (options: PyricRuntimeChipOptions) => PyricRuntimeChip;
 }
 

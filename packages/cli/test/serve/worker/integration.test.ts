@@ -25,6 +25,24 @@ describe('client↔host round-trip (gate repro)', () => {
   });
   afterEach(() => restoreSW());
 
+  it('clears the client mirror when an existing disabled user cannot be restored', async () => {
+    const { db } = await connectClient();
+    const auth = client.getAuth(db);
+    const alice = await client.createUserWithEmailAndPassword(
+      auth,
+      'alice-disabled-switch@example.com',
+      'pw123456',
+    );
+    const disabled = await client.adminCreateUser(auth, {
+      email: 'disabled-switch@example.com',
+      disabled: true,
+    });
+
+    expect(auth.currentUser?.uid).toBe(alice.user.uid);
+    expect(await client.restorePortSession(auth, disabled.uid)).toBeNull();
+    expect(auth.currentUser).toBeNull();
+  });
+
   it('createUser → onSnapshot(where uid + orderBy createdAt) → addDoc delivers to the client', async () => {
     const ctx = await makeHostCtx();
     const { a: clientPort, b: hostPort } = portPair();

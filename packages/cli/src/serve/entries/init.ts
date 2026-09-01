@@ -29,6 +29,7 @@ import { installServeAuthResolver } from './auth-helper-runtime.js';
 import { mountAuthHelperDialog } from './auth-helper-dom.js';
 import { installPyricRuntimeChip } from '../runtime/chip-install.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
+import { projectRuntimeIdentity } from '../runtime/identity.js';
 
 const localAuth = useWorker ? null : getAuth(sandbox);
 const workerAuth = useWorker && workerDb ? getWorkerAuth(workerDb) : null;
@@ -115,24 +116,16 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
       const active = getActiveAuthUser();
       if (active) return active;
       if (workerAuth?.currentUser) {
-        return {
-          uid: workerAuth.currentUser.uid,
-          email: workerAuth.currentUser.email,
-          displayName: workerAuth.currentUser.displayName,
-        };
+        return projectRuntimeIdentity(workerAuth.currentUser);
       }
       if (localAuth?.currentUser) {
-        return {
-          uid: localAuth.currentUser.uid,
-          email: localAuth.currentUser.email,
-          displayName: localAuth.currentUser.displayName,
-        };
+        return projectRuntimeIdentity(localAuth.currentUser);
       }
       return null;
     },
     subscribeAuth: (listener) => {
       const unsubActive = subscribeToActiveAuth((user) => {
-        listener(user ? { uid: user.uid, email: user.email, displayName: user.displayName } : null);
+        listener(projectRuntimeIdentity(user));
       });
       return unsubActive;
     },

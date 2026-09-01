@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { JSDOM } from 'jsdom';
 import {
   createChipDialogController,
-  type ChipDialogUser,
 } from '../../../src/serve/runtime/chip-dialog.js';
+import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
 
@@ -54,7 +54,7 @@ describe('chip-dialog', () => {
   });
 
   it('opens and closes dialog with showModal and close', async () => {
-    let currentUser: ChipDialogUser | null = { uid: 'user-1', email: 'u1@example.com' };
+    let currentUser: RuntimeIdentity | null = { uid: 'user-1', email: 'u1@example.com' };
     const controller = createChipDialogController({
       shadowRoot,
       getCurrentUser: () => currentUser,
@@ -75,7 +75,7 @@ describe('chip-dialog', () => {
   });
 
   it('displays user info and sign-out button when signed in, and hides when guest', async () => {
-    let currentUser: ChipDialogUser | null = { uid: 'user-1', displayName: 'David East' };
+    let currentUser: RuntimeIdentity | null = { uid: 'user-1', displayName: 'David East' };
     const controller = createChipDialogController({
       shadowRoot,
       getCurrentUser: () => currentUser,

@@ -60,6 +60,15 @@ describe('chip-user-search', () => {
       expect(filterUsers(mockUsers, '', null)).toEqual(mockUsers);
     });
 
+    it('does not offer disabled users for impersonation', () => {
+      const disabledUser: AuthUserRecord = {
+        uid: 'disabled-user',
+        disabled: true,
+      };
+
+      expect(filterUsers([...mockUsers, disabledUser], '', null)).toEqual(mockUsers);
+    });
+
     it('filters by category filter chips (admin, tenants, providers)', () => {
       expect(filterUsers(mockUsers, '', 'admin')).toEqual([mockUsers[0]]);
       expect(filterUsers(mockUsers, '', 'tenants')).toEqual([mockUsers[1]]);

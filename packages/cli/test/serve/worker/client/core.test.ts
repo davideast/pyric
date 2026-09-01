@@ -3,6 +3,7 @@ import {
   AUTH_LENS_STORAGE_KEY,
   getLens,
   hydrateLensFromStorage,
+  isPersistedAuthLens,
   rpcWithTimeout,
   setLens,
   subscribeLens,
@@ -136,6 +137,14 @@ describe('worker client auth lens hydration and persistence', () => {
   });
 
   describe('hydrateLensFromStorage', () => {
+    it('classifies only persistable admin and valid impersonation lenses', () => {
+      expect(isPersistedAuthLens({ mode: 'admin' })).toBe(true);
+      expect(isPersistedAuthLens({ mode: 'as', uid: 'alice' })).toBe(true);
+      expect(isPersistedAuthLens({ mode: 'as' })).toBe(false);
+      expect(isPersistedAuthLens({ mode: 'app-session' })).toBe(false);
+      expect(isPersistedAuthLens(null)).toBe(false);
+    });
+
     it('hydrates a valid impersonation lens with tenant from sessionStorage', () => {
       const storedLens: AuthLens = {
         mode: 'as',

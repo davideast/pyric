@@ -312,7 +312,7 @@ export async function restorePortSession(
     t: 'op', id: nextId(), method: 'auth.restorePortSession', uid,
   })) as SerializedUser | null;
   const user = toClientUser(auth.port, raw);
-  if (user) auth.currentUser = user;
+  auth.currentUser = user;
   return user;
 }
 

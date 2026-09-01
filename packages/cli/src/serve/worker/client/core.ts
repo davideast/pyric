@@ -261,23 +261,31 @@ export function wirePort(port: ClientPort): void {
 
 export const AUTH_LENS_STORAGE_KEY = 'pyric:auth-lens';
 
+type PersistedAuthLens =
+  | Extract<AuthLens, { mode: 'admin' }>
+  | Extract<AuthLens, { mode: 'as' }>;
+
+export function isPersistedAuthLens(value: unknown): value is PersistedAuthLens {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { mode?: unknown; uid?: unknown };
+  if (candidate.mode === 'admin') return true;
+  return candidate.mode === 'as' && typeof candidate.uid === 'string';
+}
+
+function normalizePersistedAuthLens(value: unknown): PersistedAuthLens | undefined {
+  if (isPersistedAuthLens(value)) return value;
+  return undefined;
+}
+
 /** Read persisted auth lens from sessionStorage safely. */
 export function hydrateLensFromStorage(): AuthLens | undefined {
   if (typeof sessionStorage === 'undefined') return undefined;
   try {
     const raw = sessionStorage.getItem(AUTH_LENS_STORAGE_KEY);
     if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as AuthLens;
-    if (
-      parsed
-      && typeof parsed === 'object'
-      && (
-        parsed.mode === 'admin'
-        || (parsed.mode === 'as' && typeof parsed.uid === 'string')
-      )
-    ) {
-      return parsed;
-    }
+    const parsed: unknown = JSON.parse(raw);
+    const persistedLens = normalizePersistedAuthLens(parsed);
+    if (persistedLens) return persistedLens;
     sessionStorage.removeItem(AUTH_LENS_STORAGE_KEY);
     return undefined;
   } catch {
@@ -327,13 +335,7 @@ export function subscribeLens(listener: (lens: AuthLens | undefined) => void): (
  * Notifies all registered subscribeLens listeners.
  */
 export function setLens(lens: AuthLens | undefined): void {
-  if (lens && lens.mode === 'admin') {
-    _defaultLens = lens;
-  } else if (lens && lens.mode === 'as') {
-    _defaultLens = lens;
-  } else {
-    _defaultLens = undefined;
-  }
+  _defaultLens = normalizePersistedAuthLens(lens);
 
   if (typeof sessionStorage !== 'undefined') {
     try {

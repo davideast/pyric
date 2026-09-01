@@ -5,7 +5,7 @@ import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
-import type { ChipDialogUser } from '../../../src/serve/runtime/chip-dialog.js';
+import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -17,10 +17,10 @@ function setup(options: {
   clipboard?: Pick<Clipboard, 'writeText'> | null;
   studioUrl?: string | null;
   initialLens?: AuthLens;
-  initialUser?: ChipDialogUser | null;
+  initialUser?: RuntimeIdentity | null;
   listUsers?: () => Promise<AuthUserRecord[]> | AuthUserRecord[];
-  getCurrentUser?: () => ChipDialogUser | null;
-  subscribeAuth?: (listener: (user: ChipDialogUser | null) => void) => () => void;
+  getCurrentUser?: () => RuntimeIdentity | null;
+  subscribeAuth?: (listener: (user: RuntimeIdentity | null) => void) => () => void;
   setLens?: (lens: AuthLens | undefined) => void;
   subscribeLens?: (listener: (lens: AuthLens | undefined) => void) => () => void;
   useRealClient?: boolean;
@@ -33,9 +33,9 @@ function setup(options: {
     : options.clipboard ?? { writeText };
 
   let currentLens: AuthLens | undefined = options.initialLens;
-  let currentUser: ChipDialogUser | null = options.initialUser ?? null;
+  let currentUser: RuntimeIdentity | null = options.initialUser ?? null;
   const lensListeners = new Set<(lens: AuthLens | undefined) => void>();
-  const authListeners = new Set<(user: ChipDialogUser | null) => void>();
+  const authListeners = new Set<(user: RuntimeIdentity | null) => void>();
 
   const setLensMock = mock((lens: AuthLens | undefined) => {
     currentLens = lens;
@@ -45,7 +45,7 @@ function setup(options: {
     lensListeners.add(listener);
     return () => lensListeners.delete(listener);
   });
-  const subscribeAuthMock = mock((listener: (user: ChipDialogUser | null) => void) => {
+  const subscribeAuthMock = mock((listener: (user: RuntimeIdentity | null) => void) => {
     authListeners.add(listener);
     return () => authListeners.delete(listener);
   });
@@ -92,7 +92,7 @@ function setup(options: {
       currentLens = lens;
       for (const l of lensListeners) l(lens);
     },
-    setCurrentUser(user: ChipDialogUser | null) {
+    setCurrentUser(user: RuntimeIdentity | null) {
       currentUser = user;
       for (const l of authListeners) l(user);
     },
@@ -269,7 +269,7 @@ describe('PyricRuntimeChip', () => {
   });
 
   it('displays identity badge from authenticated client user when no lens override is active', () => {
-    let activeUser: ChipDialogUser | null = { uid: 'sam-uid', displayName: 'Sam Altman' };
+    let activeUser: RuntimeIdentity | null = { uid: 'sam-uid', displayName: 'Sam Altman' };
     const { root, setCurrentUser } = setup({
       getCurrentUser: () => activeUser,
     });

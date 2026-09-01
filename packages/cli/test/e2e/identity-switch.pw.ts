@@ -18,6 +18,11 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
   const chipCount = await page.locator('[data-pyric-runtime-chip-host]').count();
   expect(chipCount).toBe(1);
 
+  // A deleted named app must release its Auth handle before chip fan-out.
+  await page.evaluate(() => (
+    window as unknown as { __registerThenDeleteNamedAuth: () => Promise<void> }
+  ).__registerThenDeleteNamedAuth());
+
   // Verify no unauthorized button-primary styling exists
   await expect(chipHost.locator('.button-primary')).toHaveCount(0);
 

@@ -24,8 +24,10 @@ import { customClaimsFromTokenClaims } from './auth-helper-core.js';
 import { resolveServeAuthFlow } from './auth-helper-runtime.js';
 import type { SessionMode } from './session-store.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
+import { registerAppCleanup } from 'pyric/app/internal';
 import { workerClientForApp } from './app-client.js';
 import { createActiveAuthRegistry } from './active-auth-registry.js';
+import type { RuntimeIdentity } from '../runtime/identity.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -109,7 +111,7 @@ export function subscribeToActiveAuth(listener: (user: any) => void): () => void
   return activeAuthRegistry.subscribe(listener);
 }
 
-export function getActiveAuthUser(): { uid: string; email?: string | null; displayName?: string | null } | null {
+export function getActiveAuthUser(): RuntimeIdentity | null {
   for (const auth of activeAuthRegistry.auths()) {
     if (auth.currentUser) {
       return {
@@ -190,7 +192,8 @@ export const getAuth = ((app?: FirebaseApp) => {
   if (!useWorker) {
     const handle = pyricGetAuth(resolved);
     wireAppPersistence(resolved, handle);
-    registerActiveAuth(handle);
+    const releaseActiveAuth = registerActiveAuth(handle);
+    registerAppCleanup(resolved, releaseActiveAuth);
     return handle;
   }
   const existing = workerAuthByApp.get(resolved);
@@ -201,7 +204,11 @@ export const getAuth = ((app?: FirebaseApp) => {
   }) as unknown as ReturnType<typeof pyricGetAuth>;
   workerAuthByApp.set(resolved, handle);
   wireAppPersistence(resolved, handle);
-  registerActiveAuth(handle);
+  const releaseActiveAuth = registerActiveAuth(handle);
+  registerAppCleanup(resolved, () => {
+    workerAuthByApp.delete(resolved);
+    releaseActiveAuth();
+  });
   return handle;
 }) as typeof pyricGetAuth;
 

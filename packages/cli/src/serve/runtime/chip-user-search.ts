@@ -45,7 +45,7 @@ export function filterUsers(
   query: string,
   filter: string | null,
 ): AuthUserRecord[] {
-  let list = users;
+  let list = users.filter((user) => user.disabled !== true);
   if (filter) {
     const f = filter.toLowerCase();
     if (f === 'admin') {
