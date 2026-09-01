@@ -30,6 +30,7 @@ import type {
   ResMessage,
   SnapMessage,
 } from '../../../src/serve/worker/protocol.js';
+import { openStorageForTransportTests } from './permissive-services.js';
 import {
   initializeSandbox,
   createMemoryBackend,
@@ -92,6 +93,10 @@ const DENY_ALL_RULES = `
 /** Build a HostCtx with an in-memory sandbox. Fast + isolated. */
 async function makeCtx(rules: string = PERMISSIVE_RULES): Promise<HostCtx> {
   const sandbox = initializeSandbox();
+  openStorageForTransportTests(
+    sandbox,
+    `worker-host-${Math.random().toString(36).slice(2)}`,
+  );
 
   const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
   const adminDb = getAdminFirestore(sandbox.withAuth(null));

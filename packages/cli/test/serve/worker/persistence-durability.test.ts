@@ -25,6 +25,7 @@ import { handleMessage, type HostCtx, type PortLike } from '../../../src/serve/w
 import { buildWorkerCtx } from '../../../src/serve/worker/serve-init.js';
 import type { OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
 import { createIndexedDBBackend } from 'pyric/sandbox';
+import { allowRtdbForTransportTests } from './permissive-services.js';
 
 /** Stub fetch: standalone worker (no `pyric dev` behind it) — init.json 404s. */
 const offlineFetch = (async () => {
@@ -37,12 +38,14 @@ function fakePort(): PortLike & { messages: OutboundMessage[] } {
 }
 
 /** Boot the worker exactly as entry.ts does, against the shared fake IDB. */
-function bootWorker(key: string): Promise<HostCtx> {
-  return buildWorkerCtx({
+async function bootWorker(key: string): Promise<HostCtx> {
+  const ctx = await buildWorkerCtx({
     fetch: offlineFetch,
     idb: createIndexedDBBackend(),
     persistenceKey: key,
   });
+  allowRtdbForTransportTests(ctx.sandbox);
+  return ctx;
 }
 
 async function op(ctx: HostCtx, msg: Record<string, unknown>): Promise<ResMessage> {

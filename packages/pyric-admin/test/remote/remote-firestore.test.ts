@@ -41,6 +41,7 @@
 import { afterEach, describe, it, expect } from 'bun:test';
 import { initializeSandbox, SandboxError } from 'pyric/sandbox';
 import { getFirestore as getModularFirestore } from 'pyric/firestore';
+import { getDatabase as getModularDatabase, sandbox as databaseSandbox } from 'pyric/database';
 import {
   getFirestore as getLocalBaseFirestore,
   getAdminFirestore as getBaseAdminFirestore,
@@ -118,6 +119,7 @@ function makeWorkerCtx(opts: { rules?: string } = {}): HostCtx {
   // Deploy the worker's active ruleset the way a served page would —
   // synchronously through the LOCAL arm on the worker's own sandbox.
   getLocalBaseFirestore(sandbox.withAuth(null)).setRules(opts.rules ?? OPEN_RULES);
+  databaseSandbox.setDefaultPolicy(getModularDatabase(sandbox), 'allow');
   return {
     db: getModularFirestore(sandbox),
     sandbox,

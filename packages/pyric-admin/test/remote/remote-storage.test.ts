@@ -70,6 +70,13 @@ service firebase.storage {
   }
 }`;
 
+const OPEN_RULES = `
+service firebase.storage {
+  match /{allPaths=**} {
+    allow read, write: if true;
+  }
+}`;
+
 afterEach(async () => {
   await Promise.all(getApps().map((app) => deleteApp(app)));
 });
@@ -87,7 +94,7 @@ function makeWorkerCtx(opts: { rules?: string } = {}): HostCtx {
   // — first-call-per-sandbox, exactly how a served page configures rules.
   getStorageSandbox(sandbox, {
     dbName: `pyric-admin-remote-storage-${++dbSeq}-${Math.random().toString(36).slice(2, 8)}`,
-    ...(opts.rules ? { rules: opts.rules } : {}),
+    rules: opts.rules ?? OPEN_RULES,
   });
   return {
     db: getFirestore(sandbox),

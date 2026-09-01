@@ -1,9 +1,7 @@
 /**
- * Entry-path conformance program — `pyric/app` + `pyric/storage`.
+ * Entry-path conformance program — configured `pyric/storage` sandbox.
  *
  * Adapted from Firebase's official web quickstart shape:
- *   - https://firebase.google.com/docs/storage/web/start
- *     (`initializeApp`, `getStorage`)
  *   - https://firebase.google.com/docs/storage/web/upload-files
  *     (`ref` + `uploadBytes`)
  *
@@ -13,12 +11,18 @@
  *     input types (`Blob | Uint8Array | ArrayBuffer`), not a pyric-specific
  *     shape.
  */
-import { initializeApp } from 'pyric/app';
-import { getStorage, ref, uploadBytes } from 'pyric/storage';
+import { getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
+import { initializeSandbox } from 'pyric/sandbox';
+
+const OPEN_RULES = `
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow read, write: if true; }
+  }
+}`;
 
 export async function run(): Promise<void> {
-  const app = initializeApp({ projectId: 'entry-path-project' });
-  const storage = getStorage(app);
+  const storage = getStorageSandbox(initializeSandbox(), { rules: OPEN_RULES });
   const storageRef = ref(storage, 'entry-path/quickstart.txt');
 
   // https://firebase.google.com/docs/storage/web/upload-files — the one

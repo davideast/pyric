@@ -29,6 +29,8 @@
 import { afterEach, describe, it, expect } from 'bun:test';
 import { REMOTE_SANDBOX_FACTORY, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
+import { getDatabase as getModularDatabase, sandbox as databaseSandbox } from 'pyric/database';
+import { getStorageSandbox } from 'pyric/storage';
 import type { AuthUserRecord } from 'pyric/auth';
 
 import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge.js';
@@ -59,6 +61,12 @@ import { getAuth } from '../../src/auth/index.js';
 // ─── Harness (checkpoint 1's, minus persistence — not needed here) ─────────
 
 const SERVE_URL = 'http://localhost:5000';
+const OPEN_STORAGE_RULES = `
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow read, write: if true; }
+  }
+}`;
 
 // The app registry is module-global (mirror of firebase-admin's
 // defaultAppStore) — deregister every app after each test so repeated
@@ -69,6 +77,11 @@ afterEach(async () => {
 
 function makeWorkerCtx(): HostCtx {
   const sandbox = initializeSandbox();
+  databaseSandbox.setDefaultPolicy(getModularDatabase(sandbox), 'allow');
+  getStorageSandbox(sandbox, {
+    dbName: `admin-remote-${Math.random().toString(36).slice(2)}`,
+    rules: OPEN_STORAGE_RULES,
+  });
   return {
     db: getFirestore(sandbox),
     sandbox,
@@ -194,7 +207,9 @@ describe('pyric-admin remote dispatch — arm selection', () => {
   });
 
   it('still routes a plain in-process sandbox to the local arm', async () => {
-    const app = initializeApp({ sandbox: initializeSandbox() });
+    const sandbox = initializeSandbox();
+    databaseSandbox.setDefaultPolicy(getModularDatabase(sandbox), 'allow');
+    const app = initializeApp({ sandbox });
     const db = getDatabase(app);
     await db.ref('local/probe').set({ via: 'local-arm' });
     expect((await db.ref('local/probe').get()).val()).toEqual({ via: 'local-arm' });

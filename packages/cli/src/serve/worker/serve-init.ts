@@ -245,8 +245,7 @@ export function applyServeInit(
   //     always open storage with no `rules` option, so whichever call opens
   //     the service first wins — making this the sanctioned place to
   //     configure it. `payload.storageRules` is null when the project has no
-  //     storage.rules, matching the same open-by-default posture as no
-  //     firestore.rules / no database.rules.
+  //     storage.rules, so the storage sandbox retains its fail-closed default.
   //     The open ALSO claims the project-scoped IDB name
   //     (`pyric-storage:<projectKey>`, issue #359) — which is why it now runs
   //     unconditionally: a lazy first open from `ensureStorage`/`lensStorage`

@@ -25,6 +25,7 @@ import type {
   ResMessage,
   EventStreamMessage,
 } from '../../../src/serve/worker/protocol.js';
+import { openStorageForTransportTests } from './permissive-services.js';
 import {
   initializeSandbox,
   createMemoryBackend,
@@ -61,6 +62,10 @@ type FakePort = ReturnType<typeof fakePort>;
 
 async function makeCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
+  openStorageForTransportTests(
+    sandbox,
+    `event-stream-${Math.random().toString(36).slice(2)}`,
+  );
   const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
   const adminDb = getAdminFirestore(sandbox.withAuth(null));
   adminDb.setRules(PERMISSIVE_RULES);

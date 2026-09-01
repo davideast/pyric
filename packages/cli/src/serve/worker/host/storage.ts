@@ -68,8 +68,8 @@ function ensureStorage(ctx: HostCtx): FirebaseStorage {
  *     `applyServeInit` (`serve-init.ts`), which opens the storage service
  *     with `payload.storageRules` BEFORE any op can reach `ensureStorage`/
  *     `lensStorage`, so every lens on a served worker enforces the
- *     project's storage.rules (or runs open when the project has none,
- *     matching Firestore/RTDB's no-rules posture). The lens split still
+ *     project's storage.rules (or fails closed when the project has none,
+ *     matching Firebase production's no-rules posture). The lens split still
  *     matters for embedding/test hosts that open the service directly.
  *   - `{ mode: 'admin' }` → the rules-BYPASS handle from
  *     `pyric/storage/internal`'s admin plane — same per-sandbox store +

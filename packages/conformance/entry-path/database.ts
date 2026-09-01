@@ -11,11 +11,12 @@
  * Initialization is exactly Firebase-shaped; package resolution selects Pyric.
  */
 import { initializeApp } from 'pyric/app';
-import { getDatabase, ref, set, child, get } from 'pyric/database';
+import { getDatabase, ref, set, child, get, sandbox } from 'pyric/database';
 
 export async function run(): Promise<void> {
   const app = initializeApp({ projectId: 'entry-path-project' });
   const db = getDatabase(app);
+  sandbox.setRules(db, sandbox.DEFAULT_OPEN_RULES);
 
   // https://firebase.google.com/docs/database/web/read-and-write —
   // `writeUserData`: the one real operation this program performs.

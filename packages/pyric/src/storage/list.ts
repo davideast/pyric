@@ -52,7 +52,7 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
   // requires `read` on the scanned ref's path. Prefixes have no
   // backing object, so `resource` is null (a list of an unauthorized
   // tree throws `storage/unauthorized`, same as a denied read). When
-  // no rules are configured this is a no-op (open-by-default).
+  // no rules are configured, enforcement fails closed.
   enforceRules(service, {
     request: {
       auth: storageAuth(target),
