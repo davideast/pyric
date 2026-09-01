@@ -42,10 +42,12 @@ import { emitSandboxEvent, makeSandboxOperationEvent } from 'pyric/sandbox/inter
 import type { EventProvenance } from 'pyric/sandbox';
 import {
   storageOperationProvenance,
+  type CrossServiceIam,
   type StorageService,
   type Target,
 } from './service.js';
 import { evaluateStorageRules } from './sandbox/rules-evaluator.js';
+import { RuleEvalError } from './sandbox/rules-evaluation-error.js';
 import type { EvaluationInput, FirestoreLookup } from './sandbox/rules.js';
 import { unauthorized } from './errors.js';
 
@@ -78,7 +80,7 @@ export function enforceRules(
     service.rules,
     evaluationInput,
     undefined,
-    firestoreLookupFor(target),
+    firestoreLookupFor(target, service.crossServiceIam),
   );
   if (!result.allowed) {
     emitOperation(target, input, 'deny', result.reasons, 'user', true, boundProvenance);
@@ -160,12 +162,53 @@ function emitOperation(
  *
  * Calls without a target get no lookup — a rule that reaches for
  * `firestore.*` there denies "unsupported" rather than false-allowing.
+ *
+ * `crossServiceIam: 'denied'` models the production project state WITHOUT
+ * `roles/firebaserules.firestoreServiceAgent` on the Storage service agent:
+ * the lookup capability is still injected (so path validation and laziness
+ * behave identically), but every EXECUTED get/exists fails — see
+ * {@link crossServiceIamDeniedLookup}.
  */
-function firestoreLookupFor(target?: Target): FirestoreLookup | undefined {
+function firestoreLookupFor(
+  target: Target | undefined,
+  crossServiceIam: CrossServiceIam,
+): FirestoreLookup | undefined {
   if (!target) return undefined;
+  if (crossServiceIam === 'denied') return crossServiceIamDeniedLookup();
   const admin = target.sandbox.admin;
   return {
     get: (path) => admin.getDocument(path) as Record<string, unknown> | null,
     exists: (path) => admin.getDocument(path) !== null,
+  };
+}
+
+/**
+ * The `crossServiceIam: 'denied'` lookup: every executed
+ * `firestore.get()/exists()` throws a {@link RuleEvalError} naming the
+ * missing service-agent role, so the rule denies with that reason —
+ * mirroring production's IAM-disabled boundary captured by conformance
+ * observation `stdlib-realstorage-p3-lookup-budget` (row storage-rules#134):
+ * every lookup-executing family DENIES while a short-circuited lookup is
+ * never invoked and its rule still ALLOWS. The capture pins only that
+ * executed-lookup/short-circuit boundary; how an IAM failure interacts
+ * with CEL `&&`/`||` error absorption is NOT pinned by it (no absorption
+ * family ran IAM-disabled), so this uses the same absorbable
+ * {@link RuleEvalError} class as the existing no-capability deny path.
+ *
+ * Exported for the conformance replay test
+ * (`packages/conformance/test/src/storage-stdlib-real-replay.test.ts`),
+ * which runs the captured IAM-disabled matrix against the evaluator with
+ * THIS production lookup — not a hand-rolled twin.
+ */
+export function crossServiceIamDeniedLookup(): FirestoreLookup {
+  const fail = (method: 'get' | 'exists'): never => {
+    throw new RuleEvalError(
+      `firestore.${method}() failed: cross-service Firestore access is not authorized — ` +
+        "the Storage service agent lacks roles/firebaserules.firestoreServiceAgent (crossServiceIam: 'denied')",
+    );
+  };
+  return {
+    get: () => fail('get'),
+    exists: () => fail('exists'),
   };
 }

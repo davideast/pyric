@@ -2,7 +2,9 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseStorageRules } from '../../../pyric/src/storage/sandbox/rules.ts';
+import type { FirestoreLookup } from '../../../pyric/src/storage/sandbox/rules.ts';
 import { evaluateStorageRules } from '../../../pyric/src/storage/sandbox/rules-evaluator.ts';
+import { crossServiceIamDeniedLookup } from '../../../pyric/src/storage/enforce.ts';
 import {
   injectProbeRules,
   storageStdlibRealProbeBlockDigest,
@@ -43,7 +45,11 @@ function behavior(name: string): Record<string, 'ALLOW' | 'DENY'> {
   return result;
 }
 
-function verdicts(advanced: boolean, families: string[]): Record<string, 'ALLOW' | 'DENY'> {
+function verdicts(
+  advanced: boolean,
+  families: string[],
+  lookupOverride?: FirestoreLookup,
+): Record<string, 'ALLOW' | 'DENY'> {
   const source = injectProbeRules(
     "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { } }",
     RUN_ID,
@@ -60,7 +66,7 @@ function verdicts(advanced: boolean, families: string[]): Record<string, 'ALLOW'
     [`${PREFIX}/docs/b`]: { allow: true },
     [`${PREFIX}/docs/c`]: { allow: true },
   };
-  const lookup = {
+  const lookup = lookupOverride ?? {
     get: (path: string) => docs[path] ?? null,
     exists: (path: string) => Object.hasOwn(docs, path),
   };
@@ -107,6 +113,20 @@ describe('real-resource Storage stdlib observation replay', () => {
     const observed = behavior('stdlib-realstorage-p3-lookup-budget-iam-enabled');
     const families = ['one', 'two', 'three', 'repeat', 'get-exists', 'short', 'missing-exists', 'missing-get'];
     expect(verdicts(false, families)).toEqual(Object.fromEntries(families.map((key) => [key, observed[key]])));
+  });
+
+  it('replays the IAM-DISABLED baseline in crossServiceIam denied mode (row 134)', () => {
+    // The same probe matrix, captured with the Storage service agent's
+    // `roles/firebaserules.firestoreServiceAgent` grant REMOVED: every
+    // lookup-executing family DENIES and the short-circuited family still
+    // ALLOWS. The local twin is the EXACT production denied-mode lookup
+    // (`crossServiceIamDeniedLookup` — what `enforce.ts` injects for
+    // `crossServiceIam: 'denied'`), not a hand-rolled stand-in.
+    const observed = behavior('stdlib-realstorage-p3-lookup-budget');
+    const families = ['one', 'two', 'three', 'repeat', 'get-exists', 'short', 'missing-exists', 'missing-get'];
+    expect(verdicts(false, families, crossServiceIamDeniedLookup())).toEqual(
+      Object.fromEntries(families.map((key) => [key, observed[key]])),
+    );
   });
 
   it('replays the locally decidable advanced lookup matrix', () => {
