@@ -34,6 +34,7 @@ import {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  rtdbSandbox.setDefaultPolicy(db, 'allow');
   return { sandbox, db };
 }
 

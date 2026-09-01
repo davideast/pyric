@@ -6,6 +6,7 @@ import { ValueListeners } from '../../../src/database/sandbox/value-listeners.js
 
 it('retries an overlapping re-entrant write and releases mutation history', () => {
   const state = new BackendState();
+  state.rules.setDefaultPolicy('allow');
   const values = new ValueListeners(state);
   const children = new ChildListeners(state);
   const transactions = new Transactions(state, values, children);

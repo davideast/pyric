@@ -20,12 +20,7 @@ import {
   startAt,
   endAt,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 describe('DB-B4 — nameCompare (numeric-keys-first) ordering', () => {
   it('orderByKey sorts integer keys numerically, before non-integer keys', async () => {

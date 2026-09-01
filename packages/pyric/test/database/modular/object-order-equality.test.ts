@@ -16,12 +16,7 @@ import {
   query,
   orderByValue,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 describe('DB-B11 — object-valued children are order-equal (key tie-break)', () => {
   it('orderByValue on object-valued children sorts by key, not JSON string', async () => {

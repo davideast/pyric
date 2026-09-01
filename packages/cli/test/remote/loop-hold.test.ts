@@ -36,11 +36,16 @@ import type {
   InboundMessage,
   OutboundMessage,
 } from '../../src/serve/worker/protocol.js';
+import { allowWorkerServicesForTransportTests } from '../serve/worker/permissive-services.js';
 
 // ─── Harness (worker-relay.test.ts's, + ref/unref recording) ───────────────
 
 function makeWorkerCtx(): HostCtx {
   const sandbox = initializeSandbox();
+  allowWorkerServicesForTransportTests(
+    sandbox,
+    `loop-hold-${Math.random().toString(36).slice(2)}`,
+  );
   return { db: getFirestore(sandbox), sandbox, instanceId: 'loop-hold-test', subs: new Map() };
 }
 

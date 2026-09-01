@@ -13,7 +13,9 @@ const childMoveSequence = loadObservation('rtdb-modular-onchildmoved-previouschi
 
 function setup() {
   const sandbox = initializeSandbox();
-  return api.getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const db = api.getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  api.sandbox.setDefaultPolicy(db, 'allow');
+  return db;
 }
 
 function cancellationShape(error: Error, path: string): ErrorShape {

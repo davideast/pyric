@@ -10,6 +10,7 @@ import { initializeSandbox, createMemoryBackend } from 'pyric/sandbox';
 import { getFirestore as ipGetFirestore } from 'pyric/firestore';
 import { getAuth as ipGetAuth } from 'pyric/auth';
 import * as client from '../../../src/serve/worker/client.js';
+import { allowWorkerServicesForTransportTests } from './permissive-services.js';
 
 const GATE_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -42,6 +43,10 @@ export function portPair(): { a: FakePort; b: FakePort } {
 
 export async function makeHostCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
+  allowWorkerServicesForTransportTests(
+    sandbox,
+    `worker-integration-${Math.random().toString(36).slice(2)}`,
+  );
   const { getFirestore: adm } = await import('pyric/sandbox/admin-firestore');
   adm(sandbox.withAuth(null)).setRules(GATE_RULES);
   await sandbox.enablePersistence({

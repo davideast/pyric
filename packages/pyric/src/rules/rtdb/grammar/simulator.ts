@@ -115,23 +115,21 @@ export class DataSnapshot {
 
   child(path: string): DataSnapshot {
     const parts = path.split('/').filter(p => p.length > 0);
-    let current: unknown = this._value;
-    let currentPath = this._path;
+    if (parts.length === 0) return this;
 
+    let current: unknown = this._value;
     for (const part of parts) {
-      if (current === null || current === undefined || typeof current !== 'object') {
+      if (current !== null && current !== undefined && typeof current === 'object') {
+        current = Object.hasOwn(current as object, part)
+          ? ((current as Record<string, unknown>)[part] ?? null)
+          : null;
+      } else {
         current = null;
-        currentPath = `${currentPath}/${part}`.replace(/\/+/g, '/');
-        break;
       }
-      // Own-property access only: a `__proto__`/`constructor` child must
-      // not resolve to the JS prototype chain.
-      current = Object.hasOwn(current as object, part)
-        ? ((current as Record<string, unknown>)[part] ?? null)
-        : null;
-      currentPath = `${currentPath === '/' ? '' : currentPath}/${part}`;
     }
 
+    const prefix = this._path === '/' ? '' : this._path;
+    const currentPath = `${prefix}/${parts.join('/')}`;
     return new DataSnapshot(current, currentPath, this._root);
   }
 
@@ -139,9 +137,10 @@ export class DataSnapshot {
     if (this._path === '/') return null;
     const parts = this._path.split('/').filter(p => p.length > 0);
     parts.pop();
-    const parentPath = '/' + parts.join('/');
+    if (parts.length === 0) {
+      return new DataSnapshot(this._root, '/');
+    }
     const rootSnap = new DataSnapshot(this._root, '/');
-    if (parentPath === '/') return rootSnap;
     return rootSnap.child(parts.join('/'));
   }
 

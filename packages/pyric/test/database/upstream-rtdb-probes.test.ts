@@ -27,6 +27,7 @@ import {
   startAfter,
   update,
   type DataSnapshot,
+  sandbox as databaseSandbox,
 } from '../../src/database/index.js';
 
 const INTEGER_32_MAX = 2147483647;
@@ -35,6 +36,7 @@ const INTEGER_32_MIN = -2147483648;
 function setup() {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  databaseSandbox.setDefaultPolicy(db, 'allow');
   return { sandbox, db };
 }
 

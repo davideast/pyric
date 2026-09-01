@@ -494,7 +494,7 @@ export async function startServe(opts: {
     session.payload().storageRules
       ? `✔ rules    ${session.summary.rules.storage.sourcePath} → deployed to the storage sandbox (hash ${session.summary.rules.storage.hash}; ` +
         `edits require a restart — storage rules do not hot-reload)`
-      : `• rules    no storage.rules — storage sandbox runs open (no rules configured)`,
+      : `• rules    no storage.rules — storage sandbox denies client operations by default`,
   );
   if (uiUrl) {
     logger.info(`✔ studio   Pyric Studio: ${uiUrl}`);

@@ -297,15 +297,14 @@ service firebase.storage {
   });
 });
 
-describe('no-rules mode is open', () => {
-  it('uploads + reads succeed when no rules are configured', async () => {
+describe('no-rules mode is closed by default', () => {
+  it('uploads + reads fail closed when no rules are configured', async () => {
     const sandbox = initializeSandbox({});
     const storage = getStorageSandbox(sandbox.withAuth(null), {
       dbName: uniqueDbName('no-rules'),
     });
     const r = ref(storage, 'anything/here.txt');
-    await uploadBytes(r, new Blob(['ok'])); // no auth, no contentType — allowed
-    expect(await (await getBlob(r)).text()).toBe('ok');
+    await expect(uploadBytes(r, new Blob(['ok']))).rejects.toThrow(/unauthorized/);
   });
 });
 

@@ -16,12 +16,7 @@ import {
   set,
   onValue,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 describe('DB-B8 — no-change value-listener fire suppression', () => {
   it('re-writing the same value does NOT re-fire the listener', async () => {

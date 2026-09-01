@@ -7,7 +7,9 @@ const snapshotObservation = loadObservation('rtdb-modular-get-snapshot-shape');
 
 function setup() {
   const sandbox = initializeSandbox();
-  return api.getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const db = api.getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  api.sandbox.setDefaultPolicy(db, 'allow');
+  return db;
 }
 
 function snapshotKeys(snapshot: api.DataSnapshot): string[] {

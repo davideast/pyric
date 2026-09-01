@@ -32,6 +32,15 @@ service cloud.firestore {
   }
 }`;
 
+const STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+
 import {
   getAuth,
   signInAnonymously,
@@ -167,6 +176,7 @@ describe('Studio T1 — Storage emits service_mutation events', () => {
 
     const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
       dbName: uniqueDbName('put'),
+      rules: STORAGE_RULES,
     });
     await uploadBytes(storageRef(storage, 'avatars/alice.png'), new Blob(['xyz']), {
       contentType: 'image/png',
@@ -188,6 +198,7 @@ describe('Studio T1 — Storage emits service_mutation events', () => {
     const events: SandboxEvent[] = [];
     const storage = getStorageSandbox(sandbox.withAuth(null), {
       dbName: uniqueDbName('del'),
+      rules: STORAGE_RULES,
     });
     const r = storageRef(storage, 'docs/note.txt');
     await uploadBytes(r, new Blob(['hello']));
@@ -210,6 +221,7 @@ describe('Studio T1 — RTDB emits service_mutation events', () => {
     sandbox.onEvent((e) => events.push(e));
 
     const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    rtdbSandbox.setDefaultPolicy(db, 'allow');
     await set(dbRef(db, 'rooms/r1'), { name: 'lobby' });
     await update(dbRef(db, 'rooms/r1'), { topic: 'hi' });
     await remove(dbRef(db, 'rooms/r1'));
@@ -239,6 +251,7 @@ describe('Studio T1 — RTDB emits service_mutation events', () => {
     sandbox.onEvent((e) => events.push(e));
 
     const db = getDatabase(sandbox.withAuth(null));
+    rtdbSandbox.setDefaultPolicy(db, 'allow');
     await set(dbRef(db, 'a/b'), 'value');
     await set(dbRef(db, 'a/b'), null);
 
@@ -254,6 +267,7 @@ describe('Studio T1 — RTDB emits service_mutation events', () => {
     sandbox.onEvent((e) => events.push(e));
 
     const db = getDatabase(sandbox.withAuth(null));
+    rtdbSandbox.setDefaultPolicy(db, 'allow');
     await set(dbRef(db, 'counter'), 1);
     await runTransaction(dbRef(db, 'counter'), (cur) => (typeof cur === 'number' ? cur + 1 : 1));
 
@@ -272,6 +286,7 @@ describe('Studio T1 — RTDB emits service_mutation events', () => {
     sandbox.onEvent((e) => events.push(e));
 
     const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    rtdbSandbox.setDefaultPolicy(db, 'allow');
     await set(dbRef(db, 'rooms/r1'), { name: 'lobby' });
 
     const op = operations(events).find((e) => e.service === 'rtdb' && e.path === '/rooms/r1');
@@ -294,6 +309,7 @@ describe('Studio T1 — RTDB emits service_mutation events', () => {
     sandbox.onEvent((e) => events.push(e));
 
     const db = getDatabase(sandbox.withAuth(null));
+    rtdbSandbox.setDefaultPolicy(db, 'allow');
     const seen: unknown[] = [];
     const unsub = onValue(dbRef(db, 'rooms/r1'), (snap) => seen.push(snap.val()));
     await set(dbRef(db, 'rooms/r1'), { name: 'lobby' });

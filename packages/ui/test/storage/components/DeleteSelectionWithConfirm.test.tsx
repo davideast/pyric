@@ -15,9 +15,9 @@ g.ResizeObserver = class {
 g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 g.IS_REACT_ACT_ENVIRONMENT = true;
 
-// Real sandbox behind the component (no rules in DOM tests — see
-// ObjectInspector.test.tsx; the failure path injects a failing impl
-// instead). Explicit global assignment: fake-indexeddb/auto targets
+// Real sandbox behind the component with explicit permissive Storage rules;
+// the failure path injects a failing impl instead. Explicit global assignment:
+// fake-indexeddb/auto targets
 // `window` when another DOM file installed one first.
 import { indexedDB as fakeIndexedDB, IDBKeyRange as fakeIDBKeyRange } from 'fake-indexeddb';
 g.indexedDB = fakeIndexedDB;
@@ -43,6 +43,7 @@ import {
   type StorageApi,
   type StorageRecursiveDeleteImpl,
 } from '../../../src/storage/index.js';
+import { OPEN_STORAGE_RULES } from '../open-storage-rules.js';
 
 afterEach(() => cleanup());
 
@@ -50,6 +51,7 @@ function makeStorage(label: string): FirebaseStorage {
   const sandbox = initializeSandbox({});
   return getStorageSandbox(sandbox, {
     dbName: `pyric-ui-delsel-${label}-${Math.random().toString(36).slice(2, 10)}`,
+    rules: OPEN_STORAGE_RULES,
   });
 }
 

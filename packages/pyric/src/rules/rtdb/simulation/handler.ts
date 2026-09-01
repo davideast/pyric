@@ -58,6 +58,23 @@ function snapshotChildKeys(snap: DataSnapshot): string[] {
  * the first unsupported node, else `null` when every applicable `.validate`
  * passes.
  */
+function hasValidateRule(n: RtdbNode): boolean {
+  if (n.validate) return true;
+  return n.children.some(hasValidateRule);
+}
+
+function shouldValidateSiblingSubtree(
+  currentSegments: readonly string[],
+  hasLocalDeletion: boolean,
+  allWritePaths: readonly string[][],
+): boolean {
+  return (
+    currentSegments.length > 0 ||
+    hasLocalDeletion ||
+    allWritePaths.some((wp) => wp.length === 1)
+  );
+}
+
 function findFailingValidate(
   node: RtdbNode,
   data: DataSnapshot,
@@ -65,30 +82,46 @@ function findFailingValidate(
   bindings: Record<string, string>,
   buildContext: ContextBuilder,
   pathToWrite: string[],
+  updates?: readonly { path: string; value?: unknown }[],
 ): ValidateFailure | null {
   let firstUnsupported: ValidateFailure | null = null;
+
+  const writePathStrings = new Set<string>();
+  if (updates && updates.length > 0) {
+    for (const u of updates) {
+      writePathStrings.add(u.path.split('/').filter(Boolean).join('/'));
+    }
+  }
+  writePathStrings.add(pathToWrite.filter(Boolean).join('/'));
+  const allWritePaths = Array.from(writePathStrings).map((p) => p.split('/').filter(Boolean));
 
   function walk(
     node: RtdbNode,
     data: DataSnapshot,
     newData: DataSnapshot,
     bindings: Record<string, string>,
-    remainingPath: string[],
+    currentSegments: string[],
+    isUnderModifiedSubtree: boolean,
   ): ValidateFailure | null {
-    // A null proposed value is a delete — RTDB does not validate deletes.
-    if (!newData.exists()) return null;
-
-    const rule = node.validate;
-    if (rule) {
-      if (!rule.parsed.valid) {
-        if (!firstUnsupported) {
-          firstUnsupported = { node, rule, bindings, unsupported: true };
+    if (newData.exists()) {
+      const rule = node.validate;
+      if (rule) {
+        if (!rule.parsed.valid) {
+          if (!firstUnsupported) {
+            firstUnsupported = { node, rule, bindings, unsupported: true };
+          }
+        } else {
+          const result = evaluateRtdbExpression(rule.raw, buildContext(data, newData, bindings));
+          if (!result) return { node, rule, bindings };
         }
-      } else {
-        const result = evaluateRtdbExpression(rule.raw, buildContext(data, newData, bindings));
-        if (!result) return { node, rule, bindings };
       }
     }
+
+    const isAtOrBelowWriteTarget = allWritePaths.some(
+      (wp) => wp.length <= currentSegments.length && wp.every((seg, idx) => seg === currentSegments[idx]),
+    );
+
+    const hasLocalDeletion = snapshotChildKeys(data).some((k) => !newData.child(k).exists());
 
     for (const child of node.children) {
       const childSegments = child.path.split('/').filter(Boolean);
@@ -97,49 +130,118 @@ function findFailingValidate(
       const lastSegment = childSegments[childSegments.length - 1];
       const isPathVar = lastSegment.startsWith('$');
 
-      // Above the write location, validation follows only the operation path.
-      // Once the write location is reached, it fans out through every child
-      // present in the proposed value.
-      if (remainingPath.length > 0) {
-        if (!isPathVar && remainingPath[0] !== lastSegment) continue;
-        return walk(
-          child,
-          data.child(remainingPath[0]),
-          newData.child(remainingPath[0]),
-          isPathVar ? { ...bindings, [lastSegment]: remainingPath[0] } : bindings,
-          remainingPath.slice(1),
-        );
-      }
-
-      if (isPathVar) {
-        // Bind the path variable to each key actually present in the new
-        // data — a `$var` node validates every child of the written value.
-        for (const key of snapshotChildKeys(newData)) {
-          const failure = walk(
-            child,
-            data.child(key),
-            newData.child(key),
-            { ...bindings, [lastSegment]: key },
-            [],
-          );
-          if (failure) return failure;
+      if (isAtOrBelowWriteTarget || isUnderModifiedSubtree) {
+        if (isPathVar) {
+          for (const key of snapshotChildKeys(newData)) {
+            const failure = walk(
+              child,
+              data.child(key),
+              newData.child(key),
+              { ...bindings, [lastSegment]: key },
+              [...currentSegments, key],
+              true,
+            );
+            if (failure) return failure;
+          }
+        } else {
+          if (newData.child(lastSegment).exists()) {
+            const failure = walk(
+              child,
+              data.child(lastSegment),
+              newData.child(lastSegment),
+              bindings,
+              [...currentSegments, lastSegment],
+              true,
+            );
+            if (failure) return failure;
+          }
         }
       } else {
-        const failure = walk(
-          child,
-          data.child(lastSegment),
-          newData.child(lastSegment),
-          bindings,
-          [],
-        );
-        if (failure) return failure;
+        // We are at an ancestor of write path(s)
+        if (isPathVar) {
+          const writeKeys = new Set<string>();
+          for (const wp of allWritePaths) {
+            if (
+              wp.length > currentSegments.length &&
+              currentSegments.every((seg, idx) => seg === wp[idx])
+            ) {
+              writeKeys.add(wp[currentSegments.length]);
+            }
+          }
+          for (const key of writeKeys) {
+            const failure = walk(
+              child,
+              data.child(key),
+              newData.child(key),
+              { ...bindings, [lastSegment]: key },
+              [...currentSegments, key],
+              false,
+            );
+            if (failure) return failure;
+          }
+
+          if (
+            hasValidateRule(child) &&
+            shouldValidateSiblingSubtree(currentSegments, hasLocalDeletion, allWritePaths)
+          ) {
+            for (const key of snapshotChildKeys(newData)) {
+              if (writeKeys.has(key)) continue;
+              const failure = walk(
+                child,
+                data.child(key),
+                newData.child(key),
+                { ...bindings, [lastSegment]: key },
+                [...currentSegments, key],
+                true,
+              );
+              if (failure) return failure;
+            }
+          }
+        } else {
+          const key = lastSegment;
+          const isChildOnWritePath = allWritePaths.some(
+            (wp) =>
+              wp.length > currentSegments.length &&
+              wp[currentSegments.length] === key &&
+              currentSegments.every((seg, idx) => seg === wp[idx]),
+          );
+
+          if (isChildOnWritePath) {
+            const failure = walk(
+              child,
+              data.child(key),
+              newData.child(key),
+              bindings,
+              [...currentSegments, key],
+              false,
+            );
+            if (failure) return failure;
+          } else {
+            // Sibling branch
+            if (
+              newData.child(key).exists() &&
+              hasValidateRule(child) &&
+              shouldValidateSiblingSubtree(currentSegments, hasLocalDeletion, allWritePaths)
+            ) {
+              const failure = walk(
+                child,
+                data.child(key),
+                newData.child(key),
+                bindings,
+                [...currentSegments, key],
+                true,
+              );
+              if (failure) return failure;
+            }
+          }
+        }
       }
     }
 
     return null;
   }
 
-  const realFailure = walk(node, data, newData, bindings, pathToWrite);
+  const realFailure = walk(node, data, newData, bindings, [], false);
   return realFailure ?? firstUnsupported;
 }
 
@@ -343,6 +445,7 @@ export class SimulateHandler {
               {},
               buildContext,
               pathSegments,
+              updates,
             );
             if (failure) {
               return {

@@ -4,6 +4,7 @@ import { ChildListeners } from '../../../src/database/sandbox/child-listeners.js
 
 it('replays direct children in order and detaches cleanly', () => {
   const state = new BackendState();
+  state.rules.setDefaultPolicy('allow');
   const listeners = new ChildListeners(state);
   state.tree.write('/items', { a: 1, b: 2 });
   const seen: Array<[string, string | null]> = [];

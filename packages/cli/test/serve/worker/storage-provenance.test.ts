@@ -30,7 +30,6 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox, toOperationRecord, type SandboxEvent } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { getStorageSandbox } from 'pyric/storage';
 
 import {
   handleMessage,
@@ -43,6 +42,7 @@ import type {
   ResMessage,
 } from '../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../src/serve/worker/protocol.js';
+import { openStorageForTransportTests } from './permissive-services.js';
 
 let dbSeq = 0;
 function uniqueDbName(): string {
@@ -51,7 +51,7 @@ function uniqueDbName(): string {
 
 function makeCtx(): { ctx: HostCtx; events: SandboxEvent[] } {
   const sandbox = initializeSandbox();
-  getStorageSandbox(sandbox, { dbName: uniqueDbName() });
+  openStorageForTransportTests(sandbox, uniqueDbName());
   const events: SandboxEvent[] = [];
   sandbox.onEvent((e) => events.push(e));
   return {

@@ -20,6 +20,7 @@ import { useStorageSelection } from '../../../src/storage/hooks/useStorageSelect
 import { useObjectUpload } from '../../../src/storage/hooks/useObjectUpload.js';
 import { useStorageList } from '../../../src/storage/hooks/useStorageList.js';
 import { renderHook, waitFor, act } from '../../helpers/render-hook.js';
+import { OPEN_STORAGE_RULES } from '../open-storage-rules.js';
 
 function uniqueDbName(label: string): string {
   return `pyric-ui-delete-${label}-${Math.random().toString(36).slice(2, 10)}`;
@@ -27,7 +28,10 @@ function uniqueDbName(label: string): string {
 
 function makeStorage(label: string): FirebaseStorage {
   const sandbox = initializeSandbox({});
-  return getStorageSandbox(sandbox, { dbName: uniqueDbName(label) });
+  return getStorageSandbox(sandbox, {
+    dbName: uniqueDbName(label),
+    rules: OPEN_STORAGE_RULES,
+  });
 }
 
 async function seed(storage: FirebaseStorage, paths: string[]): Promise<void> {

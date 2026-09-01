@@ -15,9 +15,9 @@ g.ResizeObserver = class {
 g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 g.IS_REACT_ACT_ENVIRONMENT = true;
 
-// Real sandbox behind the component (no rules — the firestore-rules
-// OHM parser fights JSDOM globals; rules-path behavior is covered by
-// the DOM-less hook probes). Assign the fakes explicitly onto
+// Real sandbox behind the component with explicit permissive Storage rules;
+// rules-path behavior is covered by the DOM-less hook probes. Assign the
+// fakes explicitly onto
 // globalThis: `fake-indexeddb/auto` targets `window` when one exists,
 // and in a shared bun:test process another component file's JSDOM
 // setup may have installed `window` first — bare `indexedDB` lookups
@@ -35,6 +35,7 @@ import {
   type FirebaseStorage,
 } from 'pyric/storage';
 import { ObjectInspector, type StoragePreview } from '../../../src/storage/index.js';
+import { OPEN_STORAGE_RULES } from '../open-storage-rules.js';
 
 afterEach(() => cleanup());
 
@@ -42,6 +43,7 @@ function makeStorage(label: string): FirebaseStorage {
   const sandbox = initializeSandbox({});
   return getStorageSandbox(sandbox, {
     dbName: `pyric-ui-inspector-${label}-${Math.random().toString(36).slice(2, 10)}`,
+    rules: OPEN_STORAGE_RULES,
   });
 }
 

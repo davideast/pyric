@@ -184,7 +184,7 @@ describe('applyServeInit — storage rules', () => {
     expect(res.ok).toBe(true);
   });
 
-  it('no storage.rules configured: matches Firestore/RTDB\'s open-by-default posture', async () => {
+  it('no storage.rules configured: rejects client ops by default (fail-closed parity)', async () => {
     const ctx = await makeCtx();
     const result = applyServeInit(ctx, { ...basePayload, storageRules: null }, { fetch: recordingFetch() });
     expect(result.storageRulesDeployed).toBe(false);
@@ -198,7 +198,8 @@ describe('applyServeInit — storage rules', () => {
       dataB64: bytesToBase64(new TextEncoder().encode('open')),
     });
     const res = getRes(port, 's3');
-    expect(res.ok).toBe(true);
+    expect(res.ok).toBe(false);
+    expect((res as any).error.code).toBe('storage/unauthorized');
   });
 });
 

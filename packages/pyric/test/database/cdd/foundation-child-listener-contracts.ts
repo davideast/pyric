@@ -1,8 +1,6 @@
 import { expect } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
 import {
   child,
-  getDatabase,
   off,
   onChildAdded,
   onChildChanged,
@@ -15,10 +13,10 @@ import {
   setPriority,
   setWithPriority,
 } from '../../../src/database/index.js';
+import { setup } from './support.js';
 
 export async function assertChangedChildContract(): Promise<void> {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const { sandbox, db } = setup();
   const parent = ref(db, 'parent');
   await set(parent, { k1: { v: 1 }, k2: { v: 2 } });
   const events: Array<{ key: string | null; value: unknown }> = [];
@@ -32,8 +30,7 @@ export async function assertChangedChildContract(): Promise<void> {
 }
 
 export async function assertInitialAddedChildrenContract(): Promise<void> {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const { sandbox, db } = setup();
   const parent = ref(db, 'parent');
   await set(parent, { k1: { v: 1 }, k2: { v: 2 }, k3: { v: 3 } });
   const events: Array<{ key: string | null; value: unknown }> = [];
@@ -47,8 +44,7 @@ export async function assertInitialAddedChildrenContract(): Promise<void> {
 }
 
 export async function assertPostSubscribeAddedChildContract(): Promise<void> {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const { sandbox, db } = setup();
   const parent = ref(db, 'parent');
   await set(parent, { k1: { v: 1 }, k2: { v: 2 } });
   const events: Array<{ key: string | null; value: unknown }> = [];
@@ -62,8 +58,7 @@ export async function assertPostSubscribeAddedChildContract(): Promise<void> {
 }
 
 export async function assertChangedChildExcludesAddsAndRemovals(): Promise<void> {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const { sandbox, db } = setup();
   const parent = ref(db, 'parent');
   await set(parent, { existing: { v: 1 } });
   const changed: string[] = [];
@@ -82,8 +77,7 @@ export async function assertChangedChildExcludesAddsAndRemovals(): Promise<void>
 }
 
 export async function assertRemovedChildContract(): Promise<void> {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const { sandbox, db } = setup();
   const parent = ref(db, 'parent');
   await set(parent, { byRemove: { v: 1 }, byNull: { v: 2 } });
   const events: Array<{ key: string | null; value: unknown }> = [];
@@ -99,8 +93,7 @@ export async function assertRemovedChildContract(): Promise<void> {
 }
 
 export async function assertMovedChildContract(): Promise<void> {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const { sandbox, db } = setup();
   const parent = ref(db, 'parent');
   await setWithPriority(child(parent, 'a'), { v: 1 }, 1);
   await setWithPriority(child(parent, 'b'), { v: 2 }, 2);
@@ -119,8 +112,7 @@ export async function assertMovedChildContract(): Promise<void> {
 }
 
 export async function assertOffRemovesEveryListenerVariety(): Promise<void> {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const { sandbox, db } = setup();
   const parent = ref(db, 'parent');
   await setWithPriority(child(parent, 'a'), { v: 1 }, 1);
   await setWithPriority(child(parent, 'b'), { v: 2 }, 2);
@@ -140,8 +132,7 @@ export async function assertOffRemovesEveryListenerVariety(): Promise<void> {
 }
 
 export async function assertTargetedOffAndUnsubscribe(): Promise<void> {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  const { sandbox, db } = setup();
   const parent = ref(db, 'parent');
   const calls = {
     valueA: 0,

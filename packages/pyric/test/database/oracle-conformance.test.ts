@@ -84,6 +84,7 @@ function load(name: string): Record<string, unknown> {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  rtdbSandbox.setDefaultPolicy(db, 'allow');
   return { sandbox, db };
 }
 
@@ -390,6 +391,7 @@ describe('oracle conformance (rtdb)', () => {
     const obs = load('rtdb-handler-admin-vs-user-returnshape.json');
     const sandbox = initializeSandbox();
     const userDb = getDatabase(sandbox.withAuth({ uid: 'anon' }));
+    rtdbSandbox.setDefaultPolicy(userDb, 'allow');
     const adminDb = getAdminDatabase(sandbox);
     const payload = { hello: 'handler', n: 7 };
     await set(ref(userDb, 'pyric_oracle/h'), payload);

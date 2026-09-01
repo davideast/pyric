@@ -156,8 +156,12 @@ describe('named Firebase apps isolate listener authorization', () => {
   it('deleting one app stops its RTDB listeners without affecting a sibling app', async () => {
     const defaultApp = initializeApp({ projectId: 'multi-app-delete-listener' });
     const namedApp = initializeApp({ projectId: 'multi-app-delete-listener' }, 'named');
-    const defaultRef = ref(getDatabase(defaultApp), 'shared/value');
-    const namedRef = ref(getDatabase(namedApp), 'shared/value');
+    const defaultDb = getDatabase(defaultApp);
+    const namedDb = getDatabase(namedApp);
+    databaseSandbox.setDefaultPolicy(defaultDb, 'allow');
+    databaseSandbox.setDefaultPolicy(namedDb, 'allow');
+    const defaultRef = ref(defaultDb, 'shared/value');
+    const namedRef = ref(namedDb, 'shared/value');
     const defaultValues: unknown[] = [];
     const namedValues: unknown[] = [];
 
@@ -196,8 +200,12 @@ describe('named Firebase apps isolate listener authorization', () => {
   it('off(ref) cancels only listeners owned by that app instance', async () => {
     const defaultApp = initializeApp({ projectId: 'multi-app-off-listener' });
     const namedApp = initializeApp({ projectId: 'multi-app-off-listener' }, 'named');
-    const defaultRef = ref(getDatabase(defaultApp), 'shared/value');
-    const namedRef = ref(getDatabase(namedApp), 'shared/value');
+    const defaultDb = getDatabase(defaultApp);
+    const namedDb = getDatabase(namedApp);
+    databaseSandbox.setDefaultPolicy(defaultDb, 'allow');
+    databaseSandbox.setDefaultPolicy(namedDb, 'allow');
+    const defaultRef = ref(defaultDb, 'shared/value');
+    const namedRef = ref(namedDb, 'shared/value');
     const defaultValues: unknown[] = [];
     const namedValues: unknown[] = [];
 
@@ -212,7 +220,9 @@ describe('named Firebase apps isolate listener authorization', () => {
 
   it('off(ref, event, callback) removes duplicate callback registrations one at a time', async () => {
     const app = initializeApp({ projectId: 'duplicate-rtdb-listener' });
-    const valueRef = ref(getDatabase(app), 'shared/value');
+    const db = getDatabase(app);
+    databaseSandbox.setDefaultPolicy(db, 'allow');
+    const valueRef = ref(db, 'shared/value');
     const values: unknown[] = [];
     const callback = (snapshot: { val(): unknown }): void => {
       values.push(snapshot.val());

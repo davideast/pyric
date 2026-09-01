@@ -16,7 +16,6 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { getStorageSandbox } from 'pyric/storage';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { getDatabase, ref as rtdbRef, set as rtdbSet, get as rtdbGet } from 'pyric/database';
 
@@ -33,6 +32,10 @@ import type {
 import { bytesToBase64 } from '../../../src/serve/worker/protocol.js';
 import { applyServeInit } from '../../../src/serve/worker/serve-init.js';
 import type { InitPayload } from '../../../src/serve/namespace.js';
+import {
+  allowRtdbForTransportTests,
+  openStorageForTransportTests,
+} from './permissive-services.js';
 
 let dbSeq = 0;
 function uniqueDbName(): string {
@@ -43,7 +46,8 @@ function makeCtx(): HostCtx {
   const sandbox = initializeSandbox();
   // Isolated IDB name per ctx (the default DB is process-global under
   // fake-indexeddb) — mirrors how a served page configures the service.
-  getStorageSandbox(sandbox, { dbName: uniqueDbName() });
+  openStorageForTransportTests(sandbox, uniqueDbName());
+  allowRtdbForTransportTests(sandbox);
   return { db: getFirestore(sandbox), sandbox, instanceId: 'reset-all-test', subs: new Map() };
 }
 

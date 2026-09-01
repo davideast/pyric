@@ -239,16 +239,23 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // the rule used it out of position — deny rather than coerce.
       throw new RuleEvalError('a Firestore path literal is only valid as an argument to firestore.get()/exists()');
     case 'unary': {
-      // An error survives negation (production: `!(resource.name == 'x')` with
-      // `name` absent DENIES). Propagate rather than flipping it to `true`.
       const a = evalExpr(expr.arg, ctx);
+      if (expr.op === '!') {
+        if (isErr(a)) {
+          throw new RuleEvalError(a.message);
+        }
+        if (typeof a !== 'boolean') {
+          throw new RuleEvalError(`Unary '!' expects a boolean, got ${describeType(a)}.`);
+        }
+        return !a;
+      }
       if (isErr(a)) return a;
       if (expr.op === '-') {
         if (a instanceof RulesFloat) return new RulesFloat(-a.value);
         if (typeof a !== 'number') return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
         return -a;
       }
-      return !truthy(a);
+      return undefined;
     }
     case 'ternary': {
       const c = evalExpr(expr.cond, ctx);

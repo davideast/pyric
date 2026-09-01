@@ -1,9 +1,8 @@
 /**
- * Entry-path conformance program — `pyric/app` + `pyric/storage`.
+ * Entry-path conformance program — `pyric/app` + `pyric/storage` over an
+ * explicitly configured sandbox supplied by the harness.
  *
  * Adapted from Firebase's official web quickstart shape:
- *   - https://firebase.google.com/docs/storage/web/start
- *     (`initializeApp`, `getStorage`)
  *   - https://firebase.google.com/docs/storage/web/upload-files
  *     (`ref` + `uploadBytes`)
  *
@@ -15,9 +14,13 @@
  */
 import { initializeApp } from 'pyric/app';
 import { getStorage, ref, uploadBytes } from 'pyric/storage';
+import { createConfiguredStorageApp } from '../entry-path-support/storage.ts';
 
 export async function run(): Promise<void> {
-  const app = initializeApp({ projectId: 'entry-path-project' });
+  // Keep the public quickstart initialization in the critical path while the
+  // harness supplies the project rules that production normally deploys.
+  initializeApp({ projectId: 'entry-path-project' });
+  const app = createConfiguredStorageApp();
   const storage = getStorage(app);
   const storageRef = ref(storage, 'entry-path/quickstart.txt');
 

@@ -45,6 +45,8 @@ export async function assertDatabaseBackendIdentity(): Promise<void> {
   const first = getDatabase(firstSandbox);
   const sibling = getDatabase(firstSandbox);
   const isolated = getDatabase(secondSandbox);
+  databaseSandbox.setDefaultPolicy(first, 'allow');
+  databaseSandbox.setDefaultPolicy(isolated, 'allow');
 
   await set(ref(first, 'shared/value'), 1);
   expect((await get(ref(sibling, 'shared/value'))).val()).toBe(1);

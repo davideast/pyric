@@ -28,6 +28,7 @@ import {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  rtdbSandbox.setDefaultPolicy(db, 'allow');
   return { sandbox, db };
 }
 
@@ -603,21 +604,18 @@ describe('sandbox-only operations', () => {
     expect(rtdbSandbox.snapshotState(db)).toEqual({ a: { b: 1, c: 2 } });
   });
 
-  it('sandbox.setRules(db, null) clears rules — returns to default-allow', async () => {
+  it('sandbox.setRules(db, null) clears rules — returns to configured default', async () => {
     const { db } = setup();
+    rtdbSandbox.setDefaultPolicy(db, 'deny');
     rtdbSandbox.setRules(db, {
-      rules: { '.write': 'false' },
+      rules: { '.write': 'true', '.read': 'true' },
     });
-    let threw = false;
-    try {
-      await set(ref(db, 'x'), 1);
-    } catch {
-      threw = true;
-    }
-    expect(threw).toBe(true);
-    rtdbSandbox.setRules(db, null);
     await set(ref(db, 'x'), 1);
     expect((await get(ref(db, 'x'))).val()).toBe(1);
+    rtdbSandbox.setRules(db, null);
+    await expect(set(ref(db, 'x'), 2)).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
   });
 });
 

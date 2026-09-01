@@ -22,12 +22,7 @@ import {
   get,
   set,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 describe('DB-B2 — array ↔ integer-keyed-object coercion', () => {
   it('an array write is addressable by integer-string child key', async () => {

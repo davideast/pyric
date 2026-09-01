@@ -2,8 +2,18 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import 'fake-indexeddb/auto';
 import { initializeApp } from 'pyric/app';
 import { doc, getDoc, getFirestore, setDoc } from 'pyric/firestore';
-import { getBytes, getStorage, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { getBytes, getStorage, getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { resolveClientApp } from '../../dist/sandbox/internal/client-app.js';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
+
+const OPEN_STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
 
 beforeEach(() => resetAppRegistryForTests());
 
@@ -16,6 +26,7 @@ describe('equal-config apps share one logical backend', () => {
     await setDoc(doc(getFirestore(a), 'shared/doc'), { source: 'app-a' });
     expect((await getDoc(doc(getFirestore(b), 'shared/doc'))).data()).toEqual({ source: 'app-a' });
 
+    getStorageSandbox(resolveClientApp(a)!.sandbox, { rules: OPEN_STORAGE_RULES });
     await uploadBytes(storageRef(getStorage(a), 'shared/file.bin'), new Uint8Array([1, 2, 3]));
     expect(new Uint8Array(await getBytes(storageRef(getStorage(b), 'shared/file.bin')))).toEqual(
       new Uint8Array([1, 2, 3]),

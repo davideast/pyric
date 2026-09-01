@@ -12,10 +12,14 @@
  */
 import { initializeApp } from 'pyric/app';
 import { getDatabase, ref, set, child, get } from 'pyric/database';
+import { setRules } from 'pyric/sandbox/database';
+
+const OPEN_RULES = { rules: { '.read': true, '.write': true } };
 
 export async function run(): Promise<void> {
   const app = initializeApp({ projectId: 'entry-path-project' });
   const db = getDatabase(app);
+  setRules(db, OPEN_RULES);
 
   // https://firebase.google.com/docs/database/web/read-and-write —
   // `writeUserData`: the one real operation this program performs.

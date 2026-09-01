@@ -19,6 +19,15 @@ function uniqueDbName(label: string): string {
   return `pyric-storage-test-${label}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const OPEN_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+
 describe('connectStorageEmulator', () => {
   it('is a no-op on a sandbox handle — does not throw', () => {
     const sandbox = initializeSandbox({});
@@ -28,7 +37,7 @@ describe('connectStorageEmulator', () => {
 
   it('uploads/reads still work after connectStorageEmulator is called', async () => {
     const sandbox = initializeSandbox({});
-    const storage = getStorageSandbox(sandbox, { dbName: uniqueDbName('emulator-still-works') });
+    const storage = getStorageSandbox(sandbox, { dbName: uniqueDbName('emulator-still-works'), rules: OPEN_RULES });
     connectStorageEmulator(storage, 'localhost', 9199);
     const r = ref(storage, 'notes/n1.txt');
     await uploadString(r, 'hello');

@@ -33,6 +33,7 @@ function load(name: string): Record<string, unknown> {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  rtdbSandbox.setDefaultPolicy(db, 'allow');
   return { sandbox, db };
 }
 
@@ -149,6 +150,7 @@ describe('onDisconnect registration and clean lifecycle', () => {
     const sandbox = initializeSandbox();
     const first = getDatabase(sandbox.withAuth({ uid: 'alice' }));
     const second = getDatabase(sandbox.withAuth({ uid: 'bob' }));
+    rtdbSandbox.setDefaultPolicy(first, 'allow');
     const target = ref(first, 'presence/alice');
     await set(target, 'online');
     await onDisconnect(target).set('offline');
@@ -253,6 +255,7 @@ describe('onDisconnect app ownership', () => {
     const sandbox = initializeSandbox();
     const first = getDatabase(sandbox.withAuth({ uid: 'first' }));
     const second = getDatabase(sandbox.withAuth({ uid: 'second' }));
+    rtdbSandbox.setDefaultPolicy(first, 'allow');
     const target = ref(first, 'presence/client');
     await set(target, 'online');
     await onDisconnect(target).set('offline');
@@ -267,23 +270,30 @@ describe('onDisconnect app ownership', () => {
     expect((await get(target)).val()).toBe('online');
 
     const app = initializeApp({ projectId: 'm82-app' }, 'm82-writer');
-    const appTarget = ref(getDatabase(app), 'presence/app');
+    const writerDb = getDatabase(app);
+    rtdbSandbox.setDefaultPolicy(writerDb, 'allow');
+    const appTarget = ref(writerDb, 'presence/app');
     await set(appTarget, 'online');
     await onDisconnect(appTarget).set('offline');
     await deleteApp(app);
     const observerApp = initializeApp({ projectId: 'm82-app' }, 'm82-observer');
-    expect((await get(ref(getDatabase(observerApp), 'presence/app'))).val()).toBe('offline');
+    const obsDb = getDatabase(observerApp);
+    rtdbSandbox.setDefaultPolicy(obsDb, 'allow');
+    expect((await get(ref(obsDb, 'presence/app'))).val()).toBe('offline');
   });
 
   it('app deletion drains that app client queue', async () => {
     const app = initializeApp({ projectId: 'disconnect-app' }, 'disconnect-app');
     const db = getDatabase(app);
+    rtdbSandbox.setDefaultPolicy(db, 'allow');
     const target = ref(db, 'presence/app');
     await set(target, 'online');
     await onDisconnect(target).set('offline');
 
     await deleteApp(app);
     const observerApp = initializeApp({ projectId: 'disconnect-app' }, 'observer');
-    expect((await get(ref(getDatabase(observerApp), 'presence/app'))).val()).toBe('offline');
+    const obsDb = getDatabase(observerApp);
+    rtdbSandbox.setDefaultPolicy(obsDb, 'allow');
+    expect((await get(ref(obsDb, 'presence/app'))).val()).toBe('offline');
   });
 });

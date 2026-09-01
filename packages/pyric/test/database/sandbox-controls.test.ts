@@ -4,6 +4,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import {
   getActiveRules,
   setData,
+  setDefaultPolicy,
   setRules,
   snapshotState,
 } from 'pyric/sandbox/database';
@@ -11,6 +12,7 @@ import {
 describe('pyric/sandbox/database', () => {
   test('owner controls and the database mirror share one sandbox state', async () => {
     const sandbox = initializeSandbox();
+    setDefaultPolicy(sandbox, 'allow');
 
     setData(sandbox, {
       '/notes/n1': { title: 'Local only' },

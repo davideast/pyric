@@ -12,12 +12,7 @@ import {
   set,
   onValue,
 } from '../../../src/database/index.js';
-
-function setup() {
-  const sandbox = initializeSandbox();
-  const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
-  return { sandbox, db };
-}
+import { setup } from './oracle-conformance.support.js';
 
 describe('DB-B12 — onValue { onlyOnce }', () => {
   it('fires exactly once then auto-unsubscribes', async () => {

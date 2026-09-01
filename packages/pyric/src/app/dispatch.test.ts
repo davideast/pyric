@@ -26,7 +26,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from '../auth/index.js';
-import { get, getDatabase, ref, set } from '../database/index.js';
+import { get, getDatabase, ref, sandbox as databaseSandbox, set } from '../database/index.js';
 import { getStorage } from '../storage/index.js';
 import { getAI } from '../ai/index.js';
 import { getMessaging } from '../messaging/index.js';
@@ -121,6 +121,8 @@ describe('pyric/app — Firebase-shaped service containers', () => {
 
     const dbA = getDatabase(a);
     const dbB = getDatabase(b);
+    databaseSandbox.setDefaultPolicy(dbA, 'allow');
+    databaseSandbox.setDefaultPolicy(dbB, 'allow');
     await set(ref(dbA, 'shared/value'), { from: authA.currentUser!.uid });
     expect((await get(ref(dbB, 'shared/value'))).val()).toEqual({ from: authA.currentUser!.uid });
   });

@@ -48,6 +48,7 @@ export async function assertDeniedErrorEnvelope(operation: DeniedOperation): Pro
 export function assertMissingValueListener(): void {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  databaseSandbox.setDefaultPolicy(db, 'allow');
   const events: Array<{ value: unknown; exists: boolean }> = [];
   const unsubscribe = onValue(ref(db, 'missing'), snapshot => events.push({
     value: snapshot.val(),

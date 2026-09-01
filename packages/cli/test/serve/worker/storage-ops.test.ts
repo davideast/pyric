@@ -40,6 +40,7 @@ import {
   MAX_STORAGE_OP_BYTES,
   MAX_STORAGE_OP_B64_LENGTH,
 } from '../../../src/serve/worker/protocol.js';
+import { OPEN_STORAGE_RULES } from './permissive-services.js';
 
 // ─── Harness ────────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ function makeCtx(rules?: string): HostCtx {
   const sandbox = initializeSandbox();
   // Pre-open the per-sandbox storage service with an isolated IDB name (and
   // the page's rules, when given) BEFORE any host op lazily opens it.
-  getStorageSandbox(sandbox, { dbName: uniqueDbName(), ...(rules ? { rules } : {}) });
+  getStorageSandbox(sandbox, { dbName: uniqueDbName(), rules: rules ?? OPEN_STORAGE_RULES });
   return { db: getFirestore(sandbox), sandbox, instanceId: 'storage-ops-test', subs: new Map() };
 }
 

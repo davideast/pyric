@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { deleteApp, initializeApp } from 'pyric/app';
 import { getAuth, signInAnonymously, signOut } from 'pyric/auth';
 import { doc, getDoc, getFirestore, onSnapshot, setDoc } from 'pyric/firestore';
-import { get, getDatabase, onValue, ref, set } from 'pyric/database';
+import { get, getDatabase, onValue, ref, sandbox as databaseSandbox, set } from 'pyric/database';
 import { setRules } from 'pyric/sandbox/firestore';
 import { sandboxForApp } from '../../dist/app/runtime.js';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
@@ -82,6 +82,8 @@ test('replays production equal-config app, Auth-session, and deletion-listener t
 
   const databaseA = getDatabase(dataAApp);
   const databaseB = getDatabase(dataBApp);
+  databaseSandbox.setDefaultPolicy(databaseA, 'allow');
+  databaseSandbox.setDefaultPolicy(databaseB, 'allow');
   const databaseARef = ref(databaseA, 'shared/database');
   const databaseBRef = ref(databaseB, 'shared/database');
   const databaseAValues: unknown[] = [];

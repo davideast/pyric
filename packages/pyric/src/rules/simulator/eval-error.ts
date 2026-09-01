@@ -6,3 +6,6 @@ export class EvalError extends Error {
     this.name = 'EvalError';
   }
 }
+
+export { EvalError as RuleEvalError };
+

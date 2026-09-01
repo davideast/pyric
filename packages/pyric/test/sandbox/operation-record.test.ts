@@ -154,7 +154,7 @@ describe('canonical operation records', () => {
     expect(record!.rules).toEqual({ kind: 'bypassed', reason: 'admin' });
   });
 
-  it('distinguishes open-by-default Storage from a Rules allow', async () => {
+  it('distinguishes unconfigured Storage from a Rules allow', async () => {
     const sandbox = initializeSandbox();
     const context = bindOperationContext(sandbox.withAuth(null), {
       source: { kind: 'app' },
@@ -162,7 +162,7 @@ describe('canonical operation records', () => {
     });
     const storage = getStorageSandbox(context, { dbName: storageDb('open-list') });
 
-    await listAll(ref(storage, ''));
+    await listAll(ref(storage, '')).catch(() => {});
 
     const event = sandbox.history().find(
       (candidate) => candidate.kind === 'operation' && candidate.service === 'storage',
@@ -183,7 +183,7 @@ describe('canonical operation records', () => {
       authLens: { mode: 'anon' },
     };
 
-    const pending = listAll(ref(bindStorageOperationContext(storage, provenance), ''));
+    const pending = listAll(ref(bindStorageOperationContext(storage, provenance), '')).catch(() => {});
     provenance.actor = { kind: 'app' };
     provenance.authLens = { mode: 'app-session' };
     await pending;
