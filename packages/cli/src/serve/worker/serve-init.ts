@@ -39,6 +39,7 @@ import {
 } from 'pyric/sandbox/internal';
 import type { InitPayload } from '../namespace.js';
 import { setupFirebaseActivityGuard } from './activity-bootstrap.js';
+import { setupAiRejectionRelay } from '../ai-rejection-relay.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
@@ -602,6 +603,11 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // Default-on, warning-only. Start after hydration so a restored capture can
   // populate a report without replaying an old warning into a fresh terminal.
   setupFirebaseActivityGuard(ctx, env, payload?.activityToken);
+
+  // Same seam, AI's refusals: relay every broker `request_rejected` event to
+  // the dev server's denial relay so a headless developer sees WHY the broker
+  // said no. Live events only, so it is safe on either side of hydration.
+  setupAiRejectionRelay({ subscribe: (listener) => ctx.sandbox.onEvent(listener) }, env.fetch);
 
   // Apply rules / seed / authUsers / capture BEFORE any port op runs (so
   // seeded users exist and project rules govern the first write), then mirror

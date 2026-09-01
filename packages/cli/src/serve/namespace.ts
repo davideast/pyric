@@ -120,9 +120,9 @@ export interface NamespaceOptions {
    *  when a request arrives. */
   aiProxyUpstream?: string;
   /** Where hot-reload/diagnostic lines print (rules reload, denial relay,
-   *  ai-proxy upstream failures). Absent ⇒ diagnostics are dropped (a caller
-   *  that wires no logger opts out silently rather than falling back to raw
-   *  `console`). */
+   *  AI broker rejections, ai-proxy upstream failures). Absent ⇒ diagnostics
+   *  are dropped (a caller that wires no logger opts out silently rather than
+   *  falling back to raw `console`). */
   logger?: ServeLogger;
 }
 
@@ -170,6 +170,22 @@ const AI_PROXY_SENSITIVE_URL_PARAM = /([?&](?:key|apiKey|api_key|access_token)=)
 /** Mask credential VALUES, keeping host + path readable for diagnosis. */
 function redactProxyUrl(text: string): string {
   return text.replace(AI_PROXY_SENSITIVE_URL_PARAM, '$1***');
+}
+
+/**
+ * Flatten an upstream-authored string into ONE terminal-safe line.
+ *
+ * Broker rejection reasons are production's own messages, and several are
+ * multi-line (`ai-error-empty-contents` is a bulleted list) — pasted verbatim
+ * they shred the indented block into fragments. Control/bidi characters get
+ * dropped for the same reason `activity-warning.ts` drops them: the text can
+ * originate from a remote model server, and the terminal is not a sandbox.
+ */
+function terminalReason(text: string): string {
+  return text
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** The upstream-failure shapes the proxy surfaces to the terminal. */
@@ -487,6 +503,13 @@ async function handleCapture(
 // An agent driving `pyric dev` headlessly has no browser console to watch;
 // this is that visibility, printed to the terminal instead.
 //
+// The route carries a SECOND refusal shape on the same channel: AI broker
+// rejections, relayed by `serve/ai-rejection-relay.ts` off the sandbox event
+// stream (`service: 'ai'`, `op: 'request_rejected'`). Same category ("the
+// sandbox refused your operation"), same terminal treatment, same throttle —
+// so it rides here rather than opening a parallel diagnostics channel. The
+// payload's `kind` discriminates the two.
+//
 // A denied listener re-fires on every auth/rules change, so printing is
 // throttled per (path, message) pair — at most one line per window, and
 // silent (no output at all) on suppression rather than a "suppressed N more"
@@ -509,6 +532,24 @@ interface DenialRelayPayload {
     /** Fallback position, in case a denial path nests it in the context. */
     remediation?: string;
   } | null;
+}
+
+/** Loosely-typed mirror of the AI rejection relay payload POSTed by
+ *  `serve/ai-rejection-relay.ts` (the wire shape lives there). Same
+ *  read-defensively contract as {@link DenialRelayPayload}: this is JSON from
+ *  the served page, and nothing here enforces it. */
+interface AiRejectionPayload {
+  /** `'ai-rejection'` — what tells this route the body is NOT a rules denial. */
+  kind?: unknown;
+  /** Model resource the rejected op targeted. */
+  model?: unknown;
+  /** Resolved broker engine (`scripted` | `openai` | `gemini` | `custom`). */
+  engine?: unknown;
+  /** Wire error status (e.g. `INVALID_ARGUMENT`) and HTTP-ish code. */
+  status?: unknown;
+  code?: unknown;
+  /** The rejection reason — production's own message for shape errors. */
+  message?: unknown;
 }
 
 /** Per-dev-server-instance throttle: at most one printed line per (path,
@@ -546,9 +587,41 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
   return lines.join('\n');
 }
 
-/** Handle `POST /__pyric/denials`. Always 204s (best-effort diagnostics —
- *  a malformed body or a caller with no logger wired must never fail the
- *  page that reported the denial). */
+/**
+ * Format a relayed AI broker rejection into the compact terminal block — the
+ * same `  ⚠ [pyric] …` idiom the denial relay and the ai-proxy warning print.
+ * Three lines at most: the reason production itself gives, then the model
+ * (with the resolved engine — a rejection reads very differently for
+ * `scripted` than for a real upstream), then the wire status. The reason can
+ * quote an engine's upstream URL, so it goes through the same
+ * {@link redactProxyUrl} the ai-proxy warning uses. Exported for unit tests.
+ */
+export function formatAiRejectionBlock(payload: AiRejectionPayload): string {
+  const message = typeof payload.message === 'string' ? payload.message : 'request rejected';
+  const lines = [`  ⚠ [pyric] ai request rejected: ${terminalReason(redactProxyUrl(message))}`];
+  const model = typeof payload.model === 'string' && payload.model !== '' ? payload.model : null;
+  const engine = typeof payload.engine === 'string' ? payload.engine : null;
+  if (model !== null) {
+    const flatModel = terminalReason(redactProxyUrl(model));
+    lines.push(`      model: ${flatModel}${engine !== null ? ` (engine: ${terminalReason(engine)})` : ''}`);
+  } else if (engine !== null) {
+    lines.push(`      engine: ${terminalReason(engine)}`);
+  }
+  const status = typeof payload.status === 'string' ? payload.status : null;
+  const code = typeof payload.code === 'number' ? payload.code : null;
+  if (status !== null || code !== null) {
+    lines.push(`      ${status !== null ? terminalReason(status) : 'ERROR'}${code !== null ? ` (${code})` : ''}`);
+  }
+  return lines.join('\n');
+}
+
+/** Handle `POST /__pyric/denials` — a rules denial, or (discriminated by
+ *  `kind`) an AI broker rejection relayed off the sandbox event stream. Both
+ *  share the throttle map: an agent retry loop re-sends the SAME malformed AI
+ *  request exactly the way a denied listener re-fires, so one line per
+ *  (target, message) per window is the right volume for both. Always 204s
+ *  (best-effort diagnostics — a malformed body or a caller with no logger
+ *  wired must never fail the page that reported the refusal). */
 async function handleDenials(
   throttle: DenialThrottle,
   logger: ServeLogger | undefined,
@@ -560,12 +633,19 @@ async function handleDenials(
     return;
   }
   try {
-    const payload = (await collectBody(req)) as DenialRelayPayload;
-    const message = typeof payload.message === 'string' ? payload.message : 'permission denied';
-    const path = payload.denialContext?.request?.path ?? '';
+    const payload = (await collectBody(req)) as DenialRelayPayload & AiRejectionPayload;
+    const isAiRejection = payload.kind === 'ai-rejection';
+    const message = typeof payload.message === 'string'
+      ? payload.message
+      : isAiRejection ? 'request rejected' : 'permission denied';
+    // The `ai-rejection ` prefix keeps an AI key from ever colliding with a
+    // rules-denial key built from a Firestore path.
+    const path = isAiRejection
+      ? `ai-rejection ${typeof payload.model === 'string' ? payload.model : ''}`
+      : payload.denialContext?.request?.path ?? '';
     const key = `${path} ${message}`;
     if (logger && throttle.shouldPrint(key, Date.now())) {
-      logger.note(formatDenialBlock(payload));
+      logger.note(isAiRejection ? formatAiRejectionBlock(payload) : formatDenialBlock(payload));
     }
   } catch {
     /* malformed body — drop it; this is a diagnostics side channel */

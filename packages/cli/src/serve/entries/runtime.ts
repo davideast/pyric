@@ -34,6 +34,7 @@ import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
 import type { InitPayload } from '../init-payload.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
+import { setupAiRejectionRelay } from '../ai-rejection-relay.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
@@ -389,6 +390,14 @@ if (!useWorker && activityTokenFromPayload) {
     fetch,
     activityTokenFromPayload,
   );
+}
+
+// Same plane split for the AI broker's refusals: an in-page sandbox runs its
+// own broker, so its `request_rejected` events need the same relay to reach
+// the dev terminal. Unlike the activity guard this needs no capability token
+// (the denial relay it rides carries none).
+if (!useWorker) {
+  setupAiRejectionRelay({ subscribe: (listener) => sandbox.onEvent(listener) }, fetch);
 }
 
 // ── provenance (flow doc section 3a): make the shim's presence unmistakable.
