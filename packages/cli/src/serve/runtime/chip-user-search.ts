@@ -40,6 +40,11 @@ export function getUserProviders(user: AuthUserRecord): string[] {
   return providers;
 }
 
+function isAdminUser(user: AuthUserRecord): boolean {
+  const claims = user.customClaims ?? {};
+  return claims.admin === true || claims.role === 'admin';
+}
+
 export function filterUsers(
   users: AuthUserRecord[],
   query: string,
@@ -49,10 +54,7 @@ export function filterUsers(
   if (filter) {
     const f = filter.toLowerCase();
     if (f === 'admin') {
-      list = list.filter((u) => {
-        const c = u.customClaims ?? {};
-        return c.admin === true || c.role === 'admin';
-      });
+      list = list.filter(isAdminUser);
     } else if (f === 'tenants') {
       list = list.filter((u) => Boolean(extractTenantFromUser(u)));
     } else {
@@ -184,10 +186,7 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
     const categories: Array<{ id: string | null; label: string }> = [
       { id: null, label: 'All' },
     ];
-    const hasAdmins = cachedUsers.some((u) => {
-      const c = u.customClaims ?? {};
-      return c.admin === true || c.role === 'admin';
-    });
+    const hasAdmins = cachedUsers.some(isAdminUser);
     if (hasAdmins) categories.push({ id: 'admin', label: 'Admins' });
 
     const hasTenants = cachedUsers.some((u) => Boolean(extractTenantFromUser(u)));

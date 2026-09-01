@@ -1,7 +1,10 @@
 import * as ipAuth from 'pyric/auth';
 import * as wcRaw from '../worker/client.js';
 import { acceptProviderCredential, restorePortSession } from '../worker/client.js';
-import type { RuntimeIdentity } from '../runtime/identity.js';
+import {
+  projectRuntimeIdentity,
+  type RuntimeIdentity,
+} from '../runtime/identity.js';
 import { createActiveAuthRegistry } from './active-auth-registry.js';
 import { useWorker } from './worker-runtime.js';
 
@@ -27,11 +30,7 @@ export function subscribeToActiveAuth(
 export function getActiveAuthUser(): RuntimeIdentity | null {
   for (const auth of activeAuthRegistry.auths()) {
     if (auth.currentUser) {
-      return {
-        uid: auth.currentUser.uid,
-        email: auth.currentUser.email,
-        displayName: auth.currentUser.displayName,
-      };
+      return projectRuntimeIdentity(auth.currentUser);
     }
   }
   return null;

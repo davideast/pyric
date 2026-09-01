@@ -116,10 +116,9 @@ export const getAuth = ((app?: FirebaseApp) => {
   workerAuthByApp.set(resolved, handle);
   wireAppPersistence(resolved, handle);
   const releaseActiveAuth = registerActiveAuth(handle);
-  registerAppCleanup(resolved, () => {
-    workerAuthByApp.delete(resolved);
-    releaseActiveAuth();
-  });
+  // Match Firebase's cached-service lifecycle: getAuth(deletedApp) still
+  // returns its existing handle, but that handle no longer joins chip fan-out.
+  registerAppCleanup(resolved, releaseActiveAuth);
   return handle;
 }) as typeof pyricGetAuth;
 
