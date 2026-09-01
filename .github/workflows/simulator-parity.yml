@@ -37,6 +37,7 @@ jobs:
   simulator-tests:
     name: Unit suite
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -63,6 +64,7 @@ jobs:
   parity-stress:
     name: Parity stress (live Rules Test API)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     # Don't fail external-contributor PRs that can't access the secret.
     # When PARITY_SA_BASE64 is empty the test steps short-circuit and the
     # job reports success with a clear log line. (Restored per

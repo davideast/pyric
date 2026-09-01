@@ -60,6 +60,7 @@ jobs:
   unattended:
     name: Unattended rigs (installed-SDK probes)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -90,6 +91,7 @@ jobs:
   credentialed:
     name: Credentialed rig (${{ matrix.rig }})
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       # One rig's drift or absent secret must not cancel the others.
       fail-fast: false
