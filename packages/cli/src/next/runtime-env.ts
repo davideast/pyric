@@ -12,6 +12,11 @@ export function augmentRuntimeEnv(config: NextConfigObject, options?: PyricNextO
   const updatedConfig: NextConfigObject = Object.assign({}, config);
   const existingEnv = updatedConfig.env !== undefined ? Object.assign({}, updatedConfig.env) : {};
   const chipValue = runtimeChipMetaValue(options.runtimeChip);
+  // Next.js only inlines `.env`-sourced values into the browser bundle when the
+  // key carries the `NEXT_PUBLIC_` prefix, so client components must read the
+  // prefixed name. The unprefixed name is kept for backwards compatibility with
+  // any existing server-side or bundler-level readers of `PYRIC_RUNTIME_CHIP`.
+  existingEnv.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP = chipValue;
   existingEnv.PYRIC_RUNTIME_CHIP = chipValue;
   updatedConfig.env = existingEnv;
   return updatedConfig;

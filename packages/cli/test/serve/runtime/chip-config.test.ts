@@ -36,4 +36,19 @@ describe('Pyric runtime chip configuration', () => {
     delete process.env.PYRIC_RUNTIME_CHIP;
     expect(readPyricRuntimeChipConfig(emptyDoc)).toEqual({ initiallyOpen: false, studioEnabled: true });
   });
+
+  it('prefers the NEXT_PUBLIC_-prefixed environment variable over the unprefixed one', () => {
+    const emptyDoc = { querySelector: () => null };
+
+    process.env.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP = 'expanded';
+    delete process.env.PYRIC_RUNTIME_CHIP;
+    expect(readPyricRuntimeChipConfig(emptyDoc)).toEqual({ initiallyOpen: true, studioEnabled: true });
+
+    process.env.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP = 'off';
+    process.env.PYRIC_RUNTIME_CHIP = 'expanded';
+    expect(readPyricRuntimeChipConfig(emptyDoc)).toBeNull();
+
+    delete process.env.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP;
+    delete process.env.PYRIC_RUNTIME_CHIP;
+  });
 });

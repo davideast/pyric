@@ -17,8 +17,22 @@ interface RuntimeChipDocument {
   querySelector(selector: string): { getAttribute(name: string): string | null } | null;
 }
 
+/** Read the browser-inlined chip value, preferring the `NEXT_PUBLIC_`-prefixed
+ * name (the only one Next.js is guaranteed to expose to client bundles) and
+ * falling back to the unprefixed name for other bundlers/back-compat. */
+function bundlerRuntimeChipValue(): string | undefined {
+  if (typeof process === 'undefined' || typeof process.env === 'undefined') return undefined;
+  if (typeof process.env.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP === 'string') {
+    return process.env.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP;
+  }
+  if (typeof process.env.PYRIC_RUNTIME_CHIP === 'string') {
+    return process.env.PYRIC_RUNTIME_CHIP;
+  }
+  return undefined;
+}
+
 function hasBundlerRuntimeChipConfig(): boolean {
-  return typeof process !== 'undefined' && typeof process.env !== 'undefined' && typeof process.env.PYRIC_RUNTIME_CHIP === 'string';
+  return bundlerRuntimeChipValue() !== undefined;
 }
 
 /** Read plugin-authored values from DOM metadata or bundler environment variables, defaulting to collapsed UI when omitted. */
@@ -31,7 +45,7 @@ export function readPyricRuntimeChipConfig(
 
   const shouldFallbackToEnv = !hasMetaTag && hasBundlerRuntimeChipConfig();
   if (shouldFallbackToEnv) {
-    value = process.env.PYRIC_RUNTIME_CHIP as string;
+    value = bundlerRuntimeChipValue() as string;
   }
   if (value === 'off') {
     return null;
