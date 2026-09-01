@@ -136,6 +136,21 @@ export interface AnswerEngine {
   generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse>;
   streamGenerateContent(req: GenerateContentRequest, model: string): AsyncIterable<WireChunk>;
   countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse>;
+  /**
+   * OPTIONAL self-report: which model this engine will ACTUALLY answer with
+   * for a requested Gemini model id, and why it differs. Engines that redirect
+   * silently (an openai `modelMap` entry or catch-all `model`, a gemini
+   * experimental alias) implement it so the broker can announce the swap on
+   * the event stream — a developer must never believe they tested model X
+   * when model Y answered.
+   *
+   * `model` is BARE (no `models/` prefix) so the broker can compare it against
+   * the requested id without the prefix reading as a substitution. `reason` is
+   * a short phrase for the terminal line (e.g. `engine modelMap`). Engines
+   * that never substitute (scripted, a caller's custom engine) omit the method
+   * entirely, and the broker stays silent for them.
+   */
+  resolveEffectiveModel?(model: string): { model: string; reason: string };
 }
 
 // ── Scripted authoring ──────────────────────────────────────────────────────

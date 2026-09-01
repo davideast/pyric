@@ -114,15 +114,28 @@ export class GeminiEngine implements AnswerEngine {
     );
   }
 
-  private normalizeModel(model: string): string {
+  /**
+   * Which model this engine ACTUALLY calls upstream, and why it differs.
+   * Experimental / superseded flash aliases are redirected onto the served
+   * `gemini-flash-lite-latest`; everything else passes through. Reported so
+   * the broker can announce the redirect rather than let a developer believe
+   * `gemini-2.5-flash` answered when `gemini-flash-lite-latest` did
+   * ({@link AnswerEngine.resolveEffectiveModel}).
+   */
+  resolveEffectiveModel(model: string): { model: string; reason: string } {
     const stripped = model.replace(/^models\//, '');
     const isExperimentalFlashLite =
       stripped === 'gemini-3.5-flash-lite' ||
       stripped === 'gemini-2.5-flash' ||
       stripped === 'gemini-2.5-flash-lite' ||
       stripped === 'gemini-1.5-flash';
-    const resolved = isExperimentalFlashLite ? 'gemini-flash-lite-latest' : stripped;
-    return `models/${resolved}`;
+    return isExperimentalFlashLite
+      ? { model: 'gemini-flash-lite-latest', reason: 'experimental alias' }
+      : { model: stripped, reason: 'passthrough' };
+  }
+
+  private normalizeModel(model: string): string {
+    return `models/${this.resolveEffectiveModel(model).model}`;
   }
 
   /**

@@ -965,6 +965,175 @@ describe('broker blocked-response emission', () => {
   });
 });
 
+// ── Model substitutions: the engine answered as a DIFFERENT model ───────────
+//
+// An engine that quietly redirects the requested model (an openai `modelMap`
+// entry, the openai catch-all `model`, a gemini experimental alias) makes a
+// developer believe they tested model X when model Y answered. The broker
+// announces the swap on the event stream the same way it announces a block.
+
+/** Minimal upstream OpenAI answer — enough for the engine to translate. */
+const substitutionUpstream: OpenAIResponse = {
+  id: 'chatcmpl-sub',
+  model: 'whatever',
+  choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+  usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+};
+
+/** A Gemini REST stub: one wire-shaped envelope for any upstream call. */
+function geminiFetch(seen: string[]): typeof fetch {
+  return (async (url: any) => {
+    seen.push(String(url));
+    return Response.json({
+      candidates: [
+        { content: { role: 'model', parts: [{ text: 'ok' }] }, index: 0, finishReason: 'STOP' },
+      ],
+      usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 1, totalTokenCount: 4 },
+    } satisfies WireResponse);
+  }) as typeof fetch;
+}
+
+describe('broker model-substitution emission', () => {
+  it('emits model_substituted when a modelMap entry redirects the request', async () => {
+    const sandbox = initializeSandbox();
+    const events = aiEvents(sandbox);
+    const broker = new AiBroker({
+      engine: {
+        kind: 'openai',
+        baseUrl: 'http://up/v1',
+        modelMap: { 'gemini-flash-lite-latest': 'qwen3' },
+        fetch: jsonFetch(() => Response.json(substitutionUpstream)),
+      },
+      sandbox,
+    });
+
+    await broker.generateContent(userReq('hi'), MODEL);
+
+    const substituted = events.find((e) => e.op === 'model_substituted');
+    expect(substituted).toBeDefined();
+    expect(substituted.path).toBe(MODEL);
+    expect(substituted.detail.requestedModel).toBe(MODEL);
+    expect(substituted.detail.effectiveModel).toBe('qwen3');
+    expect(substituted.detail.engine).toBe('openai');
+    expect(typeof substituted.detail.reason).toBe('string');
+  });
+
+  it("emits model_substituted when the engine's catch-all model answers instead", async () => {
+    const sandbox = initializeSandbox();
+    const events = aiEvents(sandbox);
+    const broker = new AiBroker({
+      engine: {
+        kind: 'openai',
+        baseUrl: 'http://up/v1',
+        model: 'llama3',
+        fetch: jsonFetch(() => Response.json(substitutionUpstream)),
+      },
+      sandbox,
+    });
+
+    await broker.generateContent(userReq('hi'), 'models/gemini-2.5-pro');
+
+    const substituted = events.find((e) => e.op === 'model_substituted');
+    expect(substituted).toBeDefined();
+    expect(substituted.detail.requestedModel).toBe('models/gemini-2.5-pro');
+    expect(substituted.detail.effectiveModel).toBe('llama3');
+  });
+
+  it('stays silent for openai passthrough — the `models/` prefix is not a substitution', async () => {
+    const sandbox = initializeSandbox();
+    const events = aiEvents(sandbox);
+    const broker = new AiBroker({
+      engine: {
+        kind: 'openai',
+        baseUrl: 'http://up/v1',
+        fetch: jsonFetch(() => Response.json(substitutionUpstream)),
+      },
+      sandbox,
+    });
+
+    await broker.generateContent(userReq('hi'), 'models/gemini-2.5-pro');
+    await broker.generateContent(userReq('hi'), 'gemini-2.5-pro');
+
+    expect(events.some((e) => e.op === 'model_substituted')).toBe(false);
+  });
+
+  it('emits model_substituted for a gemini experimental alias redirect', async () => {
+    const sandbox = initializeSandbox();
+    const events = aiEvents(sandbox);
+    const seen: string[] = [];
+    const broker = new AiBroker({
+      engine: { kind: 'gemini', apiKey: 'k', fetch: geminiFetch(seen) },
+      sandbox,
+    });
+
+    await broker.generateContent(userReq('hi'), 'gemini-2.5-flash');
+
+    const substituted = events.find((e) => e.op === 'model_substituted');
+    expect(substituted).toBeDefined();
+    expect(substituted.detail.requestedModel).toBe('gemini-2.5-flash');
+    expect(substituted.detail.effectiveModel).toBe('gemini-flash-lite-latest');
+    expect(substituted.detail.engine).toBe('gemini');
+    // The announced effective model is the one actually called upstream.
+    expect(seen[0]).toContain('models/gemini-flash-lite-latest');
+  });
+
+  it('stays silent when gemini passes the requested model straight through', async () => {
+    const sandbox = initializeSandbox();
+    const events = aiEvents(sandbox);
+    const broker = new AiBroker({
+      engine: { kind: 'gemini', apiKey: 'k', fetch: geminiFetch([]) },
+      sandbox,
+    });
+
+    await broker.generateContent(userReq('hi'), 'models/gemini-flash-lite-latest');
+
+    expect(events.some((e) => e.op === 'model_substituted')).toBe(false);
+  });
+
+  it('announces the swap on the streaming path too, before the op event', async () => {
+    const sandbox = initializeSandbox();
+    const events = aiEvents(sandbox);
+    const broker = new AiBroker({
+      engine: {
+        kind: 'openai',
+        baseUrl: 'http://up/v1',
+        model: 'llama3',
+        fetch: (async () =>
+          sseResponse([
+            'data: {"id":"1","model":"llama3","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\n',
+            'data: {"id":"1","model":"llama3","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+            'data: [DONE]\n\n',
+          ])) as unknown as typeof fetch,
+      },
+      sandbox,
+    });
+
+    await collect(broker.streamGenerateContent(userReq('hi'), MODEL));
+
+    expect(events.map((e) => e.op)).toEqual(['model_substituted', 'stream_generate_content']);
+    expect(events[0].detail.effectiveModel).toBe('llama3');
+  });
+
+  it('never fires for engines that resolve nothing (scripted, custom)', async () => {
+    const sandbox = initializeSandbox();
+    const events = aiEvents(sandbox);
+    const scripted = new AiBroker({ sandbox });
+    await scripted.generateContent(userReq('hi'), MODEL);
+
+    const custom = new AiBroker({
+      engine: {
+        generateContent: async () => ({ candidates: [] }) as WireResponse,
+        streamGenerateContent: () => (async function* g(): AsyncGenerator<WireChunk> {})(),
+        countTokens: async () => ({ totalTokens: 1, promptTokensDetails: [] }),
+      },
+      sandbox,
+    });
+    await custom.generateContent(userReq('hi'), MODEL);
+
+    expect(events.some((e) => e.op === 'model_substituted')).toBe(false);
+  });
+});
+
 // ── Diagnostics: console signals for silent gaps ────────────────────────────
 
 /** Capture console.warn/info calls for the duration of `fn`, then restore. */

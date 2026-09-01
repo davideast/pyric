@@ -667,8 +667,10 @@ async function handleCapture(
 // `request_rejected` (a malformed request) and `response_blocked` (a safety /
 // recitation filter withheld the answer). Same category ("the sandbox refused
 // your operation"), same terminal treatment, same throttle — so they ride
-// here rather than opening parallel diagnostics channels. The payload's
-// `kind` discriminates the three.
+// here rather than opening parallel diagnostics channels. `model_substituted`
+// (an engine answered as a model the code never named) rides along too: not a
+// refusal, but the same "the sandbox quietly did something else" category.
+// The payload's `kind` discriminates the four.
 //
 // A denied listener re-fires on every auth/rules change, so printing is
 // throttled per (path, message) pair — at most one line per window, and
@@ -730,6 +732,24 @@ interface AiBlockedPayload {
   finishMessage?: unknown;
   /** Prompt-level block: `promptFeedback.blockReason`. */
   blockReason?: unknown;
+}
+
+/** Loosely-typed mirror of the AI model-substitution relay payload POSTed by
+ *  `serve/ai-rejection-relay.ts`. Same read-defensively contract as its
+ *  siblings above. Not a refusal: the request SUCCEEDED, answered by a model
+ *  the developer never named, which is why nothing else in the stack reports
+ *  it. */
+interface AiModelSubstitutionPayload {
+  /** `'ai-model-substituted'` — what tells this route the body is a swap. */
+  kind?: unknown;
+  /** The model the request asked for. */
+  requestedModel?: unknown;
+  /** The model the engine actually calls. */
+  effectiveModel?: unknown;
+  /** Resolved broker engine (`openai` | `gemini` | …). */
+  engine?: unknown;
+  /** Why it differs — e.g. `engine modelMap`, `experimental alias`. */
+  reason?: unknown;
 }
 
 /** Per-dev-server-instance throttle: at most one printed line per (path,
@@ -833,9 +853,38 @@ export function formatAiBlockedBlock(payload: AiBlockedPayload): string {
   return lines.join('\n');
 }
 
+/**
+ * Format a relayed AI model substitution into ONE terminal line — the same
+ * `  ⚠ [pyric] …` idiom as its siblings, but a single line on purpose: there
+ * is no error, no status, and no missing content to explain. The whole fact
+ * IS the arrow, and the parenthetical says which engine did it and why
+ * (`engine modelMap`, `experimental alias`, …). Model ids are engine- and
+ * config-authored strings, so they go through the same
+ * {@link redactProxyUrl} / {@link terminalReason} pass as every other
+ * relayed text. Exported for unit tests.
+ */
+export function formatAiModelSubstitutionBlock(payload: AiModelSubstitutionPayload): string {
+  const requested = typeof payload.requestedModel === 'string' && payload.requestedModel !== ''
+    ? terminalReason(redactProxyUrl(payload.requestedModel))
+    : 'unknown';
+  const effective = typeof payload.effectiveModel === 'string' && payload.effectiveModel !== ''
+    ? terminalReason(redactProxyUrl(payload.effectiveModel))
+    : 'unknown';
+  const engine = typeof payload.engine === 'string' && payload.engine !== ''
+    ? terminalReason(payload.engine)
+    : null;
+  const reason = typeof payload.reason === 'string' && payload.reason !== ''
+    ? terminalReason(redactProxyUrl(payload.reason))
+    : null;
+  const attribution = [engine, reason].filter((part) => part !== null);
+  const suffix = attribution.length > 0 ? ` (${attribution.join(', ')})` : '';
+  return `  ⚠ [pyric] ai model substituted: ${requested} → ${effective}${suffix}`;
+}
+
 /** Handle `POST /__pyric/denials` — a rules denial, or (discriminated by
- *  `kind`) an AI broker rejection or blocked response relayed off the sandbox
- *  event stream. All three share the throttle map: an agent retry loop
+ *  `kind`) an AI broker rejection, blocked response, or model substitution
+ *  relayed off the sandbox event stream. All four share the throttle map: an
+ *  agent retry loop
  *  re-sends the SAME malformed (or filter-tripping) AI request exactly the way
  *  a denied listener re-fires, so one line per (target, reason) per window is
  *  the right volume for every one of them. Always 204s
@@ -854,29 +903,43 @@ async function handleDenials(
   try {
     const payload = (await collectBody(req)) as DenialRelayPayload &
       AiRejectionPayload &
-      AiBlockedPayload;
+      AiBlockedPayload &
+      AiModelSubstitutionPayload;
     const isAiRejection = payload.kind === 'ai-rejection';
     const isAiBlocked = payload.kind === 'ai-blocked';
+    const isAiModelSubstituted = payload.kind === 'ai-model-substituted';
     // A block carries no `message` of its own — a filter answers 200, not an
     // error envelope. Its reason enum IS its identity, and is exactly what
     // should collapse an agent's retry loop into a single line.
     const blockedReason = typeof payload.finishReason === 'string'
       ? payload.finishReason
       : typeof payload.blockReason === 'string' ? payload.blockReason : 'unknown';
+    // A substitution has no message either; the model it actually called is
+    // its identity, so a loop of the same swap collapses while a swap onto a
+    // DIFFERENT model still prints.
+    const effectiveModel = typeof payload.effectiveModel === 'string'
+      ? payload.effectiveModel
+      : 'unknown';
     const message = isAiBlocked
       ? blockedReason
-      : typeof payload.message === 'string'
-        ? payload.message
-        : isAiRejection ? 'request rejected' : 'permission denied';
-    // The `ai-rejection ` / `ai-blocked ` prefixes keep an AI key from ever
-    // colliding with a rules-denial key built from a Firestore path — or with
-    // each other: a rejection and a block on the same model are two problems.
+      : isAiModelSubstituted
+        ? effectiveModel
+        : typeof payload.message === 'string'
+          ? payload.message
+          : isAiRejection ? 'request rejected' : 'permission denied';
+    // The `ai-rejection ` / `ai-blocked ` / `ai-model ` prefixes keep an AI key
+    // from ever colliding with a rules-denial key built from a Firestore path —
+    // or with each other: a rejection, a block, and a substitution on the same
+    // model are three different problems.
     const model = typeof payload.model === 'string' ? payload.model : '';
+    const requestedModel = typeof payload.requestedModel === 'string' ? payload.requestedModel : '';
     const path = isAiRejection
       ? `ai-rejection ${model}`
       : isAiBlocked
         ? `ai-blocked ${model}`
-        : payload.denialContext?.request?.path ?? '';
+        : isAiModelSubstituted
+          ? `ai-model ${requestedModel}`
+          : payload.denialContext?.request?.path ?? '';
     const key = `${path} ${message}`;
     if (logger && throttle.shouldPrint(key, Date.now())) {
       logger.note(
@@ -884,7 +947,9 @@ async function handleDenials(
           ? formatAiRejectionBlock(payload)
           : isAiBlocked
             ? formatAiBlockedBlock(payload)
-            : formatDenialBlock(payload),
+            : isAiModelSubstituted
+              ? formatAiModelSubstitutionBlock(payload)
+              : formatDenialBlock(payload),
       );
     }
   } catch {

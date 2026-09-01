@@ -20,6 +20,12 @@ import type { SandboxEvent } from 'pyric/sandbox';
  * same channel, same throttle; only the payload `kind` and the formatter on
  * the far side differ.
  *
+ * `model_substituted` rides it too. That one is not a refusal — the answer
+ * arrives, from a model the developer never asked for (an openai `modelMap`
+ * entry or catch-all `model`, a gemini experimental alias). It is on this
+ * channel because it is the same shape of problem: the sandbox quietly did
+ * something other than what the code said, and only the terminal can say so.
+ *
  * This is the AI twin of the Firebase Activity Guard reporter next door
  * (`activity-guard.ts`): a browser-safe subscriber shared by the SharedWorker
  * and in-page planes, which fire-and-forget POSTs to the dev server. It rides
@@ -83,6 +89,24 @@ interface AiBlockedRelayPayload {
   blockReason?: string;
 }
 
+/** Shape POSTed for a `model_substituted` event. Same route, same throttle,
+ *  its own `kind`; `namespace.ts` mirrors it loosely as
+ *  `AiModelSubstitutionPayload`. Not a refusal at all — the answer arrives
+ *  normally, just from a model the developer never named — but it belongs on
+ *  this channel for the same reason the other two do: nothing else tells them.
+ */
+interface AiModelSubstitutionRelayPayload {
+  kind: 'ai-model-substituted';
+  /** The model the request asked for (the event's `path`). */
+  requestedModel: string;
+  /** The model the engine actually calls (bare, no `models/` prefix). */
+  effectiveModel: string;
+  /** Which engine substituted (`openai` | `gemini` | …). */
+  engine?: string;
+  /** Why it differs — e.g. `engine modelMap`, `experimental alias`. */
+  reason?: string;
+}
+
 /** Narrow a sandbox event to a broker rejection, defensively: `detail` is a
  *  free-form record on the event contract, so every field is re-checked. */
 function toRejectionPayload(event: SandboxEvent): AiRejectionRelayPayload | null {
@@ -114,18 +138,51 @@ function toBlockedPayload(event: SandboxEvent): AiBlockedRelayPayload | null {
   };
 }
 
+/** Narrow a sandbox event to a model substitution — same defensive contract,
+ *  plus the invariant the terminal line depends on: an effective model equal
+ *  to the requested one is NOT a substitution and never relays. The broker
+ *  already compares before emitting; this re-checks because the event stream
+ *  is a public contract anyone can post onto. */
+function toModelSubstitutionPayload(event: SandboxEvent): AiModelSubstitutionRelayPayload | null {
+  if (event.kind !== 'service_mutation') return null;
+  if (event.service !== 'ai' || event.op !== 'model_substituted') return null;
+  const detail = (event.detail ?? {}) as Record<string, unknown>;
+  const requestedModel =
+    typeof detail.requestedModel === 'string' && detail.requestedModel !== ''
+      ? detail.requestedModel
+      : typeof event.path === 'string' ? event.path : '';
+  const effectiveModel = typeof detail.effectiveModel === 'string' ? detail.effectiveModel : '';
+  if (requestedModel === '' || effectiveModel === '') return null;
+  const requestedBare = requestedModel.startsWith('models/')
+    ? requestedModel.slice('models/'.length)
+    : requestedModel;
+  if (effectiveModel === requestedBare || effectiveModel === requestedModel) return null;
+  return {
+    kind: 'ai-model-substituted',
+    requestedModel,
+    effectiveModel,
+    ...(typeof detail.engine === 'string' ? { engine: detail.engine } : {}),
+    ...(typeof detail.reason === 'string' ? { reason: detail.reason } : {}),
+  };
+}
+
 /**
  * Subscribe to the sandbox event stream and relay every broker refusal —
- * rejected request or blocked response — to the dev server for terminal
- * visibility. Browser-safe (shared by the SharedWorker host and the in-page
+ * rejected request or blocked response — plus every silent model substitution,
+ * to the dev server for terminal visibility.
+ * Browser-safe (shared by the SharedWorker host and the in-page
  * runtime); returns nothing to unsubscribe with, mirroring the guard next
  * door — the subscription is observational and lives for the plane's
  * lifetime.
  */
 export function setupAiRejectionRelay(feed: AiRejectionFeed, fetchFn: typeof fetch): void {
   feed.subscribe((event) => {
-    const payload: AiRejectionRelayPayload | AiBlockedRelayPayload | null =
-      toRejectionPayload(event) ?? toBlockedPayload(event);
+    const payload:
+      | AiRejectionRelayPayload
+      | AiBlockedRelayPayload
+      | AiModelSubstitutionRelayPayload
+      | null =
+      toRejectionPayload(event) ?? toBlockedPayload(event) ?? toModelSubstitutionPayload(event);
     if (payload === null) return;
     try {
       void fetchFn('/__pyric/denials', {

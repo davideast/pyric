@@ -11,10 +11,13 @@
  *
  * The same relay carries the broker's OTHER silent refusal, `response_blocked`
  * — a safety / recitation filter block, which unlike a rejection throws
- * nothing at all (production answers 200 with an empty candidate).
+ * nothing at all (production answers 200 with an empty candidate) — and
+ * `model_substituted`, which is not a refusal at all: the answer arrives, from
+ * a model the developer never named.
  *
  * These tests drive the REAL worker host (an `ai.generateContent` op with a
- * role production rejects, or one scripted to answer a blocked envelope)
+ * role production rejects, one scripted to answer a blocked envelope, or one
+ * whose engine redirects the model onto a stub OpenAI-compatible upstream)
  * through a REAL dev server, and assert on what the terminal logger received.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
@@ -26,6 +29,7 @@ import { getFirestore } from 'pyric/firestore';
 import {
   createPyricNamespace,
   formatAiBlockedBlock,
+  formatAiModelSubstitutionBlock,
   formatAiRejectionBlock,
 } from '../../src/serve/namespace.js';
 import { setupAiRejectionRelay } from '../../src/serve/ai-rejection-relay.js';
@@ -48,8 +52,11 @@ function recordingLogger(): { logger: ServeLogger; notes: string[] } {
 }
 
 const handles: ServeHandle[] = [];
+/** Stub upstreams started by the model-substitution tests below. */
+const upstreams: Array<{ stop(): void }> = [];
 afterEach(async () => {
   while (handles.length) await handles.pop()!.stop();
+  while (upstreams.length) upstreams.pop()!.stop();
 });
 
 async function startServe(logger: ServeLogger): Promise<ServeHandle> {
@@ -397,5 +404,179 @@ describe('formatAiBlockedBlock', () => {
   it('falls back to a generic reason for a malformed payload', () => {
     const block = formatAiBlockedBlock({ kind: 'ai-blocked' } as never);
     expect(block).toContain('ai response blocked: unknown');
+  });
+});
+
+// ── Model substitutions (alias / fallback redirects) ────────────────────────
+//
+// The quietest of the three: nothing throws, content comes back, and the
+// developer concludes they tested the model they NAMED. The broker emits
+// `model_substituted`; the same relay carries it over the same route with its
+// own `kind`, formatted by `formatAiModelSubstitutionBlock`.
+
+/** A tiny OpenAI-compatible upstream — enough for the openai engine to
+ *  translate one unary answer, and it records the model it was asked for. */
+function stubOpenAiUpstream(): { url: string; models: string[]; stop(): void } {
+  const models: string[] = [];
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: async (req) => {
+      const body = (await req.json()) as { model?: string };
+      models.push(String(body.model));
+      return Response.json({
+        id: 'chatcmpl-1',
+        model: body.model,
+        choices: [
+          { index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+      });
+    },
+  });
+  return { url: `http://127.0.0.1:${server.port}/v1`, models, stop: () => server.stop(true) };
+}
+
+const substitutedOp = (model: string, upstream: string, engineModel: string) => ({
+  t: 'op' as const,
+  id: `ai-${Math.random()}`,
+  method: 'ai.generateContent' as const,
+  model,
+  request: { contents: [{ role: 'user', parts: [{ text: 'hi' }] }] },
+  engine: { kind: 'openai' as const, baseUrl: upstream, model: engineModel },
+});
+
+describe('AI model substitutions → dev terminal', () => {
+  it('prints the swap when the engine answers as a different model', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const upstream = stubOpenAiUpstream();
+    upstreams.push(upstream);
+    const relay = originFetch(h.url);
+    const ctx = makeCtx();
+    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+
+    await handleMessage(
+      ctx,
+      fakePort(),
+      substitutedOp('models/gemini-2.5-pro', upstream.url, 'llama3'),
+    );
+    await relay.settled();
+
+    expect(upstream.models).toEqual(['llama3']);
+    expect(notes.length).toBe(1);
+    expect(notes[0]).toContain('ai model substituted');
+    expect(notes[0]).toContain('models/gemini-2.5-pro');
+    expect(notes[0]).toContain('llama3');
+    expect(notes[0]).toContain('openai');
+  });
+
+  it('stays silent when the engine answers as the model that was asked for', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const upstream = stubOpenAiUpstream();
+    upstreams.push(upstream);
+    const relay = originFetch(h.url);
+    const ctx = makeCtx();
+    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+
+    await handleMessage(
+      ctx,
+      fakePort(),
+      substitutedOp('models/llama3', upstream.url, 'llama3'),
+    );
+    await relay.settled();
+
+    expect(upstream.models).toEqual(['llama3']);
+    expect(notes).toEqual([]);
+  });
+
+  it('throttles a loop and keys apart from a rejection on the same model', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(logger);
+    const upstream = stubOpenAiUpstream();
+    upstreams.push(upstream);
+    const relay = originFetch(h.url);
+    const ctx = makeCtx();
+    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+
+    const port = fakePort();
+    for (let i = 0; i < 4; i += 1) {
+      await handleMessage(ctx, port, substitutedOp('models/gemini-2.5-pro', upstream.url, 'llama3'));
+    }
+    await handleMessage(ctx, port, badRoleOp('models/gemini-2.5-pro'));
+    await relay.settled();
+
+    expect(notes.length).toBe(2);
+    expect(notes.some((n) => n.includes('ai model substituted'))).toBe(true);
+    expect(notes.some((n) => n.includes('ai request rejected'))).toBe(true);
+  });
+
+  it('relays a model_substituted event and ignores a no-op (requested === effective)', () => {
+    const calls: string[] = [];
+    const spyFetch = ((url: string) => {
+      calls.push(String(url));
+      return Promise.resolve({ ok: true, status: 204 } as Response);
+    }) as typeof fetch;
+    let emit: (event: unknown) => void = () => {};
+    setupAiRejectionRelay({ subscribe: (l) => { emit = l as (e: unknown) => void; } }, spyFetch);
+
+    emit({
+      kind: 'service_mutation', id: '1', at: 0, service: 'ai', op: 'model_substituted',
+      path: 'models/x', auth: null,
+      detail: { requestedModel: 'models/x', effectiveModel: 'x', reason: 'passthrough', engine: 'openai' },
+    });
+    expect(calls).toEqual([]);
+
+    emit({
+      kind: 'service_mutation', id: '2', at: 0, service: 'ai', op: 'model_substituted',
+      path: 'models/x', auth: null,
+      detail: { requestedModel: 'models/x', effectiveModel: 'qwen3', reason: 'engine modelMap', engine: 'openai' },
+    });
+    expect(calls).toEqual(['/__pyric/denials']);
+  });
+});
+
+describe('formatAiModelSubstitutionBlock', () => {
+  it('renders requested → effective with the engine and the reason', () => {
+    const line = formatAiModelSubstitutionBlock({
+      kind: 'ai-model-substituted',
+      requestedModel: 'models/gemini-2.5-flash',
+      effectiveModel: 'gemini-flash-lite-latest',
+      engine: 'gemini',
+      reason: 'experimental alias',
+    });
+    expect(line.split('\n').length).toBe(1);
+    expect(line).toBe(
+      '  ⚠ [pyric] ai model substituted: models/gemini-2.5-flash → gemini-flash-lite-latest (gemini, experimental alias)',
+    );
+  });
+
+  it('drops the parenthetical when neither engine nor reason came through', () => {
+    const line = formatAiModelSubstitutionBlock({
+      kind: 'ai-model-substituted',
+      requestedModel: 'models/x',
+      effectiveModel: 'y',
+    });
+    expect(line).toBe('  ⚠ [pyric] ai model substituted: models/x → y');
+  });
+
+  it('flattens and redacts upstream-authored model text', () => {
+    const line = formatAiModelSubstitutionBlock({
+      kind: 'ai-model-substituted',
+      requestedModel: 'models/x?key=SECRET123',
+      effectiveModel: 'y\n  two\u001b[31m',
+      engine: 'openai',
+      reason: 'engine modelMap',
+    });
+    expect(line).toContain('key=***');
+    expect(line).not.toContain('SECRET123');
+    expect(line).not.toContain('\u001b');
+    expect(line.split('\n').length).toBe(1);
+  });
+
+  it('falls back to generic names for a malformed payload', () => {
+    const line = formatAiModelSubstitutionBlock({ kind: 'ai-model-substituted' } as never);
+    expect(line).toContain('ai model substituted: unknown → unknown');
   });
 });
