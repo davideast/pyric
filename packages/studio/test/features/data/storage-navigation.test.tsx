@@ -46,10 +46,18 @@ import {
 
 afterEach(() => cleanup());
 
+const OPEN_STORAGE_RULES = `
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{path=**} { allow read, write: if true; }
+  }
+}`;
+
 function makeStorage(): FirebaseStorage {
   const sandbox = initializeSandbox({});
   return getStorageSandbox(sandbox, {
     dbName: `pyric-studio-storage-nav-${Math.random().toString(36).slice(2, 10)}`,
+    rules: OPEN_STORAGE_RULES,
   });
 }
 
@@ -79,7 +87,7 @@ const LIST_AVATARS = {
     source: { kind: 'app' },
     authLens: { mode: 'app-session' },
   },
-  rulesDisposition: { kind: 'not-evaluated', reason: 'no-rules' },
+  rulesDisposition: { kind: 'evaluated', verdict: 'allow' },
 } as StudioTrafficEvent;
 
 const LIST_ROOT = {
