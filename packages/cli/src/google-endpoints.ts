@@ -75,6 +75,10 @@ export const GOOGLE_ENDPOINT_CATALOG: readonly GoogleEndpoint[] = [
   { host: 'aiplatform.googleapis.com', service: 'Vertex AI' },
   // Credential exfiltration target — never a false positive.
   { host: '169.254.169.254', service: 'GCE metadata server', alwaysBlock: true },
+  { host: 'metadata.google.internal', service: 'GCE metadata server', alwaysBlock: true,
+    // DNS name for the same server — must never feed the throwing artifact scanner
+    generic: true,
+  },
 ];
 
 /** Every catalog host, in catalog order — the net guard's full match set. */

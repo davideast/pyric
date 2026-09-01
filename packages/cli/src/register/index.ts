@@ -17,6 +17,11 @@
  * `require()` and `import`. On older 22.x it falls back to
  * `module.register()` (ESM-only) with a warning that CJS require() is not
  * rewritten.
+ *
+ * On activation it also installs the NETWORK GUARD (`./net-guard.js`), which
+ * reports — or, under `PYRIC_GUARD=block`, refuses — egress from this process
+ * to live Google/Firebase endpoints. See that module for the policy and the
+ * `PYRIC_GUARD` / `PYRIC_GUARD_ALLOW` knobs.
  */
 import Module from 'node:module';
 import { readFileSync } from 'node:fs';
@@ -24,6 +29,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mapFirebaseSpecifier } from './mapping.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
+import { installNetGuard } from './net-guard.js';
 import { remoteSandbox } from '../remote/index.js';
 
 /** The shared seam with pyric-admin's ambient init: a synchronous factory
@@ -89,6 +95,23 @@ function resolveEsmOnlyForRequire(mapped: string): string | null {
 }
 
 function activate(): void {
+  // FIRST, before any hook or global: the network guard.
+  //
+  // Order matters in one direction only. Everything after this line makes the
+  // process load MORE code — the resolution hooks pull in the pyric mirrors,
+  // the factory global pulls in the remote sandbox — and any of it could open
+  // a socket. Installing the guard first leaves no window in which
+  // sandbox-substituted code runs unguarded. The reverse ordering buys
+  // nothing: the guard mutates globals only (`undici.globalDispatcher.1`,
+  // `net`/`tls` connect) and depends on nothing the hooks establish.
+  //
+  // It stays BELOW the NODE_ENV=production refusal, deliberately. A refused
+  // process is a real production run that we declined to touch; warning about
+  // — let alone blocking — its perfectly legitimate Google traffic would be
+  // actively harmful. `PYRIC_SANDBOX` plus no refusal is the only state in
+  // which "traffic to live Google is a bug" is a true statement.
+  installNetGuard();
+
   if (typeof moduleApi.registerHooks === 'function') {
     moduleApi.registerHooks({
       resolve(specifier, context, nextResolve) {

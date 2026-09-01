@@ -623,9 +623,11 @@ describe('google endpoint catalog', () => {
     }
     // Every entry carries a human-readable service label for guard messages.
     for (const e of GOOGLE_ENDPOINT_CATALOG) expect(e.service.length).toBeGreaterThan(0);
-    // The metadata IP is the one day-one block; everything else ships warn-first.
-    expect(GOOGLE_ENDPOINT_CATALOG.filter((e) => e.alwaysBlock).map((e) => e.host)).toEqual([
+    // The metadata server (by IP and by DNS name) is the one day-one block;
+    // everything else ships warn-first.
+    expect(GOOGLE_ENDPOINT_CATALOG.filter((e) => e.alwaysBlock).map((e) => e.host).sort()).toEqual([
       '169.254.169.254',
+      'metadata.google.internal',
     ]);
   });
 
