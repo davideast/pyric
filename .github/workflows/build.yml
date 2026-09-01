@@ -40,8 +40,33 @@ jobs:
       predicted-check-set: ${{ steps.plan.outputs.predicted-check-set }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Fetch PR endpoints and resolve merge base
+        # plan.ts diffs base...head (git's triple-dot / merge-base form) so
+        # check-set.ts only sees files the PR itself introduces, not whatever
+        # moved on the base branch since the fork point. A depth-1 checkout
+        # has neither base.sha nor head.sha as fetchable objects (both are
+        # ancestors of the synthetic merge commit actions/checkout resolves
+        # for pull_request events), so fetch them directly by SHA, then widen
+        # only as far as needed to reach a common ancestor. Same self-heal
+        # shape as resolve_base() in scripts/ci/conformance-coupling-gate.sh:
+        # most PRs resolve after one or two small deepenings instead of
+        # paying for the whole repository's history on every run.
+        if: github.event_name == 'pull_request'
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$CI_BASE_SHA" "$CI_HEAD_SHA"
+          depth=50
+          until git merge-base "$CI_BASE_SHA" "$CI_HEAD_SHA" >/dev/null 2>&1; do
+            if [ "$depth" -gt 6400 ]; then
+              git fetch --no-tags --unshallow origin
+              break
+            fi
+            git fetch --no-tags --deepen="$depth" origin
+            depth=$((depth * 4))
+          done
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.11'
@@ -65,8 +90,31 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+
+      - name: Fetch PR endpoints and resolve merge base
+        # Same rationale and self-heal shape as the `plan` job's identically
+        # named step: knip-audit.ts also diffs base...head (falling back to
+        # origin/main...HEAD, then to "no changed paths") purely to bucket
+        # findings into PR-introduced vs. legacy. It's advisory and
+        # continue-on-error, so a resolution failure here just degrades the
+        # bucketing, but resolving it properly is nearly free and keeps the
+        # audit's PR/legacy split accurate without cloning full history.
+        if: github.event_name == 'pull_request'
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$CI_BASE_SHA" "$CI_HEAD_SHA"
+          depth=50
+          until git merge-base "$CI_BASE_SHA" "$CI_HEAD_SHA" >/dev/null 2>&1; do
+            if [ "$depth" -gt 6400 ]; then
+              git fetch --no-tags --unshallow origin
+              break
+            fi
+            git fetch --no-tags --deepen="$depth" origin
+            depth=$((depth * 4))
+          done
 
       - uses: oven-sh/setup-bun@v2
         with:
