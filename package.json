@@ -11,7 +11,7 @@
     "examples/inpage-todo-app"
   ],
   "overrides": {
-    "firebase": "12.13.0"
+    "firebase": "$firebase"
   },
   "scripts": {
     "build": "bash scripts/build.sh",
