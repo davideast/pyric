@@ -282,6 +282,10 @@ jobs:
     if: needs.plan.outputs.check-set == 'full'
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The coupling gate diffs against the PR base; a depth-1 checkout has
+          # no merge base to find (same reason plan/knip-audit fetch in full).
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.11'
@@ -292,6 +296,14 @@ jobs:
       - uses: ./.github/actions/restore-dist
         with:
           flavor: packages
+      - name: Engine↔evidence coupling gate
+        # Fails when rules/sandbox engine files move without any conformance
+        # evidence moving with them, unless a commit in the range carries a
+        # `Conformance-Exempt: <reason>` trailer.
+        env:
+          BASE_REF: origin/${{ github.base_ref || 'main' }}
+        run: bash scripts/ci/conformance-coupling-gate.sh
+
       - name: Conformance gate chain
         # The five gates that used to run serially at the tail of
         # build-and-test (audit gate, observations × probes, graph integrity,

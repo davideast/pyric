@@ -47,6 +47,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..');
 const ENTRY_PATH_GATE_SCRIPT = join(HERE, 'entry-path-gate.ts');
 const BASELINE_PATH = join(HERE, '..', 'baselines', 'coverage-baseline.json');
+const ROW_REMOVAL_ALLOWLIST_PATH = join(HERE, '..', 'row-removal-allowlist.json');
 
 interface CensusRow {
   surface: CensusSurface;
@@ -338,7 +339,7 @@ interface BaselineService {
   integration?: boolean;
 }
 
-interface Baseline {
+export interface Baseline {
   generatedAt: string;
   services: Record<string, BaselineService>;
   overall: { publicSurface: SurfaceCoverage };
@@ -349,6 +350,34 @@ interface Baseline {
    *  rule: this is the ONE cliff exception to the ratchet — a program that
    *  was 'green' and is no longer is a FAILURE, full stop, never tolerated. */
   entryPathVerdicts: Record<string, string>;
+}
+
+/**
+ * The reviewed escape hatch for DELETING a baseline registry row.
+ *
+ * Without it the ratchet could be cleared by deleting inconvenient rows rather
+ * than fixing them — dropping a `bug` row shrinks the denominator and lifts the
+ * published percentage, which is the same relabeling dishonesty this file
+ * exists to prevent, spelled with a delete key. A row may therefore only leave
+ * the registry if its id is listed here with a reason, in the diff, under
+ * review. Absent/empty file = no removals permitted.
+ */
+export interface RowRemoval {
+  /** Why this row is allowed to leave the registry (e.g. merged into another row, surface retired). */
+  reason: string;
+}
+
+export type RowRemovalAllowlist = Record<string, RowRemoval>;
+
+export function loadRowRemovalAllowlist(path: string = ROW_REMOVAL_ALLOWLIST_PATH): RowRemovalAllowlist {
+  if (!existsSync(path)) return {};
+  const allowlist = JSON.parse(readFileSync(path, 'utf8')) as RowRemovalAllowlist;
+  for (const [id, entry] of Object.entries(allowlist)) {
+    if (typeof entry?.reason !== 'string' || entry.reason.trim() === '') {
+      throw new Error(`Row-removal allowlist entry '${id}' needs a non-empty reason`);
+    }
+  }
+  return allowlist;
 }
 
 function toBaseline(report: CoverageReport): Baseline {
@@ -376,11 +405,17 @@ function toBaseline(report: CoverageReport): Baseline {
  * bar, which is the exact dishonesty this ratchet exists to prevent. It only
  * fails when something that WAS true stops being true:
  *   - a row that was `conforms` is no longer `conforms`,
+ *   - a row in the baseline is gone from the registry (any previous status)
+ *     without an entry in the row-removal allowlist,
  *   - a service's surface coverage % drops,
  *   - a NEW orphan observation appears,
  *   - the high-risk-unverified count increases.
  */
-function findRegressions(baseline: Baseline, report: CoverageReport): string[] {
+export function findRegressions(
+  baseline: Baseline,
+  report: CoverageReport,
+  allowedRowRemovals: RowRemovalAllowlist,
+): string[] {
   const problems: string[] = [];
 
   for (const s of report.services) {
@@ -404,11 +439,19 @@ function findRegressions(baseline: Baseline, report: CoverageReport): string[] {
 
   const CONFORMING_DEMOTION = new Set(['bug', 'diverged-documented', 'unverified', 'unsupported']);
   for (const [id, prevStatus] of Object.entries(baseline.rowStatuses)) {
-    if (prevStatus !== 'conforms') continue;
     const currentStatus = report.rowStatuses[id];
+    // A baseline row may change status freely below conforms, but it may never
+    // just vanish: deleting a `bug`/`unverified` row shrinks the denominator
+    // and lifts the published percentage without fixing anything. Only an
+    // allowlist entry — authored, reasoned, and reviewable in the diff —
+    // excuses a deletion, whatever the row's previous status.
     if (currentStatus === undefined) {
-      problems.push(`${id}: was 'conforms', row removed from the registry`);
-    } else if (CONFORMING_DEMOTION.has(currentStatus)) {
+      if (!allowedRowRemovals[id]) {
+        problems.push(`${id}: was '${prevStatus}', row removed from the registry`);
+      }
+      continue;
+    }
+    if (prevStatus === 'conforms' && CONFORMING_DEMOTION.has(currentStatus)) {
       problems.push(`${id}: was 'conforms', now '${currentStatus}'`);
     }
   }
@@ -470,7 +513,7 @@ async function main(): Promise<void> {
   }
 
   const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as Baseline;
-  const regressions = findRegressions(baseline, report);
+  const regressions = findRegressions(baseline, report, loadRowRemovalAllowlist());
 
   if (regressions.length > 0) {
     console.log(`\n✗ ${regressions.length} regression(s) vs. coverage-baseline.json:`);
@@ -483,4 +526,4 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-await main();
+if (import.meta.main) await main();
