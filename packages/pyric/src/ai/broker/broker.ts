@@ -18,6 +18,12 @@
  *   - a model-turn functionCall part with no thoughtSignature
  *                                         → `ai-error-fncall-missing-thought-signature`
  *
+ * It also announces the refusals production does NOT throw for: a safety /
+ * recitation / blocklist block arrives as a 200 with an empty candidate, so
+ * the broker lands a `response_blocked` event ({@link emitBlockIfBlocked})
+ * alongside the normal op event. Without it a filtered answer is
+ * indistinguishable from a model that simply had nothing to say.
+ *
  * Event emission is best-effort behind one small choke-point ({@link emit}):
  * a throw from the emit path (or any event consumer downstream) must never
  * poison the AI operation the caller just completed — handler errors are the
@@ -28,6 +34,7 @@
 import type { Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 
+import { describeResponseBlock } from '../blocked.js';
 import { AiBrokerError, Synthesizer, badRole, emptyContents, missingThoughtSignature } from './synthesizer.js';
 import { ScriptedEngine } from './scripted-engine.js';
 import { OpenAiEngine } from './openai-engine.js';
@@ -141,6 +148,29 @@ export class AiBroker {
     return detail;
   }
 
+  /**
+   * Announce a SAFETY / RECITATION / BLOCKLIST / … block on the event stream.
+   *
+   * A block is the broker's SILENT refusal: unlike `request_rejected` nothing
+   * throws — production answers 200 with an empty candidate — so an app that
+   * renders whatever `text()` gave it just shows nothing, and the developer
+   * gets no signal anywhere. Emitting at RESPONSE time (not from the response
+   * helpers, which only fire if someone reaches for content) means the event
+   * lands whether or not the caller ever asks for the text.
+   *
+   * Detection is `blocked.ts`'s, shared verbatim with the response helpers'
+   * throw path, so the stream and the thrown error can never disagree.
+   *
+   * Returns whether the envelope WAS blocked, so the stream wrapper can
+   * announce at most once across its chunks.
+   */
+  private emitBlockIfBlocked(model: string, response: WireResponse): boolean {
+    const block = describeResponseBlock(response);
+    if (block === null) return false;
+    this.emit('response_blocked', model, { ...block });
+    return true;
+  }
+
   private emitRejectionIfBrokerError(model: string, err: unknown): void {
     const code = err instanceof AiBrokerError ? err.envelope.error.code : 500;
     const status = err instanceof AiBrokerError ? err.envelope.error.status : 'INTERNAL';
@@ -160,6 +190,7 @@ export class AiBroker {
         totalTokenCount: response.usageMetadata?.totalTokenCount,
         responseId: response.responseId,
       });
+      this.emitBlockIfBlocked(model, response);
       return response;
     } catch (err) {
       this.emitRejectionIfBrokerError(model, err);
@@ -182,11 +213,21 @@ export class AiBroker {
         chunkCount,
       });
     const emitRejection = (err: unknown) => this.emitRejectionIfBrokerError(model, err);
+    // A block surfaces on whichever chunk carries the finish reason (the last
+    // one, per the captured framing), so it is announced DURING iteration —
+    // an abandoned stream still reports why it produced nothing. At most one
+    // per stream: the aggregate has a single blocking reason, not one per chunk.
+    let announcedBlock = false;
+    const emitBlock = (chunk: WireChunk) => {
+      if (announcedBlock) return;
+      announcedBlock = this.emitBlockIfBlocked(model, chunk);
+    };
     return (async function* wrapped(): AsyncGenerator<WireChunk> {
       let chunkCount = 0;
       try {
         for await (const chunk of inner) {
           chunkCount++;
+          emitBlock(chunk);
           yield chunk;
         }
         emit(chunkCount);

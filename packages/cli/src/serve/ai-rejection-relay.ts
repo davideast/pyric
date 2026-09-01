@@ -1,7 +1,9 @@
 import type { SandboxEvent } from 'pyric/sandbox';
 
 /**
- * AI broker rejection relay — headless dev visibility for `request_rejected`.
+ * AI broker refusal relay — headless dev visibility for the two events that
+ * mean "you are not getting an answer": `request_rejected` and
+ * `response_blocked`.
  *
  * The broker lands a `service_mutation` event (`service: 'ai'`, `op:
  * 'request_rejected'`) on the sandbox's unified stream every time it refuses
@@ -10,6 +12,13 @@ import type { SandboxEvent } from 'pyric/sandbox';
  * worker host fans it out over the port for Studio, and it never reaches the
  * dev server. An agent driving `pyric dev` headlessly therefore saw NOTHING
  * when the broker rejected.
+ *
+ * `response_blocked` (`service: 'ai'`) rides the same subscription. It is the
+ * broker's SILENT refusal — a safety / recitation / blocklist filter answers
+ * HTTP 200 with an empty candidate, so nothing throws anywhere and the app
+ * simply renders nothing. Same "the sandbox refused your operation" category,
+ * same channel, same throttle; only the payload `kind` and the formatter on
+ * the far side differ.
  *
  * This is the AI twin of the Firebase Activity Guard reporter next door
  * (`activity-guard.ts`): a browser-safe subscriber shared by the SharedWorker
@@ -53,6 +62,27 @@ interface AiRejectionRelayPayload {
   message: string;
 }
 
+/** Shape POSTed for a `response_blocked` event. Same route, same throttle,
+ *  discriminated by its own `kind`; `namespace.ts` mirrors it loosely as
+ *  `AiBlockedPayload`. Carries the wire's own vocabulary — `finishReason`
+ *  (a candidate was withheld) or `blockReason` (the prompt was refused) —
+ *  rather than a pre-rendered sentence, so the terminal formatter owns the
+ *  phrasing exactly the way it does for a rejection. */
+interface AiBlockedRelayPayload {
+  kind: 'ai-blocked';
+  /** Model resource the blocked op targeted (the event's `path`). */
+  model?: string;
+  /** Which engine the broker resolved to (`scripted` | `openai` | `gemini` |
+   *  `custom`). */
+  engine?: string;
+  /** Candidate-level block: `SAFETY`, `RECITATION`, `BLOCKLIST`, … */
+  finishReason?: string;
+  /** Production's own explanatory text for the block, when it sent one. */
+  finishMessage?: string;
+  /** Prompt-level block: `promptFeedback.blockReason`. */
+  blockReason?: string;
+}
+
 /** Narrow a sandbox event to a broker rejection, defensively: `detail` is a
  *  free-form record on the event contract, so every field is re-checked. */
 function toRejectionPayload(event: SandboxEvent): AiRejectionRelayPayload | null {
@@ -69,16 +99,33 @@ function toRejectionPayload(event: SandboxEvent): AiRejectionRelayPayload | null
   };
 }
 
+/** Narrow a sandbox event to a filter block — same defensive contract. */
+function toBlockedPayload(event: SandboxEvent): AiBlockedRelayPayload | null {
+  if (event.kind !== 'service_mutation') return null;
+  if (event.service !== 'ai' || event.op !== 'response_blocked') return null;
+  const detail = (event.detail ?? {}) as Record<string, unknown>;
+  return {
+    kind: 'ai-blocked',
+    ...(typeof event.path === 'string' && event.path !== '' ? { model: event.path } : {}),
+    ...(typeof detail.engine === 'string' ? { engine: detail.engine } : {}),
+    ...(typeof detail.finishReason === 'string' ? { finishReason: detail.finishReason } : {}),
+    ...(typeof detail.finishMessage === 'string' ? { finishMessage: detail.finishMessage } : {}),
+    ...(typeof detail.blockReason === 'string' ? { blockReason: detail.blockReason } : {}),
+  };
+}
+
 /**
- * Subscribe to the sandbox event stream and relay every broker rejection to
- * the dev server for terminal visibility. Browser-safe (shared by the
- * SharedWorker host and the in-page runtime); returns nothing to unsubscribe
- * with, mirroring the guard next door — the subscription is observational and
- * lives for the plane's lifetime.
+ * Subscribe to the sandbox event stream and relay every broker refusal —
+ * rejected request or blocked response — to the dev server for terminal
+ * visibility. Browser-safe (shared by the SharedWorker host and the in-page
+ * runtime); returns nothing to unsubscribe with, mirroring the guard next
+ * door — the subscription is observational and lives for the plane's
+ * lifetime.
  */
 export function setupAiRejectionRelay(feed: AiRejectionFeed, fetchFn: typeof fetch): void {
   feed.subscribe((event) => {
-    const payload = toRejectionPayload(event);
+    const payload: AiRejectionRelayPayload | AiBlockedRelayPayload | null =
+      toRejectionPayload(event) ?? toBlockedPayload(event);
     if (payload === null) return;
     try {
       void fetchFn('/__pyric/denials', {

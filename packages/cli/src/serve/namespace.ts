@@ -503,12 +503,13 @@ async function handleCapture(
 // An agent driving `pyric dev` headlessly has no browser console to watch;
 // this is that visibility, printed to the terminal instead.
 //
-// The route carries a SECOND refusal shape on the same channel: AI broker
-// rejections, relayed by `serve/ai-rejection-relay.ts` off the sandbox event
-// stream (`service: 'ai'`, `op: 'request_rejected'`). Same category ("the
-// sandbox refused your operation"), same terminal treatment, same throttle —
-// so it rides here rather than opening a parallel diagnostics channel. The
-// payload's `kind` discriminates the two.
+// The route carries the AI broker's refusal shapes on the same channel,
+// relayed by `serve/ai-rejection-relay.ts` off the sandbox event stream:
+// `request_rejected` (a malformed request) and `response_blocked` (a safety /
+// recitation filter withheld the answer). Same category ("the sandbox refused
+// your operation"), same terminal treatment, same throttle — so they ride
+// here rather than opening parallel diagnostics channels. The payload's
+// `kind` discriminates the three.
 //
 // A denied listener re-fires on every auth/rules change, so printing is
 // throttled per (path, message) pair — at most one line per window, and
@@ -550,6 +551,26 @@ interface AiRejectionPayload {
   code?: unknown;
   /** The rejection reason — production's own message for shape errors. */
   message?: unknown;
+}
+
+/** Loosely-typed mirror of the AI blocked-response relay payload POSTed by
+ *  `serve/ai-rejection-relay.ts`. Same read-defensively contract as its
+ *  siblings above. Unlike a rejection this carries no `message`: a filter
+ *  block has no error envelope at all (HTTP 200, empty candidate), only the
+ *  wire's reason enums, so the phrasing is this file's job. */
+interface AiBlockedPayload {
+  /** `'ai-blocked'` — what tells this route the body is a filter block. */
+  kind?: unknown;
+  /** Model resource the blocked op targeted. */
+  model?: unknown;
+  /** Resolved broker engine (`scripted` | `openai` | `gemini` | `custom`). */
+  engine?: unknown;
+  /** Candidate-level block: `SAFETY`, `RECITATION`, `BLOCKLIST`, … */
+  finishReason?: unknown;
+  /** Production's own explanatory text for the block, when it sent one. */
+  finishMessage?: unknown;
+  /** Prompt-level block: `promptFeedback.blockReason`. */
+  blockReason?: unknown;
 }
 
 /** Per-dev-server-instance throttle: at most one printed line per (path,
@@ -615,11 +636,50 @@ export function formatAiRejectionBlock(payload: AiRejectionPayload): string {
   return lines.join('\n');
 }
 
+/**
+ * Format a relayed AI filter block into the compact terminal block — the same
+ * `  ⚠ [pyric] …` idiom as {@link formatAiRejectionBlock}, in the same three
+ * lines: the wire's own reason, the model + resolved engine, then WHY there
+ * is no content. That third line matters more here than for a rejection: a
+ * block throws nothing, so the only symptom a developer sees is an empty
+ * answer, and production's `finishMessage` (when it sent one) is the whole
+ * explanation. Upstream-authored text goes through the same
+ * {@link redactProxyUrl} / {@link terminalReason} pass. Exported for unit tests.
+ */
+export function formatAiBlockedBlock(payload: AiBlockedPayload): string {
+  const finishReason = typeof payload.finishReason === 'string' ? payload.finishReason : null;
+  const blockReason = typeof payload.blockReason === 'string' ? payload.blockReason : null;
+  const reason = finishReason ?? blockReason;
+  const lines = [
+    `  ⚠ [pyric] ai response blocked: ${reason !== null ? terminalReason(reason) : 'unknown'}`,
+  ];
+  const model = typeof payload.model === 'string' && payload.model !== '' ? payload.model : null;
+  const engine = typeof payload.engine === 'string' ? payload.engine : null;
+  if (model !== null) {
+    const flatModel = terminalReason(redactProxyUrl(model));
+    lines.push(`      model: ${flatModel}${engine !== null ? ` (engine: ${terminalReason(engine)})` : ''}`);
+  } else if (engine !== null) {
+    lines.push(`      engine: ${terminalReason(engine)}`);
+  }
+  const finishMessage = typeof payload.finishMessage === 'string' && payload.finishMessage !== ''
+    ? payload.finishMessage
+    : null;
+  if (finishMessage !== null) {
+    lines.push(`      ${terminalReason(redactProxyUrl(finishMessage))}`);
+  } else if (finishReason === null && blockReason !== null) {
+    lines.push('      the prompt was blocked before generation — no candidates were returned');
+  } else {
+    lines.push('      no content was returned; text() and functionCalls() throw for this finish reason');
+  }
+  return lines.join('\n');
+}
+
 /** Handle `POST /__pyric/denials` — a rules denial, or (discriminated by
- *  `kind`) an AI broker rejection relayed off the sandbox event stream. Both
- *  share the throttle map: an agent retry loop re-sends the SAME malformed AI
- *  request exactly the way a denied listener re-fires, so one line per
- *  (target, message) per window is the right volume for both. Always 204s
+ *  `kind`) an AI broker rejection or blocked response relayed off the sandbox
+ *  event stream. All three share the throttle map: an agent retry loop
+ *  re-sends the SAME malformed (or filter-tripping) AI request exactly the way
+ *  a denied listener re-fires, so one line per (target, reason) per window is
+ *  the right volume for every one of them. Always 204s
  *  (best-effort diagnostics — a malformed body or a caller with no logger
  *  wired must never fail the page that reported the refusal). */
 async function handleDenials(
@@ -633,19 +693,40 @@ async function handleDenials(
     return;
   }
   try {
-    const payload = (await collectBody(req)) as DenialRelayPayload & AiRejectionPayload;
+    const payload = (await collectBody(req)) as DenialRelayPayload &
+      AiRejectionPayload &
+      AiBlockedPayload;
     const isAiRejection = payload.kind === 'ai-rejection';
-    const message = typeof payload.message === 'string'
-      ? payload.message
-      : isAiRejection ? 'request rejected' : 'permission denied';
-    // The `ai-rejection ` prefix keeps an AI key from ever colliding with a
-    // rules-denial key built from a Firestore path.
+    const isAiBlocked = payload.kind === 'ai-blocked';
+    // A block carries no `message` of its own — a filter answers 200, not an
+    // error envelope. Its reason enum IS its identity, and is exactly what
+    // should collapse an agent's retry loop into a single line.
+    const blockedReason = typeof payload.finishReason === 'string'
+      ? payload.finishReason
+      : typeof payload.blockReason === 'string' ? payload.blockReason : 'unknown';
+    const message = isAiBlocked
+      ? blockedReason
+      : typeof payload.message === 'string'
+        ? payload.message
+        : isAiRejection ? 'request rejected' : 'permission denied';
+    // The `ai-rejection ` / `ai-blocked ` prefixes keep an AI key from ever
+    // colliding with a rules-denial key built from a Firestore path — or with
+    // each other: a rejection and a block on the same model are two problems.
+    const model = typeof payload.model === 'string' ? payload.model : '';
     const path = isAiRejection
-      ? `ai-rejection ${typeof payload.model === 'string' ? payload.model : ''}`
-      : payload.denialContext?.request?.path ?? '';
+      ? `ai-rejection ${model}`
+      : isAiBlocked
+        ? `ai-blocked ${model}`
+        : payload.denialContext?.request?.path ?? '';
     const key = `${path} ${message}`;
     if (logger && throttle.shouldPrint(key, Date.now())) {
-      logger.note(isAiRejection ? formatAiRejectionBlock(payload) : formatDenialBlock(payload));
+      logger.note(
+        isAiRejection
+          ? formatAiRejectionBlock(payload)
+          : isAiBlocked
+            ? formatAiBlockedBlock(payload)
+            : formatDenialBlock(payload),
+      );
     }
   } catch {
     /* malformed body — drop it; this is a diagnostics side channel */

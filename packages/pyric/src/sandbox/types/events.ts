@@ -379,7 +379,7 @@ export interface ServiceMutationEvent {
    *   - storage: `object_put` | `object_delete` | `metadata_update`
    *   - rtdb:    `set` | `update` | `remove` | `transaction`
    *   - ai:      `generate_content` | `stream_generate_content` |
-   *              `count_tokens` | `request_rejected`
+   *              `count_tokens` | `request_rejected` | `response_blocked`
    * New ops can be added without a breaking change (consumers switch with a
    * default branch).
    */
