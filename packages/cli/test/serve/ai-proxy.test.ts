@@ -263,6 +263,31 @@ describe('/__pyric/ai-proxy — terminal diagnostics', () => {
     expect(line).toMatch(/\d+ms/);
   });
 
+  it('surfaces the upstream Retry-After backoff on a 429', async () => {
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () =>
+        new Response('rate limit exceeded', { status: 429, headers: { 'retry-after': '12' } }),
+    });
+    upstreams.push(upstream);
+
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`, logger);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    // The 429 rides through untouched — nothing here retries or waits.
+    expect(res.status).toBe(429);
+    expect(notes.length).toBe(1);
+    const line = notes[0]!;
+    expect(line).toContain('429');
+    expect(line).toContain('Retry-After: 12s');
+    expect(line).toMatch(/no automatic retry/i);
+  });
+
   it('stays quiet on a 2xx upstream', async () => {
     const upstream = Bun.serve({
       port: 0,
@@ -367,6 +392,57 @@ describe('formatAiProxyWarning', () => {
     expect(lines.length).toBe(2);
     expect(lines[0]).toContain('503');
     expect(lines[1]).toContain('(42ms)');
+  });
+
+  it('renders a rate-limit block: 429 headline, the Retry-After backoff, no-retry note', () => {
+    const lines = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 42,
+      status: 429,
+      retryAfter: '30',
+    }).split('\n');
+    expect(lines.length).toBe(3);
+    expect(lines[0]).toContain('429');
+    expect(lines[0]).toMatch(/rate limit/i);
+    expect(lines[1]).toContain('(42ms)');
+    // Delta-seconds render as a duration, and the terminal states plainly that
+    // nothing backs off on the developer's behalf.
+    expect(lines[2]).toContain('Retry-After: 30s');
+    expect(lines[2]).toMatch(/no automatic retry/i);
+  });
+
+  it('keeps a Retry-After-less 429 at two lines', () => {
+    const lines = formatAiProxyWarning({ kind: 'status', target, latencyMs: 5, status: 429 }).split('\n');
+    expect(lines.length).toBe(2);
+    expect(lines[0]).toContain('429');
+  });
+
+  it('prints an HTTP-date Retry-After verbatim (no bogus seconds suffix)', () => {
+    const block = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 5,
+      status: 503,
+      retryAfter: 'Wed, 21 Oct 2026 07:28:00 GMT',
+    });
+    expect(block).toContain('Retry-After: Wed, 21 Oct 2026 07:28:00 GMT');
+    expect(block).not.toContain('GMTs');
+  });
+
+  it('sanitizes a hostile Retry-After header (control chars, newlines, length)', () => {
+    const block = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 5,
+      status: 429,
+      retryAfter: `30\n  ⚠ [pyric] forged line\u001b[31m${'x'.repeat(200)}`,
+    });
+    // One block-line per real line: headline, POST, Retry-After. A header
+    // authored by a remote model server cannot forge a fourth.
+    expect(block.split('\n').length).toBe(3);
+    expect(block).not.toContain('\u001b');
+    expect(block.length).toBeLessThan(320);
   });
 
   it('renders the mid-stream abort block', () => {

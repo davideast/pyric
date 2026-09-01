@@ -191,14 +191,47 @@ function terminalReason(text: string): string {
 /** The upstream-failure shapes the proxy surfaces to the terminal. */
 type AiProxyFailure =
   | { kind: 'unreachable'; target: string; latencyMs: number; cause: string }
-  | { kind: 'status'; target: string; latencyMs: number; status: number }
+  | {
+      kind: 'status';
+      target: string;
+      latencyMs: number;
+      status: number;
+      /** The upstream's raw `Retry-After` header, when it sent one. */
+      retryAfter?: string;
+    }
   | { kind: 'stream-abort'; target: string; latencyMs: number; cause: string };
+
+/** Longest `Retry-After` value echoed to the terminal (delta-seconds and
+ *  HTTP-dates are both far shorter; anything longer is upstream noise). */
+const AI_PROXY_RETRY_AFTER_MAX = 64;
+
+/**
+ * Render a `Retry-After` value for the terminal, or `null` when there is
+ * nothing worth printing.
+ *
+ * The header is remote-authored — sanitized and length-capped like every other
+ * upstream string that reaches the terminal. Delta-seconds (the common form)
+ * get an `s` suffix so the wait reads as a duration; the HTTP-date form is
+ * echoed verbatim, since `Wed, 21 Oct 2026 07:28:00 GMTs` would be nonsense.
+ */
+function formatRetryAfter(raw: string): string | null {
+  const clean = terminalReason(raw).slice(0, AI_PROXY_RETRY_AFTER_MAX).trim();
+  if (clean === '') return null;
+  return /^\d+$/.test(clean) ? `${clean}s` : clean;
+}
 
 /**
  * Format an upstream failure into the compact terminal block — the same
  * `  ⚠ [pyric] …` idiom the denial relay prints, so ai-proxy trouble reads
  * like every other dev-server diagnostic. Two lines: what went wrong, then
  * the (redacted) upstream URL with the elapsed time. Exported for unit tests.
+ *
+ * A 429 says so in words (`rate limited`): the bare number reads as one more
+ * failed request, when it actually means the upstream is shedding load or the
+ * key is out of quota. When the upstream sent a `Retry-After`, a third line
+ * prints the wait it asked for — and states that NOTHING here waits on the
+ * developer's behalf. The proxy has no retry loop (the status rides straight
+ * through to the caller), so the backoff is the app's decision, not pyric's.
  */
 export function formatAiProxyWarning(failure: AiProxyFailure): string {
   const target = redactProxyUrl(failure.target);
@@ -206,7 +239,8 @@ export function formatAiProxyWarning(failure: AiProxyFailure): string {
   if (failure.kind === 'unreachable') {
     headline = `upstream unreachable: ${redactProxyUrl(failure.cause)}`;
   } else if (failure.kind === 'status') {
-    headline = `upstream returned ${failure.status}`;
+    const rateLimited = failure.status === 429;
+    headline = `upstream returned ${failure.status}${rateLimited ? ' (rate limited / quota exhausted)' : ''}`;
   } else {
     headline = `upstream stream aborted mid-response: ${redactProxyUrl(failure.cause)}`;
   }
@@ -218,6 +252,12 @@ export function formatAiProxyWarning(failure: AiProxyFailure): string {
     lines.push(
       `      set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL (default ${AI_PROXY_DEFAULT_UPSTREAM})`,
     );
+  }
+  if (failure.kind === 'status' && failure.retryAfter !== undefined) {
+    const wait = formatRetryAfter(failure.retryAfter);
+    if (wait !== null) {
+      lines.push(`      Retry-After: ${wait} — no automatic retry; the status went to the caller`);
+    }
   }
   return lines.join('\n');
 }
@@ -309,13 +349,18 @@ async function handleAiProxy(
   // A refusal from a reachable upstream (bad model, missing key, rate limit)
   // is just as invisible to a headless developer as a dead socket — the
   // status rides through to the caller untouched, and is ALSO announced here.
+  // `Retry-After` rides along when the upstream sent one (429s and 503s carry
+  // it): it is the only place the requested backoff appears, since nothing in
+  // this path retries or sleeps.
   if (!upstream.ok) {
+    const retryAfter = upstream.headers.get('retry-after');
     logger?.note(
       formatAiProxyWarning({
         kind: 'status',
         target,
         latencyMs: Date.now() - startedAt,
         status: upstream.status,
+        ...(retryAfter === null ? {} : { retryAfter }),
       }),
     );
   }
