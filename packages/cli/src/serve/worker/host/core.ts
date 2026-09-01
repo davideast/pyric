@@ -45,7 +45,7 @@ import {
   getAdminDatabase as pyricGetAdminDatabase,
   type Database,
 } from 'pyric/database';
-import type { AuthLens, AuthState, EventProvenance } from 'pyric/sandbox';
+import type { AuthLens, EventProvenance } from 'pyric/sandbox';
 import type { MintedSession } from 'pyric/auth';
 
 import type {
@@ -232,14 +232,6 @@ export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
   if (actAs.tenant !== undefined) parts.push(`tenant:${actAs.tenant}`);
   if (actAs.token !== undefined) parts.push(JSON.stringify(actAs.token));
   return parts.join(':');
-}
-
-export function lensForAuth(auth: AuthState): AuthLens {
-  if (auth === null || auth === undefined) return { mode: 'anon' };
-  const lens: Extract<AuthLens, { mode: 'as' }> = { mode: 'as', uid: auth.uid };
-  if (auth.token !== undefined) lens.token = auth.token;
-  if (auth.tenant !== undefined) lens.tenant = auth.tenant;
-  return lens;
 }
 
 /** Cache key for a real port session; claims are part of authorization identity. */

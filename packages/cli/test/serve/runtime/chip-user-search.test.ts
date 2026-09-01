@@ -123,6 +123,41 @@ describe('chip-user-search', () => {
       expect(selectedUser).toEqual(mockUsers[0]);
     });
 
+    it('gives the user typeahead an accessible name', () => {
+      createUserSearchController({
+        container,
+        onSelect: () => {},
+      });
+
+      const input = container.querySelector<HTMLInputElement>('[data-user-search-input]')!;
+      expect(input.getAttribute('aria-label')).toBe('Search sandbox users');
+    });
+
+    it('renders identity metadata as text instead of executable markup', () => {
+      const controller = createUserSearchController({
+        container,
+        onSelect: () => {},
+      });
+      const maliciousMarkup = '<img data-injected src=x onerror="globalThis.pwned=true">';
+      const maliciousUser: AuthUserRecord = {
+        uid: `uid-${maliciousMarkup}`,
+        email: `email-${maliciousMarkup}@example.com`,
+        displayName: `name-${maliciousMarkup}`,
+        providerUserInfo: [{ providerId: `provider-${maliciousMarkup}` }],
+        customClaims: {
+          tenant: `tenant-${maliciousMarkup}`,
+          note: maliciousMarkup,
+        },
+      };
+
+      controller.setUsers([maliciousUser]);
+
+      expect(container.querySelector('[data-injected]')).toBeNull();
+      expect(container.textContent).toContain(`name-${maliciousMarkup}`);
+      expect(container.textContent).toContain(`provider-${maliciousMarkup}`);
+      expect(container.textContent).toContain(`tenant-${maliciousMarkup}`);
+    });
+
     it('supports keyboard navigation via ArrowDown, ArrowUp, and Enter', () => {
       let selectedUser: AuthUserRecord | null = null;
       const controller = createUserSearchController({

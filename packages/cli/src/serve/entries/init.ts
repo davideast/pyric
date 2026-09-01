@@ -8,17 +8,11 @@
 import {
   getAuth,
   sandbox as authSandbox,
-  signOut as localSignOut,
-  onAuthStateChanged as localOnAuthStateChanged,
 } from 'pyric/auth';
 import {
   getAuth as getWorkerAuth,
   listUsers,
-  restorePortSession,
-  signOut as workerSignOut,
-  onAuthStateChanged as workerOnAuthStateChanged,
   setLens,
-  acceptProviderCredential,
 } from '../worker/client.js';
 import {
   switchAllAuthUsers,
@@ -140,20 +134,7 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
       const unsubActive = subscribeToActiveAuth((user) => {
         listener(user ? { uid: user.uid, email: user.email, displayName: user.displayName } : null);
       });
-      let unsubWorker = () => {};
-      if (workerAuth) {
-        unsubWorker = workerOnAuthStateChanged(workerAuth, (user) => {
-          listener(user ? { uid: user.uid, email: user.email, displayName: user.displayName } : null);
-        });
-      } else if (localAuth) {
-        unsubWorker = localOnAuthStateChanged(localAuth, (user) => {
-          listener(user ? { uid: user.uid, email: user.email, displayName: user.displayName } : null);
-        });
-      }
-      return () => {
-        unsubActive();
-        unsubWorker();
-      };
+      return unsubActive;
     },
   });
 }

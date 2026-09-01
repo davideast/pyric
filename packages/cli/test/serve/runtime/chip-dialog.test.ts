@@ -217,4 +217,67 @@ describe('chip-dialog', () => {
     controller.close();
     expect(focused).toBe(true);
   });
+
+  it('supports repeated open and close cycles without stale dialog state', async () => {
+    const controller = createChipDialogController({
+      shadowRoot,
+      getCurrentUser: () => null,
+      getLens: () => undefined,
+      onSwitchUser: () => {},
+      onSignOut: () => {},
+      onOpenCreateUser: () => {},
+      onToggleAdminBypass: () => {},
+    });
+
+    for (let index = 0; index < 100; index += 1) {
+      await controller.open(triggerButton);
+      expect(controller.element.hasAttribute('open')).toBe(true);
+      controller.close();
+      expect(controller.element.hasAttribute('open')).toBe(false);
+    }
+  });
+
+  it('selects from a large sandbox user directory', async () => {
+    const users: AuthUserRecord[] = Array.from({ length: 50 }, (_, index) => ({
+      uid: `stress-user-${index}`,
+      email: `stress-${index}@example.com`,
+      displayName: `Stress User ${index}`,
+      customClaims: index % 5 === 0 ? { role: 'admin' } : {},
+    }));
+    const onSwitchUser = mock((_uid: string) => {});
+    const controller = createChipDialogController({
+      shadowRoot,
+      listUsers: () => users,
+      getCurrentUser: () => null,
+      getLens: () => undefined,
+      onSwitchUser,
+      onSignOut: () => {},
+      onOpenCreateUser: () => {},
+      onToggleAdminBypass: () => {},
+    });
+
+    await controller.open(triggerButton);
+    controller.element.querySelector<HTMLElement>('.user-search-item')?.click();
+    await Promise.resolve();
+
+    expect(onSwitchUser).toHaveBeenCalledWith('stress-user-0');
+  });
+
+  it('handles repeated rules-bypass toggles', () => {
+    const onToggleAdminBypass = mock((_enable: boolean) => {});
+    const controller = createChipDialogController({
+      shadowRoot,
+      getCurrentUser: () => null,
+      getLens: () => undefined,
+      onSwitchUser: () => {},
+      onSignOut: () => {},
+      onOpenCreateUser: () => {},
+      onToggleAdminBypass,
+    });
+    const toggle = controller.element.querySelector<HTMLButtonElement>('[data-action-toggle-admin]')!;
+
+    for (let index = 0; index < 20; index += 1) toggle.click();
+
+    expect(onToggleAdminBypass).toHaveBeenCalledTimes(20);
+  });
 });

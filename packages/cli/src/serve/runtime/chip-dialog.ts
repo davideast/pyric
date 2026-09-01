@@ -225,9 +225,11 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
     const lens = getLens();
     const isAdmin = lens?.mode === 'admin';
 
-    identityName.textContent = user
-      ? userDisplayLabel(user as AuthUserRecord)
-      : 'Unauthenticated Guest';
+    if (user) {
+      identityName.textContent = userDisplayLabel(user as AuthUserRecord);
+    } else {
+      identityName.textContent = 'Unauthenticated Guest';
+    }
 
     if (user) {
       identityUid.textContent = isAdmin ? `${user.uid} · rules bypassed` : user.uid;
@@ -260,9 +262,10 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
 
     // Focus restoration: re-query the trigger element freshly in shadowRoot
     // to avoid focusing a detached node if the chip re-rendered.
-    const liveTrigger = recordedTriggerSelector
-      ? shadowRoot.querySelector<HTMLElement>(recordedTriggerSelector)
-      : recordedTriggerNode;
+    let liveTrigger = recordedTriggerNode;
+    if (recordedTriggerSelector) {
+      liveTrigger = shadowRoot.querySelector<HTMLElement>(recordedTriggerSelector);
+    }
 
     if (liveTrigger && typeof liveTrigger.focus === 'function' && liveTrigger.isConnected) {
       liveTrigger.focus();
@@ -367,7 +370,6 @@ export function createChipDialogController(options: ChipDialogOptions): ChipDial
     close,
     updateState,
     dispose() {
-      searchController.dispose?.();
       dialog.remove();
     },
   };

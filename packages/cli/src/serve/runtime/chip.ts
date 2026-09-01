@@ -256,7 +256,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const getLensFn = options.getLens ?? defaultGetLens;
   const setLensFn = options.setLens ?? defaultSetLens;
   const subscribeLensFn = options.subscribeLens ?? defaultSubscribeLens;
-  let activeLens: AuthLens | undefined = getLensFn();
   let clientUser: ChipDialogUser | null = options.getCurrentUser ? options.getCurrentUser() : null;
 
   const dialogController: ChipDialogController = createChipDialogController({
@@ -268,7 +267,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       } else {
         setLensFn({ mode: 'as', uid });
       }
-      activeLens = getLensFn();
       clientUser = options.getCurrentUser ? options.getCurrentUser() : null;
       render();
     },
@@ -278,7 +276,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       } else {
         setLensFn(undefined);
       }
-      activeLens = getLensFn();
       clientUser = null;
       render();
     },
@@ -293,7 +290,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       } else {
         setLensFn(undefined);
       }
-      activeLens = getLensFn();
       render();
     },
     getCurrentUser: () => (options.getCurrentUser ? options.getCurrentUser() : clientUser),
@@ -337,8 +333,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const activeUid = lens?.mode === 'as' ? lens.uid : user?.uid;
 
     let identitySignalHtml = '';
+    let identityStateHtml = '<span class="epochs" data-identity-state>App session</span>';
     if (activeUid) {
       identitySignalHtml = `<span class="signal" data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`;
+      identityStateHtml = `<span class="epochs" data-identity-state data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`;
     } else if (isAdmin) {
       identitySignalHtml = '<span class="signal bypass" data-identity-badge>bypass rules</span>';
     }
@@ -361,7 +359,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           ${aiState.subline ? `<div class="worker-state-subline">${aiState.subline}</div>` : ''}
         </div>
         <div class="worker-state"><span class="state-label">Rules</span><span class="epochs" style="${isAdmin ? 'color: #8f7fe8; font-weight: 500;' : ''}">${isAdmin ? 'bypassed' : 'enforced'}</span></div>
-        ${activeUid ? `<div class="worker-state"><span class="state-label">Identity</span><span class="epochs" data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span></div>` : ''}
+        <div class="worker-state"><span class="state-label">Identity</span>${identityStateHtml}</div>
         <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
         <div class="actions">
           <button class="button update" type="button" data-update-worker ${snapshot.updateAvailable ? '' : 'disabled'} aria-disabled="${snapshot.updateAvailable && !snapshot.updatingWorker ? 'false' : 'true'}">${snapshot.updatingWorker ? 'Updating…' : 'Update worker'}</button>
@@ -444,19 +442,23 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   documentLike.body.append(host);
+  const reattachAfterAstroSwap = (): void => {
+    if (!host.isConnected) documentLike.body.append(host);
+  };
+  documentLike.addEventListener('astro:after-swap', reattachAfterAstroSwap);
   const unsubscribe = options.runtime.subscribe(render);
 
-  const unsubLens = subscribeLensFn((lens) => {
-    activeLens = lens;
+  const unsubLens = subscribeLensFn(() => {
     render();
   });
 
-  const unsubAuth = options.subscribeAuth
-    ? options.subscribeAuth((user) => {
-        clientUser = user;
-        render();
-      })
-    : undefined;
+  let unsubAuth: (() => void) | undefined;
+  if (options.subscribeAuth) {
+    unsubAuth = options.subscribeAuth((user) => {
+      clientUser = user;
+      render();
+    });
+  }
 
   render();
 
@@ -466,6 +468,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       unsubscribe();
       unsubLens();
       unsubAuth?.();
+      documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
       dialogController.dispose();
       host.remove();
     },

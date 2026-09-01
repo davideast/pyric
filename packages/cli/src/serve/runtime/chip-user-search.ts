@@ -9,7 +9,6 @@ export interface UserSearchController {
   setUsers(users: AuthUserRecord[]): void;
   reset(): void;
   focus(): void;
-  dispose?(): void;
 }
 
 export function userDisplayLabel(user: AuthUserRecord): string {
@@ -131,6 +130,7 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
         placeholder="Search name, uid, provider:google, role:admin..."
         autocomplete="off"
         role="combobox"
+        aria-label="Search sandbox users"
         aria-autocomplete="list"
         aria-expanded="false"
         aria-controls="user-search-listbox"
@@ -197,12 +197,16 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
     cachedUsers.forEach((u) => getUserProviders(u).forEach((p) => providerSet.add(p)));
     providerSet.forEach((p) => categories.push({ id: p, label: p }));
 
-    filterChipsEl.innerHTML = categories
-      .map((cat) => {
-        const isSelected = activeFilter === cat.id;
-        return `<button type="button" class="filter-chip ${isSelected ? 'selected' : ''}" data-filter="${cat.id ?? ''}">${cat.label}</button>`;
-      })
-      .join('');
+    filterChipsEl.replaceChildren();
+    for (const category of categories) {
+      const button = documentLike.createElement('button');
+      button.type = 'button';
+      button.className = 'filter-chip';
+      if (activeFilter === category.id) button.classList.add('selected');
+      button.dataset.filter = category.id ?? '';
+      button.textContent = category.label;
+      filterChipsEl.append(button);
+    }
   };
 
   const renderMatches = (): void => {
@@ -211,53 +215,75 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
     input.removeAttribute('aria-activedescendant');
 
     if (currentMatches.length === 0) {
-      listbox.innerHTML = '<li class="user-search-empty" role="presentation">No matching users found in sandbox</li>';
+      const empty = documentLike.createElement('li');
+      empty.className = 'user-search-empty';
+      empty.setAttribute('role', 'presentation');
+      empty.textContent = 'No matching users found in sandbox';
+      listbox.replaceChildren(empty);
       input.setAttribute('aria-expanded', 'true');
       return;
     }
 
-    listbox.innerHTML = currentMatches
-      .map((u, idx) => {
-        const label = userDisplayLabel(u);
-        const tenant = extractTenantFromUser(u);
-        const providers = getUserProviders(u);
-        const claims = u.customClaims ?? {};
-        const claimsSummary = Object.keys(claims).length > 0
-          ? JSON.stringify(claims).slice(0, 40)
-          : '';
+    const items = currentMatches.map((user, index) => {
+      const label = userDisplayLabel(user);
+      const tenant = extractTenantFromUser(user);
+      const providers = getUserProviders(user);
+      const claims = user.customClaims ?? {};
+      let claimsSummary = '';
+      if (Object.keys(claims).length > 0) {
+        claimsSummary = JSON.stringify(claims).slice(0, 40);
+      }
 
-        const providerBadges = providers
-          .map((p) => `<span class="badge badge-provider">${p}</span>`)
-          .join('');
-        const tenantBadge = tenant
-          ? `<span class="badge badge-tenant">${tenant}</span>`
-          : '';
-        const claimsBadge = claimsSummary
-          ? `<span class="badge badge-claims" title="${claimsSummary}">${claimsSummary}</span>`
-          : '';
+      const item = documentLike.createElement('li');
+      item.id = `user-search-item-${index}`;
+      item.className = 'user-search-item';
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', 'false');
+      item.dataset.userIndex = String(index);
 
-        return `
-          <li
-            id="user-search-item-${idx}"
-            class="user-search-item"
-            role="option"
-            aria-selected="false"
-            data-user-index="${idx}"
-          >
-            <div class="user-item-main">
-              <span class="user-item-name">${label}</span>
-              ${u.email && u.email !== label ? `<span class="user-item-email">${u.email}</span>` : ''}
-              <span class="user-item-uid">${u.uid}</span>
-            </div>
-            <div class="user-item-badges">
-              ${providerBadges}
-              ${tenantBadge}
-              ${claimsBadge}
-            </div>
-          </li>
-        `;
-      })
-      .join('');
+      const main = documentLike.createElement('div');
+      main.className = 'user-item-main';
+      const name = documentLike.createElement('span');
+      name.className = 'user-item-name';
+      name.textContent = label;
+      main.append(name);
+      if (user.email && user.email !== label) {
+        const email = documentLike.createElement('span');
+        email.className = 'user-item-email';
+        email.textContent = user.email;
+        main.append(email);
+      }
+      const uid = documentLike.createElement('span');
+      uid.className = 'user-item-uid';
+      uid.textContent = user.uid;
+      main.append(uid);
+
+      const badges = documentLike.createElement('div');
+      badges.className = 'user-item-badges';
+      for (const provider of providers) {
+        const badge = documentLike.createElement('span');
+        badge.className = 'badge badge-provider';
+        badge.textContent = provider;
+        badges.append(badge);
+      }
+      if (tenant) {
+        const badge = documentLike.createElement('span');
+        badge.className = 'badge badge-tenant';
+        badge.textContent = tenant;
+        badges.append(badge);
+      }
+      if (claimsSummary) {
+        const badge = documentLike.createElement('span');
+        badge.className = 'badge badge-claims';
+        badge.title = claimsSummary;
+        badge.textContent = claimsSummary;
+        badges.append(badge);
+      }
+
+      item.append(main, badges);
+      return item;
+    });
+    listbox.replaceChildren(...items);
 
     listbox.style.display = 'block';
     input.setAttribute('aria-expanded', 'true');
@@ -341,12 +367,6 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
     }
   });
 
-  const onDocumentClick = () => {
-    // In-dialog listbox remains stably mounted for zero layout shift
-  };
-
-  documentLike.addEventListener('click', onDocumentClick);
-
   return {
     setUsers(users: AuthUserRecord[]) {
       cachedUsers = users;
@@ -365,9 +385,6 @@ export function createUserSearchController(options: UserSearchOptions): UserSear
     },
     focus() {
       input.focus();
-    },
-    dispose() {
-      documentLike.removeEventListener('click', onDocumentClick);
     },
   };
 }

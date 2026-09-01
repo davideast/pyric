@@ -25,6 +25,7 @@ import { resolveServeAuthFlow } from './auth-helper-runtime.js';
 import type { SessionMode } from './session-store.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
+import { createActiveAuthRegistry } from './active-auth-registry.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -96,33 +97,20 @@ function wireAppPersistence(
   });
 }
 
-const activeAuthInstances = new Set<any>();
-const authChangeListeners = new Set<(user: any) => void>();
+const activeAuthRegistry = createActiveAuthRegistry<any>((auth, listener) => (
+  (A.onAuthStateChanged as any)(auth, listener)
+));
 
 export function registerActiveAuth(auth: any): () => void {
-  activeAuthInstances.add(auth);
-  const unsub = (A.onAuthStateChanged as any)(auth, (user: any) => {
-    for (const l of authChangeListeners) l(user);
-  });
-  return () => {
-    activeAuthInstances.delete(auth);
-    unsub();
-  };
+  return activeAuthRegistry.register(auth);
 }
 
 export function subscribeToActiveAuth(listener: (user: any) => void): () => void {
-  authChangeListeners.add(listener);
-  for (const auth of activeAuthInstances) {
-    if (auth.currentUser) {
-      listener(auth.currentUser);
-      break;
-    }
-  }
-  return () => authChangeListeners.delete(listener);
+  return activeAuthRegistry.subscribe(listener);
 }
 
 export function getActiveAuthUser(): { uid: string; email?: string | null; displayName?: string | null } | null {
-  for (const auth of activeAuthInstances) {
+  for (const auth of activeAuthRegistry.auths()) {
     if (auth.currentUser) {
       return {
         uid: auth.currentUser.uid,
@@ -136,7 +124,7 @@ export function getActiveAuthUser(): { uid: string; email?: string | null; displ
 
 export async function switchAllAuthUsers(uid: string): Promise<void> {
   const promises: Promise<any>[] = [];
-  for (const auth of activeAuthInstances) {
+  for (const auth of activeAuthRegistry.auths()) {
     if (useWorker) {
       promises.push(restorePortSession(auth as never, uid));
     } else {
@@ -152,7 +140,7 @@ export async function switchAllAuthUsers(uid: string): Promise<void> {
 
 export async function signOutAllAuths(): Promise<void> {
   const promises: Promise<any>[] = [];
-  for (const auth of activeAuthInstances) {
+  for (const auth of activeAuthRegistry.auths()) {
     if (useWorker) {
       promises.push(wc.signOut(auth as never));
     } else {
@@ -170,7 +158,7 @@ export async function commitCredentialToAllAuths(identity: {
   providerId?: string;
 }): Promise<void> {
   const promises: Promise<any>[] = [];
-  for (const auth of activeAuthInstances) {
+  for (const auth of activeAuthRegistry.auths()) {
     if (useWorker) {
       promises.push(acceptProviderCredential(auth as never, {
         uid: identity.uid,

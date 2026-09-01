@@ -283,6 +283,36 @@ describe('PyricRuntimeChip', () => {
     expect(root.querySelector('[data-identity-badge]')).toBeNull();
   });
 
+  it('keeps a dedicated Identity row mounted across authentication changes', () => {
+    const { root, setCurrentUser } = setup({ initiallyOpen: true });
+    const initialRows = root.querySelectorAll('.worker-state');
+    const initialIdentityRow = root.querySelector('[data-identity-state]');
+
+    expect(initialIdentityRow?.textContent).toBe('App session');
+
+    setCurrentUser({ uid: 'alice' });
+
+    expect(root.querySelectorAll('.worker-state')).toHaveLength(initialRows.length);
+    expect(root.querySelector('[data-identity-state]')?.textContent).toBe('as: alice');
+  });
+
+  it('reattaches the same host after an Astro document swap', () => {
+    const { dom, chip, root } = setup({ initiallyOpen: true });
+    const host = chip.element;
+    const shadowRoot = host.shadowRoot;
+
+    host.remove();
+    dom.window.document.dispatchEvent(new dom.window.Event('astro:after-swap'));
+
+    expect(dom.window.document.body.contains(host)).toBe(true);
+    expect(host.shadowRoot).toBe(shadowRoot);
+    expect(root.querySelector('[data-open-impersonate]')).not.toBeNull();
+
+    chip.dispose();
+    dom.window.document.dispatchEvent(new dom.window.Event('astro:after-swap'));
+    expect(dom.window.document.body.contains(host)).toBe(false);
+  });
+
   it('clicking Identity button opens impersonate dialog inside Shadow Root', () => {
     const { root } = setup({ initiallyOpen: true });
     const identityBtn = root.querySelector<HTMLButtonElement>('[data-open-impersonate]')!;
@@ -302,5 +332,26 @@ describe('PyricRuntimeChip', () => {
 
     setCurrentLens(undefined);
     expect(root.querySelector('[data-identity-badge]')).toBeNull();
+  });
+
+  it('renders hostile identity values as text', () => {
+    const maliciousUid = '<script>alert("xss")</script><img data-injected src=x>';
+    const { root } = setup({ initialLens: { mode: 'as', uid: maliciousUid } });
+
+    expect(root.querySelector('[data-identity-badge]')?.textContent).toContain(maliciousUid);
+    expect(root.querySelector('script')).toBeNull();
+    expect(root.querySelector('[data-injected]')).toBeNull();
+  });
+
+  it('handles rapid lens publications and stops reacting after disposal', () => {
+    const { chip, root, setCurrentLens } = setup();
+    for (let index = 0; index < 50; index += 1) {
+      setCurrentLens({ mode: 'as', uid: `user-${index}` });
+      expect(root.querySelector('[data-identity-badge]')?.textContent).toContain(`user-${index}`);
+    }
+
+    chip.dispose();
+    setCurrentLens({ mode: 'as', uid: 'detached-user' });
+    expect(root.textContent).not.toContain('detached-user');
   });
 });

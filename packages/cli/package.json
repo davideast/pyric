@@ -118,7 +118,7 @@
     "pretest": "bash ../../scripts/build.sh --packages-only",
     "test": "bun test",
     "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts --config test/e2e/playwright.config.ts",
-    "test:e2e:cli": "playwright test --config test/e2e/site-cli/playwright.config.ts",
+    "test:identity-conformance": "playwright test identity-switch.pw.ts auth-popup.pw.ts --config test/e2e/playwright.config.ts",
     "test:site-cli": "playwright test --config test/e2e/site-cli/playwright.config.ts",
     "test:site-static": "playwright test --config test/e2e/site-static/playwright.config.ts",
     "test:soak": "playwright test --config test/e2e/soak/playwright.config.ts",

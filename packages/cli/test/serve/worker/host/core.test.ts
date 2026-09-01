@@ -4,7 +4,6 @@ import {
   opProvenance,
   lensCacheKey,
   authStateForLens,
-  lensForAuth,
 } from '../../../../src/serve/worker/host/core.js';
 
 describe('opProvenance', () => {
@@ -93,7 +92,6 @@ describe('opProvenance', () => {
     });
   }
 });
-
 describe('host worker lens resolution and caching isolation', () => {
   it('lensCacheKey distinguishes handles across tenants and claims for same UID', () => {
     const keyNoTenant = lensCacheKey({ mode: 'as', uid: 'user1' });
@@ -130,13 +128,4 @@ describe('host worker lens resolution and caching isolation', () => {
     });
   });
 
-  it('lensForAuth round-trips AuthState into AuthLens with tenant', () => {
-    expect(lensForAuth(null)).toEqual({ mode: 'anon' });
-    expect(lensForAuth({ uid: 'user1', tenant: 'tenant-xyz' })).toEqual({
-      mode: 'as',
-      uid: 'user1',
-      tenant: 'tenant-xyz',
-    });
-  });
 });
-
