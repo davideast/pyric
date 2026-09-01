@@ -11,7 +11,7 @@ import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
 import { EvalError } from './eval-error.js';
 import { UnsupportedError } from './unsupported-error.js';
-import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
+import { chargeLookup, isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import type { SimulationContext } from './evaluation-context.js';
 import { evaluate, isKnownGlobal, resolveIdentifier } from './evaluator.js';
 import { evaluateHashingMethod } from './hashing-builtins.js';
@@ -53,10 +53,14 @@ export function evaluateFunctionCall(
   switch (name) {
     case 'get': {
       const path = String(evaluate(args[0], ctx, scope));
+      // T2.1 — charge the per-request lookup budget BEFORE resolving so the
+      // 11th distinct access fails closed even when the doc would resolve.
+      chargeLookup(ctx, 'doc', path);
       return resolveGet(path, ctx);
     }
     case 'exists': {
       const path = String(evaluate(args[0], ctx, scope));
+      chargeLookup(ctx, 'doc', path); // T2.1 — exists() shares get()'s per-path cache slot
       return resolveExists(path, ctx);
     }
     case 'getAfter': {
@@ -78,6 +82,11 @@ export function evaluateFunctionCall(
           `getAfter() requires a path pointing to a document (even segment count), got '${normalized}'`,
         );
       }
+      // T2.1 — getAfter() is a document access call and counts against the
+      // per-request budget. 'after' namespace: the post-write projection is
+      // a different snapshot than get()'s pre-write read. The fall-through
+      // resolveGet below does NOT re-charge (charging lives only here).
+      ctx.lookupBudget?.charge('after', normalized);
       if (pathStr === ctx.afterStatePath.toString()) {
         // RULES-B8: getAfter() of a doc that won't exist post-write (delete,
         // or projected-null) ERRORS like get() — guard with existsAfter().
@@ -107,6 +116,9 @@ export function evaluateFunctionCall(
       if (!isDocumentPath(segments)) {
         return false;
       }
+      // T2.1 — existsAfter() counts against the per-request lookup budget
+      // (it shares getAfter()'s post-write cache slot per path).
+      ctx.lookupBudget?.charge('after', normalized);
       if (pathStr === ctx.afterStatePath.toString()) {
         return ctx.existsAfter;
       }

@@ -23,6 +23,7 @@ import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
 import { EvalError } from './eval-error.js';
+import { LookupBudgetError } from './document-lookups.js';
 import { UnsupportedError } from './unsupported-error.js';
 
 export { EvalError, EvalError as RuleEvalError } from './eval-error.js';
@@ -365,6 +366,12 @@ function evaluateBinaryOp(
   if (op === '&&') {
     let lv: unknown, lErr: unknown;
     try { lv = requireBoolean(evaluate(left, ctx, scope), left); } catch (e) { lErr = e; }
+    // T2.1 — budget exhaustion is a resource-limit failure of the WHOLE
+    // evaluation, not a CEL error value: a determining RHS must not absorb
+    // it into an ALLOW. Fail closed immediately.
+    // TODO(verify-against-capture): confirm production does not absorb the
+    // 11th-access error (corpus scenario firestore/get-budget-exceeded).
+    if (lErr instanceof LookupBudgetError) throw lErr;
     if (lErr === undefined && lv === false) {
       // LHS is false → determines the result; RHS need not be evaluated.
       ctx.trace?.skip(right);
@@ -382,6 +389,8 @@ function evaluateBinaryOp(
   if (op === '||') {
     let lv: unknown, lErr: unknown;
     try { lv = requireBoolean(evaluate(left, ctx, scope), left); } catch (e) { lErr = e; }
+    // T2.1 — see the `&&` branch: lookup-budget exhaustion is not absorbable.
+    if (lErr instanceof LookupBudgetError) throw lErr;
     if (lErr === undefined && lv === true) {
       // LHS is true → determines the result; RHS need not be evaluated.
       ctx.trace?.skip(right);

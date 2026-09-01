@@ -24,6 +24,7 @@ import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } fro
 
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
+import { LookupBudget } from './document-lookups.js';
 import { projectAfterState } from './project-after-state.js';
 import {
   requestQuery,
@@ -220,6 +221,7 @@ function buildContext(
   pathVariables: Record<string, string>,
   getDoc?: (path: string) => Record<string, unknown> | null,
   batchProjection?: Map<string, Record<string, unknown> | null>,
+  lookupBudget?: LookupBudget,
 ): SimulationContext {
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
@@ -366,6 +368,11 @@ function buildContext(
     // getafter-batch fix — shared batch/transaction projection, when the
     // caller supplied one. Absent for single-op evaluation.
     ...(batchProjection ? { batchProjection } : {}),
+    // T2.1 — per-request document access budget (10 distinct lookups).
+    // The SAME instance is threaded into every match block's context for
+    // one test case, because production's budget spans overlapping match
+    // blocks and OR'd allow rules within one request evaluation.
+    ...(lookupBudget ? { lookupBudget } : {}),
   };
 }
 
@@ -538,9 +545,17 @@ export class SimulateFirestoreRulesHandler {
       const notes: string[] = [];
       let sawUnsupported = false;
       let grantingBlockPath: string | undefined;
+      // T2.1 — one lookup budget per test case (= per request evaluation),
+      // shared across every matching block below and reset here between
+      // requests. Production's single-request budget is 10 distinct
+      // document accesses; transactions/batched writes additionally get a
+      // 20-access aggregate that is NOT modeled — each per-op simulate()
+      // call in a batch (see WriteRuntime.buildBatchProjection) gets its
+      // own fresh per-op budget of 10.
+      const lookupBudget = new LookupBudget();
       for (const match of matches) {
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection);
+        const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget);
 
         const blockPath = renderMatchBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx, source);

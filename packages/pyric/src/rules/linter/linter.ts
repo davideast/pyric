@@ -93,7 +93,11 @@ const THRESHOLDS = {
   CALL_DEPTH_WARN: 6,
   CALL_DEPTH_ERROR: 10,
   GET_COUNT_WARN: 5,
-  GET_COUNT_ERROR: 10,               // documented by Google
+  // Production allows EXACTLY 10 document access calls per request
+  // evaluation; the 11th fails (site-docs secure/firestore-rules-limits.md).
+  // Error fires strictly ABOVE this value — same boundary as SEM-3 and the
+  // simulator's runtime LookupBudget (T2.1 threshold parity).
+  GET_COUNT_ERROR: 10,
 };
 
 // ═══ Lint Rules ═══
@@ -351,11 +355,13 @@ function checkGetCount(
 
   for (let i = 0; i < rules.length; i++) {
     const count = countGetCalls(rules[i].rule.condition, fnMap);
-    if (count >= THRESHOLDS.GET_COUNT_ERROR) {
+    // Error only ABOVE the limit: production allows exactly 10 and fails
+    // the 11th, so a rule at exactly 10 is legal (still worth the WARN).
+    if (count > THRESHOLDS.GET_COUNT_ERROR) {
       warnings.push({
         rule: 'GET_COUNT',
         severity: 'error',
-        message: `Rule #${i} may invoke ${count} get()/exists() calls. Limit is ${THRESHOLDS.GET_COUNT_ERROR}.`,
+        message: `Rule #${i} may invoke ${count} get()/exists()/getAfter()/existsAfter() calls. Limit is ${THRESHOLDS.GET_COUNT_ERROR}.`,
         location: { ruleIndex: i },
         fix: 'Cache get() results via a config() wrapper function. Same-path calls are cached by Firestore.',
       });
@@ -363,7 +369,7 @@ function checkGetCount(
       warnings.push({
         rule: 'GET_COUNT',
         severity: 'warning',
-        message: `Rule #${i} invokes ${count} get()/exists() calls. Limit is ${THRESHOLDS.GET_COUNT_ERROR}.`,
+        message: `Rule #${i} invokes ${count} get()/exists()/getAfter()/existsAfter() calls. Limit is ${THRESHOLDS.GET_COUNT_ERROR}.`,
         location: { ruleIndex: i },
       });
     }

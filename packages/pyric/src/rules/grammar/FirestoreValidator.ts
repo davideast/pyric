@@ -124,12 +124,15 @@ function walkMatch(
       });
     }
 
-    // SEM-3: get()/exists() budget exceeded
+    // SEM-3: document access budget exceeded. Production allows exactly 10
+    // get/exists/getAfter/existsAfter reads per request evaluation; the
+    // 11th fails, so the finding fires only ABOVE 10 (same boundary as the
+    // linter's GET_COUNT error and the simulator's runtime LookupBudget).
     const docReads = countDocReads(cond, new Map(localScope.map(f => [f.name, f])));
     if (docReads > 10) {
       findings.push({
         code: 'SEM-3', severity: 'high', path: pathStr, operation: opStr,
-        message: `Rule at ${pathStr} has ${docReads} document reads (get/exists) — exceeds the 10-call budget`,
+        message: `Rule at ${pathStr} may perform ${docReads} document access calls (get/exists/getAfter/existsAfter) — exceeds the 10-call budget`,
       });
     }
 
@@ -323,16 +326,41 @@ function referencesResourceData(expr: Expression): boolean {
   );
 }
 
-function countDocReads(expr: Expression, functions: Map<string, FunctionDef>, visited = new Set<string>()): number {
+/**
+ * T2.1 — count document access calls (get/exists/getAfter/existsAfter)
+ * reachable from a rule condition, expanding each user-defined function
+ * once PER CALL SITE. `isOwner(a) && isOwner(b) && isOwner(c)` with 3 gets
+ * inside `isOwner` costs 9, matching production where each call performs
+ * its own reads (different arguments → different paths). `callStack` is an
+ * on-stack recursion guard only — entries are removed on unwind so sibling
+ * call sites each pay full price (the old shared, never-unwound set counted
+ * every helper once per RULE, a systematic under-count). A function's `let`
+ * bindings evaluate on every call, so their reads count too.
+ *
+ * This is a static over-approximation: production caches repeated reads of
+ * the SAME path within a request (they don't recount — see
+ * site-docs secure/firestore-rules-limits.md), but path identity is not
+ * decidable statically, so every call site is charged. The runtime
+ * simulator (LookupBudget in simulator/document-lookups.ts) applies the
+ * cache-aware distinct-path count.
+ */
+function countDocReads(expr: Expression, functions: Map<string, FunctionDef>, callStack = new Set<string>()): number {
   let count = 0;
   walkExpr(expr, e => {
-    if (e.type === 'functionCall' && (e.name === 'get' || e.name === 'exists' || e.name === 'getAfter')) {
+    if (e.type !== 'functionCall') return;
+    if (e.name === 'get' || e.name === 'exists' || e.name === 'getAfter' || e.name === 'existsAfter') {
       count++;
+      return;
     }
-    // Follow user-defined function calls
-    if (e.type === 'functionCall' && functions.has(e.name) && !visited.has(e.name)) {
-      visited.add(e.name);
-      count += countDocReads(functions.get(e.name)!.body, functions, visited);
+    // Follow user-defined function calls — once per call site.
+    const fn = functions.get(e.name);
+    if (fn && !callStack.has(e.name)) {
+      callStack.add(e.name);
+      for (const binding of fn.lets) {
+        count += countDocReads(binding.value, functions, callStack);
+      }
+      count += countDocReads(fn.body, functions, callStack);
+      callStack.delete(e.name); // unwind so the next call site counts again
     }
   });
   return count;

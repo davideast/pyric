@@ -219,21 +219,29 @@ export function maxCallDepth(start: string, graph: Map<string, string[]>, visite
 }
 
 /**
- * Count get() and exists() calls reachable from an expression,
- * following function calls transitively.
+ * Count document access calls (get/exists/getAfter/existsAfter) reachable
+ * from an expression, expanding user-defined functions once PER CALL SITE
+ * (T2.1 — twin of FirestoreValidator's countDocReads; keep in sync).
+ * `callStack` guards recursion only and unwinds on return, so
+ * `isOwner(a) && isOwner(b)` charges the helper's reads twice — production
+ * performs each call's reads (different args → different paths). Static
+ * over-approximation: production caches repeated SAME-path reads within a
+ * request, which is not statically decidable — the fix text points authors
+ * at the caching idiom.
  */
-export function countGetCalls(expr: Expression, functions: Map<string, FunctionDef>, visited = new Set<string>()): number {
+export function countGetCalls(expr: Expression, functions: Map<string, FunctionDef>, callStack = new Set<string>()): number {
   let count = 0;
   const walk = (e: Expression) => {
     switch (e.type) {
       case 'functionCall':
-        if (e.name === 'get' || e.name === 'exists') {
+        if (e.name === 'get' || e.name === 'exists' || e.name === 'getAfter' || e.name === 'existsAfter') {
           count++;
-        } else if (functions.has(e.name) && !visited.has(e.name)) {
-          visited.add(e.name);
+        } else if (functions.has(e.name) && !callStack.has(e.name)) {
+          callStack.add(e.name);
           const fn = functions.get(e.name)!;
-          walk(fn.body);
           for (const b of fn.lets) walk(b.value);
+          walk(fn.body);
+          callStack.delete(e.name); // unwind — count once per call site, not once per rule
         }
         e.args.forEach(walk);
         break;
@@ -255,7 +263,8 @@ export function countGetCalls(expr: Expression, functions: Map<string, FunctionD
 
 /**
  * Count how many times each user-defined function is called in an expression.
- * Unlike countGetCalls (which deduplicates), this counts raw call-site occurrences.
+ * Counts raw call-site occurrences (top-level only — it does not expand
+ * nested user-function bodies the way countGetCalls does).
  */
 export function countFunctionCallSites(expr: Expression, fnNames: Set<string>): Map<string, number> {
   const counts = new Map<string, number>();
