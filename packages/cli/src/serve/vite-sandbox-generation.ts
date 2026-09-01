@@ -7,6 +7,7 @@ import {
   type FunctionsRtdbProject,
 } from '../functions-rtdb/project.js';
 import { formatActivityWarning } from './activity-warning.js';
+import { formatAiStatusNote } from './namespace.js';
 import {
   createBridgeMount,
   type BridgeHostAttachment,
@@ -216,6 +217,20 @@ export async function createViteSandboxGeneration(
     if (options.persist && options.fresh) {
       server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
     }
+
+    // Say what AI resolved to. This is the one front door where the engine and
+    // its model binding ARE known at boot (`ai.engine` / `ai.model` reduced to
+    // the wire shape above); the broker itself is still built lazily, in the
+    // page or the worker, on the first `ai.*` op. Every generation prints it,
+    // so a Vite restart on an `.env`/config edit re-announces the new binding
+    // through the same formatter instead of swapping engines in silence.
+    server.config.logger.info(
+      formatAiStatusNote({
+        engine: ai.engineWire,
+        mode: ai.mode,
+        proxyUpstream: ai.proxyUpstream,
+      }),
+    );
 
     const middlewareInput = { server, bridge, session };
     const disposeMiddleware = attachViteGenerationMiddleware(middlewareInput);

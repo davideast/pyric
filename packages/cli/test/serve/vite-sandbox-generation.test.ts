@@ -222,6 +222,16 @@ describe('active Vite sandbox generation', () => {
     expect(shapeFailure.events).toContain('close:bridge');
   });
 
+  it('announces the resolved AI engine, model, and proxy endpoint at generation start', async () => {
+    const h = harness();
+    h.input.ai = { mode: 'sandbox', engineWire: { kind: 'openai', model: 'llama3.1' }, proxyUpstream: 'http://127.0.0.1:9999/v1' };
+    const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    expect(h.events).toContain(
+      'info:  ✔ [pyric] ai: openai (model llama3.1) → /__pyric/ai-proxy → http://127.0.0.1:9999/v1',
+    );
+    await generation.close();
+  });
+
   it('watches the configured Realtime Database rules file in Vite dev server', async () => {
     const h = harness({ databaseRulesFile: '/project/database.rules.json' });
     const generation = await createViteSandboxGeneration(h.input, h.dependencies);

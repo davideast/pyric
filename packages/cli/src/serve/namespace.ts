@@ -20,6 +20,7 @@ import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
 import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
+import type { AiEngineConfigWire } from './worker/protocol.js';
 import { handleActivity } from './activity-route.js';
 import { createSiteTreeHandler } from './site-tree.js';
 export type { InitPayload } from './init-payload.js';
@@ -262,6 +263,123 @@ export function formatAiProxyWarning(failure: AiProxyFailure): string {
   return lines.join('\n');
 }
 
+// ─── AI startup status (the boot banner's `ai` line) ───────────────────────
+
+/** The route the dev server mounts for OpenAI-compatible traffic. */
+const AI_PROXY_ROUTE = '/__pyric/ai-proxy';
+
+/** Where the gemini engine talks when no `baseUrl` overrides it (mirrors
+ *  `DEFAULT_BASE_URL` in `pyric/ai`'s gemini-engine — same cross-package
+ *  boundary that forces {@link redactProxyUrl} to be replicated). */
+const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
+
+/**
+ * Resolve the upstream `/__pyric/ai-proxy` forwards to, and say WHERE that
+ * value came from. One resolution shared by the proxy handler (which needs
+ * the target) and the startup line (which needs the provenance, so a
+ * developer can tell a deliberate `PYRIC_AI_PROXY_UPSTREAM` from the Ollama
+ * default nobody chose).
+ */
+function resolveAiProxyUpstream(
+  configured: string | undefined,
+): { target: string; source: 'option' | 'env' | 'default' } {
+  const envUpstream = process.env.PYRIC_AI_PROXY_UPSTREAM;
+  let raw = AI_PROXY_DEFAULT_UPSTREAM;
+  let source: 'option' | 'env' | 'default' = 'default';
+  if (configured !== undefined) {
+    raw = configured;
+    source = 'option';
+  } else if (envUpstream !== undefined) {
+    raw = envUpstream;
+    source = 'env';
+  }
+  return { target: raw.replace(/\/$/, ''), source };
+}
+
+/**
+ * What the dev server itself knows about AI by the time it finishes booting.
+ *
+ * Everything here is resolved SYNCHRONOUSLY at bootstrap — the plugin's
+ * `ai.engine`/`ai.model` (already reduced to the worker wire shape) and the
+ * proxy upstream. Nothing in this shape forces a broker, a page, or an
+ * upstream connection into existence just to be reported: the engine is
+ * instantiated lazily, on the first `ai.*` op, in the page or the worker.
+ */
+export interface AiStartupStatus {
+  /** Engine resolved by the dev server (the Vite plugin's `ai.engine` /
+   *  `ai.model`). Absent ⇒ nothing server-side: the served page's own
+   *  `getAI(...)` chooses the engine at runtime, and the server cannot know
+   *  which (there is no CLI surface for it under `pyric dev`). */
+  engine?: AiEngineConfigWire;
+  /** `ai.mode` — `production` passes through to Google AI instead of mirroring. */
+  mode?: 'sandbox' | 'production';
+  /** Configured OpenAI-compatible upstream (`ai.proxyUpstream`). Absent falls
+   *  back to `PYRIC_AI_PROXY_UPSTREAM`, then the local-Ollama default. */
+  proxyUpstream?: string;
+}
+
+/** Mark + body for one AI status line, in both terminal flavors. */
+function describeAiStatus(status: AiStartupStatus): { mark: string; body: string } {
+  const upstream = resolveAiProxyUpstream(status.proxyUpstream);
+  let provenance = '';
+  if (upstream.source === 'default') provenance = ' (default)';
+  else if (upstream.source === 'env') provenance = ' (PYRIC_AI_PROXY_UPSTREAM)';
+  const proxyChain = `${AI_PROXY_ROUTE} → ${redactProxyUrl(upstream.target)}${provenance}`;
+
+  const engine = status.engine;
+  if (engine === undefined) {
+    // Visible absence, the `• rules    no firestore.rules …` idiom: AI silence
+    // used to be indistinguishable from AI-not-wired-up.
+    return {
+      mark: '•',
+      body: `no engine configured — the served page's getAI() picks one; ${proxyChain}`,
+    };
+  }
+  if (engine.kind === 'openai') {
+    const model = engine.model === undefined
+      ? 'no model pinned'
+      : `model ${terminalReason(engine.model)}`;
+    const baseUrl = engine.baseUrl ?? AI_PROXY_ROUTE;
+    const endpoint = baseUrl === AI_PROXY_ROUTE
+      ? proxyChain
+      : `${redactProxyUrl(baseUrl)} (direct — bypasses ${AI_PROXY_ROUTE})`;
+    return { mark: '✔', body: `openai (${model}) → ${endpoint}` };
+  }
+  if (engine.kind === 'gemini') {
+    const passthrough = status.mode === 'production' ? 'production passthrough, ' : '';
+    const hasKey = engine.apiKey !== undefined && engine.apiKey !== '';
+    const key = hasKey ? 'API key set' : 'no API key — set GEMINI_API_KEY';
+    const endpoint = engine.baseUrl === undefined
+      ? GEMINI_DEFAULT_BASE_URL
+      : redactProxyUrl(engine.baseUrl);
+    return { mark: '✔', body: `gemini (${passthrough}${key}) → ${endpoint}` };
+  }
+  const responses = engine.script?.length ?? 0;
+  return { mark: '✔', body: `scripted (${responses} canned response(s), no network)` };
+}
+
+/**
+ * The banner line for `pyric dev`'s aligned status column (`✔ hosting  …`).
+ * AI is the only live service that used to boot silently: hosting, sandbox
+ * bundles, rules, Studio, the bridge and persistence all announce themselves,
+ * so "nothing about AI" read as "AI isn't part of this server" rather than
+ * "AI is here, unconfigured". Exported for unit tests.
+ */
+export function formatAiStatusLine(status: AiStartupStatus): string {
+  const { mark, body } = describeAiStatus(status);
+  return `${mark} ai       ${body}`;
+}
+
+/**
+ * The same report in the Vite dev server's flavor (`  ✔ [pyric] …`, the idiom
+ * `vite-functions-development.ts` prints). Same content, so the two dev-server
+ * front doors never disagree about what AI resolved to.
+ */
+export function formatAiStatusNote(status: AiStartupStatus): string {
+  const { mark, body } = describeAiStatus(status);
+  return `  ${mark} [pyric] ai: ${body}`;
+}
+
 /**
  * Handle `POST /__pyric/ai-proxy/<suffix>` — a same-origin passthrough to the
  * configured OpenAI-compatible upstream, so the browser openai engine
@@ -296,12 +414,8 @@ async function handleAiProxy(
     res.writeHead(405, { allow: 'POST' }).end('method not allowed');
     return;
   }
-  const upstreamBase = (
-    configuredUpstream ??
-    process.env.PYRIC_AI_PROXY_UPSTREAM ??
-    AI_PROXY_DEFAULT_UPSTREAM
-  ).replace(/\/$/, '');
-  const suffix = url.pathname.slice('/__pyric/ai-proxy'.length);
+  const upstreamBase = resolveAiProxyUpstream(configuredUpstream).target;
+  const suffix = url.pathname.slice(AI_PROXY_ROUTE.length);
   const target = `${upstreamBase}${suffix}${url.search}`;
 
   // Buffer the REQUEST body (small JSON payloads); the RESPONSE streams.
