@@ -22,6 +22,7 @@ import {
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
+import { INLINE_FINGERPRINT_HOSTS } from '../google-endpoints.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { injectServeTags } from '../serve/html-injection.js';
@@ -980,22 +981,41 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   });
 }
 
+/** Options for {@link scanForInlinedFirebase}. */
+export interface InlinedScanOptions {
+  /**
+   * Explicit subdirectories of `root` to scan instead of `root` itself —
+   * how a pre-flight check points the scanner at BACKEND build output
+   * (`dist`, `.next/server`, `functions`), which the default frontend scan
+   * never reaches because those live outside `hosting.public` and, for
+   * `.next`, behind a dot-directory. Entries are `root`-relative; missing
+   * ones are skipped silently (an unbuilt project is not a finding).
+   * Omitted → the historical behavior: scan `root` itself.
+   */
+  readonly dirs?: readonly string[];
+}
+
 /**
- * Detect a bundler build that INLINED the real firebase SDK into its served
- * assets (`vite build` output). The served import map remaps only bare
+ * Detect a build that INLINED the real firebase SDK into an artifact. For the
+ * served frontend (`vite build` output) the served import map remaps only bare
  * `firebase/*` specifiers, so such a build cannot be sandboxed — its calls
- * reach real Google endpoints. Fingerprints are real-SDK-only endpoint hosts
- * that never appear in a sandbox-clean app (whose calls all route to
- * `/__pyric/*`). Bounded: depth ≤ 4, ≤ 200 script files, first hit per file.
- * Returns publicDir-relative paths of offending assets.
+ * reach real Google endpoints; the same fingerprint identifies a backend
+ * bundle whose SDK was compiled in past the loader's reach.
+ *
+ * Fingerprints come from the shared `google-endpoints` catalog: real-SDK-only
+ * hosts that never appear in a sandbox-clean app (whose calls all route to
+ * `/__pyric/*`). The runtime net guard matches the SAME table, so a build that
+ * scans clean and a process that runs clean agree on what "clean" means.
+ *
+ * Bounded: depth ≤ 4 per scanned dir, ≤ 200 script files total, first hit per
+ * file. Extensions: `.js`/`.mjs`/`.cjs` — `.cjs` is what a CommonJS backend
+ * build emits, and omitting it made every such artifact invisible. Not `.ts`:
+ * no build path in scope emits executable TypeScript, and sourcemaps are
+ * deliberately out of scope here.
+ *
+ * Returns `root`-relative paths of offending files.
  */
-export function scanForInlinedFirebase(dir: string): string[] {
-  const FINGERPRINTS = [
-    'identitytoolkit.googleapis.com',
-    'firestore.googleapis.com',
-    'securetoken.googleapis.com',
-    'firebasedatabase.app',
-  ];
+export function scanForInlinedFirebase(root: string, opts: InlinedScanOptions = {}): string[] {
   const hits: string[] = [];
   let scanned = 0;
   const walk = (d: string, rel: string, depth: number): void => {
@@ -1020,19 +1040,31 @@ export function scanForInlinedFirebase(dir: string): string[] {
         // The pyric namespace itself never lands in hosting.public, but a
         // node_modules inside a served dir would be a scan-cost trap.
         // Dot-directories (.next, .git, .pyric) are internal caches and must be ignored.
+        // (An explicitly requested dir is scanned even if dot-prefixed — the
+        // caller named it, so it is a target, not an incidental cache.)
         if (name === 'node_modules' || name.startsWith('.')) continue;
         walk(p, r, depth + 1);
-      } else if (/\.(js|mjs)$/.test(name)) {
+      } else if (/\.(js|mjs|cjs)$/.test(name)) {
         scanned++;
         try {
           const text = readFileSync(p, 'utf8');
-          if (FINGERPRINTS.some((f) => text.includes(f))) hits.push(r);
+          if (INLINE_FINGERPRINT_HOSTS.some((f) => text.includes(f))) hits.push(r);
         } catch {
           // unreadable asset: skip
         }
       }
     }
   };
-  walk(dir, '', 0);
+  if (opts.dirs) {
+    for (const sub of opts.dirs) {
+      const target = resolve(root, sub);
+      if (!existsSync(target)) continue;
+      // `rel` seeds with the caller's own spelling so hits read back as the
+      // path they asked about (`.next/server/chunk.js`).
+      walk(target, sub.replace(/[\\/]+$/, '').replace(/\\/g, '/'), 0);
+    }
+  } else {
+    walk(root, '', 0);
+  }
   return hits;
 }
