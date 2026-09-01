@@ -2,7 +2,7 @@
   <img src="https://pyric.dev/pyric-logo.svg" alt="Pyric" width="180" />
 </p>
 
-<h1 align="center">A Firebase that runs inside your app during development</h1>
+<h1 align="center">A Firebase that runs inside your app</h1>
 
 <p align="center">Keep the same <code>firebase/*</code> code. During <code>vite dev</code> those imports resolve to a local backend running in the page. A production build ships the real Firebase SDK, unchanged.</p>
 
