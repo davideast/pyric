@@ -7,10 +7,14 @@
 import { describe, it, expect } from 'bun:test';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import {
+  BACKEND_ARTIFACT_DIRS,
   buildChildEnv,
   createLinePrefixer,
   describeInterlock,
+  detectUnsupportedRuntime,
+  formatInlinedArtifactWarnings,
   formatInterlockLine,
+  formatUnsupportedRuntimeWarning,
   formatMissingBeaconWarning,
   formatStartupEnvExport,
   parseCommandString,
@@ -396,5 +400,107 @@ describe('startBeaconWatchdog', () => {
     watchdog.stop();
     await wait(60);
     expect(warnings).toEqual([]);
+  });
+});
+
+/**
+ * TA.5-A — the pre-flight artifact scan's pure half: which dirs are worth
+ * looking in, and how a finding reads.
+ */
+describe('BACKEND_ARTIFACT_DIRS', () => {
+  it('covers the backend build outputs a launched child would actually load', () => {
+    expect([...BACKEND_ARTIFACT_DIRS].sort()).toEqual(
+      ['.next/server', 'build', 'dist', 'functions'].sort(),
+    );
+  });
+});
+
+describe('formatInlinedArtifactWarnings', () => {
+  it('is empty for a clean scan', () => {
+    expect(formatInlinedArtifactWarnings([])).toEqual([]);
+  });
+
+  it('names the file, the catalog service and the host, one line per file', () => {
+    const lines = formatInlinedArtifactWarnings([
+      { file: '.next/server/chunk.js', host: 'firestore.googleapis.com', service: 'Cloud Firestore' },
+      {
+        file: 'dist/server.cjs',
+        host: 'identitytoolkit.googleapis.com',
+        service: 'Firebase Authentication',
+      },
+    ]);
+    expect(lines[0]).toContain('⚠ preflight');
+    expect(lines[0]).toContain('.next/server/chunk.js');
+    expect(lines[0]).toContain('Cloud Firestore');
+    expect(lines[0]).toContain('firestore.googleapis.com');
+    expect(lines[1]).toContain('dist/server.cjs');
+    expect(lines[1]).toContain('Firebase Authentication');
+    // A trailing line explains what a finding MEANS and that nothing was blocked.
+    const summary = lines[lines.length - 1]!;
+    expect(summary).toContain('2 build artifacts');
+    expect(summary.toLowerCase()).toContain('module swap');
+    expect(summary).toContain('LIVE Firebase');
+    expect(summary.toLowerCase()).toContain('external');
+    expect(summary.toLowerCase()).toContain('warning only');
+  });
+
+  it('caps the per-file lines so a badly built project cannot flood the console', () => {
+    const hits = Array.from({ length: 40 }, (_, i) => ({
+      file: `dist/chunk-${i}.js`,
+      host: 'firestore.googleapis.com',
+      service: 'Cloud Firestore',
+    }));
+    const lines = formatInlinedArtifactWarnings(hits);
+    expect(lines.length).toBeLessThan(15);
+    expect(lines.some((l) => l.includes('more'))).toBe(true);
+    expect(lines[lines.length - 1]).toContain('40 build artifacts');
+  });
+});
+
+/**
+ * TA.5-B — adopted decision 4. Command-name detection is the honest 90%; the
+ * warning is explicit that neither the loader swap NOR the net-guard backstop
+ * covers this child.
+ */
+describe('detectUnsupportedRuntime', () => {
+  it('detects a bare bun/deno command', () => {
+    expect(detectUnsupportedRuntime(['bun', 'run', 'dev'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['deno', 'task', 'dev'])).toBe('deno');
+  });
+
+  it('detects bunx and an absolute/relative path to the binary', () => {
+    expect(detectUnsupportedRuntime(['bunx', 'vite'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['/usr/local/bin/bun', 'server.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['./node_modules/.bin/deno', 'run', 'x.ts'])).toBe('deno');
+    expect(detectUnsupportedRuntime(['C:\\tools\\bun.exe', 'start'])).toBe('bun');
+  });
+
+  it('looks past leading KEY=VAL assignments and shell operators', () => {
+    expect(detectUnsupportedRuntime(['PORT=8080', 'bun', 'start'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['npm', 'run', 'build', '&&', 'bun', 'start'])).toBe('bun');
+  });
+
+  it('stays null for supported runtimes and for names that merely contain bun', () => {
+    expect(detectUnsupportedRuntime(['node', 'server.js'])).toBeNull();
+    expect(detectUnsupportedRuntime(['npx', 'tsx', 'server.ts'])).toBeNull();
+    expect(detectUnsupportedRuntime(['npm', 'run', 'dev'])).toBeNull();
+    expect(detectUnsupportedRuntime(['bundle', 'exec', 'rails'])).toBeNull();
+    expect(detectUnsupportedRuntime(['./bunny.sh'])).toBeNull();
+    expect(detectUnsupportedRuntime([])).toBeNull();
+  });
+});
+
+describe('formatUnsupportedRuntimeWarning', () => {
+  it('says interception is unsupported, names the live risk, and disclaims the net guard', () => {
+    const line = formatUnsupportedRuntimeWarning('bun');
+    expect(line).toContain('⚠ runtime');
+    expect(line).toContain('bun');
+    expect(line).toContain('not supported');
+    expect(line).toContain('NOT be rewritten');
+    expect(line).toContain('LIVE Firebase');
+    expect(line).toContain('net-guard');
+    expect(line).toContain('Node');
+    expect(line.toLowerCase()).toContain('warning only');
+    expect(line.endsWith('\n')).toBe(true);
   });
 });

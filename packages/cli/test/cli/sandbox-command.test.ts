@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -194,4 +194,124 @@ describe('pyric sandbox command execution', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 15_000);
+});
+
+/**
+ * TA.5 — what the launcher says about the child BEFORE it starts. Both checks
+ * are warn-only by adopted decision: a finding never changes the exit code and
+ * never stops the spawn.
+ */
+describe('pyric sandbox pre-flight artifact scan', () => {
+  it('warns about an inlined-SDK artifact in .next/server and still launches', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-preflight-'));
+    try {
+      mkdirSync(join(dir, '.next', 'server'), { recursive: true });
+      writeFileSync(
+        join(dir, '.next', 'server', 'chunk.js'),
+        'fetch("https://firestore.googleapis.com/v1/projects/p/databases/(default)/documents")',
+      );
+      const { code, stdout, stderr } = runCli(
+        ['sandbox', '--no-open', '--port', '4941', 'node', '-e', 'console.log("PREFLIGHT_CHILD")'],
+        dir,
+      );
+      const all = stdout + stderr;
+      expect(all).toContain('.next/server/chunk.js');
+      expect(all).toContain('Cloud Firestore');
+      expect(all).toContain('firestore.googleapis.com');
+      // Warn-only: the child still ran and the exit code is the child's.
+      expect(stdout).toContain('PREFLIGHT_CHILD');
+      expect(code).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('stays silent for a project whose backend build dirs are clean', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-preflight-clean-'));
+    try {
+      mkdirSync(join(dir, 'dist'), { recursive: true });
+      writeFileSync(join(dir, 'dist', 'server.js'), "import { getAuth } from 'firebase-admin/auth';");
+      const { code, stdout, stderr } = runCli(
+        ['sandbox', '--no-open', '--port', '4942', 'node', '-e', 'console.log("CLEAN_CHILD")'],
+        dir,
+      );
+      expect(stdout + stderr).not.toContain('⚠ preflight');
+      expect(stdout).toContain('CLEAN_CHILD');
+      expect(code).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('does not scan on the host-only path — no child, nothing to pre-flight', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-preflight-hostonly-'));
+    try {
+      mkdirSync(join(dir, '.next', 'server'), { recursive: true });
+      writeFileSync(
+        join(dir, '.next', 'server', 'chunk.js'),
+        'fetch("https://firestore.googleapis.com/v1/projects")',
+      );
+      const child = spawn('bun', [CLI_ENTRY, 'sandbox', '--no-open', '--no-run', '--port', '4943'], {
+        cwd: dir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
+      let output = '';
+      child.stdout?.on('data', (chunk: string) => {
+        output += chunk;
+      });
+      child.stderr?.on('data', (chunk: string) => {
+        output += chunk;
+      });
+      const start = Date.now();
+      while (!output.includes('export PYRIC_SANDBOX=') && Date.now() - start < 20_000) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(output).toContain('export PYRIC_SANDBOX=');
+      expect(output).not.toContain('⚠ preflight');
+      child.kill('SIGINT');
+      await new Promise<number>((resolve) => child.once('exit', (exit) => resolve(exit ?? 0)));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
+describe('pyric sandbox unsupported-runtime warning', () => {
+  it('warns that interception is unsupported under bun and still launches', () => {
+    const { code, stdout, stderr } = runCli([
+      'sandbox',
+      '--no-open',
+      '--port',
+      '4944',
+      'bun',
+      '-e',
+      'console.log("BUN_CHILD")',
+    ]);
+    const all = stdout + stderr;
+    expect(all).toContain('⚠ runtime');
+    expect(all).toContain('bun');
+    expect(all).toContain('not supported');
+    expect(all).toContain('LIVE Firebase');
+    // The net-guard backstop is Node-only, and the warning has to say so.
+    expect(all).toContain('net-guard');
+    expect(stdout).toContain('BUN_CHILD');
+    expect(code).toBe(0);
+  }, 60_000);
+
+  it('stays silent for a node child', () => {
+    const { code, stdout, stderr } = runCli([
+      'sandbox',
+      '--no-open',
+      '--port',
+      '4945',
+      'node',
+      '-e',
+      'console.log("NODE_CHILD")',
+    ]);
+    expect(stdout + stderr).not.toContain('⚠ runtime');
+    expect(stdout).toContain('NODE_CHILD');
+    expect(code).toBe(0);
+  }, 60_000);
 });

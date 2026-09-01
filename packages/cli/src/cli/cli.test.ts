@@ -598,6 +598,29 @@ describe('scanForInlinedFirebase', () => {
     writeFileSync(join(root, 'index.js'), "import { getAuth } from 'firebase/auth';");
     expect(scanForInlinedFirebase(root)).toEqual([]);
   });
+
+  it('reports which catalog host and service each hit matched', async () => {
+    const { scanInlinedFirebaseHits, scanForInlinedFirebase } = await import('./serve.js');
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const root = mkdtempSync(join(tmpdir(), 'pyric-inline-detail-'));
+    mkdirSync(join(root, 'dist'));
+    writeFileSync(
+      join(root, 'dist', 'server.cjs'),
+      'fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp")',
+    );
+    const hits = scanInlinedFirebaseHits(root, { dirs: ['dist'] });
+    expect(hits).toEqual([
+      {
+        file: 'dist/server.cjs',
+        host: 'identitytoolkit.googleapis.com',
+        service: 'Firebase Authentication',
+      },
+    ]);
+    // The path-only API is exactly the detailed one projected.
+    expect(scanForInlinedFirebase(root, { dirs: ['dist'] })).toEqual(['dist/server.cjs']);
+  });
 });
 
 describe('google endpoint catalog', () => {

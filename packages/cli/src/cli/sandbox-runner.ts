@@ -18,6 +18,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { beaconEndpoint } from '../register/beacon.js';
 import { parseGuardMode, type GuardMode } from '../register/net-guard.js';
+// Type-only: erased at compile, so this never closes a cycle with serve.ts
+// (which imports this module for the child plan and spawn).
+import type { InlinedFirebaseHit } from './serve.js';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
 
@@ -313,6 +316,122 @@ export function startBeaconWatchdog(opts: BeaconWatchdogOptions): BeaconWatchdog
   };
 }
 
+// ─── Pre-flight artifact scan (pure formatting half) ───────────────────────
+
+/**
+ * The backend build outputs a launched child plausibly loads, relative to the
+ * project root. `dist` and `build` are the generic bundler outputs, `functions`
+ * the Cloud Functions source/output dir, and `.next/server` the Next.js server
+ * bundle — the one that lives behind a dot-directory the default (frontend)
+ * scan deliberately skips, and the one most likely to carry an inlined
+ * firebase-admin. Missing dirs are skipped by the scanner, so an unbuilt
+ * project costs a handful of `existsSync` calls.
+ */
+export const BACKEND_ARTIFACT_DIRS: readonly string[] = [
+  'dist',
+  'build',
+  '.next/server',
+  'functions',
+];
+
+/** How many per-file findings print before the rest collapse into a count. */
+const PREFLIGHT_MAX_FILE_LINES = 10;
+
+/**
+ * Render the pre-flight findings, in the interlock's line style.
+ *
+ * WARN-ONLY, by adopted decision: a hit is evidence, not proof. The scanner
+ * greps for a host literal, and a stale `dist/` from last month or a vendored
+ * copy of someone else's bundle is a false positive that must never stop a
+ * launch. So this returns lines to print and nothing else — no throw, no
+ * refusal, no exit-code change. (The *served frontend* check in `serve.ts`
+ * still throws; that one gates what pyric itself is about to serve, which is a
+ * claim pyric makes, not a guess about the user's child process.)
+ *
+ * One line per file naming the catalog service and host, then one line saying
+ * what a finding means and that nothing was blocked.
+ */
+export function formatInlinedArtifactWarnings(hits: readonly InlinedFirebaseHit[]): string[] {
+  if (hits.length === 0) return [];
+  const lines = hits
+    .slice(0, PREFLIGHT_MAX_FILE_LINES)
+    .map((h) => `  ⚠ preflight: ${h.file} inlines ${h.service} (${h.host})`);
+  const remaining = hits.length - lines.length;
+  if (remaining > 0) lines.push(`  ⚠ preflight: …and ${remaining} more file(s)`);
+  const noun = hits.length === 1 ? 'build artifact contains' : 'build artifacts contain';
+  lines.push(
+    `  ⚠ preflight: ${hits.length} ${noun} inlined production Firebase SDK code, which bypasses ` +
+      `pyric's module swap — the SDK is compiled INTO the artifact, so there is no ` +
+      `firebase/firebase-admin import left for the loader to rewrite and those calls would reach ` +
+      `LIVE Firebase. Rebuild with firebase and firebase-admin marked external. Warning only — ` +
+      `nothing was blocked.`,
+  );
+  return lines;
+}
+
+// ─── Unsupported child runtimes (pure) ─────────────────────────────────────
+
+/** Tokens that end one command and begin the next inside a shell string. */
+const SHELL_OPERATORS = new Set(['&&', '||', '|', ';', '&']);
+
+/** Command basenames that cannot evaluate Node loader hooks, → the runtime. */
+const UNSUPPORTED_RUNTIME_BINARIES = new Map<string, string>([
+  ['bun', 'bun'],
+  ['bunx', 'bun'],
+  ['deno', 'deno'],
+]);
+
+/** Strip directory and a Windows `.exe` suffix from a command token. */
+function commandBasename(token: string): string {
+  const base = token.split(/[\\/]/).pop() ?? token;
+  return base.toLowerCase().replace(/\.exe$/, '');
+}
+
+/**
+ * Decide whether the child command starts a runtime that cannot intercept.
+ *
+ * Adopted decision 4. Detection is by COMMAND NAME, deliberately: argv[0] (and
+ * any token that begins a new command after a shell operator), with leading
+ * `KEY=VAL` assignments skipped and the path/`.exe` decoration stripped. That
+ * is the honest 90% — `npm run dev` whose package script shells out to bun is
+ * undetectable from here, and guessing would cost false positives on names
+ * that merely start with the same letters (`bundle exec`).
+ *
+ * Returns the canonical runtime name (`bun` for `bunx` too) or null.
+ */
+export function detectUnsupportedRuntime(argv: readonly string[]): string | null {
+  let atCommandStart = true;
+  for (const token of argv) {
+    if (atCommandStart && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) continue;
+    if (SHELL_OPERATORS.has(token)) {
+      atCommandStart = true;
+      continue;
+    }
+    if (atCommandStart) {
+      const runtime = UNSUPPORTED_RUNTIME_BINARIES.get(commandBasename(token));
+      if (runtime !== undefined) return runtime;
+      atCommandStart = false;
+    }
+  }
+  return null;
+}
+
+/**
+ * The one warning. It has to say BOTH halves of what is lost: the loader swap
+ * (interception itself) and the net guard (the socket backstop that would
+ * otherwise catch the egress), because the guard is installed by the same
+ * `--import`ed register module and is therefore just as absent.
+ */
+export function formatUnsupportedRuntimeWarning(runtime: string): string {
+  return (
+    `  ⚠ runtime: pyric interception is not supported under \`${runtime}\` — it does not evaluate ` +
+    `Node loader hooks, so the child's firebase/firebase-admin imports will NOT be rewritten and ` +
+    `may reach LIVE Firebase. The net-guard socket backstop also only applies under Node, so it ` +
+    `will not catch that egress either. Run the command under \`node\` (or \`npx tsx\`) for the ` +
+    `sandbox swap. Warning only — nothing was blocked.\n`
+  );
+}
+
 // ─── Line prefixing (pure core) ────────────────────────────────────────────
 
 /**
@@ -347,8 +466,6 @@ export function createLinePrefixer(
 /** How long a signalled child may linger before SIGKILL. */
 const FORCE_KILL_AFTER_MS = 2_000;
 
-const SHELL_OPERATORS = new Set(['&&', '||', '|', ';', '&']);
-
 export interface SandboxChildHandle {
   exited: Promise<number>;
   signal(sig: NodeJS.Signals): void;
@@ -381,16 +498,9 @@ export function spawnSandboxChild(
   // 2. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
   const hasShellOperators = parts.some((token) => SHELL_OPERATORS.has(token));
 
-  // 3. Warn if runtime is bun or deno
-  if (parts.length > 0 && (parts[0] === 'bun' || parts[0] === 'deno')) {
-    const runner = parts[0];
-    const target = opts.json ? process.stderr : process.stdout;
-    target.write(
-      `  ⚠ ${runner} detected: pyric intercepts Firebase imports via Node.js module loader hooks (NODE_OPTIONS="--import ..."). ` +
-        `${runner} does not evaluate Node loader hooks — SDK calls in this process will not reach the pyric sandbox. ` +
-        `Use \`node\` (or \`npx tsx\`) to run with the sandbox swap.\n`,
-    );
-  }
+  // (The unsupported-runtime warning for bun/deno is emitted by the launch
+  // seam in serve.ts, alongside the interlock and pre-flight lines, so every
+  // pre-spawn statement about the child prints in one block and in order.)
 
   const [command, ...args] = parts;
   let child: ChildProcess;

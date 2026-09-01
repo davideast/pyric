@@ -22,7 +22,7 @@ import {
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
-import { INLINE_FINGERPRINT_HOSTS } from '../google-endpoints.js';
+import { INLINE_FINGERPRINT_HOSTS, lookupGoogleEndpoint } from '../google-endpoints.js';
 import { formatBeaconReceipt, type InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { injectServeTags } from '../serve/html-injection.js';
@@ -32,10 +32,14 @@ import { createBridgeMount } from '../serve/bridge-mount.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
 import {
+  BACKEND_ARTIFACT_DIRS,
   buildChildEnv,
   describeInterlock,
+  detectUnsupportedRuntime,
+  formatInlinedArtifactWarnings,
   formatInterlockLine,
   formatStartupEnvExport,
+  formatUnsupportedRuntimeWarning,
   registerModuleUrl,
   resolveSandboxChild,
   spawnSandboxChild,
@@ -956,6 +960,26 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     // other startup checks rather than waiting on the child.
     const interlock = describeInterlock(childEnv, registerModuleUrl());
     info.write(formatInterlockLine(interlock));
+
+    // Pre-flight: the loader swap only reaches code that still IMPORTS
+    // firebase/firebase-admin. A backend bundle that compiled the SDK in has
+    // no such import left, so it sails past register untouched and talks to
+    // LIVE Google. Grep the plausible backend build dirs for the shared
+    // endpoint catalog's fingerprints and say so. WARN-ONLY (see
+    // `formatInlinedArtifactWarnings`) — a stale `dist/` must never block a
+    // launch. This runs ONLY here, on the launched-child path: with no child
+    // there is nothing whose artifacts we would be pre-flighting.
+    for (const line of formatInlinedArtifactWarnings(
+      scanInlinedFirebaseHits(cwd, { dirs: BACKEND_ARTIFACT_DIRS }),
+    )) {
+      info.write(`${line}\n`);
+    }
+
+    // …and the other way interception can be absent: a child runtime that
+    // never evaluates Node loader hooks at all.
+    const unsupportedRuntime = detectUnsupportedRuntime(plan.argv);
+    if (unsupportedRuntime !== null) info.write(formatUnsupportedRuntimeWarning(unsupportedRuntime));
+
     devChild = spawnSandboxChild(plan, { cwd, json, env: childEnv });
     // …and the warn-only watchdog for the other half: a child that is still
     // alive well after launch and has never posted a beacon is very likely
@@ -1048,6 +1072,16 @@ export interface InlinedScanOptions {
   readonly dirs?: readonly string[];
 }
 
+/** One offending artifact, with the catalog labels that identify the finding. */
+export interface InlinedFirebaseHit {
+  /** `root`-relative path of the file, in the caller's own spelling. */
+  readonly file: string;
+  /** The first catalog fingerprint host found in it. */
+  readonly host: string;
+  /** That host's catalog service label, used verbatim in messages. */
+  readonly service: string;
+}
+
 /**
  * Detect a build that INLINED the real firebase SDK into an artifact. For the
  * served frontend (`vite build` output) the served import map remaps only bare
@@ -1066,10 +1100,16 @@ export interface InlinedScanOptions {
  * no build path in scope emits executable TypeScript, and sourcemaps are
  * deliberately out of scope here.
  *
- * Returns `root`-relative paths of offending files.
+ * The host is reported as well as the file because the pre-flight check at
+ * child launch names the SERVICE ("Cloud Firestore") rather than just the
+ * path — the catalog is ordered most-specific-first, so the first match is
+ * the narrowest one.
  */
-export function scanForInlinedFirebase(root: string, opts: InlinedScanOptions = {}): string[] {
-  const hits: string[] = [];
+export function scanInlinedFirebaseHits(
+  root: string,
+  opts: InlinedScanOptions = {},
+): InlinedFirebaseHit[] {
+  const hits: InlinedFirebaseHit[] = [];
   let scanned = 0;
   const walk = (d: string, rel: string, depth: number): void => {
     if (depth > 4 || scanned >= 200) return;
@@ -1101,7 +1141,10 @@ export function scanForInlinedFirebase(root: string, opts: InlinedScanOptions = 
         scanned++;
         try {
           const text = readFileSync(p, 'utf8');
-          if (INLINE_FINGERPRINT_HOSTS.some((f) => text.includes(f))) hits.push(r);
+          const host = INLINE_FINGERPRINT_HOSTS.find((f) => text.includes(f));
+          if (host !== undefined) {
+            hits.push({ file: r, host, service: lookupGoogleEndpoint(host)?.service ?? host });
+          }
         } catch {
           // unreadable asset: skip
         }
@@ -1120,4 +1163,12 @@ export function scanForInlinedFirebase(root: string, opts: InlinedScanOptions = 
     walk(root, '', 0);
   }
   return hits;
+}
+
+/**
+ * {@link scanInlinedFirebaseHits} projected to just the offending paths — the
+ * shape the throwing build check has always consumed.
+ */
+export function scanForInlinedFirebase(root: string, opts: InlinedScanOptions = {}): string[] {
+  return scanInlinedFirebaseHits(root, opts).map((h) => h.file);
 }
