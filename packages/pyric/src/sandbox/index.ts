@@ -51,7 +51,11 @@ export type {
   WriteSandboxEvent,
 } from './types/index.js';
 export { SandboxError } from './types/index.js';
-export { SandboxContextImpl } from './sandbox-context.js';
+export {
+  SandboxContextImpl,
+  normalizeAuthState,
+  validateAuthState,
+} from './sandbox-context.js';
 export {
   isOperationEvent,
   operationContextFor,

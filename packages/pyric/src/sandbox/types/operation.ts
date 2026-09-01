@@ -15,7 +15,7 @@ export type EventActor =
 /** The identity/rules lens an operation actually ran under. */
 export type AuthLens =
   | { mode: 'admin' }
-  | { mode: 'as'; uid: string; token?: Record<string, unknown> }
+  | { mode: 'as'; uid: string; tenant?: string; token?: Record<string, unknown> }
   | { mode: 'app-session' }
   | { mode: 'anon' };
 
