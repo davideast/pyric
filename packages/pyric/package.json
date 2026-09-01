@@ -38,6 +38,10 @@
       "types": "./dist/firestore/internal/value-codec.d.ts",
       "import": "./dist/firestore/internal/value-codec.js"
     },
+    "./firestore/lite": {
+      "types": "./dist/firestore/lite.d.ts",
+      "import": "./dist/firestore/lite.js"
+    },
     "./auth": {
       "types": "./dist/auth/index.d.ts",
       "import": "./dist/auth/index.js"
@@ -125,6 +129,26 @@
     "./sandbox/admin-firestore": {
       "types": "./dist/sandbox/admin-firestore/index.d.ts",
       "import": "./dist/sandbox/admin-firestore/index.js"
+    },
+    "./app-check": {
+      "types": "./dist/app-check/index.d.ts",
+      "import": "./dist/app-check/index.js"
+    },
+    "./functions": {
+      "types": "./dist/functions/index.d.ts",
+      "import": "./dist/functions/index.js"
+    },
+    "./analytics": {
+      "types": "./dist/analytics/index.d.ts",
+      "import": "./dist/analytics/index.js"
+    },
+    "./performance": {
+      "types": "./dist/performance/index.d.ts",
+      "import": "./dist/performance/index.js"
+    },
+    "./remote-config": {
+      "types": "./dist/remote-config/index.d.ts",
+      "import": "./dist/remote-config/index.js"
     }
   },
   "files": [

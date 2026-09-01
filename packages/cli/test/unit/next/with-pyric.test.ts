@@ -183,4 +183,12 @@ describe('withPyric Next.js configuration wrapper', () => {
     const resOpen = withPyric({}, { runtimeChip: { initiallyOpen: true } }) as Record<string, any>;
     expect(resOpen.env?.PYRIC_RUNTIME_CHIP).toBe('expanded');
   });
+
+  it('also configures the NEXT_PUBLIC_-prefixed runtime chip variable so browser client components can read it', () => {
+    const resOff = withPyric({}, { runtimeChip: false }) as Record<string, any>;
+    expect(resOff.env?.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP).toBe('off');
+
+    const resOpen = withPyric({}, { runtimeChip: { initiallyOpen: true } }) as Record<string, any>;
+    expect(resOpen.env?.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP).toBe('expanded');
+  });
 });

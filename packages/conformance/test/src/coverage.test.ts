@@ -1,4 +1,7 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   findRegressions,
   loadRowRemovalAllowlist,
@@ -116,17 +119,66 @@ describe('findRegressions — removal allowlist (the reviewed escape hatch)', ()
 
   test('an allowlist entry never excuses a status flip off conforms', () => {
     const problems = regressions({ 'auth#2': 'conforms' }, { 'auth#2': 'bug' }, { 'auth#2': { reason: 'surface retired' } });
-    expect(problems).toEqual(["auth#2: was 'conforms', now 'bug'"]);
-  });
-
-  test('an allowlist entry for a row that is still present changes nothing', () => {
-    const problems = regressions({ 'firestore#1': 'bug' }, { 'firestore#1': 'bug' }, { 'firestore#1': { reason: 'planned' } });
-    expect(problems).toEqual([]);
+    expect(problems).toEqual([
+      "auth#2: was 'conforms', now 'bug'",
+      "allowlist entry 'auth#2' is stale: row present in registry",
+    ]);
   });
 
   test('an empty allowlist permits no removals', () => {
     expect(regressions({ 'firestore#1': 'bug' }, {}, {})).toEqual([
       "firestore#1: was 'bug', row removed from the registry",
+    ]);
+  });
+});
+
+/**
+ * A grant is spent when its removal lands. Leaving it in the file turns a
+ * one-time, reviewed deletion into a permanent licence to delete that row
+ * again — including a row someone re-added in the meantime, whose second
+ * deletion no reviewer ever saw.
+ */
+describe('findRegressions — allowlist entries must be exercised, not standing', () => {
+  test('an entry for a row that is still in the registry is stale', () => {
+    const problems = regressions({ 'firestore#1': 'bug' }, { 'firestore#1': 'bug' }, { 'firestore#1': { reason: 'planned' } });
+    expect(problems).toEqual(["allowlist entry 'firestore#1' is stale: row present in registry"]);
+  });
+
+  test('an entry for a row that was removed and later re-added is stale', () => {
+    const problems = regressions(
+      { 'firestore#1': 'bug' },
+      { 'firestore#1': 'conforms' },
+      { 'firestore#1': { reason: 'row folded into firestore#9' } },
+    );
+    expect(problems).toEqual(["allowlist entry 'firestore#1' is stale: row present in registry"]);
+  });
+
+  test('an entry naming an id the baseline never had is stale', () => {
+    const problems = regressions({ 'auth#2': 'conforms' }, { 'auth#2': 'conforms' }, { 'typo#404': { reason: 'mis-typed id' } });
+    expect(problems).toEqual(["allowlist entry 'typo#404' is stale: id not in baseline"]);
+  });
+
+  test('an entry unknown to both baseline and registry reports both faults', () => {
+    const problems = regressions({}, { 'ghost#1': 'bug' }, { 'ghost#1': { reason: 'stale grant' } });
+    expect(problems).toEqual([
+      "allowlist entry 'ghost#1' is stale: row present in registry",
+      "allowlist entry 'ghost#1' is stale: id not in baseline",
+    ]);
+  });
+
+  test('an entry that is actually being exercised right now is clean', () => {
+    expect(regressions({ 'firestore#1': 'bug' }, {}, { 'firestore#1': { reason: 'row folded into firestore#9' } })).toEqual([]);
+  });
+
+  test('every stale entry is reported, one problem each', () => {
+    const problems = regressions(
+      { 'firestore#1': 'bug', 'auth#2': 'conforms' },
+      { 'firestore#1': 'bug', 'auth#2': 'conforms' },
+      { 'firestore#1': { reason: 'planned' }, 'auth#2': { reason: 'planned' } },
+    );
+    expect(problems).toEqual([
+      "allowlist entry 'firestore#1' is stale: row present in registry",
+      "allowlist entry 'auth#2' is stale: row present in registry",
     ]);
   });
 });
@@ -138,5 +190,40 @@ describe('loadRowRemovalAllowlist — committed file', () => {
       expect(typeof id).toBe('string');
       expect(entry.reason.trim().length).toBeGreaterThan(0);
     }
+  });
+
+  test('the committed allowlist is empty — no removal is currently granted', () => {
+    expect(loadRowRemovalAllowlist()).toEqual({});
+  });
+});
+
+describe('loadRowRemovalAllowlist — malformed input', () => {
+  const scratch: string[] = [];
+
+  afterAll(() => {
+    for (const dir of scratch) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function allowlistFile(contents: string): string {
+    const dir = mkdtempSync(join(tmpdir(), 'row-removal-allowlist-'));
+    scratch.push(dir);
+    const path = join(dir, 'row-removal-allowlist.json');
+    writeFileSync(path, contents);
+    return path;
+  }
+
+  test('malformed JSON names the offending file instead of throwing a bare SyntaxError', () => {
+    const path = allowlistFile('{ "firestore#1": { "reason": "oops", }\n');
+    expect(() => loadRowRemovalAllowlist(path)).toThrow(path);
+    expect(() => loadRowRemovalAllowlist(path)).toThrow(/not valid JSON/);
+  });
+
+  test('an entry without a reason is still rejected', () => {
+    const path = allowlistFile('{ "firestore#1": { "reason": "  " } }');
+    expect(() => loadRowRemovalAllowlist(path)).toThrow(/needs a non-empty reason/);
+  });
+
+  test('an absent file grants nothing', () => {
+    expect(loadRowRemovalAllowlist(join(tmpdir(), 'no-such-row-removal-allowlist.json'))).toEqual({});
   });
 });

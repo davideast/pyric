@@ -11,7 +11,7 @@
     "examples/inpage-todo-app"
   ],
   "overrides": {
-    "firebase": "12.13.0"
+    "firebase": "$firebase"
   },
   "scripts": {
     "build": "bash scripts/build.sh",
@@ -65,7 +65,7 @@
     "@pyric/cli": "workspace:*",
     "@types/bun": "1.3.14",
     "bun-types": "1.3.14",
-    "firebase": "^12.12.0",
+    "firebase": "12.13.0",
     "firebase-admin": "^13.0.0",
     "knip": "^6.22.0",
     "mdast-util-from-markdown": "^2.0.3",

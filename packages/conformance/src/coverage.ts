@@ -371,7 +371,14 @@ export type RowRemovalAllowlist = Record<string, RowRemoval>;
 
 export function loadRowRemovalAllowlist(path: string = ROW_REMOVAL_ALLOWLIST_PATH): RowRemovalAllowlist {
   if (!existsSync(path)) return {};
-  const allowlist = JSON.parse(readFileSync(path, 'utf8')) as RowRemovalAllowlist;
+  let allowlist: RowRemovalAllowlist;
+  try {
+    allowlist = JSON.parse(readFileSync(path, 'utf8')) as RowRemovalAllowlist;
+  } catch (err) {
+    // A raw SyntaxError names neither the file nor the gate; this hatch is
+    // hand-authored, so the reader needs to be told exactly what to fix.
+    throw new Error(`Row-removal allowlist at ${path} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
   for (const [id, entry] of Object.entries(allowlist)) {
     if (typeof entry?.reason !== 'string' || entry.reason.trim() === '') {
       throw new Error(`Row-removal allowlist entry '${id}' needs a non-empty reason`);
@@ -453,6 +460,21 @@ export function findRegressions(
     }
     if (prevStatus === 'conforms' && CONFORMING_DEMOTION.has(currentStatus)) {
       problems.push(`${id}: was 'conforms', now '${currentStatus}'`);
+    }
+  }
+
+  // An allowlist entry is a grant for ONE removal, not a standing permission.
+  // Left behind after the removal lands (or the row's later re-addition), it
+  // silently pre-authorizes deleting that row again — the reviewer who approved
+  // the original reason never saw the second deletion. So every entry must be
+  // EXERCISED right now: named in the baseline and gone from the registry.
+  // Anything else is dead configuration and has to be deleted from the file.
+  for (const id of Object.keys(allowedRowRemovals)) {
+    if (report.rowStatuses[id] !== undefined) {
+      problems.push(`allowlist entry '${id}' is stale: row present in registry`);
+    }
+    if (baseline.rowStatuses[id] === undefined) {
+      problems.push(`allowlist entry '${id}' is stale: id not in baseline`);
     }
   }
 
