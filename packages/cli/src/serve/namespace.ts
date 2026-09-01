@@ -119,9 +119,10 @@ export interface NamespaceOptions {
    *  (local Ollama). Always mounted — the route only touches the network
    *  when a request arrives. */
   aiProxyUpstream?: string;
-  /** Where hot-reload/diagnostic lines print (rules reload, denial relay).
-   *  Absent ⇒ diagnostics are dropped (a caller that wires no logger opts out
-   *  silently rather than falling back to raw `console`). */
+  /** Where hot-reload/diagnostic lines print (rules reload, denial relay,
+   *  ai-proxy upstream failures). Absent ⇒ diagnostics are dropped (a caller
+   *  that wires no logger opts out silently rather than falling back to raw
+   *  `console`). */
   logger?: ServeLogger;
 }
 
@@ -155,6 +156,57 @@ const AI_PROXY_STRIPPED_HEADERS = new Set([
 ]);
 
 /**
+ * Credential-bearing query-string params masked before an upstream URL (or a
+ * raw fetch error embedding one) reaches the terminal.
+ *
+ * Replicated — deliberately, not imported — from `redactUrl` in
+ * `packages/pyric/src/ai/broker/synthesizer.ts`: that helper is internal to
+ * the broker (re-exported only from `ai/broker/index.ts`) and `pyric`'s
+ * package `exports` map publishes no subpath that reaches it, so the CLI
+ * cannot import it across the package boundary. Keep the two in sync.
+ */
+const AI_PROXY_SENSITIVE_URL_PARAM = /([?&](?:key|apiKey|api_key|access_token)=)[^&\s]*/gi;
+
+/** Mask credential VALUES, keeping host + path readable for diagnosis. */
+function redactProxyUrl(text: string): string {
+  return text.replace(AI_PROXY_SENSITIVE_URL_PARAM, '$1***');
+}
+
+/** The upstream-failure shapes the proxy surfaces to the terminal. */
+type AiProxyFailure =
+  | { kind: 'unreachable'; target: string; latencyMs: number; cause: string }
+  | { kind: 'status'; target: string; latencyMs: number; status: number }
+  | { kind: 'stream-abort'; target: string; latencyMs: number; cause: string };
+
+/**
+ * Format an upstream failure into the compact terminal block — the same
+ * `  ⚠ [pyric] …` idiom the denial relay prints, so ai-proxy trouble reads
+ * like every other dev-server diagnostic. Two lines: what went wrong, then
+ * the (redacted) upstream URL with the elapsed time. Exported for unit tests.
+ */
+export function formatAiProxyWarning(failure: AiProxyFailure): string {
+  const target = redactProxyUrl(failure.target);
+  let headline: string;
+  if (failure.kind === 'unreachable') {
+    headline = `upstream unreachable: ${redactProxyUrl(failure.cause)}`;
+  } else if (failure.kind === 'status') {
+    headline = `upstream returned ${failure.status}`;
+  } else {
+    headline = `upstream stream aborted mid-response: ${redactProxyUrl(failure.cause)}`;
+  }
+  const lines = [
+    `  ⚠ [pyric] ai-proxy: ${headline}`,
+    `      POST ${target} (${failure.latencyMs}ms)`,
+  ];
+  if (failure.kind === 'unreachable') {
+    lines.push(
+      `      set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL (default ${AI_PROXY_DEFAULT_UPSTREAM})`,
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
  * Handle `POST /__pyric/ai-proxy/<suffix>` — a same-origin passthrough to the
  * configured OpenAI-compatible upstream, so the browser openai engine
  * (running in the served page or the SharedWorker host) reaches a localhost
@@ -171,12 +223,18 @@ const AI_PROXY_STRIPPED_HEADERS = new Set([
  *     must never buffer, or `stream: true` completions would arrive all at
  *     once at the end.
  *   - an unreachable upstream answers 502 with a plain-text explanation.
+ *   - every upstream failure (unreachable/timeout, non-2xx status, mid-stream
+ *     abort) ALSO prints a structured warning on the dev server's terminal
+ *     logger — a stopped Ollama used to fail in total silence. Diagnostics
+ *     only: nothing here changes what the caller receives. No logger wired ⇒
+ *     dropped silently (same opt-out contract as the denial relay).
  */
 async function handleAiProxy(
   configuredUpstream: string | undefined,
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  logger?: ServeLogger,
 ): Promise<void> {
   if (req.method !== 'POST') {
     res.writeHead(405, { allow: 'POST' }).end('method not allowed');
@@ -209,10 +267,19 @@ async function handleAiProxy(
     headers[key] = Array.isArray(value) ? value.join(', ') : value;
   }
 
+  const startedAt = Date.now();
   let upstream: Response;
   try {
     upstream = await fetch(target, { method: 'POST', headers, body });
   } catch (e) {
+    logger?.note(
+      formatAiProxyWarning({
+        kind: 'unreachable',
+        target,
+        latencyMs: Date.now() - startedAt,
+        cause: e instanceof Error ? e.message : String(e),
+      }),
+    );
     res.writeHead(502, { 'content-type': 'text/plain' });
     res.end(
       `pyric dev ai-proxy: upstream ${target} unreachable: ` +
@@ -221,6 +288,20 @@ async function handleAiProxy(
         `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
     );
     return;
+  }
+
+  // A refusal from a reachable upstream (bad model, missing key, rate limit)
+  // is just as invisible to a headless developer as a dead socket — the
+  // status rides through to the caller untouched, and is ALSO announced here.
+  if (!upstream.ok) {
+    logger?.note(
+      formatAiProxyWarning({
+        kind: 'status',
+        target,
+        latencyMs: Date.now() - startedAt,
+        status: upstream.status,
+      }),
+    );
   }
 
   const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
@@ -236,7 +317,9 @@ async function handleAiProxy(
   // Chunk-by-chunk passthrough. A dropped client cancels the upstream read
   // so an abandoned SSE stream doesn't keep the upstream generating.
   const reader = upstream.body.getReader();
+  let clientGone = false;
   res.on('close', () => {
+    clientGone = true;
     void reader.cancel().catch(() => {});
   });
   try {
@@ -245,8 +328,22 @@ async function handleAiProxy(
       if (done) break;
       res.write(value);
     }
-  } catch {
-    // Upstream or client dropped mid-stream — nothing to salvage.
+  } catch (e) {
+    // Nothing to salvage for the caller — the response is already committed
+    // with the upstream's status, so a truncated body is all it gets. But a
+    // half-delivered completion is exactly the failure that used to vanish:
+    // announce it, unless the CLIENT is the one who walked away (a closed tab
+    // cancelling an SSE stream is normal, not a fault worth a warning).
+    if (!clientGone) {
+      logger?.note(
+        formatAiProxyWarning({
+          kind: 'stream-abort',
+          target,
+          latencyMs: Date.now() - startedAt,
+          cause: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    }
   }
   res.end();
 }
@@ -535,7 +632,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return true;
     }
     if (url.pathname === '/__pyric/ai-proxy' || url.pathname.startsWith('/__pyric/ai-proxy/')) {
-      return handleAiProxy(opts.aiProxyUpstream, req, res, url).then(() => true);
+      return handleAiProxy(opts.aiProxyUpstream, req, res, url, opts.logger).then(() => true);
     }
     if (url.pathname === '/__pyric/denials') {
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
