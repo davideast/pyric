@@ -37,6 +37,7 @@ export {
   estimateTokens,
   mintThoughtSignature,
   mintFunctionCallId,
+  redactUrl,
   type SynthesizeOptions,
 } from './synthesizer.js';
 export type {

@@ -117,6 +117,40 @@ export function errorEnvelope(code: number, message: string, status: string): Wi
   return { error: { code, message, status } };
 }
 
+// ── URL redaction (T1.7) ─────────────────────────────────────────────────
+
+/**
+ * Query-param names that carry plaintext credentials on upstream REST
+ * requests (Google AI Studio's `?key=...` auth is the known case; the rest
+ * are defensive for sibling engines / future upstreams).
+ *
+ * Matched with a direct regex over the raw string rather than
+ * `new URL(...).searchParams` — the streaming action string embeds its own
+ * `?alt=sse` before the `?key=` is appended (a pre-existing, unrelated
+ * quirk this fix does not touch), which the strict `URLSearchParams` parser
+ * would fold into a single malformed pair and fail to redact. A regex on
+ * "`[?&]<param>=`" catches the value regardless of how the surrounding
+ * query string is (mal)formed.
+ */
+const SENSITIVE_URL_PARAM_PATTERN = /([?&](?:key|apiKey|api_key|access_token)=)[^&\s]*/gi;
+
+/**
+ * Redacts credential-bearing query-string VALUES from a URL (or any string
+ * that may embed one) before it lands in an error message or log line —
+ * e.g. `?key=AIza...` becomes `?key=***`. Host and path are preserved so
+ * the message stays useful for diagnosing connectivity failures; only the
+ * secret value is masked.
+ *
+ * Used at every choke point where an upstream request URL is interpolated
+ * into a thrown error or logged text, so a leaked key never reaches
+ * terminal output, CI logs, or Studio traffic captures. Safe to apply
+ * defensively to values that are not themselves URLs (e.g. a raw fetch
+ * error message) — it is a no-op when no sensitive param is present.
+ */
+export function redactUrl(url: string): string {
+  return url.replace(SENSITIVE_URL_PARAM_PATTERN, '$1***');
+}
+
 /** `ai-error-unknown-model` (404 NOT_FOUND), captured text verbatim — including production's `v1main`. */
 export function unknownModel(name: string): WireErrorEnvelope {
   return errorEnvelope(

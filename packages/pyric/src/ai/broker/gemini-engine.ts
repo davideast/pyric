@@ -10,7 +10,7 @@
  * without exposing secrets to the browser.
  */
 
-import { AiBrokerError, errorEnvelope } from './synthesizer.js';
+import { AiBrokerError, errorEnvelope, redactUrl } from './synthesizer.js';
 import type {
   AnswerEngine,
   CountTokensRequest,
@@ -169,9 +169,18 @@ export class GeminiEngine implements AnswerEngine {
         body: JSON.stringify(body),
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // Redact both: `url` always carries the key when auth is a static key
+      // (not bearer/ADC); `message` is defensively redacted too in case the
+      // fetch implementation's own error text echoes the request URL.
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const safeUrl = redactUrl(url);
+      const safeMessage = redactUrl(rawMessage);
       throw new AiBrokerError(
-        errorEnvelope(502, `Failed to connect to Gemini API at ${url}: ${message}`, 'UNAVAILABLE'),
+        errorEnvelope(
+          502,
+          `Failed to connect to Gemini API at ${safeUrl}: ${safeMessage}`,
+          'UNAVAILABLE',
+        ),
       );
     }
 

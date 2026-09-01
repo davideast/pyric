@@ -29,6 +29,7 @@ import {
   Synthesizer,
   errorEnvelope,
   estimateTokens,
+  redactUrl,
   resolveModelVersion,
 } from './synthesizer.js';
 import { promptTextOf } from './scripted-engine.js';
@@ -627,8 +628,17 @@ export class OpenAiEngine implements AnswerEngine {
         body: JSON.stringify(body),
       });
     } catch (err) {
+      // The openai engine has no key-in-URL auth mechanism today
+      // (`OpenAiEngineOptions` carries no `apiKey`), but a caller-supplied
+      // `baseUrl` could embed a credential in its query string, and some
+      // fetch implementations echo the request URL into their error text —
+      // redact defensively at this choke point (T1.7).
       throw new AiBrokerError(
-        errorEnvelope(502, `openai engine: upstream fetch failed: ${String(err)}`, 'UNAVAILABLE'),
+        errorEnvelope(
+          502,
+          `openai engine: upstream fetch failed: ${redactUrl(String(err))}`,
+          'UNAVAILABLE',
+        ),
       );
     }
     if (!res.ok) {
