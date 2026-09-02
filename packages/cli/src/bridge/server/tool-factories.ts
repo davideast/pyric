@@ -14,7 +14,9 @@ import {
   createFirestoreRulesTools,
 } from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
+import { createStorageRulesTools } from 'pyric/storage';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
+import { createRtdbRulesTools } from '../../rtdb/rules-tools.js';
 import { createConformanceTools } from '../../conformance/tools.js';
 import type { ForwardedFactoryKey, InProcessFactoryKey } from '../tool-records.js';
 
@@ -37,4 +39,6 @@ export const FORWARDED_FACTORIES = {
 export const IN_PROCESS_FACTORIES = {
   'firestore-rules': () => createFirestoreRulesTools(),
   conformance: () => createConformanceTools(),
+  'storage-rules': () => createStorageRulesTools(),
+  'rtdb-rules': () => createRtdbRulesTools(),
 } satisfies Record<InProcessFactoryKey, () => ToolHandler[]>;

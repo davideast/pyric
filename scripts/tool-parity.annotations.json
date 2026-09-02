@@ -129,6 +129,30 @@
       "decision": "deliberate",
       "reason": "attached-sandbox rules inspection belongs in MCP; the Playground uses its own session rules engine"
     },
+    "database_rules.lint": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric database rules lint`; the Playground lints inside its native authoring workflow"
+    },
+    "database_rules.validate": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric database rules validate`; the Playground validates inside its native authoring workflow"
+    },
+    "database_rules.generate": {
+      "decision": "deliberate",
+      "reason": "compiles a constraints module from the project's disk, mirroring `pyric database rules generate`; the Playground has no local module to load"
+    },
+    "firestore_rules.validate": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric firestore rules validate`; the Playground reaches validation through its native authoring workflow"
+    },
+    "storage_rules.lint": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric storage rules lint`; the Playground has no Storage rules authoring workflow"
+    },
+    "storage_rules.simulate": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric storage rules simulate`; the Playground has no Storage rules authoring workflow"
+    },
     "run_workspace_tests": {
       "decision": "deliberate",
       "reason": "Playground virtual-workspace operation; external agents run project tests through their native shell"

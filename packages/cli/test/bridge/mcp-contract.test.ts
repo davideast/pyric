@@ -19,29 +19,33 @@ const RATIFIED_TOOLS: Record<string, readonly string[]> = {
   firestore_data: ['get', 'list', 'set', 'add', 'update', 'delete', 'batch_write', 'query'],
   sandbox: ['inspect'],
   database_data: ['crawl'],
-  database_rules: ['simulate'],
-  firestore_rules: ['lint', 'simulate', 'resolve'],
+  database_rules: ['simulate', 'lint', 'validate', 'generate'],
+  firestore_rules: ['lint', 'simulate', 'resolve', 'validate'],
   rules_stdlib: ['list', 'get'],
-  storage_rules: ['resolve'],
+  storage_rules: ['resolve', 'lint', 'simulate'],
   pyric: ['can_i_use'],
 };
 
-const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data', 'database_rules'];
+const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data'];
+
+/** Forwarded ops on tools whose other ops run in-process, in record order. */
+const RATIFIED_FORWARDED_OPS = ['database_rules.simulate'];
 
 describe('default MCP tool contract', () => {
-  it('ratifies the exact public tools/list surface: nine tools and their 27 ops, in order', () => {
+  it('ratifies the exact public tools/list surface: nine tools and their 33 ops, in order', () => {
     expect(DEFAULT_MCP_TOOL_NAMES).toEqual(Object.keys(RATIFIED_TOOLS));
     expect(DEFAULT_MCP_TOOL_OPS).toEqual(RATIFIED_TOOLS);
-    expect(DEFAULT_MCP_OP_KEYS).toHaveLength(27);
+    expect(DEFAULT_MCP_OP_KEYS).toHaveLength(33);
     expect(DEFAULT_MCP_OP_KEYS).toEqual(
       Object.entries(RATIFIED_TOOLS).flatMap(([tool, ops]) => ops.map((op) => `${tool}.${op}`)),
     );
   });
 
   it('splits the ops by transport exactly as ratified', () => {
-    const expectedForwarded = RATIFIED_FORWARDED_TOOLS.flatMap((tool) =>
-      RATIFIED_TOOLS[tool]!.map((op) => `${tool}.${op}`),
-    );
+    const expectedForwarded = [
+      ...RATIFIED_FORWARDED_TOOLS.flatMap((tool) => RATIFIED_TOOLS[tool]!.map((op) => `${tool}.${op}`)),
+      ...RATIFIED_FORWARDED_OPS,
+    ];
     expect(DEFAULT_MCP_FORWARDED_OP_KEYS).toEqual(expectedForwarded);
     expect(DEFAULT_MCP_IN_PROCESS_OP_KEYS).toEqual(
       DEFAULT_MCP_OP_KEYS.filter((key) => !expectedForwarded.includes(key)),

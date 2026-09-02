@@ -85,12 +85,18 @@
     "sandbox.inspect",
     "database_data.crawl",
     "database_rules.simulate",
+    "database_rules.lint",
+    "database_rules.validate",
+    "database_rules.generate",
     "firestore_rules.lint",
     "firestore_rules.simulate",
     "firestore_rules.resolve",
+    "firestore_rules.validate",
     "rules_stdlib.list",
     "rules_stdlib.get",
     "storage_rules.resolve",
+    "storage_rules.lint",
+    "storage_rules.simulate",
     "pyric.can_i_use"
   ]
 }

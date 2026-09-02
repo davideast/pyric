@@ -9,7 +9,6 @@ import {
   compileRtdbRules,
   simulateRtdbRules,
   type CompiledRtdbRules,
-  type RtdbNode,
   type SimulationInput,
   type SimulateResult,
 } from 'pyric/rules/internal/rtdb';
@@ -19,6 +18,7 @@ import {
   loadRtdbRulesDocument,
   type LoadRtdbRulesDocumentResult,
 } from '../rtdb/load-rules-document.js';
+import { collectRtdbRuleFindings, type RtdbRuleFinding } from '../rtdb/rule-findings.js';
 import { stripJsonComments } from '../rtdb/rules-json.js';
 
 export interface DatabaseRulesDeps {
@@ -32,13 +32,6 @@ export interface DatabaseRulesDeps {
   readStdin?: () => Promise<string>;
   stdout?: { write(s: string): void };
   stderr?: { write(s: string): void };
-}
-
-interface RuleFinding {
-  path: string;
-  rule: '.read' | '.write' | '.validate';
-  code: string;
-  message: string;
 }
 
 function defaultReadStdin(): Promise<string> {
@@ -57,29 +50,6 @@ function parseRulesJson(raw: string): CompiledRtdbRules {
   return compileRtdbRules(JSON.parse(stripJsonComments(raw)));
 }
 
-function collectFindings(node: RtdbNode, kind: 'errors' | 'warnings'): RuleFinding[] {
-  const findings: RuleFinding[] = [];
-  const rules = [
-    ['.read', node.read],
-    ['.write', node.write],
-    ['.validate', node.validate],
-  ] as const;
-  for (const [rule, expr] of rules) {
-    for (const finding of expr?.parsed[kind] ?? []) {
-      findings.push({
-        path: node.path,
-        rule,
-        code: finding.code,
-        message: finding.message,
-      });
-    }
-  }
-  for (const child of node.children) {
-    findings.push(...collectFindings(child, kind));
-  }
-  return findings;
-}
-
 async function readRulesFile(
   path: string,
   deps: DatabaseRulesDeps,
@@ -93,7 +63,7 @@ async function readRulesFile(
   }
 }
 
-function jsonError(code: string, message: string): { errors: RuleFinding[]; warnings: RuleFinding[] } {
+function jsonError(code: string, message: string): { errors: RtdbRuleFinding[]; warnings: RtdbRuleFinding[] } {
   return {
     errors: [{ path: '/', rule: '.read', code, message }],
     warnings: [],
@@ -120,7 +90,7 @@ export async function runDatabaseRulesLint(
 
   try {
     const compiled = parseRulesJson(file.raw);
-    out.write(`${JSON.stringify({ warnings: collectFindings(compiled, 'warnings') }, null, 2)}\n`);
+    out.write(`${JSON.stringify({ warnings: collectRtdbRuleFindings(compiled, 'warnings') }, null, 2)}\n`);
     return 0;
   } catch (e) {
     out.write(`${JSON.stringify(jsonError('INVALID_RULES_JSON', e instanceof Error ? e.message : String(e)), null, 2)}\n`);
@@ -148,7 +118,7 @@ export async function runDatabaseRulesValidate(
 
   try {
     const compiled = parseRulesJson(file.raw);
-    out.write(`${JSON.stringify({ errors: collectFindings(compiled, 'errors') }, null, 2)}\n`);
+    out.write(`${JSON.stringify({ errors: collectRtdbRuleFindings(compiled, 'errors') }, null, 2)}\n`);
     return 0;
   } catch (e) {
     out.write(`${JSON.stringify(jsonError('INVALID_RULES_JSON', e instanceof Error ? e.message : String(e)), null, 2)}\n`);
