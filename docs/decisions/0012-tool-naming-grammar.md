@@ -321,11 +321,11 @@ registration happens.
 
 ## Consequences
 
-- The bridge contract's target is twelve tools in place of the original
-  twenty-nine, folding fifty-nine operations behind them. Phase 1b landed
-  nine of those tools, carrying thirty operations; `firestore_indexes`,
-  `storage_data`, `auth_users`, and `pyric_assurance` remain to land in later
-  lanes. Old names are deleted, not aliased: the alpha policy admits no
+- The bridge contract is twelve tools in place of the original twenty-nine,
+  folding fifty-nine operations behind them. All twelve tools exist on the
+  default bridge and carry all fifty-nine operations; the assurance family
+  stays library-only until it is registered. Old names are deleted, not
+  aliased: the alpha policy admits no
   compatibility spellings, so a flat name such as `firestore_get_document`
   stops resolving on the day `firestore_data` with `op: 'get'` starts, in the
   same change.
