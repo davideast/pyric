@@ -24,23 +24,11 @@ call against the schema of the operation it names. A call with an unknown
 `op`, or with fields the operation does not accept, returns a structured error
 naming the valid operations and the fields of the attempted one.
 
-| Tool | Operations | Runs | Handlers |
-|---|---|---|---|
-| `firestore_simulator` | `create`, `execute`, `read`, `batch`, `add`, `undo`, `redo`, `events`, `transaction` | in the connected sandbox | `createFirestoreSimulatorTools` (`pyric/rules`) |
-| `firestore_data` | `get`, `list`, `set`, `add`, `update`, `delete`, `batch_write`, `query` | in the connected sandbox | `createFirestoreDataTools` (`pyric/firestore`) |
-| `sandbox` | `inspect`, `snapshot` | in the connected sandbox | `createFirestoreInspectTools` (`pyric/firestore`), `createSandboxSnapshotTools` (`@pyric/cli`) |
-| `database_data` | `crawl`, `get`, `set`, `update`, `remove`, `push`, `transaction`, `query`, `seed` | in the connected sandbox | `createRtdbInspectionTools` (`@pyric/cli`), `createDatabaseDataTools` (`pyric/database`) |
-| `database_rules` | `simulate` | in the connected sandbox | `createRtdbInspectionTools` (`@pyric/cli`) |
-| `database_rules` | `lint`, `validate`, `generate` | in the MCP process | `createRtdbRulesTools` (`@pyric/cli`) |
-| `firestore_rules` | `lint`, `simulate`, `resolve`, `validate`, `test` | in the MCP process | `createFirestoreRulesTools` (`pyric/rules/internal/node`) |
-| `firestore_indexes` | `generate` | in the MCP process | `createFirestoreIndexesTools` (`pyric/rules/internal/node`) |
-| `rules_stdlib` | `list`, `get` | in the MCP process | `createFirestoreRulesTools` (`pyric/rules/internal/node`) |
-| `storage_rules` | `resolve`, `lint`, `simulate` | in the MCP process | `createFirestoreRulesTools` (`pyric/rules/internal/node`), `createStorageRulesTools` (`pyric/storage`) |
-| `storage_data` | `upload`, `download`, `list`, `metadata`, `delete` | in the connected sandbox | `createStorageDataTools` (`pyric/storage`) |
-| `auth_users` | `create`, `import`, `get`, `list`, `update`, `delete`, `set_claims`, `custom_token` | in the connected sandbox | `createAuthUserTools` (`pyric/auth`) |
-| `pyric` | `can_i_use`, `verify`, `verify_cases` | in the MCP process | `createConformanceTools` (`@pyric/cli`), `createVerifyTools` (`@pyric/cli`) |
-
-`database_rules` appears twice because transport is a property of each
+The generated MCP tool reference (`packages/cli/scripts/generate-tool-reference.ts`
+→ `packages/site-docs/src/content/reference/mcp-tools.md`, not committed —
+built by the `packages/cli` prebuild) lists every tool, operation, transport,
+and field; it cannot drift from `DEFAULT_MCP_TOOL_OPS`. `database_rules`
+appears there with two transports because transport is a property of each
 operation: `simulate` is forwarded to the sandbox, and `lint`, `validate`, and
 `generate` run in the MCP process.
 

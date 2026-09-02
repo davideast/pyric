@@ -66,6 +66,11 @@ packages/cli/docs/functions-rtdb/COMPAT.md
 # through loaders into Astro's persisted store; nothing is committed).
 packages/site-docs/.astro/
 
+# The MCP tool reference: rendered from the tool records by the packages/cli
+# prebuild (scripts/generate-tool-reference.ts) immediately before the site
+# discovers it as a plain content page.
+packages/site-docs/src/content/reference/mcp-tools.md
+
 # Impeccable local & runtime files (root & workspace packages)
 .impeccable/config.local.json
 .impeccable/hook.*.json
