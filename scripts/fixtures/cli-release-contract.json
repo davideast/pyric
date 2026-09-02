@@ -83,6 +83,7 @@
     "firestore_data.batch_write",
     "firestore_data.query",
     "sandbox.inspect",
+    "sandbox.snapshot",
     "database_data.crawl",
     "database_rules.simulate",
     "firestore_rules.lint",

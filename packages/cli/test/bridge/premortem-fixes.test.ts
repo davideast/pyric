@@ -125,6 +125,7 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       'firestore_data.query',
       // inspect
       'sandbox.inspect',
+      'sandbox.snapshot',
       // local Realtime Database inspection
       'database_data.crawl',
       'database_rules.simulate',

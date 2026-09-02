@@ -6,5 +6,6 @@ export default {
     'Connected sandbox diagnostics: rules source, lint summary, document census, and recent requests and denials in one call.',
   ops: {
     inspect: { transport: 'forwarded', factory: 'firestore-inspect', handler: 'sandbox_inspect' },
+    snapshot: { transport: 'forwarded', factory: 'sandbox-snapshot', handler: 'sandbox_snapshot' },
   },
 } as const satisfies ToolRecord;

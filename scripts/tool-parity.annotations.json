@@ -141,6 +141,10 @@
       "decision": "deliberate",
       "reason": "attached-sandbox diagnostic belongs in MCP; the Playground observes its session state directly"
     },
+    "sandbox.snapshot": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox promote-and-reseed belongs in MCP; the Playground reads its own session state directly and has no committable fixture workflow to feed"
+    },
     "seed_auth_users": {
       "decision": "deliberate",
       "reason": "Playground fixture convenience; external MCP sessions operate on the attached application sandbox rather than a parallel seed API"

@@ -15,6 +15,7 @@ import {
 } from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
+import { createSandboxSnapshotTools } from '../../sandbox/tools.js';
 import { createConformanceTools } from '../../conformance/tools.js';
 import type { ForwardedFactoryKey, InProcessFactoryKey } from '../tool-records.js';
 
@@ -27,6 +28,7 @@ export const FORWARDED_FACTORIES = {
   'firestore-data': (stub) => createFirestoreDataTools({ resolveDb: stub as never }),
   'firestore-inspect': (stub) => createFirestoreInspectTools({ resolveSandbox: stub as never }),
   'rtdb-inspection': (stub) => createRtdbInspectionTools({ resolveSandbox: stub as never }),
+  'sandbox-snapshot': (stub) => createSandboxSnapshotTools({ resolveSandbox: stub as never }),
 } satisfies Record<ForwardedFactoryKey, (stub: StubResolver) => ToolHandler[]>;
 
 /**
